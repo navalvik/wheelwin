@@ -1,23 +1,24 @@
 {
-  "name": "roulette-ton-frontend",
+  "name": "ton-roulette-frontend",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "socket.io-client": "^4.7.2",
-    "i18next": "^23.7.6",
-    "react-i18next": "^13.5.0",
-    "@tonconnect/sdk": "^2.2.0",
-    "axios": "^1.6.2"
+    "socket.io-client": "^4.6.2",
+    "@tonconnect/sdk": "^2.0.0",
+    "@tonconnect/ui-react": "^1.0.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.0",
-    "vite": "^5.0.0"
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^4.3.0"
   }
 }
