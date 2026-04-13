@@ -1,25 +1,20 @@
-roulette-ton/
+ton-roulette/
 ├── backend/
-│   ├── server.js          # Основной сервер
-│   ├── gameLogic.js       # Логика игровых комнат
-│   ├── tonService.js      # Интеграция с TON (заглушка)
-│   └── package.json
+│   ├── package.json
+│   ├── server.js
+│   ├── Room.js
+│   ├── gameLogic.js
+│   └── walletService.js (mock/escrow)
 ├── frontend/
+│   ├── package.json
 │   ├── index.html
 │   ├── src/
-│   │   ├── main.jsx
-│   │   ├── App.jsx
-│   │   ├── components/
-│   │   │   ├── Screen1.jsx
-│   │   │   ├── Screen2.jsx
-│   │   │   ├── Screen3.jsx
-│   │   │   └── RouletteCanvas.jsx
-│   │   ├── hooks/
-│   │   │   └── useWebSocket.js
-│   │   ├── context/
-│   │   │   └── GameContext.jsx
-│   │   └── i18n/
-│   │       ├── en.json
-│   │       └── ru.json
-│   └── package.json
+│   │   ├── main.tsx
+│   │   ├── App.tsx
+│   │   ├── hooks/useWebSocket.ts
+│   │   ├── hooks/useTonConnect.ts
+│   │   ├── components/RouletteGame.tsx
+│   │   ├── components/SectorPicker.tsx
+│   │   └── styles/globals.css
+│   └── vite.config.ts
 └── README.md
