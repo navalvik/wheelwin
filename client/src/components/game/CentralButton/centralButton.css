@@ -1,0 +1,143 @@
+/* ==========================================================
+   CENTRAL BUTTON — state visuals and animations
+========================================================== */
+
+.centerButton {
+
+    position: absolute;
+
+    top: 50%;
+    left: 50%;
+
+    width: 20%;
+    height: 20%;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+
+    font-size: clamp(9px, 38cqmin, 16px);
+    font-weight: 700;
+
+    border: 3px solid #1c73d0;
+    border-radius: 50%;
+
+    cursor: pointer;
+
+    box-sizing: border-box;
+
+    transform: translate(-50%, -50%);
+
+    pointer-events: auto;
+
+    user-select: none;
+
+    touch-action: manipulation;
+
+    transition:
+        background-color 0.2s ease,
+        border-color 0.2s ease,
+        color 0.2s ease;
+}
+
+.centerButton:disabled {
+
+    cursor: default;
+
+    opacity: 0.92;
+}
+
+.centerButton--locked:disabled {
+
+    opacity: 0.65;
+}
+
+.centerButton--pressed {
+
+    animation: centerButtonPress 0.18s ease-out;
+}
+
+.centerButton--pulsePush {
+
+    animation: centerButtonPulsePush 1.6s ease-in-out infinite;
+}
+
+.centerButton--pulseCountdown {
+
+    animation: centerButtonPulseCountdown 1.2s ease-in-out infinite;
+}
+
+.centerButton--pulseSpeed {
+
+    animation: centerButtonPulseSpeed 0.9s ease-in-out infinite;
+}
+
+.centerButton--pulseBrake {
+
+    animation: centerButtonPulseBrake 1.1s ease-in-out infinite;
+}
+
+@keyframes centerButtonPress {
+
+    0% {
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    50% {
+        transform: translate(-50%, -50%) scale(0.95);
+    }
+
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+@keyframes centerButtonPulsePush {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(28, 115, 208, 0.35);
+    }
+
+    50% {
+        box-shadow: 0 0 0 8px rgba(28, 115, 208, 0);
+    }
+}
+
+@keyframes centerButtonPulseCountdown {
+
+    0%,
+    100% {
+        opacity: 0.88;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes centerButtonPulseSpeed {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(0, 170, 68, 0.4);
+    }
+
+    50% {
+        box-shadow: 0 0 0 10px rgba(0, 170, 68, 0);
+    }
+}
+
+@keyframes centerButtonPulseBrake {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(230, 126, 0, 0.4);
+    }
+
+    50% {
+        box-shadow: 0 0 0 10px rgba(230, 126, 0, 0);
+    }
+}

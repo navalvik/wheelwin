@@ -1,0 +1,194 @@
+.createRoomPanel{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:20px;
+
+}
+
+.field{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:8px;
+
+}
+
+.field label{
+
+    font-weight:600;
+
+}
+
+.field select{
+
+    height:42px;
+
+    border:1px solid #CBD5E1;
+
+    border-radius:8px;
+
+    padding:0 12px;
+
+}
+
+.primaryButton{
+
+    height:48px;
+
+    border:none;
+
+    border-radius:10px;
+
+    background:#2563EB;
+
+    color:white;
+
+    font-size:16px;
+
+    font-weight:700;
+
+    cursor:pointer;
+}
+
+.primaryButton:hover{
+
+    background:#1D4ED8;
+}
+
+.roomCode{
+
+    font-size:34px;
+
+    font-weight:700;
+
+    letter-spacing:6px;
+
+    color:#2563EB;
+
+    padding:15px;
+
+    border:2px dashed #2563EB;
+
+    border-radius:10px;
+
+    width:max-content;
+}
+
+.playersCounter{
+
+    margin-top:20px;
+
+    text-align:center;
+
+    font-size:18px;
+
+}
+
+.playersCounter strong{
+
+    display:block;
+
+    margin-top:8px;
+
+    font-size:30px;
+
+    color:#2563EB;
+
+}
+
+.roomInfo{
+
+    margin-top:30px;
+
+    display:flex;
+
+    flex-direction:column;
+
+    align-items:center;
+
+    gap:18px;
+
+}
+
+.primaryButton.created{
+
+    background:#16A34A;
+
+    cursor:default;
+
+}
+
+.primaryButton.created:hover{
+
+    background:#16A34A;
+
+}
+
+.waiting{
+
+    font-size:18px;
+
+    color:#555;
+
+}
+
+.playersCounter{
+
+    display:flex;
+
+    flex-direction:column;
+
+    align-items:center;
+
+    gap:8px;
+
+}
+
+.playersTitle{
+
+    font-size:18px;
+
+    color:#444;
+
+}
+
+.playersValue{
+
+    font-size:36px;
+
+    font-weight:bold;
+
+    color:#2563EB;
+
+}
+
+.createRoomPanel{
+
+    height:100%;
+
+}
+
+.createRoomPanel .primaryButton{
+
+    margin-bottom:30px;
+
+}
+
+.roomInfo{
+
+    display:flex;
+
+    flex-direction:column;
+
+    align-items:center;
+
+    gap:18px;
+
+    flex:1;
+
+}

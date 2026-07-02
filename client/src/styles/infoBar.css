@@ -1,0 +1,101 @@
+/* ==========================================================
+   INFO BAR — shared game session footer
+========================================================== */
+
+.infoBar {
+
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: stretch;
+
+    gap: clamp(8px, 1vw, 16px);
+
+    width: 100%;
+
+    padding: clamp(10px, 1.2vh, 14px) clamp(12px, 1.5vw, 20px);
+
+    background: #f7fbff;
+
+    border-top: 2px solid #1c73d0;
+
+    box-sizing: border-box;
+}
+
+.infoBarSection {
+
+    flex: 1;
+
+    display: flex;
+
+    flex-direction: column;
+
+    justify-content: center;
+
+    align-items: center;
+
+    min-width: 0;
+
+    padding: clamp(4px, 0.5vh, 8px);
+
+}
+
+.infoBarTitle {
+
+    margin-bottom: clamp(4px, 0.5vh, 8px);
+
+    font-size: clamp(10px, 1.1vh, 13px);
+
+    font-weight: 700;
+
+    letter-spacing: 0.5px;
+
+    text-transform: uppercase;
+
+    color: #1c73d0;
+
+    text-align: center;
+}
+
+.infoBarValue {
+
+    font-size: clamp(16px, 2vh, 24px);
+
+    font-weight: 700;
+
+    color: #222;
+
+    text-align: center;
+
+    line-height: 1.2;
+}
+
+@media (max-width: 600px) {
+
+    .infoBar {
+
+        gap: 6px;
+
+        padding: 8px 10px;
+    }
+
+    .infoBarSection {
+
+        padding: 2px;
+    }
+
+    .infoBarTitle {
+
+        margin-bottom: 4px;
+
+        font-size: 9px;
+
+        letter-spacing: 0.3px;
+    }
+
+    .infoBarValue {
+
+        font-size: 14px;
+    }
+}

@@ -1,0 +1,402 @@
+/* ==========================================================
+   PAGE 2 PLAYER SETUP
+========================================================== */
+
+.page2 {
+
+    --p2-font: clamp(14px, 1.55vh, 18px);
+    --p2-font-lg: clamp(15px, 1.72vh, 21px);
+    --p2-font-sm: clamp(12px, 1.27vh, 14px);
+    --p2-input-h: clamp(35px, 4.8vh, 44px);
+    --p2-row-gap: clamp(22px, 2.8vh, 32px);
+    --p2-col-gap: clamp(20px, 2.5vw, 36px);
+
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+
+    padding: clamp(16px, 2vh, 24px);
+    box-sizing: border-box;
+
+    overflow: hidden;
+
+    background: transparent;
+}
+
+.setupPanel {
+
+    width: 100%;
+
+    height: auto;
+
+    background: #ffffff;
+
+    border: 3px solid #1c73d0;
+    border-radius: 18px;
+
+    padding: clamp(28px, 3.5vh, 44px) clamp(28px, 3vw, 48px);
+
+    box-sizing: border-box;
+
+    box-shadow:
+        0 10px 30px rgba(0,0,0,.06);
+}
+
+/* ==========================================================
+   TWO-COLUMN GRID
+========================================================== */
+
+.setupGrid {
+
+    display: grid;
+
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+
+    column-gap: var(--p2-col-gap);
+
+    row-gap: var(--p2-row-gap);
+
+    align-items: start;
+
+    width: 100%;
+}
+
+.setupLabelCell {
+
+    font-size: var(--p2-font-lg);
+
+    font-weight: 700;
+
+    color: #222;
+
+    line-height: 1.35;
+
+    padding-top: 8px;
+}
+
+.setupControlCell {
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: flex-start;
+
+    justify-content: flex-start;
+
+    gap: 6px;
+
+    min-width: 0;
+}
+
+/* ==========================================================
+   INPUTS
+========================================================== */
+
+.setupInput,
+.setupSelect {
+
+    height: var(--p2-input-h);
+
+    padding: 0 clamp(12px, 1vw, 16px);
+
+    font-size: var(--p2-font);
+
+    font-weight: 600;
+
+    color: #222;
+
+    background: #ffffff;
+
+    border: 2px solid #4f8dd8;
+
+    border-radius: 10px;
+
+    outline: none;
+
+    box-sizing: border-box;
+
+    width: auto;
+
+    min-width: 148px;
+
+    max-width: 100%;
+
+    transition:
+        border-color .25s,
+        box-shadow .25s,
+        background .25s;
+}
+
+.setupInput--nickname {
+
+    min-width: 120px;
+
+    width: 120px;
+}
+
+.setupInput--age {
+
+    min-width: 72px;
+
+    width: 72px;
+}
+
+.setupSelect {
+
+    min-width: 168px;
+
+    padding-right: 28px;
+}
+
+.setupInput:hover,
+.setupSelect:hover {
+
+    border-color: #2f78d8;
+}
+
+.setupInput:focus,
+.setupSelect:focus {
+
+    border-color: #1c73d0;
+
+    box-shadow:
+        0 0 0 3px rgba(28,115,208,.15);
+}
+
+/* ==========================================================
+   AGE VALIDATION
+========================================================== */
+
+.ageValidation {
+
+    font-size: var(--p2-font-sm);
+
+    font-weight: 400;
+
+    color: #666;
+
+    line-height: 1.4;
+}
+
+/* ==========================================================
+   RADIO GROUP
+========================================================== */
+
+.radioGroup {
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: flex-start;
+
+    gap: clamp(10px, 1.2vh, 14px);
+
+    font-size: var(--p2-font);
+
+    font-weight: 700;
+
+    line-height: 1.35;
+
+    color: #222;
+}
+
+.radioGroup label {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 10px;
+
+    cursor: pointer;
+
+    transition: color .2s;
+}
+
+.radioGroup label:hover {
+
+    color: #1c73d0;
+}
+
+.radioGroup input[type="radio"] {
+
+    width: 16px;
+    height: 16px;
+    margin: 0;
+
+    cursor: pointer;
+}
+
+/* ==========================================================
+   DESKTOP & TABLET — fluid container and column scaling
+========================================================== */
+
+@media (min-width: 601px) {
+
+    .page2 {
+
+        --p2-font: clamp(13px, 1.35vh, 16px);
+        --p2-font-lg: clamp(14px, 1.5vh, 18px);
+        --p2-font-sm: clamp(11px, 1.15vh, 13px);
+        --p2-input-h: clamp(32px, 3.8vh, 38px);
+        --p2-row-gap: clamp(12px, 1.5vh, 18px);
+
+        padding: 12px 24px;
+    }
+
+    .setupPanel {
+
+        width: min(95%, 1400px);
+
+        height: auto;
+
+        max-height: 100%;
+
+        margin: 0 auto;
+
+        padding:
+            clamp(20px, 2vh, 28px)
+            clamp(24px, 3vw, 48px)
+            clamp(30px, 2.5vh, 40px);
+    }
+
+    .setupGrid {
+
+        grid-template-columns: minmax(260px, 1fr) minmax(320px, 1fr);
+
+        column-gap: clamp(40px, 8vw, 180px);
+    }
+
+    .radioGroup {
+
+        gap: clamp(6px, 0.9vh, 10px);
+    }
+
+    .setupLabelCell {
+
+        padding-top: 6px;
+    }
+}
+
+/* ==========================================================
+   MOBILE
+========================================================== */
+
+@media (max-width: 600px) {
+
+    .page2 {
+
+        height: auto;
+
+        max-height: none;
+
+        justify-content: flex-start;
+
+        overflow-y: auto;
+
+        padding: 8px;
+    }
+
+    .setupPanel {
+
+        min-height: 0;
+
+        padding: 16px 12px;
+
+        border-radius: 12px;
+    }
+
+    .setupGrid {
+
+        grid-template-columns: minmax(0, 46%) minmax(0, 54%);
+
+        column-gap: 8px;
+
+        row-gap: 16px;
+    }
+
+    .setupLabelCell {
+
+        font-size: 11px;
+
+        padding-top: 6px;
+
+        line-height: 1.25;
+
+        overflow-wrap: anywhere;
+    }
+
+    .setupInput,
+    .setupSelect {
+
+        height: 32px;
+
+        font-size: 12px;
+
+        min-width: 0;
+
+        padding: 0 8px;
+    }
+
+    .setupInput--nickname {
+
+        width: 4.5em;
+
+        min-width: 4.5em;
+    }
+
+    .setupInput--age {
+
+        width: 3em;
+
+        min-width: 3em;
+    }
+
+    .setupSelect {
+
+        min-width: 88px;
+
+        max-width: 100%;
+
+        padding-right: 22px;
+    }
+
+    .ageValidation {
+
+        font-size: 9px;
+
+        line-height: 1.3;
+    }
+
+    .radioGroup {
+
+        gap: 8px;
+
+        font-size: 11px;
+    }
+
+    .radioGroup label {
+
+        gap: 6px;
+
+        white-space: normal;
+    }
+
+    .radioGroup input[type="radio"] {
+
+        width: 13px;
+        height: 13px;
+    }
+}
+
+/* ==========================================================
+   END OF FILE
+========================================================== */

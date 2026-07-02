@@ -1,0 +1,9 @@
+export const INPUT_COMMAND_TYPES = Object.freeze({
+    ACCELERATION_START: "ACCELERATION_START",
+    ACCELERATION_STOP: "ACCELERATION_STOP"
+});
+
+export const INPUT_ACTIONS = Object.freeze({
+    PRESS: "PRESS",
+    RELEASE: "RELEASE"
+});

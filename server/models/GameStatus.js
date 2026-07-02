@@ -1,0 +1,8 @@
+export const GAME_STATUS = Object.freeze({
+    CREATED: "CREATED",
+    INITIALIZED: "INITIALIZED",
+    READY: "READY",
+    RUNNING: "RUNNING",
+    FINISHED: "FINISHED",
+    DESTROYED: "DESTROYED"
+});

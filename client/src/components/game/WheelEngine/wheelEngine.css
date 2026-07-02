@@ -1,0 +1,17 @@
+.wheelEngine {
+
+    width: 100%;
+    height: 100%;
+
+    display: block;
+
+    box-sizing: border-box;
+}
+
+.wheelEngine canvas {
+
+    display: block;
+
+    width: 100%;
+    height: 100%;
+}

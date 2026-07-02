@@ -1,0 +1,216 @@
+/* ==========================================================
+   PLAYER PAYMENT ROW — Page4 and future game pages
+========================================================== */
+
+.playerPaymentRow {
+
+    display: grid;
+
+    grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1fr);
+
+    gap: clamp(12px, 1.5vw, 24px);
+
+    align-items: center;
+
+    padding: clamp(10px, 1.2vh, 14px) 0;
+
+    border-bottom: 1px solid #d6e4f0;
+}
+
+.playerPaymentRow:last-of-type {
+
+    border-bottom: none;
+}
+
+.playerPaymentRow__group {
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: clamp(4px, 0.5vh, 8px);
+
+    min-width: 0;
+}
+
+.playerPaymentRow__group--status {
+
+    align-items: stretch;
+}
+
+.playerPaymentRow__label {
+
+    font-size: clamp(11px, 1.2vh, 14px);
+
+    font-weight: 700;
+
+    color: #222;
+
+    line-height: 1.25;
+
+    text-transform: uppercase;
+}
+
+.playerPaymentRow__value {
+
+    display: inline-flex;
+
+    align-items: center;
+
+    min-height: clamp(30px, 3.8vh, 38px);
+
+    padding: 0 clamp(10px, 1vw, 14px);
+
+    font-size: clamp(13px, 1.4vh, 16px);
+
+    font-weight: 700;
+
+    color: #222;
+
+    background: #ffffff;
+
+    border: 2px solid #4f8dd8;
+
+    border-radius: 10px;
+
+    box-sizing: border-box;
+}
+
+.playerPaymentRow .playerIconBadge {
+
+    display: inline-flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    width: clamp(38px, 4.5vh, 48px);
+
+    height: clamp(38px, 4.5vh, 48px);
+
+    font-size: clamp(20px, 2.4vh, 26px);
+
+    line-height: 1;
+
+    color: #222;
+
+    background: #ffffff;
+
+    border: 2px solid #4f8dd8;
+
+    border-radius: 50%;
+
+    box-sizing: border-box;
+}
+
+.paymentStatus {
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    min-height: clamp(38px, 4.5vh, 48px);
+
+    padding: clamp(6px, 0.8vh, 10px) clamp(10px, 1vw, 14px);
+
+    font-size: clamp(11px, 1.15vh, 13px);
+
+    font-weight: 700;
+
+    line-height: 1.25;
+
+    text-align: center;
+
+    text-transform: uppercase;
+
+    border: 2px solid;
+
+    border-radius: 10px;
+
+    box-sizing: border-box;
+}
+
+.paymentStatus--done {
+
+    color: #18a558;
+
+    border-color: #18a558;
+
+    background: #f0fdf4;
+}
+
+.paymentStatus--awaiting {
+
+    color: #e67e00;
+
+    border-color: #e67e00;
+
+    background: #fff8f0;
+}
+
+@media (max-width: 600px) {
+
+    .playerPaymentRow {
+
+        grid-template-columns: minmax(0, 1fr) auto;
+
+        grid-template-areas:
+            "nick nick"
+            "icon status";
+
+        gap: 8px 10px;
+
+        padding: 10px 0;
+    }
+
+    .playerPaymentRow__group:nth-child(1) {
+
+        grid-area: nick;
+    }
+
+    .playerPaymentRow__group--icon {
+
+        grid-area: icon;
+    }
+
+    .playerPaymentRow__group--status {
+
+        grid-area: status;
+
+        justify-content: center;
+    }
+
+    .playerPaymentRow__label {
+
+        font-size: 9px;
+    }
+
+    .playerPaymentRow__value {
+
+        min-height: 30px;
+
+        padding: 0 8px;
+
+        font-size: 12px;
+    }
+
+    .playerPaymentRow .playerIconBadge {
+
+        width: 34px;
+
+        height: 34px;
+
+        font-size: 18px;
+    }
+
+    .paymentStatus {
+
+        min-height: 34px;
+
+        font-size: 9px;
+
+        padding: 6px 8px;
+    }
+}

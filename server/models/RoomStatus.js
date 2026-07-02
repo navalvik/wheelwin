@@ -1,0 +1,7 @@
+export const ROOM_STATUS = Object.freeze({
+    CREATED: "CREATED",
+    WAITING_FOR_PLAYERS: "WAITING_FOR_PLAYERS",
+    FULL: "FULL",
+    LOCKED: "LOCKED",
+    DESTROYED: "DESTROYED"
+});

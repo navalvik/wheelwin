@@ -1,0 +1,405 @@
+import { EVENT_SOURCES } from "../events/EventSources.js";
+import { EVENT_TYPES } from "../events/EventTypes.js";
+import { PHYSICS_SIMULATION_STATE } from "./physics/PhysicsSimulationState.js";
+import { GeometryAdapter } from "./winner/GeometryAdapter.js";
+import { PlayerResolver } from "./winner/PlayerResolver.js";
+import { deepFreezeResult } from "./winner/resultFreeze.js";
+import { SectorResolver } from "./winner/SectorResolver.js";
+import { WinnerResolutionError } from "./winner/WinnerResolutionError.js";
+
+export class WinnerEngine {
+
+    constructor({
+        logger,
+        eventBus,
+        physicsEngine,
+        configurationEngine,
+        gameCatalog
+    }) {
+
+        this._logger = logger;
+
+        this._eventBus = eventBus;
+
+        this._physicsEngine = physicsEngine;
+
+        this._configurationEngine = configurationEngine;
+
+        this._gameCatalog = gameCatalog;
+
+        this._geometryAdapter = new GeometryAdapter({
+            angleToleranceRadians: gameCatalog.getWinnerRules()
+                .angleToleranceRadians
+        });
+
+        this._sectorResolver = new SectorResolver({
+            geometryAdapter: this._geometryAdapter
+        });
+
+        this._playerResolver = new PlayerResolver();
+
+        this._results = new Map();
+
+        this._infrastructureHandlers = [];
+
+        this._initialized = false;
+
+    }
+
+    initialize() {
+
+        const shutdownHandler = () => {
+
+            this._handleServerShutdown();
+
+        };
+
+        this._eventBus.subscribe(
+            EVENT_TYPES.SERVER_SHUTDOWN,
+            shutdownHandler
+        );
+
+        this._infrastructureHandlers.push({
+            event: EVENT_TYPES.SERVER_SHUTDOWN,
+            handler: shutdownHandler
+        });
+
+        this._initialized = true;
+
+    }
+
+    shutdown() {
+
+        for (const gameId of [...this._results.keys()]) {
+
+            this.removeResult(gameId);
+
+        }
+
+        for (const subscription of this._infrastructureHandlers) {
+
+            this._eventBus.unsubscribe(
+                subscription.event,
+                subscription.handler
+            );
+
+        }
+
+        this._infrastructureHandlers = [];
+
+        this._initialized = false;
+
+    }
+
+    resolveWinningSector(gameId) {
+
+        this._assertInitialized();
+
+        const { configuration, physics } = this._readResolutionInputs(gameId);
+
+        const winningSector = this._sectorResolver.resolve({
+            configuration,
+            finalWheelAngleRadians: physics.runtime.angle,
+            triangleAngleDegrees: configuration.triangle.startAngle
+        });
+
+        this._logger.info("Winning Sector Resolved");
+
+        this._emit(EVENT_TYPES.WINNING_SECTOR_RESOLVED, {
+            gameId,
+            winningSector,
+            finalAngle: physics.runtime.angle,
+            timestamp: Date.now()
+        });
+
+        return winningSector;
+
+    }
+
+    resolveWinningPlayer(gameId, winningSector) {
+
+        this._assertInitialized();
+
+        const configuration = this._configurationEngine.getConfiguration(gameId);
+
+        if (!configuration) {
+
+            throw new WinnerResolutionError({
+                gameId,
+                reason: "Configuration is missing"
+            });
+
+        }
+
+        if (!winningSector) {
+
+            throw new WinnerResolutionError({
+                gameId,
+                reason: "Winning sector is required"
+            });
+
+        }
+
+        const winningPlayer = this._playerResolver.resolve({
+            configuration,
+            winningSector
+        });
+
+        this._logger.info("Winning Player Resolved");
+
+        return winningPlayer;
+
+    }
+
+    resolveResult(gameId) {
+
+        this._assertInitialized();
+
+        if (this._results.has(gameId)) {
+
+            throw new WinnerResolutionError({
+                gameId,
+                reason: "Result already exists for game"
+            });
+
+        }
+
+        try {
+
+            const { configuration, physics } = this._readResolutionInputs(gameId);
+
+            const winningSector = this._sectorResolver.resolve({
+                configuration,
+                finalWheelAngleRadians: physics.runtime.angle,
+                triangleAngleDegrees: configuration.triangle.startAngle
+            });
+
+            this._logger.info("Winning Sector Resolved");
+
+            this._emit(EVENT_TYPES.WINNING_SECTOR_RESOLVED, {
+                gameId,
+                winningSector,
+                finalAngle: physics.runtime.angle,
+                timestamp: Date.now()
+            });
+
+            const winningPlayer = this._playerResolver.resolve({
+                configuration,
+                winningSector
+            });
+
+            this._logger.info("Winning Player Resolved");
+
+            const result = {
+                gameId,
+                winningSector,
+                winningPlayer,
+                prize: null,
+                payout: null,
+                finalAngle: physics.runtime.angle,
+                resolvedAt: Date.now(),
+                traceSeed: configuration.traceSeed,
+                metadata: {
+                    configurationVersion: configuration.configurationVersion
+                }
+            };
+
+            this._validateResult(result, configuration);
+
+            const frozenResult = deepFreezeResult(result);
+
+            this._results.set(gameId, frozenResult);
+
+            this._logger.info("Game Result Ready");
+
+            this._emit(EVENT_TYPES.GAME_RESULT_READY, {
+                gameId,
+                winningSector,
+                winningPlayer,
+                finalAngle: frozenResult.finalAngle,
+                timestamp: frozenResult.resolvedAt
+            });
+
+            return frozenResult;
+
+        } catch (error) {
+
+            if (error instanceof WinnerResolutionError) {
+
+                this._logger.error(
+                    `Result resolution failed | gameId=${gameId} | reason=${error.reason}`
+                );
+
+                throw error;
+
+            }
+
+            throw new WinnerResolutionError({
+                gameId,
+                reason: error.message
+            });
+
+        }
+
+    }
+
+    getResult(gameId) {
+
+        return this._results.get(gameId) ?? null;
+
+    }
+
+    removeResult(gameId) {
+
+        if (!this._results.has(gameId)) {
+
+            this._logger.error(
+                `Result removal failed: result not found (${gameId})`
+            );
+
+            return false;
+
+        }
+
+        this._results.delete(gameId);
+
+        this._logger.info("Result Removed");
+
+        this._emit(EVENT_TYPES.GAME_RESULT_REMOVED, {
+            gameId,
+            timestamp: Date.now()
+        });
+
+        return true;
+
+    }
+
+    getDebugSnapshot(gameId) {
+
+        const result = this._results.get(gameId);
+
+        if (!result) {
+
+            return null;
+
+        }
+
+        return {
+            gameId,
+            winningSector: result.winningSector,
+            winningPlayer: result.winningPlayer,
+            finalAngle: result.finalAngle,
+            traceSeed: result.traceSeed,
+            resolvedAt: result.resolvedAt
+        };
+
+    }
+
+    _readResolutionInputs(gameId) {
+
+        const configuration = this._configurationEngine.getConfiguration(gameId);
+
+        if (!configuration) {
+
+            throw new WinnerResolutionError({
+                gameId,
+                reason: "Configuration is missing"
+            });
+
+        }
+
+        const physics = this._physicsEngine.getSimulation(gameId);
+
+        if (!physics) {
+
+            throw new WinnerResolutionError({
+                gameId,
+                reason: "Physics simulation is missing"
+            });
+
+        }
+
+        if (physics.runtime.state !== PHYSICS_SIMULATION_STATE.STOPPED) {
+
+            throw new WinnerResolutionError({
+                gameId,
+                reason: "Physics simulation is not complete"
+            });
+
+        }
+
+        if (!Number.isFinite(physics.runtime.angle)) {
+
+            throw new WinnerResolutionError({
+                gameId,
+                reason: "Final angle is invalid"
+            });
+
+        }
+
+        return { configuration, physics };
+
+    }
+
+    _validateResult(result, configuration) {
+
+        if (!result.winningSector?.sectorId) {
+
+            throw new WinnerResolutionError({
+                gameId: result.gameId,
+                reason: "Winning sector is invalid"
+            });
+
+        }
+
+        if (!result.winningPlayer?.playerId) {
+
+            throw new WinnerResolutionError({
+                gameId: result.gameId,
+                reason: "Winning player is invalid"
+            });
+
+        }
+
+        const ownerExists = configuration.players.some(
+            (player) => player.playerId === result.winningPlayer.playerId
+        );
+
+        if (!ownerExists) {
+
+            throw new WinnerResolutionError({
+                gameId: result.gameId,
+                reason: "Winning player does not exist in configuration"
+            });
+
+        }
+
+    }
+
+    _emit(type, payload) {
+
+        this._eventBus.emit({
+            source: EVENT_SOURCES.WINNER_ENGINE,
+            type,
+            payload
+        });
+
+    }
+
+    _handleServerShutdown() {
+
+        this._results.clear();
+
+    }
+
+    _assertInitialized() {
+
+        if (!this._initialized) {
+
+            throw new Error("WinnerEngine is not initialized");
+
+        }
+
+    }
+
+}

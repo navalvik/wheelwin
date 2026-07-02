@@ -1,0 +1,41 @@
+import "../styles/modeSelector.css";
+
+export default function ModeSelector({ mode, onChange }) {
+
+    return (
+
+        <div className="modeSelector">
+
+            <button
+                className={mode === "create" ? "modeCard active" : "modeCard"}
+                onClick={() => onChange("create")}
+            >
+                <div className="modeTitle">
+                    CREATE ROOM
+                </div>
+
+                <div className="modeText">
+                    Create a new game room
+                </div>
+
+            </button>
+
+            <button
+                className={mode === "join" ? "modeCard active" : "modeCard"}
+                onClick={() => onChange("join")}
+            >
+                <div className="modeTitle">
+                    JOIN ROOM
+                </div>
+
+                <div className="modeText">
+                    Join an existing room
+                </div>
+
+            </button>
+
+        </div>
+
+    );
+
+}

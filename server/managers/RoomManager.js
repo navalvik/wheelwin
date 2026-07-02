@@ -1,0 +1,514 @@
+import { EVENT_SOURCES } from "../events/EventSources.js";
+import { EVENT_TYPES } from "../events/EventTypes.js";
+import { Room } from "../models/Room.js";
+import { ROOM_STATUS } from "../models/RoomStatus.js";
+import { generateRoomId } from "./room/roomIdAlphabet.js";
+
+export class RoomManager {
+
+    constructor({ logger, eventBus, roomConfig }) {
+
+        this._logger = logger;
+
+        this._eventBus = eventBus;
+
+        this._roomConfig = roomConfig;
+
+        this._rooms = new Map();
+
+        this._playerRoomIndex = new Map();
+
+        this._roomListeners = new Map();
+
+        this._infrastructureHandlers = [];
+
+        this._initialized = false;
+
+    }
+
+    initialize() {
+
+        const shutdownHandler = () => {
+
+            this._handleServerShutdown();
+
+        };
+
+        this._eventBus.subscribe(
+            EVENT_TYPES.SERVER_SHUTDOWN,
+            shutdownHandler
+        );
+
+        this._infrastructureHandlers.push({
+            event: EVENT_TYPES.SERVER_SHUTDOWN,
+            handler: shutdownHandler
+        });
+
+        this._initialized = true;
+
+    }
+
+    shutdown() {
+
+        for (const roomId of [...this._rooms.keys()]) {
+
+            this.destroyRoom(roomId);
+
+        }
+
+        for (const subscription of this._infrastructureHandlers) {
+
+            this._eventBus.unsubscribe(
+                subscription.event,
+                subscription.handler
+            );
+
+        }
+
+        this._infrastructureHandlers = [];
+
+        this._initialized = false;
+
+    }
+
+    createRoom({ maxPlayers } = {}) {
+
+        const roomId = this._generateRoomId();
+
+        if (!roomId) {
+
+            this._logger.error(
+                "Room creation failed: could not allocate unique roomId"
+            );
+
+            return null;
+
+        }
+
+        const resolvedMaxPlayers = maxPlayers ?? this._roomConfig.maxPlayers;
+
+        if (!Number.isFinite(resolvedMaxPlayers) || resolvedMaxPlayers <= 0) {
+
+            this._logger.error("Room creation failed: invalid maxPlayers");
+
+            return null;
+
+        }
+
+        const room = new Room({
+            roomId,
+            createdAt: Date.now(),
+            status: ROOM_STATUS.CREATED,
+            maxPlayers: resolvedMaxPlayers,
+            players: []
+        });
+
+        this._rooms.set(roomId, room);
+
+        this._logger.info(`Room Created: ${roomId}`);
+
+        this._emit(EVENT_TYPES.ROOM_CREATED, {
+            roomId: room.roomId,
+            status: room.status,
+            maxPlayers: room.maxPlayers,
+            playerCount: room.players.length
+        });
+
+        room.status = ROOM_STATUS.WAITING_FOR_PLAYERS;
+
+        return room;
+
+    }
+
+    addPlayer(roomId, playerId) {
+
+        const room = this._getRoomOrLog(roomId, "add player to");
+
+        if (!room) {
+
+            return false;
+
+        }
+
+        if (room.status === ROOM_STATUS.LOCKED) {
+
+            this._logger.error(
+                `Add player failed: room is locked (${roomId})`
+            );
+
+            return false;
+
+        }
+
+        if (room.status === ROOM_STATUS.DESTROYED) {
+
+            this._logger.error(
+                `Add player failed: room is destroyed (${roomId})`
+            );
+
+            return false;
+
+        }
+
+        if (!playerId) {
+
+            this._logger.error("Add player failed: playerId is required");
+
+            return false;
+
+        }
+
+        if (room.players.includes(playerId)) {
+
+            this._logger.error(
+                `Add player failed: duplicate player in room (${playerId})`
+            );
+
+            return false;
+
+        }
+
+        if (this._playerRoomIndex.has(playerId)) {
+
+            this._logger.error(
+                `Add player failed: player already assigned to a room (${playerId})`
+            );
+
+            return false;
+
+        }
+
+        if (room.players.length >= room.maxPlayers) {
+
+            this._logger.error(
+                `Add player failed: room is at capacity (${roomId})`
+            );
+
+            return false;
+
+        }
+
+        room.players.push(playerId);
+
+        this._playerRoomIndex.set(playerId, roomId);
+
+        if (room.players.length === room.maxPlayers) {
+
+            room.status = ROOM_STATUS.FULL;
+
+            this._logger.info(`Room Full: ${roomId}`);
+
+            this._emit(EVENT_TYPES.ROOM_FULL, {
+                roomId: room.roomId,
+                status: room.status,
+                maxPlayers: room.maxPlayers,
+                playerCount: room.players.length
+            });
+
+        }
+
+        return true;
+
+    }
+
+    removePlayer(roomId, playerId) {
+
+        const room = this._getRoomOrLog(roomId, "remove player from");
+
+        if (!room) {
+
+            return false;
+
+        }
+
+        if (room.status === ROOM_STATUS.LOCKED) {
+
+            this._logger.error(
+                `Remove player failed: room is locked (${roomId})`
+            );
+
+            return false;
+
+        }
+
+        if (!playerId) {
+
+            this._logger.error("Remove player failed: playerId is required");
+
+            return false;
+
+        }
+
+        const playerIndex = room.players.indexOf(playerId);
+
+        if (playerIndex === -1) {
+
+            this._logger.error(
+                `Remove player failed: player not in room (${playerId})`
+            );
+
+            return false;
+
+        }
+
+        room.players.splice(playerIndex, 1);
+
+        this._playerRoomIndex.delete(playerId);
+
+        if (room.status === ROOM_STATUS.FULL) {
+
+            room.status = ROOM_STATUS.WAITING_FOR_PLAYERS;
+
+        }
+
+        return true;
+
+    }
+
+    lockRoom(roomId) {
+
+        const room = this._getRoomOrLog(roomId, "lock");
+
+        if (!room) {
+
+            return false;
+
+        }
+
+        if (room.status === ROOM_STATUS.LOCKED) {
+
+            this._logger.error(`Room lock failed: already locked (${roomId})`);
+
+            return false;
+
+        }
+
+        if (room.status === ROOM_STATUS.DESTROYED) {
+
+            this._logger.error(
+                `Room lock failed: room is destroyed (${roomId})`
+            );
+
+            return false;
+
+        }
+
+        room.status = ROOM_STATUS.LOCKED;
+
+        this._logger.info(`Room Locked: ${roomId}`);
+
+        this._emit(EVENT_TYPES.ROOM_LOCKED, {
+            roomId: room.roomId,
+            status: room.status,
+            maxPlayers: room.maxPlayers,
+            playerCount: room.players.length
+        });
+
+        return true;
+
+    }
+
+    unlockRoom(roomId) {
+
+        const room = this._getRoomOrLog(roomId, "unlock");
+
+        if (!room) {
+
+            return false;
+
+        }
+
+        if (room.status !== ROOM_STATUS.LOCKED) {
+
+            this._logger.error(
+                `Room unlock failed: room is not locked (${roomId})`
+            );
+
+            return false;
+
+        }
+
+        room.status = room.players.length === room.maxPlayers
+            ? ROOM_STATUS.FULL
+            : ROOM_STATUS.WAITING_FOR_PLAYERS;
+
+        return true;
+
+    }
+
+    destroyRoom(roomId) {
+
+        const room = this._getRoomOrLog(roomId, "destroy");
+
+        if (!room) {
+
+            return false;
+
+        }
+
+        if (room.status === ROOM_STATUS.DESTROYED) {
+
+            this._logger.error(
+                `Room destroy failed: already destroyed (${roomId})`
+            );
+
+            return false;
+
+        }
+
+        room.status = ROOM_STATUS.DESTROYED;
+
+        this._logger.info(`Room Destroyed: ${roomId}`);
+
+        this._emit(EVENT_TYPES.ROOM_DESTROYED, {
+            roomId: room.roomId,
+            status: room.status,
+            maxPlayers: room.maxPlayers,
+            playerCount: room.players.length
+        });
+
+        for (const playerId of room.players) {
+
+            this._playerRoomIndex.delete(playerId);
+
+        }
+
+        room.players = [];
+
+        this._clearRoomListeners(roomId);
+
+        this._rooms.delete(roomId);
+
+        return true;
+
+    }
+
+    getRoom(roomId) {
+
+        const room = this._rooms.get(roomId);
+
+        if (!room) {
+
+            return null;
+
+        }
+
+        return room.toSnapshot();
+
+    }
+
+    getRooms() {
+
+        return [...this._rooms.values()].map((room) => room.toSnapshot());
+
+    }
+
+    hasRoom(roomId) {
+
+        return this._rooms.has(roomId);
+
+    }
+
+    getDebugSnapshot() {
+
+        return {
+            activeRooms: this.getRooms().map((room) => ({
+                roomId: room.roomId,
+                status: room.status,
+                playerCount: room.players.length,
+                createdAt: room.createdAt
+            }))
+        };
+
+    }
+
+    _handleServerShutdown() {
+
+        for (const roomId of [...this._rooms.keys()]) {
+
+            this.destroyRoom(roomId);
+
+        }
+
+    }
+
+    _getRoomOrLog(roomId, operation) {
+
+        if (!roomId) {
+
+            this._logger.error(`Room ${operation} failed: roomId is required`);
+
+            return null;
+
+        }
+
+        const room = this._rooms.get(roomId);
+
+        if (!room) {
+
+            this._logger.error(
+                `Room ${operation} failed: room not found (${roomId})`
+            );
+
+            return null;
+
+        }
+
+        return room;
+
+    }
+
+    _generateRoomId() {
+
+        const maxAttempts = 1000;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+
+            const candidate = generateRoomId();
+
+            if (!this._rooms.has(candidate)) {
+
+                return candidate;
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    _emit(type, payload) {
+
+        this._eventBus.emit({
+            source: EVENT_SOURCES.ROOM_MANAGER,
+            type,
+            payload
+        });
+
+    }
+
+    _clearRoomListeners(roomId) {
+
+        const subscriptions = this._roomListeners.get(roomId);
+
+        if (!subscriptions) {
+
+            return;
+
+        }
+
+        for (const subscription of subscriptions) {
+
+            this._eventBus.unsubscribe(
+                subscription.event,
+                subscription.handler
+            );
+
+        }
+
+        this._roomListeners.delete(roomId);
+
+    }
+
+}

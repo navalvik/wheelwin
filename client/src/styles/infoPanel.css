@@ -1,0 +1,132 @@
+.infoPanel{
+
+    width:100%;
+    height:100%;
+
+    display:grid;
+
+    grid-template-columns:230px 1fr;
+
+    background:white;
+
+    border:1px solid #D6E3F1;
+
+    border-radius:14px;
+
+    overflow:hidden;
+
+    box-shadow:0 8px 18px rgba(0,0,0,.08);
+}
+
+.infoPanelMenu{
+
+    min-width:0;
+
+    background:#FFFFFF;
+
+    border-right:1px solid #D6E3F1;
+}
+
+.infoPanelContent{
+
+    min-width:0;
+
+    padding:24px;
+
+    overflow:auto;
+
+    background:#FFFFFF;
+}
+
+/* ==========================================================
+   TABLET — two columns, 30% / 70%
+========================================================== */
+
+@media (min-width: 600px) and (max-width: 899px) {
+
+    .infoPanel{
+
+        grid-template-columns:30% 70%;
+    }
+}
+
+/* ==========================================================
+   MOBILE — two columns, 35% / 65%, scaled down
+========================================================== */
+
+@media (max-width: 599px) {
+
+    .infoPanel{
+
+        grid-template-columns:35% 65%;
+
+        overflow-x:hidden;
+    }
+
+    .infoPanelMenu .menuButton{
+
+        height:auto;
+
+        min-height:36px;
+
+        padding:6px 4px 6px 8px;
+
+        font-size:13px;
+
+        line-height:1.2;
+
+        border-left-width:3px;
+    }
+
+    .infoPanelContent{
+
+        min-height:0;
+
+        padding:10px;
+
+        overflow-x:hidden;
+
+        overflow-y:auto;
+
+        -webkit-overflow-scrolling:touch;
+    }
+
+    .infoPanelContent .markdownViewer{
+
+        height:100%;
+
+        padding:8px;
+
+        font-size:13px;
+
+        line-height:1.5;
+
+        overflow-x:hidden;
+
+        overflow-y:auto;
+
+        overflow-wrap:break-word;
+    }
+
+    .infoPanelContent .markdownViewer img{
+
+        max-width:100%;
+
+        height:auto;
+    }
+
+    .infoPanelContent .markdownViewer pre,
+    .infoPanelContent .markdownViewer table{
+
+        max-width:100%;
+
+        overflow-x:auto;
+    }
+
+    .infoPanelContent .markdownViewer pre{
+
+        white-space:pre-wrap;
+
+        word-break:break-word;
+    }
+}

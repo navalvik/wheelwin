@@ -1,0 +1,303 @@
+/* ==========================================================
+   DEVELOPER DASHBOARD — dev-only diagnostics page
+========================================================== */
+
+/*
+   Game pages lock the document to 100vh (global.css).
+   When the dashboard is mounted, restore normal document scrolling
+   so future sections can extend the page vertically.
+*/
+
+html:has(.devDashboard),
+body:has(.devDashboard) {
+
+    height: auto;
+
+    min-height: 100%;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+#root:has(.devDashboard) {
+
+    height: auto;
+
+    min-height: 100vh;
+
+    overflow: visible;
+}
+
+.devDashboard {
+
+    min-height: 100vh;
+
+    height: auto;
+
+    padding: clamp(16px, 2vw, 28px);
+
+    box-sizing: border-box;
+
+    background: #f2f6fb;
+
+    color: #1a1a1a;
+
+    overflow: visible;
+    overflow-x: hidden;
+}
+
+.devDashboard__header {
+
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+
+    gap: 16px;
+
+    margin-bottom: 24px;
+
+    padding-bottom: 16px;
+
+    border-bottom: 3px solid #1c73d0;
+}
+
+.devDashboard__title {
+
+    margin: 0 0 8px;
+
+    font-size: clamp(1.4rem, 2.5vw, 2rem);
+    font-weight: 800;
+
+    color: #1c73d0;
+}
+
+.devDashboard__subtitle {
+
+    margin: 0;
+
+    max-width: 52rem;
+
+    font-size: 0.95rem;
+
+    color: #444;
+}
+
+.devDashboard__backLink {
+
+    display: inline-flex;
+    align-items: center;
+
+    padding: 10px 14px;
+
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-decoration: none;
+
+    color: #1c73d0;
+
+    background: #ffffff;
+
+    border: 2px solid #4f8dd8;
+    border-radius: 10px;
+}
+
+.devDashboard__grid {
+
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+
+    gap: 16px;
+}
+
+.devDashboard__section {
+
+    background: #ffffff;
+
+    border: 2px solid #4f8dd8;
+    border-radius: 14px;
+
+    box-shadow: 0 8px 20px rgba(28, 115, 208, 0.08);
+
+    overflow: hidden;
+}
+
+.devDashboard__section--wide {
+
+    grid-column: 1 / -1;
+}
+
+.devDashboard__sectionTitle {
+
+    margin: 0;
+
+    padding: 10px 14px;
+
+    font-size: 0.85rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+
+    color: #ffffff;
+
+    background: linear-gradient(90deg, #1c73d0, #4f8dd8);
+}
+
+.devDashboard__sectionBody {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 6px;
+
+    padding: 12px 14px 14px;
+}
+
+.devDashboard__row {
+
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+
+    gap: 12px;
+
+    padding: 4px 0;
+
+    font-size: 0.88rem;
+
+    border-bottom: 1px solid #edf4fc;
+}
+
+.devDashboard__row:last-child {
+
+    border-bottom: none;
+}
+
+.devDashboard__label {
+
+    flex: 0 0 auto;
+
+    font-weight: 700;
+
+    color: #555;
+}
+
+.devDashboard__value {
+
+    flex: 1 1 auto;
+
+    text-align: right;
+
+    font-weight: 600;
+
+    color: #111;
+
+    word-break: break-word;
+}
+
+.devDashboard__placeholder {
+
+    margin: 0;
+
+    padding: 8px 10px;
+
+    font-size: 0.82rem;
+    font-style: italic;
+
+    color: #666;
+
+    background: #f7fbff;
+
+    border: 1px dashed #b8d4f2;
+    border-radius: 8px;
+}
+
+.devDashboard__playerGrid {
+
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+
+    gap: 12px;
+}
+
+.devDashboard__playerCard {
+
+    padding: 10px 12px;
+
+    background: #f7fbff;
+
+    border: 1px solid #d7e8fa;
+    border-radius: 10px;
+}
+
+.devDashboard__playerTitle {
+
+    margin-bottom: 8px;
+
+    font-size: 0.9rem;
+    font-weight: 800;
+
+    color: #1c73d0;
+}
+
+.devDashboard__colorSwatch {
+
+    display: inline-block;
+
+    width: 18px;
+    height: 18px;
+
+    vertical-align: middle;
+
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+}
+
+.devDashboard__compactPanel {
+
+    margin-top: 20px;
+
+    padding: 12px 14px;
+
+    background: #ffffff;
+
+    border: 2px solid #4f8dd8;
+    border-radius: 14px;
+}
+
+.devDashboard__compactPanel summary {
+
+    cursor: pointer;
+
+    font-weight: 700;
+
+    color: #1c73d0;
+}
+
+.devDashboard__compactPanel .physicsDebugPanel {
+
+    position: static;
+
+    margin-top: 12px;
+
+    pointer-events: auto;
+}
+
+.devDashboard__footer {
+
+    margin-top: 24px;
+    padding-top: 16px;
+
+    font-size: 0.82rem;
+
+    color: #555;
+
+    border-top: 1px solid #d7e8fa;
+}
+
+.devDashboard__footerNote {
+
+    margin-top: 8px;
+
+    color: #777;
+}

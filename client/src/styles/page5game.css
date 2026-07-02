@@ -1,0 +1,508 @@
+/* ==========================================================
+   PAGE 5 — GAME (responsive layout)
+========================================================== */
+
+.page5 {
+
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+
+    display: flex;
+    flex-direction: column;
+
+    box-sizing: border-box;
+
+    overflow: hidden;
+
+    position: relative;
+}
+
+.page5__gameStateBadge {
+
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+
+    padding: 6px 14px;
+
+    border-radius: 999px;
+
+    background: rgba(28, 115, 208, 0.92);
+    color: #ffffff;
+
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+
+    pointer-events: none;
+}
+
+.page5__inputAckBadge {
+
+    position: absolute;
+    top: 48px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+
+    padding: 6px 14px;
+
+    border-radius: 999px;
+
+    color: #ffffff;
+
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+
+    pointer-events: none;
+}
+
+.page5__inputAckBadge--accepted {
+
+    background: rgba(0, 170, 68, 0.92);
+}
+
+.page5__inputAckBadge--rejected {
+
+    background: rgba(214, 40, 40, 0.92);
+}
+
+.gamePanel {
+
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+
+    position: relative;
+
+    display: flex;
+    flex-direction: column;
+
+    background: #ffffff;
+
+    border: 3px solid #1c73d0;
+    border-radius: 18px;
+
+    box-sizing: border-box;
+
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+
+    overflow: hidden;
+}
+
+/* ----------------------------------------------------------
+   GAME AREA — fills space between header and status bar
+---------------------------------------------------------- */
+
+.gameArea,
+.gamePanel__body {
+
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+
+    gap: clamp(10px, 1.5vw, 20px);
+
+    padding: clamp(8px, 1.2vh, 14px) clamp(10px, 1.4vw, 16px);
+
+    box-sizing: border-box;
+
+    container-type: size;
+    container-name: game-area;
+}
+
+/* ----------------------------------------------------------
+   WHEEL CONTAINER — flex growth + container queries
+---------------------------------------------------------- */
+
+.wheelContainer,
+.gamePanel__wheelArea {
+
+    flex: 1 1 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 0;
+    min-height: 0;
+
+    overflow: hidden;
+
+    container-type: size;
+    container-name: wheel-container;
+}
+
+/* ----------------------------------------------------------
+   PLAYER PANEL
+---------------------------------------------------------- */
+
+.playerPanel {
+
+    flex: 0 0 auto;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+
+    gap: clamp(4px, 2cqh, 10px);
+
+    width: clamp(100px, 12cqw, 160px);
+    height: 100%;
+    min-height: 0;
+
+    box-sizing: border-box;
+}
+
+.playerCard {
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+
+    flex: 1 1 0;
+
+    gap: clamp(3px, 1.2cqh, 8px);
+
+    min-height: 0;
+
+    padding: clamp(6px, 2cqh, 12px) clamp(6px, 1.5cqw, 10px);
+
+    background: #f7fbff;
+
+    border: 2px solid #4f8dd8;
+    border-radius: 12px;
+
+    box-sizing: border-box;
+}
+
+.playerCard__iconLabel {
+
+    font-size: clamp(7px, 2.2cqh, 10px);
+
+    font-weight: 700;
+
+    color: #222;
+
+    text-transform: uppercase;
+}
+
+.playerCard__icon {
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: clamp(28px, 28cqh, 46px);
+    height: clamp(28px, 28cqh, 46px);
+
+    font-size: clamp(14px, 14cqh, 22px);
+    font-weight: 700;
+    line-height: 1;
+
+    color: #1c73d0;
+
+    background: #ffffff;
+
+    border: 2px solid #4f8dd8;
+    border-radius: 50%;
+
+    box-sizing: border-box;
+}
+
+.playerCard__icon[data-player="1"] {
+
+    color: #1c73d0;
+
+    border-color: #4f8dd8;
+}
+
+.playerCard__icon[data-player="2"] {
+
+    color: #00aa44;
+
+    border-color: #4f8dd8;
+}
+
+.playerCard__icon[data-player="3"] {
+
+    color: #e67e00;
+
+    border-color: #4f8dd8;
+}
+
+.playerCard__nickname {
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 100%;
+    min-height: clamp(22px, 10cqh, 34px);
+
+    padding: 0 clamp(4px, 1cqw, 8px);
+
+    font-size: clamp(9px, 3.2cqh, 12px);
+    font-weight: 700;
+
+    color: #222;
+
+    background: #ffffff;
+
+    border: 2px solid #4f8dd8;
+    border-radius: 8px;
+
+    text-align: center;
+
+    box-sizing: border-box;
+}
+
+.playerCard__status {
+
+    font-size: clamp(8px, 2.8cqh, 11px);
+
+    font-weight: 700;
+
+    color: #00aa44;
+
+    text-transform: uppercase;
+}
+
+.playerCard__status--offline {
+
+    color: #d62828;
+}
+
+.playerCard__status--offlineBlink {
+
+    animation: playerOfflineBlink 1.4s ease-in-out infinite;
+}
+
+.playerCard__status--wait,
+.playerCard__status--press {
+
+    color: #1c73d0;
+}
+
+.playerCard__status--speed {
+
+    color: #00aa44;
+}
+
+.playerCard__status--brake {
+
+    color: #e67e00;
+}
+
+.playerCard__status--win {
+
+    color: #00aa44;
+}
+
+.playerCard__status--lost {
+
+    color: #d62828;
+}
+
+@keyframes playerOfflineBlink {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.25;
+    }
+}
+
+/* ----------------------------------------------------------
+   WHEEL PLACEHOLDER — engine canvas + overlays
+---------------------------------------------------------- */
+
+.wheelDebugBadge,
+.physicsDebugPanel {
+
+    position: absolute;
+
+    top: 8px;
+    right: 10px;
+
+    z-index: 10;
+
+    padding: 4px 8px;
+
+    font-size: 10px;
+    font-weight: 700;
+
+    color: #1c73d0;
+
+    background: #f7fbff;
+
+    border: 1px solid #4f8dd8;
+    border-radius: 6px;
+
+    pointer-events: none;
+}
+
+.physicsDebugPanel {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 2px;
+
+    min-width: 180px;
+
+    line-height: 1.35;
+}
+
+.physicsDebugPanel__title {
+
+    margin-bottom: 2px;
+
+    font-size: 11px;
+
+    text-transform: uppercase;
+}
+
+.physicsDebugPanel__hint {
+
+    margin-top: 4px;
+
+    font-size: 9px;
+    font-weight: 600;
+
+    color: #222;
+}
+
+.wheelPlaceholder {
+
+    --marker-size: clamp(10px, 5.5cqmin, 22px);
+    --wheel-size: min(98cqw, calc(98cqh - var(--marker-size)));
+
+    position: relative;
+
+    width: var(--wheel-size);
+    height: calc(var(--wheel-size) + var(--marker-size));
+
+    flex-shrink: 0;
+}
+
+.wheelEngineLayer,
+.wheelCenterButtonLayer,
+.wheelTriangleLayer {
+
+    position: absolute;
+
+    top: var(--marker-size);
+    left: 0;
+
+    width: var(--wheel-size);
+    height: var(--wheel-size);
+}
+
+.wheelEngineLayer {
+
+    z-index: 1;
+}
+
+.wheelCenterButtonLayer {
+
+    z-index: 5;
+
+    pointer-events: none;
+
+    container-type: size;
+    container-name: wheel-button-layer;
+}
+
+.wheelTriangleLayer {
+
+    top: 0;
+
+    width: var(--wheel-size);
+    height: calc(var(--marker-size) + var(--wheel-size));
+
+    border-radius: 0;
+
+    z-index: 6;
+
+    pointer-events: none;
+}
+
+/* ----------------------------------------------------------
+   CENTER BUTTON — styles live in centralButton.css
+---------------------------------------------------------- */
+
+/* ----------------------------------------------------------
+   DESKTOP / LAPTOP
+---------------------------------------------------------- */
+
+@media (min-width: 901px) {
+
+    .gamePanel {
+
+        width: min(100%, 1400px);
+        margin: 0 auto;
+    }
+}
+
+/* ----------------------------------------------------------
+   MOBILE — vertical stack
+---------------------------------------------------------- */
+
+@media (max-width: 600px) {
+
+    .gameArea,
+    .gamePanel__body {
+
+        flex-direction: column;
+
+        gap: clamp(10px, 2.5cqh, 18px);
+
+        padding: clamp(8px, 1.5cqh, 12px);
+    }
+
+    .playerPanel {
+
+        flex: 0 0 auto;
+
+        flex-direction: row;
+
+        width: 100%;
+        height: auto;
+
+        gap: clamp(6px, 2cqw, 10px);
+    }
+
+    .playerCard {
+
+        flex: 1 1 0;
+
+        min-width: 0;
+    }
+
+    .wheelContainer,
+    .gamePanel__wheelArea {
+
+        flex: 1 1 auto;
+
+        min-height: 0;
+    }
+
+    .wheelPlaceholder {
+
+        --wheel-size: min(98cqw, calc(98cqh - var(--marker-size)));
+    }
+}
