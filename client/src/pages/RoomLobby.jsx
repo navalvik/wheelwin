@@ -5,6 +5,8 @@ import GameLayout from "../layouts/GameLayout";
 import CreateRoomPanel from "../components/CreateRoomPanel";
 import JoinRoomPanel from "../components/JoinRoomPanel";
 
+import { usePlayerIdentity } from "../context/PlayerIdentityContext";
+
 import socket from "../socket/socket";
 
 import { ROOM_DEFAULTS } from "../utils/roomDefaults";
@@ -18,6 +20,8 @@ export default function RoomLobby({
 }) {
 
     const [roomState, setRoomState] = useState(ROOM_DEFAULTS);
+
+    const { setIdentity } = usePlayerIdentity();
 
     useEffect(() => {
 
@@ -35,6 +39,12 @@ export default function RoomLobby({
 
             }));
 
+            if (data?.gameId) {
+
+                setIdentity({ gameId: data.gameId });
+
+            }
+
             if (onNavigate) {
 
                 onNavigate(3);
@@ -51,7 +61,7 @@ export default function RoomLobby({
 
         };
 
-    }, [onNavigate]);
+    }, [onNavigate, setIdentity]);
 
     return (
 

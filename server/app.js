@@ -57,6 +57,7 @@ import { SimulationLoop } from "./simulation/SimulationLoop.js";
 import { GameStateActivation } from "./gameplay/GameStateActivation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
 import { PaymentActivation } from "./gameplay/PaymentActivation.js";
+import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 
 class WheelWinApplication {
@@ -109,6 +110,8 @@ class WheelWinApplication {
         this._winnerActivation = null;
 
         this._paymentActivation = null;
+
+        this._recoverySnapshotCache = null;
 
         this._gameplayLifecycle = null;
 
@@ -328,6 +331,18 @@ class WheelWinApplication {
 
         this._logger.startupLine("RecoveryEngine");
 
+        this._recoverySnapshotCache = new RecoverySnapshotCache({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            recoveryEngine: this._recoveryEngine,
+            paymentEngine: this._engines.paymentEngine,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._recoverySnapshotCache.initialize();
+
+        this._logger.startupLine("RecoverySnapshotCache");
+
         this._auditEngine = new AuditEngine({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -382,6 +397,7 @@ class WheelWinApplication {
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
             recoveryEngine: Boolean(this._recoveryEngine),
+            recoverySnapshotCache: Boolean(this._recoverySnapshotCache),
             auditEngine: Boolean(this._auditEngine),
             socketGateway: false
         });
@@ -423,6 +439,13 @@ class WheelWinApplication {
 
         this._roomLobbyBridge.initialize();
 
+        this._socketGateway.configureRecovery({
+            recoveryEngine: this._recoveryEngine,
+            recoverySnapshotCache: this._recoverySnapshotCache,
+            paymentEngine: this._engines.paymentEngine,
+            roomLobbyBridge: this._roomLobbyBridge
+        });
+
         this._logger.startupLine("RoomLobbyBridge");
 
         this._logger.startupLine("SocketGateway");
@@ -447,6 +470,7 @@ class WheelWinApplication {
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
             recoveryEngine: Boolean(this._recoveryEngine),
+            recoverySnapshotCache: Boolean(this._recoverySnapshotCache),
             auditEngine: Boolean(this._auditEngine),
             roomLobbyBridge: Boolean(this._roomLobbyBridge),
             socketGateway: Boolean(this._socketGateway)
@@ -591,6 +615,16 @@ class WheelWinApplication {
             if (this._inputAuthority) {
 
                 this._inputAuthority.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("recoverySnapshotCache", () => {
+
+            if (this._recoverySnapshotCache) {
+
+                this._recoverySnapshotCache.shutdown();
 
             }
 

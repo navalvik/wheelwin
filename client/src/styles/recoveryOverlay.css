@@ -1,0 +1,65 @@
+.recoveryOverlay {
+
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 24px;
+
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(2px);
+}
+
+.recoveryOverlay__card {
+
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+
+    min-width: 260px;
+    max-width: 360px;
+
+    padding: 20px 24px;
+
+    border-radius: 16px;
+
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+}
+
+.recoveryOverlay__message {
+
+    margin: 0;
+
+    font-size: 1rem;
+    font-weight: 700;
+    text-align: center;
+
+    color: #111827;
+}
+
+.recoveryOverlay__action {
+
+    padding: 10px 14px;
+
+    border: none;
+    border-radius: 10px;
+
+    font-size: 0.95rem;
+    font-weight: 700;
+
+    color: #ffffff;
+    background: #2563eb;
+
+    cursor: pointer;
+}
+
+.recoveryOverlay__action:hover {
+
+    background: #1d4ed8;
+}

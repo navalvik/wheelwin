@@ -17,7 +17,8 @@ const RESTORE_HANDLERS = Object.freeze({
     playerUI: "restorePlayerUI",
     button: "restoreButton",
     audio: "restoreAudio",
-    winnerResolver: "restoreWinnerResult"
+    winnerResolver: "restoreWinnerResult",
+    payment: "restorePayment"
 });
 
 const RESTORE_PROGRESS = Object.freeze({
@@ -27,7 +28,8 @@ const RESTORE_PROGRESS = Object.freeze({
     playerUI: RECOVERY_PROGRESS.RESTORING_PLAYER_UI,
     button: RECOVERY_PROGRESS.RESTORING_BUTTON,
     audio: RECOVERY_PROGRESS.RESTORING_AUDIO,
-    winnerResolver: RECOVERY_PROGRESS.RESTORING_RESULT
+    winnerResolver: RECOVERY_PROGRESS.RESTORING_RESULT,
+    payment: RECOVERY_PROGRESS.RESTORING_RESULT
 });
 
 export class SessionRecoveryEngine {
@@ -37,6 +39,7 @@ export class SessionRecoveryEngine {
         devMode = false,
         getModules,
         sendMessage,
+        getPlayerIdentity = null,
         onStateChange
     } = {}) {
 
@@ -47,6 +50,8 @@ export class SessionRecoveryEngine {
         this._getModules = getModules;
 
         this._sendMessage = sendMessage;
+
+        this._getPlayerIdentity = getPlayerIdentity;
 
         this._onStateChange = onStateChange;
 
@@ -149,7 +154,7 @@ export class SessionRecoveryEngine {
 
     reconnect() {
 
-        this._recoveryMessage = "Reconnected. Requesting session snapshot…";
+        this._recoveryMessage = "Reconnected. Restoring session…";
 
         this._setConnectionState(RECOVERY_CONNECTION_STATES.RECONNECTING);
 
@@ -163,11 +168,13 @@ export class SessionRecoveryEngine {
 
             this._reconnectTimer = null;
 
-            this.requestRecovery();
+            // Recovery requests are coordinated by RecoveryExperience at the
+            // app shell level. This engine only restores modules when the
+            // authoritative SESSION_SNAPSHOT arrives via EngineBridge.
 
         }, 300);
 
-        this._log("Socket reconnected — recovery scheduled");
+        this._log("Socket reconnected — awaiting authoritative snapshot");
 
     }
 
@@ -188,10 +195,14 @@ export class SessionRecoveryEngine {
 
         this._setConnectionState(RECOVERY_CONNECTION_STATES.RESYNCHRONIZING);
 
+        const identity = this._getPlayerIdentity?.() ?? {};
+
         this._sendMessage?.(
             RECOVERY_SOCKET_EVENTS.SESSION_RECOVERY_REQUEST,
             {
-                playerId: this._localPlayerId,
+                playerId: identity.playerId ?? this._localPlayerId,
+                roomId: identity.roomId ?? null,
+                gameId: identity.gameId ?? null,
                 timestamp: Date.now()
             }
         );

@@ -8,9 +8,16 @@ import {
     SOCKET_EVENTS
 } from "./events.js";
 import {
+    isGameplayClientMessageType,
     isGameplayInputMessageType,
+    isRecoveryRequestMessageType,
     normalizeGameplayMessage
 } from "./gameplaySocketProtocol.js";
+import {
+    buildClientRecoveryPayload,
+    buildRecoveryFailedMessage,
+    buildRecoverySnapshotMessage
+} from "./gameplayRecoveryProtocol.js";
 import {
     buildPhysicsSyncMessage
 } from "./gameplayPhysicsProtocol.js";
@@ -36,6 +43,10 @@ export class SocketGateway {
         eventBus = null,
         inputAuthority = null,
         gameplayContextResolver = null,
+        recoveryEngine = null,
+        recoverySnapshotCache = null,
+        paymentEngine = null,
+        roomLobbyBridge = null,
         devMode = false
     }) {
 
@@ -48,6 +59,14 @@ export class SocketGateway {
         this._inputAuthority = inputAuthority;
 
         this._gameplayContextResolver = gameplayContextResolver;
+
+        this._recoveryEngine = recoveryEngine;
+
+        this._recoverySnapshotCache = recoverySnapshotCache;
+
+        this._paymentEngine = paymentEngine;
+
+        this._roomLobbyBridge = roomLobbyBridge;
 
         this._devMode = devMode;
 
@@ -395,6 +414,39 @@ export class SocketGateway {
 
     }
 
+    configureRecovery({
+        recoveryEngine,
+        recoverySnapshotCache,
+        paymentEngine,
+        roomLobbyBridge
+    }) {
+
+        if (recoveryEngine) {
+
+            this._recoveryEngine = recoveryEngine;
+
+        }
+
+        if (recoverySnapshotCache) {
+
+            this._recoverySnapshotCache = recoverySnapshotCache;
+
+        }
+
+        if (paymentEngine) {
+
+            this._paymentEngine = paymentEngine;
+
+        }
+
+        if (roomLobbyBridge) {
+
+            this._roomLobbyBridge = roomLobbyBridge;
+
+        }
+
+    }
+
     _handleConnection(socket) {
 
         this._logger.info(`Client connected | socketId=${socket.id}`);
@@ -465,6 +517,22 @@ export class SocketGateway {
 
         }
 
+        if (!isGameplayClientMessageType(message.type)) {
+
+            this._logGameplayDrop(`unsupported gameplay message: ${message.type}`);
+
+            return;
+
+        }
+
+        if (isRecoveryRequestMessageType(message.type)) {
+
+            this._handleRecoveryRequest(socket, message);
+
+            return;
+
+        }
+
         if (!isGameplayInputMessageType(message.type)) {
 
             this._logGameplayDrop(`unsupported gameplay message: ${message.type}`);
@@ -522,6 +590,196 @@ export class SocketGateway {
         }
 
         this._logGameplayStep("Forwarded to InputAuthority");
+
+    }
+
+    _handleRecoveryRequest(socket, message) {
+
+        if (!socket?.connected) {
+
+            this._logRecoveryDrop("disconnected socket");
+
+            return;
+
+        }
+
+        if (!this._recoveryEngine) {
+
+            this._sendRecoveryFailed(socket, {
+                reason: "Recovery is not configured"
+            });
+
+            return;
+
+        }
+
+        const payload = message.payload ?? {};
+
+        this._logRecoveryStep("Recovery requested");
+
+        let context = this._gameplayContextResolver?.resolve(socket.id);
+
+        if (!context?.ok) {
+
+            const roomId = payload.roomId ?? null;
+
+            const playerId = payload.playerId ?? null;
+
+            if (!roomId || !playerId || !this._roomLobbyBridge) {
+
+                this._sendRecoveryFailed(socket, {
+                    reason: context?.reason
+                        ?? "Socket is not bound to a player session",
+                    playerId
+                });
+
+                return;
+
+            }
+
+            const reconnected = this._roomLobbyBridge.reconnectGameplaySession(
+                socket.id,
+                { playerId, roomId }
+            );
+
+            if (!reconnected.ok) {
+
+                this._sendRecoveryFailed(socket, {
+                    reason: reconnected.reason,
+                    playerId,
+                    gameId: reconnected.gameId ?? null
+                });
+
+                return;
+
+            }
+
+            context = {
+                ok: true,
+                playerId: reconnected.playerId,
+                roomId: reconnected.roomId,
+                gameId: reconnected.gameId
+            };
+
+        }
+
+        const gameId = payload.gameId ?? context.gameId;
+
+        const playerId = context.playerId;
+
+        const roomId = context.roomId;
+
+        if (!gameId) {
+
+            this._sendRecoveryFailed(socket, {
+                reason: "No active gameplay session for recovery",
+                playerId
+            });
+
+            return;
+
+        }
+
+        let authoritativeSnapshot = null;
+
+        let paymentStatus = null;
+
+        let payment = null;
+
+        try {
+
+            authoritativeSnapshot = this._recoveryEngine.recoverPlayer(
+                gameId,
+                playerId
+            );
+
+            paymentStatus = this._paymentEngine?.getPaymentStatus(gameId) ?? null;
+
+            payment = this._paymentEngine?.getPayment(gameId) ?? null;
+
+        } catch {
+
+            const cached = this._recoverySnapshotCache?.get(gameId);
+
+            if (cached?.snapshot) {
+
+                authoritativeSnapshot = cached.snapshot;
+
+                paymentStatus = cached.paymentStatus ?? null;
+
+                payment = cached.payment ?? null;
+
+            }
+
+        }
+
+        if (!authoritativeSnapshot) {
+
+            this._sendRecoveryFailed(socket, {
+                reason: "Recovery snapshot is unavailable",
+                gameId,
+                playerId
+            });
+
+            return;
+
+        }
+
+        const clientPayload = buildClientRecoveryPayload({
+            snapshot: authoritativeSnapshot,
+            playerId,
+            roomId,
+            paymentStatus,
+            payment
+        });
+
+        const { channel, message: responseMessage } = buildRecoverySnapshotMessage(
+            clientPayload
+        );
+
+        socket.emit(channel, responseMessage);
+
+        this._logRecoveryStep(
+            `Snapshot sent | gameState=${clientPayload.gameState ?? "?"}`
+        );
+
+    }
+
+    _sendRecoveryFailed(socket, { reason, gameId = null, playerId = null }) {
+
+        const { channel, message } = buildRecoveryFailedMessage({
+            reason,
+            gameId,
+            playerId
+        });
+
+        socket.emit(channel, message);
+
+        this._logRecoveryStep(`Recovery failed | reason=${reason}`);
+
+    }
+
+    _logRecoveryStep(message) {
+
+        if (!this._devMode) {
+
+            return;
+
+        }
+
+        this._logger.debug(`[RecoverySync] ${message}`);
+
+    }
+
+    _logRecoveryDrop(reason) {
+
+        if (!this._devMode) {
+
+            return;
+
+        }
+
+        this._logger.debug(`[RecoverySync] Dropped: ${reason}`);
 
     }
 

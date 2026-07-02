@@ -14,6 +14,10 @@ import { SessionRecoveryEngine } from "../game/sessionRecovery";
 
 import { useEngineBridge, useRegisterEngineModule } from "./EngineBridgeContext";
 
+import { usePlayerIdentityReader } from "./PlayerIdentityContext";
+
+import { useRecoveryExperience } from "./RecoveryExperienceContext";
+
 import { useSocketSync } from "./SocketSyncContext";
 
 const SessionRecoveryContext = createContext(null);
@@ -26,6 +30,10 @@ export function SessionRecoveryProvider({
     const bridge = useEngineBridge();
 
     const { send, subscribeStatus, getStatusSnapshot } = useSocketSync();
+
+    const getPlayerIdentity = usePlayerIdentityReader();
+
+    const { consumePendingGameplaySnapshot } = useRecoveryExperience();
 
     const engineRef = useRef(null);
 
@@ -62,6 +70,7 @@ export function SessionRecoveryProvider({
             localPlayerId,
             devMode: DEV_MODE,
             getModules: () => bridge.getModules(),
+            getPlayerIdentity,
             sendMessage: (type, payload) => send(type, payload),
             onStateChange: (status) => {
 
@@ -78,6 +87,14 @@ export function SessionRecoveryProvider({
 
         notifyListeners();
 
+        const pending = consumePendingGameplaySnapshot();
+
+        if (pending) {
+
+            engine.restoreSession(pending);
+
+        }
+
         return () => {
 
             engine.reset();
@@ -88,7 +105,7 @@ export function SessionRecoveryProvider({
 
         };
 
-    }, [bridge, localPlayerId, send, notifyListeners]);
+    }, [bridge, localPlayerId, send, notifyListeners, getPlayerIdentity, consumePendingGameplaySnapshot]);
 
     const lastSocketStateRef = useRef(null);
 

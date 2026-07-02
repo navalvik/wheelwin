@@ -302,7 +302,26 @@ export function WinnerResolverProvider({
 
         onPaymentCompleted: (payload) => publishPaymentStatus(payload),
 
-        onPaymentFailed: (payload) => publishPaymentStatus(payload)
+        onPaymentFailed: (payload) => publishPaymentStatus(payload),
+
+        restorePayment: (snapshot) => {
+
+            if (!snapshot?.payment) {
+
+                return;
+
+            }
+
+            publishPaymentStatus({
+                gameId: snapshot.gameId ?? null,
+                status: snapshot.payment.status,
+                winnerId: snapshot.gameResult?.winner?.id ?? null,
+                winnerAmount: snapshot.payment.winnerAmount ?? null,
+                reason: snapshot.payment.reason ?? null,
+                serverTimestamp: snapshot.timestamp ?? Date.now()
+            });
+
+        }
 
     }));
 

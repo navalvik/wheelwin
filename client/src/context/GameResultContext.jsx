@@ -67,6 +67,29 @@ export function GameResultProvider({ children, currentPage, onNavigate }) {
 
     }, []);
 
+    const applyRecoverySnapshot = useCallback((snapshot) => {
+
+        if (snapshot?.gameResult) {
+
+            publishAuthoritativeResult(snapshot.gameResult);
+
+        }
+
+        if (snapshot?.payment) {
+
+            publishPaymentStatus({
+                gameId: snapshot.gameId ?? null,
+                status: snapshot.payment.status,
+                winnerId: snapshot.gameResult?.winner?.id ?? null,
+                winnerAmount: snapshot.payment.winnerAmount ?? null,
+                reason: snapshot.payment.reason ?? null,
+                serverTimestamp: snapshot.timestamp ?? Date.now()
+            });
+
+        }
+
+    }, [publishAuthoritativeResult, publishPaymentStatus]);
+
     // Clear a stale result whenever a fresh game begins (pre-gameplay pages).
     useEffect(() => {
 
@@ -101,12 +124,14 @@ export function GameResultProvider({ children, currentPage, onNavigate }) {
         payment: state.payment,
         hasResult: Boolean(state.result),
         publishAuthoritativeResult,
-        publishPaymentStatus
+        publishPaymentStatus,
+        applyRecoverySnapshot
     }), [
         state.result,
         state.payment,
         publishAuthoritativeResult,
-        publishPaymentStatus
+        publishPaymentStatus,
+        applyRecoverySnapshot
     ]);
 
     return (
@@ -134,6 +159,16 @@ export function useGameResult() {
     }
 
     return context;
+
+}
+
+export function useGameResultRecovery() {
+
+    const context = useContext(GameResultContext);
+
+    return {
+        applyRecoverySnapshot: context?.applyRecoverySnapshot ?? (() => {})
+    };
 
 }
 

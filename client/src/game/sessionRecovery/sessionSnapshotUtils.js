@@ -13,8 +13,16 @@ export function normalizeSessionSnapshot(snapshot = {}) {
         ?? snapshot.pressCounters?.pressCounter
         ?? 0;
 
+    const gameState = typeof snapshot.gameState === "string"
+        ? snapshot.gameState
+        : snapshot.gameState?.currentState
+            ?? GAME_STATES.READY;
+
     return {
-        gameState: snapshot.gameState || GAME_STATES.READY,
+        gameId: snapshot.gameId ?? null,
+        roomId: snapshot.roomId ?? null,
+        playerId: snapshot.playerId ?? null,
+        gameState,
         wheelConfiguration: snapshot.wheelConfiguration || null,
         wheelAngle: snapshot.wheelAngle
             ?? physicsSource.wheelAngle
@@ -50,7 +58,9 @@ export function normalizeSessionSnapshot(snapshot = {}) {
         },
         remainingGameTime: snapshot.remainingGameTime ?? null,
         gameResult: snapshot.gameResult || null,
-        resultOutcome: mapSnapshotResultOutcome(snapshot)
+        payment: snapshot.payment || null,
+        resultOutcome: mapSnapshotResultOutcome(snapshot),
+        timestamp: snapshot.timestamp ?? null
     };
 
 }
@@ -99,6 +109,12 @@ export function getModulesToRestore(snapshot) {
         || normalized.gameState === GAME_STATES.RESULT) {
 
         modules.push("winnerResolver");
+
+    }
+
+    if (normalized.payment) {
+
+        modules.push("payment");
 
     }
 

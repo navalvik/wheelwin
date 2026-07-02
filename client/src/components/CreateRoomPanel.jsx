@@ -3,6 +3,8 @@ import { useEffect } from "react";
 import "../styles/createRoomPanel.css";
 import socket from "../socket/socket";
 
+import { usePlayerIdentity } from "../context/PlayerIdentityContext";
+
 function applyRoomPayload(setRoomState, data) {
 
     setRoomState((prev) => ({
@@ -31,6 +33,8 @@ export default function CreateRoomPanel({
 
 }) {
 
+    const { setIdentity } = usePlayerIdentity();
+
     useEffect(() => {
 
         function handleRoomState(data) {
@@ -42,6 +46,15 @@ export default function CreateRoomPanel({
         function handleRoomCreated(data) {
 
             applyRoomPayload(setRoomState, data);
+
+            if (data?.roomId && data?.playerId) {
+
+                setIdentity({
+                    roomId: data.roomId,
+                    playerId: data.playerId
+                });
+
+            }
 
         }
 
@@ -57,7 +70,7 @@ export default function CreateRoomPanel({
 
         };
 
-    }, [setRoomState]);
+    }, [setRoomState, setIdentity]);
 
     function createRoom() {
 

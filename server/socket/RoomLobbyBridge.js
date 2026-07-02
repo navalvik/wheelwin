@@ -415,6 +415,23 @@ export class RoomLobbyBridge {
 
         }
 
+        if (this._startedRooms.has(context.roomId)) {
+
+            this._playerManager.setConnectionState(
+                context.playerId,
+                CONNECTION_STATE.DISCONNECTED
+            );
+
+            this._unregisterSocket(socketId);
+
+            this._logger.info(
+                `Lobby soft disconnect | roomId=${context.roomId} | playerId=${context.playerId}`
+            );
+
+            return;
+
+        }
+
         this._removePlayerFromLobby(
             context.playerId,
             context.roomId,
@@ -423,6 +440,84 @@ export class RoomLobbyBridge {
                 reason: "disconnect"
             }
         );
+
+    }
+
+    reconnectGameplaySession(socketId, { playerId, roomId }) {
+
+        if (!socketId || !playerId || !roomId) {
+
+            return {
+                ok: false,
+                reason: "playerId and roomId are required for recovery"
+            };
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            return {
+                ok: false,
+                reason: "Room session is not active"
+            };
+
+        }
+
+        if (!room.players.includes(playerId)) {
+
+            return {
+                ok: false,
+                reason: "Player is not in the active room"
+            };
+
+        }
+
+        if (!this._startedRooms.has(roomId)) {
+
+            return {
+                ok: false,
+                reason: "Gameplay has not started for this room"
+            };
+
+        }
+
+        if (!this._playerManager.hasPlayer(playerId)) {
+
+            return {
+                ok: false,
+                reason: "Player session no longer exists"
+            };
+
+        }
+
+        this._registerSocketPlayer(socketId, playerId);
+
+        this._playerManager.setConnectionState(
+            playerId,
+            CONNECTION_STATE.CONNECTED
+        );
+
+        this._attachSocketToRoom(socketId, roomId);
+
+        const runtime = this._playerManager.getRuntime(playerId);
+
+        const gameId = this._gameplayContextResolver
+            ?.resolve(socketId)?.gameId
+            ?? runtime?.gameId
+            ?? null;
+
+        this._logger.info(
+            `Lobby recovery reconnect | roomId=${roomId} | playerId=${playerId}`
+        );
+
+        return {
+            ok: true,
+            playerId,
+            roomId,
+            gameId
+        };
 
     }
 
@@ -480,6 +575,7 @@ export class RoomLobbyBridge {
 
         const startGamePayload = {
             roomId,
+            gameId,
             players
         };
 

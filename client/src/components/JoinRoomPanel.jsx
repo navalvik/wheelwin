@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import socket from "../socket/socket";
 
+import { usePlayerIdentity } from "../context/PlayerIdentityContext";
+
 import "../styles/joinRoomPanel.css";
 
 function applyRoomPayload(setRoomState, data) {
@@ -34,6 +36,8 @@ export default function JoinRoomPanel({
 
     const [roomId, setRoomId] = useState("");
 
+    const { setIdentity } = usePlayerIdentity();
+
     useEffect(() => {
 
         function handleRoomState(data) {
@@ -45,6 +49,15 @@ export default function JoinRoomPanel({
         function handleRoomJoined(data) {
 
             applyRoomPayload(setRoomState, data);
+
+            if (data?.roomId && data?.playerId) {
+
+                setIdentity({
+                    roomId: data.roomId,
+                    playerId: data.playerId
+                });
+
+            }
 
         }
 
@@ -94,7 +107,7 @@ export default function JoinRoomPanel({
 
         };
 
-    }, [setRoomState]);
+    }, [setRoomState, setIdentity]);
 
     function joinRoom() {
 

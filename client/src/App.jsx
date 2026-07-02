@@ -13,6 +13,9 @@ import Page6Result from "./pages/Page6Result";
 import { DevNavigationContext } from "./context/DevNavigationContext";
 import { GameSessionProvider } from "./context/GameSessionContext";
 import { GameResultProvider } from "./context/GameResultContext";
+import { PlayerIdentityProvider } from "./context/PlayerIdentityContext";
+import { RecoveryExperienceProvider } from "./context/RecoveryExperienceContext";
+import RecoveryOverlay from "./components/RecoveryOverlay";
 import {
     DEV_DASHBOARD_ENABLED,
     DEV_MODE,
@@ -171,25 +174,38 @@ function GameFlow() {
 
     return (
 
-        <GameSessionProvider
-            currentPage={currentPage}
-            onNavigate={navigate}
-        >
+        <PlayerIdentityProvider>
 
-            <GameResultProvider
+            <GameSessionProvider
                 currentPage={currentPage}
                 onNavigate={navigate}
             >
 
-                <DevNavigationContext.Provider value={devNavigation}>
+                <GameResultProvider
+                    currentPage={currentPage}
+                    onNavigate={navigate}
+                >
 
-                    {renderPage()}
+                    <RecoveryExperienceProvider
+                        currentPage={currentPage}
+                        onNavigate={navigate}
+                    >
 
-                </DevNavigationContext.Provider>
+                        <DevNavigationContext.Provider value={devNavigation}>
 
-            </GameResultProvider>
+                            {renderPage()}
 
-        </GameSessionProvider>
+                            <RecoveryOverlay />
+
+                        </DevNavigationContext.Provider>
+
+                    </RecoveryExperienceProvider>
+
+                </GameResultProvider>
+
+            </GameSessionProvider>
+
+        </PlayerIdentityProvider>
 
     );
 

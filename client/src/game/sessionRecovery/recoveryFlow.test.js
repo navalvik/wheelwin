@@ -1,0 +1,91 @@
+import {
+    APP_PAGES,
+    RECOVERY_UI_STATUS,
+    canRecoverPreGame,
+    hasGameplayIdentity,
+    isGameplayPage,
+    isPreGamePage,
+    resolveGameplayRecoveryPage
+} from "./recoveryFlow.js";
+
+import { GAME_STATES } from "../GameState";
+
+function assert(condition, message) {
+
+    if (!condition) {
+
+        throw new Error(message);
+
+    }
+
+}
+
+// ---------------------------------------------------------------------------
+// Pre-game recovery (Setup Timer domain).
+// ---------------------------------------------------------------------------
+
+{
+
+    assert(isPreGamePage(APP_PAGES.PLAYER_SETUP), "page 3 is pre-game");
+
+    assert(isPreGamePage(APP_PAGES.PAYMENT), "page 6 is pre-game");
+
+    assert(!isPreGamePage(APP_PAGES.GAMEPLAY), "page 7 is not pre-game");
+
+    assert(
+        canRecoverPreGame({
+            currentPhase: "setup",
+            phaseTimeRemaining: 120
+        }),
+        "active setup timer allows recovery"
+    );
+
+    assert(
+        !canRecoverPreGame({
+            currentPhase: "setup",
+            phaseTimeRemaining: 0
+        }),
+        "expired setup timer blocks recovery"
+    );
+
+    console.log("  pre-game: setup timer rules passed");
+
+}
+
+// ---------------------------------------------------------------------------
+// Gameplay recovery (authoritative snapshot domain).
+// ---------------------------------------------------------------------------
+
+{
+
+    assert(
+        resolveGameplayRecoveryPage({
+            gameState: GAME_STATES.SPEED,
+            wheelAngle: 45
+        }) === APP_PAGES.GAMEPLAY,
+        "active gameplay restores Page5"
+    );
+
+    assert(
+        resolveGameplayRecoveryPage({
+            gameState: GAME_STATES.RESULT,
+            gameResult: { winner: { id: "p1" } }
+        }) === APP_PAGES.RESULT,
+        "finished game restores Page6"
+    );
+
+    assert(
+        hasGameplayIdentity({ roomId: "ABC", playerId: "player_1" }),
+        "in-memory identity is sufficient for gameplay recovery"
+    );
+
+    assert(
+        !hasGameplayIdentity({ roomId: "ABC" }),
+        "identity without playerId is invalid"
+    );
+
+    console.log("  gameplay: authoritative page resolution passed");
+
+}
+
+console.log("recoveryFlow.test.js: all assertions passed");
