@@ -12,6 +12,7 @@ import Page6Result from "./pages/Page6Result";
 
 import { DevNavigationContext } from "./context/DevNavigationContext";
 import { GameSessionProvider } from "./context/GameSessionContext";
+import { GameResultProvider } from "./context/GameResultContext";
 import {
     DEV_DASHBOARD_ENABLED,
     DEV_MODE,
@@ -175,11 +176,18 @@ function GameFlow() {
             onNavigate={navigate}
         >
 
-            <DevNavigationContext.Provider value={devNavigation}>
+            <GameResultProvider
+                currentPage={currentPage}
+                onNavigate={navigate}
+            >
 
-                {renderPage()}
+                <DevNavigationContext.Provider value={devNavigation}>
 
-            </DevNavigationContext.Provider>
+                    {renderPage()}
+
+                </DevNavigationContext.Provider>
+
+            </GameResultProvider>
 
         </GameSessionProvider>
 

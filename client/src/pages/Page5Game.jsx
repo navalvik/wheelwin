@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
+
+import { DEV_MODE } from "../config/devMode";
 
 import WheelPlaceholder from "../components/page5/WheelPlaceholder";
 import PlayerPanel from "../components/page5/PlayerPanel";
@@ -33,6 +35,20 @@ function Page5GameContent({
         press,
         release
     } = useCentralButton();
+
+    useEffect(() => () => {
+
+        // On navigation away from Page5 (e.g. to Page6), React unmounts the
+        // whole GameEngineProviders tree, disposing every gameplay-only
+        // resource: animation frames, socket subscriptions, dev overlays and
+        // temporary contexts. This log marks that disposal in development.
+        if (DEV_MODE) {
+
+            console.debug("[GameResult] Page5 disposed");
+
+        }
+
+    }, []);
 
     useRegisterEngineModule("wheel", () => ({
 

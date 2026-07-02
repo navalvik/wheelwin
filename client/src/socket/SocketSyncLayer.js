@@ -166,11 +166,14 @@ export class SocketSyncLayer {
 
     dispose() {
 
+        // Release this layer's subscriptions (dispatcher routes + socket event
+        // listeners) but intentionally leave the shared singleton socket
+        // connected. Presentation navigation such as Page5 → Page6 unmounts this
+        // layer, yet the socket must remain active with no reconnect. Use
+        // disconnect() for an intentional teardown.
         this._unregisterDispatcher?.();
 
         this._unbindSocketEvents();
-
-        this.disconnect();
 
     }
 

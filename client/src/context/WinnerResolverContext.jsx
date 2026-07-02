@@ -20,6 +20,8 @@ import { useRegisterEngineModule } from "./EngineBridgeContext";
 
 import { useCentralButton } from "./CentralButtonContext";
 
+import { useGameResultPublisher } from "./GameResultContext";
+
 import { useGameState } from "./GameStateContext";
 
 import { usePhysics } from "./PhysicsContext";
@@ -61,6 +63,8 @@ export function WinnerResolverProvider({
     const { engine: playerUIEngine } = usePlayerUI();
 
     const { setResultOutcome } = useCentralButton();
+
+    const publishAuthoritativeResult = useGameResultPublisher();
 
     const resolverRef = useRef(null);
 
@@ -234,6 +238,11 @@ export function WinnerResolverProvider({
     useRegisterEngineModule("winnerResolver", () => ({
 
         applyServerResult: (payload) => {
+
+            // Forward the raw authoritative payload to the persistent result
+            // store so Page6 presents server data verbatim and the client
+            // auto-navigates. The client never calculates the winner here.
+            publishAuthoritativeResult(payload);
 
             const result = resolverRef.current.applyServerResult(payload);
 
