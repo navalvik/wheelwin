@@ -12,7 +12,10 @@ import { SimulationLoop } from "../../simulation/SimulationLoop.js";
 import { WinnerEngine } from "../../engines/WinnerEngine.js";
 import { GameStateActivation } from "../../gameplay/GameStateActivation.js";
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
+import { PaymentActivation } from "../../gameplay/PaymentActivation.js";
 import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
+import { PaymentEngine } from "../../engines/PaymentEngine.js";
+import { TelegramWalletAdapter } from "../../services/telegram/TelegramWalletAdapter.js";
 
 export function createFastTimers() {
 
@@ -69,7 +72,8 @@ export function wireGameplayBootstrap({
     eventBus,
     gameplayContextResolver = null,
     devMode = true,
-    enableLifecycle = false
+    enableLifecycle = false,
+    walletAdapter = null
 }) {
 
     const catalog = new GameCatalog({ logger });
@@ -166,6 +170,27 @@ export function wireGameplayBootstrap({
 
     winnerActivation.initialize();
 
+    const paymentEngine = new PaymentEngine({
+        logger,
+        eventBus,
+        winnerEngine,
+        configurationEngine,
+        gameCatalog: catalog,
+        telegramWalletAdapter: walletAdapter
+            ?? new TelegramWalletAdapter({ logger })
+    });
+
+    paymentEngine.initialize();
+
+    const paymentActivation = new PaymentActivation({
+        logger,
+        eventBus,
+        paymentEngine,
+        devMode
+    });
+
+    paymentActivation.initialize();
+
     let gameplayLifecycle = null;
 
     if (enableLifecycle) {
@@ -181,6 +206,8 @@ export function wireGameplayBootstrap({
             configurationEngine,
             winnerEngine,
             winnerActivation,
+            paymentEngine,
+            paymentActivation,
             gameManager,
             devMode
         });
@@ -214,6 +241,8 @@ export function wireGameplayBootstrap({
         gameStateActivation,
         winnerEngine,
         winnerActivation,
+        paymentEngine,
+        paymentActivation,
         gameplayLifecycle
     };
 
@@ -232,6 +261,10 @@ export function shutdownGameplayBootstrap(engines) {
         engines.gameplayLifecycle.shutdown();
 
     }
+
+    engines.paymentActivation.shutdown();
+
+    engines.paymentEngine.shutdown();
 
     engines.winnerActivation.shutdown();
 

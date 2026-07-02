@@ -78,6 +78,21 @@ export class EngineBridge {
                 modules.winnerResolver?.applyServerResult?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_STARTED]: (payload) => {
+
+                modules.payment?.onPaymentStarted?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_COMPLETED]: (payload) => {
+
+                modules.payment?.onPaymentCompleted?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_FAILED]: (payload) => {
+
+                modules.payment?.onPaymentFailed?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.GAME_START]: (payload) => {
 
                 modules.audio?.onGameStart?.(payload);

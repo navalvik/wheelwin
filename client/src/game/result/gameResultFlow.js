@@ -14,14 +14,63 @@ export const GAME_RESULT_PAGE = Object.freeze({
 
 export const GAME_RESULT_ACTIONS = Object.freeze({
     AUTHORITATIVE_RESULT: "AUTHORITATIVE_RESULT",
+    PAYMENT_STATUS: "PAYMENT_STATUS",
     NAVIGATED: "NAVIGATED",
     RESET: "RESET"
 });
 
+// Authoritative payment lifecycle statuses as forwarded by the server.
+export const PAYMENT_VIEW_STATUS = Object.freeze({
+    STARTED: "STARTED",
+    COMPLETED: "COMPLETED",
+    FAILED: "FAILED"
+});
+
+const TERMINAL_PAYMENT_STATUSES = Object.freeze([
+    PAYMENT_VIEW_STATUS.COMPLETED,
+    PAYMENT_VIEW_STATUS.FAILED
+]);
+
 export const GAME_RESULT_INITIAL_STATE = Object.freeze({
     result: null,
+    payment: null,
     navigated: false
 });
+
+function isTerminalPaymentStatus(status) {
+
+    return TERMINAL_PAYMENT_STATUSES.includes(status);
+
+}
+
+/**
+ * Maps an authoritative payment status payload to the Page6 view. The status is
+ * server-provided; the client never computes payout, fees, or status.
+ */
+export function mapPaymentStatusToView(payload) {
+
+    if (!payload || !payload.status) {
+
+        return null;
+
+    }
+
+    if (!Object.values(PAYMENT_VIEW_STATUS).includes(payload.status)) {
+
+        return null;
+
+    }
+
+    return {
+        gameId: payload.gameId ?? null,
+        status: payload.status,
+        winnerId: payload.winnerId ?? null,
+        winnerAmount: payload.winnerAmount ?? null,
+        reason: payload.reason ?? null,
+        serverTimestamp: payload.serverTimestamp ?? null
+    };
+
+}
 
 /**
  * Maps the raw authoritative GAME_RESULT payload to the presentation view used
@@ -82,6 +131,32 @@ export function gameResultReducer(state, action) {
             }
 
             return { ...state, result: view };
+
+        }
+
+        case GAME_RESULT_ACTIONS.PAYMENT_STATUS: {
+
+            const view = mapPaymentStatusToView(action.payload);
+
+            if (!view) {
+
+                return state;
+
+            }
+
+            // Never downgrade an authoritative terminal status (COMPLETED /
+            // FAILED) back to an in-progress one if messages arrive out of order.
+            if (
+                state.payment
+                && isTerminalPaymentStatus(state.payment.status)
+                && !isTerminalPaymentStatus(view.status)
+            ) {
+
+                return state;
+
+            }
+
+            return { ...state, payment: view };
 
         }
 

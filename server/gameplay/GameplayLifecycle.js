@@ -13,7 +13,7 @@ const DEFAULT_RESULT_LINGER_MS = 3000;
  * existing engine `remove*` APIs together in a deterministic order:
  *
  *   Physics simulation → Input queue → GameClock → WinnerActivation guards →
- *   Winner result → GameState → Configuration → Game record
+ *   Payment record → Winner result → GameState → Configuration → Game record
  *
  * Room teardown is intentionally excluded — room lifecycle is owned by
  * RoomManager / RoomLobbyBridge, not the gameplay core.
@@ -35,6 +35,8 @@ export class GameplayLifecycle {
         configurationEngine,
         winnerEngine,
         winnerActivation,
+        paymentEngine = null,
+        paymentActivation = null,
         gameManager,
         devMode = false
     }) {
@@ -58,6 +60,10 @@ export class GameplayLifecycle {
         this._winnerEngine = winnerEngine;
 
         this._winnerActivation = winnerActivation;
+
+        this._paymentEngine = paymentEngine;
+
+        this._paymentActivation = paymentActivation;
 
         this._gameManager = gameManager;
 
@@ -195,6 +201,23 @@ export class GameplayLifecycle {
         if (this._winnerActivation) {
 
             this._winnerActivation.forgetGame(gameId);
+
+        }
+
+        if (this._paymentActivation) {
+
+            this._paymentActivation.forgetGame(gameId);
+
+        }
+
+        if (
+            this._paymentEngine
+            && this._paymentEngine.getPaymentStatus(gameId) !== null
+        ) {
+
+            this._paymentEngine.removePayment(gameId);
+
+            this._logStep("Payment removed");
 
         }
 

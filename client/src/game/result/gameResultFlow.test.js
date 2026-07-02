@@ -2,8 +2,10 @@ import {
     GAME_RESULT_ACTIONS,
     GAME_RESULT_INITIAL_STATE,
     GAME_RESULT_PAGE,
+    PAYMENT_VIEW_STATUS,
     gameResultReducer,
     mapAuthoritativeResultToView,
+    mapPaymentStatusToView,
     shouldNavigateToResult,
     shouldResetResult
 } from "./gameResultFlow.js";
@@ -216,6 +218,113 @@ const AUTHORITATIVE_PAYLOAD = {
     assert(state.navigated === false, "reset should clear the navigation flag");
 
     console.log("  reset: fresh game clears stale result passed");
+
+}
+
+// ---------------------------------------------------------------------------
+// Payment — authoritative status passthrough, no client calculation.
+// ---------------------------------------------------------------------------
+
+{
+
+    const view = mapPaymentStatusToView({
+        gameId: "game_abc",
+        status: PAYMENT_VIEW_STATUS.COMPLETED,
+        winnerId: "player_2",
+        winnerAmount: 22.5,
+        reason: null,
+        serverTimestamp: 1730000000001
+    });
+
+    assert(view.status === "COMPLETED", "payment status should pass through");
+
+    assert(view.winnerAmount === 22.5, "payout amount should pass through");
+
+    assert(
+        mapPaymentStatusToView({ status: "NONSENSE" }) === null,
+        "unknown payment status must be rejected"
+    );
+
+    assert(
+        mapPaymentStatusToView(null) === null,
+        "null payment payload should map to null"
+    );
+
+    console.log("  payment: authoritative status passthrough passed");
+
+}
+
+// Payment lifecycle progresses STARTED -> COMPLETED, but never downgrades.
+{
+
+    let state = { ...GAME_RESULT_INITIAL_STATE };
+
+    state = gameResultReducer(state, {
+        type: GAME_RESULT_ACTIONS.PAYMENT_STATUS,
+        payload: { gameId: "g", status: PAYMENT_VIEW_STATUS.STARTED }
+    });
+
+    assert(
+        state.payment.status === PAYMENT_VIEW_STATUS.STARTED,
+        "payment should capture the STARTED status"
+    );
+
+    state = gameResultReducer(state, {
+        type: GAME_RESULT_ACTIONS.PAYMENT_STATUS,
+        payload: {
+            gameId: "g",
+            status: PAYMENT_VIEW_STATUS.COMPLETED,
+            winnerAmount: 22.5
+        }
+    });
+
+    assert(
+        state.payment.status === PAYMENT_VIEW_STATUS.COMPLETED,
+        "payment should progress to COMPLETED"
+    );
+
+    // An out-of-order STARTED must not downgrade a terminal status.
+    const downgrade = gameResultReducer(state, {
+        type: GAME_RESULT_ACTIONS.PAYMENT_STATUS,
+        payload: { gameId: "g", status: PAYMENT_VIEW_STATUS.STARTED }
+    });
+
+    assert(
+        downgrade.payment.status === PAYMENT_VIEW_STATUS.COMPLETED,
+        "terminal payment status must not downgrade to STARTED"
+    );
+
+    assert(
+        downgrade === state,
+        "no-op payment update should return the same state reference"
+    );
+
+    console.log("  payment: lifecycle progression / no downgrade passed");
+
+}
+
+// Payment state is independent of the winner result and cleared on reset.
+{
+
+    let state = { ...GAME_RESULT_INITIAL_STATE };
+
+    state = gameResultReducer(state, {
+        type: GAME_RESULT_ACTIONS.PAYMENT_STATUS,
+        payload: { gameId: "g", status: PAYMENT_VIEW_STATUS.FAILED, reason: "x" }
+    });
+
+    assert(
+        state.result === null,
+        "payment status must not fabricate a game result"
+    );
+
+    assert(state.payment.status === "FAILED", "failed status should be stored");
+
+    state = gameResultReducer(state, { type: GAME_RESULT_ACTIONS.RESET });
+
+    assert(state.payment === null, "reset should clear payment status");
+
+    console.log("  payment: independent of result and reset passed");
 
 }
 

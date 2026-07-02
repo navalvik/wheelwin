@@ -56,6 +56,17 @@ export function GameResultProvider({ children, currentPage, onNavigate }) {
 
     }, []);
 
+    const publishPaymentStatus = useCallback((payload) => {
+
+        devLog(`PAYMENT status ${payload?.status ?? "?"}`);
+
+        dispatch({
+            type: GAME_RESULT_ACTIONS.PAYMENT_STATUS,
+            payload
+        });
+
+    }, []);
+
     // Clear a stale result whenever a fresh game begins (pre-gameplay pages).
     useEffect(() => {
 
@@ -87,9 +98,16 @@ export function GameResultProvider({ children, currentPage, onNavigate }) {
 
     const value = useMemo(() => ({
         result: state.result,
+        payment: state.payment,
         hasResult: Boolean(state.result),
-        publishAuthoritativeResult
-    }), [state.result, publishAuthoritativeResult]);
+        publishAuthoritativeResult,
+        publishPaymentStatus
+    }), [
+        state.result,
+        state.payment,
+        publishAuthoritativeResult,
+        publishPaymentStatus
+    ]);
 
     return (
 
@@ -119,6 +137,8 @@ export function useGameResult() {
 
 }
 
+const NOOP = () => {};
+
 /**
  * Safe accessor for producers (e.g. the gameplay winner module) that may render
  * outside a GameResultProvider in isolated tests. Returns a no-op publisher when
@@ -128,6 +148,21 @@ export function useGameResultPublisher() {
 
     const context = useContext(GameResultContext);
 
-    return context?.publishAuthoritativeResult ?? (() => {});
+    return context?.publishAuthoritativeResult ?? NOOP;
+
+}
+
+/**
+ * Safe accessor exposing both authoritative producers (result + payment status)
+ * for the Page5 gameplay bridge. Falls back to no-ops outside a provider.
+ */
+export function useGameResultProducers() {
+
+    const context = useContext(GameResultContext);
+
+    return {
+        publishAuthoritativeResult: context?.publishAuthoritativeResult ?? NOOP,
+        publishPaymentStatus: context?.publishPaymentStatus ?? NOOP
+    };
 
 }

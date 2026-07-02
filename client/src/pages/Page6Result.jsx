@@ -6,7 +6,15 @@ import { DEV_MODE } from "../config/devMode";
 
 import { useGameResult } from "../context/GameResultContext";
 
+import { PAYMENT_VIEW_STATUS } from "../game/result/gameResultFlow";
+
 import "../styles/page6result.css";
+
+const PAYMENT_STATUS_LABEL = {
+    [PAYMENT_VIEW_STATUS.STARTED]: "Settlement in progress…",
+    [PAYMENT_VIEW_STATUS.COMPLETED]: "Payment completed",
+    [PAYMENT_VIEW_STATUS.FAILED]: "Payment failed"
+};
 
 const EMPTY_VALUE = "—";
 
@@ -57,7 +65,7 @@ const RESERVED_AREAS = [
 
 export default function Page6Result() {
 
-    const { result } = useGameResult();
+    const { result, payment } = useGameResult();
 
     useEffect(() => {
 
@@ -163,6 +171,46 @@ export default function Page6Result() {
                                 </div>
 
                             </dl>
+
+                            <div
+                                className="page6__payment"
+                                data-status={payment?.status ?? "PENDING"}
+                                aria-live="polite"
+                            >
+
+                                <div className="page6__paymentLabel">
+
+                                    {payment
+                                        ? (PAYMENT_STATUS_LABEL[payment.status]
+                                            ?? payment.status)
+                                        : "Awaiting settlement…"}
+
+                                </div>
+
+                                {payment?.status === PAYMENT_VIEW_STATUS.COMPLETED
+                                    && payment.winnerAmount !== null
+                                    && payment.winnerAmount !== undefined && (
+
+                                    <div className="page6__paymentAmount">
+
+                                        Payout: {payment.winnerAmount}
+
+                                    </div>
+
+                                )}
+
+                                {payment?.status === PAYMENT_VIEW_STATUS.FAILED
+                                    && DEV_MODE && payment.reason && (
+
+                                    <div className="page6__paymentReason">
+
+                                        {payment.reason}
+
+                                    </div>
+
+                                )}
+
+                            </div>
 
                             {DEV_MODE && (
 

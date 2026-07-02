@@ -203,4 +203,72 @@ function createFakeSocket() {
 
 }
 
+// ---------------------------------------------------------------------------
+// Incoming authoritative payment events are routed to the presentation layer.
+// The client only displays them — it never settles or recalculates.
+// ---------------------------------------------------------------------------
+
+{
+
+    const socket = createFakeSocket();
+
+    const received = [];
+
+    const engineBridge = {
+        createDispatcherHandlers() {
+
+            return {
+                [INCOMING_SOCKET_EVENTS.PAYMENT_STARTED]: (payload) => {
+
+                    received.push({ event: "STARTED", payload });
+
+                },
+                [INCOMING_SOCKET_EVENTS.PAYMENT_COMPLETED]: (payload) => {
+
+                    received.push({ event: "COMPLETED", payload });
+
+                },
+                [INCOMING_SOCKET_EVENTS.PAYMENT_FAILED]: (payload) => {
+
+                    received.push({ event: "FAILED", payload });
+
+                }
+            };
+
+        }
+    };
+
+    const layer = new SocketSyncLayer(socket, { engineBridge, devMode: false });
+
+    layer.connect();
+
+    layer.dispatchLocal({
+        type: INCOMING_SOCKET_EVENTS.PAYMENT_STARTED,
+        payload: { gameId: "game_1", status: "STARTED" }
+    });
+
+    layer.dispatchLocal({
+        type: INCOMING_SOCKET_EVENTS.PAYMENT_COMPLETED,
+        payload: { gameId: "game_1", status: "COMPLETED", winnerAmount: 22.5 }
+    });
+
+    assert(
+        received.length === 2,
+        "payment events should be dispatched to the presentation layer"
+    );
+
+    assert(
+        received[0].event === "STARTED" && received[1].event === "COMPLETED",
+        "payment lifecycle should arrive in order (STARTED -> COMPLETED)"
+    );
+
+    assert(
+        received[1].payload.winnerAmount === 22.5,
+        "authoritative payout amount should reach the client for display"
+    );
+
+    console.log("  dispatch: payment events routed to presentation passed");
+
+}
+
 console.log("socketSyncLayer.test.js: all assertions passed");

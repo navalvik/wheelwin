@@ -142,6 +142,57 @@
     font-weight: 600;
 }
 
+/* Authoritative payment status (server-driven, display only). */
+.page6__payment {
+
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    padding: 14px 16px;
+
+    border-radius: 12px;
+
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+}
+
+.page6__payment[data-status="COMPLETED"] {
+
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+}
+
+.page6__payment[data-status="FAILED"] {
+
+    background: #fef2f2;
+    border-color: #fecaca;
+}
+
+.page6__paymentLabel {
+
+    font-size: 1rem;
+    font-weight: 800;
+
+    color: #1f2937;
+}
+
+.page6__paymentAmount {
+
+    font-size: 0.9rem;
+    font-weight: 700;
+
+    color: #047857;
+}
+
+.page6__paymentReason {
+
+    font-size: 0.78rem;
+    font-family: monospace;
+
+    color: #b91c1c;
+}
+
 /* Development-only diagnostics — safe to remove later. */
 .page6__dev {
 

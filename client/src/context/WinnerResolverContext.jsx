@@ -20,7 +20,7 @@ import { useRegisterEngineModule } from "./EngineBridgeContext";
 
 import { useCentralButton } from "./CentralButtonContext";
 
-import { useGameResultPublisher } from "./GameResultContext";
+import { useGameResultProducers } from "./GameResultContext";
 
 import { useGameState } from "./GameStateContext";
 
@@ -64,7 +64,10 @@ export function WinnerResolverProvider({
 
     const { setResultOutcome } = useCentralButton();
 
-    const publishAuthoritativeResult = useGameResultPublisher();
+    const {
+        publishAuthoritativeResult,
+        publishPaymentStatus
+    } = useGameResultProducers();
 
     const resolverRef = useRef(null);
 
@@ -287,6 +290,19 @@ export function WinnerResolverProvider({
             return result;
 
         }
+
+    }));
+
+    useRegisterEngineModule("payment", () => ({
+
+        // Payment is authoritative and server-driven. The client only forwards
+        // the status to the persistent result store for Page6 presentation; it
+        // never calculates payout or mutates payment state.
+        onPaymentStarted: (payload) => publishPaymentStatus(payload),
+
+        onPaymentCompleted: (payload) => publishPaymentStatus(payload),
+
+        onPaymentFailed: (payload) => publishPaymentStatus(payload)
 
     }));
 

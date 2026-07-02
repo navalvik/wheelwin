@@ -24,6 +24,9 @@ import {
 import {
     buildWinnerResultMessage
 } from "./gameplayWinnerProtocol.js";
+import {
+    buildPaymentStatusMessage
+} from "./gameplayPaymentProtocol.js";
 
 export class SocketGateway {
 
@@ -65,6 +68,12 @@ export class SocketGateway {
         this._playerInputRejectedHandler = null;
 
         this._winnerDeterminedHandler = null;
+
+        this._paymentStartedHandler = null;
+
+        this._paymentCompletedHandler = null;
+
+        this._paymentFailedHandler = null;
 
         this._socketRooms = new Map();
 
@@ -160,6 +169,48 @@ export class SocketGateway {
             this._winnerDeterminedHandler
         );
 
+        this._paymentStartedHandler = (envelope) => {
+
+            this._handlePaymentEvent(
+                EVENT_TYPES.PAYMENT_STARTED,
+                envelope.payload
+            );
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.PAYMENT_STARTED,
+            this._paymentStartedHandler
+        );
+
+        this._paymentCompletedHandler = (envelope) => {
+
+            this._handlePaymentEvent(
+                EVENT_TYPES.PAYMENT_COMPLETED,
+                envelope.payload
+            );
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.PAYMENT_COMPLETED,
+            this._paymentCompletedHandler
+        );
+
+        this._paymentFailedHandler = (envelope) => {
+
+            this._handlePaymentEvent(
+                EVENT_TYPES.PAYMENT_FAILED,
+                envelope.payload
+            );
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.PAYMENT_FAILED,
+            this._paymentFailedHandler
+        );
+
     }
 
     disconnectEventBus() {
@@ -227,6 +278,33 @@ export class SocketGateway {
 
         }
 
+        if (this._eventBus && this._paymentStartedHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.PAYMENT_STARTED,
+                this._paymentStartedHandler
+            );
+
+        }
+
+        if (this._eventBus && this._paymentCompletedHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.PAYMENT_COMPLETED,
+                this._paymentCompletedHandler
+            );
+
+        }
+
+        if (this._eventBus && this._paymentFailedHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.PAYMENT_FAILED,
+                this._paymentFailedHandler
+            );
+
+        }
+
         this._eventBus = null;
 
         this._testEventHandler = null;
@@ -242,6 +320,12 @@ export class SocketGateway {
         this._playerInputRejectedHandler = null;
 
         this._winnerDeterminedHandler = null;
+
+        this._paymentStartedHandler = null;
+
+        this._paymentCompletedHandler = null;
+
+        this._paymentFailedHandler = null;
 
         this._eventBusConnected = false;
 
@@ -644,6 +728,72 @@ export class SocketGateway {
         this._io.to(roomId).emit(channel, message);
 
         this._logWinnerSyncStep("Winner result sent");
+
+    }
+
+    _handlePaymentEvent(eventType, paymentPayload) {
+
+        if (!this._io || !paymentPayload?.gameId) {
+
+            return;
+
+        }
+
+        if (!this._gameplayContextResolver) {
+
+            this._logPaymentSyncDrop("gameplay context resolver is not configured");
+
+            return;
+
+        }
+
+        const roomId = this._gameplayContextResolver
+            .resolveRoomByGameId(paymentPayload.gameId);
+
+        if (!roomId) {
+
+            this._logPaymentSyncDrop(
+                `no active room for gameId=${paymentPayload.gameId}`
+            );
+
+            return;
+
+        }
+
+        const { channel, message } = buildPaymentStatusMessage(
+            eventType,
+            paymentPayload
+        );
+
+        this._logPaymentSyncStep(`${eventType} → ${message.payload.status}`);
+
+        this._io.to(roomId).emit(channel, message);
+
+        this._logPaymentSyncStep("Payment status sent");
+
+    }
+
+    _logPaymentSyncStep(message) {
+
+        if (!this._devMode) {
+
+            return;
+
+        }
+
+        this._logger.debug(`[PaymentSync] ${message}`);
+
+    }
+
+    _logPaymentSyncDrop(reason) {
+
+        if (!this._devMode) {
+
+            return;
+
+        }
+
+        this._logger.debug(`[PaymentSync] Dropped: ${reason}`);
 
     }
 
