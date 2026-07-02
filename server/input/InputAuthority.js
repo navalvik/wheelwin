@@ -224,6 +224,22 @@ export class InputAuthority {
 
     }
 
+    removeGame(gameId) {
+
+        this._assertInitialized();
+
+        if (!this._registries.has(gameId)) {
+
+            return false;
+
+        }
+
+        this._removeGameRegistry(gameId);
+
+        return true;
+
+    }
+
     resetPlayer(gameId, playerId) {
 
         this._assertInitialized();

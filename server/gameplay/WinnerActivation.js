@@ -238,6 +238,16 @@ export class WinnerActivation {
 
     }
 
+    forgetGame(gameId) {
+
+        this._brakeTriggered.delete(gameId);
+
+        this._resolved.delete(gameId);
+
+        this._resultTransitioned.delete(gameId);
+
+    }
+
     _reset() {
 
         this._brakeTriggered.clear();

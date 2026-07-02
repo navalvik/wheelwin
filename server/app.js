@@ -56,6 +56,7 @@ import { RoomLobbyBridge } from "./socket/RoomLobbyBridge.js";
 import { SimulationLoop } from "./simulation/SimulationLoop.js";
 import { GameStateActivation } from "./gameplay/GameStateActivation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
+import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 
 class WheelWinApplication {
     constructor() {
@@ -105,6 +106,8 @@ class WheelWinApplication {
         this._gameStateActivation = null;
 
         this._winnerActivation = null;
+
+        this._gameplayLifecycle = null;
 
         this._isShuttingDown = false;
 
@@ -244,6 +247,25 @@ class WheelWinApplication {
 
         this._logger.startupLine("WinnerActivation");
 
+        this._gameplayLifecycle = new GameplayLifecycle({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            gameCatalog: this._gameCatalog,
+            physicsEngine: this._engines.physicsEngine,
+            inputAuthority: this._inputAuthority,
+            gameClockEngine: this._engines.gameClockEngine,
+            gameStateEngine: this._engines.gameStateEngine,
+            configurationEngine: this._engines.configurationEngine,
+            winnerEngine: this._engines.winnerEngine,
+            winnerActivation: this._winnerActivation,
+            gameManager: this._managers.gameManager,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._gameplayLifecycle.initialize();
+
+        this._logger.startupLine("GameplayLifecycle");
+
         this._inputAuthority = new InputAuthority({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -338,6 +360,7 @@ class WheelWinApplication {
             simulationLoop: Boolean(this._simulationLoop),
             gameStateActivation: Boolean(this._gameStateActivation),
             winnerActivation: Boolean(this._winnerActivation),
+            gameplayLifecycle: Boolean(this._gameplayLifecycle),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
@@ -401,6 +424,7 @@ class WheelWinApplication {
             simulationLoop: Boolean(this._simulationLoop),
             gameStateActivation: Boolean(this._gameStateActivation),
             winnerActivation: Boolean(this._winnerActivation),
+            gameplayLifecycle: Boolean(this._gameplayLifecycle),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
@@ -483,6 +507,16 @@ class WheelWinApplication {
             if (this._socketGateway) {
 
                 await this._socketGateway.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("gameplayLifecycle", () => {
+
+            if (this._gameplayLifecycle) {
+
+                this._gameplayLifecycle.shutdown();
 
             }
 

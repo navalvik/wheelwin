@@ -12,6 +12,7 @@ import { SimulationLoop } from "../../simulation/SimulationLoop.js";
 import { WinnerEngine } from "../../engines/WinnerEngine.js";
 import { GameStateActivation } from "../../gameplay/GameStateActivation.js";
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
+import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
 
 export function createFastTimers() {
 
@@ -67,7 +68,8 @@ export function wireGameplayBootstrap({
     logger,
     eventBus,
     gameplayContextResolver = null,
-    devMode = true
+    devMode = true,
+    enableLifecycle = false
 }) {
 
     const catalog = new GameCatalog({ logger });
@@ -164,6 +166,29 @@ export function wireGameplayBootstrap({
 
     winnerActivation.initialize();
 
+    let gameplayLifecycle = null;
+
+    if (enableLifecycle) {
+
+        gameplayLifecycle = new GameplayLifecycle({
+            logger,
+            eventBus,
+            gameCatalog: catalog,
+            physicsEngine,
+            inputAuthority,
+            gameClockEngine,
+            gameStateEngine,
+            configurationEngine,
+            winnerEngine,
+            winnerActivation,
+            gameManager,
+            devMode
+        });
+
+        gameplayLifecycle.initialize();
+
+    }
+
     gameManager.configureGameplayBootstrap({
         roomManager,
         playerManager,
@@ -188,7 +213,8 @@ export function wireGameplayBootstrap({
         simulationLoop,
         gameStateActivation,
         winnerEngine,
-        winnerActivation
+        winnerActivation,
+        gameplayLifecycle
     };
 
 }
@@ -198,6 +224,12 @@ export function shutdownGameplayBootstrap(engines) {
     if (!engines) {
 
         return;
+
+    }
+
+    if (engines.gameplayLifecycle) {
+
+        engines.gameplayLifecycle.shutdown();
 
     }
 
