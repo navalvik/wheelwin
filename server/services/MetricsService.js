@@ -6,6 +6,8 @@ export class MetricsService {
 
         this._records = new Map();
 
+        this._counters = new Map();
+
         this._initialized = false;
 
     }
@@ -19,6 +21,8 @@ export class MetricsService {
     shutdown() {
 
         this._records.clear();
+
+        this._counters.clear();
 
         this._initialized = false;
 
@@ -72,6 +76,34 @@ export class MetricsService {
 
     }
 
+    /**
+     * C4.5 — Monotonic production counter (games started/completed, reconnects,
+     * payments, audits, cleanup, etc.). Additive to the timing recorder above.
+     */
+    increment(name, amount = 1) {
+
+        if (!this._enabled || !this._initialized) {
+
+            return;
+
+        }
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+
+            return;
+
+        }
+
+        this._counters.set(name, (this._counters.get(name) ?? 0) + amount);
+
+    }
+
+    getCounter(name) {
+
+        return this._counters.get(name) ?? 0;
+
+    }
+
     time(name, operation) {
 
         const startedAt = performance.now();
@@ -117,9 +149,18 @@ export class MetricsService {
 
         }
 
+        const counters = {};
+
+        for (const [name, value] of this._counters) {
+
+            counters[name] = value;
+
+        }
+
         return {
             enabled: this._enabled,
-            metrics
+            metrics,
+            counters
         };
 
     }

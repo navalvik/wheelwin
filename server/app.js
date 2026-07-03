@@ -39,6 +39,7 @@ import { RoomManager } from "./managers/RoomManager.js";
 import { LoggerService } from "./services/LoggerService.js";
 import { MetricsService } from "./services/MetricsService.js";
 import { HealthService } from "./services/HealthService.js";
+import { OperationalMetrics } from "./services/OperationalMetrics.js";
 import { RandomService } from "./services/RandomService.js";
 import { TimerService } from "./services/TimerService.js";
 import { TonService } from "./services/TonService.js";
@@ -73,6 +74,8 @@ class WheelWinApplication {
         this._metricsService = null;
 
         this._healthService = null;
+
+        this._operationalMetrics = null;
 
         this._startupStartedAt = 0;
 
@@ -199,6 +202,17 @@ class WheelWinApplication {
         this._eventBus.initialize();
 
         this._logger.startupLine("EventBus");
+
+        this._operationalMetrics = new OperationalMetrics({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            metricsService: this._metricsService,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._operationalMetrics.initialize();
+
+        this._logger.startupLine("OperationalMetrics");
 
         this._logger.connectEventBus(this._eventBus);
 
@@ -498,8 +512,12 @@ class WheelWinApplication {
             recoverySnapshotCache: Boolean(this._recoverySnapshotCache),
             auditEngine: Boolean(this._auditEngine),
             roomLobbyBridge: Boolean(this._roomLobbyBridge),
-            socketGateway: Boolean(this._socketGateway)
+            socketGateway: Boolean(this._socketGateway),
+            operationalMetrics: Boolean(this._operationalMetrics)
         });
+
+        // C4.5 — expose live runtime counts through the existing HealthService.
+        this._healthService.registerRuntimeProvider(() => this._collectRuntime());
 
         await this._listen();
 
@@ -691,6 +709,16 @@ class WheelWinApplication {
 
         });
 
+        this._safeShutdownStep("operationalMetrics", () => {
+
+            if (this._operationalMetrics) {
+
+                this._operationalMetrics.shutdown();
+
+            }
+
+        });
+
         this._safeShutdownStep("eventBus", () => {
 
             this._shutdownEventBus();
@@ -706,6 +734,31 @@ class WheelWinApplication {
         this._logger.info("");
         this._logger.info("Shutdown complete.");
         this._logger.info("");
+
+    }
+
+    /**
+     * C4.5 — Live runtime counts pulled from existing engine/service accessors.
+     * Read-only: it never mutates state and is safe to call on every /health hit.
+     */
+    _collectRuntime() {
+
+        return {
+            activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
+            activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
+            activeSimulations:
+                this._engines?.physicsEngine?.getActiveSimulationCount?.() ?? 0,
+            activeTimers:
+                this._engines?.gameClockEngine?.getActiveClockCount?.() ?? 0,
+            activeSockets:
+                this._socketGateway?.getConnectedSocketCount?.() ?? 0,
+            pendingTeardowns:
+                this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
+            pendingPayments:
+                this._engines?.paymentEngine?.getActivePaymentCount?.() ?? 0,
+            pendingAudits:
+                this._auditEngine?.getActiveAuditCount?.() ?? 0
+        };
 
     }
 

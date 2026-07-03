@@ -502,6 +502,13 @@ export class SocketGateway {
 
     }
 
+    // C4.5 — read-only operational accessor (no behavior change).
+    getConnectedSocketCount() {
+
+        return this._io?.sockets?.sockets?.size ?? 0;
+
+    }
+
     configureRecovery({
         recoveryEngine,
         recoverySnapshotCache,

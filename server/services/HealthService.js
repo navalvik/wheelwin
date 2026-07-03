@@ -14,6 +14,8 @@ export class HealthService {
 
         this._componentRegistry = null;
 
+        this._runtimeProvider = null;
+
     }
 
     markStartupComplete(durationMs) {
@@ -31,6 +33,20 @@ export class HealthService {
     registerComponents(components) {
 
         this._componentRegistry = components;
+
+    }
+
+    /**
+     * C4.5 — Registers a provider that returns live runtime counts (active
+     * rooms/games/simulations/timers/sockets, pending teardowns/payments/audits).
+     * Additive: the provider is read-only and never changes gameplay. It is
+     * invoked lazily whenever a health snapshot is requested.
+     */
+    registerRuntimeProvider(provider) {
+
+        this._runtimeProvider = typeof provider === "function"
+            ? provider
+            : null;
 
     }
 
@@ -56,8 +72,31 @@ export class HealthService {
             uptimeMs,
             startupDurationMs: this._startupDurationMs,
             shuttingDown: this._shuttingDown,
-            components
+            components,
+            runtime: this._resolveRuntime()
         };
+
+    }
+
+    _resolveRuntime() {
+
+        if (!this._runtimeProvider) {
+
+            return null;
+
+        }
+
+        try {
+
+            return this._runtimeProvider();
+
+        } catch (error) {
+
+            this._logger.error(`Health runtime provider failed | ${error.message}`);
+
+            return null;
+
+        }
 
     }
 

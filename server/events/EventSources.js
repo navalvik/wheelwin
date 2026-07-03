@@ -18,5 +18,7 @@ export const EVENT_SOURCES = Object.freeze({
     AUDIT_ENGINE: "AuditEngine",
     ROOM_LOBBY_BRIDGE: "RoomLobbyBridge",
     SIMULATION_LOOP: "SimulationLoop",
-    GAME_STATE_ACTIVATION: "GameStateActivation"
+    GAME_STATE_ACTIVATION: "GameStateActivation",
+    GAMEPLAY_LIFECYCLE: "GameplayLifecycle",
+    OPERATIONAL_METRICS: "OperationalMetrics"
 });

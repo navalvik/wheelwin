@@ -219,6 +219,13 @@ export class AuditEngine {
 
     }
 
+    // C4.5 — read-only operational accessor (no behavior change).
+    getActiveAuditCount() {
+
+        return this._reports.size;
+
+    }
+
     getAuditReport(gameId) {
 
         return this._reports.get(gameId) ?? null;

@@ -251,6 +251,13 @@ export class PaymentEngine {
 
     }
 
+    // C4.5 — read-only operational accessor (no behavior change).
+    getActivePaymentCount() {
+
+        return this._payments.size;
+
+    }
+
     getPayment(gameId) {
 
         const record = this._payments.get(gameId);

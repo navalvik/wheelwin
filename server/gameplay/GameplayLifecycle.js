@@ -1,4 +1,5 @@
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { EVENT_SOURCES } from "../events/EventSources.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 import { GAME_STATUS } from "../models/GameStatus.js";
 
@@ -377,6 +378,15 @@ export class GameplayLifecycle {
         }
 
         this._destroyGameRecord(gameId);
+
+        // C4.5 — authoritative "resources released" signal. This is the final
+        // lifecycle event of a completed game and drives operational metrics,
+        // health, and event-integrity validation. It changes no gameplay.
+        this._eventBus.emit({
+            source: EVENT_SOURCES.GAMEPLAY_LIFECYCLE,
+            type: EVENT_TYPES.CLEANUP_COMPLETED,
+            payload: { gameId, timestamp: Date.now() }
+        });
 
         this._logStep(`Active games: ${this._countActiveGames()}`);
 

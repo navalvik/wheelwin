@@ -389,6 +389,13 @@ export class PhysicsEngine {
 
     }
 
+    // C4.5 — read-only operational accessor (no behavior change).
+    getActiveSimulationCount() {
+
+        return this._simulations.size;
+
+    }
+
     getSimulation(gameId) {
 
         const simulation = this._simulations.get(gameId);

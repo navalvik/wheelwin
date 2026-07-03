@@ -424,6 +424,13 @@ export class GameClockEngine {
 
     }
 
+    // C4.5 — read-only operational accessor (no behavior change).
+    getActiveClockCount() {
+
+        return this._clocks.size;
+
+    }
+
     getClock(gameId) {
 
         const record = this._clocks.get(gameId);
