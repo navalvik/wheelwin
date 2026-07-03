@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import { Link } from "react-router-dom";
 
@@ -11,73 +11,20 @@ import {
     getWheelDebugConfig
 } from "../components/game/WheelEngine";
 
-import { useRegisterEngineModule } from "../context/EngineBridgeContext";
+import { useWheelConfig } from "../context/WheelConfigContext";
 import { GameEngineProviders } from "../providers/GameEngineProviders";
 
 import "../styles/developerDashboard.css";
 
-function DeveloperDashboardBridge({
-    wheelConfiguration,
-    onWheelConfigurationChange
-}) {
+function DeveloperDashboardBridge() {
+
+    const { wheelConfiguration, setWheelConfiguration } = useWheelConfig();
 
     const handleWheelSectorDebug = useCallback((sectorCount) => {
 
-        onWheelConfigurationChange(getWheelDebugConfig(sectorCount));
+        setWheelConfiguration(getWheelDebugConfig(sectorCount));
 
-    }, [onWheelConfigurationChange]);
-
-    useRegisterEngineModule("wheel", () => ({
-
-        setConfiguration: (payload) => {
-
-            if (payload?.sectors) {
-
-                onWheelConfigurationChange({ sectors: payload.sectors });
-
-                return;
-
-            }
-
-            if (payload?.sectorCount) {
-
-                onWheelConfigurationChange(
-                    getWheelDebugConfig(payload.sectorCount)
-                );
-
-            }
-
-        },
-
-        restoreWheel: (snapshot) => {
-
-            const config = snapshot?.wheelConfiguration;
-
-            if (!config) {
-
-                return;
-
-            }
-
-            if (config.sectors) {
-
-                onWheelConfigurationChange({ sectors: config.sectors });
-
-                return;
-
-            }
-
-            if (config.sectorCount) {
-
-                onWheelConfigurationChange(
-                    getWheelDebugConfig(config.sectorCount)
-                );
-
-            }
-
-        }
-
-    }));
+    }, [setWheelConfiguration]);
 
     const sectorCount = wheelConfiguration?.sectors?.length
         ?? DEFAULT_WHEEL_SECTOR_COUNT;
@@ -164,18 +111,11 @@ function DeveloperDashboardBridge({
 
 export default function PageDeveloperDashboard() {
 
-    const [wheelConfiguration, setWheelConfiguration] = useState(
-        () => getWheelDebugConfig(DEFAULT_WHEEL_SECTOR_COUNT)
-    );
-
     return (
 
-        <GameEngineProviders wheelConfiguration={wheelConfiguration}>
+        <GameEngineProviders>
 
-            <DeveloperDashboardBridge
-                wheelConfiguration={wheelConfiguration}
-                onWheelConfigurationChange={setWheelConfiguration}
-            />
+            <DeveloperDashboardBridge />
 
         </GameEngineProviders>
 

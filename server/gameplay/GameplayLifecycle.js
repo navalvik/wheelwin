@@ -94,6 +94,25 @@ export class GameplayLifecycle {
     }
 
     /**
+     * Re-wires the authoritative InputAuthority after construction.
+     *
+     * GameplayLifecycle is constructed before InputAuthority exists (InputAuthority
+     * depends on wiring that is assembled later), so the constructor captures a
+     * null reference. Like SimulationLoop.setInputAuthority, this injects the real
+     * instance once it is available, so the deferred teardown timer never fires
+     * against a null dependency. It changes no gameplay behavior.
+     */
+    setInputAuthority(inputAuthority) {
+
+        if (inputAuthority) {
+
+            this._inputAuthority = inputAuthority;
+
+        }
+
+    }
+
+    /**
      * C4.4 — Enables audit-gated teardown after AuditActivation is constructed.
      * When enabled, a completed game is not torn down until its audit reaches a
      * terminal state (AUDIT_READY or AUDIT_FAILED), so audit always completes
@@ -280,6 +299,16 @@ export class GameplayLifecycle {
     }
 
     _teardown(gameId) {
+
+        // Disposal race guard: a linger timer may fire after GameplayLifecycle has
+        // been shut down (dependencies released / references dropped). Once
+        // disposed, teardown must be a no-op — the resources it would release are
+        // already being torn down by the shutdown sequence.
+        if (!this._initialized) {
+
+            return;
+
+        }
 
         this._completed.add(gameId);
 

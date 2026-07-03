@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
@@ -7,28 +7,20 @@ import { DEV_MODE } from "../config/devMode";
 import WheelPlaceholder from "../components/page5/WheelPlaceholder";
 import PlayerPanel from "../components/page5/PlayerPanel";
 
-import {
-    DEFAULT_WHEEL_SECTOR_COUNT,
-    getWheelDebugConfig
-} from "../components/game/WheelEngine";
-
-import { useRegisterEngineModule } from "../context/EngineBridgeContext";
 import { useCentralButton } from "../context/CentralButtonContext";
 import { useGameState } from "../context/GameStateContext";
 import { useInputAck } from "../context/InputAckContext";
-import { GameEngineProviders } from "../providers/GameEngineProviders";
+import { useWheelConfig } from "../context/WheelConfigContext";
 
 import "../styles/page5game.css";
 
-function Page5GameContent({
-    onNavigate,
-    wheelConfiguration,
-    onWheelConfigurationChange
-}) {
+export default function Page5Game({ onNavigate }) {
 
     const { gameState } = useGameState();
 
     const { lastAck } = useInputAck();
+
+    const { wheelConfiguration } = useWheelConfig();
 
     const {
         snapshot: buttonSnapshot,
@@ -38,10 +30,9 @@ function Page5GameContent({
 
     useEffect(() => () => {
 
-        // On navigation away from Page5 (e.g. to Page6), React unmounts the
-        // whole GameEngineProviders tree, disposing every gameplay-only
-        // resource: animation frames, socket subscriptions, dev overlays and
-        // temporary contexts. This log marks that disposal in development.
+        // Page5 is presentation only. The gameplay engine providers now live at
+        // the flow root, so navigating away from Page5 no longer tears down any
+        // socket subscription. This log simply marks the visual disposal.
         if (DEV_MODE) {
 
             console.debug("[GameResult] Page5 disposed");
@@ -49,58 +40,6 @@ function Page5GameContent({
         }
 
     }, []);
-
-    useRegisterEngineModule("wheel", () => ({
-
-        setConfiguration: (payload) => {
-
-            if (payload?.sectors) {
-
-                onWheelConfigurationChange({ sectors: payload.sectors });
-
-                return;
-
-            }
-
-            if (payload?.sectorCount) {
-
-                onWheelConfigurationChange(
-                    getWheelDebugConfig(payload.sectorCount)
-                );
-
-            }
-
-        },
-
-        restoreWheel: (snapshot) => {
-
-            const config = snapshot?.wheelConfiguration;
-
-            if (!config) {
-
-                return;
-
-            }
-
-            if (config.sectors) {
-
-                onWheelConfigurationChange({ sectors: config.sectors });
-
-                return;
-
-            }
-
-            if (config.sectorCount) {
-
-                onWheelConfigurationChange(
-                    getWheelDebugConfig(config.sectorCount)
-                );
-
-            }
-
-        }
-
-    }));
 
     return (
 
@@ -157,28 +96,6 @@ function Page5GameContent({
             </div>
 
         </GameLayout>
-
-    );
-
-}
-
-export default function Page5Game({ onNavigate }) {
-
-    const [wheelConfiguration, setWheelConfiguration] = useState(
-        () => getWheelDebugConfig(DEFAULT_WHEEL_SECTOR_COUNT)
-    );
-
-    return (
-
-        <GameEngineProviders wheelConfiguration={wheelConfiguration}>
-
-            <Page5GameContent
-                onNavigate={onNavigate}
-                wheelConfiguration={wheelConfiguration}
-                onWheelConfigurationChange={setWheelConfiguration}
-            />
-
-        </GameEngineProviders>
 
     );
 

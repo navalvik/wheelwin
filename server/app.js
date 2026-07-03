@@ -236,7 +236,11 @@ class WheelWinApplication {
             logger: this._logger,
             eventBus: this._eventBus,
             physicsEngine: this._engines.physicsEngine,
-            devMode: this._productionConfig.isDevelopment
+            // The loop's devMode only gates its per-tick trace logs. Bind it to an
+            // explicit debug flag (not the broad development flag) so the loop no
+            // longer floods stdout every tick; the flood could stall the event
+            // loop and block the room-creation / lobby socket pipeline.
+            devMode: this._productionConfig.debugSimulationLoop
         });
 
         this._simulationLoop.initialize();
@@ -315,6 +319,11 @@ class WheelWinApplication {
         this._inputAuthority.initialize();
 
         this._simulationLoop.setInputAuthority(this._inputAuthority);
+
+        // GameplayLifecycle is constructed before InputAuthority exists, so it
+        // captured a null reference. Inject the real instance now (same pattern as
+        // SimulationLoop above) so deferred teardown never runs against null.
+        this._gameplayLifecycle.setInputAuthority(this._inputAuthority);
 
         this._logger.startupLine("InputAuthority");
 
@@ -1115,12 +1124,9 @@ class WheelWinApplication {
 
     async _runInputAuthorityDemonstrationAsync() {
 
-        const {
-            playerManager,
-            gameStateEngine
-        } = this._managers;
+        const { playerManager } = this._managers;
 
-        const { physicsEngine } = this._engines;
+        const { gameStateEngine, physicsEngine } = this._engines;
 
         const { inputAuthority } = this;
 
@@ -1532,31 +1538,22 @@ class WheelWinApplication {
 
     _runStartupDemonstrations() {
 
-        this._runEventBusDemonstration();
+        // Retired after C3.8+/C4.x. These development demonstrations predate the
+        // authoritative activation layer (WinnerActivation, PaymentActivation,
+        // AuditActivation, GameplayLifecycle), which is now always initialized and
+        // subscribed to the shared EventBus. Because the demos drive the real
+        // engines on that same bus, they collide with the live pipeline — e.g.
+        // driving physics to a stop makes WinnerActivation resolve the winner
+        // automatically, so the demo's own winnerEngine.resolveResult() then
+        // throws "Result already exists". Running them would double-drive the
+        // authoritative flow. They are intentionally skipped so startup stays
+        // clean; the gameplay architecture is unchanged.
+        this._logger.info(
+            "Startup demonstrations skipped "
+                + "(incompatible with authoritative activation pipeline)."
+        );
 
-        this._runGameManagerDemonstration();
-
-        this._runRoomManagerDemonstration();
-
-        this._runPlayerManagerDemonstration();
-
-        this._runConfigurationEngineDemonstration();
-
-        this._runGameStateEngineDemonstration();
-
-        this._runGameClockEngineDemonstration();
-
-        this._runPhysicsEngineDemonstration();
-
-        this._runInputAuthorityDemonstration();
-
-        this._runWinnerEngineDemonstration();
-
-        this._runPaymentEngineDemonstration();
-
-        this._runRecoveryEngineDemonstration();
-
-        this._runAuditEngineDemonstration();
+        this._logger.info("");
 
     }
 

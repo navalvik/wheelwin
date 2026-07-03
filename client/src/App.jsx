@@ -15,6 +15,7 @@ import { GameSessionProvider } from "./context/GameSessionContext";
 import { GameResultProvider } from "./context/GameResultContext";
 import { PlayerIdentityProvider } from "./context/PlayerIdentityContext";
 import { RecoveryExperienceProvider } from "./context/RecoveryExperienceContext";
+import { GameEngineProviders } from "./providers/GameEngineProviders";
 import RecoveryOverlay from "./components/RecoveryOverlay";
 import {
     DEV_DASHBOARD_ENABLED,
@@ -193,7 +194,19 @@ function GameFlow() {
 
                         <DevNavigationContext.Provider value={devNavigation}>
 
-                            {renderPage()}
+                            {/*
+                                Authoritative gameplay subscriptions live here,
+                                at the flow root, so they are bound before
+                                gameplay begins and survive every page
+                                transition. They must not depend on Page5
+                                mounting or the first GAME_STATE packets are
+                                lost during navigation.
+                            */}
+                            <GameEngineProviders>
+
+                                {renderPage()}
+
+                            </GameEngineProviders>
 
                             <RecoveryOverlay />
 

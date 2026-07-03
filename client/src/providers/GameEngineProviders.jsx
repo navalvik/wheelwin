@@ -8,13 +8,15 @@ import { SessionRecoveryProvider } from "../context/SessionRecoveryContext";
 import { SocketSyncProvider } from "../context/SocketSyncContext";
 import { InputAckProvider } from "../context/InputAckContext";
 import { WinnerResolverProvider } from "../context/WinnerResolverContext";
+import { WheelConfigProvider, useWheelConfig } from "../context/WheelConfigContext";
 
 function GameEngineProviderStack({
-    children,
-    wheelConfiguration
+    children
 }) {
 
     const { pushFromReady } = useGameState();
+
+    const { wheelConfiguration } = useWheelConfig();
 
     return (
 
@@ -49,33 +51,34 @@ function GameEngineProviderStack({
 }
 
 export function GameEngineProviders({
-    children,
-    wheelConfiguration
+    children
 }) {
 
     return (
 
         <EngineBridgeProvider>
 
-            <GameStateProvider>
+            <WheelConfigProvider>
 
-                <PhysicsProvider>
+                <GameStateProvider>
 
-                    <InputAckProvider>
+                    <PhysicsProvider>
 
-                        <GameEngineProviderStack
-                            wheelConfiguration={wheelConfiguration}
-                        >
+                        <InputAckProvider>
 
-                            {children}
+                            <GameEngineProviderStack>
 
-                        </GameEngineProviderStack>
+                                {children}
 
-                    </InputAckProvider>
+                            </GameEngineProviderStack>
 
-                </PhysicsProvider>
+                        </InputAckProvider>
 
-            </GameStateProvider>
+                    </PhysicsProvider>
+
+                </GameStateProvider>
+
+            </WheelConfigProvider>
 
         </EngineBridgeProvider>
 
