@@ -77,6 +77,26 @@ function emitGameplayMessage(socket, message) {
 
 }
 
+async function waitFor(predicate, timeoutMs = 3000, intervalMs = 10) {
+
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+
+        if (predicate()) {
+
+            return true;
+
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+
+    }
+
+    return false;
+
+}
+
 async function startGameplaySession(harness) {
 
     const host = await connectClient(harness.port);
@@ -171,6 +191,31 @@ try {
     session.guestA.disconnect();
 
     session.guestB.disconnect();
+
+    // C4.8b: disconnecting mid-SPEED hands each player to
+    // OfflineInputContinuation, which authoritatively finishes their remaining
+    // input through InputAuthority (recorded by the monkeypatched forwardedCalls).
+    // This is legitimate background gameplay, not socket routing. The client-side
+    // disconnect is processed by the server asynchronously, so wait until the
+    // authoritative game has actually left SPEED (continuation completed it) and
+    // no continuation cursors remain, before the routing assertions below.
+    const drained = await waitFor(() => {
+
+        const games = harness.gameManager.getGames();
+
+        const anySpeed = games.some(
+            (game) => harness.bootstrapEngines.gameStateEngine
+                .getState(game.gameId) === "SPEED"
+        );
+
+        const activeContinuations = harness.bootstrapEngines
+            .offlineInputContinuation.getActiveContinuations().length;
+
+        return !anySpeed && activeContinuations === 0;
+
+    });
+
+    assert(drained, "offline continuation should complete SPEED after disconnect");
 
     const unknownClient = await connectClient(harness.port);
 

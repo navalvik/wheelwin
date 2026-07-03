@@ -2,18 +2,19 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 
 /**
- * C4.8 — SPEED Lifetime Activation.
+ * C4.8 / C4.8b — SPEED Lifetime Activation.
  *
  * Orchestration glue that owns the authoritative lifetime of the SPEED phase.
  * SPEED has no scheduled duration (Timers catalog durationMs = null) and must
  * never end on a timer. It ends only when gameplay is authoritatively complete.
  *
- * In the WheelWin gameplay model the SPEED phase is interactive: each player
- * accelerates the wheel with a limited number of input cycles (maxPressCycles).
- * Once a player exhausts that budget InputAuthority locks them and emits
- * PLAYER_PRESS_LIMIT_REACHED. When EVERY player in the game has reached that
- * limit, no further authoritative input is possible — gameplay is over. That is
- * the authoritative completion signal that owns the SPEED lifetime.
+ * Completion rule: every player in the game's roster has exhausted their input
+ * budget (PLAYER_PRESS_LIMIT_REACHED). This module is intentionally unaware of
+ * connection state — an offline player's remaining input is authoritatively
+ * continued by OfflineInputContinuation, which drives the same InputAuthority
+ * path so offline players reach the press limit exactly like online players.
+ * SPEED therefore neither hangs on offline players (they are continued) nor ends
+ * early because of them (their input is completed, not skipped).
  *
  * Authoritative flow:
  *

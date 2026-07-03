@@ -20,6 +20,7 @@ import { GameStateEngine } from "../engines/GameStateEngine.js";
 import { WinnerEngine } from "../engines/WinnerEngine.js";
 import { InputAuthority } from "../input/InputAuthority.js";
 import { PLAYER_STATE } from "../models/PlayerState.js";
+import { CONNECTION_STATE } from "../models/ConnectionState.js";
 import { RandomService } from "../services/RandomService.js";
 import { SimulationLoop } from "../simulation/SimulationLoop.js";
 import { WinnerActivation } from "../gameplay/WinnerActivation.js";
@@ -205,6 +206,12 @@ async function startGameAndCompleteSpeed() {
     const started = startGame();
 
     assert(started.gameId, "game should be bootstrapped");
+
+    for (const playerId of started.players) {
+
+        playerManager.setConnectionState(playerId, CONNECTION_STATE.CONNECTED);
+
+    }
 
     const reachedSpeed = await poll(
         () => engines.gameStateEngine.getState(started.gameId) === GAME_STATES.SPEED

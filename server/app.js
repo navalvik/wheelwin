@@ -58,6 +58,7 @@ import { SimulationLoop } from "./simulation/SimulationLoop.js";
 import { GameStateActivation } from "./gameplay/GameStateActivation.js";
 import { GameClockBroadcaster } from "./gameplay/GameClockBroadcaster.js";
 import { SpeedActivation } from "./gameplay/SpeedActivation.js";
+import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
 import { PaymentActivation } from "./gameplay/PaymentActivation.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
@@ -114,6 +115,8 @@ class WheelWinApplication {
         this._gameStateActivation = null;
 
         this._speedActivation = null;
+
+        this._offlineInputContinuation = null;
 
         this._gameClockBroadcaster = null;
 
@@ -357,6 +360,28 @@ class WheelWinApplication {
 
         this._logger.startupLine("InputAuthority");
 
+        // C4.8b — Authoritative continuation of offline players' remaining SPEED
+        // input. Constructed after InputAuthority (it drives InputAuthority's
+        // authoritative input path) and injected into GameplayLifecycle so its
+        // per-game cursors are released during teardown.
+        this._offlineInputContinuation = new OfflineInputContinuation({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            inputAuthority: this._inputAuthority,
+            gameStateEngine: this._engines.gameStateEngine,
+            playerManager: this._managers.playerManager,
+            gameCatalog: this._gameCatalog,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._offlineInputContinuation.initialize();
+
+        this._gameplayLifecycle.setOfflineInputContinuation(
+            this._offlineInputContinuation
+        );
+
+        this._logger.startupLine("OfflineInputContinuation");
+
         this._managers.gameManager.configureGameplayBootstrap({
             roomManager: this._managers.roomManager,
             playerManager: this._managers.playerManager,
@@ -466,6 +491,7 @@ class WheelWinApplication {
             simulationLoop: Boolean(this._simulationLoop),
             gameStateActivation: Boolean(this._gameStateActivation),
             speedActivation: Boolean(this._speedActivation),
+            offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
             winnerActivation: Boolean(this._winnerActivation),
             paymentActivation: Boolean(this._paymentActivation),
@@ -543,6 +569,7 @@ class WheelWinApplication {
             simulationLoop: Boolean(this._simulationLoop),
             gameStateActivation: Boolean(this._gameStateActivation),
             speedActivation: Boolean(this._speedActivation),
+            offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
             winnerActivation: Boolean(this._winnerActivation),
             paymentActivation: Boolean(this._paymentActivation),
@@ -685,6 +712,16 @@ class WheelWinApplication {
             if (this._speedActivation) {
 
                 this._speedActivation.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("offlineInputContinuation", () => {
+
+            if (this._offlineInputContinuation) {
+
+                this._offlineInputContinuation.shutdown();
 
             }
 

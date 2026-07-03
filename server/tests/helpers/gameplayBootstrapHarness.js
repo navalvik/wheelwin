@@ -12,6 +12,7 @@ import { SimulationLoop } from "../../simulation/SimulationLoop.js";
 import { WinnerEngine } from "../../engines/WinnerEngine.js";
 import { GameStateActivation } from "../../gameplay/GameStateActivation.js";
 import { SpeedActivation } from "../../gameplay/SpeedActivation.js";
+import { OfflineInputContinuation } from "../../gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
 import { PaymentActivation } from "../../gameplay/PaymentActivation.js";
 import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
@@ -108,10 +109,12 @@ export function wireGameplayBootstrap({
         gameClock: gameClockEngine
     });
 
+    const fastInputCatalog = createFastInputCatalog(catalog);
+
     const inputAuthority = new InputAuthority({
         logger,
         eventBus,
-        gameCatalog: createFastInputCatalog(catalog),
+        gameCatalog: fastInputCatalog,
         playerManager,
         physicsEngine,
         gameStateEngine,
@@ -170,6 +173,18 @@ export function wireGameplayBootstrap({
 
     speedActivation.initialize();
 
+    const offlineInputContinuation = new OfflineInputContinuation({
+        logger,
+        eventBus,
+        inputAuthority,
+        gameStateEngine,
+        playerManager,
+        gameCatalog: fastInputCatalog,
+        devMode
+    });
+
+    offlineInputContinuation.initialize();
+
     const winnerActivation = new WinnerActivation({
         logger,
         eventBus,
@@ -218,6 +233,7 @@ export function wireGameplayBootstrap({
             winnerEngine,
             winnerActivation,
             speedActivation,
+            offlineInputContinuation,
             paymentEngine,
             paymentActivation,
             gameManager,
@@ -252,6 +268,7 @@ export function wireGameplayBootstrap({
         simulationLoop,
         gameStateActivation,
         speedActivation,
+        offlineInputContinuation,
         winnerEngine,
         winnerActivation,
         paymentEngine,
@@ -280,6 +297,8 @@ export function shutdownGameplayBootstrap(engines) {
     engines.paymentEngine.shutdown();
 
     engines.winnerActivation.shutdown();
+
+    engines.offlineInputContinuation.shutdown();
 
     engines.speedActivation.shutdown();
 

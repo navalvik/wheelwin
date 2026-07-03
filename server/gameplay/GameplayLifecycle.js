@@ -37,6 +37,7 @@ export class GameplayLifecycle {
         winnerEngine,
         winnerActivation,
         speedActivation = null,
+        offlineInputContinuation = null,
         paymentEngine = null,
         paymentActivation = null,
         auditEngine = null,
@@ -67,6 +68,8 @@ export class GameplayLifecycle {
         this._winnerActivation = winnerActivation;
 
         this._speedActivation = speedActivation;
+
+        this._offlineInputContinuation = offlineInputContinuation;
 
         this._paymentEngine = paymentEngine;
 
@@ -110,6 +113,22 @@ export class GameplayLifecycle {
         if (inputAuthority) {
 
             this._inputAuthority = inputAuthority;
+
+        }
+
+    }
+
+    /**
+     * Injects OfflineInputContinuation after construction. Like InputAuthority it
+     * is assembled after GameplayLifecycle (it depends on the fully-wired
+     * InputAuthority), so the reference is injected once available. Teardown then
+     * releases its per-game continuation cursors alongside the other engines.
+     */
+    setOfflineInputContinuation(offlineInputContinuation) {
+
+        if (offlineInputContinuation) {
+
+            this._offlineInputContinuation = offlineInputContinuation;
 
         }
 
@@ -350,6 +369,12 @@ export class GameplayLifecycle {
         if (this._speedActivation) {
 
             this._speedActivation.forgetGame(gameId);
+
+        }
+
+        if (this._offlineInputContinuation) {
+
+            this._offlineInputContinuation.forgetGame(gameId);
 
         }
 

@@ -8,6 +8,7 @@ import { GameStateEngine } from "../engines/GameStateEngine.js";
 import { PhysicsEngine } from "../engines/PhysicsEngine.js";
 import { InputAuthority } from "../input/InputAuthority.js";
 import { PLAYER_STATE } from "../models/PlayerState.js";
+import { CONNECTION_STATE } from "../models/ConnectionState.js";
 import { GameManager } from "../managers/GameManager.js";
 import { PlayerManager } from "../managers/PlayerManager.js";
 import { RoomManager } from "../managers/RoomManager.js";
@@ -170,6 +171,8 @@ for (const playerId of players) {
     playerManager.createPlayer({ playerId });
 
     playerManager.setPlayerState(playerId, PLAYER_STATE.PLAYING);
+
+    playerManager.setConnectionState(playerId, CONNECTION_STATE.CONNECTED);
 
 }
 
