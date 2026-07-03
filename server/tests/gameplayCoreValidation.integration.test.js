@@ -6,6 +6,7 @@ import { PlayerManager } from "../managers/PlayerManager.js";
 import { RoomManager } from "../managers/RoomManager.js";
 import { LoggerService } from "../services/LoggerService.js";
 import {
+    exhaustAllPlayerInput,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
 } from "./helpers/gameplayBootstrapHarness.js";
@@ -199,6 +200,28 @@ function startGame() {
 
 }
 
+async function startGameAndCompleteSpeed() {
+
+    const started = startGame();
+
+    assert(started.gameId, "game should be bootstrapped");
+
+    const reachedSpeed = await poll(
+        () => engines.gameStateEngine.getState(started.gameId) === GAME_STATES.SPEED
+    );
+
+    assert(reachedSpeed, `game ${started.gameId} should reach SPEED`);
+
+    exhaustAllPlayerInput(
+        engines.inputAuthority,
+        started.gameId,
+        started.players
+    );
+
+    return started;
+
+}
+
 function assertGameResourcesReleased(gameId) {
 
     assert(
@@ -272,7 +295,7 @@ async function run() {
 
     for (let index = 0; index < SEQUENTIAL_GAMES; index += 1) {
 
-        const { gameId } = startGame();
+        const { gameId } = await startGameAndCompleteSpeed();
 
         assert(gameId, `game ${index + 1} should be bootstrapped`);
 
@@ -313,7 +336,7 @@ async function run() {
 
     for (let index = 0; index < CONCURRENT_GAMES; index += 1) {
 
-        concurrent.push(startGame());
+        concurrent.push(await startGameAndCompleteSpeed());
 
     }
 

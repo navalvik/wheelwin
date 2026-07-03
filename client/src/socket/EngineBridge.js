@@ -36,6 +36,11 @@ export class EngineBridge {
                 modules.gameState?.onGameState?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.GAME_CLOCK_UPDATE]: (payload) => {
+
+                modules.gameClock?.onClockUpdate?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.PLAYER_UPDATE]: (payload) => {
 
                 modules.playerUI?.updatePlayer?.(payload);

@@ -135,24 +135,13 @@ export class GameStateActivation {
 
         }
 
-        if (nextState === GAME_STATES.SPEED) {
-
-            // C3.5:
-            // SPEED has no scheduled duration.
-            // completePhase() must be deferred until GameClock
-            // finishes updating currentPhase to SPEED.
-            //
-            // This is not gameplay timing.
-            // Future gameplay stages will complete SPEED
-            // based on gameplay conditions rather than immediately.
-
-            setImmediate(() => {
-
-                this._gameClockEngine.completePhase(gameId);
-
-            });
-
-        }
+        // C4.8:
+        // SPEED has no scheduled duration and must NOT be completed here.
+        // The SPEED phase is owned by gameplay: it stays alive until the
+        // authoritative gameplay-completion signal occurs (all players have
+        // reached their input limit), at which point SpeedActivation calls
+        // GameClock.completePhase(gameId). The clock/state layer never ends
+        // SPEED on a timer.
 
     }
 

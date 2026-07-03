@@ -11,6 +11,7 @@ import { RandomService } from "../../services/RandomService.js";
 import { SimulationLoop } from "../../simulation/SimulationLoop.js";
 import { WinnerEngine } from "../../engines/WinnerEngine.js";
 import { GameStateActivation } from "../../gameplay/GameStateActivation.js";
+import { SpeedActivation } from "../../gameplay/SpeedActivation.js";
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
 import { PaymentActivation } from "../../gameplay/PaymentActivation.js";
 import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
@@ -159,6 +160,16 @@ export function wireGameplayBootstrap({
 
     gameStateActivation.initialize();
 
+    const speedActivation = new SpeedActivation({
+        logger,
+        eventBus,
+        gameClockEngine,
+        gameStateEngine,
+        devMode
+    });
+
+    speedActivation.initialize();
+
     const winnerActivation = new WinnerActivation({
         logger,
         eventBus,
@@ -206,6 +217,7 @@ export function wireGameplayBootstrap({
             configurationEngine,
             winnerEngine,
             winnerActivation,
+            speedActivation,
             paymentEngine,
             paymentActivation,
             gameManager,
@@ -239,6 +251,7 @@ export function wireGameplayBootstrap({
         inputAuthority,
         simulationLoop,
         gameStateActivation,
+        speedActivation,
         winnerEngine,
         winnerActivation,
         paymentEngine,
@@ -268,6 +281,8 @@ export function shutdownGameplayBootstrap(engines) {
 
     engines.winnerActivation.shutdown();
 
+    engines.speedActivation.shutdown();
+
     engines.winnerEngine.shutdown();
 
     engines.gameStateActivation.shutdown();
@@ -285,5 +300,30 @@ export function shutdownGameplayBootstrap(engines) {
     engines.configurationEngine.shutdown();
 
     engines.randomService.shutdown();
+
+}
+
+/**
+ * Exhaust every player's authoritative input budget during SPEED so
+ * SpeedActivation can complete the phase via PLAYER_PRESS_LIMIT_REACHED.
+ */
+export function exhaustAllPlayerInput(
+    inputAuthority,
+    gameId,
+    playerIds,
+    maxPressCycles = INPUT_RULES.maxPressCycles
+) {
+
+    for (const playerId of playerIds) {
+
+        for (let cycle = 0; cycle < maxPressCycles; cycle += 1) {
+
+            inputAuthority.handleButtonPress(gameId, playerId);
+
+            inputAuthority.handleButtonRelease(gameId, playerId);
+
+        }
+
+    }
 
 }

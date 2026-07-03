@@ -25,6 +25,9 @@ import {
     buildGameStateSyncMessage
 } from "./gameplayGameStateProtocol.js";
 import {
+    buildGameClockUpdateMessage
+} from "./gameplayClockProtocol.js";
+import {
     buildInputAcceptedMessage,
     buildInputRejectedMessage
 } from "./gameplayInputProtocol.js";
@@ -107,6 +110,8 @@ export class SocketGateway {
 
         this._auditFailedHandler = null;
 
+        this._clockUpdateHandler = null;
+
         this._socketRooms = new Map();
 
         this._eventBusConnected = false;
@@ -166,6 +171,17 @@ export class SocketGateway {
         eventBus.subscribe(
             EVENT_TYPES.GAME_STATE_CHANGED,
             this._gameStateChangedHandler
+        );
+
+        this._clockUpdateHandler = (envelope) => {
+
+            this._handleClockUpdate(envelope.payload);
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.CLOCK_UPDATE,
+            this._clockUpdateHandler
         );
 
         this._playerInputAcceptedHandler = (envelope) => {
@@ -325,6 +341,15 @@ export class SocketGateway {
 
         }
 
+        if (this._eventBus && this._clockUpdateHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.CLOCK_UPDATE,
+                this._clockUpdateHandler
+            );
+
+        }
+
         if (this._eventBus && this._playerInputAcceptedHandler) {
 
             this._eventBus.unsubscribe(
@@ -433,6 +458,8 @@ export class SocketGateway {
         this._auditReadyHandler = null;
 
         this._auditFailedHandler = null;
+
+        this._clockUpdateHandler = null;
 
         this._eventBusConnected = false;
 
@@ -995,6 +1022,35 @@ export class SocketGateway {
         this._io.to(roomId).emit(channel, message);
 
         this._logGameStateSyncStep("Client updated");
+
+    }
+
+    _handleClockUpdate(clockPayload) {
+
+        if (!this._io || !clockPayload?.gameId) {
+
+            return;
+
+        }
+
+        if (!this._gameplayContextResolver) {
+
+            return;
+
+        }
+
+        const roomId = this._gameplayContextResolver
+            .resolveRoomByGameId(clockPayload.gameId);
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        const { channel, message } = buildGameClockUpdateMessage(clockPayload);
+
+        this._io.to(roomId).emit(channel, message);
 
     }
 

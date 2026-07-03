@@ -19,6 +19,7 @@ export const EVENT_SOURCES = Object.freeze({
     ROOM_LOBBY_BRIDGE: "RoomLobbyBridge",
     SIMULATION_LOOP: "SimulationLoop",
     GAME_STATE_ACTIVATION: "GameStateActivation",
+    GAME_CLOCK_BROADCASTER: "GameClockBroadcaster",
     GAMEPLAY_LIFECYCLE: "GameplayLifecycle",
     OPERATIONAL_METRICS: "OperationalMetrics"
 });

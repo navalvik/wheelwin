@@ -9,6 +9,7 @@ import { SocketSyncProvider } from "../context/SocketSyncContext";
 import { InputAckProvider } from "../context/InputAckContext";
 import { WinnerResolverProvider } from "../context/WinnerResolverContext";
 import { WheelConfigProvider, useWheelConfig } from "../context/WheelConfigContext";
+import { GameClockProvider } from "../context/GameClockContext";
 
 function GameEngineProviderStack({
     children
@@ -60,23 +61,27 @@ export function GameEngineProviders({
 
             <WheelConfigProvider>
 
-                <GameStateProvider>
+                <GameClockProvider>
 
-                    <PhysicsProvider>
+                    <GameStateProvider>
 
-                        <InputAckProvider>
+                        <PhysicsProvider>
 
-                            <GameEngineProviderStack>
+                            <InputAckProvider>
 
-                                {children}
+                                <GameEngineProviderStack>
 
-                            </GameEngineProviderStack>
+                                    {children}
 
-                        </InputAckProvider>
+                                </GameEngineProviderStack>
 
-                    </PhysicsProvider>
+                            </InputAckProvider>
 
-                </GameStateProvider>
+                        </PhysicsProvider>
+
+                    </GameStateProvider>
+
+                </GameClockProvider>
 
             </WheelConfigProvider>
 

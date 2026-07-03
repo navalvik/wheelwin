@@ -36,6 +36,7 @@ export class GameplayLifecycle {
         configurationEngine,
         winnerEngine,
         winnerActivation,
+        speedActivation = null,
         paymentEngine = null,
         paymentActivation = null,
         auditEngine = null,
@@ -64,6 +65,8 @@ export class GameplayLifecycle {
         this._winnerEngine = winnerEngine;
 
         this._winnerActivation = winnerActivation;
+
+        this._speedActivation = speedActivation;
 
         this._paymentEngine = paymentEngine;
 
@@ -341,6 +344,12 @@ export class GameplayLifecycle {
         if (this._winnerActivation) {
 
             this._winnerActivation.forgetGame(gameId);
+
+        }
+
+        if (this._speedActivation) {
+
+            this._speedActivation.forgetGame(gameId);
 
         }
 

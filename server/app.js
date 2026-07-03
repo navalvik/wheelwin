@@ -56,6 +56,8 @@ import { GameplayContextResolver } from "./socket/GameplayContextResolver.js";
 import { RoomLobbyBridge } from "./socket/RoomLobbyBridge.js";
 import { SimulationLoop } from "./simulation/SimulationLoop.js";
 import { GameStateActivation } from "./gameplay/GameStateActivation.js";
+import { GameClockBroadcaster } from "./gameplay/GameClockBroadcaster.js";
+import { SpeedActivation } from "./gameplay/SpeedActivation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
 import { PaymentActivation } from "./gameplay/PaymentActivation.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
@@ -110,6 +112,10 @@ class WheelWinApplication {
         this._simulationLoop = null;
 
         this._gameStateActivation = null;
+
+        this._speedActivation = null;
+
+        this._gameClockBroadcaster = null;
 
         this._winnerActivation = null;
 
@@ -261,6 +267,29 @@ class WheelWinApplication {
 
         this._logger.startupLine("GameStateActivation");
 
+        this._speedActivation = new SpeedActivation({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            gameClockEngine: this._engines.gameClockEngine,
+            gameStateEngine: this._engines.gameStateEngine,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._speedActivation.initialize();
+
+        this._logger.startupLine("SpeedActivation");
+
+        this._gameClockBroadcaster = new GameClockBroadcaster({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            gameClockEngine: this._engines.gameClockEngine,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._gameClockBroadcaster.initialize();
+
+        this._logger.startupLine("GameClockBroadcaster");
+
         this._winnerActivation = new WinnerActivation({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -296,6 +325,7 @@ class WheelWinApplication {
             configurationEngine: this._engines.configurationEngine,
             winnerEngine: this._engines.winnerEngine,
             winnerActivation: this._winnerActivation,
+            speedActivation: this._speedActivation,
             paymentEngine: this._engines.paymentEngine,
             paymentActivation: this._paymentActivation,
             gameManager: this._managers.gameManager,
@@ -435,6 +465,8 @@ class WheelWinApplication {
             physicsEngine: Boolean(this._engines?.physicsEngine),
             simulationLoop: Boolean(this._simulationLoop),
             gameStateActivation: Boolean(this._gameStateActivation),
+            speedActivation: Boolean(this._speedActivation),
+            gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
             winnerActivation: Boolean(this._winnerActivation),
             paymentActivation: Boolean(this._paymentActivation),
             auditActivation: Boolean(this._auditActivation),
@@ -510,6 +542,8 @@ class WheelWinApplication {
             physicsEngine: Boolean(this._engines?.physicsEngine),
             simulationLoop: Boolean(this._simulationLoop),
             gameStateActivation: Boolean(this._gameStateActivation),
+            speedActivation: Boolean(this._speedActivation),
+            gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
             winnerActivation: Boolean(this._winnerActivation),
             paymentActivation: Boolean(this._paymentActivation),
             auditActivation: Boolean(this._auditActivation),
@@ -631,6 +665,26 @@ class WheelWinApplication {
             if (this._winnerActivation) {
 
                 this._winnerActivation.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("gameClockBroadcaster", () => {
+
+            if (this._gameClockBroadcaster) {
+
+                this._gameClockBroadcaster.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("speedActivation", () => {
+
+            if (this._speedActivation) {
+
+                this._speedActivation.shutdown();
 
             }
 

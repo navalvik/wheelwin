@@ -5,6 +5,7 @@ import { GAME_STATES } from "../engines/gameState/GameStates.js";
 import { GAME_STATE_MESSAGE_TYPE } from "../socket/gameplayGameStateProtocol.js";
 import { GAME_MESSAGE_CHANNEL } from "../socket/events.js";
 import { createGameplaySocketHarness } from "./helpers/gameplaySocketHarness.js";
+import { exhaustAllPlayerInput } from "./helpers/gameplayBootstrapHarness.js";
 
 function assert(condition, message) {
 
@@ -125,6 +126,7 @@ async function startGameplaySession(harness) {
         guestB,
         created,
         gameId: games[0].gameId,
+        playerIds: [...games[0].players],
         hostCollector
     };
 
@@ -223,7 +225,18 @@ try {
 
     for (const state of EXPECTED_CLIENT_STATES) {
 
-        await waitForGameState(hostCollector.updates, state);
+        if (state === GAME_STATES.BRAKE) {
+
+            // C4.8: SPEED persists until all players exhaust their input budget.
+            exhaustAllPlayerInput(
+                harness.inputAuthority,
+                session.gameId,
+                session.playerIds
+            );
+
+        }
+
+        await waitForGameState(hostCollector.updates, state, 15000);
 
     }
 

@@ -8,6 +8,7 @@ import { LoggerService } from "../../services/LoggerService.js";
 import { GameplayContextResolver } from "../../socket/GameplayContextResolver.js";
 import { RoomLobbyBridge } from "../../socket/RoomLobbyBridge.js";
 import { SocketGateway } from "../../socket/SocketGateway.js";
+import { GameClockBroadcaster } from "../../gameplay/GameClockBroadcaster.js";
 import {
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
@@ -76,6 +77,16 @@ export async function createGameplaySocketHarness() {
 
     socketGateway.connectEventBus(eventBus);
 
+    const gameClockBroadcaster = new GameClockBroadcaster({
+        logger,
+        eventBus,
+        gameClockEngine: bootstrapEngines.gameClockEngine,
+        intervalMs: 50,
+        devMode: true
+    });
+
+    gameClockBroadcaster.initialize();
+
     const roomLobbyBridge = new RoomLobbyBridge({
         logger,
         eventBus,
@@ -138,6 +149,7 @@ export async function createGameplaySocketHarness() {
         gameplayContextResolver,
         socketGateway,
         roomLobbyBridge,
+        gameClockBroadcaster,
         forwardedCalls,
         resetForwardedCalls() {
 
@@ -145,6 +157,8 @@ export async function createGameplaySocketHarness() {
 
         },
         async shutdown() {
+
+            gameClockBroadcaster.shutdown();
 
             roomLobbyBridge.shutdown();
 

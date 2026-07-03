@@ -1,13 +1,36 @@
 import { useGameSession } from "../context/GameSessionContext";
+import { useGameClock } from "../context/GameClockContext";
+
+import { isGameplayPage } from "../game/sessionRecovery/recoveryFlow";
 
 import "../styles/infoBar.css";
 
 export default function InfoBar() {
 
-    const { session, phaseTimerLabel, formatPhaseTime } = useGameSession();
+    const {
+        session,
+        currentPage,
+        phaseTimerLabel,
+        formatPhaseTime
+    } = useGameSession();
+
+    const { phaseLabel, remainingText } = useGameClock();
 
     const playersDisplay =
         `${session.connectedCount} / ${session.maxPlayers}`;
+
+    // InfoBar is only a router between two independent time domains. Selection is
+    // page-based: gameplay/result pages present the authoritative server
+    // GameClock, every preparation page presents the lobby Setup Timer. The
+    // choice never depends on timer values (currentPhase, clock.active,
+    // remaining time) — those belong solely to their own domains.
+    const useGameplayClock = isGameplayPage(currentPage);
+
+    const timerLabel = useGameplayClock ? phaseLabel : phaseTimerLabel;
+
+    const timerValue = useGameplayClock
+        ? remainingText
+        : formatPhaseTime(session.phaseTimeRemaining);
 
     return (
 
@@ -49,13 +72,13 @@ export default function InfoBar() {
 
                 <div className="infoBarTitle">
 
-                    {phaseTimerLabel}
+                    {timerLabel}
 
                 </div>
 
                 <div className="infoBarValue">
 
-                    {formatPhaseTime(session.phaseTimeRemaining)}
+                    {timerValue}
 
                 </div>
 
