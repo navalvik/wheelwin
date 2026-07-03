@@ -193,6 +193,52 @@
     color: #b91c1c;
 }
 
+.page6__audit {
+
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    padding: 14px 16px;
+
+    border-radius: 12px;
+
+    background: #f5f3ff;
+    border: 1px solid #ddd6fe;
+}
+
+.page6__audit[data-status="READY"] {
+
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+}
+
+.page6__audit[data-status="FAILED"] {
+
+    background: #fef2f2;
+    border-color: #fecaca;
+}
+
+.page6__auditLabel {
+
+    font-size: 1rem;
+    font-weight: 800;
+
+    color: #1f2937;
+}
+
+.page6__auditDetail {
+
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    font-size: 0.78rem;
+    font-family: monospace;
+
+    color: #4c1d95;
+}
+
 /* Development-only diagnostics — safe to remove later. */
 .page6__dev {
 

@@ -15,6 +15,7 @@ export const GAME_RESULT_PAGE = Object.freeze({
 export const GAME_RESULT_ACTIONS = Object.freeze({
     AUTHORITATIVE_RESULT: "AUTHORITATIVE_RESULT",
     PAYMENT_STATUS: "PAYMENT_STATUS",
+    AUDIT_STATUS: "AUDIT_STATUS",
     NAVIGATED: "NAVIGATED",
     RESET: "RESET"
 });
@@ -31,15 +32,61 @@ const TERMINAL_PAYMENT_STATUSES = Object.freeze([
     PAYMENT_VIEW_STATUS.FAILED
 ]);
 
+// Authoritative audit lifecycle statuses as forwarded by the server.
+export const AUDIT_VIEW_STATUS = Object.freeze({
+    STARTED: "STARTED",
+    READY: "READY",
+    FAILED: "FAILED"
+});
+
+const TERMINAL_AUDIT_STATUSES = Object.freeze([
+    AUDIT_VIEW_STATUS.READY,
+    AUDIT_VIEW_STATUS.FAILED
+]);
+
 export const GAME_RESULT_INITIAL_STATE = Object.freeze({
     result: null,
     payment: null,
+    audit: null,
     navigated: false
 });
 
 function isTerminalPaymentStatus(status) {
 
     return TERMINAL_PAYMENT_STATUSES.includes(status);
+
+}
+
+function isTerminalAuditStatus(status) {
+
+    return TERMINAL_AUDIT_STATUSES.includes(status);
+
+}
+
+/**
+ * Maps an authoritative audit status payload to the Page6 view. The status is
+ * server-provided; the client never generates audit records or references.
+ */
+export function mapAuditStatusToView(payload) {
+
+    if (!payload || !payload.status) {
+
+        return null;
+
+    }
+
+    if (!Object.values(AUDIT_VIEW_STATUS).includes(payload.status)) {
+
+        return null;
+
+    }
+
+    return {
+        gameId: payload.gameId ?? null,
+        status: payload.status,
+        auditId: payload.auditId ?? null,
+        serverTimestamp: payload.serverTimestamp ?? null
+    };
 
 }
 
@@ -157,6 +204,32 @@ export function gameResultReducer(state, action) {
             }
 
             return { ...state, payment: view };
+
+        }
+
+        case GAME_RESULT_ACTIONS.AUDIT_STATUS: {
+
+            const view = mapAuditStatusToView(action.payload);
+
+            if (!view) {
+
+                return state;
+
+            }
+
+            // Never downgrade an authoritative terminal audit status (READY /
+            // FAILED) back to STARTED if messages arrive out of order.
+            if (
+                state.audit
+                && isTerminalAuditStatus(state.audit.status)
+                && !isTerminalAuditStatus(view.status)
+            ) {
+
+                return state;
+
+            }
+
+            return { ...state, audit: view };
 
         }
 

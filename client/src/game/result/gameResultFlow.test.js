@@ -3,9 +3,11 @@ import {
     GAME_RESULT_INITIAL_STATE,
     GAME_RESULT_PAGE,
     PAYMENT_VIEW_STATUS,
+    AUDIT_VIEW_STATUS,
     gameResultReducer,
     mapAuthoritativeResultToView,
     mapPaymentStatusToView,
+    mapAuditStatusToView,
     shouldNavigateToResult,
     shouldResetResult
 } from "./gameResultFlow.js";
@@ -325,6 +327,115 @@ const AUTHORITATIVE_PAYLOAD = {
     assert(state.payment === null, "reset should clear payment status");
 
     console.log("  payment: independent of result and reset passed");
+
+}
+
+// ---------------------------------------------------------------------------
+// Audit — authoritative status passthrough, no client audit generation.
+// ---------------------------------------------------------------------------
+
+{
+
+    const view = mapAuditStatusToView({
+        gameId: "game_abc",
+        status: AUDIT_VIEW_STATUS.READY,
+        auditId: "audit_seed_123",
+        serverTimestamp: 1730000000002
+    });
+
+    assert(view.status === "READY", "audit status should pass through");
+
+    assert(view.auditId === "audit_seed_123", "audit id should pass through");
+
+    assert(
+        view.serverTimestamp === 1730000000002,
+        "audit timestamp should pass through"
+    );
+
+    assert(
+        mapAuditStatusToView({ status: "NONSENSE" }) === null,
+        "unknown audit status must be rejected"
+    );
+
+    assert(
+        mapAuditStatusToView(null) === null,
+        "null audit payload should map to null"
+    );
+
+    console.log("  audit: authoritative status passthrough passed");
+
+}
+
+// Audit lifecycle progresses STARTED -> READY, but never downgrades.
+{
+
+    let state = { ...GAME_RESULT_INITIAL_STATE };
+
+    state = gameResultReducer(state, {
+        type: GAME_RESULT_ACTIONS.AUDIT_STATUS,
+        payload: { gameId: "g", status: AUDIT_VIEW_STATUS.STARTED }
+    });
+
+    assert(
+        state.audit.status === AUDIT_VIEW_STATUS.STARTED,
+        "audit should capture the STARTED status"
+    );
+
+    state = gameResultReducer(state, {
+        type: GAME_RESULT_ACTIONS.AUDIT_STATUS,
+        payload: {
+            gameId: "g",
+            status: AUDIT_VIEW_STATUS.READY,
+            auditId: "audit_g_1"
+        }
+    });
+
+    assert(
+        state.audit.status === AUDIT_VIEW_STATUS.READY,
+        "audit should progress to READY"
+    );
+
+    const downgrade = gameResultReducer(state, {
+        type: GAME_RESULT_ACTIONS.AUDIT_STATUS,
+        payload: { gameId: "g", status: AUDIT_VIEW_STATUS.STARTED }
+    });
+
+    assert(
+        downgrade.audit.status === AUDIT_VIEW_STATUS.READY,
+        "terminal audit status must not downgrade to STARTED"
+    );
+
+    assert(
+        downgrade === state,
+        "no-op audit update should return the same state reference"
+    );
+
+    console.log("  audit: lifecycle progression / no downgrade passed");
+
+}
+
+// Audit state is independent of the winner result and cleared on reset.
+{
+
+    let state = { ...GAME_RESULT_INITIAL_STATE };
+
+    state = gameResultReducer(state, {
+        type: GAME_RESULT_ACTIONS.AUDIT_STATUS,
+        payload: { gameId: "g", status: AUDIT_VIEW_STATUS.FAILED }
+    });
+
+    assert(
+        state.result === null,
+        "audit status must not fabricate a game result"
+    );
+
+    assert(state.audit.status === "FAILED", "failed audit status should be stored");
+
+    state = gameResultReducer(state, { type: GAME_RESULT_ACTIONS.RESET });
+
+    assert(state.audit === null, "reset should clear audit status");
+
+    console.log("  audit: independent of result and reset passed");
 
 }
 

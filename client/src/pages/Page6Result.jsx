@@ -6,7 +6,10 @@ import { DEV_MODE } from "../config/devMode";
 
 import { useGameResult } from "../context/GameResultContext";
 
-import { PAYMENT_VIEW_STATUS } from "../game/result/gameResultFlow";
+import {
+    PAYMENT_VIEW_STATUS,
+    AUDIT_VIEW_STATUS
+} from "../game/result/gameResultFlow";
 
 import "../styles/page6result.css";
 
@@ -14,6 +17,12 @@ const PAYMENT_STATUS_LABEL = {
     [PAYMENT_VIEW_STATUS.STARTED]: "Settlement in progress…",
     [PAYMENT_VIEW_STATUS.COMPLETED]: "Payment completed",
     [PAYMENT_VIEW_STATUS.FAILED]: "Payment failed"
+};
+
+const AUDIT_STATUS_LABEL = {
+    [AUDIT_VIEW_STATUS.STARTED]: "Audit pending",
+    [AUDIT_VIEW_STATUS.READY]: "Audit completed",
+    [AUDIT_VIEW_STATUS.FAILED]: "Audit unavailable"
 };
 
 const EMPTY_VALUE = "—";
@@ -56,16 +65,14 @@ function formatTimestamp(timestamp) {
 
 // Reserved for later C4 stages — layout only, intentionally inert.
 const RESERVED_AREAS = [
-    "Payment Status",
     "Recovery Information",
-    "Audit Reference",
     "Play Again",
     "Room Return"
 ];
 
 export default function Page6Result() {
 
-    const { result, payment } = useGameResult();
+    const { result, payment, audit } = useGameResult();
 
     useEffect(() => {
 
@@ -205,6 +212,45 @@ export default function Page6Result() {
                                     <div className="page6__paymentReason">
 
                                         {payment.reason}
+
+                                    </div>
+
+                                )}
+
+                            </div>
+
+                            <div
+                                className="page6__audit"
+                                data-status={audit?.status ?? "PENDING"}
+                                aria-live="polite"
+                            >
+
+                                <div className="page6__auditLabel">
+
+                                    {audit
+                                        ? (AUDIT_STATUS_LABEL[audit.status]
+                                            ?? audit.status)
+                                        : "Audit pending"}
+
+                                </div>
+
+                                {DEV_MODE && audit?.auditId && (
+
+                                    <div className="page6__auditDetail">
+
+                                        <div className="page6__devRow">
+                                            <span>Audit ID</span>
+                                            <span>{audit.auditId}</span>
+                                        </div>
+
+                                        <div className="page6__devRow">
+                                            <span>Audit Timestamp</span>
+                                            <span>
+                                                {formatTimestamp(
+                                                    audit.serverTimestamp
+                                                )}
+                                            </span>
+                                        </div>
 
                                     </div>
 

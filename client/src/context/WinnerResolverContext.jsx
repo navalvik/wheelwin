@@ -66,7 +66,8 @@ export function WinnerResolverProvider({
 
     const {
         publishAuthoritativeResult,
-        publishPaymentStatus
+        publishPaymentStatus,
+        publishAuditStatus
     } = useGameResultProducers();
 
     const resolverRef = useRef(null);
@@ -318,6 +319,36 @@ export function WinnerResolverProvider({
                 winnerId: snapshot.gameResult?.winner?.id ?? null,
                 winnerAmount: snapshot.payment.winnerAmount ?? null,
                 reason: snapshot.payment.reason ?? null,
+                serverTimestamp: snapshot.timestamp ?? Date.now()
+            });
+
+        }
+
+    }));
+
+    useRegisterEngineModule("audit", () => ({
+
+        // Audit is authoritative and server-driven. The client only forwards the
+        // audit status to the persistent result store for Page6 presentation; it
+        // never generates audit records or references.
+        onAuditStarted: (payload) => publishAuditStatus(payload),
+
+        onAuditReady: (payload) => publishAuditStatus(payload),
+
+        onAuditFailed: (payload) => publishAuditStatus(payload),
+
+        restoreAudit: (snapshot) => {
+
+            if (!snapshot?.audit) {
+
+                return;
+
+            }
+
+            publishAuditStatus({
+                gameId: snapshot.gameId ?? null,
+                status: snapshot.audit.status,
+                auditId: snapshot.audit.auditId ?? null,
                 serverTimestamp: snapshot.timestamp ?? Date.now()
             });
 

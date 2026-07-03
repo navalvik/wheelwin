@@ -57,6 +57,7 @@ import { SimulationLoop } from "./simulation/SimulationLoop.js";
 import { GameStateActivation } from "./gameplay/GameStateActivation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
 import { PaymentActivation } from "./gameplay/PaymentActivation.js";
+import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 
@@ -110,6 +111,8 @@ class WheelWinApplication {
         this._winnerActivation = null;
 
         this._paymentActivation = null;
+
+        this._auditActivation = null;
 
         this._recoverySnapshotCache = null;
 
@@ -331,18 +334,6 @@ class WheelWinApplication {
 
         this._logger.startupLine("RecoveryEngine");
 
-        this._recoverySnapshotCache = new RecoverySnapshotCache({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            recoveryEngine: this._recoveryEngine,
-            paymentEngine: this._engines.paymentEngine,
-            devMode: this._productionConfig.isDevelopment
-        });
-
-        this._recoverySnapshotCache.initialize();
-
-        this._logger.startupLine("RecoverySnapshotCache");
-
         this._auditEngine = new AuditEngine({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -361,6 +352,37 @@ class WheelWinApplication {
         this._auditEngine.initialize();
 
         this._logger.startupLine("AuditEngine");
+
+        this._auditActivation = new AuditActivation({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            auditEngine: this._auditEngine,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._auditActivation.initialize();
+
+        this._logger.startupLine("AuditActivation");
+
+        // C4.4 — Make audit the final authoritative step: teardown now waits for
+        // audit to reach a terminal state before destroying gameplay data.
+        this._gameplayLifecycle.configureAudit({
+            auditEngine: this._auditEngine,
+            auditActivation: this._auditActivation
+        });
+
+        this._recoverySnapshotCache = new RecoverySnapshotCache({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            recoveryEngine: this._recoveryEngine,
+            paymentEngine: this._engines.paymentEngine,
+            auditEngine: this._auditEngine,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._recoverySnapshotCache.initialize();
+
+        this._logger.startupLine("RecoverySnapshotCache");
 
         validateEngineDependencies({
             logger: this._logger,
@@ -392,6 +414,7 @@ class WheelWinApplication {
             gameStateActivation: Boolean(this._gameStateActivation),
             winnerActivation: Boolean(this._winnerActivation),
             paymentActivation: Boolean(this._paymentActivation),
+            auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
@@ -443,6 +466,7 @@ class WheelWinApplication {
             recoveryEngine: this._recoveryEngine,
             recoverySnapshotCache: this._recoverySnapshotCache,
             paymentEngine: this._engines.paymentEngine,
+            auditEngine: this._auditEngine,
             roomLobbyBridge: this._roomLobbyBridge
         });
 
@@ -465,6 +489,7 @@ class WheelWinApplication {
             gameStateActivation: Boolean(this._gameStateActivation),
             winnerActivation: Boolean(this._winnerActivation),
             paymentActivation: Boolean(this._paymentActivation),
+            auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
@@ -635,6 +660,16 @@ class WheelWinApplication {
             if (this._recoveryEngine) {
 
                 this._recoveryEngine.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("auditActivation", () => {
+
+            if (this._auditActivation) {
+
+                this._auditActivation.shutdown();
 
             }
 

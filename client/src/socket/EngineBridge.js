@@ -93,6 +93,21 @@ export class EngineBridge {
                 modules.payment?.onPaymentFailed?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.AUDIT_STARTED]: (payload) => {
+
+                modules.audit?.onAuditStarted?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.AUDIT_READY]: (payload) => {
+
+                modules.audit?.onAuditReady?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.AUDIT_FAILED]: (payload) => {
+
+                modules.audit?.onAuditFailed?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.GAME_START]: (payload) => {
 
                 modules.audio?.onGameStart?.(payload);

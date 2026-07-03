@@ -18,7 +18,8 @@ const RESTORE_HANDLERS = Object.freeze({
     button: "restoreButton",
     audio: "restoreAudio",
     winnerResolver: "restoreWinnerResult",
-    payment: "restorePayment"
+    payment: "restorePayment",
+    audit: "restoreAudit"
 });
 
 const RESTORE_PROGRESS = Object.freeze({
@@ -29,7 +30,8 @@ const RESTORE_PROGRESS = Object.freeze({
     button: RECOVERY_PROGRESS.RESTORING_BUTTON,
     audio: RECOVERY_PROGRESS.RESTORING_AUDIO,
     winnerResolver: RECOVERY_PROGRESS.RESTORING_RESULT,
-    payment: RECOVERY_PROGRESS.RESTORING_RESULT
+    payment: RECOVERY_PROGRESS.RESTORING_RESULT,
+    audit: RECOVERY_PROGRESS.RESTORING_RESULT
 });
 
 export class SessionRecoveryEngine {

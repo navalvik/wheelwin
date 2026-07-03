@@ -37,6 +37,30 @@ function mapWinnerToGameResult(gameId, winner, recoveredAt) {
 
 }
 
+function mapAuditStatusForClient(auditStatus) {
+
+    if (auditStatus === "READY") {
+
+        return { status: "READY" };
+
+    }
+
+    if (auditStatus === "FAILED") {
+
+        return { status: "FAILED" };
+
+    }
+
+    if (auditStatus === "STARTED") {
+
+        return { status: "STARTED" };
+
+    }
+
+    return null;
+
+}
+
 function mapPaymentStatusForClient(paymentStatus, payment) {
 
     if (payment?.paymentStatus === "COMPLETED") {
@@ -77,7 +101,8 @@ export function buildClientRecoveryPayload({
     playerId,
     roomId,
     paymentStatus = null,
-    payment = null
+    payment = null,
+    auditStatus = null
 }) {
 
     const gameId = snapshot?.gameId ?? null;
@@ -141,6 +166,7 @@ export function buildClientRecoveryPayload({
             paymentStatus ?? payment?.paymentStatus ?? null,
             payment ?? snapshot?.payment
         ),
+        audit: mapAuditStatusForClient(auditStatus),
         timestamp: snapshot?.recoveredAt ?? Date.now(),
         traceSeed: snapshot?.metadata?.traceSeed ?? null
     };

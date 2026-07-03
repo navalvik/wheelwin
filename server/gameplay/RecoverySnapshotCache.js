@@ -18,6 +18,7 @@ export class RecoverySnapshotCache {
         eventBus,
         recoveryEngine,
         paymentEngine = null,
+        auditEngine = null,
         devMode = false
     }) {
 
@@ -28,6 +29,8 @@ export class RecoverySnapshotCache {
         this._recoveryEngine = recoveryEngine;
 
         this._paymentEngine = paymentEngine;
+
+        this._auditEngine = auditEngine;
 
         this._devMode = devMode;
 
@@ -73,6 +76,24 @@ export class RecoverySnapshotCache {
             (envelope) => {
 
                 this._refreshPaymentStatus(envelope.payload?.gameId);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.AUDIT_READY,
+            (envelope) => {
+
+                this._refreshAuditStatus(envelope.payload?.gameId, "READY");
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.AUDIT_FAILED,
+            (envelope) => {
+
+                this._refreshAuditStatus(envelope.payload?.gameId, "FAILED");
 
             }
         );
@@ -155,6 +176,22 @@ export class RecoverySnapshotCache {
 
     }
 
+    _refreshAuditStatus(gameId, auditStatus) {
+
+        if (!gameId || !this._cache.has(gameId)) {
+
+            return;
+
+        }
+
+        const entry = this._cache.get(gameId);
+
+        entry.auditStatus = auditStatus;
+
+        this._logStep(`Audit status refreshed for ${gameId} -> ${auditStatus}`);
+
+    }
+
     _capture(gameId) {
 
         try {
@@ -165,6 +202,7 @@ export class RecoverySnapshotCache {
                 snapshot,
                 payment: this._paymentEngine?.getPayment(gameId) ?? null,
                 paymentStatus: this._resolvePaymentStatus(gameId),
+                auditStatus: this._resolveAuditStatus(gameId),
                 capturedAt: Date.now()
             });
 
@@ -189,6 +227,18 @@ export class RecoverySnapshotCache {
         }
 
         return this._paymentEngine.getPaymentStatus(gameId);
+
+    }
+
+    _resolveAuditStatus(gameId) {
+
+        if (!this._auditEngine) {
+
+            return null;
+
+        }
+
+        return this._auditEngine.getAuditReport(gameId) ? "READY" : null;
 
     }
 

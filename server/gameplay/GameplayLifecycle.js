@@ -37,6 +37,9 @@ export class GameplayLifecycle {
         winnerActivation,
         paymentEngine = null,
         paymentActivation = null,
+        auditEngine = null,
+        auditActivation = null,
+        waitForAudit = false,
         gameManager,
         devMode = false
     }) {
@@ -65,6 +68,12 @@ export class GameplayLifecycle {
 
         this._paymentActivation = paymentActivation;
 
+        this._auditEngine = auditEngine;
+
+        this._auditActivation = auditActivation;
+
+        this._waitForAudit = waitForAudit;
+
         this._gameManager = gameManager;
 
         this._devMode = devMode;
@@ -75,7 +84,35 @@ export class GameplayLifecycle {
 
         this._completed = new Set();
 
+        this._awaitingAudit = new Set();
+
+        this._auditTerminal = new Set();
+
         this._initialized = false;
+
+    }
+
+    /**
+     * C4.4 — Enables audit-gated teardown after AuditActivation is constructed.
+     * When enabled, a completed game is not torn down until its audit reaches a
+     * terminal state (AUDIT_READY or AUDIT_FAILED), so audit always completes
+     * before authoritative data is destroyed.
+     */
+    configureAudit({ auditEngine, auditActivation }) {
+
+        if (auditEngine) {
+
+            this._auditEngine = auditEngine;
+
+        }
+
+        if (auditActivation) {
+
+            this._auditActivation = auditActivation;
+
+        }
+
+        this._waitForAudit = true;
 
     }
 
@@ -86,6 +123,24 @@ export class GameplayLifecycle {
             (envelope) => {
 
                 this._handleGameStateChanged(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.AUDIT_READY,
+            (envelope) => {
+
+                this._handleAuditTerminal(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.AUDIT_FAILED,
+            (envelope) => {
+
+                this._handleAuditTerminal(envelope.payload);
 
             }
         );
@@ -120,6 +175,10 @@ export class GameplayLifecycle {
 
         this._completed.clear();
 
+        this._awaitingAudit.clear();
+
+        this._auditTerminal.clear();
+
         this._initialized = false;
 
     }
@@ -141,6 +200,57 @@ export class GameplayLifecycle {
             return;
 
         }
+
+        if (this._pendingTeardowns.has(gameId) || this._completed.has(gameId)) {
+
+            return;
+
+        }
+
+        // C4.4 — Audit must finalize before authoritative data is destroyed.
+        // Defer teardown until the audit reaches a terminal state; the audit
+        // terminal handler schedules the linger timer once audit is done.
+        if (this._waitForAudit && !this._auditTerminal.has(gameId)) {
+
+            this._awaitingAudit.add(gameId);
+
+            this._logStep(`Awaiting audit before teardown ${gameId}`);
+
+            return;
+
+        }
+
+        this._scheduleTeardown(gameId);
+
+    }
+
+    _handleAuditTerminal(payload) {
+
+        const gameId = payload?.gameId;
+
+        if (!gameId) {
+
+            return;
+
+        }
+
+        this._auditTerminal.add(gameId);
+
+        if (!this._awaitingAudit.has(gameId)) {
+
+            return;
+
+        }
+
+        this._awaitingAudit.delete(gameId);
+
+        this._logStep(`Audit terminal received, scheduling teardown ${gameId}`);
+
+        this._scheduleTeardown(gameId);
+
+    }
+
+    _scheduleTeardown(gameId) {
 
         if (this._pendingTeardowns.has(gameId) || this._completed.has(gameId)) {
 
@@ -209,6 +319,27 @@ export class GameplayLifecycle {
             this._paymentActivation.forgetGame(gameId);
 
         }
+
+        if (this._auditActivation) {
+
+            this._auditActivation.forgetGame(gameId);
+
+        }
+
+        if (
+            this._auditEngine
+            && this._auditEngine.getAuditReport(gameId)
+        ) {
+
+            this._auditEngine.removeAuditReport(gameId);
+
+            this._logStep("Audit report removed");
+
+        }
+
+        this._awaitingAudit.delete(gameId);
+
+        this._auditTerminal.delete(gameId);
 
         if (
             this._paymentEngine

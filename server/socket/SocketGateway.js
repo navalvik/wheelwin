@@ -34,6 +34,10 @@ import {
 import {
     buildPaymentStatusMessage
 } from "./gameplayPaymentProtocol.js";
+import {
+    buildAuditStatusMessage,
+    AUDIT_CLIENT_STATUS
+} from "./gameplayAuditProtocol.js";
 
 export class SocketGateway {
 
@@ -46,6 +50,7 @@ export class SocketGateway {
         recoveryEngine = null,
         recoverySnapshotCache = null,
         paymentEngine = null,
+        auditEngine = null,
         roomLobbyBridge = null,
         devMode = false
     }) {
@@ -65,6 +70,8 @@ export class SocketGateway {
         this._recoverySnapshotCache = recoverySnapshotCache;
 
         this._paymentEngine = paymentEngine;
+
+        this._auditEngine = auditEngine;
 
         this._roomLobbyBridge = roomLobbyBridge;
 
@@ -93,6 +100,12 @@ export class SocketGateway {
         this._paymentCompletedHandler = null;
 
         this._paymentFailedHandler = null;
+
+        this._auditStartedHandler = null;
+
+        this._auditReadyHandler = null;
+
+        this._auditFailedHandler = null;
 
         this._socketRooms = new Map();
 
@@ -230,6 +243,48 @@ export class SocketGateway {
             this._paymentFailedHandler
         );
 
+        this._auditStartedHandler = (envelope) => {
+
+            this._handleAuditEvent(
+                EVENT_TYPES.AUDIT_STARTED,
+                envelope.payload
+            );
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.AUDIT_STARTED,
+            this._auditStartedHandler
+        );
+
+        this._auditReadyHandler = (envelope) => {
+
+            this._handleAuditEvent(
+                EVENT_TYPES.AUDIT_READY,
+                envelope.payload
+            );
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.AUDIT_READY,
+            this._auditReadyHandler
+        );
+
+        this._auditFailedHandler = (envelope) => {
+
+            this._handleAuditEvent(
+                EVENT_TYPES.AUDIT_FAILED,
+                envelope.payload
+            );
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.AUDIT_FAILED,
+            this._auditFailedHandler
+        );
+
     }
 
     disconnectEventBus() {
@@ -324,6 +379,33 @@ export class SocketGateway {
 
         }
 
+        if (this._eventBus && this._auditStartedHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.AUDIT_STARTED,
+                this._auditStartedHandler
+            );
+
+        }
+
+        if (this._eventBus && this._auditReadyHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.AUDIT_READY,
+                this._auditReadyHandler
+            );
+
+        }
+
+        if (this._eventBus && this._auditFailedHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.AUDIT_FAILED,
+                this._auditFailedHandler
+            );
+
+        }
+
         this._eventBus = null;
 
         this._testEventHandler = null;
@@ -345,6 +427,12 @@ export class SocketGateway {
         this._paymentCompletedHandler = null;
 
         this._paymentFailedHandler = null;
+
+        this._auditStartedHandler = null;
+
+        this._auditReadyHandler = null;
+
+        this._auditFailedHandler = null;
 
         this._eventBusConnected = false;
 
@@ -418,6 +506,7 @@ export class SocketGateway {
         recoveryEngine,
         recoverySnapshotCache,
         paymentEngine,
+        auditEngine,
         roomLobbyBridge
     }) {
 
@@ -436,6 +525,12 @@ export class SocketGateway {
         if (paymentEngine) {
 
             this._paymentEngine = paymentEngine;
+
+        }
+
+        if (auditEngine) {
+
+            this._auditEngine = auditEngine;
 
         }
 
@@ -686,6 +781,8 @@ export class SocketGateway {
 
         let payment = null;
 
+        let auditStatus = null;
+
         try {
 
             authoritativeSnapshot = this._recoveryEngine.recoverPlayer(
@@ -696,6 +793,8 @@ export class SocketGateway {
             paymentStatus = this._paymentEngine?.getPaymentStatus(gameId) ?? null;
 
             payment = this._paymentEngine?.getPayment(gameId) ?? null;
+
+            auditStatus = this._resolveAuditStatus(gameId);
 
         } catch {
 
@@ -708,6 +807,8 @@ export class SocketGateway {
                 paymentStatus = cached.paymentStatus ?? null;
 
                 payment = cached.payment ?? null;
+
+                auditStatus = cached.auditStatus ?? null;
 
             }
 
@@ -730,7 +831,8 @@ export class SocketGateway {
             playerId,
             roomId,
             paymentStatus,
-            payment
+            payment,
+            auditStatus
         });
 
         const { channel, message: responseMessage } = buildRecoverySnapshotMessage(
@@ -1028,6 +1130,86 @@ export class SocketGateway {
         this._io.to(roomId).emit(channel, message);
 
         this._logPaymentSyncStep("Payment status sent");
+
+    }
+
+    _handleAuditEvent(eventType, auditPayload) {
+
+        if (!this._io || !auditPayload?.gameId) {
+
+            return;
+
+        }
+
+        if (!this._gameplayContextResolver) {
+
+            this._logAuditSyncDrop("gameplay context resolver is not configured");
+
+            return;
+
+        }
+
+        const roomId = this._gameplayContextResolver
+            .resolveRoomByGameId(auditPayload.gameId);
+
+        if (!roomId) {
+
+            this._logAuditSyncDrop(
+                `no active room for gameId=${auditPayload.gameId}`
+            );
+
+            return;
+
+        }
+
+        const { channel, message } = buildAuditStatusMessage(
+            eventType,
+            auditPayload
+        );
+
+        this._logAuditSyncStep(`${eventType} → ${message.payload.status}`);
+
+        this._io.to(roomId).emit(channel, message);
+
+        this._logAuditSyncStep("Audit status sent");
+
+    }
+
+    _resolveAuditStatus(gameId) {
+
+        if (!this._auditEngine) {
+
+            return null;
+
+        }
+
+        return this._auditEngine.getAuditReport(gameId)
+            ? AUDIT_CLIENT_STATUS.READY
+            : null;
+
+    }
+
+    _logAuditSyncStep(message) {
+
+        if (!this._devMode) {
+
+            return;
+
+        }
+
+        this._logger.debug(`[AuditSync] ${message}`);
+
+    }
+
+    _logAuditSyncDrop(message) {
+
+        if (!this._devMode) {
+
+            return;
+
+        }
+
+        this._logger.debug(`[AuditSync] dropped | ${message}`);
 
     }
 

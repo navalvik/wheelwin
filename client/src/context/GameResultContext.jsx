@@ -67,6 +67,17 @@ export function GameResultProvider({ children, currentPage, onNavigate }) {
 
     }, []);
 
+    const publishAuditStatus = useCallback((payload) => {
+
+        devLog(`AUDIT status ${payload?.status ?? "?"}`);
+
+        dispatch({
+            type: GAME_RESULT_ACTIONS.AUDIT_STATUS,
+            payload
+        });
+
+    }, []);
+
     const applyRecoverySnapshot = useCallback((snapshot) => {
 
         if (snapshot?.gameResult) {
@@ -88,7 +99,18 @@ export function GameResultProvider({ children, currentPage, onNavigate }) {
 
         }
 
-    }, [publishAuthoritativeResult, publishPaymentStatus]);
+        if (snapshot?.audit) {
+
+            publishAuditStatus({
+                gameId: snapshot.gameId ?? null,
+                status: snapshot.audit.status,
+                auditId: snapshot.audit.auditId ?? null,
+                serverTimestamp: snapshot.timestamp ?? Date.now()
+            });
+
+        }
+
+    }, [publishAuthoritativeResult, publishPaymentStatus, publishAuditStatus]);
 
     // Clear a stale result whenever a fresh game begins (pre-gameplay pages).
     useEffect(() => {
@@ -122,15 +144,19 @@ export function GameResultProvider({ children, currentPage, onNavigate }) {
     const value = useMemo(() => ({
         result: state.result,
         payment: state.payment,
+        audit: state.audit,
         hasResult: Boolean(state.result),
         publishAuthoritativeResult,
         publishPaymentStatus,
+        publishAuditStatus,
         applyRecoverySnapshot
     }), [
         state.result,
         state.payment,
+        state.audit,
         publishAuthoritativeResult,
         publishPaymentStatus,
+        publishAuditStatus,
         applyRecoverySnapshot
     ]);
 
@@ -197,7 +223,8 @@ export function useGameResultProducers() {
 
     return {
         publishAuthoritativeResult: context?.publishAuthoritativeResult ?? NOOP,
-        publishPaymentStatus: context?.publishPaymentStatus ?? NOOP
+        publishPaymentStatus: context?.publishPaymentStatus ?? NOOP,
+        publishAuditStatus: context?.publishAuditStatus ?? NOOP
     };
 
 }
