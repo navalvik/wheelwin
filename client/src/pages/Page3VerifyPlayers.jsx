@@ -4,17 +4,33 @@ import GameLayout from "../layouts/GameLayout";
 
 import PlayerInfoRow from "../components/PlayerInfoRow";
 
+import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameSession } from "../context/GameSessionContext";
+
+import {
+    hasAuthoritativePlayers,
+    listAuthoritativePlayers,
+    mapAuthoritativePlayerToInfoRow
+} from "../game/session";
 
 import "../styles/page3verify.css";
 
 export default function Page3VerifyPlayers({ onNavigate }) {
+
+    // C5.3 — players come from AuthoritativeSession only.
+    // Finance fields (stake / gram) stay on GameSessionContext until later stages.
+    const authoritative = useAuthoritativeSession();
 
     const { session } = useGameSession();
 
     const [walletAddress, setWalletAddress] = useState("");
 
     const isWalletValid = walletAddress.trim().length > 0;
+
+    const playersReady = hasAuthoritativePlayers(authoritative.players);
+
+    const players = listAuthoritativePlayers(authoritative.players)
+        .map(mapAuthoritativePlayerToInfoRow);
 
     return (
 
@@ -38,27 +54,42 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                     <div className="verifyPlayers">
 
-                        {session.players.map((player) => (
+                        {playersReady ? (
 
-                            <PlayerInfoRow
+                            players.map((player) => (
 
-                                key={player.id}
+                                <PlayerInfoRow
 
-                                labelTitle={player.labelTitle}
+                                    key={player.key}
 
-                                nickname={player.nickname}
+                                    labelTitle={player.labelTitle}
 
-                                icon={player.icon}
+                                    nickname={player.nickname}
 
-                                age={player.age}
+                                    icon={player.icon}
 
-                                sectorLabel={player.sectorLabel}
+                                    age={player.age}
 
-                                sectorValue={player.sectorValue}
+                                    sectorLabel={player.sectorLabel}
 
-                            />
+                                    sectorValue={player.sectorValue}
 
-                        ))}
+                                />
+
+                            ))
+
+                        ) : (
+
+                            <div
+                                className="verifyPlayersWaiting"
+                                aria-live="polite"
+                            >
+
+                                Waiting for players…
+
+                            </div>
+
+                        )}
 
                     </div>
 

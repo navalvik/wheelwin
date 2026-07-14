@@ -1,3 +1,4 @@
+import { AuthoritativeSessionProvider } from "../context/AuthoritativeSessionContext";
 import { CentralButtonProvider } from "../context/CentralButtonContext";
 import { EngineBridgeProvider } from "../context/EngineBridgeContext";
 import { GameStateProvider, useGameState } from "../context/GameStateContext";
@@ -59,31 +60,39 @@ export function GameEngineProviders({
 
         <EngineBridgeProvider>
 
-            <WheelConfigProvider>
+            {/*
+                C5.2 — Authoritative session mirror. Observes EngineBridge
+                events only. Does not replace GameSessionContext or drive UI.
+            */}
+            <AuthoritativeSessionProvider>
 
-                <GameClockProvider>
+                <WheelConfigProvider>
 
-                    <GameStateProvider>
+                    <GameClockProvider>
 
-                        <PhysicsProvider>
+                        <GameStateProvider>
 
-                            <InputAckProvider>
+                            <PhysicsProvider>
 
-                                <GameEngineProviderStack>
+                                <InputAckProvider>
 
-                                    {children}
+                                    <GameEngineProviderStack>
 
-                                </GameEngineProviderStack>
+                                        {children}
 
-                            </InputAckProvider>
+                                    </GameEngineProviderStack>
 
-                        </PhysicsProvider>
+                                </InputAckProvider>
 
-                    </GameStateProvider>
+                            </PhysicsProvider>
 
-                </GameClockProvider>
+                        </GameStateProvider>
 
-            </WheelConfigProvider>
+                    </GameClockProvider>
+
+                </WheelConfigProvider>
+
+            </AuthoritativeSessionProvider>
 
         </EngineBridgeProvider>
 

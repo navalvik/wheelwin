@@ -124,6 +124,14 @@ export class SpeedActivation {
 
     }
 
+    // Read-only lifecycle probe: number of games whose SPEED roster is still
+    // tracked. Used by cleanup validation to confirm no game survives teardown.
+    getActiveGameCount() {
+
+        return this._rosters.size;
+
+    }
+
     _handleGameCreated(payload) {
 
         const gameId = payload?.gameId;

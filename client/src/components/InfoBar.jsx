@@ -1,5 +1,8 @@
+import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameSession } from "../context/GameSessionContext";
 import { useGameClock } from "../context/GameClockContext";
+
+import { formatAuthoritativePlayerCount } from "../game/session";
 
 import { isGameplayPage } from "../game/sessionRecovery/recoveryFlow";
 
@@ -14,10 +17,16 @@ export default function InfoBar() {
         formatPhaseTime
     } = useGameSession();
 
+    // C5.3 — player count is authoritative. Room id / setup timer stay on
+    // GameSessionContext (room + timer not migrated in this stage).
+    const authoritative = useAuthoritativeSession();
+
     const { phaseLabel, remainingText } = useGameClock();
 
-    const playersDisplay =
-        `${session.connectedCount} / ${session.maxPlayers}`;
+    const playersDisplay = formatAuthoritativePlayerCount(
+        authoritative.players,
+        session.maxPlayers
+    ) ?? "—";
 
     // InfoBar is only a router between two independent time domains. Selection is
     // page-based: gameplay/result pages present the authoritative server

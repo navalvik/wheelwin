@@ -615,6 +615,20 @@ export class RoomLobbyBridge {
 
         }
 
+        // C4.9 — Deliberate leave of a started room ends the session. Only an
+        // explicit "return to Page1" leave reaches this path for a started room:
+        // socket disconnects soft-detach and return earlier for reconnect. Close
+        // the whole session so no gameplay-owned lobby state (room, room->game
+        // mapping, started flag, players/sockets) survives the completed game.
+        // Recovery (disconnect/reconnect) is untouched — it never gets here.
+        if (gameStarted) {
+
+            this._closeRoom(roomId, "session_ended");
+
+            return;
+
+        }
+
         const room = this._roomManager.getRoom(roomId);
 
         if (!room) {
