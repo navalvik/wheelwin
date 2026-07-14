@@ -2,7 +2,11 @@ import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext"
 import { useGameSession } from "../context/GameSessionContext";
 import { useGameClock } from "../context/GameClockContext";
 
-import { formatAuthoritativePlayerCount } from "../game/session";
+import {
+    formatAuthoritativeRoomId,
+    formatAuthoritativeRoomPlayersDisplay,
+    getAuthoritativeRoom
+} from "../game/session";
 
 import { isGameplayPage } from "../game/sessionRecovery/recoveryFlow";
 
@@ -17,14 +21,20 @@ export default function InfoBar() {
         formatPhaseTime
     } = useGameSession();
 
-    // C5.3 — player count is authoritative. Room id / setup timer stay on
-    // GameSessionContext (room + timer not migrated in this stage).
+    // C5.4 — room metadata (id + player capacity display) comes from
+    // AuthoritativeSession. Setup timer stays on GameSessionContext.
+    // Page2 / Page3 room display is this shared InfoBar (no separate panel).
     const authoritative = useAuthoritativeSession();
+
+    const room = getAuthoritativeRoom(authoritative);
 
     const { phaseLabel, remainingText } = useGameClock();
 
-    const playersDisplay = formatAuthoritativePlayerCount(
+    const roomIdDisplay = formatAuthoritativeRoomId(room.roomId) ?? "—";
+
+    const playersDisplay = formatAuthoritativeRoomPlayersDisplay(
         authoritative.players,
+        room.maxPlayers,
         session.maxPlayers
     ) ?? "—";
 
@@ -55,7 +65,7 @@ export default function InfoBar() {
 
                 <div className="infoBarValue">
 
-                    {session.roomId}
+                    {roomIdDisplay}
 
                 </div>
 

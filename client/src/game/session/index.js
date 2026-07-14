@@ -11,3 +11,10 @@ export {
     formatAuthoritativePlayerCount,
     mapAuthoritativePlayerToInfoRow
 } from "./authoritativePlayerView.js";
+
+export {
+    getAuthoritativeRoom,
+    formatAuthoritativeRoomId,
+    resolveRoomMaxPlayers,
+    formatAuthoritativeRoomPlayersDisplay
+} from "./authoritativeRoomView.js";

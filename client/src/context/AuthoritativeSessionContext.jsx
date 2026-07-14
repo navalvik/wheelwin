@@ -29,6 +29,7 @@ function logSession(state) {
     console.debug("[AuthoritativeSession]", {
         lastEventType: state.lastEventType,
         roomId: state.roomId,
+        maxPlayers: state.maxPlayers,
         gameId: state.gameId,
         gameState: state.gameState,
         playerCount: Object.keys(state.players).length,
