@@ -2,15 +2,44 @@ import GameLayout from "../layouts/GameLayout";
 
 import PlayerPaymentRow from "../components/PlayerPaymentRow";
 
-import { useGameSession } from "../context/GameSessionContext";
+import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 
-import { getSmartContractStatusLabel } from "../utils/gameSession";
+import {
+    hasAuthoritativePlayers,
+    isAuthoritativePaymentComplete,
+    listAuthoritativePlayers,
+    mapAuthoritativePaymentToContractLabel,
+    mapAuthoritativePaymentToRowStatus,
+    mapAuthoritativePlayerToInfoRow,
+    shouldShowPaymentWaiting
+} from "../game/session";
+
+import { PAYMENT_STATUS } from "../utils/gameSession";
 
 import "../styles/page4payment.css";
 
 export default function Page4Payment({ onNavigate }) {
 
-    const { session, allPaymentsConfirmed } = useGameSession();
+    // C5.5 — payment display comes from AuthoritativeSession.payment only.
+    // Players come from AuthoritativeSession.players (C5.3).
+    // No GameSession mock statuses and no client auto-confirm.
+    const authoritative = useAuthoritativeSession();
+
+    const playersReady = hasAuthoritativePlayers(authoritative.players);
+
+    const payment = authoritative.payment;
+
+    const rowStatus = mapAuthoritativePaymentToRowStatus(payment)
+        ?? PAYMENT_STATUS.waiting;
+
+    const waiting = shouldShowPaymentWaiting(playersReady, payment);
+
+    const nextEnabled = isAuthoritativePaymentComplete(payment);
+
+    const contractLabel = mapAuthoritativePaymentToContractLabel(payment);
+
+    const players = listAuthoritativePlayers(authoritative.players)
+        .map(mapAuthoritativePlayerToInfoRow);
 
     return (
 
@@ -22,7 +51,7 @@ export default function Page4Payment({ onNavigate }) {
 
             onBack={() => onNavigate(5)}
 
-            nextEnabled={allPaymentsConfirmed}
+            nextEnabled={nextEnabled}
 
             onNext={() => onNavigate(7)}
 
@@ -34,34 +63,44 @@ export default function Page4Payment({ onNavigate }) {
 
                     <div className="paymentPlayers">
 
-                        {session.players.map((player) => (
+                        {waiting ? (
 
-                            <PlayerPaymentRow
+                            <div
+                                className="paymentPlayersWaiting"
+                                aria-live="polite"
+                            >
 
-                                key={player.id}
+                                Waiting for payment…
 
-                                labelTitle={
-                                    player.paymentLabelTitle
-                                    || player.labelTitle
-                                }
+                            </div>
 
-                                nickname={player.nickname}
+                        ) : (
 
-                                icon={player.icon}
+                            players.map((player) => (
 
-                                paymentStatus={player.paymentStatus}
+                                <PlayerPaymentRow
 
-                            />
+                                    key={player.key}
 
-                        ))}
+                                    labelTitle={player.labelTitle}
+
+                                    nickname={player.nickname}
+
+                                    icon={player.icon}
+
+                                    paymentStatus={rowStatus}
+
+                                />
+
+                            ))
+
+                        )}
 
                     </div>
 
                     <div className="smartContractStatus">
 
-                        {getSmartContractStatusLabel(
-                            session.smartContractStatus
-                        )}
+                        {contractLabel}
 
                     </div>
 

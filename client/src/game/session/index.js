@@ -18,3 +18,10 @@ export {
     resolveRoomMaxPlayers,
     formatAuthoritativeRoomPlayersDisplay
 } from "./authoritativeRoomView.js";
+
+export {
+    mapAuthoritativePaymentToRowStatus,
+    mapAuthoritativePaymentToContractLabel,
+    isAuthoritativePaymentComplete,
+    shouldShowPaymentWaiting
+} from "./authoritativePaymentView.js";
