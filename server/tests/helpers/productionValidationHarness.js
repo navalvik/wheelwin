@@ -143,21 +143,9 @@ export async function buildProductionStack() {
         roomManager
     });
 
-    // The lobby must observe ROOM_FULL BEFORE the gameplay bootstrap handler so
-    // the room is marked "started" before READY/COUNTDOWN are entered. Otherwise
-    // a disconnect during those early phases would be treated as a lobby leave
-    // (hard removal) instead of a soft gameplay disconnect that stays a valid
-    // participant and is continued by OfflineInputContinuation.
-    const roomLobbyBridge = new RoomLobbyBridge({
-        logger,
-        eventBus,
-        roomManager,
-        playerManager,
-        gameplayContextResolver
-    });
-
-    roomLobbyBridge.initialize();
-
+    // C5.6C — Soft-disconnect protection must be armed BEFORE GameManager
+    // bootstraps. Wire engines without COMPLETED subscription, initialize Bridge
+    // (COMPLETED first), then configure GameManager bootstrap (COMPLETED second).
     const harness = wireGameplayBootstrap({
         gameManager,
         roomManager,
@@ -166,7 +154,32 @@ export async function buildProductionStack() {
         eventBus,
         gameplayContextResolver,
         devMode: false,
-        enableLifecycle: true
+        enableLifecycle: true,
+        deferGameBootstrap: true
+    });
+
+    const roomLobbyBridge = new RoomLobbyBridge({
+        logger,
+        eventBus,
+        roomManager,
+        playerManager,
+        gameplayContextResolver,
+        setupSessionLifecycle: harness.setupSessionLifecycle
+    });
+
+    roomLobbyBridge.initialize();
+
+    gameManager.configureGameplayBootstrap({
+        roomManager,
+        playerManager,
+        configurationEngine: harness.configurationEngine,
+        gameStateEngine: harness.gameStateEngine,
+        inputAuthority: harness.inputAuthority,
+        physicsEngine: harness.physicsEngine,
+        gameClockEngine: harness.gameClockEngine,
+        gameCatalog: harness.catalog,
+        gameplayContextResolver,
+        devMode: false
     });
 
     const recoveryEngine = new RecoveryEngine({

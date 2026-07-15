@@ -64,6 +64,7 @@ import { PaymentActivation } from "./gameplay/PaymentActivation.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
+import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 
 class WheelWinApplication {
     constructor() {
@@ -129,6 +130,8 @@ class WheelWinApplication {
         this._recoverySnapshotCache = null;
 
         this._gameplayLifecycle = null;
+
+        this._setupSessionLifecycle = null;
 
         this._isShuttingDown = false;
 
@@ -236,6 +239,22 @@ class WheelWinApplication {
         this._managers = this._createManagers();
 
         this._initializeManagers();
+
+        this._setupSessionLifecycle = new SetupSessionLifecycle({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            roomManager: this._managers.roomManager,
+            roomConfig: this._roomConfig,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._setupSessionLifecycle.initialize();
+
+        this._managers.roomManager.attachSetupSessionLifecycle(
+            this._setupSessionLifecycle
+        );
+
+        this._logger.startupLine("SetupSessionLifecycle");
 
         this._engines = this._createEngines();
 
@@ -382,17 +401,9 @@ class WheelWinApplication {
 
         this._logger.startupLine("OfflineInputContinuation");
 
-        this._managers.gameManager.configureGameplayBootstrap({
-            roomManager: this._managers.roomManager,
-            playerManager: this._managers.playerManager,
-            configurationEngine: this._engines.configurationEngine,
-            gameStateEngine: this._engines.gameStateEngine,
-            inputAuthority: this._inputAuthority,
-            physicsEngine: this._engines.physicsEngine,
-            gameClockEngine: this._engines.gameClockEngine,
-            gameCatalog: this._gameCatalog,
-            devMode: this._productionConfig.isDevelopment
-        });
+        // C5.6C — GameManager SETUP_SESSION_COMPLETED subscription is deferred
+        // until RoomLobbyBridge has registered, so soft-disconnect protection
+        // (_startedRooms) is armed before READY fires during bootstrap.
 
         this._recoveryEngine = new RecoveryEngine({
             logger: this._logger,
@@ -497,6 +508,7 @@ class WheelWinApplication {
             paymentActivation: Boolean(this._paymentActivation),
             auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
+            setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
@@ -538,10 +550,24 @@ class WheelWinApplication {
             eventBus: this._eventBus,
             roomManager: this._managers.roomManager,
             playerManager: this._managers.playerManager,
-            gameplayContextResolver: this._gameplayContextResolver
+            gameplayContextResolver: this._gameplayContextResolver,
+            setupSessionLifecycle: this._setupSessionLifecycle
         });
 
         this._roomLobbyBridge.initialize();
+
+        this._managers.gameManager.configureGameplayBootstrap({
+            roomManager: this._managers.roomManager,
+            playerManager: this._managers.playerManager,
+            configurationEngine: this._engines.configurationEngine,
+            gameStateEngine: this._engines.gameStateEngine,
+            inputAuthority: this._inputAuthority,
+            physicsEngine: this._engines.physicsEngine,
+            gameClockEngine: this._engines.gameClockEngine,
+            gameCatalog: this._gameCatalog,
+            gameplayContextResolver: this._gameplayContextResolver,
+            devMode: this._productionConfig.isDevelopment
+        });
 
         this._socketGateway.configureRecovery({
             recoveryEngine: this._recoveryEngine,
@@ -575,6 +601,7 @@ class WheelWinApplication {
             paymentActivation: Boolean(this._paymentActivation),
             auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
+            setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
@@ -652,6 +679,16 @@ class WheelWinApplication {
             if (this._roomLobbyBridge) {
 
                 this._roomLobbyBridge.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("setupSessionLifecycle", () => {
+
+            if (this._setupSessionLifecycle) {
+
+                this._setupSessionLifecycle.shutdown();
 
             }
 

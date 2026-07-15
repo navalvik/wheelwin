@@ -92,7 +92,8 @@ export async function createGameplaySocketHarness() {
         eventBus,
         roomManager,
         playerManager,
-        gameplayContextResolver
+        gameplayContextResolver,
+        setupSessionLifecycle: bootstrapEngines.setupSessionLifecycle
     });
 
     roomLobbyBridge.initialize();

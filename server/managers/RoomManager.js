@@ -22,7 +22,19 @@ export class RoomManager {
 
         this._infrastructureHandlers = [];
 
+        this._setupSessionLifecycle = null;
+
         this._initialized = false;
+
+    }
+
+    /**
+     * C5.6C — Attach Setup Session lifecycle so createRoom is atomic with
+     * Setup Session creation. Must be called before any createRoom().
+     */
+    attachSetupSessionLifecycle(setupSessionLifecycle) {
+
+        this._setupSessionLifecycle = setupSessionLifecycle;
 
     }
 
@@ -95,6 +107,16 @@ export class RoomManager {
 
         }
 
+        if (!this._setupSessionLifecycle) {
+
+            this._logger.error(
+                "Room creation failed: Setup Session lifecycle is not attached"
+            );
+
+            return null;
+
+        }
+
         const room = new Room({
             roomId,
             createdAt: Date.now(),
@@ -104,6 +126,20 @@ export class RoomManager {
         });
 
         this._rooms.set(roomId, room);
+
+        const setupSession = this._setupSessionLifecycle.createForRoom(room);
+
+        if (!setupSession) {
+
+            this._rooms.delete(roomId);
+
+            this._logger.error(
+                `Room creation failed: Setup Session was not created (${roomId})`
+            );
+
+            return null;
+
+        }
 
         this._logger.info(`Room Created: ${roomId}`);
 
@@ -359,6 +395,9 @@ export class RoomManager {
         room.status = ROOM_STATUS.DESTROYED;
 
         this._logger.info(`Room Destroyed: ${roomId}`);
+
+        // Abort any residual Setup Session before ROOM_DESTROYED listeners run.
+        this._setupSessionLifecycle?.abortForRoom(roomId);
 
         this._emit(EVENT_TYPES.ROOM_DESTROYED, {
             roomId: room.roomId,

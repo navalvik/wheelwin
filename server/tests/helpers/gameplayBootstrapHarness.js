@@ -16,6 +16,7 @@ import { OfflineInputContinuation } from "../../gameplay/OfflineInputContinuatio
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
 import { PaymentActivation } from "../../gameplay/PaymentActivation.js";
 import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
+import { SetupSessionLifecycle } from "../../gameplay/SetupSessionLifecycle.js";
 import { PaymentEngine } from "../../engines/PaymentEngine.js";
 import { TelegramWalletAdapter } from "../../services/telegram/TelegramWalletAdapter.js";
 
@@ -75,8 +76,22 @@ export function wireGameplayBootstrap({
     gameplayContextResolver = null,
     devMode = true,
     enableLifecycle = false,
-    walletAdapter = null
+    walletAdapter = null,
+    setupDurationMs = 10 * 60 * 1000,
+    deferGameBootstrap = false
 }) {
+
+    const setupSessionLifecycle = new SetupSessionLifecycle({
+        logger,
+        eventBus,
+        roomManager,
+        roomConfig: { setupDurationMs },
+        devMode
+    });
+
+    setupSessionLifecycle.initialize();
+
+    roomManager.attachSetupSessionLifecycle(setupSessionLifecycle);
 
     const catalog = new GameCatalog({ logger });
 
@@ -244,18 +259,22 @@ export function wireGameplayBootstrap({
 
     }
 
-    gameManager.configureGameplayBootstrap({
-        roomManager,
-        playerManager,
-        configurationEngine,
-        gameStateEngine,
-        inputAuthority,
-        physicsEngine,
-        gameClockEngine,
-        gameCatalog: catalog,
-        gameplayContextResolver,
-        devMode
-    });
+    if (!deferGameBootstrap) {
+
+        gameManager.configureGameplayBootstrap({
+            roomManager,
+            playerManager,
+            configurationEngine,
+            gameStateEngine,
+            inputAuthority,
+            physicsEngine,
+            gameClockEngine,
+            gameCatalog: catalog,
+            gameplayContextResolver,
+            devMode
+        });
+
+    }
 
     return {
         catalog,
@@ -273,7 +292,8 @@ export function wireGameplayBootstrap({
         winnerActivation,
         paymentEngine,
         paymentActivation,
-        gameplayLifecycle
+        gameplayLifecycle,
+        setupSessionLifecycle
     };
 
 }
@@ -289,6 +309,12 @@ export function shutdownGameplayBootstrap(engines) {
     if (engines.gameplayLifecycle) {
 
         engines.gameplayLifecycle.shutdown();
+
+    }
+
+    if (engines.setupSessionLifecycle) {
+
+        engines.setupSessionLifecycle.shutdown();
 
     }
 

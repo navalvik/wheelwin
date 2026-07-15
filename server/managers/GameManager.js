@@ -103,7 +103,7 @@ export class GameManager {
         if (this._bootstrapHandler) {
 
             this._eventBus.unsubscribe(
-                EVENT_TYPES.ROOM_FULL,
+                EVENT_TYPES.SETUP_SESSION_COMPLETED,
                 this._bootstrapHandler
             );
 
@@ -445,18 +445,18 @@ export class GameManager {
 
         this._bootstrapHandler = (envelope) => {
 
-            this._handleRoomFull(envelope);
+            this._handleSetupSessionCompleted(envelope);
 
         };
 
         this._eventBus.subscribe(
-            EVENT_TYPES.ROOM_FULL,
+            EVENT_TYPES.SETUP_SESSION_COMPLETED,
             this._bootstrapHandler
         );
 
     }
 
-    _handleRoomFull(envelope) {
+    _handleSetupSessionCompleted(envelope) {
 
         const roomId = envelope.payload?.roomId;
 
@@ -490,7 +490,7 @@ export class GameManager {
 
         try {
 
-            this._logBootstrap("ROOM_FULL received");
+            this._logBootstrap("SETUP_SESSION_COMPLETED received");
 
             this._logBootstrap("Creating game...");
 

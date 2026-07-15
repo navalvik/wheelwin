@@ -23,6 +23,7 @@ import { RecoverySnapshotCache } from "../gameplay/RecoverySnapshotCache.js";
 import { GameplayContextResolver } from "../socket/GameplayContextResolver.js";
 import { RoomLobbyBridge } from "../socket/RoomLobbyBridge.js";
 import { RoomManager } from "../managers/RoomManager.js";
+import { SetupSessionLifecycle } from "../gameplay/SetupSessionLifecycle.js";
 import {
     buildClientRecoveryPayload,
     RECOVERY_SOCKET_MESSAGE_TYPES
@@ -72,6 +73,17 @@ function buildRecoveryStack() {
     });
 
     roomManager.initialize();
+
+    const setupSessionLifecycle = new SetupSessionLifecycle({
+        logger,
+        eventBus,
+        roomManager,
+        roomConfig: { setupDurationMs: 10 * 60 * 1000 }
+    });
+
+    setupSessionLifecycle.initialize();
+
+    roomManager.attachSetupSessionLifecycle(setupSessionLifecycle);
 
     const configurationEngine = new ConfigurationEngine({
         logger,
@@ -178,7 +190,8 @@ function buildRecoveryStack() {
         eventBus,
         roomManager,
         playerManager,
-        gameplayContextResolver
+        gameplayContextResolver,
+        setupSessionLifecycle
     });
 
     roomLobbyBridge.initialize();
@@ -242,6 +255,8 @@ function buildRecoveryStack() {
             simulationLoop.shutdown();
 
             roomLobbyBridge.shutdown();
+
+            setupSessionLifecycle.shutdown();
 
             recoverySnapshotCache.shutdown();
 

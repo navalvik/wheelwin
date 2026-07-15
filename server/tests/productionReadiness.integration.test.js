@@ -31,6 +31,7 @@ import { WinnerActivation } from "../gameplay/WinnerActivation.js";
 import { PaymentActivation } from "../gameplay/PaymentActivation.js";
 import { AuditActivation } from "../gameplay/AuditActivation.js";
 import { GameplayLifecycle } from "../gameplay/GameplayLifecycle.js";
+import { SetupSessionLifecycle } from "../gameplay/SetupSessionLifecycle.js";
 import { loadProductionConfig } from "../config/production.js";
 
 function assert(condition, message) {
@@ -114,6 +115,17 @@ function buildStack(options = {}) {
     });
 
     roomManager.initialize();
+
+    const setupSessionLifecycle = new SetupSessionLifecycle({
+        logger,
+        eventBus,
+        roomManager,
+        roomConfig: { setupDurationMs: 10 * 60 * 1000 }
+    });
+
+    setupSessionLifecycle.initialize();
+
+    roomManager.attachSetupSessionLifecycle(setupSessionLifecycle);
 
     const configurationEngine = new ConfigurationEngine({
         logger,
@@ -363,6 +375,8 @@ function buildStack(options = {}) {
             physicsEngine.shutdown();
 
             configurationEngine.shutdown();
+
+            setupSessionLifecycle.shutdown();
 
             roomManager.shutdown();
 

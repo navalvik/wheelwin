@@ -224,6 +224,33 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleSetupSessionStarted = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.SETUP_SESSION_STARTED,
+                payload
+            });
+
+        };
+
+        this._handleSetupSessionSync = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.SETUP_SESSION_SYNC,
+                payload
+            });
+
+        };
+
+        this._handleSetupSessionExpired = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED,
+                payload
+            });
+
+        };
+
         this._socket.on("connect", this._handleConnect);
 
         this._socket.on("disconnect", this._handleDisconnect);
@@ -233,6 +260,21 @@ export class SocketSyncLayer {
         this._socket.on(SOCKET_MESSAGE_CHANNEL, this._handleGameMessage);
 
         this._socket.on("startGame", this._handleStartGame);
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.SETUP_SESSION_STARTED,
+            this._handleSetupSessionStarted
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.SETUP_SESSION_SYNC,
+            this._handleSetupSessionSync
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED,
+            this._handleSetupSessionExpired
+        );
 
     }
 
@@ -253,6 +295,21 @@ export class SocketSyncLayer {
         this._socket.off(SOCKET_MESSAGE_CHANNEL, this._handleGameMessage);
 
         this._socket.off("startGame", this._handleStartGame);
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.SETUP_SESSION_STARTED,
+            this._handleSetupSessionStarted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.SETUP_SESSION_SYNC,
+            this._handleSetupSessionSync
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED,
+            this._handleSetupSessionExpired
+        );
 
         this._bound = false;
 

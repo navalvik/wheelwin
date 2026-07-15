@@ -29,6 +29,14 @@ export const EVENT_TYPES = Object.freeze({
     ROOM_LOCKED: "ROOM_LOCKED",
     ROOM_DESTROYED: "ROOM_DESTROYED",
 
+    // C5.6C — Setup Session (prep before Game Session). COMPLETED is internal
+    // EventBus handoff to GameManager; STARTED / SYNC / EXPIRED are authoritative
+    // protocol surfaces for clients.
+    SETUP_SESSION_STARTED: "SETUP_SESSION_STARTED",
+    SETUP_SESSION_SYNC: "SETUP_SESSION_SYNC",
+    SETUP_SESSION_COMPLETED: "SETUP_SESSION_COMPLETED",
+    SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
+
     PLAYER_JOINED: "PLAYER_JOINED",
     PLAYER_LEFT: "PLAYER_LEFT",
     PLAYER_CREATED: "PLAYER_CREATED",

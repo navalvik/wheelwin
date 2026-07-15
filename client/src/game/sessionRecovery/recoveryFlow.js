@@ -53,10 +53,16 @@ export function isGameplayPage(page) {
 }
 
 /**
- * Pre-game recovery is valid only while the Setup / preparation timer is
- * still running. When it expires the preparation session is destroyed.
+ * Pre-game recovery is valid only while an authoritative Setup Session timer
+ * is still active (expiresAt in the future). Local timers never decide this.
  */
-export function canRecoverPreGame(session) {
+export function canRecoverPreGame(session, setup = null) {
+
+    if (setup?.expiresAt) {
+
+        return setup.expiresAt > Date.now();
+
+    }
 
     return Boolean(
         session?.currentPhase

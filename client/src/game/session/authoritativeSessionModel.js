@@ -18,8 +18,8 @@
  * baseStake / paymentGram              | GameSessionContext (mock)  | Server configuration / stakes catalog
  * payment status (DEV + 8s auto)       | GameSessionContext (mock)  | PAYMENT_* (settlement) + future lobby pay
  * smartContractStatus                  | GameSessionContext (mock)  | Server payment / contract pipeline
- * setup timer (local setInterval)      | GameSessionContext (local) | Future lobby clock (or stay UX-local)
- * phaseTimeRemaining / currentPhase    | GameSessionContext (local) | GameClock for gameplay; lobby TBD
+ * setup timer (local setInterval)      | GameSessionContext (local) | Setup Session STARTED/SYNC/EXPIRED
+ * phaseTimeRemaining / currentPhase    | GameSessionContext (local) | GameClock for gameplay; Setup Session for prep
  * currentPage                          | App.jsx (local navigation) | Client shell (UX) — not gameplay state
  * connectedCount / maxPlayers          | GameSession mock / lobby   | Server roomState / GAME_START
  *
@@ -41,6 +41,8 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     AUDIT: "AUDIT",
     SESSION_SNAPSHOT: "SESSION_SNAPSHOT",
     SESSION_RECOVERY_FAILED: "SESSION_RECOVERY_FAILED",
+    SETUP_SESSION: "SETUP_SESSION",
+    SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -58,6 +60,7 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     audit: null,
     winner: null,
     recovery: null,
+    setup: null,
     lifecycle: Object.freeze({
         gameStarted: false,
         gameEnded: false,
@@ -425,6 +428,43 @@ export function authoritativeSessionReducer(state, action) {
                     reason: payload?.message ?? payload?.reason ?? null,
                     receivedAt: Date.now()
                 })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.SETUP_SESSION: {
+
+            if (!payload?.setupSessionId || !payload?.startedAt || !payload?.expiresAt) {
+
+                return state;
+
+            }
+
+            return stamp({
+                ...state,
+                roomId: payload.roomId ?? state.roomId,
+                setup: Object.freeze({
+                    setupSessionId: payload.setupSessionId,
+                    roomId: payload.roomId ?? null,
+                    startedAt: payload.startedAt,
+                    expiresAt: payload.expiresAt,
+                    remainingTime: Number.isFinite(payload.remainingTime)
+                        ? payload.remainingTime
+                        : Math.max(0, payload.expiresAt - Date.now()),
+                    state: payload.state ?? null,
+                    verificationState: payload.verificationState ?? null,
+                    paymentPrepState: payload.paymentPrepState ?? null
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.SETUP_SESSION_EXPIRED: {
+
+            return stamp({
+                ...state,
+                roomId: payload?.roomId ?? state.roomId,
+                setup: null
             }, action.type);
 
         }

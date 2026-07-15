@@ -192,6 +192,24 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onSetupSession: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.SETUP_SESSION,
+                payload
+            });
+
+        },
+
+        onSetupSessionExpired: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.SETUP_SESSION_EXPIRED,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

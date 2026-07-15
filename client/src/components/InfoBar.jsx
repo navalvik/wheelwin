@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameSession } from "../context/GameSessionContext";
 import { useGameClock } from "../context/GameClockContext";
@@ -12,6 +14,18 @@ import { isGameplayPage } from "../game/sessionRecovery/recoveryFlow";
 
 import "../styles/infoBar.css";
 
+function remainingSecondsFromSetup(setup) {
+
+    if (!setup?.expiresAt) {
+
+        return null;
+
+    }
+
+    return Math.max(0, Math.ceil((setup.expiresAt - Date.now()) / 1000));
+
+}
+
 export default function InfoBar() {
 
     const {
@@ -22,13 +36,32 @@ export default function InfoBar() {
     } = useGameSession();
 
     // C5.4 — room metadata (id + player capacity display) comes from
-    // AuthoritativeSession. Setup timer stays on GameSessionContext.
-    // Page2 / Page3 room display is this shared InfoBar (no separate panel).
+    // AuthoritativeSession. C5.6C — Setup Timer from AuthoritativeSession.setup.
     const authoritative = useAuthoritativeSession();
 
     const room = getAuthoritativeRoom(authoritative);
 
     const { phaseLabel, remainingText } = useGameClock();
+
+    const [, setTick] = useState(0);
+
+    useEffect(() => {
+
+        if (isGameplayPage(currentPage) || !authoritative.setup?.expiresAt) {
+
+            return undefined;
+
+        }
+
+        const timerId = setInterval(() => {
+
+            setTick((value) => value + 1);
+
+        }, 1000);
+
+        return () => clearInterval(timerId);
+
+    }, [currentPage, authoritative.setup?.expiresAt]);
 
     const roomIdDisplay = formatAuthoritativeRoomId(room.roomId) ?? "—";
 
@@ -40,16 +73,16 @@ export default function InfoBar() {
 
     // InfoBar is only a router between two independent time domains. Selection is
     // page-based: gameplay/result pages present the authoritative server
-    // GameClock, every preparation page presents the lobby Setup Timer. The
-    // choice never depends on timer values (currentPhase, clock.active,
-    // remaining time) — those belong solely to their own domains.
+    // GameClock, every preparation page presents the Setup Session timer.
     const useGameplayClock = isGameplayPage(currentPage);
+
+    const setupRemaining = remainingSecondsFromSetup(authoritative.setup);
 
     const timerLabel = useGameplayClock ? phaseLabel : phaseTimerLabel;
 
     const timerValue = useGameplayClock
         ? remainingText
-        : formatPhaseTime(session.phaseTimeRemaining);
+        : (setupRemaining === null ? "—" : formatPhaseTime(setupRemaining));
 
     return (
 

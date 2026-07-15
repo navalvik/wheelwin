@@ -69,7 +69,8 @@ export async function createLobbyIntegrationHarness() {
         logger,
         eventBus,
         roomManager,
-        playerManager
+        playerManager,
+        setupSessionLifecycle: bootstrapEngines.setupSessionLifecycle
     });
 
     roomLobbyBridge.initialize();

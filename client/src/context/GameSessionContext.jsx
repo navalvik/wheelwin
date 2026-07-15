@@ -17,7 +17,9 @@ import {
     DEV_INITIAL_PAYMENT_STATUSES
 } from "../utils/gameSession";
 
-const SETUP_PHASE_DURATION = 10 * 60;
+import { INCOMING_SOCKET_EVENTS } from "../socket/socketEvents";
+
+import socket from "../socket/socket";
 
 const DEV_BASE_STAKE = 10;
 
@@ -42,6 +44,7 @@ const INITIAL_SESSION = {
 
 // Only pre-game (lobby) phases live here now. Gameplay time is authoritative
 // and rendered from GameClockContext (server GAME_CLOCK_UPDATE), never here.
+// Setup Timer is owned solely by the server Setup Session (C5.6C).
 const PHASE_TIMER_LABELS = {
     setup: "SETUP TIMER",
     payment: "PAYMENT TIMER"
@@ -68,7 +71,7 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
     const preGameEndedRef = useRef(false);
 
-    const timeoutHandledRef = useRef(false);
+    const expiredHandledRef = useRef(false);
 
     const destroySession = useCallback(() => {
 
@@ -78,12 +81,14 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
         preGameEndedRef.current = false;
 
-        timeoutHandledRef.current = false;
+        expiredHandledRef.current = false;
 
         setSession(INITIAL_SESSION);
 
     }, []);
 
+    // Prep page entry still seeds mock UX fields for unmigrated surfaces.
+    // It must NOT start or own a Setup Timer — that lives on Setup Session.
     const startSetupSession = useCallback(() => {
 
         if (sessionStartedRef.current) {
@@ -94,7 +99,7 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
         sessionStartedRef.current = true;
 
-        timeoutHandledRef.current = false;
+        expiredHandledRef.current = false;
 
         setSession({
             roomId: "8F4K2S",
@@ -104,16 +109,13 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
             baseStake: DEV_BASE_STAKE,
             paymentGram: calculatePaymentGram(DEV_BASE_STAKE),
             currentPhase: "setup",
-            phaseDuration: SETUP_PHASE_DURATION,
-            phaseTimeRemaining: SETUP_PHASE_DURATION,
+            phaseDuration: 0,
+            phaseTimeRemaining: 0,
             smartContractStatus: null
         });
 
     }, []);
 
-    // Entering the payment page only prepares the pre-game payment UI. It must
-    // NOT start any gameplay timer — the pre-game Setup Timer keeps running and
-    // gameplay time comes exclusively from the authoritative server clock.
     const initializePaymentStage = useCallback(() => {
 
         if (paymentStageStartedRef.current) {
@@ -146,9 +148,6 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
     }, []);
 
-    // When gameplay begins the pre-game Setup Timer is no longer relevant. Clear
-    // the phase so the lobby InfoBar stops on the game page and Page5 shows only
-    // the authoritative GameClock.
     const endPreGameSession = useCallback(() => {
 
         if (preGameEndedRef.current) {
@@ -244,65 +243,47 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
     }, [currentPage]);
 
+    // C5.6C — Navigate to Page1 only when the server expires Setup Session.
     useEffect(() => {
 
-        if (!session.currentPhase || session.phaseTimeRemaining <= 0) {
+        function handleSetupExpired() {
 
-            return undefined;
+            if (expiredHandledRef.current) {
+
+                return;
+
+            }
+
+            if (currentPage < PAGE_SETUP_START || currentPage >= PAGE_GAME_START) {
+
+                return;
+
+            }
+
+            expiredHandledRef.current = true;
+
+            destroySession();
+
+            onNavigate(1);
 
         }
 
-        const timerId = setInterval(() => {
+        socket.on(
+            INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED,
+            handleSetupExpired
+        );
 
-            setSession((prev) => {
+        return () => {
 
-                if (!prev.currentPhase || prev.phaseTimeRemaining <= 0) {
+            socket.off(
+                INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED,
+                handleSetupExpired
+            );
 
-                    return prev;
+        };
 
-                }
+    }, [currentPage, destroySession, onNavigate]);
 
-                return {
-                    ...prev,
-                    phaseTimeRemaining: prev.phaseTimeRemaining - 1
-                };
-
-            });
-
-        }, 1000);
-
-        return () => clearInterval(timerId);
-
-    }, [session.currentPhase]);
-
-    useEffect(() => {
-
-        if (
-            !session.currentPhase
-            || session.phaseTimeRemaining > 0
-            || timeoutHandledRef.current
-        ) {
-
-            return;
-
-        }
-
-        timeoutHandledRef.current = true;
-
-        destroySession();
-
-        onNavigate(1);
-
-    }, [
-        session.currentPhase,
-        session.phaseTimeRemaining,
-        destroySession,
-        onNavigate
-    ]);
-
-    // InfoBar visibility is a layout concern tied to the game-flow pages, not to
-    // whether the client owns a gameplay timer. It appears from the setup page
-    // through the result page regardless of the authoritative gameplay clock.
     const showInfoBar = currentPage >= PAGE_SETUP_START;
 
     const phaseTimerLabel =
@@ -340,7 +321,7 @@ export function useGameSession() {
     if (!context) {
 
         throw new Error(
-            "useGameSession must be used within GameSessionProvider"
+            "useGameSession must be used within a GameSessionProvider"
         );
 
     }

@@ -12,7 +12,10 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     ROOM_LEFT: "roomLeft",
     ROOM_ERROR: "roomError",
     ROOM_CLOSED: "roomClosed",
-    START_GAME: "startGame"
+    START_GAME: "startGame",
+    SETUP_SESSION_STARTED: "SETUP_SESSION_STARTED",
+    SETUP_SESSION_SYNC: "SETUP_SESSION_SYNC",
+    SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED"
 });
 
 export const LOBBY_ERROR_CODES = Object.freeze({

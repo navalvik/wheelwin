@@ -6,6 +6,7 @@ import {
     isValidRoomId,
     ROOM_ID_LENGTH
 } from "../managers/room/roomIdAlphabet.js";
+import { SetupSessionLifecycle } from "../gameplay/SetupSessionLifecycle.js";
 import { LoggerService } from "../services/LoggerService.js";
 
 function assert(condition, message) {
@@ -54,6 +55,17 @@ const roomManager = new RoomManager({
 
 roomManager.initialize();
 
+const setupSessionLifecycle = new SetupSessionLifecycle({
+    logger,
+    eventBus,
+    roomManager,
+    roomConfig: { setupDurationMs: 10 * 60 * 1000 }
+});
+
+setupSessionLifecycle.initialize();
+
+roomManager.attachSetupSessionLifecycle(setupSessionLifecycle);
+
 const room = roomManager.createRoom();
 
 assert(room, "createRoom should return a room");
@@ -75,6 +87,11 @@ assert(
     "room should move to WAITING_FOR_PLAYERS after creation"
 );
 
+assert(
+    setupSessionLifecycle.isActive(room.roomId),
+    "createRoom must atomically create an active Setup Session"
+);
+
 roomManager.addPlayer(room.roomId, "player-1");
 
 roomManager.addPlayer(room.roomId, "player-2");
@@ -84,6 +101,11 @@ roomManager.addPlayer(room.roomId, "player-3");
 assert(
     roomManager.getRoom(room.roomId).status === ROOM_STATUS.FULL,
     "room should become FULL at capacity"
+);
+
+assert(
+    !setupSessionLifecycle.isActive(room.roomId),
+    "Setup Session completes and is destroyed when room is full"
 );
 
 roomManager.lockRoom(room.roomId);
@@ -116,6 +138,8 @@ assert(
     !roomManager.addPlayer("missing-room", "player-1"),
     "missing room should fail gracefully"
 );
+
+setupSessionLifecycle.shutdown();
 
 roomManager.shutdown();
 

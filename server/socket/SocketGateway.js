@@ -787,7 +787,8 @@ export class SocketGateway {
                 ok: true,
                 playerId: reconnected.playerId,
                 roomId: reconnected.roomId,
-                gameId: reconnected.gameId
+                gameId: reconnected.gameId,
+                setupActive: reconnected.setupActive === true
             };
 
         }
@@ -799,6 +800,18 @@ export class SocketGateway {
         const roomId = context.roomId;
 
         if (!gameId) {
+
+            // C5.6C — Setup Session reconnect already delivered SETUP_SESSION_SYNC.
+            // RecoveryEngine remains gameplay-only and must not be invoked.
+            if (context.setupActive) {
+
+                this._logRecoveryStep(
+                    `Setup Session sync delivered | roomId=${roomId ?? "?"}`
+                );
+
+                return;
+
+            }
 
             this._sendRecoveryFailed(socket, {
                 reason: "No active gameplay session for recovery",

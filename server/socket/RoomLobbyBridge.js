@@ -20,7 +20,8 @@ export class RoomLobbyBridge {
         eventBus,
         roomManager,
         playerManager,
-        gameplayContextResolver = null
+        gameplayContextResolver = null,
+        setupSessionLifecycle = null
     }) {
 
         this._logger = logger;
@@ -33,12 +34,15 @@ export class RoomLobbyBridge {
 
         this._gameplayContextResolver = gameplayContextResolver;
 
+        this._setupSessionLifecycle = setupSessionLifecycle;
+
         this._socketToPlayer = new Map();
 
         this._playerToSocket = new Map();
 
         this._roomCreators = new Map();
 
+        // Rooms whose Game Session has started (post Setup Session completion).
         this._startedRooms = new Set();
 
         this._handlers = [];
@@ -93,6 +97,33 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleRoomFull(envelope.payload.roomId);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETUP_SESSION_STARTED,
+            (envelope) => {
+
+                this._handleSetupSessionStarted(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETUP_SESSION_EXPIRED,
+            (envelope) => {
+
+                this._handleSetupSessionExpired(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETUP_SESSION_COMPLETED,
+            (envelope) => {
+
+                this._handleSetupSessionCompleted(envelope.payload);
 
             }
         );
@@ -250,6 +281,8 @@ export class RoomLobbyBridge {
 
         this._broadcastRoomState(room.roomId);
 
+        this._deliverSetupSessionSync(room.roomId, socketId);
+
     }
 
     _handleJoinRoom(socketId, rawRoomId) {
@@ -382,6 +415,8 @@ export class RoomLobbyBridge {
 
         this._broadcastRoomState(roomId);
 
+        this._deliverSetupSessionSync(roomId, socketId);
+
     }
 
     _handleLeaveRoom(socketId) {
@@ -415,7 +450,7 @@ export class RoomLobbyBridge {
 
         }
 
-        if (this._startedRooms.has(context.roomId)) {
+        if (this._isProtectedSession(context.roomId)) {
 
             this._playerManager.setConnectionState(
                 context.playerId,
@@ -443,7 +478,11 @@ export class RoomLobbyBridge {
 
     }
 
-    reconnectGameplaySession(socketId, { playerId, roomId }) {
+    /**
+     * Rebind a socket for Setup Session or Game Session recovery.
+     * Setup reconnect never restarts the timer / session.
+     */
+    reconnectSession(socketId, { playerId, roomId }) {
 
         if (!socketId || !playerId || !roomId) {
 
@@ -474,11 +513,11 @@ export class RoomLobbyBridge {
 
         }
 
-        if (!this._startedRooms.has(roomId)) {
+        if (!this._isProtectedSession(roomId)) {
 
             return {
                 ok: false,
-                reason: "Gameplay has not started for this room"
+                reason: "Session is not recoverable for this room"
             };
 
         }
@@ -508,6 +547,30 @@ export class RoomLobbyBridge {
             ?? runtime?.gameId
             ?? null;
 
+        const setupActive = this._setupSessionLifecycle?.isActive(roomId) === true;
+
+        if (setupActive) {
+
+            const syncPayload = this._setupSessionLifecycle.buildSyncPayload(roomId);
+
+            if (syncPayload) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC,
+                    syncPayload
+                );
+
+                this._eventBus.emit({
+                    source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                    type: EVENT_TYPES.SETUP_SESSION_SYNC,
+                    payload: syncPayload
+                });
+
+            }
+
+        }
+
         this._logger.info(
             `Lobby recovery reconnect | roomId=${roomId} | playerId=${playerId}`
         );
@@ -516,14 +579,21 @@ export class RoomLobbyBridge {
             ok: true,
             playerId,
             roomId,
-            gameId
+            gameId,
+            setupActive
         };
+
+    }
+
+    reconnectGameplaySession(socketId, identity) {
+
+        return this.reconnectSession(socketId, identity);
 
     }
 
     _handleRoomFull(roomId) {
 
-        if (this._startedRooms.has(roomId)) {
+        if (!roomId) {
 
             return;
 
@@ -537,11 +607,76 @@ export class RoomLobbyBridge {
 
         }
 
-        this._startedRooms.add(roomId);
-
+        // Capacity lock only — Game Session starts after Setup Session completes.
         this._roomManager.lockRoom(roomId);
 
+        this._logger.info(`Lobby room full | roomId=${roomId}`);
+
+    }
+
+    _handleSetupSessionStarted(payload) {
+
+        if (!payload?.roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            payload.roomId,
+            LOBBY_SERVER_EVENTS.SETUP_SESSION_STARTED,
+            payload
+        );
+
+    }
+
+    _handleSetupSessionCompleted(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId || this._startedRooms.has(roomId)) {
+
+            return;
+
+        }
+
+        this._startedRooms.add(roomId);
+
         this._logger.info(`Lobby game ready | roomId=${roomId}`);
+
+    }
+
+    _handleSetupSessionExpired(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.SETUP_SESSION_EXPIRED,
+            payload
+        );
+
+        // RoomManager.destroyRoom is invoked by SetupSessionLifecycle after
+        // EXPIRED. When the room is already gone, only clean lobby maps.
+        if (!this._roomManager.getRoom(roomId)) {
+
+            this._roomCreators.delete(roomId);
+
+            this._startedRooms.delete(roomId);
+
+            this._gameplayContextResolver?.deactivateRoomGame(roomId);
+
+            return;
+
+        }
+
+        this._closeRoom(roomId, "setup_expired");
 
     }
 
@@ -937,6 +1072,38 @@ export class RoomLobbyBridge {
                 playerCount: room?.players.length ?? 0
             }
         });
+
+    }
+
+    _deliverSetupSessionSync(roomId, socketId) {
+
+        const syncPayload = this._setupSessionLifecycle?.buildSyncPayload(roomId);
+
+        if (!syncPayload) {
+
+            return;
+
+        }
+
+        this._deliverToSocket(
+            socketId,
+            LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC,
+            syncPayload
+        );
+
+    }
+
+    /**
+     * Soft disconnect / reconnect while Game Session has started (post Setup
+     * Session completion). Waiting lobby membership still uses hard leave so
+     * creator disconnect can close an unfilled room.
+     *
+     * Setup Session SYNC is delivered on reconnectSession when the session is
+     * still ACTIVE (e.g. capacity lock race); RecoveryEngine stays gameplay-only.
+     */
+    _isProtectedSession(roomId) {
+
+        return this._startedRooms.has(roomId);
 
     }
 

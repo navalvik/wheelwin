@@ -28,6 +28,8 @@ import socket from "../socket/socket";
 
 import { useGameResultRecovery } from "./GameResultContext";
 
+import { useAuthoritativeSession } from "./AuthoritativeSessionContext";
+
 import { useGameSession } from "./GameSessionContext";
 
 import { usePlayerIdentity } from "./PlayerIdentityContext";
@@ -55,6 +57,8 @@ export function RecoveryExperienceProvider({
     const { applyRecoverySnapshot } = useGameResultRecovery();
 
     const { session, destroySession } = useGameSession();
+
+    const authoritative = useAuthoritativeSession();
 
     const { getIdentity, clearIdentity } = usePlayerIdentity();
 
@@ -124,7 +128,7 @@ export function RecoveryExperienceProvider({
 
     const handlePreGameReconnect = useCallback(() => {
 
-        if (!canRecoverPreGame(session)) {
+        if (!canRecoverPreGame(session, authoritative.setup)) {
 
             devLog("Setup timer expired — returning to welcome");
 
@@ -150,6 +154,7 @@ export function RecoveryExperienceProvider({
 
     }, [
         session,
+        authoritative.setup,
         destroySession,
         clearIdentity,
         onNavigate,

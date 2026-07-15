@@ -32,6 +32,8 @@ function assert(condition, message) {
 
     assert(state.payment === null, "payment must start empty");
 
+    assert(state.setup === null, "setup must start empty");
+
     assert(state.lifecycle.gameStarted === false, "lifecycle starts idle");
 
     console.log("  initial empty mirror passed");

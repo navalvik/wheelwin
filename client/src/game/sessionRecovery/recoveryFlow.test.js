@@ -37,7 +37,7 @@ function assert(condition, message) {
             currentPhase: "setup",
             phaseTimeRemaining: 120
         }),
-        "active setup timer allows recovery"
+        "legacy session fields still allow recovery when no setup mirror"
     );
 
     assert(
@@ -45,7 +45,21 @@ function assert(condition, message) {
             currentPhase: "setup",
             phaseTimeRemaining: 0
         }),
-        "expired setup timer blocks recovery"
+        "expired legacy timer blocks recovery"
+    );
+
+    assert(
+        canRecoverPreGame(null, {
+            expiresAt: Date.now() + 60_000
+        }),
+        "authoritative Setup Session expiresAt allows recovery"
+    );
+
+    assert(
+        !canRecoverPreGame(null, {
+            expiresAt: Date.now() - 1
+        }),
+        "authoritative Setup Session past expiresAt blocks recovery"
     );
 
     console.log("  pre-game: setup timer rules passed");

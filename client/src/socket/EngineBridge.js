@@ -158,6 +158,21 @@ export class EngineBridge {
                 session()?.onGameEnd?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.SETUP_SESSION_STARTED]: (payload) => {
+
+                session()?.onSetupSession?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.SETUP_SESSION_SYNC]: (payload) => {
+
+                session()?.onSetupSession?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED]: (payload) => {
+
+                session()?.onSetupSessionExpired?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.SESSION_SNAPSHOT]: (payload) => {
 
                 modules.sessionRecovery?.handleSnapshot?.(payload);
