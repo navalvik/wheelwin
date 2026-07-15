@@ -48,7 +48,7 @@ function logSession(state) {
  *
  * Registers as an EngineBridge module so session updates arrive through the
  * existing SocketSyncLayer → SocketDispatcher path (no extra socket listeners).
- * Does not replace GameSessionContext or drive any page UI.
+ * GameSessionContext retains only unmigrated pre-game finance fields.
  */
 export function AuthoritativeSessionProvider({ children }) {
 

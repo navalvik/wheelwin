@@ -6,7 +6,6 @@ export {
 } from "./PlayerState";
 
 export {
-    DEFAULT_PLAYER_UI_DATA,
     getPlayerIconGlyph
 } from "./playerUIData";
 

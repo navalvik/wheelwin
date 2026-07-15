@@ -7,15 +7,7 @@ import {
     useState
 } from "react";
 
-import {
-    calculatePaymentGram,
-    DEV_VERIFY_PLAYERS,
-    PAYMENT_PAGE_LABELS,
-    PAYMENT_STATUS,
-    SMART_CONTRACT_STATUS,
-    areAllPaymentsConfirmed,
-    DEV_INITIAL_PAYMENT_STATUSES
-} from "../utils/gameSession";
+import { calculatePaymentGram } from "../utils/gameSession";
 
 import { INCOMING_SOCKET_EVENTS } from "../socket/socketEvents";
 
@@ -25,29 +17,19 @@ const DEV_BASE_STAKE = 10;
 
 const PAGE_SETUP_START = 3;
 
-const PAGE_PAYMENT_START = 6;
-
 const PAGE_GAME_START = 7;
 
 const INITIAL_SESSION = {
-    roomId: null,
-    players: [],
-    connectedCount: 0,
     maxPlayers: 3,
     baseStake: 0,
     paymentGram: 0,
-    currentPhase: null,
-    phaseDuration: 0,
-    phaseTimeRemaining: 0,
-    smartContractStatus: null
+    currentPhase: null
 };
 
-// Only pre-game (lobby) phases live here now. Gameplay time is authoritative
-// and rendered from GameClockContext (server GAME_CLOCK_UPDATE), never here.
-// Setup Timer is owned solely by the server Setup Session (C5.6C).
+// Pre-game shell only. AuthoritativeSession owns room, players, payment, setup
+// timer. GameClockContext owns gameplay time.
 const PHASE_TIMER_LABELS = {
-    setup: "SETUP TIMER",
-    payment: "PAYMENT TIMER"
+    setup: "SETUP TIMER"
 };
 
 export function formatPhaseTime(totalSeconds) {
@@ -57,6 +39,7 @@ export function formatPhaseTime(totalSeconds) {
     const seconds = totalSeconds % 60;
 
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+
 }
 
 export const GameSessionContext = createContext(null);
@@ -67,8 +50,6 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
     const sessionStartedRef = useRef(false);
 
-    const paymentStageStartedRef = useRef(false);
-
     const preGameEndedRef = useRef(false);
 
     const expiredHandledRef = useRef(false);
@@ -76,8 +57,6 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
     const destroySession = useCallback(() => {
 
         sessionStartedRef.current = false;
-
-        paymentStageStartedRef.current = false;
 
         preGameEndedRef.current = false;
 
@@ -87,8 +66,8 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
     }, []);
 
-    // Prep page entry still seeds mock UX fields for unmigrated surfaces.
-    // It must NOT start or own a Setup Timer — that lives on Setup Session.
+    // Seeds unmigrated finance fields for Page3. Does not own setup timer,
+    // players, room metadata, or payment state (AuthoritativeSession).
     const startSetupSession = useCallback(() => {
 
         if (sessionStartedRef.current) {
@@ -102,48 +81,10 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
         expiredHandledRef.current = false;
 
         setSession({
-            roomId: "8F4K2S",
-            players: DEV_VERIFY_PLAYERS,
-            connectedCount: 3,
             maxPlayers: 3,
             baseStake: DEV_BASE_STAKE,
             paymentGram: calculatePaymentGram(DEV_BASE_STAKE),
-            currentPhase: "setup",
-            phaseDuration: 0,
-            phaseTimeRemaining: 0,
-            smartContractStatus: null
-        });
-
-    }, []);
-
-    const initializePaymentStage = useCallback(() => {
-
-        if (paymentStageStartedRef.current) {
-
-            return;
-
-        }
-
-        paymentStageStartedRef.current = true;
-
-        setSession((prev) => {
-
-            if (!prev.currentPhase) {
-
-                return prev;
-
-            }
-
-            return {
-                ...prev,
-                smartContractStatus: SMART_CONTRACT_STATUS.notIssued,
-                players: prev.players.map((player, index) => ({
-                    ...player,
-                    paymentLabelTitle: PAYMENT_PAGE_LABELS[index],
-                    paymentStatus: DEV_INITIAL_PAYMENT_STATUSES[index]
-                }))
-            };
-
+            currentPhase: "setup"
         });
 
     }, []);
@@ -168,8 +109,7 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
             return {
                 ...prev,
-                currentPhase: null,
-                phaseTimeRemaining: 0
+                currentPhase: null
             };
 
         });
@@ -188,16 +128,6 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
     useEffect(() => {
 
-        if (currentPage === PAGE_PAYMENT_START) {
-
-            initializePaymentStage();
-
-        }
-
-    }, [currentPage, initializePaymentStage]);
-
-    useEffect(() => {
-
         if (currentPage === PAGE_GAME_START) {
 
             endPreGameSession();
@@ -206,44 +136,6 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
     }, [currentPage, endPreGameSession]);
 
-    useEffect(() => {
-
-        if (currentPage !== PAGE_PAYMENT_START) {
-
-            return undefined;
-
-        }
-
-        const confirmTimerId = setTimeout(() => {
-
-            setSession((prev) => {
-
-                if (!prev.currentPhase) {
-
-                    return prev;
-
-                }
-
-                const players = prev.players.map((player) => (
-                    player.paymentStatus === PAYMENT_STATUS.waiting
-                        ? {
-                            ...player,
-                            paymentStatus: PAYMENT_STATUS.confirmed
-                        }
-                        : player
-                ));
-
-                return { ...prev, players };
-
-            });
-
-        }, 8000);
-
-        return () => clearTimeout(confirmTimerId);
-
-    }, [currentPage]);
-
-    // C5.6C — Navigate to Page1 only when the server expires Setup Session.
     useEffect(() => {
 
         function handleSetupExpired() {
@@ -289,17 +181,13 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
     const phaseTimerLabel =
         PHASE_TIMER_LABELS[session.currentPhase] || "TIMER";
 
-    const allPaymentsConfirmed =
-        areAllPaymentsConfirmed(session.players);
-
     const value = {
         session,
         showInfoBar,
         currentPage,
         destroySession,
         phaseTimerLabel,
-        formatPhaseTime,
-        allPaymentsConfirmed
+        formatPhaseTime
     };
 
     return (

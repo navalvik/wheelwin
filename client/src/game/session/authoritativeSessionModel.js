@@ -6,26 +6,18 @@
  * Every field stays null/empty until an authoritative socket payload arrives.
  *
  * -------------------------------------------------------------------------
- * STEP 1 — Session ownership map (current → future)
+ * Session ownership map (post C5 migration)
  * -------------------------------------------------------------------------
  *
- * Field (GameSessionContext today)     | Current owner              | Future authoritative owner
- * -------------------------------------|----------------------------|-----------------------------------------
- * roomId ("8F4K2S" mock)               | GameSessionContext (mock)  | Server lobby / GAME_START / roomState
- * players (DEV_VERIFY_PLAYERS)         | GameSessionContext (mock)  | Server roster / PLAYER_UPDATE / GAME_START
- * player icons / colors / sectors      | GameSession / Wheel debug  | Server configuration / WHEEL_CONFIGURATION
- * player readiness / online            | PlayerUIEngine (+ debug)   | PLAYER_ONLINE / PLAYER_OFFLINE / Recovery
- * baseStake / paymentGram              | GameSessionContext (mock)  | Server configuration / stakes catalog
- * payment status (DEV + 8s auto)       | GameSessionContext (mock)  | PAYMENT_* (settlement) + future lobby pay
- * smartContractStatus                  | GameSessionContext (mock)  | Server payment / contract pipeline
- * setup timer (local setInterval)      | GameSessionContext (local) | Setup Session STARTED/SYNC/EXPIRED
- * phaseTimeRemaining / currentPhase    | GameSessionContext (local) | GameClock for gameplay; Setup Session for prep
- * currentPage                          | App.jsx (local navigation) | Client shell (UX) — not gameplay state
- * connectedCount / maxPlayers          | GameSession mock / lobby   | Server roomState / GAME_START
- *
- * This model stores ONLY the right-hand column when the corresponding
- * INCOMING_SOCKET_EVENTS payloads arrive. Pre-game Pages 2–4 remain on
- * GameSessionContext until later migration stages.
+ * Field                                 | Owner
+ * --------------------------------------|----------------------------------
+ * roomId, maxPlayers, player roster     | AuthoritativeSession (C5.3/C5.4)
+ * setup timer (startedAt/expiresAt)     | AuthoritativeSession.setup (C5.6C)
+ * payment display (Page4)               | AuthoritativeSession.payment (C5.5)
+ * baseStake / paymentGram (Page3)       | GameSessionContext (pending migration)
+ * currentPhase (pre-game shell)         | GameSessionContext (InfoBar label gate)
+ * gameState, clock, physics, winner     | AuthoritativeSession + gameplay contexts
+ * currentPage                           | App.jsx (client navigation shell)
  */
 
 export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({

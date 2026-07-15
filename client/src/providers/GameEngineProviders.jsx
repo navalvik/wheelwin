@@ -62,7 +62,7 @@ export function GameEngineProviders({
 
             {/*
                 C5.2 — Authoritative session mirror. Observes EngineBridge
-                events only. Does not replace GameSessionContext or drive UI.
+                events only. GameSessionContext retains unmigrated finance fields.
             */}
             <AuthoritativeSessionProvider>
 
