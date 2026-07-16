@@ -71,7 +71,8 @@ validateStartupConfiguration({
         apiKey: ""
     },
     roomConfig: {
-        maxPlayers: 3
+        maxPlayers: 3,
+        maxConcurrentRooms: 64
     }
 });
 

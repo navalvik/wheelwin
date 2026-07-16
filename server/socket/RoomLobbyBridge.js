@@ -205,11 +205,27 @@ export class RoomLobbyBridge {
 
         }
 
+        if (this._roomManager.isAtCapacity()) {
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT
+            );
+
+            return;
+
+        }
+
         const room = this._roomManager.createRoom();
 
         if (!room) {
 
-            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+            this._emitRoomError(
+                socketId,
+                this._roomManager.isAtCapacity()
+                    ? LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT
+                    : LOBBY_ERROR_CODES.UNKNOWN_ERROR
+            );
 
             return;
 

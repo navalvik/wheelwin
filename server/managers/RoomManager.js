@@ -85,6 +85,16 @@ export class RoomManager {
 
     createRoom({ maxPlayers } = {}) {
 
+        if (this.isAtCapacity()) {
+
+            this._logger.error(
+                "Room creation failed: concurrent room limit reached"
+            );
+
+            return null;
+
+        }
+
         const roomId = this._generateRoomId();
 
         if (!roomId) {
@@ -448,6 +458,18 @@ export class RoomManager {
 
     }
 
+    getActiveRoomCount() {
+
+        return this._rooms.size;
+
+    }
+
+    isAtCapacity() {
+
+        return this.getActiveRoomCount() >= this._resolveMaxConcurrentRooms();
+
+    }
+
     getDebugSnapshot() {
 
         return {
@@ -547,6 +569,20 @@ export class RoomManager {
         }
 
         this._roomListeners.delete(roomId);
+
+    }
+
+    _resolveMaxConcurrentRooms() {
+
+        const configured = this._roomConfig?.maxConcurrentRooms;
+
+        if (Number.isFinite(configured) && configured > 0) {
+
+            return configured;
+
+        }
+
+        return 64;
 
     }
 

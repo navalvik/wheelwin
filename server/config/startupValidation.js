@@ -44,6 +44,14 @@ export function validateEnvironmentVariables({
 
     }
 
+    if (roomConfig.maxConcurrentRooms !== undefined
+        && (!Number.isInteger(roomConfig.maxConcurrentRooms)
+            || roomConfig.maxConcurrentRooms <= 0)) {
+
+        errors.push("ROOM_MAX_CONCURRENT must be a positive integer");
+
+    }
+
     if (!tonConfig.network) {
 
         errors.push("TON_NETWORK is required");

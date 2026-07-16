@@ -24,6 +24,7 @@ export const LOBBY_ERROR_CODES = Object.freeze({
     ROOM_LOCKED: "ROOM_LOCKED",
     INVALID_ROOM_ID: "INVALID_ROOM_ID",
     PLAYER_ALREADY_CONNECTED: "PLAYER_ALREADY_CONNECTED",
+    ROOM_CREATION_LIMIT: "ROOM_CREATION_LIMIT",
     UNKNOWN_ERROR: "UNKNOWN_ERROR"
 });
 
@@ -38,6 +39,8 @@ export const LOBBY_ERROR_MESSAGES = Object.freeze({
         "Enter a valid Room ID.",
     [LOBBY_ERROR_CODES.PLAYER_ALREADY_CONNECTED]:
         "You are already connected to a room.",
+    [LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT]:
+        "The server is not accepting new rooms right now. Please try again later.",
     [LOBBY_ERROR_CODES.UNKNOWN_ERROR]:
         "Something went wrong. Please try again."
 });
