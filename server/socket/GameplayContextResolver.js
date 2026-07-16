@@ -26,6 +26,20 @@ export class GameplayContextResolver {
 
         }
 
+        for (const [boundSocketId, binding] of this._socketBindings.entries()) {
+
+            if (binding.playerId === playerId && boundSocketId !== socketId) {
+
+                this._socketBindings.delete(boundSocketId);
+
+                this._logger?.info?.(
+                    `Evicted duplicate gameplay binding | playerId=${playerId} | socketId=${boundSocketId}`
+                );
+
+            }
+
+        }
+
         this._socketBindings.set(socketId, {
             playerId,
             roomId

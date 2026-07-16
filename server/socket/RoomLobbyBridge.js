@@ -1050,6 +1050,28 @@ export class RoomLobbyBridge {
 
     _registerSocketPlayer(socketId, playerId) {
 
+        if (!socketId || !playerId) {
+
+            return;
+
+        }
+
+        const existingSocketForPlayer = this._playerToSocket.get(playerId);
+
+        if (existingSocketForPlayer && existingSocketForPlayer !== socketId) {
+
+            this._unregisterSocket(existingSocketForPlayer);
+
+        }
+
+        const existingPlayerForSocket = this._socketToPlayer.get(socketId);
+
+        if (existingPlayerForSocket && existingPlayerForSocket !== playerId) {
+
+            this._unregisterSocket(socketId);
+
+        }
+
         this._socketToPlayer.set(socketId, playerId);
 
         this._playerToSocket.set(playerId, socketId);
