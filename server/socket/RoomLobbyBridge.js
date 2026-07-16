@@ -42,6 +42,9 @@ export class RoomLobbyBridge {
 
         this._roomCreators = new Map();
 
+        // Server-owned recovery identity keyed by socket id (stashed on soft disconnect).
+        this._recoveryOwnershipBySocket = new Map();
+
         // Rooms whose Game Session has started (post Setup Session completion).
         this._startedRooms = new Set();
 
@@ -452,6 +455,11 @@ export class RoomLobbyBridge {
 
         if (this._isProtectedSession(context.roomId)) {
 
+            this._stashRecoveryOwnership(socketId, {
+                playerId: context.playerId,
+                roomId: context.roomId
+            });
+
             this._playerManager.setConnectionState(
                 context.playerId,
                 CONNECTION_STATE.DISCONNECTED
@@ -479,19 +487,67 @@ export class RoomLobbyBridge {
     }
 
     /**
-     * Rebind a socket for Setup Session or Game Session recovery.
-     * Setup reconnect never restarts the timer / session.
+     * Resolve the server-owned recovery identity for a reconnecting socket.
+     * Never reads client-supplied playerId or roomId.
      */
-    reconnectSession(socketId, { playerId, roomId }) {
+    resolveRecoveryIdentity(socketId) {
 
-        if (!socketId || !playerId || !roomId) {
+        if (!socketId) {
+
+            return null;
+
+        }
+
+        const activeContext = this._getSocketContext(socketId);
+
+        if (activeContext) {
 
             return {
-                ok: false,
-                reason: "playerId and roomId are required for recovery"
+                playerId: activeContext.playerId,
+                roomId: activeContext.roomId
             };
 
         }
+
+        const stashed = this._recoveryOwnershipBySocket.get(socketId);
+
+        if (!stashed) {
+
+            return null;
+
+        }
+
+        if (!this._isRecoverableIdentity(stashed.playerId, stashed.roomId)) {
+
+            this._recoveryOwnershipBySocket.delete(socketId);
+
+            return null;
+
+        }
+
+        return stashed;
+
+    }
+
+    /**
+     * Rebind a socket for Setup Session or Game Session recovery.
+     * Identity is resolved exclusively from server-owned socket ownership.
+     * Setup reconnect never restarts the timer / session.
+     */
+    reconnectSession(socketId) {
+
+        const identity = this.resolveRecoveryIdentity(socketId);
+
+        if (!identity) {
+
+            return {
+                ok: false,
+                reason: "Recovery identity is not authorized for this socket"
+            };
+
+        }
+
+        const { playerId, roomId } = identity;
 
         const room = this._roomManager.getRoom(roomId);
 
@@ -504,29 +560,11 @@ export class RoomLobbyBridge {
 
         }
 
-        if (!room.players.includes(playerId)) {
+        if (!this._isRecoverableIdentity(playerId, roomId)) {
 
             return {
                 ok: false,
-                reason: "Player is not in the active room"
-            };
-
-        }
-
-        if (!this._isProtectedSession(roomId)) {
-
-            return {
-                ok: false,
-                reason: "Session is not recoverable for this room"
-            };
-
-        }
-
-        if (!this._playerManager.hasPlayer(playerId)) {
-
-            return {
-                ok: false,
-                reason: "Player session no longer exists"
+                reason: "Player session is not recoverable"
             };
 
         }
@@ -571,6 +609,8 @@ export class RoomLobbyBridge {
 
         }
 
+        this._clearRecoveryOwnership(socketId);
+
         this._logger.info(
             `Lobby recovery reconnect | roomId=${roomId} | playerId=${playerId}`
         );
@@ -585,9 +625,31 @@ export class RoomLobbyBridge {
 
     }
 
-    reconnectGameplaySession(socketId, identity) {
+    reconnectGameplaySession(socketId) {
 
-        return this.reconnectSession(socketId, identity);
+        return this.reconnectSession(socketId);
+
+    }
+
+    /**
+     * Moves stashed recovery ownership to a new socket id.
+     * Used only by integration tests that simulate a page refresh with a new socket.
+     */
+    transferRecoveryOwnership(fromSocketId, toSocketId) {
+
+        const identity = this._recoveryOwnershipBySocket.get(fromSocketId);
+
+        if (!identity || !toSocketId) {
+
+            return false;
+
+        }
+
+        this._recoveryOwnershipBySocket.delete(fromSocketId);
+
+        this._recoveryOwnershipBySocket.set(toSocketId, identity);
+
+        return true;
 
     }
 
@@ -735,6 +797,8 @@ export class RoomLobbyBridge {
     }
 
     _removePlayerFromLobby(playerId, roomId, { notifyPlayer, reason }) {
+
+        this._clearRecoveryOwnershipForPlayer(playerId);
 
         const socketId = this._playerToSocket.get(playerId);
 
@@ -1020,6 +1084,8 @@ export class RoomLobbyBridge {
 
     _cleanupPlayer(playerId) {
 
+        this._clearRecoveryOwnershipForPlayer(playerId);
+
         this._playerManager.setConnectionState(
             playerId,
             CONNECTION_STATE.DISCONNECTED
@@ -1104,6 +1170,79 @@ export class RoomLobbyBridge {
     _isProtectedSession(roomId) {
 
         return this._startedRooms.has(roomId);
+
+    }
+
+    _isRecoverableIdentity(playerId, roomId) {
+
+        if (!playerId || !roomId) {
+
+            return false;
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room || !room.players.includes(playerId)) {
+
+            return false;
+
+        }
+
+        if (!this._isProtectedSession(roomId)) {
+
+            return false;
+
+        }
+
+        return this._playerManager.hasPlayer(playerId);
+
+    }
+
+    _stashRecoveryOwnership(socketId, { playerId, roomId }) {
+
+        if (!socketId || !playerId || !roomId) {
+
+            return;
+
+        }
+
+        this._recoveryOwnershipBySocket.set(socketId, {
+            playerId,
+            roomId
+        });
+
+    }
+
+    _clearRecoveryOwnership(socketId) {
+
+        if (!socketId) {
+
+            return;
+
+        }
+
+        this._recoveryOwnershipBySocket.delete(socketId);
+
+    }
+
+    _clearRecoveryOwnershipForPlayer(playerId) {
+
+        if (!playerId) {
+
+            return;
+
+        }
+
+        for (const [socketId, identity] of this._recoveryOwnershipBySocket.entries()) {
+
+            if (identity.playerId === playerId) {
+
+                this._recoveryOwnershipBySocket.delete(socketId);
+
+            }
+
+        }
 
     }
 

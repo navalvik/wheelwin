@@ -543,9 +543,13 @@ function activateGame(stack, gameId, playerIds) {
             "soft disconnect must preserve player during gameplay"
         );
 
+        assert(
+            stack.roomLobbyBridge.transferRecoveryOwnership("socket-a", "socket-b"),
+            "recovery ownership must transfer for a new socket"
+        );
+
         const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
-            "socket-b",
-            { playerId, roomId: room.roomId }
+            "socket-b"
         );
 
         assert(reconnected.ok, "gameplay reconnect should succeed");
@@ -556,6 +560,62 @@ function activateGame(stack, gameId, playerIds) {
         );
 
         console.log("  scenario 3 (soft disconnect reconnect) passed");
+
+    } finally {
+
+        stack.shutdown();
+
+    }
+
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 4 — RC-1: recovery identity is server-owned; forged sockets fail.
+// ---------------------------------------------------------------------------
+
+{
+
+    const stack = buildRecoveryStack();
+
+    try {
+
+        const room = stack.roomManager.createRoom();
+
+        const player = stack.playerManager.createPlayer({ nickname: "Victim" });
+
+        const playerId = player.identity.playerId;
+
+        stack.roomManager.addPlayer(room.roomId, playerId);
+
+        stack.playerManager.updateRuntime(playerId, { roomId: room.roomId });
+
+        stack.roomLobbyBridge._registerSocketPlayer("victim-socket", playerId);
+
+        stack.roomLobbyBridge._attachSocketToRoom("victim-socket", room.roomId);
+
+        stack.roomLobbyBridge._startedRooms.add(room.roomId);
+
+        stack.roomLobbyBridge._handleSocketDisconnected("victim-socket");
+
+        const forged = stack.roomLobbyBridge.reconnectGameplaySession(
+            "attacker-socket"
+        );
+
+        assert(
+            !forged.ok,
+            "an unbound socket must not recover another player's session"
+        );
+
+        const legitimate = stack.roomLobbyBridge.reconnectGameplaySession(
+            "victim-socket"
+        );
+
+        assert(
+            legitimate.ok,
+            "the legitimate disconnected socket must still recover"
+        );
+
+        console.log("  scenario 4 (RC-1 forged recovery rejected) passed");
 
     } finally {
 

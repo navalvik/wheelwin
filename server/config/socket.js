@@ -5,7 +5,11 @@ export function loadSocketConfig(serverConfig) {
             origin: serverConfig.clientOrigin,
             methods: ["GET", "POST"]
         },
-        transports: ["websocket", "polling"]
+        transports: ["websocket", "polling"],
+        connectionStateRecovery: {
+            maxDisconnectionDuration: 2 * 60 * 1000,
+            skipMiddlewares: true
+        }
     };
 
 }

@@ -117,9 +117,6 @@ export function RecoveryExperienceProvider({
         socket.emit(SOCKET_MESSAGE_CHANNEL, {
             type: RECOVERY_SOCKET_EVENTS.SESSION_RECOVERY_REQUEST,
             payload: {
-                playerId: identity.playerId,
-                roomId: identity.roomId,
-                gameId: identity.gameId ?? null,
                 timestamp: Date.now()
             }
         });

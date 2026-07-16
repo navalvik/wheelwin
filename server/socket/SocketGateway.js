@@ -742,24 +742,17 @@ export class SocketGateway {
 
         }
 
-        const payload = message.payload ?? {};
-
         this._logRecoveryStep("Recovery requested");
 
         let context = this._gameplayContextResolver?.resolve(socket.id);
 
         if (!context?.ok) {
 
-            const roomId = payload.roomId ?? null;
-
-            const playerId = payload.playerId ?? null;
-
-            if (!roomId || !playerId || !this._roomLobbyBridge) {
+            if (!this._roomLobbyBridge) {
 
                 this._sendRecoveryFailed(socket, {
                     reason: context?.reason
-                        ?? "Socket is not bound to a player session",
-                    playerId
+                        ?? "Socket is not bound to a player session"
                 });
 
                 return;
@@ -767,15 +760,13 @@ export class SocketGateway {
             }
 
             const reconnected = this._roomLobbyBridge.reconnectGameplaySession(
-                socket.id,
-                { playerId, roomId }
+                socket.id
             );
 
             if (!reconnected.ok) {
 
                 this._sendRecoveryFailed(socket, {
                     reason: reconnected.reason,
-                    playerId,
                     gameId: reconnected.gameId ?? null
                 });
 
@@ -793,7 +784,7 @@ export class SocketGateway {
 
         }
 
-        const gameId = payload.gameId ?? context.gameId;
+        const gameId = context.gameId;
 
         const playerId = context.playerId;
 

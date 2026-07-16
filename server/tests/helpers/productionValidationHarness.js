@@ -397,6 +397,8 @@ export async function buildProductionStack() {
 
     }
 
+    const disconnectedSockets = new Map();
+
     // Soft disconnect through the real lobby path (started room): sets the player
     // DISCONNECTED and emits PLAYER_DISCONNECTED, exactly as a dropped socket.
     function disconnect(playerId) {
@@ -407,16 +409,38 @@ export async function buildProductionStack() {
 
         roomLobbyBridge._handleSocketDisconnected(socketId);
 
+        disconnectedSockets.set(playerId, socketId);
+
+        return socketId;
+
     }
 
-    // Real gameplay reconnect (new socket id ~ page refresh): sets the player
-    // CONNECTED and emits PLAYER_CONNECTED, handing input back from continuation.
+    // Real gameplay reconnect: identity is resolved server-side from stashed
+    // socket ownership. A new socket id (page refresh) transfers that stash.
     function reconnect(playerId, roomId, socketId) {
 
-        return roomLobbyBridge.reconnectGameplaySession(
-            socketId ?? `reconnect-${playerId}-${Date.now()}`,
-            { playerId, roomId }
-        );
+        const previousSocketId = disconnectedSockets.get(playerId)
+            ?? socketForPlayer(playerId);
+
+        const targetSocketId = socketId
+            ?? previousSocketId
+            ?? `reconnect-${playerId}-${Date.now()}`;
+
+        if (socketId && previousSocketId && socketId !== previousSocketId) {
+
+            const transferred = roomLobbyBridge.transferRecoveryOwnership(
+                previousSocketId,
+                socketId
+            );
+
+            assert(
+                transferred,
+                `reconnect: no recovery ownership to transfer for ${playerId}`
+            );
+
+        }
+
+        return roomLobbyBridge.reconnectGameplaySession(targetSocketId);
 
     }
 
