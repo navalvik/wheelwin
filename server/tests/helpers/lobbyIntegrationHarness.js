@@ -70,7 +70,12 @@ export async function createLobbyIntegrationHarness() {
         eventBus,
         roomManager,
         playerManager,
-        setupSessionLifecycle: bootstrapEngines.setupSessionLifecycle
+        setupSessionLifecycle: bootstrapEngines.setupSessionLifecycle,
+        // Fast stub delays so C5.8D lifecycle asserts finish quickly.
+        entryPaymentDelays: {
+            playerPaymentDelayMs: 40,
+            smartContractDelayMs: 40
+        }
     });
 
     roomLobbyBridge.initialize();

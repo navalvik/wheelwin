@@ -29,7 +29,7 @@ export function mapEntryPaymentStatusLabel(paymentStatus) {
     switch (paymentStatus) {
 
         case "paid":
-            return "Paid";
+            return "Paid ✓";
 
         case "failed":
             return "Failed";
@@ -50,17 +50,17 @@ export function mapEntrySmartContractLabel(smartContractStatus) {
     switch (smartContractStatus) {
 
         case "creating":
-            return "Smart Contract Creating";
+            return "Creating...";
 
         case "created":
-            return "Smart Contract Created";
+            return "Created ✓";
 
         case "failed":
             return "Smart Contract Failed";
 
         case "waiting":
         default:
-            return "Smart Contract Waiting";
+            return "Waiting";
 
     }
 

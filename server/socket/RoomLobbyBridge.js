@@ -11,6 +11,8 @@ import {
 } from "../models/SecretMatrixRules.js";
 import { normalizeTelegramWallet } from "../models/TelegramWalletRules.js";
 import { EntryPaymentSession } from "../models/EntryPaymentSession.js";
+import { EntryPaymentLifecycle } from "../gameplay/EntryPaymentLifecycle.js";
+import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import {
     isValidRoomId,
     normalizeRoomId
@@ -32,7 +34,9 @@ export class RoomLobbyBridge {
         roomManager,
         playerManager,
         gameplayContextResolver = null,
-        setupSessionLifecycle = null
+        setupSessionLifecycle = null,
+        telegramWalletAdapter = null,
+        entryPaymentDelays = null
     }) {
 
         this._logger = logger;
@@ -46,6 +50,21 @@ export class RoomLobbyBridge {
         this._gameplayContextResolver = gameplayContextResolver;
 
         this._setupSessionLifecycle = setupSessionLifecycle;
+
+        this._telegramWalletAdapter = telegramWalletAdapter
+            ?? new TelegramWalletAdapter({ logger });
+
+        this._entryPaymentLifecycle = new EntryPaymentLifecycle({
+            logger,
+            telegramWalletAdapter: this._telegramWalletAdapter,
+            applySessionUpdate: (roomId, updater) => (
+                this._applyEntryPaymentUpdate(roomId, updater)
+            ),
+            playerPaymentDelayMs: entryPaymentDelays?.playerPaymentDelayMs
+                ?? 750,
+            smartContractDelayMs: entryPaymentDelays?.smartContractDelayMs
+                ?? 500
+        });
 
         this._socketToPlayer = new Map();
 
@@ -246,6 +265,8 @@ export class RoomLobbyBridge {
         this._continueToPaymentByRoom.clear();
 
         this._paymentStageReadyByRoom.clear();
+
+        this._entryPaymentLifecycle.shutdown();
 
         this._entryPaymentByRoom.clear();
 
@@ -1682,10 +1703,38 @@ export class RoomLobbyBridge {
 
         this._broadcastEntryPaymentSession(roomId);
 
+        this._entryPaymentLifecycle.start(roomId, session);
+
         this._logger.info(
             `Entry payment session created | roomId=${roomId} | `
                 + `players=${session.players.length}`
         );
+
+    }
+
+    _applyEntryPaymentUpdate(roomId, updater) {
+
+        const current = this._entryPaymentByRoom.get(roomId);
+
+        if (!current) {
+
+            return null;
+
+        }
+
+        const next = updater(current);
+
+        if (!next || next === current) {
+
+            return current;
+
+        }
+
+        this._entryPaymentByRoom.set(roomId, next);
+
+        this._broadcastEntryPaymentSession(roomId);
+
+        return next;
 
     }
 
@@ -1760,6 +1809,8 @@ export class RoomLobbyBridge {
         this._continueToPaymentByRoom.delete(roomId);
 
         this._paymentStageReadyByRoom.delete(roomId);
+
+        this._entryPaymentLifecycle.cancel(roomId);
 
         this._entryPaymentByRoom.delete(roomId);
 

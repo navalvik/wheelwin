@@ -35,13 +35,28 @@ function assert(condition, message) {
     );
 
     assert(
-        mapEntrySmartContractLabel("waiting") === "Smart Contract Waiting",
+        mapEntrySmartContractLabel("waiting") === "Waiting",
         "default contract label"
     );
 
     assert(
         mapEntryPaymentStatusLabel("waiting") === "Waiting",
         "default payment label"
+    );
+
+    assert(
+        mapEntryPaymentStatusLabel("paid") === "Paid ✓",
+        "paid label"
+    );
+
+    assert(
+        mapEntrySmartContractLabel("creating") === "Creating...",
+        "creating label"
+    );
+
+    assert(
+        mapEntrySmartContractLabel("created") === "Created ✓",
+        "created label"
     );
 
     console.log("  empty / waiting guards passed");

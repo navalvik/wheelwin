@@ -64,4 +64,66 @@ function assert(condition, message) {
 
 }
 
+// C5.8D — waiting → paid and smart contract waiting → creating → created.
+{
+
+    let session = EntryPaymentSession.createInitial("ROOM2", [
+        { playerId: "a", wallet: "EQ1" },
+        { playerId: "b", wallet: "EQ2" },
+        { playerId: "c", wallet: "EQ3" }
+    ]);
+
+    session = session.withPlayerPaid("a");
+
+    assert(
+        session.players[0].paymentStatus === ENTRY_PAYMENT_STATUS.PAID,
+        "player a paid"
+    );
+
+    assert(
+        session.players[1].paymentStatus === ENTRY_PAYMENT_STATUS.WAITING,
+        "player b still waiting"
+    );
+
+    assert(session.areAllPlayersPaid() === false, "not all paid yet");
+
+    const duplicate = session.withPlayerPaid("a");
+
+    assert(duplicate === session, "duplicate paid is no-op");
+
+    session = session.withPlayerPaid("b").withPlayerPaid("c");
+
+    assert(session.areAllPlayersPaid() === true, "all paid");
+
+    const skippedContract = session.withSmartContractStatus(
+        ENTRY_SMART_CONTRACT_STATUS.CREATED
+    );
+
+    assert(
+        skippedContract === session,
+        "cannot skip creating → created"
+    );
+
+    session = session.withSmartContractStatus(
+        ENTRY_SMART_CONTRACT_STATUS.CREATING
+    );
+
+    assert(
+        session.smartContractStatus === ENTRY_SMART_CONTRACT_STATUS.CREATING,
+        "creating"
+    );
+
+    session = session.withSmartContractStatus(
+        ENTRY_SMART_CONTRACT_STATUS.CREATED
+    );
+
+    assert(
+        session.smartContractStatus === ENTRY_SMART_CONTRACT_STATUS.CREATED,
+        "created"
+    );
+
+    console.log("  EntryPaymentSession lifecycle transitions passed");
+
+}
+
 console.log("entryPaymentSession.test.js: all assertions passed");

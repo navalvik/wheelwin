@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
 
+function delay(ms) {
+
+    return new Promise((resolve) => {
+
+        setTimeout(resolve, ms);
+
+    });
+
+}
+
 export class TelegramWalletAdapter {
 
     constructor({ logger }) {
@@ -54,6 +64,51 @@ export class TelegramWalletAdapter {
         return {
             paymentReference: preparedPayment.paymentReference,
             transactionId: `tg_tx_${randomUUID()}`,
+            status: "completed",
+            processedAt: Date.now()
+        };
+
+    }
+
+    /**
+     * C5.8D — Stub entry-stake payment. No Telegram Wallet API / TON chain.
+     * Optional delayMs simulates async wallet completion.
+     */
+    async simulateEntryPayment({
+        roomId,
+        playerId,
+        wallet,
+        delayMs = 0
+    } = {}) {
+
+        if (!roomId) {
+
+            throw new Error("roomId is required");
+
+        }
+
+        if (!playerId) {
+
+            throw new Error("playerId is required");
+
+        }
+
+        if (delayMs > 0) {
+
+            await delay(delayMs);
+
+        }
+
+        this._logger?.info?.(
+            `TelegramWalletAdapter stub entry payment | roomId=${roomId} | `
+                + `playerId=${playerId}`
+        );
+
+        return {
+            paymentReference: `tg_entry_${randomUUID()}`,
+            roomId,
+            playerId,
+            wallet: wallet ?? null,
             status: "completed",
             processedAt: Date.now()
         };

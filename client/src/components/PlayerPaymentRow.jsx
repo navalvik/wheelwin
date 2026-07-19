@@ -19,7 +19,7 @@ export default function PlayerPaymentRow({
     const statusLabel = paymentStatusLabel
         ?? (
             paymentStatus === "paid"
-                ? "Paid"
+                ? "Paid ✓"
                 : paymentStatus === "failed"
                     ? "Failed"
                     : paymentStatus === "cancelled"

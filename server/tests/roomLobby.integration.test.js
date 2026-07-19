@@ -38,6 +38,40 @@ function waitForEvent(socket, eventName, timeoutMs = 5000, label = eventName) {
 
 }
 
+function waitForEntryPaymentUpdate(socket, predicate, timeoutMs = 5000, label) {
+
+    return new Promise((resolve, reject) => {
+
+        const timer = setTimeout(() => {
+
+            socket.off("ENTRY_PAYMENT_SESSION_UPDATED", onUpdate);
+
+            reject(new Error(`Timed out waiting for ${label}`));
+
+        }, timeoutMs);
+
+        function onUpdate(payload) {
+
+            if (!predicate(payload)) {
+
+                return;
+
+            }
+
+            clearTimeout(timer);
+
+            socket.off("ENTRY_PAYMENT_SESSION_UPDATED", onUpdate);
+
+            resolve(payload);
+
+        }
+
+        socket.on("ENTRY_PAYMENT_SESSION_UPDATED", onUpdate);
+
+    });
+
+}
+
 function connectClient(port) {
 
     const socket = io(`http://127.0.0.1:${port}`, {
@@ -548,6 +582,32 @@ try {
         "guestB.ENTRY_PAYMENT_SESSION_UPDATED"
     );
 
+    // C5.8D — listen for final lifecycle before barrier completes so we do not
+    // miss simulated paid / creating / created broadcasts.
+    const finalHostPromise = waitForEntryPaymentUpdate(
+        host,
+        (payload) => payload?.smartContractStatus === "created"
+            && payload.players?.every((player) => player.paymentStatus === "paid"),
+        5000,
+        "host.entryPayment.created"
+    );
+
+    const finalAPromise = waitForEntryPaymentUpdate(
+        guestA,
+        (payload) => payload?.smartContractStatus === "created"
+            && payload.players?.every((player) => player.paymentStatus === "paid"),
+        5000,
+        "guestA.entryPayment.created"
+    );
+
+    const finalBPromise = waitForEntryPaymentUpdate(
+        guestB,
+        (payload) => payload?.smartContractStatus === "created"
+            && payload.players?.every((player) => player.paymentStatus === "paid"),
+        5000,
+        "guestB.entryPayment.created"
+    );
+
     // Corrected valid wallet joins the barrier and completes it.
     guestB.emit("VERIFY_NEXT_REQUEST", {
         roomId: created.roomId,
@@ -651,6 +711,26 @@ try {
         ._entryPaymentByRoom.get(created.roomId);
 
     assert(entrySession, "EntryPaymentSession must exist on server");
+
+    const [finalHost, finalA, finalB] = await Promise.all([
+        finalHostPromise,
+        finalAPromise,
+        finalBPromise
+    ]);
+
+    assert(
+        finalHost.smartContractStatus === "created"
+            && finalA.smartContractStatus === "created"
+            && finalB.smartContractStatus === "created",
+        "all clients reach smartContractStatus=created"
+    );
+
+    assert(
+        finalHost.players.every((player) => player.paymentStatus === "paid")
+            && finalA.players.every((player) => player.paymentStatus === "paid")
+            && finalB.players.every((player) => player.paymentStatus === "paid"),
+        "all clients see every player paid"
+    );
 
     host.disconnect();
 
