@@ -10,6 +10,8 @@ import Page4Payment from "./pages/Page4Payment";
 import Page5Game from "./pages/Page5Game";
 import Page6Result from "./pages/Page6Result";
 
+import OpenPage5Navigator from "./components/OpenPage5Navigator";
+
 import { DevNavigationContext } from "./context/DevNavigationContext";
 import { GameSessionProvider } from "./context/GameSessionContext";
 import { GameResultProvider } from "./context/GameResultContext";
@@ -21,6 +23,9 @@ import {
     DEV_MODE,
     DEV_PAGE_SEQUENCE
 } from "./config/devMode";
+import { APP_PAGES } from "./game/sessionRecovery/recoveryFlow";
+import socket from "./socket/socket";
+import { LOBBY_OUTGOING_EVENTS } from "./socket/socketEvents";
 
 const PageDeveloperDashboard = DEV_DASHBOARD_ENABLED
     ? lazy(() => import("./pages/PageDeveloperDashboard.jsx"))
@@ -46,7 +51,23 @@ function GameFlow() {
                 ? 0
                 : (index + 1) % DEV_PAGE_SEQUENCE.length;
 
-            return DEV_PAGE_SEQUENCE[nextIndex];
+            const next = DEV_PAGE_SEQUENCE[nextIndex];
+
+            // R1.3D — never client-navigate to Page5. Ask the server to run the
+            // production ENTRY_PAYMENT_COMPLETED → OPEN_PAGE5 sequence.
+            if (next === APP_PAGES.GAMEPLAY) {
+
+                if (socket.connected) {
+
+                    socket.emit(LOBBY_OUTGOING_EVENTS.DEBUG_START_GAME);
+
+                }
+
+                return prev;
+
+            }
+
+            return next;
 
         });
 
@@ -205,6 +226,8 @@ function GameFlow() {
                             currentPage={currentPage}
                             onNavigate={navigate}
                         >
+
+                            <OpenPage5Navigator onNavigate={navigate} />
 
                             {renderPage()}
 

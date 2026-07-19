@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameSession } from "../context/GameSessionContext";
-import { useGameClock } from "../context/GameClockContext";
 
 import {
     formatAuthoritativeRoomId,
@@ -35,20 +34,21 @@ export default function InfoBar() {
         formatPhaseTime
     } = useGameSession();
 
-    // C5.4 — room metadata from AuthoritativeSession.
-    // C5.6C — Setup Timer from AuthoritativeSession.setup.
+    // C5.4 — room metadata (id + player capacity display) comes from
+    // AuthoritativeSession. C5.6C — Setup Timer from AuthoritativeSession.setup.
     // R1.3C — Gameplay Timer (Timer 2) from AuthoritativeSession.gameplayTimer.
     const authoritative = useAuthoritativeSession();
 
     const room = getAuthoritativeRoom(authoritative);
 
-    const { phaseLabel } = useGameClock();
-
     const [, setTick] = useState(0);
 
-    const useGameplayClock = isGameplayPage(currentPage);
+    // InfoBar is only a router between two independent time domains. Selection is
+    // page-based: gameplay/result pages present Timer 2 (Gameplay Timer);
+    // every preparation page presents the Setup Session timer.
+    const useGameplayTimer = isGameplayPage(currentPage);
 
-    const activeExpiresAt = useGameplayClock
+    const activeExpiresAt = useGameplayTimer
         ? authoritative.gameplayTimer?.expiresAt
         : authoritative.setup?.expiresAt;
 
@@ -78,8 +78,6 @@ export default function InfoBar() {
         session.maxPlayers
     ) ?? "—";
 
-    // Page5+: Timer 2 wall clock. Prep pages: Setup Timer.
-    // GameClock phase label remains informational via phaseLabel when present.
     const setupRemaining = remainingSecondsFromExpiresAt(
         authoritative.setup?.expiresAt
     );
@@ -88,13 +86,13 @@ export default function InfoBar() {
         authoritative.gameplayTimer?.expiresAt
     );
 
-    const timerLabel = useGameplayClock
-        ? (phaseLabel ? `GAMEPLAY · ${phaseLabel}` : "GAMEPLAY TIMER")
+    const timerLabel = useGameplayTimer
+        ? "GAMEPLAY TIMER"
         : phaseTimerLabel;
 
-    const timerValue = useGameplayClock
+    const timerValue = useGameplayTimer
         ? (gameplayRemaining === null
-            ? "—"
+            ? "--"
             : formatPhaseTime(gameplayRemaining))
         : (setupRemaining === null
             ? "—"
@@ -104,31 +102,51 @@ export default function InfoBar() {
 
         <div className="infoBar">
 
-            <div className="infoBar__item">
+            <div className="infoBarSection">
 
-                <span className="infoBar__label">ROOM</span>
+                <div className="infoBarTitle">
 
-                <span className="infoBar__value">{roomIdDisplay}</span>
+                    ROOM ID
+
+                </div>
+
+                <div className="infoBarValue">
+
+                    {roomIdDisplay}
+
+                </div>
 
             </div>
 
-            <div className="infoBar__item">
+            <div className="infoBarSection">
 
-                <span className="infoBar__label">PLAYERS</span>
+                <div className="infoBarTitle">
 
-                <span className="infoBar__value">{playersDisplay}</span>
+                    PLAYERS
+
+                </div>
+
+                <div className="infoBarValue">
+
+                    {playersDisplay}
+
+                </div>
 
             </div>
 
-            <div className="infoBar__item infoBar__item--timer">
+            <div className="infoBarSection">
 
-                <span className="infoBar__label">{timerLabel}</span>
+                <div className="infoBarTitle">
 
-                <span className="infoBar__value" aria-live="polite">
+                    {timerLabel}
+
+                </div>
+
+                <div className="infoBarValue">
 
                     {timerValue}
 
-                </span>
+                </div>
 
             </div>
 

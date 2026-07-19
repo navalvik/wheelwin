@@ -597,7 +597,8 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             gameplayContextResolver: this._gameplayContextResolver,
             setupSessionLifecycle: this._setupSessionLifecycle,
-            gameplayTimerLifecycle: this._gameplayTimerLifecycle
+            gameplayTimerLifecycle: this._gameplayTimerLifecycle,
+            isDevelopment: this._productionConfig.isDevelopment
         });
 
         this._roomLobbyBridge.initialize();

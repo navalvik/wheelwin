@@ -40,7 +40,8 @@ export class RoomLobbyBridge {
         setupSessionLifecycle = null,
         gameplayTimerLifecycle = null,
         telegramWalletAdapter = null,
-        entryPaymentDelays = null
+        entryPaymentDelays = null,
+        isDevelopment = false
     }) {
 
         this._logger = logger;
@@ -56,6 +57,9 @@ export class RoomLobbyBridge {
         this._setupSessionLifecycle = setupSessionLifecycle;
 
         this._gameplayTimerLifecycle = gameplayTimerLifecycle;
+
+        // R1.3D — DEBUG_START_GAME is development-only.
+        this._isDevelopment = isDevelopment === true;
 
         this._telegramWalletAdapter = telegramWalletAdapter
             ?? new TelegramWalletAdapter({ logger });
@@ -192,6 +196,15 @@ export class RoomLobbyBridge {
                     envelope.payload.socketId,
                     envelope.payload.walletAddress
                 );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_DEBUG_START_GAME_REQUEST,
+            (envelope) => {
+
+                this._handleDebugStartGame(envelope.payload.socketId);
 
             }
         );
@@ -856,6 +869,12 @@ export class RoomLobbyBridge {
                 this._deliverToSocket(
                     socketId,
                     LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_COMPLETED,
+                    { roomId }
+                );
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.OPEN_PAGE5,
                     { roomId }
                 );
 
@@ -1966,6 +1985,84 @@ export class RoomLobbyBridge {
         // cleanup so late reconnect can still restore the final snapshot +
         // ENTRY_PAYMENT_COMPLETED.
         this._entryPaymentLifecycle.cancel(roomId);
+
+        // R1.3D — production + debug share one Page5 open signal (after
+        // ENTRY_PAYMENT_COMPLETED activation has run synchronously).
+        this._deliverOpenPage5(roomId);
+
+    }
+
+    /**
+     * R1.3D — Development-only shortcut past wallet / smart-contract simulation.
+     * Reuses the same ENTRY_PAYMENT_COMPLETED → activation path as production.
+     */
+    _handleDebugStartGame(socketId) {
+
+        if (!this._isDevelopment) {
+
+            this._logger.error(
+                `DEBUG_START_GAME rejected | socketId=${socketId} | reason=not_development`
+            );
+
+            return;
+
+        }
+
+        const playerId = this._socketToPlayer.get(socketId);
+
+        if (!playerId) {
+
+            this._logger.error(
+                `DEBUG_START_GAME rejected | socketId=${socketId} | reason=no_player`
+            );
+
+            return;
+
+        }
+
+        const runtime = this._playerManager.getRuntime(playerId);
+
+        const roomId = runtime?.roomId ?? null;
+
+        if (!roomId || !this._roomManager.getRoom(roomId)) {
+
+            this._logger.error(
+                `DEBUG_START_GAME rejected | socketId=${socketId} | reason=no_room`
+            );
+
+            return;
+
+        }
+
+        this._logger.info(
+            `DEBUG_START_GAME | roomId=${roomId} | playerId=${playerId}`
+        );
+
+        if (this._entryPaymentCompletedByRoom.has(roomId)) {
+
+            this._deliverOpenPage5(roomId);
+
+            return;
+
+        }
+
+        this._completeEntryPayment(roomId);
+
+    }
+
+    _deliverOpenPage5(roomId) {
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.OPEN_PAGE5,
+            { roomId }
+        );
 
     }
 

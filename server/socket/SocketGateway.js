@@ -642,6 +642,20 @@ export class SocketGateway {
 
         });
 
+        // R1.3D — never expose DEBUG_START_GAME outside development.
+        if (this._devMode) {
+
+            socket.on(LOBBY_CLIENT_EVENTS.DEBUG_START_GAME, () => {
+
+                this._emitLobbyRequest(
+                    EVENT_TYPES.LOBBY_DEBUG_START_GAME_REQUEST,
+                    { socketId: socket.id }
+                );
+
+            });
+
+        }
+
         socket.on(GAME_MESSAGE_CHANNEL, (rawMessage) => {
 
             this._handleGameplayMessage(socket, rawMessage);

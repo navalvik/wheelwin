@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-
 import GameLayout from "../layouts/GameLayout";
 
 import PlayerPaymentRow from "../components/PlayerPaymentRow";
@@ -17,7 +15,7 @@ import "../styles/page4payment.css";
 export default function Page4Payment({ onNavigate }) {
 
     // C5.8C/E — Page4 mirrors AuthoritativeSession.entryPayment.
-    // Navigation to Page5 is authoritative via ENTRY_PAYMENT_COMPLETED only.
+    // R1.3D — Page5 opens only via authoritative OPEN_PAGE5 (not locally).
     const authoritative = useAuthoritativeSession();
 
     const entryPayment = authoritative.entryPayment;
@@ -35,18 +33,6 @@ export default function Page4Payment({ onNavigate }) {
         entryPayment,
         authoritative.players
     );
-
-    useEffect(() => {
-
-        if (!entryPaymentCompleted) {
-
-            return;
-
-        }
-
-        onNavigate(7);
-
-    }, [entryPaymentCompleted, onNavigate]);
 
     return (
 

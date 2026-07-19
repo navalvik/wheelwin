@@ -296,6 +296,15 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleOpenPage5 = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
+                payload
+            });
+
+        };
+
         this._handleGameplayTimerStarted = (payload) => {
 
             this._handleIncoming({
@@ -383,6 +392,11 @@ export class SocketSyncLayer {
         );
 
         this._socket.on(
+            INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
+            this._handleOpenPage5
+        );
+
+        this._socket.on(
             INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_STARTED,
             this._handleGameplayTimerStarted
         );
@@ -462,6 +476,11 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
             this._handleEntryPaymentCompleted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
+            this._handleOpenPage5
         );
 
         this._socket.off(

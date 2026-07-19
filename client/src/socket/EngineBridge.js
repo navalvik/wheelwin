@@ -193,6 +193,11 @@ export class EngineBridge {
                 session()?.onEntryPaymentCompleted?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.OPEN_PAGE5]: (payload) => {
+
+                modules.pageNavigation?.onOpenPage5?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_STARTED]: (payload) => {
 
                 session()?.onGameplayTimer?.(payload);

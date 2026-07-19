@@ -6,7 +6,9 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     UPDATE_PLAYER_PROFILE: "updatePlayerProfile",
     SUBMIT_SECRET_MATRIX: "submitSecretMatrix",
     CONFIRM_VERIFY: "confirmVerify",
-    VERIFY_NEXT_REQUEST: "VERIFY_NEXT_REQUEST"
+    VERIFY_NEXT_REQUEST: "VERIFY_NEXT_REQUEST",
+    // R1.3D — development-only; SocketGateway rejects outside development.
+    DEBUG_START_GAME: "DEBUG_START_GAME"
 });
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({
@@ -27,6 +29,8 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
     ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
     ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
+    // R1.3D — sole authoritative signal for clients to open Page5.
+    OPEN_PAGE5: "OPEN_PAGE5",
     GAMEPLAY_TIMER_STARTED: "GAMEPLAY_TIMER_STARTED",
     GAMEPLAY_TIMER_SYNC: "GAMEPLAY_TIMER_SYNC",
     GAMEPLAY_TIMER_WARNING: "GAMEPLAY_TIMER_WARNING",

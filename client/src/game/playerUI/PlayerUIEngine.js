@@ -564,8 +564,6 @@ export class PlayerUIEngine {
 
         this._listeners.add(listener);
 
-        listener(this.getPlayers());
-
         return () => {
 
             this._listeners.delete(listener);

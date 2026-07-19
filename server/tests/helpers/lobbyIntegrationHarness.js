@@ -58,7 +58,8 @@ export async function createLobbyIntegrationHarness() {
                 origin: "*"
             }
         },
-        eventBus
+        eventBus,
+        devMode: true
     });
 
     socketGateway.initialize(httpServer);
@@ -71,6 +72,8 @@ export async function createLobbyIntegrationHarness() {
         roomManager,
         playerManager,
         setupSessionLifecycle: bootstrapEngines.setupSessionLifecycle,
+        gameplayTimerLifecycle: bootstrapEngines.gameplayTimerLifecycle,
+        isDevelopment: true,
         // Fast stub delays so C5.8D/E lifecycle asserts finish quickly.
         entryPaymentDelays: {
             playerPaymentDelayMs: 40,

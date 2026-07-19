@@ -1,16 +1,26 @@
-import { memo, useSyncExternalStore } from "react";
+import { memo, useCallback, useSyncExternalStore } from "react";
 
 import PlayerCard from "./PlayerCard";
 
 function PlayerCardContainer({ playerId, engine }) {
 
-    const player = useSyncExternalStore(
+    const subscribe = useCallback(
         (onStoreChange) => engine.subscribePlayerChanges(
             playerId,
             onStoreChange
         ),
+        [engine, playerId]
+    );
+
+    const getSnapshot = useCallback(
         () => engine.getPlayer(playerId),
-        () => engine.getPlayer(playerId)
+        [engine, playerId]
+    );
+
+    const player = useSyncExternalStore(
+        subscribe,
+        getSnapshot,
+        getSnapshot
     );
 
     if (!player) {
@@ -25,10 +35,20 @@ function PlayerCardContainer({ playerId, engine }) {
 
 export default memo(function PlayerPanelView({ engine }) {
 
-    const players = useSyncExternalStore(
+    const subscribe = useCallback(
         (onStoreChange) => engine.subscribe(onStoreChange),
+        [engine]
+    );
+
+    const getSnapshot = useCallback(
         () => engine.getPlayers(),
-        () => engine.getPlayers()
+        [engine]
+    );
+
+    const players = useSyncExternalStore(
+        subscribe,
+        getSnapshot,
+        getSnapshot
     );
 
     return (
