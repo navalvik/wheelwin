@@ -22,7 +22,12 @@ export class GameManager {
 
         this._bootstrapHandler = null;
 
+        this._entryPaymentCompletedHandler = null;
+
         this._bootstrap = null;
+
+        // roomId → gameId waiting for ENTRY_PAYMENT_COMPLETED (R1.1).
+        this._pendingGameplayActivation = new Map();
 
         this._initialized = false;
 
@@ -110,6 +115,19 @@ export class GameManager {
             this._bootstrapHandler = null;
 
         }
+
+        if (this._entryPaymentCompletedHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
+                this._entryPaymentCompletedHandler
+            );
+
+            this._entryPaymentCompletedHandler = null;
+
+        }
+
+        this._pendingGameplayActivation.clear();
 
         for (const gameId of [...this._games.keys()]) {
 
@@ -308,6 +326,12 @@ export class GameManager {
 
         this._logger.info(`Game Destroyed: ${gameId}`);
 
+        if (game.roomId) {
+
+            this._pendingGameplayActivation.delete(game.roomId);
+
+        }
+
         this._emit(EVENT_TYPES.GAME_DESTROYED, {
             gameId: game.gameId,
             roomId: game.roomId,
@@ -454,6 +478,17 @@ export class GameManager {
             this._bootstrapHandler
         );
 
+        this._entryPaymentCompletedHandler = (envelope) => {
+
+            this._handleEntryPaymentCompleted(envelope);
+
+        };
+
+        this._eventBus.subscribe(
+            EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
+            this._entryPaymentCompletedHandler
+        );
+
     }
 
     _handleSetupSessionCompleted(envelope) {
@@ -542,10 +577,6 @@ export class GameManager {
 
             this._logBootstrap("CONFIGURATION_READY");
 
-            this._logBootstrap("Initializing GameState...");
-
-            this._bootstrap.gameStateEngine.initializeGameState(game.gameId);
-
             this._logBootstrap("Registering players...");
 
             this._bootstrap.inputAuthority.registerPlayers(
@@ -557,19 +588,17 @@ export class GameManager {
 
             this._bootstrap.physicsEngine.createSimulation(game.gameId);
 
-            this._logBootstrap("Starting physics simulation...");
-
-            this._bootstrap.physicsEngine.startSimulation(game.gameId);
-
-            this._logBootstrap("Starting GameClock...");
+            this._logBootstrap("Creating GameClock...");
 
             this._bootstrap.gameClockEngine.createClock(game.gameId);
 
-            this._bootstrap.gameClockEngine.startClock(game.gameId);
+            // R1.1 — Do not start simulation / clock / READY phases until
+            // ENTRY_PAYMENT_COMPLETED. Prep only; gameplay waits.
+            this._pendingGameplayActivation.set(roomId, game.gameId);
 
-            this.initializeGame(game.gameId);
-
-            this._logBootstrap("GAME_INITIALIZED");
+            this._logBootstrap(
+                "Gameplay prep ready — waiting for ENTRY_PAYMENT_COMPLETED"
+            );
 
         } catch (error) {
 
@@ -589,6 +618,95 @@ export class GameManager {
 
             this._logger.error(
                 `Gameplay bootstrap failed: ${error.message}`
+            );
+
+        }
+
+    }
+
+    _handleEntryPaymentCompleted(envelope) {
+
+        const roomId = envelope.payload?.roomId;
+
+        if (!roomId || !this._bootstrap) {
+
+            return;
+
+        }
+
+        const gameId = this._pendingGameplayActivation.get(roomId)
+            ?? envelope.payload?.gameId
+            ?? null;
+
+        if (!gameId) {
+
+            this._logger.error(
+                `Gameplay activation failed: no pending game for room (${roomId})`
+            );
+
+            return;
+
+        }
+
+        this._activateGameplaySession(roomId, gameId);
+
+    }
+
+    _activateGameplaySession(roomId, gameId) {
+
+        if (!this._bootstrap || !gameId) {
+
+            return;
+
+        }
+
+        const game = this.getGame(gameId);
+
+        if (!game) {
+
+            this._logger.error(
+                `Gameplay activation failed: game not found (${gameId})`
+            );
+
+            return;
+
+        }
+
+        // Idempotent — already past CREATED means activation ran.
+        if (game.status !== GAME_STATUS.CREATED) {
+
+            return;
+
+        }
+
+        try {
+
+            this._logBootstrap(
+                `ENTRY_PAYMENT_COMPLETED — activating gameplay | roomId=${roomId}`
+            );
+
+            this._logBootstrap("Initializing GameState...");
+
+            this._bootstrap.gameStateEngine.initializeGameState(gameId);
+
+            this._logBootstrap("Starting physics simulation...");
+
+            this._bootstrap.physicsEngine.startSimulation(gameId);
+
+            this._logBootstrap("Starting GameClock...");
+
+            this._bootstrap.gameClockEngine.startClock(gameId);
+
+            this.initializeGame(gameId);
+
+            this._pendingGameplayActivation.delete(roomId);
+
+            this._logBootstrap("GAME_INITIALIZED");
+
+        } catch (error) {
+
+            this._logger.error(
+                `Gameplay activation failed: ${error.message}`
             );
 
         }

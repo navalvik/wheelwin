@@ -1,4 +1,5 @@
 import { EventBus } from "../events/EventBus.js";
+import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 import { GameManager } from "../managers/GameManager.js";
@@ -101,7 +102,8 @@ const bootstrapEngines = wireGameplayBootstrap({
 const events = collectEvents(eventBus, [
     EVENT_TYPES.GAME_CREATED,
     EVENT_TYPES.CONFIGURATION_READY,
-    EVENT_TYPES.GAME_INITIALIZED
+    EVENT_TYPES.GAME_INITIALIZED,
+    EVENT_TYPES.ENTRY_PAYMENT_COMPLETED
 ]);
 
 const room = roomManager.createRoom();
@@ -120,34 +122,68 @@ const createdIndex = eventIndex(events.collected, EVENT_TYPES.GAME_CREATED);
 
 const configIndex = eventIndex(events.collected, EVENT_TYPES.CONFIGURATION_READY);
 
+assert(createdIndex >= 0, "GAME_CREATED should be emitted");
+
+assert(configIndex >= 0, "CONFIGURATION_READY should be emitted");
+
+assert(
+    createdIndex < configIndex,
+    "bootstrap prep events should emit in lifecycle order"
+);
+
+assert(
+    eventIndex(events.collected, EVENT_TYPES.GAME_INITIALIZED) === -1,
+    "GAME_INITIALIZED must wait for ENTRY_PAYMENT_COMPLETED"
+);
+
+const games = gameManager.getGames();
+
+assert(games.length === 1, "GameManager should own the created game");
+
+const gameId = games[0].gameId;
+
+assert(
+    bootstrapEngines.gameStateEngine.getState(gameId) === null,
+    "GameState must not initialize before ENTRY_PAYMENT_COMPLETED"
+);
+
+assert(
+    bootstrapEngines.gameClockEngine.isRunning(gameId) === false,
+    "GameClock must not run before ENTRY_PAYMENT_COMPLETED"
+);
+
+const simulationBefore = bootstrapEngines.physicsEngine.getSimulation(gameId);
+
+assert(simulationBefore, "physics simulation should exist after prep");
+
+assert(
+    simulationBefore.runtime?.running !== true
+        && simulationBefore.runtime?.isRunning !== true,
+    "physics must not be running before ENTRY_PAYMENT_COMPLETED"
+);
+
+// R1.1 — activate gameplay after entry payment.
+eventBus.emit({
+    source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+    type: EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
+    payload: { roomId: room.roomId }
+});
+
 const initializedIndex = eventIndex(
     events.collected,
     EVENT_TYPES.GAME_INITIALIZED
 );
 
-assert(createdIndex >= 0, "GAME_CREATED should be emitted");
-
-assert(configIndex >= 0, "CONFIGURATION_READY should be emitted");
-
 assert(initializedIndex >= 0, "GAME_INITIALIZED should be emitted");
 
 assert(
-    createdIndex < configIndex && configIndex < initializedIndex,
-    "bootstrap events should emit in lifecycle order"
-);
-
-const gameId = events.collected[initializedIndex].payload?.gameId;
-
-assert(gameId, "GAME_INITIALIZED should include gameId");
-
-assert(
-    gameManager.hasGame(gameId),
-    "GameManager should own the created game"
+    configIndex < initializedIndex,
+    "GAME_INITIALIZED must follow configuration and entry payment"
 );
 
 assert(
     bootstrapEngines.gameStateEngine.getHistory(gameId)[0].state === GAME_STATES.READY,
-    "bootstrap should initialize authoritative GameState to READY"
+    "activation should initialize authoritative GameState to READY"
 );
 
 for (const playerId of playerIds) {
@@ -159,23 +195,14 @@ for (const playerId of playerIds) {
 
 }
 
-const simulation = bootstrapEngines.physicsEngine.getSimulation(gameId);
-
-assert(simulation, "physics simulation should exist");
-
-assert(
-    simulation.runtime.angularVelocity === 0,
-    "initial wheel velocity should remain zero"
-);
-
 assert(
     bootstrapEngines.gameClockEngine.isRunning(gameId),
-    "GameClock should be running after bootstrap"
+    "GameClock should be running after ENTRY_PAYMENT_COMPLETED"
 );
 
 assert(
     bootstrapEngines.configurationEngine.getConfiguration(gameId),
-    "configuration should be committed after bootstrap"
+    "configuration should be committed after bootstrap prep"
 );
 
 events.cleanup();

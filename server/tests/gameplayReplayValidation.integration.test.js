@@ -29,6 +29,7 @@ import { AuditEngine } from "../engines/AuditEngine.js";
 import { AuditActivation } from "../gameplay/AuditActivation.js";
 import http from "http";
 import {
+    emitEntryPaymentCompleted,
     exhaustAllPlayerInput,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
@@ -373,6 +374,8 @@ async function playOneGame(index) {
     const bootstrapped = await poll(() => Boolean(current.gameId));
 
     assert(bootstrapped, `game #${index}: ROOM_FULL should bootstrap a game`);
+
+    emitEntryPaymentCompleted(eventBus, roomId);
 
     const gameId = current.gameId;
 

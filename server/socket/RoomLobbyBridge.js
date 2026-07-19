@@ -239,6 +239,15 @@ export class RoomLobbyBridge {
         );
 
         this._subscribe(
+            EVENT_TYPES.GAME_CREATED,
+            (envelope) => {
+
+                this._handleGameCreated(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
             EVENT_TYPES.GAME_INITIALIZED,
             (envelope) => {
 
@@ -938,6 +947,20 @@ export class RoomLobbyBridge {
 
     }
 
+    _handleGameCreated({ gameId, roomId }) {
+
+        if (!gameId || !roomId) {
+
+            return;
+
+        }
+
+        // R1.1 — startGame (Page2 entry) fires at game prep / room-full,
+        // not at GAME_INITIALIZED (which now waits for entry payment).
+        this._deliverStartGame(roomId, gameId);
+
+    }
+
     _handleGameInitialized({ gameId, roomId }) {
 
         if (!gameId || !roomId) {
@@ -945,6 +968,28 @@ export class RoomLobbyBridge {
             return;
 
         }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            return;
+
+        }
+
+        for (const playerId of room.players) {
+
+            this._playerManager.updateRuntime(playerId, {
+                gameId
+            });
+
+        }
+
+        this._gameplayContextResolver?.activateRoomGame(roomId, gameId);
+
+    }
+
+    _deliverStartGame(roomId, gameId) {
 
         const room = this._roomManager.getRoom(roomId);
 
@@ -999,6 +1044,10 @@ export class RoomLobbyBridge {
             );
 
         }
+
+        this._logger.info(
+            `Lobby startGame delivered | roomId=${roomId} | gameId=${gameId}`
+        );
 
     }
 
@@ -1834,6 +1883,13 @@ export class RoomLobbyBridge {
             LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_COMPLETED,
             { roomId }
         );
+
+        // R1.1 — notify GameManager to start physics / clock / READY phases.
+        this._eventBus.emit({
+            source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+            type: EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
+            payload: { roomId }
+        });
 
         this._logger.info(`Entry payment completed | roomId=${roomId}`);
 

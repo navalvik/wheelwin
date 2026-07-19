@@ -6,6 +6,7 @@ import { PlayerManager } from "../managers/PlayerManager.js";
 import { RoomManager } from "../managers/RoomManager.js";
 import { LoggerService } from "../services/LoggerService.js";
 import {
+    emitEntryPaymentCompleted,
     exhaustAllPlayerInput,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
@@ -156,7 +157,7 @@ const roomToGameId = new Map();
 
 const gameWinners = new Map();
 
-eventBus.subscribe(EVENT_TYPES.GAME_INITIALIZED, (envelope) => {
+eventBus.subscribe(EVENT_TYPES.GAME_CREATED, (envelope) => {
 
     roomToGameId.set(envelope.payload.roomId, envelope.payload.gameId);
 
@@ -188,12 +189,15 @@ function startGame() {
 
     }
 
-    // ROOM_FULL fires synchronously on the third add, running the bootstrap.
+    // ROOM_FULL fires synchronously on the third add, running prep bootstrap.
     for (const playerId of players) {
 
         roomManager.addPlayer(room.roomId, playerId);
 
     }
+
+    // R1.1 — gameplay clock/physics wait for entry payment completion.
+    emitEntryPaymentCompleted(eventBus, room.roomId);
 
     const gameId = roomToGameId.get(room.roomId);
 

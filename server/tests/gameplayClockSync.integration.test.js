@@ -5,7 +5,10 @@ import { GAME_STATES } from "../engines/gameState/GameStates.js";
 import { GAME_CLOCK_MESSAGE_TYPE } from "../socket/gameplayClockProtocol.js";
 import { GAME_MESSAGE_CHANNEL } from "../socket/events.js";
 import { createGameplaySocketHarness } from "./helpers/gameplaySocketHarness.js";
-import { exhaustAllPlayerInput } from "./helpers/gameplayBootstrapHarness.js";
+import {
+    emitEntryPaymentCompleted,
+    exhaustAllPlayerInput
+} from "./helpers/gameplayBootstrapHarness.js";
 
 function assert(condition, message) {
 
@@ -175,6 +178,8 @@ try {
     await guestBJoined;
 
     await Promise.all(startPromises);
+
+    emitEntryPaymentCompleted(harness.eventBus, created.roomId);
 
     const games = harness.gameManager.getGames();
 

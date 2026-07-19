@@ -29,6 +29,7 @@ import { RecoveryEngine } from "../../engines/RecoveryEngine.js";
 import { AuditEngine } from "../../engines/AuditEngine.js";
 import { AuditActivation } from "../../gameplay/AuditActivation.js";
 import {
+    emitEntryPaymentCompleted,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
 } from "./gameplayBootstrapHarness.js";
@@ -637,6 +638,8 @@ export async function buildProductionStack() {
             const bootstrapped = await poll(() => Boolean(current.gameId));
 
             assert(bootstrapped, `game #${index}: ROOM_FULL should bootstrap a game`);
+
+            emitEntryPaymentCompleted(eventBus, roomId);
 
             const gameId = current.gameId;
 

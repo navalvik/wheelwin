@@ -8,6 +8,7 @@ import {
 } from "../socket/gameplayInputProtocol.js";
 import { GAME_MESSAGE_CHANNEL } from "../socket/events.js";
 import { createGameplaySocketHarness } from "./helpers/gameplaySocketHarness.js";
+import { emitEntryPaymentCompleted } from "./helpers/gameplayBootstrapHarness.js";
 
 function assert(condition, message) {
 
@@ -115,6 +116,8 @@ async function startGameplaySession(harness) {
         startGuestAPromise,
         startGuestBPromise
     ]);
+
+    emitEntryPaymentCompleted(harness.eventBus, created.roomId);
 
     const games = harness.gameManager.getGames();
 

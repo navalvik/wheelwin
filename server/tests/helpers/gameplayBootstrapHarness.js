@@ -19,6 +19,28 @@ import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "../../gameplay/SetupSessionLifecycle.js";
 import { PaymentEngine } from "../../engines/PaymentEngine.js";
 import { TelegramWalletAdapter } from "../../services/telegram/TelegramWalletAdapter.js";
+import { EVENT_SOURCES } from "../../events/EventSources.js";
+import { EVENT_TYPES } from "../../events/EventTypes.js";
+
+/**
+ * R1.1 — After room-full prep, emit entry-payment completion so GameManager
+ * starts physics / clock / READY. Used by tests that skip the lobby payment UI.
+ */
+export function emitEntryPaymentCompleted(eventBus, roomId) {
+
+    if (!eventBus || !roomId) {
+
+        return;
+
+    }
+
+    eventBus.emit({
+        source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+        type: EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
+        payload: { roomId }
+    });
+
+}
 
 export function createFastTimers() {
 

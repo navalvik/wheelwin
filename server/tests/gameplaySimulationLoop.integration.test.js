@@ -7,6 +7,7 @@ import { PlayerManager } from "../managers/PlayerManager.js";
 import { RoomManager } from "../managers/RoomManager.js";
 import { LoggerService } from "../services/LoggerService.js";
 import {
+    emitEntryPaymentCompleted,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
 } from "./helpers/gameplayBootstrapHarness.js";
@@ -105,6 +106,8 @@ for (const playerId of playerIds) {
     roomManager.addPlayer(room.roomId, playerId);
 
 }
+
+emitEntryPaymentCompleted(eventBus, room.roomId);
 
 const games = gameManager.getGames();
 
