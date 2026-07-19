@@ -12,13 +12,26 @@ export default function PlayerInfoRow({
 
     sectorLabel,
 
-    sectorValue
+    sectorValue,
+
+    paymentLabel = "YOU NEED PAY",
+
+    paymentDisplay = null,
+
+    isLocal = false
 
 }) {
 
     return (
 
-        <div className="playerInfoRow">
+        <div
+            className={
+                isLocal
+                    ? "playerInfoRow playerInfoRow--local"
+                    : "playerInfoRow"
+            }
+            data-local-player={isLocal ? "true" : "false"}
+        >
 
             <div className="playerInfoRow__group">
 
@@ -83,6 +96,26 @@ export default function PlayerInfoRow({
                 </span>
 
             </div>
+
+            {paymentDisplay != null && (
+
+                <div className="playerInfoRow__group playerInfoRow__group--payment">
+
+                    <span className="playerInfoRow__label">
+
+                        {paymentLabel}
+
+                    </span>
+
+                    <span className="playerInfoRow__value">
+
+                        {paymentDisplay}
+
+                    </span>
+
+                </div>
+
+            )}
 
         </div>
 

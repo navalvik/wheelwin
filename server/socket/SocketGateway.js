@@ -605,6 +605,32 @@ export class SocketGateway {
 
         });
 
+        socket.on(LOBBY_CLIENT_EVENTS.UPDATE_PLAYER_PROFILE, (profile) => {
+
+            this._emitLobbyRequest(EVENT_TYPES.LOBBY_UPDATE_PLAYER_PROFILE_REQUEST, {
+                socketId: socket.id,
+                profile
+            });
+
+        });
+
+        socket.on(LOBBY_CLIENT_EVENTS.SUBMIT_SECRET_MATRIX, (matrix) => {
+
+            this._emitLobbyRequest(EVENT_TYPES.LOBBY_SUBMIT_SECRET_MATRIX_REQUEST, {
+                socketId: socket.id,
+                matrix
+            });
+
+        });
+
+        socket.on(LOBBY_CLIENT_EVENTS.CONFIRM_VERIFY, () => {
+
+            this._emitLobbyRequest(EVENT_TYPES.LOBBY_CONFIRM_VERIFY_REQUEST, {
+                socketId: socket.id
+            });
+
+        });
+
         socket.on(GAME_MESSAGE_CHANNEL, (rawMessage) => {
 
             this._handleGameplayMessage(socket, rawMessage);

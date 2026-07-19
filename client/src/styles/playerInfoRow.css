@@ -6,15 +6,35 @@
 
     display: grid;
 
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
 
     gap: clamp(10px, 1.2vw, 18px);
 
     align-items: start;
 
-    padding: clamp(8px, 1vh, 12px) 0;
+    padding: clamp(8px, 1vh, 12px) clamp(8px, 1vw, 12px);
 
     border-bottom: 1px solid #d6e4f0;
+
+    border-radius: 12px;
+
+    box-sizing: border-box;
+}
+
+.playerInfoRow--local {
+
+    background: #eef6ff;
+
+    border: 2px solid #1c73d0;
+
+    border-bottom: 2px solid #1c73d0;
+
+    box-shadow: inset 0 0 0 1px rgba(28, 115, 208, 0.15);
+}
+
+.playerInfoRow--local .playerInfoRow__label {
+
+    color: #0b4f9c;
 }
 
 .playerInfoRow:last-of-type {
@@ -106,11 +126,12 @@
 
         grid-template-areas:
             "nick age"
-            "icon sector";
+            "icon sector"
+            "pay pay";
 
         gap: 8px 10px;
 
-        padding: 10px 0;
+        padding: 10px;
     }
 
     .playerInfoRow__group:nth-child(1) {
@@ -131,6 +152,11 @@
     .playerInfoRow__group:nth-child(4) {
 
         grid-area: sector;
+    }
+
+    .playerInfoRow__group--payment {
+
+        grid-area: pay;
     }
 
     .playerInfoRow__label {

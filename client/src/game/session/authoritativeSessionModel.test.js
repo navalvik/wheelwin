@@ -72,6 +72,156 @@ function assert(condition, message) {
 
 }
 
+// Redacted PLAYER_UPDATE must not wipe a private profile reveal.
+{
+
+    let state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START,
+            payload: {
+                roomId: "R2",
+                players: [
+                    { playerId: "p1", nickname: null, sectorCount: null },
+                    { playerId: "p2", nickname: null, sectorCount: null },
+                    { playerId: "p3", nickname: null, sectorCount: null }
+                ]
+            }
+        }
+    );
+
+    assert(
+        Object.keys(state.players).length === 3,
+        "startGame seeds all Verify seats"
+    );
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.PLAYER_UPDATE,
+        payload: {
+            playerId: "p1",
+            nickname: "Alex",
+            age: 30,
+            sectorCount: 2,
+            sectorValue: "2"
+        }
+    });
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.PLAYER_UPDATE,
+        payload: {
+            playerId: "p1",
+            nickname: null,
+            age: null,
+            sectorCount: null,
+            sectorValue: null
+        }
+    });
+
+    assert(
+        state.players.p1.nickname === "Alex",
+        "redacted update must not wipe private nickname"
+    );
+
+    assert(
+        state.players.p1.sectorCount === 2,
+        "redacted update must not wipe private sectorCount"
+    );
+
+    assert(
+        Object.keys(state.players).length === 3,
+        "roster seats remain after redacted peer updates"
+    );
+
+    console.log("  verify barrier redaction preserve passed");
+
+}
+
+// VERIFY_COMPLETED roster replaces redacted peer seats.
+{
+
+    let state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START,
+            payload: {
+                roomId: "R3",
+                players: [
+                    { playerId: "p1", nickname: null },
+                    { playerId: "p2", nickname: null },
+                    { playerId: "p3", nickname: null }
+                ]
+            }
+        }
+    );
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.PLAYER_UPDATE,
+        payload: {
+            playerId: "p1",
+            nickname: "Alex",
+            age: 30,
+            sectorCount: 1,
+            sectorValue: "1"
+        }
+    });
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.VERIFY_COMPLETED,
+        payload: {
+            roomId: "R3",
+            players: [
+                {
+                    playerId: "p1",
+                    nickname: "Alex",
+                    age: 30,
+                    icon: "🎲",
+                    sectorCount: 1,
+                    sectorValue: "1"
+                },
+                {
+                    playerId: "p2",
+                    nickname: "Blake",
+                    age: 25,
+                    icon: "🎯",
+                    sectorCount: 2,
+                    sectorValue: "2"
+                },
+                {
+                    playerId: "p3",
+                    nickname: "Casey",
+                    age: 28,
+                    icon: "⭐",
+                    sectorCount: 1,
+                    sectorValue: "1"
+                }
+            ]
+        }
+    });
+
+    assert(
+        state.lifecycle.verifyCompleted === true,
+        "verifyCompleted stamped"
+    );
+
+    assert(
+        state.players.p2.nickname === "Blake",
+        "VERIFY_COMPLETED must reveal peer nickname"
+    );
+
+    assert(
+        state.players.p3.age === 28,
+        "VERIFY_COMPLETED must reveal peer age"
+    );
+
+    assert(
+        state.players.p1.nickname === "Alex",
+        "local profile remains after roster reveal"
+    );
+
+    console.log("  VERIFY_COMPLETED roster reveal passed");
+
+}
+
 // Incomplete GAME_RESULT must not fabricate a winner.
 {
 

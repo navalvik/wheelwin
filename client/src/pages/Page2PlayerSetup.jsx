@@ -1,10 +1,23 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
+
+import { useGameSession } from "../context/GameSessionContext";
+
+import socket from "../socket/socket";
+
+import {
+    calculatePaymentGram,
+    isValidPlayerAge,
+    MAX_PLAYER_AGE,
+    MIN_PLAYER_AGE
+} from "../utils/playerProfileRules";
 
 import "../styles/page2player.css";
 
 export default function Page2PlayerSetup({ onNavigate }) {
+
+    const { setFinance } = useGameSession();
 
     const [language, setLanguage] = useState("English");
 
@@ -22,15 +35,45 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
     const [colorSector2, setColorSector2] = useState("Blue");
 
+    const ageValid = useMemo(() => isValidPlayerAge(age), [age]);
+
+    function handleContinue() {
+
+        if (!ageValid) {
+
+            return;
+
+        }
+
+        const baseStake = Number(stake);
+
+        setFinance({
+            baseStake,
+            paymentGram: calculatePaymentGram(baseStake, Number(sectors))
+        });
+
+        socket.emit("updatePlayerProfile", {
+            nickname: nickname.trim().slice(0, 4),
+            age: Number(age),
+            baseStake,
+            sectorCount: Number(sectors),
+            sectorArrangement: sectors === "2" ? sectorArrangement : "together",
+            color: colorSector1
+        });
+
+        onNavigate(4);
+
+    }
+
     return (
 
         <GameLayout
 
             message="PLAYER SETUP"
 
-            nextEnabled={true}
+            nextEnabled={ageValid}
 
-            onNext={() => onNavigate(4)}
+            onNext={handleContinue}
 
         >
 
@@ -123,7 +166,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                             <div className="ageValidation">
 
-                                You must be between 18 and 99 years old.
+                                {`You must be between ${MIN_PLAYER_AGE} and ${MAX_PLAYER_AGE} years old.`}
 
                             </div>
 
@@ -350,7 +393,6 @@ export default function Page2PlayerSetup({ onNavigate }) {
                                 <div className="setupControlCell">
 
                                     <select
-
                                         className="setupSelect setupSelect--color"
 
                                         value={colorSector2}

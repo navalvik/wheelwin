@@ -3,7 +3,8 @@ import {
     useCallback,
     useContext,
     useMemo,
-    useRef
+    useRef,
+    useState
 } from "react";
 
 /**
@@ -12,43 +13,57 @@ import {
  * Used by gameplay recovery after a socket reconnect within the same tab.
  * Intentionally does NOT persist across browser refresh (future Session
  * Management epic).
+ *
+ * State is reactive so Page3 local-player highlight/footer update when
+ * playerId arrives (including last-joiner startGame race).
  */
 const PlayerIdentityContext = createContext(null);
 
+const EMPTY_IDENTITY = Object.freeze({
+    roomId: null,
+    playerId: null,
+    gameId: null
+});
+
 export function PlayerIdentityProvider({ children }) {
 
-    const identityRef = useRef({
-        roomId: null,
-        playerId: null,
-        gameId: null
-    });
+    const [identity, setIdentityState] = useState(EMPTY_IDENTITY);
+
+    const identityRef = useRef(EMPTY_IDENTITY);
 
     const setIdentity = useCallback((partial) => {
 
-        identityRef.current = {
-            ...identityRef.current,
-            ...partial
-        };
+        setIdentityState((prev) => {
+
+            const next = {
+                ...prev,
+                ...partial
+            };
+
+            identityRef.current = next;
+
+            return next;
+
+        });
 
     }, []);
 
     const clearIdentity = useCallback(() => {
 
-        identityRef.current = {
-            roomId: null,
-            playerId: null,
-            gameId: null
-        };
+        identityRef.current = EMPTY_IDENTITY;
+
+        setIdentityState(EMPTY_IDENTITY);
 
     }, []);
 
     const getIdentity = useCallback(() => ({ ...identityRef.current }), []);
 
     const value = useMemo(() => ({
+        identity,
         setIdentity,
         clearIdentity,
         getIdentity
-    }), [setIdentity, clearIdentity, getIdentity]);
+    }), [identity, setIdentity, clearIdentity, getIdentity]);
 
     return (
 

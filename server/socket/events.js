@@ -10,7 +10,10 @@ export const SOCKET_EVENTS = Object.freeze({
 export const LOBBY_CLIENT_EVENTS = Object.freeze({
     CREATE_ROOM: "createRoom",
     JOIN_ROOM: "joinRoom",
-    LEAVE_ROOM: "leaveRoom"
+    LEAVE_ROOM: "leaveRoom",
+    UPDATE_PLAYER_PROFILE: "updatePlayerProfile",
+    SUBMIT_SECRET_MATRIX: "submitSecretMatrix",
+    CONFIRM_VERIFY: "confirmVerify"
 });
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({

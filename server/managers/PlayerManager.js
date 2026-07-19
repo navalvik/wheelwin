@@ -101,6 +101,10 @@ export class PlayerManager {
             nickname: identityInput.nickname ?? null,
             wallet: identityInput.wallet ?? null,
             icon: identityInput.icon ?? null,
+            age: identityInput.age ?? null,
+            color: identityInput.color ?? null,
+            sectorCount: identityInput.sectorCount ?? null,
+            sectorArrangement: identityInput.sectorArrangement ?? null,
             createdAt: identityInput.createdAt ?? Date.now()
         });
 
@@ -179,6 +183,54 @@ export class PlayerManager {
         }
 
         return identity.toSnapshot();
+
+    }
+
+    /**
+     * Replaces frozen identity fields (nickname, age, icon, color, sectors).
+     * Used by Page2 profile submission. Returns the new identity snapshot or null.
+     */
+    updateIdentity(playerId, identityPatch = {}) {
+
+        const previous = this._getIdentityOrLog(playerId, "update identity for");
+
+        if (!previous) {
+
+            return null;
+
+        }
+
+        const next = new PlayerIdentity({
+            playerId: previous.playerId,
+            nickname: identityPatch.nickname !== undefined
+                ? identityPatch.nickname
+                : previous.nickname,
+            wallet: identityPatch.wallet !== undefined
+                ? identityPatch.wallet
+                : previous.wallet,
+            icon: identityPatch.icon !== undefined
+                ? identityPatch.icon
+                : previous.icon,
+            age: identityPatch.age !== undefined
+                ? identityPatch.age
+                : previous.age,
+            color: identityPatch.color !== undefined
+                ? identityPatch.color
+                : previous.color,
+            sectorCount: identityPatch.sectorCount !== undefined
+                ? identityPatch.sectorCount
+                : previous.sectorCount,
+            sectorArrangement: identityPatch.sectorArrangement !== undefined
+                ? identityPatch.sectorArrangement
+                : previous.sectorArrangement,
+            createdAt: previous.createdAt
+        });
+
+        this._identities.set(playerId, next);
+
+        this._logger.info(`Player Identity Updated: ${playerId}`);
+
+        return next.toSnapshot();
 
     }
 

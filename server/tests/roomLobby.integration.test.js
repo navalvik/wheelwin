@@ -161,6 +161,273 @@ try {
         "startGame should include three players for guest B"
     );
 
+    assert(
+        startHost.playerId === created.playerId,
+        "host startGame must bind host playerId"
+    );
+
+    assert(
+        startGuestA.playerId === joined.playerId,
+        "guest A startGame must bind guest A playerId"
+    );
+
+    assert(
+        startGuestB.playerId === joinedB.playerId,
+        "guest B (last joiner) startGame must bind guest B playerId"
+    );
+
+    assert(
+        startHost.playerId !== startGuestA.playerId
+            && startGuestA.playerId !== startGuestB.playerId
+            && startHost.playerId !== startGuestB.playerId,
+        "each client must receive its own playerId on startGame"
+    );
+
+    // RC-FIX-006 — public identity visible before Confirm; peers verify participants.
+    const peerSeatPromise = waitForEvent(
+        guestA,
+        "PLAYER_UPDATE",
+        5000,
+        "guestA.public.PLAYER_UPDATE"
+    );
+
+    const hostProfilePromise = waitForEvent(
+        host,
+        "PLAYER_UPDATE",
+        5000,
+        "host.PLAYER_UPDATE"
+    );
+
+    host.emit("updatePlayerProfile", {
+        nickname: "Host",
+        age: 30,
+        color: "#111111",
+        sectorCount: 2,
+        sectorArrangement: "together",
+        baseStake: 10
+    });
+
+    const [hostProfile, peerSeat] = await Promise.all([
+        hostProfilePromise,
+        peerSeatPromise
+    ]);
+
+    assert(
+        hostProfile.playerId === created.playerId,
+        "host should receive private profile ack"
+    );
+
+    assert(
+        hostProfile.nickname === "Host",
+        "private ack should include nickname"
+    );
+
+    assert(
+        hostProfile.sectorCount === 2,
+        "private ack should include sectorCount"
+    );
+
+    assert(
+        peerSeat.playerId === created.playerId,
+        "peers should receive host seat for Verify roster"
+    );
+
+    assert(
+        peerSeat.nickname === "Host"
+            && peerSeat.age === 30
+            && peerSeat.sectorCount === 2,
+        "peers must receive public nickname/age/sectorCount before Confirm"
+    );
+
+    assert(
+        peerSeat.icon == null
+            && peerSeat.color == null
+            && peerSeat.sectorArrangement == null,
+        "peers must not receive icon/color/sectorArrangement before Confirm"
+    );
+
+    guestA.emit("updatePlayerProfile", {
+        nickname: "GueA",
+        age: 25,
+        color: "#222222",
+        sectorCount: 1,
+        baseStake: 10
+    });
+
+    await waitForEvent(guestA, "PLAYER_UPDATE", 5000, "guestA.PLAYER_UPDATE");
+
+    guestB.emit("updatePlayerProfile", {
+        nickname: "GueB",
+        age: 28,
+        color: "#333333",
+        sectorCount: 1,
+        baseStake: 10
+    });
+
+    await waitForEvent(guestB, "PLAYER_UPDATE", 5000, "guestB.PLAYER_UPDATE");
+
+    // RC1.3 Bug #9 — Secret Matrix must match before Verify.
+    const matrix = ["A", "1", "B", "2", "C", "3", "D", "4", "E"];
+
+    const rejectHostPromise = waitForEvent(
+        host,
+        "SECRET_MATRIX_REJECTED",
+        5000,
+        "host.SECRET_MATRIX_REJECTED"
+    );
+
+    host.emit("submitSecretMatrix", matrix);
+
+    guestA.emit("submitSecretMatrix", matrix);
+
+    guestB.emit("submitSecretMatrix", [
+        "Z", "1", "B", "2", "C", "3", "D", "4", "E"
+    ]);
+
+    const rejected = await rejectHostPromise;
+
+    assert(
+        rejected.code === "SECRET_MATRIX_MISMATCH",
+        "mismatched matrices must be rejected"
+    );
+
+    const acceptHostPromise = waitForEvent(
+        host,
+        "SECRET_MATRIX_ACCEPTED",
+        5000,
+        "host.SECRET_MATRIX_ACCEPTED"
+    );
+
+    const acceptAPromise = waitForEvent(
+        guestA,
+        "SECRET_MATRIX_ACCEPTED",
+        5000,
+        "guestA.SECRET_MATRIX_ACCEPTED"
+    );
+
+    const acceptBPromise = waitForEvent(
+        guestB,
+        "SECRET_MATRIX_ACCEPTED",
+        5000,
+        "guestB.SECRET_MATRIX_ACCEPTED"
+    );
+
+    host.emit("submitSecretMatrix", matrix);
+
+    guestA.emit("submitSecretMatrix", matrix);
+
+    guestB.emit("submitSecretMatrix", matrix);
+
+    await Promise.all([
+        acceptHostPromise,
+        acceptAPromise,
+        acceptBPromise
+    ]);
+
+    const invalidRejectPromise = waitForEvent(
+        host,
+        "SECRET_MATRIX_REJECTED",
+        5000,
+        "host.invalid.SECRET_MATRIX_REJECTED"
+    );
+
+    host.emit("submitSecretMatrix", ["A"]);
+
+    const invalidRejected = await invalidRejectPromise;
+
+    assert(
+        invalidRejected.code === "INVALID_SECRET_MATRIX",
+        "incomplete matrix must be rejected by server"
+    );
+
+    const verifyHostPromise = waitForEvent(
+        host,
+        "VERIFY_COMPLETED",
+        5000,
+        "host.VERIFY_COMPLETED"
+    );
+
+    const verifyAPromise = waitForEvent(
+        guestA,
+        "VERIFY_COMPLETED",
+        5000,
+        "guestA.VERIFY_COMPLETED"
+    );
+
+    const verifyBPromise = waitForEvent(
+        guestB,
+        "VERIFY_COMPLETED",
+        5000,
+        "guestB.VERIFY_COMPLETED"
+    );
+
+    const revealHostToAPromise = new Promise((resolve, reject) => {
+
+        const timer = setTimeout(() => {
+
+            reject(new Error("Timed out waiting for host profile reveal to guest A"));
+
+        }, 5000);
+
+        function onUpdate(payload) {
+
+            if (
+                payload?.playerId === created.playerId
+                && payload?.nickname === "Host"
+            ) {
+
+                clearTimeout(timer);
+
+                guestA.off("PLAYER_UPDATE", onUpdate);
+
+                resolve(payload);
+
+            }
+
+        }
+
+        guestA.on("PLAYER_UPDATE", onUpdate);
+
+    });
+
+    host.emit("confirmVerify");
+
+    guestA.emit("confirmVerify");
+
+    // Two confirms must not complete Verify yet.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    guestB.emit("confirmVerify");
+
+    const [verifyHost, verifyA, verifyB, revealedHostToA] = await Promise.all([
+        verifyHostPromise,
+        verifyAPromise,
+        verifyBPromise,
+        revealHostToAPromise
+    ]);
+
+    assert(verifyHost.roomId === created.roomId, "VERIFY_COMPLETED for host");
+
+    assert(verifyA.roomId === created.roomId, "VERIFY_COMPLETED for guest A");
+
+    assert(verifyB.roomId === created.roomId, "VERIFY_COMPLETED for guest B");
+
+    assert(
+        revealedHostToA.playerId === created.playerId
+            && revealedHostToA.nickname === "Host",
+        "after Verify, peers receive revealed host profile"
+    );
+
+    assert(
+        Array.isArray(verifyA.players) && verifyA.players.length === 3,
+        "VERIFY_COMPLETED must carry full authoritative roster"
+    );
+
+    assert(
+        verifyA.players.every((player) => player.nickname),
+        "VERIFY_COMPLETED roster must reveal nicknames"
+    );
+
     host.disconnect();
 
     guestA.disconnect();

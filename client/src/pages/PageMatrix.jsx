@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
+
+import socket from "../socket/socket";
+
+import {
+    isValidSecretMatrix,
+    sanitizeSecretMatrixCell
+} from "../utils/secretMatrixRules";
 
 import "../styles/pageMatrix.css";
 
@@ -10,35 +17,99 @@ export default function PageMatrix({ onNavigate }) {
         Array(9).fill("")
     );
 
+    const [waitingForMatch, setWaitingForMatch] = useState(false);
+
+    const [errorMessage, setErrorMessage] = useState("");
+
     function handleMatrixChange(index, rawValue) {
 
-        const symbol = rawValue
-            .toUpperCase()
-            .replace(/[^A-Z0-9]/g, "")
-            .slice(-1);
+        const symbol = sanitizeSecretMatrixCell(rawValue);
 
         setSecretMatrix((prev) => {
+
             const next = [...prev];
+
             next[index] = symbol;
+
             return next;
+
         });
+
+        setErrorMessage("");
+
     }
 
-    const isMatrixComplete = secretMatrix.every((cell) => cell.length === 1);
+    const isMatrixValid = useMemo(
+        () => isValidSecretMatrix(secretMatrix),
+        [secretMatrix]
+    );
+
+    useEffect(() => {
+
+        function handleAccepted() {
+
+            setWaitingForMatch(false);
+
+            setErrorMessage("");
+
+            onNavigate(5);
+
+        }
+
+        function handleRejected(payload) {
+
+            setWaitingForMatch(false);
+
+            setErrorMessage(
+                payload?.message
+                    ?? "Secret Matrix was rejected. Try again."
+            );
+
+        }
+
+        socket.on("SECRET_MATRIX_ACCEPTED", handleAccepted);
+
+        socket.on("SECRET_MATRIX_REJECTED", handleRejected);
+
+        return () => {
+
+            socket.off("SECRET_MATRIX_ACCEPTED", handleAccepted);
+
+            socket.off("SECRET_MATRIX_REJECTED", handleRejected);
+
+        };
+
+    }, [onNavigate]);
+
+    function handleSubmit() {
+
+        if (!isMatrixValid || waitingForMatch) {
+
+            return;
+
+        }
+
+        setWaitingForMatch(true);
+
+        setErrorMessage("");
+
+        socket.emit("submitSecretMatrix", secretMatrix);
+
+    }
 
     return (
 
         <GameLayout
 
-              message="SECRET MATRIX"
+            message="SECRET MATRIX"
 
-              backEnabled={true}
+            backEnabled={!waitingForMatch}
 
-              onBack={() => onNavigate(3)}
+            onBack={() => onNavigate(3)}
 
-              nextEnabled={isMatrixComplete}
+            nextEnabled={isMatrixValid && !waitingForMatch}
 
-              onNext={() => onNavigate(5)}
+            onNext={handleSubmit}
         >
 
             <div className="pageMatrix">
@@ -75,6 +146,7 @@ export default function PageMatrix({ onNavigate }) {
                                     spellCheck={false}
                                     maxLength={1}
                                     value={value}
+                                    disabled={waitingForMatch}
                                     onChange={(e) =>
                                         handleMatrixChange(index, e.target.value)
                                     }
@@ -101,6 +173,26 @@ export default function PageMatrix({ onNavigate }) {
                         </div>
 
                     </div>
+
+                    {waitingForMatch && (
+
+                        <p className="matrixInstruction" aria-live="polite">
+
+                            Waiting for all players to submit the same code…
+
+                        </p>
+
+                    )}
+
+                    {errorMessage && (
+
+                        <p className="matrixInstruction" aria-live="assertive">
+
+                            {errorMessage}
+
+                        </p>
+
+                    )}
 
                 </div>
 

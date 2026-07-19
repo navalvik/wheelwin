@@ -35,6 +35,7 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     SESSION_RECOVERY_FAILED: "SESSION_RECOVERY_FAILED",
     SETUP_SESSION: "SETUP_SESSION",
     SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
+    VERIFY_COMPLETED: "VERIFY_COMPLETED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -56,7 +57,8 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     lifecycle: Object.freeze({
         gameStarted: false,
         gameEnded: false,
-        cleanupObserved: false
+        cleanupObserved: false,
+        verifyCompleted: false
     }),
     lastEventType: null,
     lastUpdatedAt: null
@@ -98,6 +100,19 @@ function freezePlayers(players) {
 
 }
 
+const PRESERVE_WHEN_NULL = new Set([
+    "nickname",
+    "age",
+    "icon",
+    "color",
+    "sectorCount",
+    "sectorArrangement",
+    "sectorLabel",
+    "sectorValue",
+    "wallet",
+    "name"
+]);
+
 function upsertPlayer(players, playerId, patch) {
 
     if (!playerId) {
@@ -108,13 +123,39 @@ function upsertPlayer(players, playerId, patch) {
 
     const previous = players[playerId] ?? Object.freeze({ playerId });
 
+    const next = {
+        ...previous
+    };
+
+    for (const [key, value] of Object.entries(patch ?? {})) {
+
+        if (key === "playerId") {
+
+            continue;
+
+        }
+
+        // Redacted Verify-barrier updates use nulls — never wipe fields the
+        // local client already received via a private reveal ack.
+        if (
+            (value === null || value === undefined)
+            && PRESERVE_WHEN_NULL.has(key)
+            && previous[key] != null
+        ) {
+
+            continue;
+
+        }
+
+        next[key] = value;
+
+    }
+
+    next.playerId = playerId;
+
     return freezePlayers({
         ...players,
-        [playerId]: Object.freeze({
-            ...previous,
-            ...patch,
-            playerId
-        })
+        [playerId]: Object.freeze(next)
     });
 
 }
@@ -195,7 +236,8 @@ export function authoritativeSessionReducer(state, action) {
                     ...state.lifecycle,
                     gameStarted: true,
                     gameEnded: false,
-                    cleanupObserved: false
+                    cleanupObserved: false,
+                    verifyCompleted: false
                 })
             }, action.type);
 
@@ -457,6 +499,24 @@ export function authoritativeSessionReducer(state, action) {
                 ...state,
                 roomId: payload?.roomId ?? state.roomId,
                 setup: null
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.VERIFY_COMPLETED: {
+
+            const players = Array.isArray(payload?.players)
+                ? ingestPlayerList(state.players, payload.players)
+                : state.players;
+
+            return stamp({
+                ...state,
+                roomId: payload?.roomId ?? state.roomId,
+                players,
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    verifyCompleted: true
+                })
             }, action.type);
 
         }

@@ -251,6 +251,24 @@ export class SocketSyncLayer {
 
         };
 
+        this._handlePlayerUpdate = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.PLAYER_UPDATE,
+                payload
+            });
+
+        };
+
+        this._handleVerifyCompleted = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.VERIFY_COMPLETED,
+                payload
+            });
+
+        };
+
         this._socket.on("connect", this._handleConnect);
 
         this._socket.on("disconnect", this._handleDisconnect);
@@ -274,6 +292,16 @@ export class SocketSyncLayer {
         this._socket.on(
             INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED,
             this._handleSetupSessionExpired
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.PLAYER_UPDATE,
+            this._handlePlayerUpdate
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.VERIFY_COMPLETED,
+            this._handleVerifyCompleted
         );
 
     }
@@ -309,6 +337,16 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED,
             this._handleSetupSessionExpired
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.PLAYER_UPDATE,
+            this._handlePlayerUpdate
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.VERIFY_COMPLETED,
+            this._handleVerifyCompleted
         );
 
         this._bound = false;

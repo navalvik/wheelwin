@@ -2,7 +2,10 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     CREATE_ROOM: "createRoom",
     JOIN_ROOM: "joinRoom",
     LEAVE_ROOM: "leaveRoom",
-    DISCONNECT: "disconnect"
+    DISCONNECT: "disconnect",
+    UPDATE_PLAYER_PROFILE: "updatePlayerProfile",
+    SUBMIT_SECRET_MATRIX: "submitSecretMatrix",
+    CONFIRM_VERIFY: "confirmVerify"
 });
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({
@@ -15,7 +18,11 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     START_GAME: "startGame",
     SETUP_SESSION_STARTED: "SETUP_SESSION_STARTED",
     SETUP_SESSION_SYNC: "SETUP_SESSION_SYNC",
-    SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED"
+    SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
+    PLAYER_UPDATE: "PLAYER_UPDATE",
+    SECRET_MATRIX_ACCEPTED: "SECRET_MATRIX_ACCEPTED",
+    SECRET_MATRIX_REJECTED: "SECRET_MATRIX_REJECTED",
+    VERIFY_COMPLETED: "VERIFY_COMPLETED"
 });
 
 export const LOBBY_ERROR_CODES = Object.freeze({
@@ -25,6 +32,8 @@ export const LOBBY_ERROR_CODES = Object.freeze({
     INVALID_ROOM_ID: "INVALID_ROOM_ID",
     PLAYER_ALREADY_CONNECTED: "PLAYER_ALREADY_CONNECTED",
     ROOM_CREATION_LIMIT: "ROOM_CREATION_LIMIT",
+    INVALID_SECRET_MATRIX: "INVALID_SECRET_MATRIX",
+    SECRET_MATRIX_MISMATCH: "SECRET_MATRIX_MISMATCH",
     UNKNOWN_ERROR: "UNKNOWN_ERROR"
 });
 
@@ -41,6 +50,10 @@ export const LOBBY_ERROR_MESSAGES = Object.freeze({
         "You are already connected to a room.",
     [LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT]:
         "The server is not accepting new rooms right now. Please try again later.",
+    [LOBBY_ERROR_CODES.INVALID_SECRET_MATRIX]:
+        "Enter a complete Secret Matrix using A–Z and 0–9 only.",
+    [LOBBY_ERROR_CODES.SECRET_MATRIX_MISMATCH]:
+        "Secret Matrix codes do not match. Try again.",
     [LOBBY_ERROR_CODES.UNKNOWN_ERROR]:
         "Something went wrong. Please try again."
 });

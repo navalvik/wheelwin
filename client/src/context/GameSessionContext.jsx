@@ -7,13 +7,11 @@ import {
     useState
 } from "react";
 
-import { calculatePaymentGram } from "../utils/gameSession";
+import { calculatePaymentGram } from "../utils/playerProfileRules";
 
 import { INCOMING_SOCKET_EVENTS } from "../socket/socketEvents";
 
 import socket from "../socket/socket";
-
-const DEV_BASE_STAKE = 10;
 
 const PAGE_SETUP_START = 3;
 
@@ -66,8 +64,8 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
     }, []);
 
-    // Seeds unmigrated finance fields for Page3. Does not own setup timer,
-    // players, room metadata, or payment state (AuthoritativeSession).
+    // Seeds the prep-phase shell for InfoBar. Finance (baseStake / paymentGram)
+    // is written by Page2 via setFinance — never hardcoded here.
     const startSetupSession = useCallback(() => {
 
         if (sessionStartedRef.current) {
@@ -80,12 +78,23 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
         expiredHandledRef.current = false;
 
-        setSession({
-            maxPlayers: 3,
-            baseStake: DEV_BASE_STAKE,
-            paymentGram: calculatePaymentGram(DEV_BASE_STAKE),
+        setSession((prev) => ({
+            ...prev,
+            maxPlayers: prev.maxPlayers || 3,
             currentPhase: "setup"
-        });
+        }));
+
+    }, []);
+
+    const setFinance = useCallback(({ baseStake, paymentGram }) => {
+
+        const stake = Number(baseStake);
+
+        setSession((prev) => ({
+            ...prev,
+            baseStake: stake,
+            paymentGram: paymentGram ?? calculatePaymentGram(stake)
+        }));
 
     }, []);
 
@@ -160,10 +169,18 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
         }
 
+        function handleRoomClosed() {
+
+            handleSetupExpired();
+
+        }
+
         socket.on(
             INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED,
             handleSetupExpired
         );
+
+        socket.on("roomClosed", handleRoomClosed);
 
         return () => {
 
@@ -171,6 +188,8 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
                 INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED,
                 handleSetupExpired
             );
+
+            socket.off("roomClosed", handleRoomClosed);
 
         };
 
@@ -186,6 +205,7 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
         showInfoBar,
         currentPage,
         destroySession,
+        setFinance,
         phaseTimerLabel,
         formatPhaseTime
     };

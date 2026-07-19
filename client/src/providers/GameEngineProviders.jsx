@@ -5,6 +5,7 @@ import { GameStateProvider, useGameState } from "../context/GameStateContext";
 import { PhysicsProvider } from "../context/PhysicsContext";
 import { PlayerUIProvider } from "../context/PlayerUIContext";
 import { AudioProvider } from "../context/AudioContext";
+import { RecoveryExperienceProvider } from "../context/RecoveryExperienceContext";
 import { SessionRecoveryProvider } from "../context/SessionRecoveryContext";
 import { SocketSyncProvider } from "../context/SocketSyncContext";
 import { InputAckProvider } from "../context/InputAckContext";
@@ -13,12 +14,40 @@ import { WheelConfigProvider, useWheelConfig } from "../context/WheelConfigConte
 import { GameClockProvider } from "../context/GameClockContext";
 
 function GameEngineProviderStack({
-    children
+    children,
+    currentPage,
+    onNavigate
 }) {
 
     const { pushFromReady } = useGameState();
 
     const { wheelConfiguration } = useWheelConfig();
+
+    // RecoveryExperience must mount AFTER AuthoritativeSessionProvider (it calls
+    // useAuthoritativeSession) and BEFORE SessionRecoveryProvider (which calls
+    // useRecoveryExperience).
+    const sessionTree = onNavigate != null
+        ? (
+            <RecoveryExperienceProvider
+                currentPage={currentPage}
+                onNavigate={onNavigate}
+            >
+
+                <SessionRecoveryProvider>
+
+                    {children}
+
+                </SessionRecoveryProvider>
+
+            </RecoveryExperienceProvider>
+        )
+        : (
+            <SessionRecoveryProvider>
+
+                {children}
+
+            </SessionRecoveryProvider>
+        );
 
     return (
 
@@ -32,11 +61,7 @@ function GameEngineProviderStack({
 
                         <SocketSyncProvider>
 
-                            <SessionRecoveryProvider>
-
-                                {children}
-
-                            </SessionRecoveryProvider>
+                            {sessionTree}
 
                         </SocketSyncProvider>
 
@@ -53,7 +78,9 @@ function GameEngineProviderStack({
 }
 
 export function GameEngineProviders({
-    children
+    children,
+    currentPage,
+    onNavigate
 }) {
 
     return (
@@ -76,7 +103,10 @@ export function GameEngineProviders({
 
                                 <InputAckProvider>
 
-                                    <GameEngineProviderStack>
+                                    <GameEngineProviderStack
+                                        currentPage={currentPage}
+                                        onNavigate={onNavigate}
+                                    >
 
                                         {children}
 

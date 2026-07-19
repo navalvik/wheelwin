@@ -1,3 +1,5 @@
+import { calculatePaymentGram } from "./playerProfileRules.js";
+
 export const PAYMENT_STATUS = {
     waiting: "waiting",
     pending: "pending",
@@ -26,25 +28,7 @@ export function getPaymentStatusLabel(status) {
 
 }
 
-export function calculatePaymentGram(baseStake) {
-
-    const stake = Number(baseStake);
-
-    if (stake === 10) {
-
-        return 25;
-
-    }
-
-    if (stake === 1) {
-
-        return 2.5;
-
-    }
-
-    return stake * 2.5;
-
-}
+export { calculatePaymentGram };
 
 export const DEV_VERIFY_PLAYERS = [
     {
@@ -53,8 +37,8 @@ export const DEV_VERIFY_PLAYERS = [
         nickname: "Olaa",
         icon: "🎲",
         age: 16,
-        sectorLabel: "SEPARATE SECTORS",
-        sectorValue: "2"
+        sectorLabel: "SECTOR",
+        sectorValue: "1"
     },
     {
         id: 2,

@@ -25,6 +25,34 @@ export default function RoomLobby({
 
     useEffect(() => {
 
+        // Identity listeners live on the lobby parent so they survive panel
+        // unmount when startGame navigates away before roomJoined arrives.
+        function handleRoomCreated(data) {
+
+            if (data?.roomId && data?.playerId) {
+
+                setIdentity({
+                    roomId: data.roomId,
+                    playerId: data.playerId
+                });
+
+            }
+
+        }
+
+        function handleRoomJoined(data) {
+
+            if (data?.roomId && data?.playerId) {
+
+                setIdentity({
+                    roomId: data.roomId,
+                    playerId: data.playerId
+                });
+
+            }
+
+        }
+
         function handleStartGame(data) {
 
             setRoomState((prev) => ({
@@ -33,17 +61,19 @@ export default function RoomLobby({
 
                 roomCode: data.roomId,
 
-                connectedPlayers: data.players.length,
+                connectedPlayers: data.players?.length ?? prev.connectedPlayers,
 
-                players: data.players
+                players: data.players ?? prev.players
 
             }));
 
-            if (data?.gameId) {
-
-                setIdentity({ gameId: data.gameId });
-
-            }
+            // Binding playerId here covers the filling joiner: startGame can
+            // arrive before roomJoined, after JoinRoomPanel has unmounted.
+            setIdentity({
+                roomId: data.roomId ?? undefined,
+                gameId: data.gameId ?? undefined,
+                ...(data.playerId ? { playerId: data.playerId } : {})
+            });
 
             if (onNavigate) {
 
@@ -53,9 +83,17 @@ export default function RoomLobby({
 
         }
 
+        socket.on("roomCreated", handleRoomCreated);
+
+        socket.on("roomJoined", handleRoomJoined);
+
         socket.on("startGame", handleStartGame);
 
         return () => {
+
+            socket.off("roomCreated", handleRoomCreated);
+
+            socket.off("roomJoined", handleRoomJoined);
 
             socket.off("startGame", handleStartGame);
 

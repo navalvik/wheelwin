@@ -1,6 +1,7 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { SetupSession } from "../models/SetupSession.js";
+import { SETUP_SESSION_STATUS } from "../models/SetupSessionStatus.js";
 
 const DEFAULT_SETUP_DURATION_MS = 10 * 60 * 1000;
 
@@ -165,7 +166,16 @@ export class SetupSessionLifecycle {
 
         const session = this._sessions.get(roomId);
 
-        if (!session || !session.isActive()) {
+        if (!session) {
+
+            return null;
+
+        }
+
+        // ACTIVE waiting lobby + COMPLETED prep window both expose expiresAt so
+        // InfoBar can derive remaining time without owning a local timer.
+        if (session.state !== SETUP_SESSION_STATUS.ACTIVE
+            && session.state !== SETUP_SESSION_STATUS.COMPLETED) {
 
             return null;
 
@@ -252,8 +262,8 @@ export class SetupSessionLifecycle {
 
         }
 
-        this._clearExpiry(session.roomId);
-
+        // Do not clear the wall-clock expiry timer — COMPLETED prep pages still
+        // count down to expiresAt, and SETUP_SESSION_EXPIRED must fire then.
         session.complete();
 
         const snapshot = session.toSnapshot();
@@ -268,8 +278,8 @@ export class SetupSessionLifecycle {
             snapshot
         });
 
-        // Terminal: destroy after GameManager has run (sync EventBus listeners).
-        this._sessions.delete(session.roomId);
+        // Keep COMPLETED session until ROOM_DESTROYED / EXPIRED so prep pages
+        // can still SYNC expiresAt for the Setup Timer (InfoBar).
 
         return true;
 
@@ -307,15 +317,38 @@ export class SetupSessionLifecycle {
 
         const session = this._sessions.get(roomId);
 
-        if (!session || !session.isActive()) {
+        if (!session) {
 
             return;
 
         }
 
-        session.expire();
+        // ACTIVE lobby timeout and COMPLETED prep-window timeout both expire.
+        if (session.state !== SETUP_SESSION_STATUS.ACTIVE
+            && session.state !== SETUP_SESSION_STATUS.COMPLETED) {
 
-        const snapshot = session.toSnapshot();
+            return;
+
+        }
+
+        let snapshot;
+
+        if (session.isActive()) {
+
+            session.expire();
+
+            snapshot = session.toSnapshot();
+
+        } else {
+
+            // COMPLETED sessions are immutable — emit EXPIRED without mutate.
+            snapshot = Object.freeze({
+                ...session.toSnapshot(),
+                state: SETUP_SESSION_STATUS.EXPIRED,
+                remainingTime: 0
+            });
+
+        }
 
         this._log(
             `EXPIRED | roomId=${roomId} | setupSessionId=${session.setupSessionId}`

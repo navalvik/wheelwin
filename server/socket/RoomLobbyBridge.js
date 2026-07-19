@@ -1,5 +1,14 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { ICONS } from "../catalog/Icons.js";
+import {
+    isAllowedBaseStake,
+    isValidPlayerAge
+} from "../models/PlayerProfileRules.js";
+import {
+    normalizeSecretMatrix,
+    secretMatricesMatch
+} from "../models/SecretMatrixRules.js";
 import {
     isValidRoomId,
     normalizeRoomId
@@ -48,6 +57,14 @@ export class RoomLobbyBridge {
         // Rooms whose Game Session has started (post Setup Session completion).
         this._startedRooms = new Set();
 
+        // Verify barrier: profiles stay private until every player confirms.
+        this._verifyConfirmedByRoom = new Map();
+
+        this._profilesRevealedByRoom = new Set();
+
+        // Secret Matrix submissions keyed by roomId → Map(playerId → cells).
+        this._secretMatrixByRoom = new Map();
+
         this._handlers = [];
 
         this._initialized = false;
@@ -82,6 +99,39 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleLeaveRoom(envelope.payload.socketId);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_UPDATE_PLAYER_PROFILE_REQUEST,
+            (envelope) => {
+
+                this._handleUpdatePlayerProfile(
+                    envelope.payload.socketId,
+                    envelope.payload.profile
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_SUBMIT_SECRET_MATRIX_REQUEST,
+            (envelope) => {
+
+                this._handleSubmitSecretMatrix(
+                    envelope.payload.socketId,
+                    envelope.payload.matrix
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_CONFIRM_VERIFY_REQUEST,
+            (envelope) => {
+
+                this._handleConfirmVerify(envelope.payload.socketId);
 
             }
         );
@@ -164,6 +214,12 @@ export class RoomLobbyBridge {
         this._roomCreators.clear();
 
         this._startedRooms.clear();
+
+        this._verifyConfirmedByRoom.clear();
+
+        this._profilesRevealedByRoom.clear();
+
+        this._secretMatrixByRoom.clear();
 
         this._initialized = false;
 
@@ -603,25 +659,21 @@ export class RoomLobbyBridge {
 
         const setupActive = this._setupSessionLifecycle?.isActive(roomId) === true;
 
-        if (setupActive) {
+        const syncPayload = this._setupSessionLifecycle?.buildSyncPayload(roomId);
 
-            const syncPayload = this._setupSessionLifecycle.buildSyncPayload(roomId);
+        if (syncPayload) {
 
-            if (syncPayload) {
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC,
+                syncPayload
+            );
 
-                this._deliverToSocket(
-                    socketId,
-                    LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC,
-                    syncPayload
-                );
-
-                this._eventBus.emit({
-                    source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
-                    type: EVENT_TYPES.SETUP_SESSION_SYNC,
-                    payload: syncPayload
-                });
-
-            }
+            this._eventBus.emit({
+                source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                type: EVENT_TYPES.SETUP_SESSION_SYNC,
+                payload: syncPayload
+            });
 
         }
 
@@ -748,6 +800,8 @@ export class RoomLobbyBridge {
 
             this._startedRooms.delete(roomId);
 
+            this._clearVerifyBarrier(roomId);
+
             this._gameplayContextResolver?.deactivateRoomGame(roomId);
 
             return;
@@ -786,10 +840,15 @@ export class RoomLobbyBridge {
 
         const players = this._buildPlayerList(room);
 
+        const setup = this._setupSessionLifecycle?.buildSyncPayload(roomId)
+            ?? null;
+
         const startGamePayload = {
             roomId,
             gameId,
-            players
+            maxPlayers: room.maxPlayers,
+            players,
+            setup
         };
 
         for (const playerId of room.players) {
@@ -802,10 +861,15 @@ export class RoomLobbyBridge {
 
             }
 
+            // Per-recipient playerId so the filling joiner still binds identity
+            // when startGame races ahead of roomJoined.
             this._deliverToSocket(
                 socketId,
                 LOBBY_SERVER_EVENTS.START_GAME,
-                startGamePayload
+                {
+                    ...startGamePayload,
+                    playerId
+                }
             );
 
         }
@@ -924,6 +988,8 @@ export class RoomLobbyBridge {
 
         this._startedRooms.delete(roomId);
 
+        this._clearVerifyBarrier(roomId);
+
         this._gameplayContextResolver?.deactivateRoomGame(roomId);
 
         this._logger.info(`Lobby room closed | roomId=${roomId} | reason=${reason}`);
@@ -985,16 +1051,485 @@ export class RoomLobbyBridge {
 
     _buildPlayerList(room) {
 
+        const reveal = this._profilesRevealedByRoom.has(room.roomId);
+
         return room.players.map((playerId) => {
 
             const identity = this._playerManager.getIdentity(playerId);
 
-            return {
-                playerId,
-                nickname: identity?.nickname ?? null
-            };
+            return this._mapIdentityToLobbyPlayer(identity, playerId, { reveal });
 
         });
+
+    }
+
+    _mapIdentityToLobbyPlayer(identity, playerId, { reveal = false } = {}) {
+
+        const resolvedId = identity?.playerId ?? playerId;
+
+        // Pre-Confirm public identity: nickname / age / sectorCount are visible
+        // so peers can verify participants. Icon, color, arrangement and all
+        // private crypto/wallet/matrix fields stay hidden until VERIFY_COMPLETED.
+        if (!reveal) {
+
+            const sectorCount = identity?.sectorCount ?? null;
+
+            return {
+                playerId: resolvedId,
+                nickname: identity?.nickname ?? null,
+                age: identity?.age ?? null,
+                icon: null,
+                color: null,
+                sectorCount,
+                sectorArrangement: null,
+                sectorLabel: "SECTOR",
+                sectorValue: sectorCount != null ? String(sectorCount) : null
+            };
+
+        }
+
+        const sectorCount = identity?.sectorCount ?? null;
+
+        const arrangement = identity?.sectorArrangement ?? null;
+
+        let sectorLabel = "SECTOR";
+
+        let sectorValue = sectorCount != null ? String(sectorCount) : null;
+
+        if (sectorCount === 2) {
+
+            sectorLabel = arrangement === "separate"
+                ? "SEPARATE SECTORS"
+                : "TOGETHER SECTORS";
+
+        }
+
+        return {
+            playerId: resolvedId,
+            nickname: identity?.nickname ?? null,
+            age: identity?.age ?? null,
+            icon: identity?.icon ?? null,
+            color: identity?.color ?? null,
+            sectorCount,
+            sectorArrangement: arrangement,
+            sectorLabel,
+            sectorValue
+        };
+
+    }
+
+    _handleUpdatePlayerProfile(socketId, rawProfile) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        const profile = this._normalizePlayerProfile(rawProfile);
+
+        if (!profile) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        if (!isValidPlayerAge(profile.age)) {
+
+            this._logger.error(
+                `Player profile rejected: invalid age (${profile.age}) | playerId=${playerId}`
+            );
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        if (profile.baseStake != null && !isAllowedBaseStake(profile.baseStake)) {
+
+            this._logger.error(
+                `Player profile rejected: invalid stake (${profile.baseStake}) | playerId=${playerId}`
+            );
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        const existing = this._playerManager.getIdentity(playerId);
+
+        const icon = existing?.icon
+            ?? this._assignUniqueIcon(roomId);
+
+        const identity = this._playerManager.updateIdentity(playerId, {
+            nickname: profile.nickname,
+            age: profile.age,
+            icon,
+            color: profile.color,
+            sectorCount: profile.sectorCount,
+            sectorArrangement: profile.sectorArrangement
+        });
+
+        if (!identity) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_NOT_FOUND);
+
+            return;
+
+        }
+
+        // Self-ack with full profile — peers receive public identity only
+        // (nickname/age/sectorCount) so Verify can confirm participants without
+        // leaking icon/color/arrangement or private crypto/wallet fields.
+        const fullPayload = this._mapIdentityToLobbyPlayer(
+            identity,
+            playerId,
+            { reveal: true }
+        );
+
+        const redactedPayload = this._mapIdentityToLobbyPlayer(
+            identity,
+            playerId,
+            { reveal: false }
+        );
+
+        this._deliverToSocket(
+            socketId,
+            LOBBY_SERVER_EVENTS.PLAYER_UPDATE,
+            fullPayload
+        );
+
+        for (const peerId of room.players) {
+
+            if (peerId === playerId) {
+
+                continue;
+
+            }
+
+            const peerSocketId = this._playerToSocket.get(peerId);
+
+            if (!peerSocketId) {
+
+                continue;
+
+            }
+
+            this._deliverToSocket(
+                peerSocketId,
+                LOBBY_SERVER_EVENTS.PLAYER_UPDATE,
+                redactedPayload
+            );
+
+        }
+
+        this._logger.info(
+            `Lobby player profile updated (private) | roomId=${roomId} | playerId=${playerId}`
+        );
+
+    }
+
+    _handleSubmitSecretMatrix(socketId, rawMatrix) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_NOT_FOUND);
+
+            return;
+
+        }
+
+        const cells = normalizeSecretMatrix(rawMatrix);
+
+        if (!cells) {
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.SECRET_MATRIX_REJECTED,
+                {
+                    roomId,
+                    code: LOBBY_ERROR_CODES.INVALID_SECRET_MATRIX,
+                    message: LOBBY_ERROR_MESSAGES[
+                        LOBBY_ERROR_CODES.INVALID_SECRET_MATRIX
+                    ]
+                }
+            );
+
+            return;
+
+        }
+
+        let submissions = this._secretMatrixByRoom.get(roomId);
+
+        if (!submissions) {
+
+            submissions = new Map();
+
+            this._secretMatrixByRoom.set(roomId, submissions);
+
+        }
+
+        submissions.set(playerId, cells);
+
+        this._logger.info(
+            `Secret Matrix submitted | roomId=${roomId} | playerId=${playerId} | `
+                + `${submissions.size}/${room.players.length}`
+        );
+
+        if (submissions.size < room.players.length) {
+
+            return;
+
+        }
+
+        const matrices = room.players.map(
+            (id) => submissions.get(id) ?? null
+        );
+
+        if (!secretMatricesMatch(matrices)) {
+
+            this._secretMatrixByRoom.delete(roomId);
+
+            this._deliverToRoom(
+                roomId,
+                LOBBY_SERVER_EVENTS.SECRET_MATRIX_REJECTED,
+                {
+                    roomId,
+                    code: LOBBY_ERROR_CODES.SECRET_MATRIX_MISMATCH,
+                    message: LOBBY_ERROR_MESSAGES[
+                        LOBBY_ERROR_CODES.SECRET_MATRIX_MISMATCH
+                    ]
+                }
+            );
+
+            this._logger.info(
+                `Secret Matrix mismatch | roomId=${roomId}`
+            );
+
+            return;
+
+        }
+
+        this._secretMatrixByRoom.delete(roomId);
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.SECRET_MATRIX_ACCEPTED,
+            { roomId }
+        );
+
+        this._logger.info(`Secret Matrix accepted | roomId=${roomId}`);
+
+    }
+
+    _handleConfirmVerify(socketId) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_NOT_FOUND);
+
+            return;
+
+        }
+
+        if (this._profilesRevealedByRoom.has(roomId)) {
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.VERIFY_COMPLETED,
+                {
+                    roomId,
+                    players: this._buildPlayerList(room)
+                }
+            );
+
+            return;
+
+        }
+
+        let confirmed = this._verifyConfirmedByRoom.get(roomId);
+
+        if (!confirmed) {
+
+            confirmed = new Set();
+
+            this._verifyConfirmedByRoom.set(roomId, confirmed);
+
+        }
+
+        confirmed.add(playerId);
+
+        this._logger.info(
+            `Verify confirmed | roomId=${roomId} | playerId=${playerId} | `
+                + `${confirmed.size}/${room.players.length}`
+        );
+
+        if (confirmed.size < room.players.length) {
+
+            return;
+
+        }
+
+        this._revealVerifyRoster(roomId, room);
+
+    }
+
+    _revealVerifyRoster(roomId, room) {
+
+        this._profilesRevealedByRoom.add(roomId);
+
+        const revealedPlayers = [];
+
+        for (const playerId of room.players) {
+
+            const identity = this._playerManager.getIdentity(playerId);
+
+            const playerPayload = this._mapIdentityToLobbyPlayer(
+                identity,
+                playerId,
+                { reveal: true }
+            );
+
+            revealedPlayers.push(playerPayload);
+
+            this._deliverToRoom(
+                roomId,
+                LOBBY_SERVER_EVENTS.PLAYER_UPDATE,
+                playerPayload
+            );
+
+        }
+
+        this._broadcastRoomState(roomId);
+
+        // VERIFY_COMPLETED carries the full authoritative roster so clients
+        // apply reveal atomically even if individual PLAYER_UPDATE ordering
+        // races with navigation.
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.VERIFY_COMPLETED,
+            {
+                roomId,
+                players: revealedPlayers
+            }
+        );
+
+        this._logger.info(`Verify completed | roomId=${roomId}`);
+
+    }
+
+    _clearVerifyBarrier(roomId) {
+
+        this._verifyConfirmedByRoom.delete(roomId);
+
+        this._profilesRevealedByRoom.delete(roomId);
+
+        this._secretMatrixByRoom.delete(roomId);
+
+    }
+
+    _normalizePlayerProfile(rawProfile) {
+
+        if (!rawProfile || typeof rawProfile !== "object") {
+
+            return null;
+
+        }
+
+        const nickname = typeof rawProfile.nickname === "string"
+            ? rawProfile.nickname.trim().slice(0, 4)
+            : "";
+
+        const age = Number(rawProfile.age);
+
+        const sectorCount = Number(rawProfile.sectorCount) === 2 ? 2 : 1;
+
+        const sectorArrangement = rawProfile.sectorArrangement === "separate"
+            ? "separate"
+            : "together";
+
+        const color = typeof rawProfile.color === "string"
+            ? rawProfile.color.trim().slice(0, 32)
+            : null;
+
+        const baseStake = rawProfile.baseStake === undefined
+            || rawProfile.baseStake === null
+            ? null
+            : Number(rawProfile.baseStake);
+
+        return {
+            nickname: nickname || null,
+            age,
+            sectorCount,
+            sectorArrangement,
+            color,
+            baseStake
+        };
+
+    }
+
+    _assignUniqueIcon(roomId) {
+
+        const room = this._roomManager.getRoom(roomId);
+
+        const used = new Set(
+            (room?.players ?? [])
+                .map((id) => this._playerManager.getIdentity(id)?.icon)
+                .filter(Boolean)
+        );
+
+        const available = ICONS.find((entry) => !used.has(entry.glyph))
+            ?? ICONS[0];
+
+        return available.glyph;
 
     }
 

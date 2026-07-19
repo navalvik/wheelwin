@@ -5,6 +5,10 @@ export class PlayerIdentity {
         nickname = null,
         wallet = null,
         icon = null,
+        age = null,
+        color = null,
+        sectorCount = null,
+        sectorArrangement = null,
         createdAt = null
     } = {}) {
 
@@ -15,6 +19,14 @@ export class PlayerIdentity {
         this.wallet = wallet;
 
         this.icon = icon;
+
+        this.age = age;
+
+        this.color = color;
+
+        this.sectorCount = sectorCount;
+
+        this.sectorArrangement = sectorArrangement;
 
         this.createdAt = createdAt;
 
@@ -29,6 +41,10 @@ export class PlayerIdentity {
             nickname: this.nickname,
             wallet: this.wallet,
             icon: this.icon,
+            age: this.age,
+            color: this.color,
+            sectorCount: this.sectorCount,
+            sectorArrangement: this.sectorArrangement,
             createdAt: this.createdAt
         };
 

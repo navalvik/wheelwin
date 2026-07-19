@@ -91,6 +91,18 @@ export function AuthoritativeSessionProvider({ children }) {
                 payload
             });
 
+            // startGame carries the Setup Session snapshot so every client —
+            // including the filling player who may have missed SYNC — gets
+            // expiresAt for the InfoBar Setup Timer.
+            if (payload?.setup) {
+
+                store.dispatch({
+                    type: AUTHORITATIVE_SESSION_ACTIONS.SETUP_SESSION,
+                    payload: payload.setup
+                });
+
+            }
+
         },
 
         onGameState: (payload) => {
@@ -205,6 +217,15 @@ export function AuthoritativeSessionProvider({ children }) {
 
             store.dispatch({
                 type: AUTHORITATIVE_SESSION_ACTIONS.SETUP_SESSION_EXPIRED,
+                payload
+            });
+
+        },
+
+        onVerifyCompleted: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.VERIFY_COMPLETED,
                 payload
             });
 

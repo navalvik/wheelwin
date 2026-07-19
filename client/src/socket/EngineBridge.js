@@ -52,9 +52,9 @@ export class EngineBridge {
             },
             [INCOMING_SOCKET_EVENTS.PLAYER_UPDATE]: (payload) => {
 
-                modules.playerUI?.updatePlayer?.(payload);
-
                 session()?.onPlayerUpdate?.(payload);
+
+                modules.playerUI?.updatePlayer?.(payload);
 
             },
             [INCOMING_SOCKET_EVENTS.PLAYER_ONLINE]: (payload) => {
@@ -171,6 +171,11 @@ export class EngineBridge {
             [INCOMING_SOCKET_EVENTS.SETUP_SESSION_EXPIRED]: (payload) => {
 
                 session()?.onSetupSessionExpired?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.VERIFY_COMPLETED]: (payload) => {
+
+                session()?.onVerifyCompleted?.(payload);
 
             },
             [INCOMING_SOCKET_EVENTS.SESSION_SNAPSHOT]: (payload) => {

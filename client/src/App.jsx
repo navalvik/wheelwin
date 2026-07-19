@@ -14,7 +14,6 @@ import { DevNavigationContext } from "./context/DevNavigationContext";
 import { GameSessionProvider } from "./context/GameSessionContext";
 import { GameResultProvider } from "./context/GameResultContext";
 import { PlayerIdentityProvider } from "./context/PlayerIdentityContext";
-import { RecoveryExperienceProvider } from "./context/RecoveryExperienceContext";
 import { GameEngineProviders } from "./providers/GameEngineProviders";
 import RecoveryOverlay from "./components/RecoveryOverlay";
 import {
@@ -187,32 +186,33 @@ function GameFlow() {
                     onNavigate={navigate}
                 >
 
-                    <RecoveryExperienceProvider
-                        currentPage={currentPage}
-                        onNavigate={navigate}
-                    >
+                    <DevNavigationContext.Provider value={devNavigation}>
 
-                        <DevNavigationContext.Provider value={devNavigation}>
+                        {/*
+                            Authoritative gameplay subscriptions live here,
+                            at the flow root, so they are bound before
+                            gameplay begins and survive every page
+                            transition. They must not depend on Page5
+                            mounting or the first GAME_STATE packets are
+                            lost during navigation.
 
-                            {/*
-                                Authoritative gameplay subscriptions live here,
-                                at the flow root, so they are bound before
-                                gameplay begins and survive every page
-                                transition. They must not depend on Page5
-                                mounting or the first GAME_STATE packets are
-                                lost during navigation.
-                            */}
-                            <GameEngineProviders>
+                            RecoveryExperienceProvider is nested inside
+                            GameEngineProviders (after AuthoritativeSession,
+                            before SessionRecovery) so useAuthoritativeSession
+                            and useRecoveryExperience both resolve correctly.
+                        */}
+                        <GameEngineProviders
+                            currentPage={currentPage}
+                            onNavigate={navigate}
+                        >
 
-                                {renderPage()}
-
-                            </GameEngineProviders>
+                            {renderPage()}
 
                             <RecoveryOverlay />
 
-                        </DevNavigationContext.Provider>
+                        </GameEngineProviders>
 
-                    </RecoveryExperienceProvider>
+                    </DevNavigationContext.Provider>
 
                 </GameResultProvider>
 

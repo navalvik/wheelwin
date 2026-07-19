@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
@@ -6,31 +6,103 @@ import PlayerInfoRow from "../components/PlayerInfoRow";
 
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameSession } from "../context/GameSessionContext";
+import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import {
+    getAuthoritativePlayerSectorCount,
     hasAuthoritativePlayers,
     listAuthoritativePlayers,
-    mapAuthoritativePlayerToInfoRow
+    mapAuthoritativePlayerToInfoProp
 } from "../game/session";
+
+import { calculatePaymentGram } from "../utils/playerProfileRules";
+
+import socket from "../socket/socket";
 
 import "../styles/page3verify.css";
 
 export default function Page3VerifyPlayers({ onNavigate }) {
 
-    // C5.3 — players come from AuthoritativeSession only.
-    // Finance fields (stake / gram) stay on GameSessionContext until later stages.
+    // AuthoritativeSession.players → lookup by playerId → nickname / sectorCount /
+    // payment for highlight + footer. Never by array order.
     const authoritative = useAuthoritativeSession();
 
     const { session } = useGameSession();
 
+    const { identity } = usePlayerIdentity();
+
+    const localPlayerId = identity.playerId ?? null;
+
+    const localAuthoritativePlayer = localPlayerId
+        ? (authoritative.players[localPlayerId] ?? null)
+        : null;
+
+    const verifyCompleted = authoritative.lifecycle?.verifyCompleted === true;
+
     const [walletAddress, setWalletAddress] = useState("");
+
+    const [waitingForVerify, setWaitingForVerify] = useState(false);
 
     const isWalletValid = walletAddress.trim().length > 0;
 
     const playersReady = hasAuthoritativePlayers(authoritative.players);
 
-    const players = listAuthoritativePlayers(authoritative.players)
-        .map(mapAuthoritativePlayerToInfoRow);
+    const players = useMemo(
+        () => listAuthoritativePlayers(authoritative.players)
+            .map((player, index) => mapAuthoritativePlayerToInfoProp(
+                player,
+                index,
+                {
+                    localPlayerId,
+                    baseStake: session.baseStake
+                }
+            )),
+        [authoritative.players, localPlayerId, session.baseStake]
+    );
+
+    // Footer YOU NEED PAY — from the authoritative local player record only.
+    const youNeedPay = calculatePaymentGram(
+        session.baseStake,
+        getAuthoritativePlayerSectorCount(localAuthoritativePlayer)
+    );
+
+    useEffect(() => {
+
+        if (verifyCompleted) {
+
+            setWaitingForVerify(false);
+
+        }
+
+    }, [verifyCompleted]);
+
+    function handleConfirmVerify() {
+
+        if (!isWalletValid || waitingForVerify || verifyCompleted) {
+
+            return;
+
+        }
+
+        setWaitingForVerify(true);
+
+        socket.emit("confirmVerify");
+
+    }
+
+    function handleNext() {
+
+        if (verifyCompleted) {
+
+            onNavigate(6);
+
+            return;
+
+        }
+
+        handleConfirmVerify();
+
+    }
 
     return (
 
@@ -38,13 +110,16 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
             message="VERIFY"
 
-            backEnabled={true}
+            backEnabled={!waitingForVerify && !verifyCompleted}
 
             onBack={() => onNavigate(4)}
 
-            nextEnabled={isWalletValid}
+            nextEnabled={
+                verifyCompleted
+                    || (isWalletValid && !waitingForVerify)
+            }
 
-            onNext={() => onNavigate(6)}
+            onNext={handleNext}
 
         >
 
@@ -74,6 +149,12 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                                     sectorValue={player.sectorValue}
 
+                                    paymentLabel={player.paymentLabel}
+
+                                    paymentDisplay={player.paymentDisplay}
+
+                                    isLocal={player.isLocal}
+
                                 />
 
                             ))
@@ -92,6 +173,32 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                         )}
 
                     </div>
+
+                    {waitingForVerify && !verifyCompleted && (
+
+                        <div
+                            className="verifyPlayersWaiting"
+                            aria-live="polite"
+                        >
+
+                            Waiting for all players to confirm…
+
+                        </div>
+
+                    )}
+
+                    {verifyCompleted && (
+
+                        <div
+                            className="verifyPlayersWaiting"
+                            aria-live="polite"
+                        >
+
+                            Players verified. Continue to payment.
+
+                        </div>
+
+                    )}
 
                     <div className="verifyFinanceRow">
 
@@ -121,7 +228,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                             <span className="verifyFinanceValue">
 
-                                {session.paymentGram}
+                                {youNeedPay}
 
                             </span>
 
@@ -145,6 +252,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                             className="verifyWalletInput"
                             type="text"
                             value={walletAddress}
+                            disabled={waitingForVerify || verifyCompleted}
                             onChange={(e) =>
                                 setWalletAddress(e.target.value)
                             }

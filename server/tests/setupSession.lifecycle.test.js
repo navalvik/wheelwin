@@ -108,7 +108,12 @@ const lifecycle = harness.setupSessionLifecycle;
 
     assert(
         !lifecycle.isActive(room.roomId),
-        "Setup Session destroyed after COMPLETED"
+        "Setup Session not ACTIVE after COMPLETED"
+    );
+
+    assert(
+        lifecycle.buildSyncPayload(room.roomId)?.expiresAt != null,
+        "COMPLETED Setup Session must still SYNC expiresAt for prep UI"
     );
 
     assert(
@@ -117,6 +122,49 @@ const lifecycle = harness.setupSessionLifecycle;
     );
 
     console.log("  atomic create + completion bootstrap passed");
+}
+
+{
+    const expired = [];
+
+    eventBus.subscribe(EVENT_TYPES.SETUP_SESSION_EXPIRED, (envelope) => {
+
+        expired.push(envelope.payload);
+
+    });
+
+    const room = roomManager.createRoom();
+
+    const roomId = room.roomId;
+
+    for (const playerId of ["c1", "c2", "c3"]) {
+
+        playerManager.createPlayer({ playerId });
+
+        roomManager.addPlayer(roomId, playerId);
+
+    }
+
+    assert(
+        lifecycle.getSession(roomId)?.state === "COMPLETED",
+        "full room completes Setup Session"
+    );
+
+    assert(
+        lifecycle.buildSyncPayload(roomId)?.expiresAt != null,
+        "COMPLETED session still exposes expiresAt"
+    );
+
+    await wait(120);
+
+    assert(
+        expired.some((payload) => payload.roomId === roomId),
+        "COMPLETED prep window must still emit SETUP_SESSION_EXPIRED"
+    );
+
+    assert(!roomManager.hasRoom(roomId), "expired completed room must be destroyed");
+
+    console.log("  completed prep window expiry destroys room passed");
 }
 
 {
