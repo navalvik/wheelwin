@@ -14,7 +14,11 @@ import { useWheelConfig } from "../context/WheelConfigContext";
 
 import "../styles/page5game.css";
 
-export default function Page5Game({ onNavigate }) {
+export default function Page5Game({ onNavigate: _onNavigate }) {
+
+    // C5.9C — no client-owned leave during active gameplay.
+    // Page5 → Page6 is driven only by authoritative GAME_RESULT
+    // (GameResultContext). Back/Next must not navigate locally.
 
     const { gameState } = useGameState();
 
@@ -45,10 +49,10 @@ export default function Page5Game({ onNavigate }) {
 
         <GameLayout
             message="YOU MUST WIN"
-            backEnabled={true}
-            onBack={() => onNavigate(6)}
+            backEnabled={false}
+            onBack={() => {}}
             nextEnabled={false}
-            onNext={() => onNavigate(8)}
+            onNext={() => {}}
         >
 
             <div className="page5" data-game-state={gameState}>
