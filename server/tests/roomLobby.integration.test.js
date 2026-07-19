@@ -428,6 +428,163 @@ try {
         "VERIFY_COMPLETED roster must reveal nicknames"
     );
 
+    // C5.8A/B — authoritative Verify → Payment barrier + wallet registration.
+    const validWallet = (label) => `EQ${label}${"A".repeat(46 - label.length)}`;
+
+    const hostWallet = validWallet("HOST");
+    const guestAWallet = validWallet("GSTA");
+    const guestBWallet = validWallet("GSTB");
+
+    assert(hostWallet.length === 48, "host wallet fixture length");
+
+    let earlyPaymentCount = 0;
+
+    const onEarlyPayment = () => {
+
+        earlyPaymentCount += 1;
+
+    };
+
+    host.on("PAYMENT_STAGE_READY", onEarlyPayment);
+
+    guestA.on("PAYMENT_STAGE_READY", onEarlyPayment);
+
+    guestB.on("PAYMENT_STAGE_READY", onEarlyPayment);
+
+    // Invalid wallet must not join the barrier.
+    const walletRejectedPromise = waitForEvent(
+        guestB,
+        "WALLET_REJECTED",
+        5000,
+        "guestB.WALLET_REJECTED"
+    );
+
+    guestB.emit("VERIFY_NEXT_REQUEST", {
+        roomId: created.roomId,
+        playerId: joinedB.playerId,
+        walletAddress: "not-a-wallet"
+    });
+
+    const walletRejected = await walletRejectedPromise;
+
+    assert(
+        walletRejected.code === "INVALID_WALLET",
+        "invalid wallet must return INVALID_WALLET"
+    );
+
+    assert(
+        harness.playerManager.getIdentity(joinedB.playerId)?.wallet == null,
+        "invalid wallet must not populate PlayerIdentity.wallet"
+    );
+
+    host.emit("VERIFY_NEXT_REQUEST", {
+        roomId: created.roomId,
+        playerId: created.playerId,
+        walletAddress: hostWallet
+    });
+
+    guestA.emit("VERIFY_NEXT_REQUEST", {
+        roomId: created.roomId,
+        playerId: joined.playerId,
+        walletAddress: guestAWallet
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    assert(
+        earlyPaymentCount === 0,
+        "PAYMENT_STAGE_READY must wait for all verified players"
+    );
+
+    assert(
+        harness.playerManager.getIdentity(created.playerId)?.wallet === hostWallet,
+        "host wallet must be stored authoritatively"
+    );
+
+    assert(
+        harness.playerManager.getIdentity(joined.playerId)?.wallet === guestAWallet,
+        "guest A wallet must be stored authoritatively"
+    );
+
+    const paymentHostPromise = waitForEvent(
+        host,
+        "PAYMENT_STAGE_READY",
+        5000,
+        "host.PAYMENT_STAGE_READY"
+    );
+
+    const paymentAPromise = waitForEvent(
+        guestA,
+        "PAYMENT_STAGE_READY",
+        5000,
+        "guestA.PAYMENT_STAGE_READY"
+    );
+
+    const paymentBPromise = waitForEvent(
+        guestB,
+        "PAYMENT_STAGE_READY",
+        5000,
+        "guestB.PAYMENT_STAGE_READY"
+    );
+
+    // Corrected valid wallet joins the barrier and completes it.
+    guestB.emit("VERIFY_NEXT_REQUEST", {
+        roomId: created.roomId,
+        playerId: joinedB.playerId,
+        walletAddress: guestBWallet
+    });
+
+    const [paymentHost, paymentA, paymentB] = await Promise.all([
+        paymentHostPromise,
+        paymentAPromise,
+        paymentBPromise
+    ]);
+
+    host.off("PAYMENT_STAGE_READY", onEarlyPayment);
+
+    guestA.off("PAYMENT_STAGE_READY", onEarlyPayment);
+
+    guestB.off("PAYMENT_STAGE_READY", onEarlyPayment);
+
+    assert(
+        earlyPaymentCount === 3,
+        "PAYMENT_STAGE_READY must broadcast exactly once to each of three clients"
+    );
+
+    assert(
+        harness.playerManager.getIdentity(joinedB.playerId)?.wallet === guestBWallet,
+        "guest B corrected wallet must be stored authoritatively"
+    );
+
+    // Duplicate NEXT after barrier: no additional room broadcast.
+    let lateDuplicateBroadcast = false;
+
+    guestA.once("PAYMENT_STAGE_READY", () => {
+
+        lateDuplicateBroadcast = true;
+
+    });
+
+    host.emit("VERIFY_NEXT_REQUEST", {
+        roomId: created.roomId,
+        playerId: created.playerId,
+        walletAddress: hostWallet
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    assert(
+        lateDuplicateBroadcast === false,
+        "late duplicate VERIFY_NEXT_REQUEST must not re-broadcast to the room"
+    );
+
+    assert(
+        paymentHost.roomId === created.roomId
+            && paymentA.roomId === created.roomId
+            && paymentB.roomId === created.roomId,
+        "PAYMENT_STAGE_READY must reach every client with roomId"
+    );
+
     host.disconnect();
 
     guestA.disconnect();

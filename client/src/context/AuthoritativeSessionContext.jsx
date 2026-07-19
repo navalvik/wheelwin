@@ -247,6 +247,15 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onPaymentStageReady: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_STAGE_READY,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

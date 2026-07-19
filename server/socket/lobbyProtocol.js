@@ -5,7 +5,8 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     DISCONNECT: "disconnect",
     UPDATE_PLAYER_PROFILE: "updatePlayerProfile",
     SUBMIT_SECRET_MATRIX: "submitSecretMatrix",
-    CONFIRM_VERIFY: "confirmVerify"
+    CONFIRM_VERIFY: "confirmVerify",
+    VERIFY_NEXT_REQUEST: "VERIFY_NEXT_REQUEST"
 });
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({
@@ -22,7 +23,9 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     PLAYER_UPDATE: "PLAYER_UPDATE",
     SECRET_MATRIX_ACCEPTED: "SECRET_MATRIX_ACCEPTED",
     SECRET_MATRIX_REJECTED: "SECRET_MATRIX_REJECTED",
-    VERIFY_COMPLETED: "VERIFY_COMPLETED"
+    VERIFY_COMPLETED: "VERIFY_COMPLETED",
+    PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
+    WALLET_REJECTED: "WALLET_REJECTED"
 });
 
 export const LOBBY_ERROR_CODES = Object.freeze({
@@ -34,6 +37,7 @@ export const LOBBY_ERROR_CODES = Object.freeze({
     ROOM_CREATION_LIMIT: "ROOM_CREATION_LIMIT",
     INVALID_SECRET_MATRIX: "INVALID_SECRET_MATRIX",
     SECRET_MATRIX_MISMATCH: "SECRET_MATRIX_MISMATCH",
+    INVALID_WALLET: "INVALID_WALLET",
     UNKNOWN_ERROR: "UNKNOWN_ERROR"
 });
 
@@ -54,6 +58,8 @@ export const LOBBY_ERROR_MESSAGES = Object.freeze({
         "Enter a complete Secret Matrix using A–Z and 0–9 only.",
     [LOBBY_ERROR_CODES.SECRET_MATRIX_MISMATCH]:
         "Secret Matrix codes do not match. Try again.",
+    [LOBBY_ERROR_CODES.INVALID_WALLET]:
+        "Enter a valid Telegram Wallet address starting with EQ.",
     [LOBBY_ERROR_CODES.UNKNOWN_ERROR]:
         "Something went wrong. Please try again."
 });

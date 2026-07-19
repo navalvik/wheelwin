@@ -631,6 +631,17 @@ export class SocketGateway {
 
         });
 
+        socket.on(LOBBY_CLIENT_EVENTS.VERIFY_NEXT_REQUEST, (payload) => {
+
+            this._emitLobbyRequest(EVENT_TYPES.LOBBY_VERIFY_NEXT_REQUEST, {
+                socketId: socket.id,
+                roomId: payload?.roomId ?? null,
+                playerId: payload?.playerId ?? null,
+                walletAddress: payload?.walletAddress ?? null
+            });
+
+        });
+
         socket.on(GAME_MESSAGE_CHANNEL, (rawMessage) => {
 
             this._handleGameplayMessage(socket, rawMessage);

@@ -222,6 +222,36 @@ function assert(condition, message) {
 
 }
 
+// C5.8A — PAYMENT_STAGE_READY stamps lifecycle barrier only.
+{
+
+    const state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_STAGE_READY,
+            payload: { roomId: "ROOM01" }
+        }
+    );
+
+    assert(
+        state.lifecycle.paymentStageReady === true,
+        "paymentStageReady stamped"
+    );
+
+    assert(
+        state.roomId === "ROOM01",
+        "PAYMENT_STAGE_READY preserves roomId"
+    );
+
+    assert(
+        state.lifecycle.verifyCompleted === false,
+        "PAYMENT_STAGE_READY must not alter verifyCompleted"
+    );
+
+    console.log("  PAYMENT_STAGE_READY lifecycle stamp passed");
+
+}
+
 // Incomplete GAME_RESULT must not fabricate a winner.
 {
 

@@ -9,6 +9,7 @@ import {
     normalizeSecretMatrix,
     secretMatricesMatch
 } from "../models/SecretMatrixRules.js";
+import { normalizeTelegramWallet } from "../models/TelegramWalletRules.js";
 import {
     isValidRoomId,
     normalizeRoomId
@@ -61,6 +62,12 @@ export class RoomLobbyBridge {
         this._verifyConfirmedByRoom = new Map();
 
         this._profilesRevealedByRoom = new Set();
+
+        // C5.8A — continuation barrier: all verified players press NEXT before
+        // PAYMENT_STAGE_READY. Keyed by roomId → Set(playerId).
+        this._continueToPaymentByRoom = new Map();
+
+        this._paymentStageReadyByRoom = new Set();
 
         // Secret Matrix submissions keyed by roomId → Map(playerId → cells).
         this._secretMatrixByRoom = new Map();
@@ -132,6 +139,18 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleConfirmVerify(envelope.payload.socketId);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_VERIFY_NEXT_REQUEST,
+            (envelope) => {
+
+                this._handleVerifyNextRequest(
+                    envelope.payload.socketId,
+                    envelope.payload.walletAddress
+                );
 
             }
         );
@@ -218,6 +237,10 @@ export class RoomLobbyBridge {
         this._verifyConfirmedByRoom.clear();
 
         this._profilesRevealedByRoom.clear();
+
+        this._continueToPaymentByRoom.clear();
+
+        this._paymentStageReadyByRoom.clear();
 
         this._secretMatrixByRoom.clear();
 
@@ -674,6 +697,34 @@ export class RoomLobbyBridge {
                 type: EVENT_TYPES.SETUP_SESSION_SYNC,
                 payload: syncPayload
             });
+
+        }
+
+        // Re-deliver authoritative stage barriers so reconnect preserves
+        // continueToPayment progress and does not strand the client on Verify.
+        if (this._profilesRevealedByRoom.has(roomId)) {
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.VERIFY_COMPLETED,
+                {
+                    roomId,
+                    players: this._buildPlayerList(room)
+                }
+            );
+
+            // Restore authoritative wallet privately to the reconnecting seat.
+            this._deliverOwnWallet(socketId, playerId);
+
+        }
+
+        if (this._paymentStageReadyByRoom.has(roomId)) {
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
+                { roomId }
+            );
 
         }
 
@@ -1422,6 +1473,159 @@ export class RoomLobbyBridge {
 
     }
 
+    _handleVerifyNextRequest(socketId, rawWalletAddress) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_NOT_FOUND);
+
+            return;
+
+        }
+
+        // Continuation is only valid after VERIFY_COMPLETED.
+        if (!this._profilesRevealedByRoom.has(roomId)) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        if (this._paymentStageReadyByRoom.has(roomId)) {
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
+                { roomId }
+            );
+
+            return;
+
+        }
+
+        let continued = this._continueToPaymentByRoom.get(roomId);
+
+        if (!continued) {
+
+            continued = new Set();
+
+            this._continueToPaymentByRoom.set(roomId, continued);
+
+        }
+
+        // Exactly one submission per player; duplicates are ignored.
+        if (continued.has(playerId)) {
+
+            return;
+
+        }
+
+        const wallet = normalizeTelegramWallet(rawWalletAddress);
+
+        if (!wallet) {
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.WALLET_REJECTED,
+                {
+                    roomId,
+                    code: LOBBY_ERROR_CODES.INVALID_WALLET,
+                    message: LOBBY_ERROR_MESSAGES[
+                        LOBBY_ERROR_CODES.INVALID_WALLET
+                    ]
+                }
+            );
+
+            return;
+
+        }
+
+        const stored = this._playerManager.updateIdentity(playerId, { wallet });
+
+        if (!stored) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return;
+
+        }
+
+        // Private ack so reconnect / local mirror can restore ownership.
+        this._deliverOwnWallet(socketId, playerId);
+
+        continued.add(playerId);
+
+        this._logger.info(
+            `Verify NEXT continue | roomId=${roomId} | playerId=${playerId} | `
+                + `${continued.size}/${room.players.length}`
+        );
+
+        if (continued.size < room.players.length) {
+
+            return;
+
+        }
+
+        this._broadcastPaymentStageReady(roomId);
+
+    }
+
+    _deliverOwnWallet(socketId, playerId) {
+
+        const identity = this._playerManager.getIdentity(playerId);
+
+        if (!identity?.wallet) {
+
+            return;
+
+        }
+
+        this._deliverToSocket(
+            socketId,
+            LOBBY_SERVER_EVENTS.PLAYER_UPDATE,
+            {
+                playerId,
+                wallet: identity.wallet
+            }
+        );
+
+    }
+
+    _broadcastPaymentStageReady(roomId) {
+
+        if (this._paymentStageReadyByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        this._paymentStageReadyByRoom.add(roomId);
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
+            { roomId }
+        );
+
+        this._logger.info(`Payment stage ready | roomId=${roomId}`);
+
+    }
+
     _revealVerifyRoster(roomId, room) {
 
         this._profilesRevealedByRoom.add(roomId);
@@ -1471,6 +1675,10 @@ export class RoomLobbyBridge {
         this._verifyConfirmedByRoom.delete(roomId);
 
         this._profilesRevealedByRoom.delete(roomId);
+
+        this._continueToPaymentByRoom.delete(roomId);
+
+        this._paymentStageReadyByRoom.delete(roomId);
 
         this._secretMatrixByRoom.delete(roomId);
 

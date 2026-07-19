@@ -34,6 +34,8 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     const verifyCompleted = authoritative.lifecycle?.verifyCompleted === true;
 
+    const paymentStageReady = authoritative.lifecycle?.paymentStageReady === true;
+
     const localPlayerId = resolveLocalPlayerId(
         identity.playerId ?? null,
         authoritative.players,
@@ -44,11 +46,21 @@ export default function Page3VerifyPlayers({ onNavigate }) {
         ? (authoritative.players[localPlayerId] ?? null)
         : null;
 
+    const authoritativeWallet = typeof localAuthoritativePlayer?.wallet === "string"
+        ? localAuthoritativePlayer.wallet
+        : "";
+
     const [walletAddress, setWalletAddress] = useState("");
 
     const [waitingForVerify, setWaitingForVerify] = useState(false);
 
+    const [waitingForPaymentStage, setWaitingForPaymentStage] = useState(false);
+
+    const [walletError, setWalletError] = useState("");
+
     const isWalletValid = walletAddress.trim().length > 0;
+
+    const walletLocked = waitingForPaymentStage || paymentStageReady;
 
     const playersReady = hasAuthoritativePlayers(authoritative.players);
 
@@ -81,6 +93,63 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     }, [verifyCompleted]);
 
+    // Reconnect / private ack: restore authoritative wallet into the input.
+    useEffect(() => {
+
+        if (!authoritativeWallet) {
+
+            return;
+
+        }
+
+        setWalletAddress((current) => (
+            current.trim() === authoritativeWallet
+                ? current
+                : authoritativeWallet
+        ));
+
+    }, [authoritativeWallet]);
+
+    useEffect(() => {
+
+        if (!paymentStageReady) {
+
+            return;
+
+        }
+
+        setWaitingForPaymentStage(false);
+
+        setWalletError("");
+
+        onNavigate(6);
+
+    }, [paymentStageReady, onNavigate]);
+
+    useEffect(() => {
+
+        function handleWalletRejected(payload) {
+
+            setWaitingForPaymentStage(false);
+
+            setWalletError(
+                typeof payload?.message === "string" && payload.message
+                    ? payload.message
+                    : "Enter a valid Telegram Wallet address starting with EQ."
+            );
+
+        }
+
+        socket.on("WALLET_REJECTED", handleWalletRejected);
+
+        return () => {
+
+            socket.off("WALLET_REJECTED", handleWalletRejected);
+
+        };
+
+    }, []);
+
     function handleConfirmVerify() {
 
         if (!isWalletValid || waitingForVerify || verifyCompleted) {
@@ -91,7 +160,29 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         setWaitingForVerify(true);
 
+        setWalletError("");
+
         socket.emit("confirmVerify");
+
+    }
+
+    function handleVerifyNextRequest() {
+
+        if (!verifyCompleted || waitingForPaymentStage || paymentStageReady) {
+
+            return;
+
+        }
+
+        setWalletError("");
+
+        setWaitingForPaymentStage(true);
+
+        socket.emit("VERIFY_NEXT_REQUEST", {
+            roomId: authoritative.roomId ?? null,
+            playerId: localPlayerId,
+            walletAddress: walletAddress.trim()
+        });
 
     }
 
@@ -99,7 +190,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         if (verifyCompleted) {
 
-            onNavigate(6);
+            handleVerifyNextRequest();
 
             return;
 
@@ -120,8 +211,13 @@ export default function Page3VerifyPlayers({ onNavigate }) {
             onBack={() => onNavigate(4)}
 
             nextEnabled={
-                verifyCompleted
-                    || (isWalletValid && !waitingForVerify)
+                paymentStageReady
+                    ? false
+                    : (
+                        verifyCompleted
+                            ? !waitingForPaymentStage
+                            : (isWalletValid && !waitingForVerify)
+                    )
             }
 
             onNext={handleNext}
@@ -192,14 +288,29 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                     )}
 
-                    {verifyCompleted && (
+                    {verifyCompleted && !paymentStageReady && (
 
                         <div
                             className="verifyPlayersWaiting"
                             aria-live="polite"
                         >
 
-                            Players verified. Continue to payment.
+                            {waitingForPaymentStage
+                                ? "Waiting for all players to continue…"
+                                : "Players verified. Continue to payment."}
+
+                        </div>
+
+                    )}
+
+                    {walletError && (
+
+                        <div
+                            className="verifyPlayersWaiting"
+                            aria-live="assertive"
+                        >
+
+                            {walletError}
 
                         </div>
 
@@ -257,10 +368,21 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                             className="verifyWalletInput"
                             type="text"
                             value={walletAddress}
-                            disabled={waitingForVerify || verifyCompleted}
-                            onChange={(e) =>
-                                setWalletAddress(e.target.value)
+                            disabled={
+                                waitingForVerify
+                                || (
+                                    verifyCompleted
+                                        ? walletLocked
+                                        : false
+                                )
                             }
+                            onChange={(e) => {
+
+                                setWalletError("");
+
+                                setWalletAddress(e.target.value);
+
+                            }}
                         />
 
                     </div>
