@@ -11,6 +11,7 @@ import {
     getWheelDebugConfig
 } from "../components/game/WheelEngine";
 
+import { PlayerIdentityProvider } from "../context/PlayerIdentityContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
 import { GameEngineProviders } from "../providers/GameEngineProviders";
 
@@ -113,11 +114,15 @@ export default function PageDeveloperDashboard() {
 
     return (
 
-        <GameEngineProviders>
+        <PlayerIdentityProvider>
 
-            <DeveloperDashboardBridge />
+            <GameEngineProviders>
 
-        </GameEngineProviders>
+                <DeveloperDashboardBridge />
+
+            </GameEngineProviders>
+
+        </PlayerIdentityProvider>
 
     );
 

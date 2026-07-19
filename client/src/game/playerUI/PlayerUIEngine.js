@@ -1,18 +1,29 @@
 import { GAME_STATES } from "../GameState";
 
 import {
-    PLAYER_COUNT,
     PLAYER_UI_STATES,
     createDefaultPlayerRecord,
     isValidPlayerUIState,
+    mapAuthoritativePlayerToPlayerUI,
     mapGameStateToPlayerUIState
 } from "./PlayerState";
-
-import { DEFAULT_PLAYER_UI_DATA } from "./playerUIData";
 
 function clonePlayer(player) {
 
     return { ...player };
+
+}
+
+function samePlayerId(left, right) {
+
+    if (left === null || left === undefined
+        || right === null || right === undefined) {
+
+        return false;
+
+    }
+
+    return String(left) === String(right);
 
 }
 
@@ -36,19 +47,20 @@ function commitPlayerSnapshot(engine, id) {
 
 function rebuildPlayersListSnapshot(engine) {
 
-    const next = [];
+    const next = [...engine._playerSnapshots.values()].sort((left, right) => {
 
-    for (let index = 1; index <= PLAYER_COUNT; index += 1) {
+        const seatLeft = left.seat;
+        const seatRight = right.seat;
 
-        const snapshot = engine._playerSnapshots.get(index);
+        if (seatLeft != null && seatRight != null && seatLeft !== seatRight) {
 
-        if (snapshot) {
-
-            next.push(snapshot);
+            return Number(seatLeft) - Number(seatRight);
 
         }
 
-    }
+        return String(left.id).localeCompare(String(right.id));
+
+    });
 
     engine._playersListSnapshot = next;
 
@@ -80,27 +92,76 @@ export class PlayerUIEngine {
 
         this._listeners = new Set();
 
-        this._initializeDefaults();
-
         rebuildAllSnapshots(this);
 
     }
 
-    _initializeDefaults() {
+    /**
+     * Replace / merge identity from the authoritative roster.
+     * Preserves activityState / online for players already present so
+     * PLAYER_UPDATE and game-state sync are not wiped on roster refresh.
+     */
+    syncFromAuthoritativeRoster(authoritativePlayers = []) {
 
-        DEFAULT_PLAYER_UI_DATA.forEach((player) => {
+        const nextIds = new Set();
 
-            this._players.set(player.id, clonePlayer(player));
+        for (const entry of authoritativePlayers) {
 
-        });
+            const mapped = mapAuthoritativePlayerToPlayerUI(entry);
+
+            if (!mapped) {
+
+                continue;
+
+            }
+
+            nextIds.add(String(mapped.id));
+
+            const storedId = this._resolveStoredId(mapped.id);
+
+            const current = storedId != null
+                ? this._players.get(storedId)
+                : null;
+
+            if (!current) {
+
+                this._players.set(mapped.id, mapped);
+
+                continue;
+
+            }
+
+            this._players.set(current.id, {
+                ...current,
+                nickname: mapped.nickname,
+                icon: mapped.icon,
+                color: mapped.color,
+                wallet: mapped.wallet,
+                seat: mapped.seat,
+                status: mapped.status ?? current.status
+            });
+
+        }
+
+        for (const id of [...this._players.keys()]) {
+
+            if (!nextIds.has(String(id))) {
+
+                this._players.delete(id);
+
+            }
+
+        }
+
+        rebuildAllSnapshots(this);
+
+        this._notify();
 
     }
 
     reset() {
 
         this._players.clear();
-
-        this._initializeDefaults();
 
         rebuildAllSnapshots(this);
 
@@ -116,7 +177,45 @@ export class PlayerUIEngine {
 
     getPlayer(id) {
 
-        return this._playerSnapshots.get(id) ?? null;
+        if (id === null || id === undefined) {
+
+            return null;
+
+        }
+
+        return this._playerSnapshots.get(id)
+            ?? this._playerSnapshots.get(String(id))
+            ?? null;
+
+    }
+
+    _resolveStoredId(id) {
+
+        if (this._players.has(id)) {
+
+            return id;
+
+        }
+
+        const asString = String(id);
+
+        if (this._players.has(asString)) {
+
+            return asString;
+
+        }
+
+        for (const key of this._players.keys()) {
+
+            if (samePlayerId(key, id)) {
+
+                return key;
+
+            }
+
+        }
+
+        return null;
 
     }
 
@@ -124,14 +223,19 @@ export class PlayerUIEngine {
 
         this._validatePlayer(player);
 
-        const current = this._players.get(player.id);
+        const current = this._players.get(player.id)
+            ?? this._players.get(String(player.id));
 
         const next = createDefaultPlayerRecord({
             id: player.id,
             nickname: player.nickname,
             icon: player.icon,
             online: player.online ?? true,
-            state: player.state ?? PLAYER_UI_STATES.READY
+            state: player.state ?? PLAYER_UI_STATES.READY,
+            color: player.color ?? null,
+            wallet: player.wallet ?? null,
+            seat: player.seat ?? null,
+            status: player.status ?? null
         });
 
         if (current && !player.online) {
@@ -154,7 +258,11 @@ export class PlayerUIEngine {
 
     setOnline(id) {
 
-        const player = this._players.get(id);
+        const storedId = this._resolveStoredId(id);
+
+        const player = storedId != null
+            ? this._players.get(storedId)
+            : null;
 
         if (!player) {
 
@@ -166,15 +274,19 @@ export class PlayerUIEngine {
 
         player.state = player.activityState || PLAYER_UI_STATES.READY;
 
-        commitPlayerSnapshot(this, id);
+        commitPlayerSnapshot(this, storedId);
 
-        this._notifyPlayer(id);
+        this._notifyPlayer(storedId);
 
     }
 
     setOffline(id) {
 
-        const player = this._players.get(id);
+        const storedId = this._resolveStoredId(id);
+
+        const player = storedId != null
+            ? this._players.get(storedId)
+            : null;
 
         if (!player) {
 
@@ -192,9 +304,9 @@ export class PlayerUIEngine {
 
         player.state = PLAYER_UI_STATES.OFFLINE;
 
-        commitPlayerSnapshot(this, id);
+        commitPlayerSnapshot(this, storedId);
 
-        this._notifyPlayer(id);
+        this._notifyPlayer(storedId);
 
     }
 
@@ -206,7 +318,11 @@ export class PlayerUIEngine {
 
         }
 
-        const player = this._players.get(id);
+        const storedId = this._resolveStoredId(id);
+
+        const player = storedId != null
+            ? this._players.get(storedId)
+            : null;
 
         if (!player) {
 
@@ -216,7 +332,7 @@ export class PlayerUIEngine {
 
         if (state === PLAYER_UI_STATES.OFFLINE) {
 
-            this.setOffline(id);
+            this.setOffline(storedId);
 
             return;
 
@@ -230,23 +346,46 @@ export class PlayerUIEngine {
 
         }
 
-        commitPlayerSnapshot(this, id);
+        commitPlayerSnapshot(this, storedId);
 
-        this._notifyPlayer(id);
+        this._notifyPlayer(storedId);
 
     }
 
     updatePlayer(partialPlayer) {
 
-        if (!partialPlayer?.id) {
+        const id = partialPlayer?.id ?? partialPlayer?.playerId;
+
+        if (id === null || id === undefined || id === "") {
 
             return;
 
         }
 
-        const current = this._players.get(partialPlayer.id);
+        const storedId = this._resolveStoredId(id);
+
+        const current = storedId != null
+            ? this._players.get(storedId)
+            : null;
 
         if (!current) {
+
+            const mapped = mapAuthoritativePlayerToPlayerUI({
+                ...partialPlayer,
+                playerId: id
+            });
+
+            if (!mapped) {
+
+                return;
+
+            }
+
+            this._players.set(mapped.id, mapped);
+
+            commitPlayerSnapshot(this, mapped.id);
+
+            this._notifyPlayer(mapped.id);
 
             return;
 
@@ -254,8 +393,46 @@ export class PlayerUIEngine {
 
         const next = {
             ...current,
-            ...partialPlayer
+            ...partialPlayer,
+            id: current.id
         };
+
+        if (partialPlayer.nickname != null) {
+
+            next.nickname = partialPlayer.nickname;
+
+        }
+
+        if (partialPlayer.icon != null) {
+
+            next.icon = partialPlayer.icon;
+
+        }
+
+        if (partialPlayer.color !== undefined) {
+
+            next.color = partialPlayer.color;
+
+        }
+
+        if (partialPlayer.wallet !== undefined) {
+
+            next.wallet = partialPlayer.wallet;
+
+        }
+
+        if (partialPlayer.seat !== undefined
+            || partialPlayer.seatIndex !== undefined) {
+
+            next.seat = partialPlayer.seat ?? partialPlayer.seatIndex;
+
+        }
+
+        if (partialPlayer.status !== undefined) {
+
+            next.status = partialPlayer.status;
+
+        }
 
         if (partialPlayer.state && partialPlayer.state !== PLAYER_UI_STATES.OFFLINE) {
 
@@ -269,19 +446,17 @@ export class PlayerUIEngine {
 
         }
 
-        this._players.set(partialPlayer.id, next);
+        this._players.set(current.id, next);
 
-        commitPlayerSnapshot(this, partialPlayer.id);
+        commitPlayerSnapshot(this, current.id);
 
-        this._notifyPlayer(partialPlayer.id);
+        this._notifyPlayer(current.id);
 
     }
 
     applyGameResult(winnerId) {
 
-        for (let id = 1; id <= PLAYER_COUNT; id += 1) {
-
-            const player = this._players.get(id);
+        for (const [id, player] of this._players) {
 
             if (!player || !player.online) {
 
@@ -289,7 +464,7 @@ export class PlayerUIEngine {
 
             }
 
-            const nextState = id === winnerId
+            const nextState = samePlayerId(id, winnerId)
                 ? PLAYER_UI_STATES.WIN
                 : PLAYER_UI_STATES.LOST;
 
@@ -324,7 +499,10 @@ export class PlayerUIEngine {
                 this.updatePlayer({
                     id,
                     nickname: playerData.nickname,
-                    icon: playerData.icon
+                    icon: playerData.icon,
+                    color: playerData.color,
+                    wallet: playerData.wallet,
+                    seat: playerData.seat
                 });
 
             }
@@ -362,9 +540,7 @@ export class PlayerUIEngine {
             resultOutcome
         );
 
-        for (let id = 1; id <= PLAYER_COUNT; id += 1) {
-
-            const player = this._players.get(id);
+        for (const [id, player] of this._players) {
 
             if (!player || !player.online) {
 
@@ -372,23 +548,9 @@ export class PlayerUIEngine {
 
             }
 
-            let nextState = activityState;
+            player.activityState = activityState;
 
-            if (gameState === GAME_STATES.RESULT) {
-
-                nextState = id === 1
-                    ? activityState
-                    : (
-                        activityState === PLAYER_UI_STATES.WIN
-                            ? PLAYER_UI_STATES.LOST
-                            : PLAYER_UI_STATES.WIN
-                    );
-
-            }
-
-            player.activityState = nextState;
-
-            player.state = nextState;
+            player.state = activityState;
 
             commitPlayerSnapshot(this, id);
 
@@ -416,13 +578,15 @@ export class PlayerUIEngine {
 
         const wrapped = (players, changedId) => {
 
-            if (changedId !== null && changedId !== id) {
+            if (changedId !== null && !samePlayerId(changedId, id)) {
 
                 return;
 
             }
 
-            const player = players.find((entry) => entry.id === id) || null;
+            const player = players.find(
+                (entry) => samePlayerId(entry.id, id)
+            ) || null;
 
             listener(player);
 
@@ -444,7 +608,7 @@ export class PlayerUIEngine {
 
         const wrapped = (players, changedId) => {
 
-            if (changedId === null || changedId === id) {
+            if (changedId === null || samePlayerId(changedId, id)) {
 
                 onStoreChange();
 
@@ -464,9 +628,9 @@ export class PlayerUIEngine {
 
     _validatePlayer(player) {
 
-        if (!player?.id || player.id < 1 || player.id > PLAYER_COUNT) {
+        if (player?.id === null || player?.id === undefined || player?.id === "") {
 
-            throw new Error(`Player id must be between 1 and ${PLAYER_COUNT}`);
+            throw new Error("Player id is required");
 
         }
 
@@ -509,4 +673,3 @@ export class PlayerUIEngine {
     }
 
 }
-

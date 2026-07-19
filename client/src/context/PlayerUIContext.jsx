@@ -11,6 +11,10 @@ import { PlayerUIEngine } from "../game/playerUI";
 
 import { PLAYER_UI_STATES } from "../game/playerUI/PlayerState";
 
+import { listAuthoritativePlayers } from "../game/session";
+
+import { useAuthoritativeSession } from "./AuthoritativeSessionContext";
+
 import { useRegisterEngineModule } from "./EngineBridgeContext";
 import { useGameState } from "./GameStateContext";
 import { useCentralButton } from "./CentralButtonContext";
@@ -23,6 +27,8 @@ export function PlayerUIProvider({ children }) {
 
     const { resultOutcome } = useCentralButton();
 
+    const authoritative = useAuthoritativeSession();
+
     const engineRef = useRef(null);
 
     if (!engineRef.current) {
@@ -30,6 +36,15 @@ export function PlayerUIProvider({ children }) {
         engineRef.current = new PlayerUIEngine();
 
     }
+
+    // R1.2 — seed / refresh PlayerUI from authoritative roster only.
+    useEffect(() => {
+
+        const roster = listAuthoritativePlayers(authoritative.players);
+
+        engineRef.current.syncFromAuthoritativeRoster(roster);
+
+    }, [authoritative.players]);
 
     useEffect(() => {
 

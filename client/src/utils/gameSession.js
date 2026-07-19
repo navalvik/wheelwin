@@ -29,33 +29,3 @@ export function getPaymentStatusLabel(status) {
 }
 
 export { calculatePaymentGram };
-
-export const DEV_VERIFY_PLAYERS = [
-    {
-        id: 1,
-        labelTitle: "YOUR NICKNAME",
-        nickname: "Olaa",
-        icon: "🎲",
-        age: 16,
-        sectorLabel: "SECTOR",
-        sectorValue: "1"
-    },
-    {
-        id: 2,
-        labelTitle: "GAMER 2 / YOUR FRIEND",
-        nickname: "Bob",
-        icon: "♠",
-        age: 56,
-        sectorLabel: "SECTOR",
-        sectorValue: "1"
-    },
-    {
-        id: 3,
-        labelTitle: "GAMER 3 / YOUR FRIEND",
-        nickname: "Lena",
-        icon: "♕",
-        age: 15,
-        sectorLabel: "TOGETHER SECTORS",
-        sectorValue: "2"
-    }
-];

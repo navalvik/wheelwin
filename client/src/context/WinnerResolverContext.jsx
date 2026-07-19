@@ -26,15 +26,31 @@ import { useGameState } from "./GameStateContext";
 
 import { usePhysics } from "./PhysicsContext";
 
+import { resolveLocalPlayerId } from "../game/session";
+
+import { useAuthoritativeSession } from "./AuthoritativeSessionContext";
+
+import { usePlayerIdentity } from "./PlayerIdentityContext";
+
 import { usePlayerUI } from "./PlayerUIContext";
 
 const WinnerResolverContext = createContext(null);
 
 function mapLocalOutcomeToResultOutcome(localOutcome) {
 
-    return localOutcome === "LOSE"
-        ? RESULT_OUTCOMES.LOST
-        : RESULT_OUTCOMES.WIN;
+    if (localOutcome === "LOSE") {
+
+        return RESULT_OUTCOMES.LOST;
+
+    }
+
+    if (localOutcome === "WIN") {
+
+        return RESULT_OUTCOMES.WIN;
+
+    }
+
+    return null;
 
 }
 
@@ -52,8 +68,7 @@ function applyResultToPlayerUI(engine, winnerId) {
 
 export function WinnerResolverProvider({
     children,
-    wheelConfiguration,
-    localPlayerId = 1
+    wheelConfiguration
 }) {
 
     const { gameState } = useGameState();
@@ -62,6 +77,16 @@ export function WinnerResolverProvider({
 
     const { engine: playerUIEngine } = usePlayerUI();
 
+    const { identity } = usePlayerIdentity();
+
+    const authoritative = useAuthoritativeSession();
+
+    // R1.2 — local WIN/LOSE uses authenticated authoritative playerId only.
+    const localPlayerId = resolveLocalPlayerId(
+        identity.playerId,
+        authoritative.players,
+        { verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted) }
+    );
     const { setResultOutcome } = useCentralButton();
 
     const {
@@ -118,6 +143,12 @@ export function WinnerResolverProvider({
 
     const emitWinnerEvent = useCallback((localOutcome) => {
 
+        if (localOutcome !== "WIN" && localOutcome !== "LOSE") {
+
+            return;
+
+        }
+
         const eventType = localOutcome === "LOSE"
             ? WINNER_EVENTS.LOSE
             : WINNER_EVENTS.WIN;
@@ -154,9 +185,15 @@ export function WinnerResolverProvider({
 
         applyResultToPlayerUI(playerUIEngine, result.winner?.id ?? null);
 
-        setResultOutcome(
-            mapLocalOutcomeToResultOutcome(result.localOutcome)
+        const mappedOutcome = mapLocalOutcomeToResultOutcome(
+            result.localOutcome
         );
+
+        if (mappedOutcome) {
+
+            setResultOutcome(mappedOutcome);
+
+        }
 
         debugRef.current = {
             winningSector: result.winningSector,

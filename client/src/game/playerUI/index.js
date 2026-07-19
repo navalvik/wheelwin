@@ -2,7 +2,8 @@ export {
     PLAYER_UI_STATES,
     PLAYER_COUNT,
     mapGameStateToPlayerUIState,
-    createDefaultPlayerRecord
+    createDefaultPlayerRecord,
+    mapAuthoritativePlayerToPlayerUI
 } from "./PlayerState";
 
 export {

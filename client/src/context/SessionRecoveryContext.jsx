@@ -23,8 +23,7 @@ import { useSocketSync } from "./SocketSyncContext";
 const SessionRecoveryContext = createContext(null);
 
 export function SessionRecoveryProvider({
-    children,
-    localPlayerId = 1
+    children
 }) {
 
     const bridge = useEngineBridge();
@@ -66,6 +65,11 @@ export function SessionRecoveryProvider({
 
     useEffect(() => {
 
+        // R1.2 — offline/online restore targets authenticated playerId only.
+        const identity = getPlayerIdentity();
+
+        const localPlayerId = identity?.playerId ?? null;
+
         const engine = new SessionRecoveryEngine({
             localPlayerId,
             devMode: DEV_MODE,
@@ -105,7 +109,7 @@ export function SessionRecoveryProvider({
 
         };
 
-    }, [bridge, localPlayerId, send, notifyListeners, getPlayerIdentity, consumePendingGameplaySnapshot]);
+    }, [bridge, send, notifyListeners, getPlayerIdentity, consumePendingGameplaySnapshot]);
 
     const lastSocketStateRef = useRef(null);
 

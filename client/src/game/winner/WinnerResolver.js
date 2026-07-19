@@ -16,7 +16,7 @@ export class WinnerResolver {
 
         this._result = null;
 
-        this._localPlayerId = 1;
+        this._localPlayerId = null;
 
     }
 
@@ -66,7 +66,7 @@ export class WinnerResolver {
         );
 
         const winnerRecord = gameConfiguration.players.find(
-            (player) => player.id === winningSectorConfig.playerId
+            (player) => String(player.id) === String(winningSectorConfig.playerId)
         ) || null;
 
         const winner = buildWinnerPlayer(winnerRecord, winningSector);

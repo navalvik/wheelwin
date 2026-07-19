@@ -25,15 +25,25 @@ function PlayerCardContainer({ playerId, engine }) {
 
 export default memo(function PlayerPanelView({ engine }) {
 
+    const players = useSyncExternalStore(
+        (onStoreChange) => engine.subscribe(onStoreChange),
+        () => engine.getPlayers(),
+        () => engine.getPlayers()
+    );
+
     return (
 
         <div className="playerPanel">
 
-            <PlayerCardContainer playerId={1} engine={engine} />
+            {players.map((player) => (
 
-            <PlayerCardContainer playerId={2} engine={engine} />
+                <PlayerCardContainer
+                    key={player.id}
+                    playerId={player.id}
+                    engine={engine}
+                />
 
-            <PlayerCardContainer playerId={3} engine={engine} />
+            ))}
 
         </div>
 

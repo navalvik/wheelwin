@@ -13,6 +13,7 @@ export const PLAYER_UI_STATES = Object.freeze({
     OFFLINE: "OFFLINE"
 });
 
+/** Expected concurrent seats in a full room (display capacity, not id range). */
 export const PLAYER_COUNT = 3;
 
 export function mapGameStateToPlayerUIState(gameState, resultOutcome) {
@@ -64,7 +65,11 @@ export function createDefaultPlayerRecord({
     nickname,
     icon,
     online = true,
-    state = PLAYER_UI_STATES.READY
+    state = PLAYER_UI_STATES.READY,
+    color = null,
+    wallet = null,
+    seat = null,
+    status = null
 }) {
 
     return {
@@ -73,7 +78,47 @@ export function createDefaultPlayerRecord({
         icon,
         online,
         state,
-        activityState: state
+        activityState: state,
+        color,
+        wallet,
+        seat,
+        status
     };
+
+}
+
+/**
+ * Map one authoritative session player to a PlayerUI record.
+ * Does not invent identity — missing fields stay null / placeholder.
+ */
+export function mapAuthoritativePlayerToPlayerUI(player) {
+
+    const id = player?.playerId ?? player?.id;
+
+    if (id === null || id === undefined || id === "") {
+
+        return null;
+
+    }
+
+    const online = player.online === false
+        ? false
+        : true;
+
+    const state = isValidPlayerUIState(player.state)
+        ? player.state
+        : (online ? PLAYER_UI_STATES.READY : PLAYER_UI_STATES.OFFLINE);
+
+    return createDefaultPlayerRecord({
+        id,
+        nickname: player.nickname ?? "—",
+        icon: player.icon ?? "—",
+        online,
+        state,
+        color: player.color ?? null,
+        wallet: player.wallet ?? null,
+        seat: player.seat ?? player.seatIndex ?? null,
+        status: player.status ?? null
+    });
 
 }

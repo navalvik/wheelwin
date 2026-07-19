@@ -143,7 +143,13 @@ export function resolveLocalOutcome(winnerId, localPlayerId) {
 
     }
 
-    return winnerId === localPlayerId
+    if (localPlayerId === null || localPlayerId === undefined) {
+
+        return null;
+
+    }
+
+    return String(winnerId) === String(localPlayerId)
         ? "WIN"
         : "LOSE";
 
