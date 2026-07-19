@@ -14,15 +14,15 @@ import { isGameplayPage } from "../game/sessionRecovery/recoveryFlow";
 
 import "../styles/infoBar.css";
 
-function remainingSecondsFromSetup(setup) {
+function remainingSecondsFromExpiresAt(expiresAt) {
 
-    if (!setup?.expiresAt) {
+    if (!Number.isFinite(expiresAt)) {
 
         return null;
 
     }
 
-    return Math.max(0, Math.ceil((setup.expiresAt - Date.now()) / 1000));
+    return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
 
 }
 
@@ -35,19 +35,26 @@ export default function InfoBar() {
         formatPhaseTime
     } = useGameSession();
 
-    // C5.4 — room metadata (id + player capacity display) comes from
-    // AuthoritativeSession. C5.6C — Setup Timer from AuthoritativeSession.setup.
+    // C5.4 — room metadata from AuthoritativeSession.
+    // C5.6C — Setup Timer from AuthoritativeSession.setup.
+    // R1.3C — Gameplay Timer (Timer 2) from AuthoritativeSession.gameplayTimer.
     const authoritative = useAuthoritativeSession();
 
     const room = getAuthoritativeRoom(authoritative);
 
-    const { phaseLabel, remainingText } = useGameClock();
+    const { phaseLabel } = useGameClock();
 
     const [, setTick] = useState(0);
 
+    const useGameplayClock = isGameplayPage(currentPage);
+
+    const activeExpiresAt = useGameplayClock
+        ? authoritative.gameplayTimer?.expiresAt
+        : authoritative.setup?.expiresAt;
+
     useEffect(() => {
 
-        if (isGameplayPage(currentPage) || !authoritative.setup?.expiresAt) {
+        if (!activeExpiresAt) {
 
             return undefined;
 
@@ -61,7 +68,7 @@ export default function InfoBar() {
 
         return () => clearInterval(timerId);
 
-    }, [currentPage, authoritative.setup?.expiresAt]);
+    }, [activeExpiresAt]);
 
     const roomIdDisplay = formatAuthoritativeRoomId(room.roomId) ?? "—";
 
@@ -71,68 +78,57 @@ export default function InfoBar() {
         session.maxPlayers
     ) ?? "—";
 
-    // InfoBar is only a router between two independent time domains. Selection is
-    // page-based: gameplay/result pages present the authoritative server
-    // GameClock, every preparation page presents the Setup Session timer.
-    const useGameplayClock = isGameplayPage(currentPage);
+    // Page5+: Timer 2 wall clock. Prep pages: Setup Timer.
+    // GameClock phase label remains informational via phaseLabel when present.
+    const setupRemaining = remainingSecondsFromExpiresAt(
+        authoritative.setup?.expiresAt
+    );
 
-    const setupRemaining = remainingSecondsFromSetup(authoritative.setup);
+    const gameplayRemaining = remainingSecondsFromExpiresAt(
+        authoritative.gameplayTimer?.expiresAt
+    );
 
-    const timerLabel = useGameplayClock ? phaseLabel : phaseTimerLabel;
+    const timerLabel = useGameplayClock
+        ? (phaseLabel ? `GAMEPLAY · ${phaseLabel}` : "GAMEPLAY TIMER")
+        : phaseTimerLabel;
 
     const timerValue = useGameplayClock
-        ? remainingText
-        : (setupRemaining === null ? "—" : formatPhaseTime(setupRemaining));
+        ? (gameplayRemaining === null
+            ? "—"
+            : formatPhaseTime(gameplayRemaining))
+        : (setupRemaining === null
+            ? "—"
+            : formatPhaseTime(setupRemaining));
 
     return (
 
         <div className="infoBar">
 
-            <div className="infoBarSection">
+            <div className="infoBar__item">
 
-                <div className="infoBarTitle">
+                <span className="infoBar__label">ROOM</span>
 
-                    ROOM ID
-
-                </div>
-
-                <div className="infoBarValue">
-
-                    {roomIdDisplay}
-
-                </div>
+                <span className="infoBar__value">{roomIdDisplay}</span>
 
             </div>
 
-            <div className="infoBarSection">
+            <div className="infoBar__item">
 
-                <div className="infoBarTitle">
+                <span className="infoBar__label">PLAYERS</span>
 
-                    PLAYERS
-
-                </div>
-
-                <div className="infoBarValue">
-
-                    {playersDisplay}
-
-                </div>
+                <span className="infoBar__value">{playersDisplay}</span>
 
             </div>
 
-            <div className="infoBarSection">
+            <div className="infoBar__item infoBar__item--timer">
 
-                <div className="infoBarTitle">
+                <span className="infoBar__label">{timerLabel}</span>
 
-                    {timerLabel}
-
-                </div>
-
-                <div className="infoBarValue">
+                <span className="infoBar__value" aria-live="polite">
 
                     {timerValue}
 
-                </div>
+                </span>
 
             </div>
 

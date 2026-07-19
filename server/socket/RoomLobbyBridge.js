@@ -38,6 +38,7 @@ export class RoomLobbyBridge {
         playerManager,
         gameplayContextResolver = null,
         setupSessionLifecycle = null,
+        gameplayTimerLifecycle = null,
         telegramWalletAdapter = null,
         entryPaymentDelays = null
     }) {
@@ -53,6 +54,8 @@ export class RoomLobbyBridge {
         this._gameplayContextResolver = gameplayContextResolver;
 
         this._setupSessionLifecycle = setupSessionLifecycle;
+
+        this._gameplayTimerLifecycle = gameplayTimerLifecycle;
 
         this._telegramWalletAdapter = telegramWalletAdapter
             ?? new TelegramWalletAdapter({ logger });
@@ -252,6 +255,54 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleGameInitialized(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAMEPLAY_TIMER_STARTED,
+            (envelope) => {
+
+                this._deliverGameplayTimerEvent(
+                    LOBBY_SERVER_EVENTS.GAMEPLAY_TIMER_STARTED,
+                    envelope.payload
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAMEPLAY_TIMER_SYNC,
+            (envelope) => {
+
+                this._deliverGameplayTimerEvent(
+                    LOBBY_SERVER_EVENTS.GAMEPLAY_TIMER_SYNC,
+                    envelope.payload
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAMEPLAY_TIMER_WARNING,
+            (envelope) => {
+
+                this._deliverGameplayTimerEvent(
+                    LOBBY_SERVER_EVENTS.GAMEPLAY_TIMER_WARNING,
+                    envelope.payload
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAMEPLAY_TIMER_EXPIRED,
+            (envelope) => {
+
+                this._deliverGameplayTimerEvent(
+                    LOBBY_SERVER_EVENTS.GAMEPLAY_TIMER_EXPIRED,
+                    envelope.payload
+                );
 
             }
         );
@@ -807,6 +858,24 @@ export class RoomLobbyBridge {
                     LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_COMPLETED,
                     { roomId }
                 );
+
+            }
+
+            // R1.3C — restore Gameplay Timer wall clock without restarting.
+            if (gameId && this._gameplayTimerLifecycle) {
+
+                const gameplayTimerSync = this._gameplayTimerLifecycle
+                    .buildSyncPayload(gameId);
+
+                if (gameplayTimerSync) {
+
+                    this._deliverToSocket(
+                        socketId,
+                        LOBBY_SERVER_EVENTS.GAMEPLAY_TIMER_SYNC,
+                        gameplayTimerSync
+                    );
+
+                }
 
             }
 
@@ -2346,6 +2415,24 @@ export class RoomLobbyBridge {
             }
 
         }
+
+    }
+
+    _deliverGameplayTimerEvent(event, payload) {
+
+        const roomId = payload?.roomId
+            ?? (payload?.gameId
+                ? this._gameplayContextResolver
+                    ?.resolveRoomByGameId(payload.gameId)
+                : null);
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(roomId, event, payload);
 
     }
 

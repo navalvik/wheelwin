@@ -296,6 +296,42 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleGameplayTimerStarted = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_STARTED,
+                payload
+            });
+
+        };
+
+        this._handleGameplayTimerSync = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_SYNC,
+                payload
+            });
+
+        };
+
+        this._handleGameplayTimerWarning = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_WARNING,
+                payload
+            });
+
+        };
+
+        this._handleGameplayTimerExpired = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_EXPIRED,
+                payload
+            });
+
+        };
+
         this._socket.on("connect", this._handleConnect);
 
         this._socket.on("disconnect", this._handleDisconnect);
@@ -345,6 +381,28 @@ export class SocketSyncLayer {
             INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
             this._handleEntryPaymentCompleted
         );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_STARTED,
+            this._handleGameplayTimerStarted
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_SYNC,
+            this._handleGameplayTimerSync
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_WARNING,
+            this._handleGameplayTimerWarning
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_EXPIRED,
+            this._handleGameplayTimerExpired
+        );
+
+        this._bound = true;
 
     }
 
@@ -404,6 +462,26 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
             this._handleEntryPaymentCompleted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_STARTED,
+            this._handleGameplayTimerStarted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_SYNC,
+            this._handleGameplayTimerSync
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_WARNING,
+            this._handleGameplayTimerWarning
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_EXPIRED,
+            this._handleGameplayTimerExpired
         );
 
         this._bound = false;

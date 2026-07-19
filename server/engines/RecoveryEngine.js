@@ -16,7 +16,8 @@ export class RecoveryEngine {
         inputAuthority,
         winnerEngine,
         paymentEngine,
-        metricsService = null
+        metricsService = null,
+        gameplayTimerLifecycle = null
     }) {
 
         this._logger = logger;
@@ -40,6 +41,8 @@ export class RecoveryEngine {
         this._paymentEngine = paymentEngine;
 
         this._metricsService = metricsService;
+
+        this._gameplayTimerLifecycle = gameplayTimerLifecycle;
 
         this._snapshots = new Map();
 
@@ -194,6 +197,7 @@ export class RecoveryEngine {
                 input: sources.input,
                 winner: sources.winner,
                 payment: sources.payment,
+                gameplayTimer: sources.gameplayTimer,
                 recoveredAt: Date.now(),
                 metadata: {
                     traceSeed: sources.configuration.traceSeed,
@@ -324,6 +328,10 @@ export class RecoveryEngine {
 
         const input = this._buildInputSnapshot(gameId, configuration);
 
+        const gameplayTimer = this._gameplayTimerLifecycle
+            ?.buildSyncPayload(gameId)
+            ?? null;
+
         return {
             configuration,
             gameState,
@@ -331,7 +339,8 @@ export class RecoveryEngine {
             physics,
             input,
             winner: this._winnerEngine.getResult(gameId),
-            payment: this._paymentEngine.getPayment(gameId)
+            payment: this._paymentEngine.getPayment(gameId),
+            gameplayTimer
         };
 
     }
