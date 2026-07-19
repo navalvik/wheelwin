@@ -15,6 +15,7 @@ import {
 } from "../game/session";
 
 import { useRegisterEngineModule } from "./EngineBridgeContext";
+import { usePlayerIdentity } from "./PlayerIdentityContext";
 
 const AuthoritativeSessionContext = createContext(null);
 
@@ -54,6 +55,8 @@ export function AuthoritativeSessionProvider({ children }) {
 
     const storeRef = useRef(null);
 
+    const { setIdentity } = usePlayerIdentity();
+
     if (!storeRef.current) {
 
         storeRef.current = createAuthoritativeSessionStore();
@@ -90,6 +93,19 @@ export function AuthoritativeSessionProvider({ children }) {
                 type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START,
                 payload
             });
+
+            // Bind local playerId for every recipient (Host + guests). startGame
+            // already carries per-socket playerId; keep identity in sync so
+            // Verify highlight does not depend on Lobby still being mounted.
+            if (payload?.playerId) {
+
+                setIdentity({
+                    roomId: payload.roomId ?? null,
+                    gameId: payload.gameId ?? null,
+                    playerId: payload.playerId
+                });
+
+            }
 
             // startGame carries the Setup Session snapshot so every client —
             // including the filling player who may have missed SYNC — gets

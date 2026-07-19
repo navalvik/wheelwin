@@ -1067,9 +1067,9 @@ export class RoomLobbyBridge {
 
         const resolvedId = identity?.playerId ?? playerId;
 
-        // Pre-Confirm public identity: nickname / age / sectorCount are visible
-        // so peers can verify participants. Icon, color, arrangement and all
-        // private crypto/wallet/matrix fields stay hidden until VERIFY_COMPLETED.
+        // Pre-Confirm public identity: nickname / age / icon / sectorCount so
+        // peers can verify participants. Color, arrangement and all private
+        // crypto/wallet/matrix fields stay hidden until VERIFY_COMPLETED.
         if (!reveal) {
 
             const sectorCount = identity?.sectorCount ?? null;
@@ -1078,7 +1078,7 @@ export class RoomLobbyBridge {
                 playerId: resolvedId,
                 nickname: identity?.nickname ?? null,
                 age: identity?.age ?? null,
-                icon: null,
+                icon: identity?.icon ?? null,
                 color: null,
                 sectorCount,
                 sectorArrangement: null,
@@ -1198,9 +1198,9 @@ export class RoomLobbyBridge {
 
         }
 
-        // Self-ack with full profile — peers receive public identity only
-        // (nickname/age/sectorCount) so Verify can confirm participants without
-        // leaking icon/color/arrangement or private crypto/wallet fields.
+        // Self-ack with full profile — peers receive public identity
+        // (nickname/age/icon/sectorCount) so Verify can confirm participants
+        // without leaking color/arrangement or private crypto/wallet fields.
         const fullPayload = this._mapIdentityToLobbyPlayer(
             identity,
             playerId,

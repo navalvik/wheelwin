@@ -73,6 +73,56 @@ export function getAuthoritativePlayerSectorCount(player) {
 }
 
 /**
+ * Resolve the local seat for Verify highlight.
+ *
+ * Prefer PlayerIdentity.playerId when it matches a roster seat. If identity is
+ * missing (Host roomCreated race), fall back to the unique pre-reveal self-ack
+ * seat — only the local client holds color until VERIFY_COMPLETED (icon is
+ * public for peers per RC-FIX-009).
+ */
+export function resolveLocalPlayerId(
+    identityPlayerId,
+    playersById = {},
+    { verifyCompleted = false } = {}
+) {
+
+    const listed = listAuthoritativePlayers(playersById);
+
+    if (identityPlayerId != null && identityPlayerId !== "") {
+
+        const matched = listed.find(
+            (player) => String(player.playerId) === String(identityPlayerId)
+        );
+
+        if (matched?.playerId != null) {
+
+            return matched.playerId;
+
+        }
+
+    }
+
+    if (verifyCompleted) {
+
+        return null;
+
+    }
+
+    const selfAckSeats = listed.filter(
+        (player) => player.color != null && player.color !== ""
+    );
+
+    if (selfAckSeats.length === 1) {
+
+        return selfAckSeats[0].playerId ?? null;
+
+    }
+
+    return null;
+
+}
+
+/**
  * Maps one authoritative player record to Page3 PlayerInfoRow props.
  * Local identity is matched by authoritative playerId — never by array order.
  */

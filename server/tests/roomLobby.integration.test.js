@@ -235,15 +235,15 @@ try {
     assert(
         peerSeat.nickname === "Host"
             && peerSeat.age === 30
-            && peerSeat.sectorCount === 2,
-        "peers must receive public nickname/age/sectorCount before Confirm"
+            && peerSeat.sectorCount === 2
+            && peerSeat.icon != null,
+        "peers must receive public nickname/age/icon/sectorCount before Confirm"
     );
 
     assert(
-        peerSeat.icon == null
-            && peerSeat.color == null
+        peerSeat.color == null
             && peerSeat.sectorArrangement == null,
-        "peers must not receive icon/color/sectorArrangement before Confirm"
+        "peers must not receive color/sectorArrangement before Confirm"
     );
 
     guestA.emit("updatePlayerProfile", {

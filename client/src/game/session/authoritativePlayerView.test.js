@@ -2,7 +2,8 @@ import {
     formatAuthoritativePlayerCount,
     hasAuthoritativePlayers,
     listAuthoritativePlayers,
-    mapAuthoritativePlayerToInfoProp
+    mapAuthoritativePlayerToInfoProp,
+    resolveLocalPlayerId
 } from "./authoritativePlayerView.js";
 
 function assert(condition, message) {
@@ -148,6 +149,59 @@ function assert(condition, message) {
     );
 
     console.log("  verify barrier redaction mapping passed");
+
+}
+
+{
+
+    const players = {
+        p2: { playerId: "p2", nickname: "Bob", sectorCount: 1, icon: "♠", color: null },
+        p1: {
+            playerId: "p1",
+            nickname: "Alice",
+            sectorCount: 2,
+            icon: "🎲",
+            color: "#111111"
+        },
+        p3: { playerId: "p3", nickname: "Cara", sectorCount: 1, icon: "♕", color: null }
+    };
+
+    assert(
+        resolveLocalPlayerId("p1", players) === "p1",
+        "identity match returns local playerId"
+    );
+
+    assert(
+        resolveLocalPlayerId(null, players) === "p1",
+        "missing identity falls back to unique self-ack color seat"
+    );
+
+    assert(
+        resolveLocalPlayerId("missing", players) === "p1",
+        "stale identity falls back to unique self-ack color seat"
+    );
+
+    assert(
+        resolveLocalPlayerId(null, players, { verifyCompleted: true }) === null,
+        "after VERIFY_COMPLETED do not guess from color"
+    );
+
+    const localRow = mapAuthoritativePlayerToInfoProp(players.p1, 0, {
+        localPlayerId: resolveLocalPlayerId(null, players),
+        baseStake: 1
+    });
+
+    assert(localRow.isLocal === true, "Host-like missing identity still highlights");
+
+    assert(
+        mapAuthoritativePlayerToInfoProp(players.p2, 1, {
+            localPlayerId: resolveLocalPlayerId(null, players),
+            baseStake: 1
+        }).isLocal === false,
+        "exactly one local highlight"
+    );
+
+    console.log("  resolveLocalPlayerId highlight passed");
 
 }
 

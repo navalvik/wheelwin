@@ -12,7 +12,8 @@ import {
     getAuthoritativePlayerSectorCount,
     hasAuthoritativePlayers,
     listAuthoritativePlayers,
-    mapAuthoritativePlayerToInfoProp
+    mapAuthoritativePlayerToInfoProp,
+    resolveLocalPlayerId
 } from "../game/session";
 
 import { calculatePaymentGram } from "../utils/playerProfileRules";
@@ -31,13 +32,17 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     const { identity } = usePlayerIdentity();
 
-    const localPlayerId = identity.playerId ?? null;
+    const verifyCompleted = authoritative.lifecycle?.verifyCompleted === true;
+
+    const localPlayerId = resolveLocalPlayerId(
+        identity.playerId ?? null,
+        authoritative.players,
+        { verifyCompleted }
+    );
 
     const localAuthoritativePlayer = localPlayerId
         ? (authoritative.players[localPlayerId] ?? null)
         : null;
-
-    const verifyCompleted = authoritative.lifecycle?.verifyCompleted === true;
 
     const [walletAddress, setWalletAddress] = useState("");
 

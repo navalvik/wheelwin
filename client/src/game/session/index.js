@@ -10,6 +10,7 @@ export {
     hasAuthoritativePlayers,
     formatAuthoritativePlayerCount,
     getAuthoritativePlayerSectorCount,
+    resolveLocalPlayerId,
     mapAuthoritativePlayerToInfoProp,
     mapAuthoritativePlayerToInfoRow
 } from "./authoritativePlayerView.js";
