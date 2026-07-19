@@ -9,6 +9,8 @@ import {
 
 import { DEV_MODE } from "../config/devMode";
 
+import { bindAuthoritativeSessionStore } from "../game/gameAuthority";
+
 import {
     AUTHORITATIVE_SESSION_ACTIONS,
     createAuthoritativeSessionStore
@@ -61,6 +63,10 @@ export function AuthoritativeSessionProvider({ children }) {
 
         storeRef.current = createAuthoritativeSessionStore();
 
+        // Bind immediately so isServerAuthoritative() can read lifecycle
+        // before the mount effect runs (C5.9A).
+        bindAuthoritativeSessionStore(storeRef.current);
+
     }
 
     const store = storeRef.current;
@@ -77,9 +83,13 @@ export function AuthoritativeSessionProvider({ children }) {
 
     useEffect(() => {
 
+        bindAuthoritativeSessionStore(store);
+
         return () => {
 
             store.reset();
+
+            bindAuthoritativeSessionStore(null);
 
         };
 
