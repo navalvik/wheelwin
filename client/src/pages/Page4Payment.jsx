@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 import GameLayout from "../layouts/GameLayout";
 
 import PlayerPaymentRow from "../components/PlayerPaymentRow";
@@ -5,7 +7,6 @@ import PlayerPaymentRow from "../components/PlayerPaymentRow";
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 
 import {
-    isEntryPaymentComplete,
     mapEntryPaymentRows,
     mapEntrySmartContractLabel,
     shouldShowEntryPaymentWaiting
@@ -15,15 +16,16 @@ import "../styles/page4payment.css";
 
 export default function Page4Payment({ onNavigate }) {
 
-    // C5.8C — Page4 displays AuthoritativeSession.entryPayment only.
-    // Settlement AuthoritativeSession.payment / PaymentEngine are unused here.
+    // C5.8C/E — Page4 mirrors AuthoritativeSession.entryPayment.
+    // Navigation to Page5 is authoritative via ENTRY_PAYMENT_COMPLETED only.
     const authoritative = useAuthoritativeSession();
 
     const entryPayment = authoritative.entryPayment;
 
-    const waiting = shouldShowEntryPaymentWaiting(entryPayment);
+    const entryPaymentCompleted = authoritative.lifecycle
+        ?.entryPaymentCompleted === true;
 
-    const nextEnabled = isEntryPaymentComplete(entryPayment);
+    const waiting = shouldShowEntryPaymentWaiting(entryPayment);
 
     const contractLabel = mapEntrySmartContractLabel(
         entryPayment?.smartContractStatus
@@ -34,19 +36,31 @@ export default function Page4Payment({ onNavigate }) {
         authoritative.players
     );
 
+    useEffect(() => {
+
+        if (!entryPaymentCompleted) {
+
+            return;
+
+        }
+
+        onNavigate(7);
+
+    }, [entryPaymentCompleted, onNavigate]);
+
     return (
 
         <GameLayout
 
             message="PAYMENT"
 
-            backEnabled={true}
+            backEnabled={!entryPaymentCompleted}
 
             onBack={() => onNavigate(5)}
 
-            nextEnabled={nextEnabled}
+            nextEnabled={false}
 
-            onNext={() => onNavigate(7)}
+            onNext={() => {}}
 
         >
 

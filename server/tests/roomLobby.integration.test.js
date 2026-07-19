@@ -608,6 +608,28 @@ try {
         "guestB.entryPayment.created"
     );
 
+    // C5.8E — completion after the authoritative display timer.
+    const completedHostPromise = waitForEvent(
+        host,
+        "ENTRY_PAYMENT_COMPLETED",
+        5000,
+        "host.ENTRY_PAYMENT_COMPLETED"
+    );
+
+    const completedAPromise = waitForEvent(
+        guestA,
+        "ENTRY_PAYMENT_COMPLETED",
+        5000,
+        "guestA.ENTRY_PAYMENT_COMPLETED"
+    );
+
+    const completedBPromise = waitForEvent(
+        guestB,
+        "ENTRY_PAYMENT_COMPLETED",
+        5000,
+        "guestB.ENTRY_PAYMENT_COMPLETED"
+    );
+
     // Corrected valid wallet joins the barrier and completes it.
     guestB.emit("VERIFY_NEXT_REQUEST", {
         roomId: created.roomId,
@@ -730,6 +752,24 @@ try {
             && finalA.players.every((player) => player.paymentStatus === "paid")
             && finalB.players.every((player) => player.paymentStatus === "paid"),
         "all clients see every player paid"
+    );
+
+    const [completedHost, completedA, completedB] = await Promise.all([
+        completedHostPromise,
+        completedAPromise,
+        completedBPromise
+    ]);
+
+    assert(
+        completedHost.roomId === created.roomId
+            && completedA.roomId === created.roomId
+            && completedB.roomId === created.roomId,
+        "ENTRY_PAYMENT_COMPLETED must reach every client"
+    );
+
+    assert(
+        harness.roomLobbyBridge._entryPaymentCompletedByRoom.has(created.roomId),
+        "server marks entry payment completed"
     );
 
     host.disconnect();

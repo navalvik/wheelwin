@@ -188,6 +188,11 @@ export class EngineBridge {
                 session()?.onEntryPaymentSessionUpdated?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED]: (payload) => {
+
+                session()?.onEntryPaymentCompleted?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.SESSION_SNAPSHOT]: (payload) => {
 
                 modules.sessionRecovery?.handleSnapshot?.(payload);

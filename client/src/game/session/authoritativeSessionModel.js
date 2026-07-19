@@ -39,6 +39,7 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     VERIFY_COMPLETED: "VERIFY_COMPLETED",
     PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
     ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
+    ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -63,7 +64,8 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
         gameEnded: false,
         cleanupObserved: false,
         verifyCompleted: false,
-        paymentStageReady: false
+        paymentStageReady: false,
+        entryPaymentCompleted: false
     }),
     lastEventType: null,
     lastUpdatedAt: null
@@ -244,7 +246,8 @@ export function authoritativeSessionReducer(state, action) {
                     gameEnded: false,
                     cleanupObserved: false,
                     verifyCompleted: false,
-                    paymentStageReady: false
+                    paymentStageReady: false,
+                    entryPaymentCompleted: false
                 })
             }, action.type);
 
@@ -567,6 +570,19 @@ export function authoritativeSessionReducer(state, action) {
                     createdAt: payload.createdAt ?? null,
                     players,
                     smartContractStatus: payload.smartContractStatus ?? null
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.ENTRY_PAYMENT_COMPLETED: {
+
+            return stamp({
+                ...state,
+                roomId: payload?.roomId ?? state.roomId,
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    entryPaymentCompleted: true
                 })
             }, action.type);
 

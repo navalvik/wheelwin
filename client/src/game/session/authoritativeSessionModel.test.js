@@ -295,6 +295,31 @@ function assert(condition, message) {
 
 }
 
+// C5.8E — ENTRY_PAYMENT_COMPLETED stamps lifecycle for Page5 navigation.
+{
+
+    const state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.ENTRY_PAYMENT_COMPLETED,
+            payload: { roomId: "ROOM01" }
+        }
+    );
+
+    assert(
+        state.lifecycle.entryPaymentCompleted === true,
+        "entryPaymentCompleted stamped"
+    );
+
+    assert(
+        state.roomId === "ROOM01",
+        "ENTRY_PAYMENT_COMPLETED preserves roomId"
+    );
+
+    console.log("  ENTRY_PAYMENT_COMPLETED lifecycle stamp passed");
+
+}
+
 // Incomplete GAME_RESULT must not fabricate a winner.
 {
 

@@ -287,6 +287,15 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleEntryPaymentCompleted = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
+                payload
+            });
+
+        };
+
         this._socket.on("connect", this._handleConnect);
 
         this._socket.on("disconnect", this._handleDisconnect);
@@ -330,6 +339,11 @@ export class SocketSyncLayer {
         this._socket.on(
             INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
             this._handleEntryPaymentSessionUpdated
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
+            this._handleEntryPaymentCompleted
         );
 
     }
@@ -385,6 +399,11 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
             this._handleEntryPaymentSessionUpdated
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
+            this._handleEntryPaymentCompleted
         );
 
         this._bound = false;

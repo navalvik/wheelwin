@@ -10,7 +10,10 @@ import {
     secretMatricesMatch
 } from "../models/SecretMatrixRules.js";
 import { normalizeTelegramWallet } from "../models/TelegramWalletRules.js";
-import { EntryPaymentSession } from "../models/EntryPaymentSession.js";
+import {
+    ENTRY_SMART_CONTRACT_STATUS,
+    EntryPaymentSession
+} from "../models/EntryPaymentSession.js";
 import { EntryPaymentLifecycle } from "../gameplay/EntryPaymentLifecycle.js";
 import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import {
@@ -65,6 +68,17 @@ export class RoomLobbyBridge {
             smartContractDelayMs: entryPaymentDelays?.smartContractDelayMs
                 ?? 500
         });
+
+        // C5.8E — authoritative 3s display after smartContractStatus=created.
+        this._entryPaymentCompletionDelayMs = entryPaymentDelays
+            ?.completionDelayMs
+            ?? 3000;
+
+        // roomId → { timeoutId, startedAt, durationMs }
+        this._entryPaymentCompletionTimerByRoom = new Map();
+
+        // Rooms that have already emitted ENTRY_PAYMENT_COMPLETED.
+        this._entryPaymentCompletedByRoom = new Set();
 
         this._socketToPlayer = new Map();
 
@@ -268,7 +282,17 @@ export class RoomLobbyBridge {
 
         this._entryPaymentLifecycle.shutdown();
 
+        for (const roomId of [
+            ...this._entryPaymentCompletionTimerByRoom.keys()
+        ]) {
+
+            this._clearEntryPaymentCompletionTimer(roomId);
+
+        }
+
         this._entryPaymentByRoom.clear();
+
+        this._entryPaymentCompletedByRoom.clear();
 
         this._secretMatrixByRoom.clear();
 
@@ -762,6 +786,17 @@ export class RoomLobbyBridge {
                     socketId,
                     LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
                     entryPayment.toSnapshot()
+                );
+
+            }
+
+            // After ENTRY_PAYMENT_COMPLETED, reconnect must enter Page5.
+            if (this._entryPaymentCompletedByRoom.has(roomId)) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_COMPLETED,
+                    { roomId }
                 );
 
             }
@@ -1734,7 +1769,106 @@ export class RoomLobbyBridge {
 
         this._broadcastEntryPaymentSession(roomId);
 
+        if (next.smartContractStatus === ENTRY_SMART_CONTRACT_STATUS.CREATED) {
+
+            this._startEntryPaymentCompletionTimer(roomId);
+
+        }
+
         return next;
+
+    }
+
+    _startEntryPaymentCompletionTimer(roomId) {
+
+        if (this._entryPaymentCompletedByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        // Do not restart — reconnect during the 3s display keeps this timer.
+        if (this._entryPaymentCompletionTimerByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        const durationMs = this._entryPaymentCompletionDelayMs;
+
+        const startedAt = Date.now();
+
+        const timeoutId = setTimeout(() => {
+
+            this._completeEntryPayment(roomId);
+
+        }, durationMs);
+
+        this._entryPaymentCompletionTimerByRoom.set(roomId, {
+            timeoutId,
+            startedAt,
+            durationMs
+        });
+
+        this._logger.info(
+            `Entry payment completion timer started | roomId=${roomId} | `
+                + `durationMs=${durationMs}`
+        );
+
+    }
+
+    _completeEntryPayment(roomId) {
+
+        if (this._entryPaymentCompletedByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        this._clearEntryPaymentCompletionTimer(roomId);
+
+        this._entryPaymentCompletedByRoom.add(roomId);
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_COMPLETED,
+            { roomId }
+        );
+
+        this._logger.info(`Entry payment completed | roomId=${roomId}`);
+
+        // Lifecycle timers are finished; keep EntryPaymentSession until room
+        // cleanup so late reconnect can still restore the final snapshot +
+        // ENTRY_PAYMENT_COMPLETED.
+        this._entryPaymentLifecycle.cancel(roomId);
+
+    }
+
+    _clearEntryPaymentCompletionTimer(roomId) {
+
+        const active = this._entryPaymentCompletionTimerByRoom.get(roomId);
+
+        if (!active) {
+
+            return;
+
+        }
+
+        clearTimeout(active.timeoutId);
+
+        this._entryPaymentCompletionTimerByRoom.delete(roomId);
+
+    }
+
+    _destroyEntryPaymentArtifacts(roomId) {
+
+        this._entryPaymentLifecycle.cancel(roomId);
+
+        this._clearEntryPaymentCompletionTimer(roomId);
+
+        this._entryPaymentByRoom.delete(roomId);
+
+        this._entryPaymentCompletedByRoom.delete(roomId);
 
     }
 
@@ -1810,9 +1944,7 @@ export class RoomLobbyBridge {
 
         this._paymentStageReadyByRoom.delete(roomId);
 
-        this._entryPaymentLifecycle.cancel(roomId);
-
-        this._entryPaymentByRoom.delete(roomId);
+        this._destroyEntryPaymentArtifacts(roomId);
 
         this._secretMatrixByRoom.delete(roomId);
 
