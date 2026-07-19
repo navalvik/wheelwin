@@ -256,6 +256,15 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onEntryPaymentSessionUpdated: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.ENTRY_PAYMENT_SESSION_UPDATED,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

@@ -1,8 +1,3 @@
-import {
-    getPaymentStatusLabel,
-    PAYMENT_STATUS
-} from "../utils/gameSession";
-
 import "../styles/playerPaymentRow.css";
 
 export default function PlayerPaymentRow({
@@ -13,13 +8,26 @@ export default function PlayerPaymentRow({
 
     icon,
 
-    paymentStatus
+    walletRegistered = false,
+
+    paymentStatus,
+
+    paymentStatusLabel
 
 }) {
 
-    const statusLabel = getPaymentStatusLabel(paymentStatus);
+    const statusLabel = paymentStatusLabel
+        ?? (
+            paymentStatus === "paid"
+                ? "Paid"
+                : paymentStatus === "failed"
+                    ? "Failed"
+                    : paymentStatus === "cancelled"
+                        ? "Cancelled"
+                        : "Waiting"
+        );
 
-    const isConfirmed = paymentStatus === PAYMENT_STATUS.confirmed;
+    const isDone = paymentStatus === "paid" || paymentStatus === "confirmed";
 
     return (
 
@@ -57,11 +65,41 @@ export default function PlayerPaymentRow({
 
             </div>
 
-            <div className="playerPaymentRow__group playerPaymentRow__group--status">
+            <div className="playerPaymentRow__group playerPaymentRow__group--wallet">
+
+                <span className="playerPaymentRow__label">
+
+                    Wallet
+
+                </span>
 
                 <span
                     className={
-                        isConfirmed
+                        walletRegistered
+                            ? "paymentStatus paymentStatus--done"
+                            : "paymentStatus paymentStatus--awaiting"
+                    }
+                >
+
+                    {walletRegistered
+                        ? "Wallet Registered ✓"
+                        : "Wallet Missing"}
+
+                </span>
+
+            </div>
+
+            <div className="playerPaymentRow__group playerPaymentRow__group--status">
+
+                <span className="playerPaymentRow__label">
+
+                    Payment
+
+                </span>
+
+                <span
+                    className={
+                        isDone
                             ? "paymentStatus paymentStatus--done"
                             : "paymentStatus paymentStatus--awaiting"
                     }

@@ -527,6 +527,27 @@ try {
         "guestB.PAYMENT_STAGE_READY"
     );
 
+    const entryHostPromise = waitForEvent(
+        host,
+        "ENTRY_PAYMENT_SESSION_UPDATED",
+        5000,
+        "host.ENTRY_PAYMENT_SESSION_UPDATED"
+    );
+
+    const entryAPromise = waitForEvent(
+        guestA,
+        "ENTRY_PAYMENT_SESSION_UPDATED",
+        5000,
+        "guestA.ENTRY_PAYMENT_SESSION_UPDATED"
+    );
+
+    const entryBPromise = waitForEvent(
+        guestB,
+        "ENTRY_PAYMENT_SESSION_UPDATED",
+        5000,
+        "guestB.ENTRY_PAYMENT_SESSION_UPDATED"
+    );
+
     // Corrected valid wallet joins the barrier and completes it.
     guestB.emit("VERIFY_NEXT_REQUEST", {
         roomId: created.roomId,
@@ -534,10 +555,20 @@ try {
         walletAddress: guestBWallet
     });
 
-    const [paymentHost, paymentA, paymentB] = await Promise.all([
+    const [
+        paymentHost,
+        paymentA,
+        paymentB,
+        entryHost,
+        entryA,
+        entryB
+    ] = await Promise.all([
         paymentHostPromise,
         paymentAPromise,
-        paymentBPromise
+        paymentBPromise,
+        entryHostPromise,
+        entryAPromise,
+        entryBPromise
     ]);
 
     host.off("PAYMENT_STAGE_READY", onEarlyPayment);
@@ -584,6 +615,42 @@ try {
             && paymentB.roomId === created.roomId,
         "PAYMENT_STAGE_READY must reach every client with roomId"
     );
+
+    // C5.8C — EntryPaymentSession created immediately after PAYMENT_STAGE_READY.
+    assert(
+        entryHost.roomId === created.roomId
+            && entryA.roomId === created.roomId
+            && entryB.roomId === created.roomId,
+        "ENTRY_PAYMENT_SESSION_UPDATED must reach every client"
+    );
+
+    assert(
+        entryHost.players.length === 3
+            && entryA.players.length === 3
+            && entryB.players.length === 3,
+        "EntryPaymentSession must include all three players"
+    );
+
+    assert(
+        entryHost.players.every((player) => player.paymentStatus === "waiting"),
+        "every entry paymentStatus starts waiting"
+    );
+
+    assert(
+        entryHost.smartContractStatus === "waiting",
+        "smartContractStatus starts waiting"
+    );
+
+    assert(
+        entryHost.players.every((player) => typeof player.wallet === "string"
+            && player.wallet.startsWith("EQ")),
+        "EntryPaymentSession carries registered wallets"
+    );
+
+    const entrySession = harness.roomLobbyBridge
+        ._entryPaymentByRoom.get(created.roomId);
+
+    assert(entrySession, "EntryPaymentSession must exist on server");
 
     host.disconnect();
 

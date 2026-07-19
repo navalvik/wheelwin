@@ -6,7 +6,7 @@
 
     display: grid;
 
-    grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.1fr) auto minmax(0, 1.2fr) minmax(0, 1fr);
 
     gap: clamp(12px, 1.5vw, 24px);
 
@@ -34,6 +34,11 @@
 }
 
 .playerPaymentRow__group--status {
+
+    align-items: stretch;
+}
+
+.playerPaymentRow__group--wallet {
 
     align-items: stretch;
 }
@@ -158,7 +163,8 @@
 
         grid-template-areas:
             "nick nick"
-            "icon status";
+            "icon wallet"
+            "status status";
 
         gap: 8px 10px;
 
@@ -173,6 +179,11 @@
     .playerPaymentRow__group--icon {
 
         grid-area: icon;
+    }
+
+    .playerPaymentRow__group--wallet {
+
+        grid-area: wallet;
     }
 
     .playerPaymentRow__group--status {

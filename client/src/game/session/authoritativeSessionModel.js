@@ -13,7 +13,8 @@
  * --------------------------------------|----------------------------------
  * roomId, maxPlayers, player roster     | AuthoritativeSession (C5.3/C5.4)
  * setup timer (startedAt/expiresAt)     | AuthoritativeSession.setup (C5.6C)
- * payment display (Page4)               | AuthoritativeSession.payment (C5.5)
+ * payment display (Page4)               | AuthoritativeSession.entryPayment (C5.8C)
+ * settlement payment (Page6)            | AuthoritativeSession.payment (C5.5)
  * baseStake / paymentGram (Page3)       | GameSessionContext (pending migration)
  * currentPhase (pre-game shell)         | GameSessionContext (InfoBar label gate)
  * gameState, clock, physics, winner     | AuthoritativeSession + gameplay contexts
@@ -37,6 +38,7 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
     VERIFY_COMPLETED: "VERIFY_COMPLETED",
     PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
+    ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -51,6 +53,7 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     clock: null,
     configuration: null,
     payment: null,
+    entryPayment: null,
     audit: null,
     winner: null,
     recovery: null,
@@ -234,6 +237,7 @@ export function authoritativeSessionReducer(state, action) {
                 gameId: payload.gameId ?? state.gameId,
                 maxPlayers: payload.maxPlayers ?? state.maxPlayers,
                 players,
+                entryPayment: null,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     gameStarted: true,
@@ -532,6 +536,37 @@ export function authoritativeSessionReducer(state, action) {
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     paymentStageReady: true
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.ENTRY_PAYMENT_SESSION_UPDATED: {
+
+            if (!payload || typeof payload !== "object") {
+
+                return state;
+
+            }
+
+            const players = Array.isArray(payload.players)
+                ? Object.freeze(
+                    payload.players.map((player) => Object.freeze({
+                        playerId: player?.playerId ?? null,
+                        wallet: player?.wallet ?? null,
+                        paymentStatus: player?.paymentStatus ?? null
+                    }))
+                )
+                : Object.freeze([]);
+
+            return stamp({
+                ...state,
+                roomId: payload.roomId ?? state.roomId,
+                entryPayment: Object.freeze({
+                    roomId: payload.roomId ?? null,
+                    createdAt: payload.createdAt ?? null,
+                    players,
+                    smartContractStatus: payload.smartContractStatus ?? null
                 })
             }, action.type);
 

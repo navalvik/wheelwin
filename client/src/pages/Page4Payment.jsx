@@ -5,41 +5,34 @@ import PlayerPaymentRow from "../components/PlayerPaymentRow";
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 
 import {
-    hasAuthoritativePlayers,
-    isAuthoritativePaymentComplete,
-    listAuthoritativePlayers,
-    mapAuthoritativePaymentToContractLabel,
-    mapAuthoritativePaymentToRowStatus,
-    mapAuthoritativePlayerToInfoRow,
-    shouldShowPaymentWaiting
+    isEntryPaymentComplete,
+    mapEntryPaymentRows,
+    mapEntrySmartContractLabel,
+    shouldShowEntryPaymentWaiting
 } from "../game/session";
-
-import { PAYMENT_STATUS } from "../utils/gameSession";
 
 import "../styles/page4payment.css";
 
 export default function Page4Payment({ onNavigate }) {
 
-    // C5.5 — payment display comes from AuthoritativeSession.payment only.
-    // Players come from AuthoritativeSession.players (C5.3).
-    // No GameSession mock statuses and no client auto-confirm.
+    // C5.8C — Page4 displays AuthoritativeSession.entryPayment only.
+    // Settlement AuthoritativeSession.payment / PaymentEngine are unused here.
     const authoritative = useAuthoritativeSession();
 
-    const playersReady = hasAuthoritativePlayers(authoritative.players);
+    const entryPayment = authoritative.entryPayment;
 
-    const payment = authoritative.payment;
+    const waiting = shouldShowEntryPaymentWaiting(entryPayment);
 
-    const rowStatus = mapAuthoritativePaymentToRowStatus(payment)
-        ?? PAYMENT_STATUS.waiting;
+    const nextEnabled = isEntryPaymentComplete(entryPayment);
 
-    const waiting = shouldShowPaymentWaiting(playersReady, payment);
+    const contractLabel = mapEntrySmartContractLabel(
+        entryPayment?.smartContractStatus
+    );
 
-    const nextEnabled = isAuthoritativePaymentComplete(payment);
-
-    const contractLabel = mapAuthoritativePaymentToContractLabel(payment);
-
-    const players = listAuthoritativePlayers(authoritative.players)
-        .map(mapAuthoritativePlayerToInfoRow);
+    const players = mapEntryPaymentRows(
+        entryPayment,
+        authoritative.players
+    );
 
     return (
 
@@ -88,7 +81,13 @@ export default function Page4Payment({ onNavigate }) {
 
                                     icon={player.icon}
 
-                                    paymentStatus={rowStatus}
+                                    walletRegistered={player.walletRegistered}
+
+                                    paymentStatus={player.paymentStatus}
+
+                                    paymentStatusLabel={
+                                        player.paymentStatusLabel
+                                    }
 
                                 />
 

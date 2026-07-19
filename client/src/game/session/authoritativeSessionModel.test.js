@@ -32,6 +32,8 @@ function assert(condition, message) {
 
     assert(state.payment === null, "payment must start empty");
 
+    assert(state.entryPayment === null, "entryPayment must start empty");
+
     assert(state.setup === null, "setup must start empty");
 
     assert(state.lifecycle.gameStarted === false, "lifecycle starts idle");
@@ -249,6 +251,47 @@ function assert(condition, message) {
     );
 
     console.log("  PAYMENT_STAGE_READY lifecycle stamp passed");
+
+}
+
+// C5.8C — ENTRY_PAYMENT_SESSION_UPDATED mirrors entry payment session.
+{
+
+    const state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.ENTRY_PAYMENT_SESSION_UPDATED,
+            payload: {
+                roomId: "ROOM01",
+                createdAt: 100,
+                smartContractStatus: "waiting",
+                players: [
+                    {
+                        playerId: "p1",
+                        wallet: "EQ" + "A".repeat(46),
+                        paymentStatus: "waiting"
+                    }
+                ]
+            }
+        }
+    );
+
+    assert(
+        state.entryPayment?.smartContractStatus === "waiting",
+        "entryPayment smartContractStatus stamped"
+    );
+
+    assert(
+        state.entryPayment?.players?.[0]?.paymentStatus === "waiting",
+        "entryPayment player paymentStatus stamped"
+    );
+
+    assert(
+        state.payment === null,
+        "ENTRY_PAYMENT_SESSION_UPDATED must not touch settlement payment"
+    );
+
+    console.log("  ENTRY_PAYMENT_SESSION_UPDATED mirror passed");
 
 }
 

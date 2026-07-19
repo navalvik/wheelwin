@@ -10,6 +10,7 @@ import {
     secretMatricesMatch
 } from "../models/SecretMatrixRules.js";
 import { normalizeTelegramWallet } from "../models/TelegramWalletRules.js";
+import { EntryPaymentSession } from "../models/EntryPaymentSession.js";
 import {
     isValidRoomId,
     normalizeRoomId
@@ -68,6 +69,10 @@ export class RoomLobbyBridge {
         this._continueToPaymentByRoom = new Map();
 
         this._paymentStageReadyByRoom = new Set();
+
+        // C5.8C — Entry Payment Session (Page4). One per room.
+        // Separate from winner-settlement PaymentEngine.
+        this._entryPaymentByRoom = new Map();
 
         // Secret Matrix submissions keyed by roomId → Map(playerId → cells).
         this._secretMatrixByRoom = new Map();
@@ -241,6 +246,8 @@ export class RoomLobbyBridge {
         this._continueToPaymentByRoom.clear();
 
         this._paymentStageReadyByRoom.clear();
+
+        this._entryPaymentByRoom.clear();
 
         this._secretMatrixByRoom.clear();
 
@@ -725,6 +732,18 @@ export class RoomLobbyBridge {
                 LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
                 { roomId }
             );
+
+            const entryPayment = this._entryPaymentByRoom.get(roomId);
+
+            if (entryPayment) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
+                    entryPayment.toSnapshot()
+                );
+
+            }
 
         }
 
@@ -1624,6 +1643,68 @@ export class RoomLobbyBridge {
 
         this._logger.info(`Payment stage ready | roomId=${roomId}`);
 
+        this._createAndBroadcastEntryPaymentSession(roomId);
+
+    }
+
+    _createAndBroadcastEntryPaymentSession(roomId) {
+
+        if (this._entryPaymentByRoom.has(roomId)) {
+
+            this._broadcastEntryPaymentSession(roomId);
+
+            return;
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            return;
+
+        }
+
+        const roster = room.players.map((playerId) => {
+
+            const identity = this._playerManager.getIdentity(playerId);
+
+            return {
+                playerId,
+                wallet: identity?.wallet ?? null
+            };
+
+        });
+
+        const session = EntryPaymentSession.createInitial(roomId, roster);
+
+        this._entryPaymentByRoom.set(roomId, session);
+
+        this._broadcastEntryPaymentSession(roomId);
+
+        this._logger.info(
+            `Entry payment session created | roomId=${roomId} | `
+                + `players=${session.players.length}`
+        );
+
+    }
+
+    _broadcastEntryPaymentSession(roomId) {
+
+        const session = this._entryPaymentByRoom.get(roomId);
+
+        if (!session) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
+            session.toSnapshot()
+        );
+
     }
 
     _revealVerifyRoster(roomId, room) {
@@ -1679,6 +1760,8 @@ export class RoomLobbyBridge {
         this._continueToPaymentByRoom.delete(roomId);
 
         this._paymentStageReadyByRoom.delete(roomId);
+
+        this._entryPaymentByRoom.delete(roomId);
 
         this._secretMatrixByRoom.delete(roomId);
 
