@@ -73,15 +73,19 @@ export function PhysicsProvider({ children }) {
 
         const engine = engineRef.current;
 
-        engine.handleGameState(gameState);
-
+        // C5.9B — under Server Authority the client is apply-only.
+        // Never drive prepare() / local brake-speed init from GAME_STATE.
         if (isServerAuthoritative()) {
+
+            engine.stop();
 
             publishDiscrete();
 
             return undefined;
 
         }
+
+        engine.handleGameState(gameState);
 
         if (engine.shouldRunLoop(gameState)) {
 

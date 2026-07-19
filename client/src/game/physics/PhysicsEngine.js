@@ -2,6 +2,8 @@ import { GAME_STATES } from "../GameState";
 
 import { BUTTON_STATES } from "../centralButton/ButtonState";
 
+import { isServerAuthoritative } from "../gameAuthority";
+
 import {
     BASE_WHEEL_SPEED_DEG,
     BRAKE_PRESS_DECELERATION_BOOST,
@@ -60,6 +62,13 @@ export class PhysicsEngine {
     }
 
     prepare() {
+
+        // C5.9B — never invent angles/speeds while the server owns gameplay.
+        if (isServerAuthoritative()) {
+
+            return;
+
+        }
 
         this.wheelAngle = 0;
 
@@ -434,6 +443,16 @@ export class PhysicsEngine {
     }
 
     handleGameState(gameState) {
+
+        // C5.9B — apply-only under Server Authority. Stop any local loop;
+        // do not prepare, brake-init, or invent velocity from GAME_STATE.
+        if (isServerAuthoritative()) {
+
+            this.stop();
+
+            return;
+
+        }
 
         switch (gameState) {
 
