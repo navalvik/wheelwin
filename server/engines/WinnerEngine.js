@@ -97,10 +97,14 @@ export class WinnerEngine {
 
         const { configuration, physics } = this._readResolutionInputs(gameId);
 
+        const triangleFinalAngle = Number.isFinite(physics.runtime.triangleAngle)
+            ? physics.runtime.triangleAngle
+            : 0;
+
         const winningSector = this._sectorResolver.resolve({
             configuration,
             finalWheelAngleRadians: physics.runtime.angle,
-            triangleAngleDegrees: configuration.triangle.startAngle
+            triangleAngleDegrees: triangleFinalAngle * (180 / Math.PI)
         });
 
         this._logger.info("Winning Sector Resolved");
@@ -155,12 +159,10 @@ export class WinnerEngine {
 
         this._assertInitialized();
 
+        // P5.8 — Idempotent: repeated calls return the frozen stored result.
         if (this._results.has(gameId)) {
 
-            throw new WinnerResolutionError({
-                gameId,
-                reason: "Result already exists for game"
-            });
+            return this._results.get(gameId);
 
         }
 
@@ -168,10 +170,18 @@ export class WinnerEngine {
 
             const { configuration, physics } = this._readResolutionInputs(gameId);
 
+            const wheelFinalAngle = physics.runtime.angle;
+
+            const triangleFinalAngle = Number.isFinite(physics.runtime.triangleAngle)
+                ? physics.runtime.triangleAngle
+                : 0;
+
+            const triangleAngleDegrees = triangleFinalAngle * (180 / Math.PI);
+
             const winningSector = this._sectorResolver.resolve({
                 configuration,
-                finalWheelAngleRadians: physics.runtime.angle,
-                triangleAngleDegrees: configuration.triangle.startAngle
+                finalWheelAngleRadians: wheelFinalAngle,
+                triangleAngleDegrees
             });
 
             this._logger.info("Winning Sector Resolved");
@@ -179,7 +189,7 @@ export class WinnerEngine {
             this._emit(EVENT_TYPES.WINNING_SECTOR_RESOLVED, {
                 gameId,
                 winningSector,
-                finalAngle: physics.runtime.angle,
+                finalAngle: wheelFinalAngle,
                 timestamp: Date.now()
             });
 
@@ -190,14 +200,20 @@ export class WinnerEngine {
 
             this._logger.info("Winning Player Resolved");
 
+            const resolvedAt = Date.now();
+
             const result = {
                 gameId,
                 winningSector,
                 winningPlayer,
+                winnerPlayerId: winningPlayer.playerId,
+                winnerSectorIndex: winningSector.index,
                 prize: null,
                 payout: null,
-                finalAngle: physics.runtime.angle,
-                resolvedAt: Date.now(),
+                finalAngle: wheelFinalAngle,
+                wheelFinalAngle,
+                triangleFinalAngle,
+                resolvedAt,
                 traceSeed: configuration.traceSeed,
                 metadata: {
                     configurationVersion: configuration.configurationVersion
@@ -217,6 +233,8 @@ export class WinnerEngine {
                 winningSector,
                 winningPlayer,
                 finalAngle: frozenResult.finalAngle,
+                wheelFinalAngle: frozenResult.wheelFinalAngle,
+                triangleFinalAngle: frozenResult.triangleFinalAngle,
                 timestamp: frozenResult.resolvedAt
             });
 

@@ -3,11 +3,11 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 
 /**
- * C3.8 / P5.7 — Winner Activation (deferred).
+ * P5.8 — Winner Activation.
  *
- * P5.7: BrakePhaseController owns BRAKE physics. WinnerEngine is not invoked
- * on PHYSICS_STOPPED. RESULT / winner determination remains for a later stage.
- * GameplayPhaseLifecycle still owns phase transitions.
+ * PHYSICS_STOPPED → WinnerEngine.resolveResult() → WINNER_DETERMINED (once).
+ * BrakePhaseController owns BRAKE physics (P5.7).
+ * GameplayPhaseLifecycle owns RESULT / Page6 transitions (deferred).
  */
 export class WinnerActivation {
 
@@ -118,10 +118,9 @@ export class WinnerActivation {
         }
 
         // P5.7 — BrakePhaseController owns Page5 BRAKE physics.
-        // WinnerActivation must not call applyBrake or resolve winners here.
         this._brakeTriggered.add(gameId);
 
-        this._logStep("BRAKE owned by BrakePhaseController (winner deferred)");
+        this._logStep("BRAKE owned by BrakePhaseController");
 
     }
 
@@ -129,17 +128,65 @@ export class WinnerActivation {
 
         const gameId = payload?.gameId;
 
-        if (!gameId) {
+        if (!gameId || this._resolved.has(gameId)) {
 
             return;
 
         }
 
-        // P5.7 — do not determine winner on PHYSICS_STOPPED.
-        // RESULT / WinnerEngine activation is deferred to a later stage.
-        this._logStep(
-            `PHYSICS_STOPPED ignored for winner resolve | gameId=${gameId}`
-        );
+        this._resolved.add(gameId);
+
+        this._logStep("Wheel stopped");
+
+        this._logStep("WinnerEngine.resolveResult()");
+
+        let result;
+
+        try {
+
+            result = this._winnerEngine.resolveResult(gameId);
+
+        } catch (error) {
+
+            this._logger.error(
+                `Winner determination failed | gameId=${gameId} | reason=${error.message}`
+            );
+
+            this._resolved.delete(gameId);
+
+            return;
+
+        }
+
+        this._logStep(`Winning Sector ${result.winningSector?.sectorId ?? "?"}`);
+
+        this._logStep(`Winning Player ${result.winningPlayer?.playerId ?? "?"}`);
+
+        this._emit(EVENT_TYPES.WINNER_DETERMINED, {
+            gameId,
+            winningSector: {
+                index: result.winningSector?.index ?? null,
+                sectorId: result.winningSector?.sectorId ?? null,
+                color: result.winningSector?.color ?? null,
+                icon: result.winningSector?.icon ?? null
+            },
+            winningPlayerId: result.winningPlayer?.playerId ?? null,
+            winnerPlayerId: result.winnerPlayerId
+                ?? result.winningPlayer?.playerId
+                ?? null,
+            winningPlayerColor: result.winningPlayer?.color ?? null,
+            winningPlayerIcon: result.winningPlayer?.icon ?? null,
+            winnerSectorIndex: result.winnerSectorIndex
+                ?? result.winningSector?.index
+                ?? null,
+            finalWheelAngle: result.finalAngle ?? result.wheelFinalAngle ?? null,
+            wheelFinalAngle: result.wheelFinalAngle ?? result.finalAngle ?? null,
+            triangleFinalAngle: result.triangleFinalAngle ?? null,
+            resolvedAt: result.resolvedAt ?? null,
+            serverTimestamp: result.resolvedAt ?? Date.now()
+        });
+
+        this._logStep("WINNER_DETERMINED");
 
     }
 
@@ -153,11 +200,10 @@ export class WinnerActivation {
 
         }
 
-        // P5.3 — GameplayPhaseLifecycle owns the BRAKE → RESULT transition.
-        // Winner resolution still runs here; RESULT entry is lifecycle-timed.
+        // RESULT / Page6 remain lifecycle-owned — not started here (P5.8).
         this._resultTransitioned.add(gameId);
 
-        this._logStep("Winner ready (RESULT transition deferred to lifecycle)");
+        this._logStep("Winner ready (RESULT / Page6 deferred)");
 
     }
 

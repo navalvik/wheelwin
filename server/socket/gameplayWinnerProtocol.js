@@ -6,23 +6,44 @@ const RADIANS_TO_DEGREES = 180 / Math.PI;
 
 export function buildWinnerResultPayload(winnerPayload) {
 
-    const finalAngleRadians = winnerPayload?.finalWheelAngle ?? 0;
+    const finalAngleRadians = winnerPayload?.wheelFinalAngle
+        ?? winnerPayload?.finalWheelAngle
+        ?? 0;
+
+    const triangleAngleRadians = winnerPayload?.triangleFinalAngle ?? null;
 
     return {
         gameId: winnerPayload?.gameId ?? null,
         winner: {
-            id: winnerPayload?.winningPlayerId ?? null,
+            id: winnerPayload?.winnerPlayerId
+                ?? winnerPayload?.winningPlayerId
+                ?? null,
             color: winnerPayload?.winningPlayerColor ?? null,
             icon: winnerPayload?.winningPlayerIcon ?? null
         },
         winningSector: {
-            index: winnerPayload?.winningSector?.index ?? null,
+            index: winnerPayload?.winnerSectorIndex
+                ?? winnerPayload?.winningSector?.index
+                ?? null,
             sectorId: winnerPayload?.winningSector?.sectorId ?? null,
             color: winnerPayload?.winningSector?.color ?? null,
             icon: winnerPayload?.winningSector?.icon ?? null
         },
+        winnerPlayerId: winnerPayload?.winnerPlayerId
+            ?? winnerPayload?.winningPlayerId
+            ?? null,
+        winnerSectorIndex: winnerPayload?.winnerSectorIndex
+            ?? winnerPayload?.winningSector?.index
+            ?? null,
         finalWheelAngle: finalAngleRadians * RADIANS_TO_DEGREES,
-        serverTimestamp: winnerPayload?.serverTimestamp ?? Date.now()
+        wheelFinalAngle: finalAngleRadians * RADIANS_TO_DEGREES,
+        triangleFinalAngle: Number.isFinite(triangleAngleRadians)
+            ? triangleAngleRadians * RADIANS_TO_DEGREES
+            : null,
+        resolvedAt: winnerPayload?.resolvedAt ?? null,
+        serverTimestamp: winnerPayload?.serverTimestamp
+            ?? winnerPayload?.resolvedAt
+            ?? Date.now()
     };
 
 }

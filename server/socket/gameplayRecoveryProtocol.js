@@ -16,23 +16,42 @@ function mapWinnerToGameResult(gameId, winner, recoveredAt) {
 
     }
 
-    const finalAngleRadians = winner.finalAngle ?? 0;
+    const finalAngleRadians = winner.wheelFinalAngle
+        ?? winner.finalAngle
+        ?? 0;
+
+    const triangleAngleRadians = winner.triangleFinalAngle;
 
     return {
         gameId,
         winner: {
-            id: winner.winningPlayer?.playerId ?? null,
+            id: winner.winnerPlayerId
+                ?? winner.winningPlayer?.playerId
+                ?? null,
             color: winner.winningPlayer?.color ?? null,
             icon: winner.winningPlayer?.icon ?? null
         },
         winningSector: {
-            index: winner.winningSector?.index ?? null,
+            index: winner.winnerSectorIndex
+                ?? winner.winningSector?.index
+                ?? null,
             sectorId: winner.winningSector?.sectorId ?? null,
             color: winner.winningSector?.color ?? null,
             icon: winner.winningSector?.icon ?? null
         },
+        winnerPlayerId: winner.winnerPlayerId
+            ?? winner.winningPlayer?.playerId
+            ?? null,
+        winnerSectorIndex: winner.winnerSectorIndex
+            ?? winner.winningSector?.index
+            ?? null,
         finalWheelAngle: finalAngleRadians * RADIANS_TO_DEGREES,
-        serverTimestamp: recoveredAt ?? Date.now()
+        wheelFinalAngle: finalAngleRadians * RADIANS_TO_DEGREES,
+        triangleFinalAngle: Number.isFinite(triangleAngleRadians)
+            ? triangleAngleRadians * RADIANS_TO_DEGREES
+            : null,
+        resolvedAt: winner.resolvedAt ?? null,
+        serverTimestamp: recoveredAt ?? winner.resolvedAt ?? Date.now()
     };
 
 }

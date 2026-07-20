@@ -91,7 +91,7 @@ const geometryAdapter = new GeometryAdapter({
 
 const sectorIndex = geometryAdapter.resolveSectorIndex({
     finalWheelAngleRadians: 0,
-    triangleAngleDegrees: configuration.triangle.startAngle,
+    triangleAngleDegrees: 0,
     sectorCount: configuration.sectors.length
 });
 
@@ -117,6 +117,23 @@ assert(
 assert(result.prize === null && result.payout === null, "prize fields should be null");
 
 assert(Object.isFrozen(result), "result should be frozen");
+
+const replayed = winnerEngine.resolveResult(gameId);
+
+assert(
+    replayed === result,
+    "repeated resolveResult must return the stored result"
+);
+
+assert(
+    replayed.winnerPlayerId === result.winningPlayer.playerId,
+    "winnerPlayerId alias must match winning player"
+);
+
+assert(
+    Number.isFinite(replayed.triangleFinalAngle),
+    "triangleFinalAngle must be stored"
+);
 
 const replay = winnerEngine.resolveWinningSector(gameId);
 
