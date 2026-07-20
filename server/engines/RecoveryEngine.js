@@ -16,6 +16,7 @@ export class RecoveryEngine {
         inputAuthority,
         winnerEngine,
         paymentEngine,
+        resultActivation = null,
         metricsService = null
     }) {
 
@@ -38,6 +39,8 @@ export class RecoveryEngine {
         this._winnerEngine = winnerEngine;
 
         this._paymentEngine = paymentEngine;
+
+        this._resultActivation = resultActivation;
 
         this._metricsService = metricsService;
 
@@ -341,7 +344,8 @@ export class RecoveryEngine {
             physics,
             input,
             winner: this._winnerEngine.getResult(gameId),
-            payment: this._paymentEngine.getPayment(gameId)
+            payment: this._paymentEngine.getPayment(gameId),
+            openPage6: this._resultActivation?.hasOpenedPage6(gameId) === true
         };
 
     }

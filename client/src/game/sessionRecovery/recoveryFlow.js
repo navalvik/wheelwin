@@ -82,7 +82,21 @@ export function resolveGameplayRecoveryPage(snapshot) {
 
     }
 
-    if (snapshot.gameResult || snapshot.gameState === GAME_STATES.RESULT) {
+    // P5.9 — Page6 only after authoritative OPEN_PAGE6.
+    if (snapshot.openPage6 === true) {
+
+        return APP_PAGES.RESULT;
+
+    }
+
+    // During RESULT (4s) stay on Page5 with winner presentation.
+    if (snapshot.gameState === GAME_STATES.RESULT) {
+
+        return APP_PAGES.GAMEPLAY;
+
+    }
+
+    if (snapshot.gameResult) {
 
         return APP_PAGES.RESULT;
 

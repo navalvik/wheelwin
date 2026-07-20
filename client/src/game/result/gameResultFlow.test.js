@@ -136,7 +136,7 @@ const AUTHORITATIVE_PAYLOAD = {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation — occurs exactly once, only from Page5, only with a result.
+// Navigation — P5.9: GAME_RESULT never navigates; OPEN_PAGE6 owns Page6.
 // ---------------------------------------------------------------------------
 
 {
@@ -154,34 +154,16 @@ const AUTHORITATIVE_PAYLOAD = {
     });
 
     assert(
-        !shouldNavigateToResult(state, 6),
-        "navigation should only trigger from Page5"
-    );
-
-    assert(
-        shouldNavigateToResult(state, GAME_RESULT_PAGE.PAGE5),
-        "navigation should trigger once result exists on Page5"
-    );
-
-    state = gameResultReducer(state, { type: GAME_RESULT_ACTIONS.NAVIGATED });
-
-    assert(
         !shouldNavigateToResult(state, GAME_RESULT_PAGE.PAGE5),
-        "navigation must not trigger a second time"
+        "GAME_RESULT must not navigate to Page6 (OPEN_PAGE6 owns transition)"
     );
-
-    // Even after arriving on Page6, repeated result messages do not re-navigate.
-    const repeated = gameResultReducer(state, {
-        type: GAME_RESULT_ACTIONS.AUTHORITATIVE_RESULT,
-        payload: AUTHORITATIVE_PAYLOAD
-    });
 
     assert(
-        !shouldNavigateToResult(repeated, GAME_RESULT_PAGE.PAGE6),
-        "repeated GAME_RESULT must not reopen Page6"
+        !shouldNavigateToResult(state, GAME_RESULT_PAGE.PAGE6),
+        "GAME_RESULT must not reopen Page6"
     );
 
-    console.log("  navigation: occurs exactly once passed");
+    console.log("  navigation: GAME_RESULT does not navigate (P5.9) passed");
 
 }
 

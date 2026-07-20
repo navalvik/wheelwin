@@ -69,6 +69,7 @@ import { BrakePhaseController } from "./gameplay/BrakePhaseController.js";
 import { SpeedActivation } from "./gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
+import { ResultActivation } from "./gameplay/ResultActivation.js";
 import { PaymentActivation } from "./gameplay/PaymentActivation.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
@@ -139,6 +140,8 @@ class WheelWinApplication {
         this._gameClockBroadcaster = null;
 
         this._winnerActivation = null;
+
+        this._resultActivation = null;
 
         this._paymentActivation = null;
 
@@ -380,6 +383,18 @@ class WheelWinApplication {
 
         this._logger.startupLine("WinnerActivation");
 
+        this._resultActivation = new ResultActivation({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            gameClockEngine: this._engines.gameClockEngine,
+            winnerEngine: this._engines.winnerEngine,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._resultActivation.initialize();
+
+        this._logger.startupLine("ResultActivation");
+
         this._paymentActivation = new PaymentActivation({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -402,6 +417,7 @@ class WheelWinApplication {
             configurationEngine: this._engines.configurationEngine,
             winnerEngine: this._engines.winnerEngine,
             winnerActivation: this._winnerActivation,
+            resultActivation: this._resultActivation,
             speedActivation: this._speedActivation,
             paymentEngine: this._engines.paymentEngine,
             paymentActivation: this._paymentActivation,
@@ -495,6 +511,7 @@ class WheelWinApplication {
             inputAuthority: this._inputAuthority,
             winnerEngine: this._engines.winnerEngine,
             paymentEngine: this._engines.paymentEngine,
+            resultActivation: this._resultActivation,
             metricsService: this._metricsService
         });
 
@@ -588,6 +605,7 @@ class WheelWinApplication {
             offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
             winnerActivation: Boolean(this._winnerActivation),
+            resultActivation: Boolean(this._resultActivation),
             paymentActivation: Boolean(this._paymentActivation),
             auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
@@ -686,6 +704,7 @@ class WheelWinApplication {
             offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
             winnerActivation: Boolean(this._winnerActivation),
+            resultActivation: Boolean(this._resultActivation),
             paymentActivation: Boolean(this._paymentActivation),
             auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
@@ -807,6 +826,16 @@ class WheelWinApplication {
             if (this._paymentActivation) {
 
                 this._paymentActivation.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("resultActivation", () => {
+
+            if (this._resultActivation) {
+
+                this._resultActivation.shutdown();
 
             }
 

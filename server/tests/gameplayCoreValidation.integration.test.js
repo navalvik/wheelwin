@@ -621,20 +621,12 @@ function runDeterministicGame(seed) {
             reason: "test"
         });
 
-        let guard = 0;
+        // P5.9 — Winner resolution is independent of RESULT clock activation.
+        stack.physicsEngine.stopSimulation(gameId);
 
-        while (
-            stack.gameStateEngine.getState(gameId) !== GAME_STATES.RESULT
-            && guard < 2000
-        ) {
+        const result = stack.winnerEngine.resolveResult(gameId);
 
-            stack.simulationLoop._onTick();
-
-            guard += 1;
-
-        }
-
-        const result = stack.winnerEngine.getResult(gameId);
+        assert(result, "determinism run must resolve a winner");
 
         return {
             finalAngle: result.finalAngle,

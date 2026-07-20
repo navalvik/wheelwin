@@ -305,6 +305,15 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleOpenPage6 = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.OPEN_PAGE6,
+                payload
+            });
+
+        };
+
         this._socket.on("connect", this._handleConnect);
 
         this._socket.on("disconnect", this._handleDisconnect);
@@ -358,6 +367,11 @@ export class SocketSyncLayer {
         this._socket.on(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
             this._handleOpenPage5
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.OPEN_PAGE6,
+            this._handleOpenPage6
         );
 
         this._bound = true;
@@ -425,6 +439,11 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
             this._handleOpenPage5
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.OPEN_PAGE6,
+            this._handleOpenPage6
         );
 
         this._bound = false;

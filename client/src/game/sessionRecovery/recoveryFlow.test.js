@@ -84,8 +84,17 @@ function assert(condition, message) {
         resolveGameplayRecoveryPage({
             gameState: GAME_STATES.RESULT,
             gameResult: { winner: { id: "p1" } }
+        }) === APP_PAGES.GAMEPLAY,
+        "RESULT phase restores Page5 for winner presentation"
+    );
+
+    assert(
+        resolveGameplayRecoveryPage({
+            gameState: GAME_STATES.RESULT,
+            gameResult: { winner: { id: "p1" } },
+            openPage6: true
         }) === APP_PAGES.RESULT,
-        "finished game restores Page6"
+        "OPEN_PAGE6 restores Page6"
     );
 
     assert(

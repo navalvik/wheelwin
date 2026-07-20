@@ -5,8 +5,8 @@ import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 import { useRegisterEngineModule } from "../context/EngineBridgeContext";
 
 /**
- * R1.3D — Clients open Page5 only when the server broadcasts OPEN_PAGE5.
- * Production entry-payment completion and DEBUG_START_GAME share this path.
+ * R1.3D / P5.9 — Clients open Page5 / Page6 only on authoritative server events.
+ * Production entry-payment → OPEN_PAGE5; RESULT completion → OPEN_PAGE6.
  */
 export default function OpenPage5Navigator({ onNavigate }) {
 
@@ -30,6 +30,11 @@ export default function OpenPage5Navigator({ onNavigate }) {
             onOpenPage5: () => {
 
                 onNavigateRef.current?.(APP_PAGES.GAMEPLAY);
+
+            },
+            onOpenPage6: () => {
+
+                onNavigateRef.current?.(APP_PAGES.RESULT);
 
             }
         };

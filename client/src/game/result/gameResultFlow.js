@@ -258,17 +258,12 @@ export function gameResultReducer(state, action) {
 }
 
 /**
- * Decides whether the client should automatically open Page6. Navigation is
- * allowed only once, only when an authoritative result exists, and only while
- * the player is still on Page5.
+ * P5.9 — Page6 navigation is owned by OPEN_PAGE6, not GAME_RESULT.
+ * Kept for tests / legacy callers; always returns false.
  */
-export function shouldNavigateToResult(state, currentPage) {
+export function shouldNavigateToResult(_state, _currentPage) {
 
-    return Boolean(
-        state.result
-        && !state.navigated
-        && currentPage === GAME_RESULT_PAGE.PAGE5
-    );
+    return false;
 
 }
 

@@ -12,9 +12,7 @@ import { DEV_MODE } from "../config/devMode";
 import {
     GAME_RESULT_ACTIONS,
     GAME_RESULT_INITIAL_STATE,
-    GAME_RESULT_PAGE,
     gameResultReducer,
-    shouldNavigateToResult,
     shouldResetResult
 } from "../game/result/gameResultFlow";
 
@@ -38,7 +36,7 @@ function devLog(message) {
  * authoritative server payload, automatically opens Page6 exactly once, and
  * exposes the result to Page6 for presentation only.
  */
-export function GameResultProvider({ children, currentPage, onNavigate }) {
+export function GameResultProvider({ children, currentPage, onNavigate: _onNavigate }) {
 
     const [state, dispatch] = useReducer(
         gameResultReducer,
@@ -123,23 +121,8 @@ export function GameResultProvider({ children, currentPage, onNavigate }) {
 
     }, [currentPage]);
 
-    // Automatic, one-time navigation to Page6 once the authoritative result
-    // arrives while the player is still on Page5.
-    useEffect(() => {
-
-        if (!shouldNavigateToResult(state, currentPage)) {
-
-            return;
-
-        }
-
-        devLog("Opening Page6");
-
-        dispatch({ type: GAME_RESULT_ACTIONS.NAVIGATED });
-
-        onNavigate(GAME_RESULT_PAGE.PAGE6);
-
-    }, [state, currentPage, onNavigate]);
+    // P5.9 — Page6 opens only via authoritative OPEN_PAGE6 (OpenPage5Navigator).
+    // GAME_RESULT is stored for RESULT presentation on Page5; it does not navigate.
 
     const value = useMemo(() => ({
         result: state.result,

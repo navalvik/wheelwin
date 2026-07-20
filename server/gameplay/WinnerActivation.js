@@ -200,10 +200,10 @@ export class WinnerActivation {
 
         }
 
-        // RESULT / Page6 remain lifecycle-owned — not started here (P5.8).
+        // RESULT / Page6 owned by ResultActivation + GameplayPhaseLifecycle (P5.9).
         this._resultTransitioned.add(gameId);
 
-        this._logStep("Winner ready (RESULT / Page6 deferred)");
+        this._logStep("Winner ready (ResultActivation owns RESULT)");
 
     }
 

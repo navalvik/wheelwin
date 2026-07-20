@@ -1,3 +1,4 @@
+import { TIMER_PHASES } from "../catalog/Timers.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import {
@@ -108,6 +109,9 @@ export class GameClockEngine {
             totalPausedMs: 0,
             pauseStartedAt: null,
             timeoutHandle: null,
+            // P5.9 — RESULT starts only via beginResultPhase (ResultActivation).
+            awaitingResultActivation: false,
+            resultPhaseStarted: false,
             history: []
         };
 
@@ -377,6 +381,68 @@ export class GameClockEngine {
 
     }
 
+    /**
+     * P5.9 — Begin the RESULT phase after winner determination.
+     * Called only by ResultActivation. Schedules the catalog RESULT duration
+     * (4s) on GameClockEngine — no client timers.
+     */
+    beginResultPhase(gameId) {
+
+        this._assertInitialized();
+
+        const record = this._getClockOrLog(gameId, "begin RESULT for");
+
+        if (!record || !record.running || record.paused) {
+
+            return null;
+
+        }
+
+        if (record.resultPhaseStarted
+            || record.currentPhase === TIMER_PHASES.RESULT) {
+
+            return this._createSnapshot(record);
+
+        }
+
+        const brakeJustCompleted = record.currentPhase === TIMER_PHASES.BRAKE;
+
+        if (!brakeJustCompleted && !record.awaitingResultActivation) {
+
+            this._logger.error(
+                `RESULT start failed: clock is not awaiting RESULT (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        this._clearPhaseTimeout(record);
+
+        const now = Date.now();
+
+        record.awaitingResultActivation = false;
+
+        record.resultPhaseStarted = true;
+
+        record.currentPhase = TIMER_PHASES.RESULT;
+
+        record.phaseStartedAt = now;
+
+        record.phaseEndsAt = this._computePhaseEndsAt(TIMER_PHASES.RESULT, now);
+
+        record.phaseRemainingMs = this._getPhaseDuration(TIMER_PHASES.RESULT);
+
+        this._logger.info("RESULT Phase Started");
+
+        this._emitPhaseStarted(record);
+
+        this._schedulePhaseTimeout(record);
+
+        return this._createSnapshot(record);
+
+    }
+
     restorePhaseSchedule(gameId, { phase, phaseStartedAt, phaseEndsAt }) {
 
         this._assertInitialized();
@@ -596,6 +662,22 @@ export class GameClockEngine {
                 record.elapsed = elapsed;
 
             }
+
+            return;
+
+        }
+
+        // P5.9 — BRAKE → RESULT is gated by ResultActivation (after WINNER_DETERMINED).
+        if (phase === TIMER_PHASES.BRAKE
+            && nextPhase === TIMER_PHASES.RESULT) {
+
+            if (record.resultPhaseStarted) {
+
+                return;
+
+            }
+
+            record.awaitingResultActivation = true;
 
             return;
 

@@ -208,6 +208,11 @@ export class EngineBridge {
                 modules.pageNavigation?.onOpenPage5?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.OPEN_PAGE6]: (payload) => {
+
+                modules.pageNavigation?.onOpenPage6?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.SESSION_SNAPSHOT]: (payload) => {
 
                 modules.sessionRecovery?.handleSnapshot?.(payload);

@@ -166,6 +166,12 @@ await waitForPhase(eventBus, gameId, TIMER_PHASES.SPEED);
 
 await waitForPhase(eventBus, gameId, TIMER_PHASES.BRAKE);
 
+// P5.9 — RESULT starts only via beginResultPhase after BRAKE completes.
+assert(
+    gameClockEngine.beginResultPhase(gameId),
+    "beginResultPhase should start RESULT after BRAKE"
+);
+
 await waitForPhase(eventBus, gameId, TIMER_PHASES.RESULT);
 
 gameClockEngine.stopClock(gameId);

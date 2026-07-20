@@ -91,14 +91,9 @@ export function mapGameStateToButtonState(gameState, resultOutcome) {
             return BUTTON_STATES.SPEED;
 
         case GAME_STATES.BRAKE:
-
-            return BUTTON_STATES.LOCKED;
-
         case GAME_STATES.RESULT:
 
-            return resultOutcome === RESULT_OUTCOMES.LOST
-                ? BUTTON_STATES.LOST
-                : BUTTON_STATES.WIN;
+            return BUTTON_STATES.LOCKED;
 
         default:
 

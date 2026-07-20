@@ -14,6 +14,8 @@ import { GameplayPhaseLifecycle } from "../../gameplay/GameplayPhaseLifecycle.js
 import { SpeedActivation } from "../../gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "../../gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
+import { ResultActivation } from "../../gameplay/ResultActivation.js";
+import { BrakePhaseController } from "../../gameplay/BrakePhaseController.js";
 import { PaymentActivation } from "../../gameplay/PaymentActivation.js";
 import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "../../gameplay/SetupSessionLifecycle.js";
@@ -234,6 +236,26 @@ export function wireGameplayBootstrap({
 
     winnerActivation.initialize();
 
+    const brakePhaseController = new BrakePhaseController({
+        logger,
+        eventBus,
+        physicsEngine,
+        gameClockEngine,
+        devMode
+    });
+
+    brakePhaseController.initialize();
+
+    const resultActivation = new ResultActivation({
+        logger,
+        eventBus,
+        gameClockEngine,
+        winnerEngine,
+        devMode
+    });
+
+    resultActivation.initialize();
+
     const paymentEngine = new PaymentEngine({
         logger,
         eventBus,
@@ -270,6 +292,7 @@ export function wireGameplayBootstrap({
             configurationEngine,
             winnerEngine,
             winnerActivation,
+            resultActivation,
             speedActivation,
             offlineInputContinuation,
             paymentEngine,
@@ -313,6 +336,8 @@ export function wireGameplayBootstrap({
         offlineInputContinuation,
         winnerEngine,
         winnerActivation,
+        brakePhaseController,
+        resultActivation,
         paymentEngine,
         paymentActivation,
         gameplayLifecycle,
@@ -344,6 +369,18 @@ export function shutdownGameplayBootstrap(engines) {
     engines.paymentActivation.shutdown();
 
     engines.paymentEngine.shutdown();
+
+    if (engines.resultActivation) {
+
+        engines.resultActivation.shutdown();
+
+    }
+
+    if (engines.brakePhaseController) {
+
+        engines.brakePhaseController.shutdown();
+
+    }
 
     engines.winnerActivation.shutdown();
 

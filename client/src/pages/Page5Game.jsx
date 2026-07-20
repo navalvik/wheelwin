@@ -6,6 +6,7 @@ import { DEV_MODE } from "../config/devMode";
 
 import WheelPlaceholder from "../components/page5/WheelPlaceholder";
 import Page5PlayerPanel from "../components/page5/Page5PlayerPanel";
+import Page5ResultOverlay from "../components/page5/Page5ResultOverlay";
 
 import { useCentralButton } from "../context/CentralButtonContext";
 import { useGameState } from "../context/GameStateContext";
@@ -17,9 +18,8 @@ import "../styles/page5game.css";
 
 export default function Page5Game({ onNavigate: _onNavigate }) {
 
-    // C5.9C — no client-owned leave during active gameplay.
-    // Page5 → Page6 is driven only by authoritative GAME_RESULT
-    // (GameResultContext). Back/Next must not navigate locally.
+    // P5.9 — Page5 → Page6 only via authoritative OPEN_PAGE6.
+    // GAME_RESULT is stored for RESULT presentation; it does not navigate.
 
     const { gameState } = useGameState();
 
@@ -29,9 +29,12 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
     const isBrakePhase = gameState === GAME_STATES.BRAKE;
 
+    const isResultPhase = gameState === GAME_STATES.RESULT;
+
     const buttonInputDisabled = isReadyPhase
         || isSelfTestPhase
-        || isBrakePhase;
+        || isBrakePhase
+        || isResultPhase;
 
     const { lastAck } = useInputAck();
 
@@ -45,9 +48,6 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
     useEffect(() => () => {
 
-        // Page5 is presentation only. The gameplay engine providers now live at
-        // the flow root, so navigating away from Page5 no longer tears down any
-        // socket subscription. This log simply marks the visual disposal.
         if (DEV_MODE) {
 
             console.debug("[GameResult] Page5 disposed");
@@ -101,6 +101,8 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
                                 onButtonPress={buttonInputDisabled ? undefined : press}
                                 onButtonRelease={buttonInputDisabled ? undefined : release}
                             />
+
+                            {isResultPhase && <Page5ResultOverlay />}
 
                         </div>
 

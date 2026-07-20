@@ -71,6 +71,53 @@
     background: rgba(214, 40, 40, 0.92);
 }
 
+.page5ResultOverlay {
+
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+
+    pointer-events: none;
+
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.page5ResultOverlay__label {
+
+    color: #ffffff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+}
+
+.page5ResultOverlay__swatch {
+
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.85);
+}
+
+.page5ResultOverlay__icon {
+
+    color: #ffffff;
+    font-size: 1.6rem;
+    font-weight: 700;
+}
+
+.page5ResultOverlay__meta {
+
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
 .playerPanel--ready .playerCard--ready {
 
     display: grid;
