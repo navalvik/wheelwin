@@ -65,10 +65,6 @@ import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
-import { GameplayTimerLifecycle } from "./gameplay/GameplayTimerLifecycle.js";
-import { GameplayTimerActivation } from "./gameplay/GameplayTimerActivation.js";
-import { AutoFinishActivation } from "./gameplay/AutoFinishActivation.js";
-import { loadGameplayTimerConfig } from "./config/gameplayTimer.js";
 
 class WheelWinApplication {
     constructor() {
@@ -137,14 +133,6 @@ class WheelWinApplication {
 
         this._setupSessionLifecycle = null;
 
-        this._gameplayTimerLifecycle = null;
-
-        this._gameplayTimerActivation = null;
-
-        this._autoFinishActivation = null;
-
-        this._gameplayTimerConfig = null;
-
         this._isShuttingDown = false;
 
     }
@@ -188,8 +176,6 @@ class WheelWinApplication {
         );
 
         this._roomConfig = loadRoomConfig();
-
-        this._gameplayTimerConfig = loadGameplayTimerConfig();
 
         validateStartupConfiguration({
             serverConfig: this._serverConfig,
@@ -270,24 +256,9 @@ class WheelWinApplication {
 
         this._logger.startupLine("SetupSessionLifecycle");
 
-        this._gameplayTimerLifecycle = new GameplayTimerLifecycle({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            gameplayTimerConfig: this._gameplayTimerConfig,
-            devMode: this._productionConfig.isDevelopment
-        });
-
-        this._gameplayTimerLifecycle.initialize();
-
         this._services.timerService.registerSetupSessionLifecycle(
             this._setupSessionLifecycle
         );
-
-        this._services.timerService.registerGameplayTimerLifecycle(
-            this._gameplayTimerLifecycle
-        );
-
-        this._logger.startupLine("GameplayTimerLifecycle");
 
         this._engines = this._createEngines();
 
@@ -357,18 +328,6 @@ class WheelWinApplication {
         this._winnerActivation.initialize();
 
         this._logger.startupLine("WinnerActivation");
-
-        this._gameplayTimerActivation = new GameplayTimerActivation({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            gameClockEngine: this._engines.gameClockEngine,
-            gameStateEngine: this._engines.gameStateEngine,
-            devMode: this._productionConfig.isDevelopment
-        });
-
-        this._gameplayTimerActivation.initialize();
-
-        this._logger.startupLine("GameplayTimerActivation");
 
         this._paymentActivation = new PaymentActivation({
             logger: this._logger,
@@ -446,23 +405,6 @@ class WheelWinApplication {
 
         this._logger.startupLine("OfflineInputContinuation");
 
-        // R1.3F — Auto Finish after Timer 2 warning; drives InputAuthority /
-        // force-BRAKE so the match always reaches WinnerActivation.
-        this._autoFinishActivation = new AutoFinishActivation({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            physicsEngine: this._engines.physicsEngine,
-            inputAuthority: this._inputAuthority,
-            gameStateEngine: this._engines.gameStateEngine,
-            gameClockEngine: this._engines.gameClockEngine,
-            gameCatalog: this._gameCatalog,
-            devMode: this._productionConfig.isDevelopment
-        });
-
-        this._autoFinishActivation.initialize();
-
-        this._logger.startupLine("AutoFinishActivation");
-
         // C5.6C — GameManager SETUP_SESSION_COMPLETED subscription is deferred
         // until RoomLobbyBridge has registered, so soft-disconnect protection
         // (_startedRooms) is armed before READY fires during bootstrap.
@@ -478,8 +420,7 @@ class WheelWinApplication {
             inputAuthority: this._inputAuthority,
             winnerEngine: this._engines.winnerEngine,
             paymentEngine: this._engines.paymentEngine,
-            metricsService: this._metricsService,
-            gameplayTimerLifecycle: this._gameplayTimerLifecycle
+            metricsService: this._metricsService
         });
 
         this._recoveryEngine.initialize();
@@ -572,9 +513,6 @@ class WheelWinApplication {
             auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
-            gameplayTimerLifecycle: Boolean(this._gameplayTimerLifecycle),
-            gameplayTimerActivation: Boolean(this._gameplayTimerActivation),
-            autoFinishActivation: Boolean(this._autoFinishActivation),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
@@ -618,7 +556,6 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             gameplayContextResolver: this._gameplayContextResolver,
             setupSessionLifecycle: this._setupSessionLifecycle,
-            gameplayTimerLifecycle: this._gameplayTimerLifecycle,
             isDevelopment: this._productionConfig.isDevelopment
         });
 
@@ -670,9 +607,6 @@ class WheelWinApplication {
             auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
-            gameplayTimerLifecycle: Boolean(this._gameplayTimerLifecycle),
-            gameplayTimerActivation: Boolean(this._gameplayTimerActivation),
-            autoFinishActivation: Boolean(this._autoFinishActivation),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
@@ -750,36 +684,6 @@ class WheelWinApplication {
             if (this._roomLobbyBridge) {
 
                 this._roomLobbyBridge.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("autoFinishActivation", () => {
-
-            if (this._autoFinishActivation) {
-
-                this._autoFinishActivation.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("gameplayTimerActivation", () => {
-
-            if (this._gameplayTimerActivation) {
-
-                this._gameplayTimerActivation.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("gameplayTimerLifecycle", () => {
-
-            if (this._gameplayTimerLifecycle) {
-
-                this._gameplayTimerLifecycle.shutdown();
 
             }
 

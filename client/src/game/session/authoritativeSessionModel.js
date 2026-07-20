@@ -13,7 +13,6 @@
  * --------------------------------------|----------------------------------
  * roomId, maxPlayers, player roster     | AuthoritativeSession (C5.3/C5.4)
  * setup timer (startedAt/expiresAt)     | AuthoritativeSession.setup (C5.6C)
- * gameplay timer (startedAt/expiresAt)  | AuthoritativeSession.gameplayTimer (R1.3C)
  * payment display (Page4)               | AuthoritativeSession.entryPayment (C5.8C)
  * settlement payment (Page6)            | AuthoritativeSession.payment (C5.5)
  * baseStake / paymentGram (Page3)       | GameSessionContext (pending migration)
@@ -41,8 +40,6 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
     ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
     ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
-    GAMEPLAY_TIMER: "GAMEPLAY_TIMER",
-    AUTO_FINISH_STARTED: "AUTO_FINISH_STARTED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -62,8 +59,6 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     winner: null,
     recovery: null,
     setup: null,
-    gameplayTimer: null,
-    autoFinish: null,
     lifecycle: Object.freeze({
         gameStarted: false,
         gameEnded: false,
@@ -459,9 +454,6 @@ export function authoritativeSessionReducer(state, action) {
                 audit: payload.audit
                     ? Object.freeze({ ...payload.audit })
                     : state.audit,
-                gameplayTimer: payload.gameplayTimer
-                    ? Object.freeze({ ...payload.gameplayTimer })
-                    : state.gameplayTimer,
                 recovery: Object.freeze({
                     receivedAt: Date.now(),
                     gameId: payload.gameId ?? null,
@@ -596,67 +588,11 @@ export function authoritativeSessionReducer(state, action) {
 
         }
 
-        case AUTHORITATIVE_SESSION_ACTIONS.GAMEPLAY_TIMER: {
-
-            if (!payload?.gameId || !Number.isFinite(payload?.startedAt)
-                || !Number.isFinite(payload?.expiresAt)) {
-
-                return state;
-
-            }
-
-            return stamp({
-                ...state,
-                gameId: payload.gameId ?? state.gameId,
-                roomId: payload.roomId ?? state.roomId,
-                gameplayTimer: Object.freeze({
-                    gameId: payload.gameId,
-                    roomId: payload.roomId ?? null,
-                    startedAt: payload.startedAt,
-                    expiresAt: payload.expiresAt,
-                    durationMs: payload.durationMs ?? null,
-                    remainingTime: Number.isFinite(payload.remainingTime)
-                        ? payload.remainingTime
-                        : Math.max(0, payload.expiresAt - Date.now()),
-                    warningEmitted: payload.warningEmitted === true,
-                    expired: payload.expired === true
-                })
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.AUTO_FINISH_STARTED: {
-
-            if (!payload?.gameId) {
-
-                return state;
-
-            }
-
-            return stamp({
-                ...state,
-                gameId: payload.gameId ?? state.gameId,
-                roomId: payload.roomId ?? state.roomId,
-                autoFinish: Object.freeze({
-                    active: true,
-                    gameId: payload.gameId,
-                    roomId: payload.roomId ?? null,
-                    startedAt: payload.startedAt ?? Date.now(),
-                    expiresAt: Number.isFinite(payload.expiresAt)
-                        ? payload.expiresAt
-                        : null
-                })
-            }, action.type);
-
-        }
-
         case AUTHORITATIVE_SESSION_ACTIONS.GAME_END: {
 
             return stamp({
                 ...state,
                 gameId: payload.gameId ?? state.gameId,
-                gameplayTimer: null,
-                autoFinish: null,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     gameEnded: true,

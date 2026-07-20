@@ -102,8 +102,6 @@ try {
 
     const openB = waitFor(guestB, "OPEN_PAGE5", 5000);
 
-    const timerHost = waitFor(host, "GAMEPLAY_TIMER_STARTED", 5000);
-
     const busEvents = [];
 
     harness.eventBus.subscribe(EVENT_TYPES.ENTRY_PAYMENT_COMPLETED, (e) => {
@@ -120,8 +118,8 @@ try {
 
     host.emit("DEBUG_START_GAME");
 
-    const [openPayloadHost, openPayloadA, openPayloadB, timerPayload] =
-        await Promise.all([openHost, openA, openB, timerHost]);
+    const [openPayloadHost, openPayloadA, openPayloadB] =
+        await Promise.all([openHost, openA, openB]);
 
     assert(
         openPayloadHost.roomId === created.roomId
@@ -138,11 +136,6 @@ try {
     assert(
         busEvents.includes(EVENT_TYPES.GAME_INITIALIZED),
         "DEBUG_START_GAME must trigger GAME_INITIALIZED"
-    );
-
-    assert(
-        Number.isFinite(timerPayload.expiresAt),
-        "GameplayTimer must start with expiresAt"
     );
 
     assert(

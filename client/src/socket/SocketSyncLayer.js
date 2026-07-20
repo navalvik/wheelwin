@@ -305,51 +305,6 @@ export class SocketSyncLayer {
 
         };
 
-        this._handleAutoFinishStarted = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.AUTO_FINISH_STARTED,
-                payload
-            });
-
-        };
-
-        this._handleGameplayTimerStarted = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_STARTED,
-                payload
-            });
-
-        };
-
-        this._handleGameplayTimerSync = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_SYNC,
-                payload
-            });
-
-        };
-
-        this._handleGameplayTimerWarning = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_WARNING,
-                payload
-            });
-
-        };
-
-        this._handleGameplayTimerExpired = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_EXPIRED,
-                payload
-            });
-
-        };
-
         this._socket.on("connect", this._handleConnect);
 
         this._socket.on("disconnect", this._handleDisconnect);
@@ -403,31 +358,6 @@ export class SocketSyncLayer {
         this._socket.on(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
             this._handleOpenPage5
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.AUTO_FINISH_STARTED,
-            this._handleAutoFinishStarted
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_STARTED,
-            this._handleGameplayTimerStarted
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_SYNC,
-            this._handleGameplayTimerSync
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_WARNING,
-            this._handleGameplayTimerWarning
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_EXPIRED,
-            this._handleGameplayTimerExpired
         );
 
         this._bound = true;
@@ -495,31 +425,6 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
             this._handleOpenPage5
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.AUTO_FINISH_STARTED,
-            this._handleAutoFinishStarted
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_STARTED,
-            this._handleGameplayTimerStarted
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_SYNC,
-            this._handleGameplayTimerSync
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_WARNING,
-            this._handleGameplayTimerWarning
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_EXPIRED,
-            this._handleGameplayTimerExpired
         );
 
         this._bound = false;

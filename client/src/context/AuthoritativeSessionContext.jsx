@@ -284,24 +284,6 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
-        onGameplayTimer: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.GAMEPLAY_TIMER,
-                payload
-            });
-
-        },
-
-        onAutoFinishStarted: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.AUTO_FINISH_STARTED,
-                payload
-            });
-
-        },
-
         onGameEnd: (payload) => {
 
             store.dispatch({

@@ -34,22 +34,18 @@ export default function InfoBar() {
         formatPhaseTime
     } = useGameSession();
 
-    // C5.4 — room metadata (id + player capacity display) comes from
-    // AuthoritativeSession. C5.6C — Setup Timer from AuthoritativeSession.setup.
-    // R1.3C — Gameplay Timer (Timer 2) from AuthoritativeSession.gameplayTimer.
+    // C5.4 — room metadata from AuthoritativeSession.
+    // C5.6C — Setup Timer from AuthoritativeSession.setup on prep pages.
     const authoritative = useAuthoritativeSession();
 
     const room = getAuthoritativeRoom(authoritative);
 
     const [, setTick] = useState(0);
 
-    // InfoBar is only a router between two independent time domains. Selection is
-    // page-based: gameplay/result pages present Timer 2 (Gameplay Timer);
-    // every preparation page presents the Setup Session timer.
-    const useGameplayTimer = isGameplayPage(currentPage);
+    const onGameplayPage = isGameplayPage(currentPage);
 
-    const activeExpiresAt = useGameplayTimer
-        ? authoritative.gameplayTimer?.expiresAt
+    const activeExpiresAt = onGameplayPage
+        ? null
         : authoritative.setup?.expiresAt;
 
     useEffect(() => {
@@ -82,18 +78,12 @@ export default function InfoBar() {
         authoritative.setup?.expiresAt
     );
 
-    const gameplayRemaining = remainingSecondsFromExpiresAt(
-        authoritative.gameplayTimer?.expiresAt
-    );
-
-    const timerLabel = useGameplayTimer
-        ? "GAMEPLAY TIMER"
+    const timerLabel = onGameplayPage
+        ? "TIMER"
         : phaseTimerLabel;
 
-    const timerValue = useGameplayTimer
-        ? (gameplayRemaining === null
-            ? "--"
-            : formatPhaseTime(gameplayRemaining))
+    const timerValue = onGameplayPage
+        ? "--"
         : (setupRemaining === null
             ? "—"
             : formatPhaseTime(setupRemaining));

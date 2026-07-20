@@ -22,7 +22,5 @@ export const EVENT_SOURCES = Object.freeze({
     GAME_CLOCK_BROADCASTER: "GameClockBroadcaster",
     GAMEPLAY_LIFECYCLE: "GameplayLifecycle",
     SETUP_SESSION_LIFECYCLE: "SetupSessionLifecycle",
-    GAMEPLAY_TIMER_LIFECYCLE: "GameplayTimerLifecycle",
-    AUTO_FINISH_ACTIVATION: "AutoFinishActivation",
     OPERATIONAL_METRICS: "OperationalMetrics"
 });

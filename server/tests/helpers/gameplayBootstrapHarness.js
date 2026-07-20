@@ -13,13 +13,10 @@ import { WinnerEngine } from "../../engines/WinnerEngine.js";
 import { GameStateActivation } from "../../gameplay/GameStateActivation.js";
 import { SpeedActivation } from "../../gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "../../gameplay/OfflineInputContinuation.js";
-import { AutoFinishActivation } from "../../gameplay/AutoFinishActivation.js";
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
 import { PaymentActivation } from "../../gameplay/PaymentActivation.js";
 import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "../../gameplay/SetupSessionLifecycle.js";
-import { GameplayTimerLifecycle } from "../../gameplay/GameplayTimerLifecycle.js";
-import { GameplayTimerActivation } from "../../gameplay/GameplayTimerActivation.js";
 import { PaymentEngine } from "../../engines/PaymentEngine.js";
 import { TelegramWalletAdapter } from "../../services/telegram/TelegramWalletAdapter.js";
 import { EVENT_SOURCES } from "../../events/EventSources.js";
@@ -103,8 +100,6 @@ export function wireGameplayBootstrap({
     enableLifecycle = false,
     walletAdapter = null,
     setupDurationMs = 10 * 60 * 1000,
-    gameplayDurationMs = 5 * 60 * 1000,
-    gameplayWarningMs = 30 * 1000,
     deferGameBootstrap = false
 }) {
 
@@ -238,43 +233,6 @@ export function wireGameplayBootstrap({
 
     winnerActivation.initialize();
 
-    const gameplayTimerLifecycle = new GameplayTimerLifecycle({
-        logger,
-        eventBus,
-        gameplayTimerConfig: {
-            gameplayDurationMs,
-            gameplayWarningMs
-        },
-        devMode
-    });
-
-    gameplayTimerLifecycle.initialize();
-
-    const gameplayTimerActivation = new GameplayTimerActivation({
-        logger,
-        eventBus,
-        gameClockEngine,
-        gameStateEngine,
-        devMode
-    });
-
-    gameplayTimerActivation.initialize();
-
-    const autoFinishActivation = new AutoFinishActivation({
-        logger,
-        eventBus,
-        physicsEngine,
-        inputAuthority,
-        gameStateEngine,
-        gameClockEngine,
-        gameCatalog: fastInputCatalog,
-        brakeLeadMs: 50,
-        spinGraceMs: 20,
-        devMode
-    });
-
-    autoFinishActivation.initialize();
-
     const paymentEngine = new PaymentEngine({
         logger,
         eventBus,
@@ -352,11 +310,8 @@ export function wireGameplayBootstrap({
         gameStateActivation,
         speedActivation,
         offlineInputContinuation,
-        autoFinishActivation,
         winnerEngine,
         winnerActivation,
-        gameplayTimerLifecycle,
-        gameplayTimerActivation,
         paymentEngine,
         paymentActivation,
         gameplayLifecycle,
@@ -376,18 +331,6 @@ export function shutdownGameplayBootstrap(engines) {
     if (engines.gameplayLifecycle) {
 
         engines.gameplayLifecycle.shutdown();
-
-    }
-
-    if (engines.gameplayTimerActivation) {
-
-        engines.gameplayTimerActivation.shutdown();
-
-    }
-
-    if (engines.gameplayTimerLifecycle) {
-
-        engines.gameplayTimerLifecycle.shutdown();
 
     }
 

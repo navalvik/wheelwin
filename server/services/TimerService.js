@@ -13,8 +13,6 @@ export class TimerService {
 
         this._setupSessionLifecycle = null;
 
-        this._gameplayTimerLifecycle = null;
-
     }
 
     initialize() {
@@ -29,29 +27,15 @@ export class TimerService {
 
     }
 
-    registerGameplayTimerLifecycle(lifecycle) {
-
-        this._gameplayTimerLifecycle = lifecycle ?? null;
-
-    }
-
     getSetupSessionLifecycle() {
 
         return this._setupSessionLifecycle;
 
     }
 
-    getGameplayTimerLifecycle() {
-
-        return this._gameplayTimerLifecycle;
-
-    }
-
     shutdown() {
 
         this._setupSessionLifecycle = null;
-
-        this._gameplayTimerLifecycle = null;
 
         this._initialized = false;
 

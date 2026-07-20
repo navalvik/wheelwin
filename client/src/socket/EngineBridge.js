@@ -198,31 +198,6 @@ export class EngineBridge {
                 modules.pageNavigation?.onOpenPage5?.(payload);
 
             },
-            [INCOMING_SOCKET_EVENTS.AUTO_FINISH_STARTED]: (payload) => {
-
-                session()?.onAutoFinishStarted?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_STARTED]: (payload) => {
-
-                session()?.onGameplayTimer?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_SYNC]: (payload) => {
-
-                session()?.onGameplayTimer?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_WARNING]: (payload) => {
-
-                session()?.onGameplayTimer?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.GAMEPLAY_TIMER_EXPIRED]: (payload) => {
-
-                session()?.onGameplayTimer?.(payload);
-
-            },
             [INCOMING_SOCKET_EVENTS.SESSION_SNAPSHOT]: (payload) => {
 
                 modules.sessionRecovery?.handleSnapshot?.(payload);

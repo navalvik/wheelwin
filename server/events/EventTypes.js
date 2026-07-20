@@ -40,15 +40,6 @@ export const EVENT_TYPES = Object.freeze({
     // R1.1 — Entry payment finished; GameManager may activate gameplay.
     ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
 
-    // R1.3C — Gameplay Timer (Timer 2 wall clock for Page5).
-    GAMEPLAY_TIMER_STARTED: "GAMEPLAY_TIMER_STARTED",
-    GAMEPLAY_TIMER_SYNC: "GAMEPLAY_TIMER_SYNC",
-    GAMEPLAY_TIMER_WARNING: "GAMEPLAY_TIMER_WARNING",
-    GAMEPLAY_TIMER_EXPIRED: "GAMEPLAY_TIMER_EXPIRED",
-
-    // R1.3F — Server Auto Finish Mode (not a GameState).
-    AUTO_FINISH_STARTED: "AUTO_FINISH_STARTED",
-
     PLAYER_JOINED: "PLAYER_JOINED",
     PLAYER_LEFT: "PLAYER_LEFT",
     PLAYER_CREATED: "PLAYER_CREATED",
