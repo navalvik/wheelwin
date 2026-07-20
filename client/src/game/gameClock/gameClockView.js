@@ -7,6 +7,8 @@
 export const INITIAL_GAME_CLOCK = Object.freeze({
     gameId: null,
     phase: null,
+    startedAt: null,
+    endsAt: null,
     remainingMs: null,
     remainingSeconds: null,
     running: false,
@@ -15,7 +17,7 @@ export const INITIAL_GAME_CLOCK = Object.freeze({
 });
 
 const PHASE_LABELS = Object.freeze({
-    COUNTDOWN: "COUNTDOWN",
+    READY: "READY",
     SELF_TEST: "SELF TEST",
     SPEED: "SPINNING",
     BRAKE: "BRAKING",
@@ -35,12 +37,38 @@ export function reduceGameClockUpdate(payload) {
     return {
         gameId: payload.gameId ?? null,
         phase: payload.phase ?? null,
+        startedAt: payload.startedAt ?? null,
+        endsAt: payload.endsAt ?? null,
         remainingMs: payload.remainingMs ?? null,
         remainingSeconds,
         running: payload.running === true,
         active: payload.running === true && Boolean(payload.phase),
         serverTimestamp: payload.serverTimestamp ?? null
     };
+
+}
+
+export function remainingSecondsFromEndsAt(endsAt) {
+
+    if (!Number.isFinite(endsAt)) {
+
+        return null;
+
+    }
+
+    return Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+
+}
+
+export function resolveGameplayCountdown(clock) {
+
+    if (Number.isFinite(clock?.endsAt)) {
+
+        return remainingSecondsFromEndsAt(clock.endsAt);
+
+    }
+
+    return clock?.remainingSeconds ?? null;
 
 }
 

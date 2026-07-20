@@ -62,6 +62,7 @@ import {
     loadGameplayPhaseConfig
 } from "./config/gameplayPhases.js";
 import { GameClockBroadcaster } from "./gameplay/GameClockBroadcaster.js";
+import { ReadyPhaseBroadcaster } from "./gameplay/ReadyPhaseBroadcaster.js";
 import { SpeedActivation } from "./gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
@@ -119,6 +120,8 @@ class WheelWinApplication {
         this._simulationLoop = null;
 
         this._gameplayPhaseLifecycle = null;
+
+        this._readyPhaseBroadcaster = null;
 
         this._speedActivation = null;
 
@@ -306,6 +309,17 @@ class WheelWinApplication {
         this._gameplayPhaseLifecycle.initialize();
 
         this._logger.startupLine("GameplayPhaseLifecycle");
+
+        this._readyPhaseBroadcaster = new ReadyPhaseBroadcaster({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            configurationEngine: this._engines.configurationEngine,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._readyPhaseBroadcaster.initialize();
+
+        this._logger.startupLine("ReadyPhaseBroadcaster");
 
         this._speedActivation = new SpeedActivation({
             logger: this._logger,
@@ -519,6 +533,7 @@ class WheelWinApplication {
             physicsEngine: Boolean(this._engines?.physicsEngine),
             simulationLoop: Boolean(this._simulationLoop),
             gameplayPhaseLifecycle: Boolean(this._gameplayPhaseLifecycle),
+            readyPhaseBroadcaster: Boolean(this._readyPhaseBroadcaster),
             speedActivation: Boolean(this._speedActivation),
             offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
@@ -613,6 +628,7 @@ class WheelWinApplication {
             physicsEngine: Boolean(this._engines?.physicsEngine),
             simulationLoop: Boolean(this._simulationLoop),
             gameplayPhaseLifecycle: Boolean(this._gameplayPhaseLifecycle),
+            readyPhaseBroadcaster: Boolean(this._readyPhaseBroadcaster),
             speedActivation: Boolean(this._speedActivation),
             offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
@@ -778,6 +794,16 @@ class WheelWinApplication {
             if (this._offlineInputContinuation) {
 
                 this._offlineInputContinuation.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("readyPhaseBroadcaster", () => {
+
+            if (this._readyPhaseBroadcaster) {
+
+                this._readyPhaseBroadcaster.shutdown();
 
             }
 

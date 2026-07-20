@@ -5,10 +5,11 @@ import GameLayout from "../layouts/GameLayout";
 import { DEV_MODE } from "../config/devMode";
 
 import WheelPlaceholder from "../components/page5/WheelPlaceholder";
-import PlayerPanel from "../components/page5/PlayerPanel";
+import Page5PlayerPanel from "../components/page5/Page5PlayerPanel";
 
 import { useCentralButton } from "../context/CentralButtonContext";
 import { useGameState } from "../context/GameStateContext";
+import { GAME_STATES } from "../game/GameState";
 import { useInputAck } from "../context/InputAckContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
 
@@ -21,6 +22,8 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     // (GameResultContext). Back/Next must not navigate locally.
 
     const { gameState } = useGameState();
+
+    const isReadyPhase = gameState === GAME_STATES.READY;
 
     const { lastAck } = useInputAck();
 
@@ -80,15 +83,15 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
                     <div className="gameArea gamePanel__body">
 
-                        <PlayerPanel />
+                        <Page5PlayerPanel />
 
                         <div className="wheelContainer gamePanel__wheelArea">
 
                             <WheelPlaceholder
                                 wheelConfiguration={wheelConfiguration}
                                 buttonSnapshot={buttonSnapshot}
-                                onButtonPress={press}
-                                onButtonRelease={release}
+                                onButtonPress={isReadyPhase ? undefined : press}
+                                onButtonRelease={isReadyPhase ? undefined : release}
                             />
 
                         </div>

@@ -28,6 +28,9 @@ import {
     buildGameClockUpdateMessage
 } from "./gameplayClockProtocol.js";
 import {
+    buildWheelConfigurationMessage
+} from "./gameplayWheelProtocol.js";
+import {
     buildInputAcceptedMessage,
     buildInputRejectedMessage
 } from "./gameplayInputProtocol.js";
@@ -182,6 +185,17 @@ export class SocketGateway {
         eventBus.subscribe(
             EVENT_TYPES.CLOCK_UPDATE,
             this._clockUpdateHandler
+        );
+
+        this._wheelConfigurationHandler = (envelope) => {
+
+            this._handleWheelConfiguration(envelope.payload);
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.WHEEL_CONFIGURATION,
+            this._wheelConfigurationHandler
         );
 
         this._playerInputAcceptedHandler = (envelope) => {
@@ -1104,6 +1118,35 @@ export class SocketGateway {
         }
 
         const { channel, message } = buildGameClockUpdateMessage(clockPayload);
+
+        this._io.to(roomId).emit(channel, message);
+
+    }
+
+    _handleWheelConfiguration(wheelPayload) {
+
+        if (!this._io || !wheelPayload?.gameId) {
+
+            return;
+
+        }
+
+        if (!this._gameplayContextResolver) {
+
+            return;
+
+        }
+
+        const roomId = this._gameplayContextResolver
+            .resolveRoomByGameId(wheelPayload.gameId);
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        const { channel, message } = buildWheelConfigurationMessage(wheelPayload);
 
         this._io.to(roomId).emit(channel, message);
 

@@ -113,9 +113,21 @@ export function buildClientRecoveryPayload({
 
     const angularVelocity = snapshot?.physics?.angularVelocity ?? 0;
 
-    const wheelAngleDegrees = angleRadians * RADIANS_TO_DEGREES;
-
     const sectors = snapshot?.configuration?.sectors ?? [];
+
+    const configWheelAngle = snapshot?.configuration?.wheel?.startAngle;
+
+    const configTriangleAngle = snapshot?.configuration?.triangle?.startAngle;
+
+    const physicsWheelDegrees = angleRadians * RADIANS_TO_DEGREES;
+
+    const wheelAngleDegrees = physicsWheelDegrees !== 0
+        ? physicsWheelDegrees
+        : (Number.isFinite(configWheelAngle) ? configWheelAngle : 0);
+
+    const triangleAngleDegrees = Number.isFinite(configTriangleAngle)
+        ? configTriangleAngle
+        : 0;
 
     const playerStates = (snapshot?.input?.players ?? []).map((player) => ({
 
@@ -141,13 +153,17 @@ export function buildClientRecoveryPayload({
         playerId: playerId ?? null,
         gameState: currentState,
         wheelConfiguration: sectors.length > 0
-            ? { sectors }
+            ? {
+                sectors,
+                wheelAngle: wheelAngleDegrees,
+                triangleAngle: triangleAngleDegrees
+            }
             : null,
         wheelAngle: wheelAngleDegrees,
-        triangleAngle: 0,
+        triangleAngle: triangleAngleDegrees,
         physics: {
             wheelAngle: wheelAngleDegrees,
-            triangleAngle: 0,
+            triangleAngle: triangleAngleDegrees,
             currentWheelSpeed: Math.abs(angularVelocity),
             wheelSpeed: Math.abs(angularVelocity),
             isBraking: snapshot?.physics?.state === "BRAKING",

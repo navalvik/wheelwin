@@ -87,6 +87,16 @@ export class EngineBridge {
 
                 modules.wheel?.setConfiguration?.(payload);
 
+                if (payload?.wheelAngle !== undefined
+                    || payload?.triangleAngle !== undefined) {
+
+                    modules.physics?.applyUpdate?.({
+                        wheelAngle: payload.wheelAngle,
+                        triangleAngle: payload.triangleAngle
+                    });
+
+                }
+
                 session()?.onWheelConfiguration?.(payload);
 
             },

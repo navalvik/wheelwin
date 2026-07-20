@@ -15,6 +15,8 @@ function CentralButtonView({ snapshot, onPress, onRelease }) {
         enabled
     } = presentation;
 
+    const interactive = enabled && typeof onPress === "function";
+
     const classNames = [
         "centerButton",
         pulseClass,
@@ -33,17 +35,17 @@ function CentralButtonView({ snapshot, onPress, onRelease }) {
                 color: textColor
             }}
             aria-label={label}
-            disabled={!enabled}
-            onPointerDown={(event) => {
+            disabled={!interactive}
+            onPointerDown={interactive ? (event) => {
 
                 event.preventDefault();
 
                 onPress();
 
-            }}
-            onPointerUp={onRelease}
-            onPointerCancel={onRelease}
-            onPointerLeave={(event) => {
+            } : undefined}
+            onPointerUp={interactive ? onRelease : undefined}
+            onPointerCancel={interactive ? onRelease : undefined}
+            onPointerLeave={interactive ? (event) => {
 
                 if (event.buttons === 0) {
 
@@ -51,7 +53,7 @@ function CentralButtonView({ snapshot, onPress, onRelease }) {
 
                 }
 
-            }}
+            } : undefined}
         >
 
             {label}

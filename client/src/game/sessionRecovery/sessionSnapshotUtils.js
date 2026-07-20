@@ -57,6 +57,8 @@ export function normalizeSessionSnapshot(snapshot = {}) {
             locked: buttonSource.locked
         },
         remainingGameTime: snapshot.remainingGameTime ?? null,
+        phaseStartedAt: snapshot.phaseStartedAt ?? null,
+        phaseEndsAt: snapshot.phaseEndsAt ?? null,
         gameResult: snapshot.gameResult || null,
         payment: snapshot.payment || null,
         resultOutcome: mapSnapshotResultOutcome(snapshot),
@@ -100,6 +102,7 @@ export function getModulesToRestore(snapshot) {
         "wheel",
         "physics",
         "gameState",
+        "gameClock",
         "playerUI",
         "button",
         "audio"

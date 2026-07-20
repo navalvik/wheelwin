@@ -30,6 +30,33 @@ export function GameClockProvider({ children }) {
 
             setClock(reduceGameClockUpdate(payload));
 
+        },
+
+        restoreClock: (snapshot) => {
+
+            if (!snapshot) {
+
+                return;
+
+            }
+
+            setClock(reduceGameClockUpdate({
+                gameId: snapshot.gameId ?? null,
+                phase: typeof snapshot.gameState === "string"
+                    ? snapshot.gameState
+                    : snapshot.gameState?.currentState ?? null,
+                startedAt: snapshot.phaseStartedAt ?? null,
+                endsAt: snapshot.phaseEndsAt ?? null,
+                remainingMs: Number.isFinite(snapshot.remainingGameTime)
+                    ? snapshot.remainingGameTime
+                    : null,
+                remainingSeconds: Number.isFinite(snapshot.remainingGameTime)
+                    ? Math.ceil(snapshot.remainingGameTime / 1000)
+                    : null,
+                running: true,
+                serverTimestamp: snapshot.timestamp ?? Date.now()
+            }));
+
         }
 
     }));

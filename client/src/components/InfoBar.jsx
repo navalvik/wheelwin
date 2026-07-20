@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
+import { useGameClock } from "../context/GameClockContext";
 import { useGameSession } from "../context/GameSessionContext";
 
 import {
@@ -9,21 +10,16 @@ import {
     getAuthoritativeRoom
 } from "../game/session";
 
+import {
+    formatClockSeconds,
+    remainingSecondsFromExpiresAt,
+    resolveClockPhaseLabel,
+    resolveGameplayCountdown
+} from "../game/gameClock/gameClockView";
+
 import { isGameplayPage } from "../game/sessionRecovery/recoveryFlow";
 
 import "../styles/infoBar.css";
-
-function remainingSecondsFromExpiresAt(expiresAt) {
-
-    if (!Number.isFinite(expiresAt)) {
-
-        return null;
-
-    }
-
-    return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-
-}
 
 export default function InfoBar() {
 
@@ -34,9 +30,9 @@ export default function InfoBar() {
         formatPhaseTime
     } = useGameSession();
 
-    // C5.4 — room metadata from AuthoritativeSession.
-    // C5.6C — Setup Timer from AuthoritativeSession.setup on prep pages.
     const authoritative = useAuthoritativeSession();
+
+    const { clock } = useGameClock();
 
     const room = getAuthoritativeRoom(authoritative);
 
@@ -44,13 +40,17 @@ export default function InfoBar() {
 
     const onGameplayPage = isGameplayPage(currentPage);
 
-    const activeExpiresAt = onGameplayPage
+    const gameplayEndsAt = onGameplayPage ? clock.endsAt : null;
+
+    const setupExpiresAt = onGameplayPage
         ? null
         : authoritative.setup?.expiresAt;
 
     useEffect(() => {
 
-        if (!activeExpiresAt) {
+        const expiresAt = onGameplayPage ? gameplayEndsAt : setupExpiresAt;
+
+        if (!Number.isFinite(expiresAt)) {
 
             return undefined;
 
@@ -64,7 +64,7 @@ export default function InfoBar() {
 
         return () => clearInterval(timerId);
 
-    }, [activeExpiresAt]);
+    }, [onGameplayPage, gameplayEndsAt, setupExpiresAt]);
 
     const roomIdDisplay = formatAuthoritativeRoomId(room.roomId) ?? "—";
 
@@ -74,16 +74,16 @@ export default function InfoBar() {
         session.maxPlayers
     ) ?? "—";
 
-    const setupRemaining = remainingSecondsFromExpiresAt(
-        authoritative.setup?.expiresAt
-    );
+    const setupRemaining = remainingSecondsFromExpiresAt(setupExpiresAt);
+
+    const gameplayRemaining = resolveGameplayCountdown(clock);
 
     const timerLabel = onGameplayPage
-        ? "TIMER"
+        ? resolveClockPhaseLabel(clock.phase)
         : phaseTimerLabel;
 
     const timerValue = onGameplayPage
-        ? "--"
+        ? formatClockSeconds(gameplayRemaining)
         : (setupRemaining === null
             ? "—"
             : formatPhaseTime(setupRemaining));

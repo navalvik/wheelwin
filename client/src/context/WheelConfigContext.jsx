@@ -24,7 +24,15 @@ function resolveWheelConfig(payload) {
 
     if (payload.sectors) {
 
-        return { sectors: payload.sectors };
+        return {
+            sectors: payload.sectors,
+            wheelAngle: Number.isFinite(payload.wheelAngle)
+                ? payload.wheelAngle
+                : null,
+            triangleAngle: Number.isFinite(payload.triangleAngle)
+                ? payload.triangleAngle
+                : null
+        };
 
     }
 

@@ -1,6 +1,7 @@
 import { GAME_STATES } from "../GameState";
 
 export const BUTTON_STATES = Object.freeze({
+    READY: "READY",
     PUSH: "PUSH",
     COUNTDOWN: "COUNTDOWN",
     SPEED: "SPEED",
@@ -17,6 +18,13 @@ export const RESULT_OUTCOMES = Object.freeze({
 export const MAX_BUTTON_PRESSES = 3;
 
 export const BUTTON_PRESENTATION = Object.freeze({
+    [BUTTON_STATES.READY]: {
+        label: "READY",
+        backgroundColor: "#bbbbbb",
+        borderColor: "#999999",
+        textColor: "#000000",
+        pulseClass: "centerButton--pulseReady"
+    },
     [BUTTON_STATES.PUSH]: {
         label: "PUSH",
         backgroundColor: "#222222",
@@ -67,9 +75,8 @@ export function mapGameStateToButtonState(gameState, resultOutcome) {
 
         case GAME_STATES.READY:
 
-            return BUTTON_STATES.PUSH;
+            return BUTTON_STATES.READY;
 
-        case GAME_STATES.COUNTDOWN:
         case GAME_STATES.SELF_TEST:
 
             return BUTTON_STATES.COUNTDOWN;

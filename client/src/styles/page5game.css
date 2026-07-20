@@ -71,6 +71,43 @@
     background: rgba(214, 40, 40, 0.92);
 }
 
+.playerPanel--ready .playerCard--ready {
+
+    display: grid;
+    grid-template-columns: 16px auto 1fr;
+    grid-template-rows: auto auto;
+    gap: 6px 10px;
+    align-items: center;
+}
+
+.playerPanel--ready .playerCard__colorSwatch {
+
+    grid-row: 1 / span 2;
+
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.playerPanel--ready .playerCard__icon {
+
+    font-size: 1.4rem;
+    line-height: 1;
+}
+
+.playerPanel--ready .playerCard__nickname {
+
+    font-weight: 700;
+}
+
+.playerPanel--ready .playerCard__readySectors {
+
+    grid-column: 2 / span 2;
+    font-size: 0.85rem;
+    opacity: 0.85;
+}
+
 .gamePanel {
 
     flex: 1;

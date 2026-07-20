@@ -59,6 +59,11 @@
     animation: centerButtonPress 0.18s ease-out;
 }
 
+.centerButton--pulseReady {
+
+    animation: centerButtonPulseReady 1s ease-in-out infinite;
+}
+
 .centerButton--pulsePush {
 
     animation: centerButtonPulsePush 1.6s ease-in-out infinite;
@@ -91,6 +96,20 @@
 
     100% {
         transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+@keyframes centerButtonPulseReady {
+
+    0%,
+    100% {
+        opacity: 0.82;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    50% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.04);
     }
 }
 
