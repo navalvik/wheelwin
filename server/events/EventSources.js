@@ -24,6 +24,7 @@ export const EVENT_SOURCES = Object.freeze({
     GAMEPLAY_PHASE_LIFECYCLE: "GameplayPhaseLifecycle",
     READY_PHASE_BROADCASTER: "ReadyPhaseBroadcaster",
     SELF_TEST_PHASE_CONTROLLER: "SelfTestPhaseController",
+    SPEED_PHASE_CONTROLLER: "SpeedPhaseController",
     SETUP_SESSION_LIFECYCLE: "SetupSessionLifecycle",
     OPERATIONAL_METRICS: "OperationalMetrics"
 });

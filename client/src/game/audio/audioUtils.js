@@ -40,8 +40,15 @@ export function clampPlaybackRate(rate) {
 
 export function mapWheelSpeedToPlaybackRate(wheelSpeed) {
 
+    // Base 1.0 at BASE_WHEEL_SPEED_DEG (1 rps). Higher speed raises rate.
     const normalizedSpeed = Math.max(0, wheelSpeed) / BASE_WHEEL_SPEED_DEG;
 
-    return clampPlaybackRate(PLAYBACK_RATE_MIN + (normalizedSpeed * 0.2));
+    if (normalizedSpeed <= 0) {
+
+        return PLAYBACK_RATE_MIN;
+
+    }
+
+    return clampPlaybackRate(normalizedSpeed);
 
 }

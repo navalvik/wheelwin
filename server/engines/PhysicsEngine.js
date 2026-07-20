@@ -1,6 +1,7 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { computeSelfTestVelocities } from "../gameplay/selfTestMotion.js";
+import { computeSpeedVelocities } from "../gameplay/speedMotion.js";
 import { DEFAULT_PHYSICS_PARAMETERS } from "./physics/PhysicsParameters.js";
 import {
     canTransitionPhysicsState,
@@ -114,6 +115,7 @@ export class PhysicsEngine {
                 state: PHYSICS_SIMULATION_STATE.CREATED,
                 braking: false,
                 selfTestActive: false,
+                speedActive: false,
                 simulationTimeMs: 0
             },
             commandLog: []
@@ -423,6 +425,171 @@ export class PhysicsEngine {
 
     }
 
+    /**
+     * P5.6A — Begin SPEED constant-velocity motion from current pose.
+     * Baseline 1 rps CW + 1 rps per held button; triangle 1.5× opposite.
+     */
+    beginSpeed(gameId, { heldButtonCount = 0 } = {}) {
+
+        this._assertInitialized();
+
+        const simulation = this._getSimulationOrLog(gameId, "begin speed");
+
+        if (!simulation) {
+
+            return null;
+
+        }
+
+        if (simulation.runtime.speedActive) {
+
+            return this.getSimulation(gameId);
+
+        }
+
+        if (simulation.runtime.state !== PHYSICS_SIMULATION_STATE.RUNNING) {
+
+            this._logger.error(
+                `Speed failed: simulation is not running (${simulation.runtime.state})`
+            );
+
+            return null;
+
+        }
+
+        simulation.runtime.selfTestActive = false;
+
+        simulation.runtime.braking = false;
+
+        simulation.runtime.angularAcceleration = 0;
+
+        simulation.runtime.speedActive = true;
+
+        this._applySpeedVelocities(simulation, heldButtonCount);
+
+        simulation.commandLog.push({
+            type: "speed_begin",
+            heldButtonCount,
+            wheelAngularVelocity: simulation.runtime.angularVelocity,
+            triangleAngularVelocity: simulation.runtime.triangleAngularVelocity,
+            simulationTimeMs: simulation.runtime.simulationTimeMs
+        });
+
+        this._emit(
+            EVENT_TYPES.PHYSICS_UPDATED,
+            this._createPhysicsPayload(simulation)
+        );
+
+        return this.getSimulation(gameId);
+
+    }
+
+    /**
+     * P5.6A — Immediately recompute SPEED velocities from held-button count.
+     */
+    setSpeedHoldCount(gameId, heldButtonCount) {
+
+        this._assertInitialized();
+
+        const simulation = this._getSimulationOrLog(gameId, "set speed holds");
+
+        if (!simulation) {
+
+            return null;
+
+        }
+
+        if (!simulation.runtime.speedActive) {
+
+            return null;
+
+        }
+
+        this._applySpeedVelocities(simulation, heldButtonCount);
+
+        simulation.commandLog.push({
+            type: "speed_hold_update",
+            heldButtonCount,
+            wheelAngularVelocity: simulation.runtime.angularVelocity,
+            triangleAngularVelocity: simulation.runtime.triangleAngularVelocity,
+            simulationTimeMs: simulation.runtime.simulationTimeMs
+        });
+
+        this._emit(
+            EVENT_TYPES.PHYSICS_UPDATED,
+            this._createPhysicsPayload(simulation)
+        );
+
+        return this.getSimulation(gameId);
+
+    }
+
+    /**
+     * P5.6A — End hold-driven SPEED control.
+     * keepMotion: continue kinematic integration at last velocities (for BRAKE).
+     */
+    endSpeed(gameId, { keepMotion = true } = {}) {
+
+        this._assertInitialized();
+
+        const simulation = this._getSimulationOrLog(gameId, "end speed");
+
+        if (!simulation) {
+
+            return null;
+
+        }
+
+        if (!simulation.runtime.speedActive) {
+
+            return this.getSimulation(gameId);
+
+        }
+
+        if (!keepMotion) {
+
+            simulation.runtime.angularVelocity = 0;
+
+            simulation.runtime.triangleAngularVelocity = 0;
+
+            simulation.runtime.speedActive = false;
+
+        }
+
+        // keepMotion: leave speedActive + velocities so signed dual integration
+        // continues until a future BRAKE stage takes ownership.
+
+        simulation.runtime.angularAcceleration = 0;
+
+        simulation.runtime.braking = false;
+
+        simulation.commandLog.push({
+            type: "speed_end",
+            keepMotion,
+            angle: simulation.runtime.angle,
+            triangleAngle: simulation.runtime.triangleAngle,
+            angularVelocity: simulation.runtime.angularVelocity,
+            triangleAngularVelocity: simulation.runtime.triangleAngularVelocity,
+            simulationTimeMs: simulation.runtime.simulationTimeMs
+        });
+
+        this._emit(
+            EVENT_TYPES.PHYSICS_UPDATED,
+            this._createPhysicsPayload(simulation)
+        );
+
+        return this.getSimulation(gameId);
+
+    }
+
+    isSpeedActive(gameId) {
+
+        const simulation = this._simulations.get(gameId);
+
+        return simulation?.runtime?.speedActive === true;
+
+    }
+
     applyAcceleration(gameId, angularAcceleration) {
 
         this._assertInitialized();
@@ -442,6 +609,13 @@ export class PhysicsEngine {
             );
 
             return null;
+
+        }
+
+        if (simulation.runtime.speedActive) {
+
+            // P5.6A — SPEED velocities are hold-count driven, not acceleration.
+            return this.getSimulation(gameId);
 
         }
 
@@ -490,6 +664,17 @@ export class PhysicsEngine {
 
             this._logger.error(
                 "Brake failed: self-test motion is active"
+            );
+
+            return null;
+
+        }
+
+        if (simulation.runtime.speedActive) {
+
+            // P5.6A — BRAKE ownership is deferred; do not steal SPEED motion.
+            this._logger.error(
+                "Brake failed: speed motion is active"
             );
 
             return null;
@@ -618,6 +803,7 @@ export class PhysicsEngine {
                 angularAcceleration: simulation.runtime.angularAcceleration,
                 state: simulation.runtime.state,
                 selfTestActive: simulation.runtime.selfTestActive,
+                speedActive: simulation.runtime.speedActive,
                 simulationTimeMs: simulation.runtime.simulationTimeMs
             },
             commandLog: simulation.commandLog.map((entry) => ({ ...entry }))
@@ -643,8 +829,22 @@ export class PhysicsEngine {
             triangleAngularVelocity: simulation.runtime.triangleAngularVelocity,
             angularAcceleration: simulation.runtime.angularAcceleration,
             selfTestActive: simulation.runtime.selfTestActive,
+            speedActive: simulation.runtime.speedActive,
             simulationState: simulation.runtime.state
         };
+
+    }
+
+    _applySpeedVelocities(simulation, heldButtonCount) {
+
+        const velocities = computeSpeedVelocities(heldButtonCount);
+
+        simulation.runtime.angularVelocity = velocities.wheelAngularVelocity;
+
+        simulation.runtime.triangleAngularVelocity
+            = velocities.triangleAngularVelocity;
+
+        simulation.runtime.angularAcceleration = 0;
 
     }
 
@@ -654,7 +854,7 @@ export class PhysicsEngine {
 
         const { parameters, runtime } = simulation;
 
-        if (runtime.selfTestActive) {
+        if (runtime.selfTestActive || runtime.speedActive) {
 
             runtime.angle = normalizeAngleRadians(
                 runtime.angle + (runtime.angularVelocity * dt)
@@ -723,6 +923,8 @@ export class PhysicsEngine {
 
         simulation.runtime.selfTestActive = false;
 
+        simulation.runtime.speedActive = false;
+
         simulation.runtime.angularVelocity = 0;
 
         simulation.runtime.triangleAngularVelocity = 0;
@@ -766,6 +968,7 @@ export class PhysicsEngine {
             triangleAngularVelocity: simulation.runtime.triangleAngularVelocity,
             angularAcceleration: simulation.runtime.angularAcceleration,
             selfTestActive: simulation.runtime.selfTestActive === true,
+            speedActive: simulation.runtime.speedActive === true,
             timestamp: simulation.runtime.simulationTimeMs
         };
 

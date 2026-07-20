@@ -224,6 +224,35 @@ export class InputAuthority {
 
     }
 
+    /**
+     * P5.6A — Number of players currently holding PRESS in this game.
+     */
+    countHeldButtons(gameId) {
+
+        const registry = this._registries.get(gameId);
+
+        if (!registry) {
+
+            return 0;
+
+        }
+
+        let held = 0;
+
+        for (const state of registry.players.values()) {
+
+            if (state.buttonPressed) {
+
+                held += 1;
+
+            }
+
+        }
+
+        return held;
+
+    }
+
     removeGame(gameId) {
 
         this._assertInitialized();

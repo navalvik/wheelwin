@@ -40,7 +40,7 @@ export const BUTTON_PRESENTATION = Object.freeze({
         pulseClass: "centerButton--pulseCountdown"
     },
     [BUTTON_STATES.SPEED]: {
-        label: "SPEED",
+        label: "SPIN",
         backgroundColor: "#00aa44",
         borderColor: "#008833",
         textColor: "#ffffff",

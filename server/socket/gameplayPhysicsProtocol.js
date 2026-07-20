@@ -27,6 +27,7 @@ export function buildPhysicsSyncPayload(physicsPayload) {
         triangleAngularVelocity,
         angularAcceleration,
         selfTestActive: physicsPayload?.selfTestActive === true,
+        speedActive: physicsPayload?.speedActive === true,
         serverTimestamp: Date.now()
     };
 

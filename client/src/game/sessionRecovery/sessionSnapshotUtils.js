@@ -53,6 +53,7 @@ export function normalizeSessionSnapshot(snapshot = {}) {
                 ?? buttonSource.state
                 ?? null,
             pressCounter,
+            buttonPressed: buttonSource.buttonPressed === true,
             enabled: buttonSource.enabled,
             locked: buttonSource.locked
         },

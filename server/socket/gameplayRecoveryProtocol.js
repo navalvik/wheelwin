@@ -148,9 +148,20 @@ export function buildClientRecoveryPayload({
 
         remainingPresses: player.remainingPresses ?? 0,
 
-        locked: player.locked ?? false
+        locked: player.locked ?? false,
+
+        buttonPressed: player.buttonPressed === true
 
     }));
+
+    const localPlayerState = playerStates.find(
+        (entry) => entry.playerId === playerId
+    );
+
+    const wheelSpeedDegPerSec = Math.abs(angularVelocity) * RADIANS_TO_DEGREES;
+
+    const triangleSpeedDegPerSec
+        = Math.abs(triangleAngularVelocity) * RADIANS_TO_DEGREES;
 
     const gameResult = mapWinnerToGameResult(
         gameId,
@@ -175,19 +186,21 @@ export function buildClientRecoveryPayload({
         physics: {
             wheelAngle: wheelAngleDegrees,
             triangleAngle: triangleAngleDegrees,
-            currentWheelSpeed: Math.abs(angularVelocity),
-            wheelSpeed: Math.abs(angularVelocity),
-            triangleSpeed: Math.abs(triangleAngularVelocity),
+            currentWheelSpeed: wheelSpeedDegPerSec,
+            wheelSpeed: wheelSpeedDegPerSec,
+            triangleSpeed: triangleSpeedDegPerSec,
+            angularVelocity,
+            triangleAngularVelocity,
             isBraking: snapshot?.physics?.state === "BRAKING",
             remainingBrakeTime: null,
             elapsedTime: snapshot?.clock?.elapsed ?? null,
-            selfTestActive: snapshot?.physics?.selfTestActive === true
+            selfTestActive: snapshot?.physics?.selfTestActive === true,
+            speedActive: snapshot?.physics?.speedActive === true
         },
         playerStates,
         button: {
-            pressCounter: playerStates.find(
-                (entry) => entry.playerId === playerId
-            )?.pressCount ?? 0
+            pressCounter: localPlayerState?.pressCount ?? 0,
+            buttonPressed: localPlayerState?.buttonPressed === true
         },
         remainingGameTime: snapshot?.clock?.remainingTime ?? null,
         phaseStartedAt: snapshot?.clock?.phaseStartedAt ?? null,

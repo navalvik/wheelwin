@@ -205,8 +205,7 @@ export class PhysicsEngine {
 
         } else if (payload.angularVelocity !== undefined) {
 
-            this.wheelSpeed = Math.max(
-                0,
+            this.wheelSpeed = Math.abs(
                 payload.angularVelocity * (180 / Math.PI)
             );
 
@@ -215,6 +214,12 @@ export class PhysicsEngine {
         if (payload.triangleSpeed !== undefined) {
 
             this.triangleSpeed = Math.max(0, payload.triangleSpeed);
+
+        } else if (payload.triangleAngularVelocity !== undefined) {
+
+            this.triangleSpeed = Math.abs(
+                payload.triangleAngularVelocity * (180 / Math.PI)
+            );
 
         }
 

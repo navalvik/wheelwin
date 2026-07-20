@@ -132,7 +132,7 @@ export class CentralButtonEngine {
 
         this._pressCount = Math.max(0, pressCounter);
 
-        this._isPressed = false;
+        this._isPressed = button.buttonPressed === true;
 
         this._locked = button.locked ?? (this._pressCount >= MAX_BUTTON_PRESSES);
 
