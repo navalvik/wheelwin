@@ -30,9 +30,13 @@ export class AdaptiveAudioEngine {
 
         this._mechanicalNodes = null;
 
+        this._selfTestNodes = null;
+
         this._musicPlaying = false;
 
         this._mechanicalPlaying = false;
+
+        this._selfTestPlaying = false;
 
         this._musicPaused = false;
 
@@ -110,6 +114,8 @@ export class AdaptiveAudioEngine {
         this._applyChannelVolume(AUDIO_CHANNELS.MUSIC, this._musicNodes);
 
         this._applyChannelVolume(AUDIO_CHANNELS.MECHANICAL, this._mechanicalNodes);
+
+        this._applyChannelVolume(AUDIO_CHANNELS.EFFECTS, this._selfTestNodes);
 
     }
 
@@ -253,7 +259,30 @@ export class AdaptiveAudioEngine {
 
     playSelfTest() {
 
-        this._playOneShot(AUDIO_TRACKS.SELF_TEST, AUDIO_CHANNELS.EFFECTS);
+        if (!this._canPlay()) {
+
+            return;
+
+        }
+
+        this.stopSelfTest();
+
+        this._selfTestNodes = this._startLoop(
+            AUDIO_TRACKS.SELF_TEST,
+            AUDIO_CHANNELS.EFFECTS
+        );
+
+        this._selfTestPlaying = Boolean(this._selfTestNodes);
+
+    }
+
+    stopSelfTest() {
+
+        this._stopNodes(this._selfTestNodes);
+
+        this._selfTestNodes = null;
+
+        this._selfTestPlaying = false;
 
     }
 
@@ -269,11 +298,20 @@ export class AdaptiveAudioEngine {
 
         this._lastGameState = gameState;
 
+        if (previousState === GAME_STATES.SELF_TEST
+            && gameState !== GAME_STATES.SELF_TEST) {
+
+            this.stopSelfTest();
+
+        }
+
         switch (gameState) {
 
             case GAME_STATES.READY:
 
                 this.stopBackground();
+
+                this.stopSelfTest();
 
                 break;
 
@@ -291,13 +329,15 @@ export class AdaptiveAudioEngine {
 
             case GAME_STATES.SELF_TEST:
 
-                this.playSelfTest();
-
                 this.stopBackground();
+
+                this.playSelfTest();
 
                 break;
 
             case GAME_STATES.SPEED:
+
+                this.stopSelfTest();
 
                 this.playBackground();
 
@@ -306,6 +346,8 @@ export class AdaptiveAudioEngine {
                 break;
 
             case GAME_STATES.BRAKE:
+
+                this.stopSelfTest();
 
                 if (!this._musicPlaying) {
 
@@ -318,6 +360,8 @@ export class AdaptiveAudioEngine {
                 break;
 
             case GAME_STATES.RESULT:
+
+                this.stopSelfTest();
 
                 this.stopBackground();
 
@@ -349,6 +393,7 @@ export class AdaptiveAudioEngine {
             musicPlaying: this._musicPlaying,
             musicPaused: this._musicPaused,
             mechanicalPlaying: this._mechanicalPlaying,
+            selfTestPlaying: this._selfTestPlaying,
             playbackRate: this._playbackRate,
             volumes: { ...this._volumes },
             loadedTracks: [...this._loadedTracks],
@@ -360,6 +405,8 @@ export class AdaptiveAudioEngine {
     dispose() {
 
         this.stopBackground();
+
+        this.stopSelfTest();
 
         this._buffers.clear();
 

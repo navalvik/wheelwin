@@ -21,16 +21,13 @@ export function mapGameStateToPlayerUIState(gameState, resultOutcome) {
     switch (gameState) {
 
         case GAME_STATES.READY:
+        case GAME_STATES.SELF_TEST:
 
             return PLAYER_UI_STATES.READY;
 
         case GAME_STATES.COUNTDOWN:
 
             return PLAYER_UI_STATES.WAIT;
-
-        case GAME_STATES.SELF_TEST:
-
-            return PLAYER_UI_STATES.PRESS;
 
         case GAME_STATES.SPEED:
 

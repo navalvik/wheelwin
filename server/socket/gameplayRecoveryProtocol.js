@@ -111,7 +111,16 @@ export function buildClientRecoveryPayload({
 
     const angleRadians = snapshot?.physics?.angle ?? 0;
 
+    const hasLivePhysics = Boolean(snapshot?.physics?.snapshot);
+
+    const triangleRadians = hasLivePhysics
+        ? (snapshot.physics.triangleAngle ?? 0)
+        : null;
+
     const angularVelocity = snapshot?.physics?.angularVelocity ?? 0;
+
+    const triangleAngularVelocity
+        = snapshot?.physics?.triangleAngularVelocity ?? 0;
 
     const sectors = snapshot?.configuration?.sectors ?? [];
 
@@ -121,13 +130,15 @@ export function buildClientRecoveryPayload({
 
     const physicsWheelDegrees = angleRadians * RADIANS_TO_DEGREES;
 
-    const wheelAngleDegrees = physicsWheelDegrees !== 0
+    const wheelAngleDegrees = hasLivePhysics && physicsWheelDegrees !== 0
         ? physicsWheelDegrees
-        : (Number.isFinite(configWheelAngle) ? configWheelAngle : 0);
+        : (Number.isFinite(configWheelAngle)
+            ? configWheelAngle
+            : (hasLivePhysics ? physicsWheelDegrees : 0));
 
-    const triangleAngleDegrees = Number.isFinite(configTriangleAngle)
-        ? configTriangleAngle
-        : 0;
+    const triangleAngleDegrees = Number.isFinite(triangleRadians)
+        ? triangleRadians * RADIANS_TO_DEGREES
+        : (Number.isFinite(configTriangleAngle) ? configTriangleAngle : 0);
 
     const playerStates = (snapshot?.input?.players ?? []).map((player) => ({
 
@@ -166,9 +177,11 @@ export function buildClientRecoveryPayload({
             triangleAngle: triangleAngleDegrees,
             currentWheelSpeed: Math.abs(angularVelocity),
             wheelSpeed: Math.abs(angularVelocity),
+            triangleSpeed: Math.abs(triangleAngularVelocity),
             isBraking: snapshot?.physics?.state === "BRAKING",
             remainingBrakeTime: null,
-            elapsedTime: snapshot?.clock?.elapsed ?? null
+            elapsedTime: snapshot?.clock?.elapsed ?? null,
+            selfTestActive: snapshot?.physics?.selfTestActive === true
         },
         playerStates,
         button: {

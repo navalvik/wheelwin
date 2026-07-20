@@ -1,4 +1,4 @@
-import { GAME_STATES } from "../GameState";
+import { GAME_STATES } from "../../game/GameState";
 
 import PlayerPanel from "./PlayerPanel";
 import ReadyPlayerPanel from "./ReadyPlayerPanel";
@@ -9,7 +9,8 @@ export default function Page5PlayerPanel() {
 
     const { gameState } = useGameState();
 
-    if (gameState === GAME_STATES.READY) {
+    if (gameState === GAME_STATES.READY
+        || gameState === GAME_STATES.SELF_TEST) {
 
         return <ReadyPlayerPanel />;
 

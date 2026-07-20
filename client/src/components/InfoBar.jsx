@@ -12,7 +12,7 @@ import {
 
 import {
     formatClockSeconds,
-    remainingSecondsFromExpiresAt,
+    remainingSecondsFromEndsAt,
     resolveClockPhaseLabel,
     resolveGameplayCountdown
 } from "../game/gameClock/gameClockView";
@@ -74,7 +74,7 @@ export default function InfoBar() {
         session.maxPlayers
     ) ?? "—";
 
-    const setupRemaining = remainingSecondsFromExpiresAt(setupExpiresAt);
+    const setupRemaining = remainingSecondsFromEndsAt(setupExpiresAt);
 
     const gameplayRemaining = resolveGameplayCountdown(clock);
 

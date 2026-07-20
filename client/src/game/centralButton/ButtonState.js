@@ -74,12 +74,9 @@ export function mapGameStateToButtonState(gameState, resultOutcome) {
     switch (gameState) {
 
         case GAME_STATES.READY:
-
-            return BUTTON_STATES.READY;
-
         case GAME_STATES.SELF_TEST:
 
-            return BUTTON_STATES.COUNTDOWN;
+            return BUTTON_STATES.READY;
 
         case GAME_STATES.SPEED:
 

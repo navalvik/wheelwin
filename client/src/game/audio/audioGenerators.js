@@ -43,6 +43,12 @@ function renderTone({
 
             sample = Math.sign(Math.sin((Math.PI * 2) * frequency * time));
 
+        } else if (type === "saw") {
+
+            const phase = (frequency * time) % 1;
+
+            sample = (phase * 2) - 1;
+
         } else {
 
             sample = (Math.random() * 2) - 1;
@@ -152,13 +158,29 @@ export function createPlaceholderBuffers(audioContext) {
         ),
         [AUDIO_TRACKS.SELF_TEST]: createWavBuffer(
             audioContext,
-            renderTone({
-                duration: 0.22,
-                sampleRate,
-                frequency: 440,
-                gain: 0.16,
-                type: "square"
-            }),
+            mixSamples([
+                renderTone({
+                    duration: 0.85,
+                    sampleRate,
+                    frequency: 95,
+                    gain: 0.14,
+                    type: "square"
+                }),
+                renderTone({
+                    duration: 0.85,
+                    sampleRate,
+                    frequency: 180,
+                    gain: 0.08,
+                    type: "saw"
+                }),
+                renderTone({
+                    duration: 0.85,
+                    sampleRate,
+                    frequency: 42,
+                    gain: 0.1,
+                    type: "noise"
+                })
+            ]),
             sampleRate
         ),
         [AUDIO_TRACKS.BUTTON_PRESS]: createWavBuffer(

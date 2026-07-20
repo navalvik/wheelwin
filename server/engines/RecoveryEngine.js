@@ -317,8 +317,12 @@ export class RecoveryEngine {
             : {
                 snapshot: physicsSnapshot,
                 angle: physicsSnapshot.runtime.angle,
+                triangleAngle: physicsSnapshot.runtime.triangleAngle,
                 angularVelocity: physicsSnapshot.runtime.angularVelocity,
+                triangleAngularVelocity:
+                    physicsSnapshot.runtime.triangleAngularVelocity,
                 angularAcceleration: physicsSnapshot.runtime.angularAcceleration,
+                selfTestActive: physicsSnapshot.runtime.selfTestActive === true,
                 state: physicsSnapshot.runtime.state
             };
 

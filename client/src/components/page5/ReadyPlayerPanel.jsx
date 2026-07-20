@@ -1,11 +1,11 @@
 import { memo } from "react";
 
-import { getPlayerIconGlyph } from "../../../game/playerUI";
+import { getPlayerIconGlyph } from "../../game/playerUI";
 
-import { listAuthoritativePlayers } from "../../../game/session/authoritativePlayerView";
+import { listAuthoritativePlayers } from "../../game/session/authoritativePlayerView";
 
-import { useAuthoritativeSession } from "../../../context/AuthoritativeSessionContext";
-import { useWheelConfig } from "../../../context/WheelConfigContext";
+import { useAuthoritativeSession } from "../../context/AuthoritativeSessionContext";
+import { useWheelConfig } from "../../context/WheelConfigContext";
 
 function countSectorsForPlayer(sectors, playerId) {
 

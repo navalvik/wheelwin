@@ -1,11 +1,14 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { computeSelfTestVelocities } from "../gameplay/selfTestMotion.js";
 import { DEFAULT_PHYSICS_PARAMETERS } from "./physics/PhysicsParameters.js";
 import {
     canTransitionPhysicsState,
     PHYSICS_SIMULATION_STATE
 } from "./physics/PhysicsSimulationState.js";
 import { normalizeAngleRadians } from "./physics/physicsMath.js";
+
+const DEGREES_TO_RADIANS = Math.PI / 180;
 
 export class PhysicsEngine {
 
@@ -104,10 +107,13 @@ export class PhysicsEngine {
             parameters: physicsParameters,
             runtime: {
                 angle: 0,
+                triangleAngle: 0,
                 angularVelocity: 0,
+                triangleAngularVelocity: 0,
                 angularAcceleration: 0,
                 state: PHYSICS_SIMULATION_STATE.CREATED,
                 braking: false,
+                selfTestActive: false,
                 simulationTimeMs: 0
             },
             commandLog: []
@@ -242,6 +248,181 @@ export class PhysicsEngine {
 
     }
 
+    /**
+     * Seed authoritative wheel/triangle pose in degrees (READY / recovery).
+     * Does not start motion.
+     */
+    setPoseDegrees(gameId, wheelAngleDeg, triangleAngleDeg) {
+
+        this._assertInitialized();
+
+        const simulation = this._getSimulationOrLog(gameId, "set pose");
+
+        if (!simulation) {
+
+            return null;
+
+        }
+
+        if (Number.isFinite(wheelAngleDeg)) {
+
+            simulation.runtime.angle = normalizeAngleRadians(
+                wheelAngleDeg * DEGREES_TO_RADIANS
+            );
+
+        }
+
+        if (Number.isFinite(triangleAngleDeg)) {
+
+            simulation.runtime.triangleAngle = normalizeAngleRadians(
+                triangleAngleDeg * DEGREES_TO_RADIANS
+            );
+
+        }
+
+        if (simulation.runtime.state === PHYSICS_SIMULATION_STATE.RUNNING
+            || simulation.runtime.state === PHYSICS_SIMULATION_STATE.BRAKING) {
+
+            this._emit(
+                EVENT_TYPES.PHYSICS_UPDATED,
+                this._createPhysicsPayload(simulation)
+            );
+
+        }
+
+        return this.getSimulation(gameId);
+
+    }
+
+    /**
+     * P5.5 — Begin deterministic SELF_TEST constant-velocity motion.
+     * Wheel +60° CCW over durationMs; triangle CW at 1.5× wheel ω.
+     */
+    beginSelfTest(gameId, {
+        durationMs,
+        wheelStartAngleDeg,
+        triangleStartAngleDeg
+    } = {}) {
+
+        this._assertInitialized();
+
+        const simulation = this._getSimulationOrLog(gameId, "begin self-test");
+
+        if (!simulation) {
+
+            return null;
+
+        }
+
+        if (simulation.runtime.selfTestActive) {
+
+            return this.getSimulation(gameId);
+
+        }
+
+        if (simulation.runtime.state !== PHYSICS_SIMULATION_STATE.RUNNING) {
+
+            this._logger.error(
+                `Self-test failed: simulation is not running (${simulation.runtime.state})`
+            );
+
+            return null;
+
+        }
+
+        if (Number.isFinite(wheelStartAngleDeg)) {
+
+            simulation.runtime.angle = normalizeAngleRadians(
+                wheelStartAngleDeg * DEGREES_TO_RADIANS
+            );
+
+        }
+
+        if (Number.isFinite(triangleStartAngleDeg)) {
+
+            simulation.runtime.triangleAngle = normalizeAngleRadians(
+                triangleStartAngleDeg * DEGREES_TO_RADIANS
+            );
+
+        }
+
+        const velocities = computeSelfTestVelocities(durationMs);
+
+        simulation.runtime.angularVelocity = velocities.wheelAngularVelocity;
+
+        simulation.runtime.triangleAngularVelocity
+            = velocities.triangleAngularVelocity;
+
+        simulation.runtime.angularAcceleration = 0;
+
+        simulation.runtime.braking = false;
+
+        simulation.runtime.selfTestActive = true;
+
+        simulation.commandLog.push({
+            type: "self_test_begin",
+            durationMs,
+            wheelAngularVelocity: velocities.wheelAngularVelocity,
+            triangleAngularVelocity: velocities.triangleAngularVelocity,
+            simulationTimeMs: simulation.runtime.simulationTimeMs
+        });
+
+        this._emit(
+            EVENT_TYPES.PHYSICS_UPDATED,
+            this._createPhysicsPayload(simulation)
+        );
+
+        return this.getSimulation(gameId);
+
+    }
+
+    /**
+     * P5.5 — Freeze SELF_TEST pose immediately. Final angles become SPEED starts.
+     */
+    endSelfTest(gameId) {
+
+        this._assertInitialized();
+
+        const simulation = this._getSimulationOrLog(gameId, "end self-test");
+
+        if (!simulation) {
+
+            return null;
+
+        }
+
+        if (!simulation.runtime.selfTestActive) {
+
+            return this.getSimulation(gameId);
+
+        }
+
+        simulation.runtime.selfTestActive = false;
+
+        simulation.runtime.angularVelocity = 0;
+
+        simulation.runtime.triangleAngularVelocity = 0;
+
+        simulation.runtime.angularAcceleration = 0;
+
+        simulation.runtime.braking = false;
+
+        simulation.commandLog.push({
+            type: "self_test_end",
+            angle: simulation.runtime.angle,
+            triangleAngle: simulation.runtime.triangleAngle,
+            simulationTimeMs: simulation.runtime.simulationTimeMs
+        });
+
+        this._emit(
+            EVENT_TYPES.PHYSICS_UPDATED,
+            this._createPhysicsPayload(simulation)
+        );
+
+        return this.getSimulation(gameId);
+
+    }
+
     applyAcceleration(gameId, angularAcceleration) {
 
         this._assertInitialized();
@@ -249,6 +430,16 @@ export class PhysicsEngine {
         const simulation = this._getSimulationOrLog(gameId, "accelerate");
 
         if (!simulation) {
+
+            return null;
+
+        }
+
+        if (simulation.runtime.selfTestActive) {
+
+            this._logger.error(
+                "Acceleration failed: self-test motion is active"
+            );
 
             return null;
 
@@ -290,6 +481,16 @@ export class PhysicsEngine {
         const simulation = this._getSimulationOrLog(gameId, "brake");
 
         if (!simulation) {
+
+            return null;
+
+        }
+
+        if (simulation.runtime.selfTestActive) {
+
+            this._logger.error(
+                "Brake failed: self-test motion is active"
+            );
 
             return null;
 
@@ -411,9 +612,12 @@ export class PhysicsEngine {
             parameters: { ...simulation.parameters },
             runtime: {
                 angle: simulation.runtime.angle,
+                triangleAngle: simulation.runtime.triangleAngle,
                 angularVelocity: simulation.runtime.angularVelocity,
+                triangleAngularVelocity: simulation.runtime.triangleAngularVelocity,
                 angularAcceleration: simulation.runtime.angularAcceleration,
                 state: simulation.runtime.state,
+                selfTestActive: simulation.runtime.selfTestActive,
                 simulationTimeMs: simulation.runtime.simulationTimeMs
             },
             commandLog: simulation.commandLog.map((entry) => ({ ...entry }))
@@ -434,8 +638,11 @@ export class PhysicsEngine {
         return {
             gameId,
             angle: simulation.runtime.angle,
+            triangleAngle: simulation.runtime.triangleAngle,
             angularVelocity: simulation.runtime.angularVelocity,
+            triangleAngularVelocity: simulation.runtime.triangleAngularVelocity,
             angularAcceleration: simulation.runtime.angularAcceleration,
+            selfTestActive: simulation.runtime.selfTestActive,
             simulationState: simulation.runtime.state
         };
 
@@ -446,6 +653,20 @@ export class PhysicsEngine {
         const dt = stepDurationMs / 1000;
 
         const { parameters, runtime } = simulation;
+
+        if (runtime.selfTestActive) {
+
+            runtime.angle = normalizeAngleRadians(
+                runtime.angle + (runtime.angularVelocity * dt)
+            );
+
+            runtime.triangleAngle = normalizeAngleRadians(
+                runtime.triangleAngle + (runtime.triangleAngularVelocity * dt)
+            );
+
+            return;
+
+        }
 
         if (runtime.braking) {
 
@@ -500,7 +721,11 @@ export class PhysicsEngine {
 
         simulation.runtime.braking = false;
 
+        simulation.runtime.selfTestActive = false;
+
         simulation.runtime.angularVelocity = 0;
+
+        simulation.runtime.triangleAngularVelocity = 0;
 
         simulation.runtime.angularAcceleration = 0;
 
@@ -536,8 +761,11 @@ export class PhysicsEngine {
         return {
             gameId: simulation.gameId,
             angle: simulation.runtime.angle,
+            triangleAngle: simulation.runtime.triangleAngle,
             angularVelocity: simulation.runtime.angularVelocity,
+            triangleAngularVelocity: simulation.runtime.triangleAngularVelocity,
             angularAcceleration: simulation.runtime.angularAcceleration,
+            selfTestActive: simulation.runtime.selfTestActive === true,
             timestamp: simulation.runtime.simulationTimeMs
         };
 

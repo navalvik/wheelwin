@@ -14,6 +14,7 @@ export class ReadyPhaseBroadcaster {
         logger,
         eventBus,
         configurationEngine,
+        physicsEngine = null,
         devMode = false
     }) {
 
@@ -22,6 +23,8 @@ export class ReadyPhaseBroadcaster {
         this._eventBus = eventBus;
 
         this._configurationEngine = configurationEngine;
+
+        this._physicsEngine = physicsEngine;
 
         this._devMode = devMode;
 
@@ -125,6 +128,18 @@ export class ReadyPhaseBroadcaster {
             wheelAngle: configuration.wheel?.startAngle ?? null,
             triangleAngle: configuration.triangle?.startAngle ?? null
         };
+
+        if (this._physicsEngine
+            && Number.isFinite(payload.wheelAngle)
+            && Number.isFinite(payload.triangleAngle)) {
+
+            this._physicsEngine.setPoseDegrees(
+                gameId,
+                payload.wheelAngle,
+                payload.triangleAngle
+            );
+
+        }
 
         this._eventBus.emit({
             source: EVENT_SOURCES.READY_PHASE_BROADCASTER,

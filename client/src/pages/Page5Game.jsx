@@ -25,6 +25,10 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
     const isReadyPhase = gameState === GAME_STATES.READY;
 
+    const isSelfTestPhase = gameState === GAME_STATES.SELF_TEST;
+
+    const buttonInputDisabled = isReadyPhase || isSelfTestPhase;
+
     const { lastAck } = useInputAck();
 
     const { wheelConfiguration } = useWheelConfig();
@@ -90,8 +94,8 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
                             <WheelPlaceholder
                                 wheelConfiguration={wheelConfiguration}
                                 buttonSnapshot={buttonSnapshot}
-                                onButtonPress={isReadyPhase ? undefined : press}
-                                onButtonRelease={isReadyPhase ? undefined : release}
+                                onButtonPress={buttonInputDisabled ? undefined : press}
+                                onButtonRelease={buttonInputDisabled ? undefined : release}
                             />
 
                         </div>

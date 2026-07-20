@@ -8,7 +8,11 @@ export function buildPhysicsSyncPayload(physicsPayload) {
 
     const angleRadians = physicsPayload?.angle ?? 0;
 
+    const triangleAngleRadians = physicsPayload?.triangleAngle ?? 0;
+
     const angularVelocity = physicsPayload?.angularVelocity ?? 0;
+
+    const triangleAngularVelocity = physicsPayload?.triangleAngularVelocity ?? 0;
 
     const angularAcceleration = physicsPayload?.angularAcceleration ?? 0;
 
@@ -18,8 +22,11 @@ export function buildPhysicsSyncPayload(physicsPayload) {
         gameId: physicsPayload?.gameId ?? null,
         simulationTime,
         wheelAngle: angleRadians * RADIANS_TO_DEGREES,
+        triangleAngle: triangleAngleRadians * RADIANS_TO_DEGREES,
         angularVelocity,
+        triangleAngularVelocity,
         angularAcceleration,
+        selfTestActive: physicsPayload?.selfTestActive === true,
         serverTimestamp: Date.now()
     };
 

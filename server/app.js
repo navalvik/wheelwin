@@ -63,6 +63,7 @@ import {
 } from "./config/gameplayPhases.js";
 import { GameClockBroadcaster } from "./gameplay/GameClockBroadcaster.js";
 import { ReadyPhaseBroadcaster } from "./gameplay/ReadyPhaseBroadcaster.js";
+import { SelfTestPhaseController } from "./gameplay/SelfTestPhaseController.js";
 import { SpeedActivation } from "./gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
@@ -122,6 +123,8 @@ class WheelWinApplication {
         this._gameplayPhaseLifecycle = null;
 
         this._readyPhaseBroadcaster = null;
+
+        this._selfTestPhaseController = null;
 
         this._speedActivation = null;
 
@@ -314,12 +317,26 @@ class WheelWinApplication {
             logger: this._logger,
             eventBus: this._eventBus,
             configurationEngine: this._engines.configurationEngine,
+            physicsEngine: this._engines.physicsEngine,
             devMode: this._productionConfig.isDevelopment
         });
 
         this._readyPhaseBroadcaster.initialize();
 
         this._logger.startupLine("ReadyPhaseBroadcaster");
+
+        this._selfTestPhaseController = new SelfTestPhaseController({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            configurationEngine: this._engines.configurationEngine,
+            physicsEngine: this._engines.physicsEngine,
+            gameClockEngine: this._engines.gameClockEngine,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._selfTestPhaseController.initialize();
+
+        this._logger.startupLine("SelfTestPhaseController");
 
         this._speedActivation = new SpeedActivation({
             logger: this._logger,
@@ -534,6 +551,7 @@ class WheelWinApplication {
             simulationLoop: Boolean(this._simulationLoop),
             gameplayPhaseLifecycle: Boolean(this._gameplayPhaseLifecycle),
             readyPhaseBroadcaster: Boolean(this._readyPhaseBroadcaster),
+            selfTestPhaseController: Boolean(this._selfTestPhaseController),
             speedActivation: Boolean(this._speedActivation),
             offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
@@ -629,6 +647,7 @@ class WheelWinApplication {
             simulationLoop: Boolean(this._simulationLoop),
             gameplayPhaseLifecycle: Boolean(this._gameplayPhaseLifecycle),
             readyPhaseBroadcaster: Boolean(this._readyPhaseBroadcaster),
+            selfTestPhaseController: Boolean(this._selfTestPhaseController),
             speedActivation: Boolean(this._speedActivation),
             offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
@@ -804,6 +823,16 @@ class WheelWinApplication {
             if (this._readyPhaseBroadcaster) {
 
                 this._readyPhaseBroadcaster.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("selfTestPhaseController", () => {
+
+            if (this._selfTestPhaseController) {
+
+                this._selfTestPhaseController.shutdown();
 
             }
 
