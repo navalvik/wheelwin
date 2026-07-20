@@ -28,6 +28,8 @@ import { RandomService } from "../services/RandomService.js";
 import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import { SimulationLoop } from "../simulation/SimulationLoop.js";
 import { WinnerActivation } from "../gameplay/WinnerActivation.js";
+import { ResultActivation } from "../gameplay/ResultActivation.js";
+import { GameplayPhaseLifecycle } from "../gameplay/GameplayPhaseLifecycle.js";
 import { PaymentActivation } from "../gameplay/PaymentActivation.js";
 import { AuditActivation } from "../gameplay/AuditActivation.js";
 import { GameplayLifecycle } from "../gameplay/GameplayLifecycle.js";
@@ -253,6 +255,29 @@ function buildStack(options = {}) {
 
     winnerActivation.initialize();
 
+    const gameplayPhaseLifecycle = new GameplayPhaseLifecycle({
+        logger,
+        eventBus,
+        gameStateEngine,
+        gameClockEngine,
+        winnerEngine,
+        devMode: false
+    });
+
+    gameplayPhaseLifecycle.initialize();
+
+    const resultActivation = new ResultActivation({
+        logger,
+        eventBus,
+        gameClockEngine,
+        winnerEngine,
+        devMode: false
+    });
+
+    resultActivation.initialize();
+
+    recoveryEngine._resultActivation = resultActivation;
+
     const paymentActivation = new PaymentActivation({
         logger,
         eventBus,
@@ -330,6 +355,8 @@ function buildStack(options = {}) {
         auditEngine,
         simulationLoop,
         winnerActivation,
+        resultActivation,
+        gameplayPhaseLifecycle,
         paymentActivation,
         auditActivation,
         gameplayLifecycle,
@@ -353,6 +380,10 @@ function buildStack(options = {}) {
             auditActivation.shutdown();
 
             paymentActivation.shutdown();
+
+            resultActivation.shutdown();
+
+            gameplayPhaseLifecycle.shutdown();
 
             winnerActivation.shutdown();
 
@@ -420,9 +451,8 @@ function createPlayers(stack, count, label) {
 
 }
 
-// Drive a game through the authoritative pipeline up to (but not past) RESULT.
-// The synchronous WINNER -> PAYMENT -> AUDIT chain runs inside these ticks; the
-// deferred teardown timer is scheduled by GameplayLifecycle once audit is done.
+// Drive a game through the authoritative pipeline up to RESULT.
+// P5.9: PHYSICS_STOPPED → WinnerActivation → ResultActivation → RESULT.
 function activateAndFinishGame(stack, gameId, roomId, playerIds) {
 
     stack.configurationEngine.generateConfiguration(
@@ -434,9 +464,9 @@ function activateAndFinishGame(stack, gameId, roomId, playerIds) {
     stack.gameStateEngine.initializeGameState(gameId);
 
     for (const state of [
-        GAME_STATES.COUNTDOWN,
         GAME_STATES.SELF_TEST,
-        GAME_STATES.SPEED
+        GAME_STATES.SPEED,
+        GAME_STATES.BRAKE
     ]) {
 
         stack.gameStateEngine.transition(gameId, state, { reason: "test" });
@@ -447,7 +477,11 @@ function activateAndFinishGame(stack, gameId, roomId, playerIds) {
 
     stack.gameClockEngine.startClock(gameId);
 
-    stack.gameClockEngine.stopClock(gameId);
+    stack.gameClockEngine.restorePhaseSchedule(gameId, {
+        phase: GAME_STATES.BRAKE,
+        phaseStartedAt: Date.now() - 1000,
+        phaseEndsAt: Date.now() + 60_000
+    });
 
     stack.physicsEngine.createSimulation(gameId);
 
@@ -465,24 +499,12 @@ function activateAndFinishGame(stack, gameId, roomId, playerIds) {
 
     }
 
-    stack.gameStateEngine.transition(gameId, GAME_STATES.BRAKE, {
-        reason: "test"
-    });
+    stack.physicsEngine.stopSimulation(gameId);
 
-    let guard = 0;
-
-    while (
-        stack.gameStateEngine.getState(gameId) !== GAME_STATES.RESULT
-        && guard < 2000
-    ) {
-
-        stack.simulationLoop._onTick();
-
-        guard += 1;
-
-    }
-
-    assert(guard < 2000, `game ${gameId} should reach RESULT`);
+    assert(
+        stack.gameStateEngine.getState(gameId) === GAME_STATES.RESULT,
+        `game ${gameId} should reach RESULT`
+    );
 
 }
 

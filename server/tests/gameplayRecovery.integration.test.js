@@ -18,6 +18,8 @@ import { RandomService } from "../services/RandomService.js";
 import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import { SimulationLoop } from "../simulation/SimulationLoop.js";
 import { WinnerActivation } from "../gameplay/WinnerActivation.js";
+import { ResultActivation } from "../gameplay/ResultActivation.js";
+import { GameplayPhaseLifecycle } from "../gameplay/GameplayPhaseLifecycle.js";
 import { PaymentActivation } from "../gameplay/PaymentActivation.js";
 import { RecoverySnapshotCache } from "../gameplay/RecoverySnapshotCache.js";
 import { GameplayContextResolver } from "../socket/GameplayContextResolver.js";
@@ -217,6 +219,27 @@ function buildRecoveryStack() {
 
     winnerActivation.initialize();
 
+    const gameplayPhaseLifecycle = new GameplayPhaseLifecycle({
+        logger,
+        eventBus,
+        gameStateEngine,
+        gameClockEngine,
+        winnerEngine,
+        devMode: false
+    });
+
+    gameplayPhaseLifecycle.initialize();
+
+    const resultActivation = new ResultActivation({
+        logger,
+        eventBus,
+        gameClockEngine,
+        winnerEngine,
+        devMode: false
+    });
+
+    resultActivation.initialize();
+
     const paymentActivation = new PaymentActivation({
         logger,
         eventBus,
@@ -225,6 +248,9 @@ function buildRecoveryStack() {
     });
 
     paymentActivation.initialize();
+
+    // Re-bind recovery with ResultActivation for openPage6 tracking.
+    recoveryEngine._resultActivation = resultActivation;
 
     return {
         logger,
@@ -245,10 +271,16 @@ function buildRecoveryStack() {
         roomLobbyBridge,
         simulationLoop,
         winnerActivation,
+        resultActivation,
+        gameplayPhaseLifecycle,
         paymentActivation,
         shutdown() {
 
             paymentActivation.shutdown();
+
+            resultActivation.shutdown();
+
+            gameplayPhaseLifecycle.shutdown();
 
             winnerActivation.shutdown();
 
@@ -305,7 +337,6 @@ function activateGame(stack, gameId, playerIds) {
     stack.gameStateEngine.initializeGameState(gameId);
 
     for (const state of [
-        GAME_STATES.COUNTDOWN,
         GAME_STATES.SELF_TEST,
         GAME_STATES.SPEED
     ]) {
@@ -451,24 +482,29 @@ function activateGame(stack, gameId, playerIds) {
 
         }
 
+        // Advance clock into BRAKE so ResultActivation can begin RESULT.
+        stack.gameClockEngine.restorePhaseSchedule(gameId, {
+            phase: GAME_STATES.BRAKE,
+            phaseStartedAt: Date.now() - 1000,
+            phaseEndsAt: Date.now() + 5000
+        });
+
         stack.gameStateEngine.transition(gameId, GAME_STATES.BRAKE, {
             reason: "test"
         });
 
-        let guard = 0;
+        // PHYSICS_STOPPED → WinnerActivation → ResultActivation → RESULT
+        stack.physicsEngine.stopSimulation(gameId);
 
-        while (
-            stack.gameStateEngine.getState(gameId) !== GAME_STATES.RESULT
-            && guard < 2000
-        ) {
+        assert(
+            stack.gameStateEngine.getState(gameId) === GAME_STATES.RESULT,
+            "game should reach RESULT"
+        );
 
-            stack.simulationLoop._onTick();
-
-            guard += 1;
-
-        }
-
-        assert(guard < 2000, "game should reach RESULT");
+        assert(
+            stack.winnerEngine.getResult(gameId),
+            "winner must be stored before RESULT recovery"
+        );
 
         const cached = stack.recoverySnapshotCache.get(gameId);
 

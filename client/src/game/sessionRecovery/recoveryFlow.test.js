@@ -98,6 +98,21 @@ function assert(condition, message) {
     );
 
     assert(
+        resolveGameplayRecoveryPage({
+            gameState: GAME_STATES.BRAKE,
+            gameResult: { winner: { id: "p1" } }
+        }) === APP_PAGES.GAMEPLAY,
+        "gameResult alone must not open Page6 during BRAKE"
+    );
+
+    assert(
+        resolveGameplayRecoveryPage({
+            gameResult: { winner: { id: "p1" } }
+        }) === null,
+        "gameResult without openPage6 must not open Page6"
+    );
+
+    assert(
         hasGameplayIdentity({ roomId: "ABC", playerId: "player_1" }),
         "in-memory identity is sufficient for gameplay recovery"
     );

@@ -73,6 +73,7 @@ export function canRecoverPreGame(session, setup = null) {
 /**
  * Determines the gameplay destination page strictly from the authoritative
  * recovery snapshot. The client never infers gameplay state locally.
+ * Page6 requires openPage6 (OPEN_PAGE6) — never gameResult alone.
  */
 export function resolveGameplayRecoveryPage(snapshot) {
 
@@ -82,7 +83,7 @@ export function resolveGameplayRecoveryPage(snapshot) {
 
     }
 
-    // P5.9 — Page6 only after authoritative OPEN_PAGE6.
+    // Page6 only after authoritative OPEN_PAGE6.
     if (snapshot.openPage6 === true) {
 
         return APP_PAGES.RESULT;
@@ -93,12 +94,6 @@ export function resolveGameplayRecoveryPage(snapshot) {
     if (snapshot.gameState === GAME_STATES.RESULT) {
 
         return APP_PAGES.GAMEPLAY;
-
-    }
-
-    if (snapshot.gameResult) {
-
-        return APP_PAGES.RESULT;
 
     }
 
