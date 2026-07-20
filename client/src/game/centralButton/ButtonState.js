@@ -48,11 +48,11 @@ export const BUTTON_PRESENTATION = Object.freeze({
         pulseClass: "centerButton--pulseSpeed"
     },
     [BUTTON_STATES.BRAKE]: {
-        label: "BRAKE",
-        backgroundColor: "#e67e00",
-        borderColor: "#c96d00",
+        label: "",
+        backgroundColor: "#ffffff",
+        borderColor: "#dddddd",
         textColor: "#ffffff",
-        pulseClass: "centerButton--pulseBrake"
+        pulseClass: ""
     },
     [BUTTON_STATES.WIN]: {
         label: "WIN",
@@ -92,7 +92,7 @@ export function mapGameStateToButtonState(gameState, resultOutcome) {
 
         case GAME_STATES.BRAKE:
 
-            return BUTTON_STATES.BRAKE;
+            return BUTTON_STATES.LOCKED;
 
         case GAME_STATES.RESULT:
 
@@ -111,7 +111,6 @@ export function mapGameStateToButtonState(gameState, resultOutcome) {
 export function isButtonStateInteractive(buttonState) {
 
     return buttonState === BUTTON_STATES.PUSH
-        || buttonState === BUTTON_STATES.SPEED
-        || buttonState === BUTTON_STATES.BRAKE;
+        || buttonState === BUTTON_STATES.SPEED;
 
 }

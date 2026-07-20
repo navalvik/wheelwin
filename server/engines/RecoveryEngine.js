@@ -324,6 +324,11 @@ export class RecoveryEngine {
                 angularAcceleration: physicsSnapshot.runtime.angularAcceleration,
                 selfTestActive: physicsSnapshot.runtime.selfTestActive === true,
                 speedActive: physicsSnapshot.runtime.speedActive === true,
+                brakeActive: physicsSnapshot.runtime.brakeActive === true,
+                brakeDurationMs: physicsSnapshot.runtime.brakeDurationMs ?? 0,
+                brakeElapsedMs: physicsSnapshot.runtime.brakeElapsedMs ?? 0,
+                brakeStartWheelOmega:
+                    physicsSnapshot.runtime.brakeStartWheelOmega ?? 0,
                 state: physicsSnapshot.runtime.state
             };
 

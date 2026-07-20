@@ -28,6 +28,10 @@ export function buildPhysicsSyncPayload(physicsPayload) {
         angularAcceleration,
         selfTestActive: physicsPayload?.selfTestActive === true,
         speedActive: physicsPayload?.speedActive === true,
+        brakeActive: physicsPayload?.brakeActive === true,
+        brakeDurationMs: physicsPayload?.brakeDurationMs ?? null,
+        brakeElapsedMs: physicsPayload?.brakeElapsedMs ?? null,
+        brakeStartWheelOmega: physicsPayload?.brakeStartWheelOmega ?? null,
         serverTimestamp: Date.now()
     };
 

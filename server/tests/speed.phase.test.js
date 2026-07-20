@@ -170,18 +170,18 @@ controller._handleSpeedCompleted({
 snap = physicsEngine.getSimulation(gameId);
 
 assert(
-    snap.runtime.speedActive === false,
-    "SPEED completion must freeze kinematic motion"
+    snap.runtime.speedActive === true,
+    "SPEED completion preserves kinematic motion for BRAKE"
 );
 
 assert(
-    snap.runtime.angularVelocity === 0,
-    "wheel velocity must freeze at SPEED_COMPLETED"
+    snap.runtime.angularVelocity === threeHold.wheelAngularVelocity,
+    "wheel velocity preserved at SPEED_COMPLETED for BRAKE"
 );
 
 assert(
-    snap.runtime.triangleAngularVelocity === 0,
-    "triangle velocity must freeze at SPEED_COMPLETED"
+    snap.runtime.triangleAngularVelocity === threeHold.triangleAngularVelocity,
+    "triangle velocity preserved at SPEED_COMPLETED for BRAKE"
 );
 
 console.log("speed.phase.test.js passed");

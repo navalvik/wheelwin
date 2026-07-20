@@ -2,6 +2,10 @@ import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { computeSelfTestVelocities } from "../gameplay/selfTestMotion.js";
 import { computeSpeedVelocities } from "../gameplay/speedMotion.js";
+import {
+    computeBrakeVelocities,
+    integrateLinearBrakeAngle
+} from "../gameplay/brakeMotion.js";
 import { DEFAULT_PHYSICS_PARAMETERS } from "./physics/PhysicsParameters.js";
 import {
     canTransitionPhysicsState,
@@ -116,6 +120,11 @@ export class PhysicsEngine {
                 braking: false,
                 selfTestActive: false,
                 speedActive: false,
+                brakeActive: false,
+                brakeDurationMs: 0,
+                brakeElapsedMs: 0,
+                brakeStartWheelOmega: 0,
+                physicsStoppedEmitted: false,
                 simulationTimeMs: 0
             },
             commandLog: []
@@ -590,6 +599,144 @@ export class PhysicsEngine {
 
     }
 
+    /**
+     * P5.7 — Begin deterministic linear BRAKE from current SPEED pose/ω.
+     * Duration is fixed; ω(t) = ω0 * (1 - t/T); triangle stays 1.5× opposite.
+     */
+    beginBrake(gameId, { durationMs } = {}) {
+
+        this._assertInitialized();
+
+        const simulation = this._getSimulationOrLog(gameId, "begin brake");
+
+        if (!simulation) {
+
+            return null;
+
+        }
+
+        if (simulation.runtime.brakeActive) {
+
+            return this.getSimulation(gameId);
+
+        }
+
+        if (simulation.runtime.state !== PHYSICS_SIMULATION_STATE.RUNNING
+            && simulation.runtime.state !== PHYSICS_SIMULATION_STATE.BRAKING) {
+
+            this._logger.error(
+                `Brake failed: simulation is not active (${simulation.runtime.state})`
+            );
+
+            return null;
+
+        }
+
+        const resolvedDurationMs = Number.isFinite(durationMs) && durationMs > 0
+            ? durationMs
+            : 6000;
+
+        if (simulation.runtime.state === PHYSICS_SIMULATION_STATE.RUNNING) {
+
+            if (!this._transitionState(
+                simulation,
+                PHYSICS_SIMULATION_STATE.BRAKING
+            )) {
+
+                return null;
+
+            }
+
+        }
+
+        simulation.runtime.speedActive = false;
+
+        simulation.runtime.selfTestActive = false;
+
+        simulation.runtime.angularAcceleration = 0;
+
+        simulation.runtime.braking = true;
+
+        simulation.runtime.brakeActive = true;
+
+        simulation.runtime.brakeDurationMs = resolvedDurationMs;
+
+        simulation.runtime.brakeElapsedMs = 0;
+
+        simulation.runtime.brakeStartWheelOmega
+            = simulation.runtime.angularVelocity;
+
+        simulation.runtime.physicsStoppedEmitted = false;
+
+        // Re-assert triangle ratio at BRAKE entry (same as SPEED model).
+        const startVelocities = computeBrakeVelocities(
+            simulation.runtime.brakeStartWheelOmega,
+            0
+        );
+
+        simulation.runtime.angularVelocity = startVelocities.wheelAngularVelocity;
+
+        simulation.runtime.triangleAngularVelocity
+            = startVelocities.triangleAngularVelocity;
+
+        simulation.commandLog.push({
+            type: "brake_begin",
+            durationMs: resolvedDurationMs,
+            wheelAngularVelocity: simulation.runtime.angularVelocity,
+            triangleAngularVelocity: simulation.runtime.triangleAngularVelocity,
+            simulationTimeMs: simulation.runtime.simulationTimeMs
+        });
+
+        this._emit(
+            EVENT_TYPES.PHYSICS_BRAKING,
+            this._createPhysicsPayload(simulation)
+        );
+
+        this._emit(
+            EVENT_TYPES.PHYSICS_UPDATED,
+            this._createPhysicsPayload(simulation)
+        );
+
+        return this.getSimulation(gameId);
+
+    }
+
+    /**
+     * P5.7 — Force BRAKE completion: ω = 0 and emit PHYSICS_STOPPED once.
+     */
+    completeBrake(gameId) {
+
+        this._assertInitialized();
+
+        const simulation = this._getSimulationOrLog(gameId, "complete brake");
+
+        if (!simulation) {
+
+            return null;
+
+        }
+
+        if (!simulation.runtime.brakeActive
+            && simulation.runtime.state !== PHYSICS_SIMULATION_STATE.BRAKING) {
+
+            return this.getSimulation(gameId);
+
+        }
+
+        this._finalizeBrakeStop(simulation);
+
+        return this.getSimulation(gameId);
+
+    }
+
+    isBrakeActive(gameId) {
+
+        const simulation = this._simulations.get(gameId);
+
+        return simulation?.runtime?.brakeActive === true;
+
+    }
+
     applyAcceleration(gameId, angularAcceleration) {
 
         this._assertInitialized();
@@ -615,6 +762,12 @@ export class PhysicsEngine {
         if (simulation.runtime.speedActive) {
 
             // P5.6A — SPEED velocities are hold-count driven, not acceleration.
+            return this.getSimulation(gameId);
+
+        }
+
+        if (simulation.runtime.brakeActive) {
+
             return this.getSimulation(gameId);
 
         }
@@ -670,14 +823,16 @@ export class PhysicsEngine {
 
         }
 
+        if (simulation.runtime.brakeActive) {
+
+            return this.getSimulation(gameId);
+
+        }
+
         if (simulation.runtime.speedActive) {
 
-            // P5.6A — BRAKE ownership is deferred; do not steal SPEED motion.
-            this._logger.error(
-                "Brake failed: speed motion is active"
-            );
-
-            return null;
+            // P5.7 — Page5 BRAKE is owned by beginBrake / BrakePhaseController.
+            return this.beginBrake(gameId, { durationMs: 6000 });
 
         }
 
@@ -804,6 +959,10 @@ export class PhysicsEngine {
                 state: simulation.runtime.state,
                 selfTestActive: simulation.runtime.selfTestActive,
                 speedActive: simulation.runtime.speedActive,
+                brakeActive: simulation.runtime.brakeActive,
+                brakeDurationMs: simulation.runtime.brakeDurationMs,
+                brakeElapsedMs: simulation.runtime.brakeElapsedMs,
+                brakeStartWheelOmega: simulation.runtime.brakeStartWheelOmega,
                 simulationTimeMs: simulation.runtime.simulationTimeMs
             },
             commandLog: simulation.commandLog.map((entry) => ({ ...entry }))
@@ -830,6 +989,10 @@ export class PhysicsEngine {
             angularAcceleration: simulation.runtime.angularAcceleration,
             selfTestActive: simulation.runtime.selfTestActive,
             speedActive: simulation.runtime.speedActive,
+            brakeActive: simulation.runtime.brakeActive,
+            brakeDurationMs: simulation.runtime.brakeDurationMs,
+            brakeElapsedMs: simulation.runtime.brakeElapsedMs,
+            brakeStartWheelOmega: simulation.runtime.brakeStartWheelOmega,
             simulationState: simulation.runtime.state
         };
 
@@ -863,6 +1026,14 @@ export class PhysicsEngine {
             runtime.triangleAngle = normalizeAngleRadians(
                 runtime.triangleAngle + (runtime.triangleAngularVelocity * dt)
             );
+
+            return;
+
+        }
+
+        if (runtime.brakeActive) {
+
+            this._integrateBrakeStep(simulation, stepDurationMs);
 
             return;
 
@@ -911,6 +1082,114 @@ export class PhysicsEngine {
 
     }
 
+    _integrateBrakeStep(simulation, stepDurationMs) {
+
+        const { runtime } = simulation;
+
+        const durationMs = runtime.brakeDurationMs;
+
+        if (!Number.isFinite(durationMs) || durationMs <= 0) {
+
+            this._finalizeBrakeStop(simulation);
+
+            return;
+
+        }
+
+        const durationSec = durationMs / 1000;
+
+        const t0 = runtime.brakeElapsedMs / 1000;
+
+        runtime.brakeElapsedMs = Math.min(
+            durationMs,
+            runtime.brakeElapsedMs + stepDurationMs
+        );
+
+        const t1 = runtime.brakeElapsedMs / 1000;
+
+        const omega0 = runtime.brakeStartWheelOmega;
+
+        const wheelDelta = integrateLinearBrakeAngle(
+            omega0,
+            t0,
+            t1,
+            durationSec
+        );
+
+        const startPair = computeBrakeVelocities(omega0, 0);
+
+        const triangleDelta = integrateLinearBrakeAngle(
+            startPair.triangleAngularVelocity,
+            t0,
+            t1,
+            durationSec
+        );
+
+        runtime.angle = normalizeAngleRadians(runtime.angle + wheelDelta);
+
+        runtime.triangleAngle = normalizeAngleRadians(
+            runtime.triangleAngle + triangleDelta
+        );
+
+        const progress = runtime.brakeElapsedMs / durationMs;
+
+        const velocities = computeBrakeVelocities(omega0, progress);
+
+        runtime.angularVelocity = velocities.wheelAngularVelocity;
+
+        runtime.triangleAngularVelocity = velocities.triangleAngularVelocity;
+
+        runtime.angularAcceleration = 0;
+
+        if (runtime.brakeElapsedMs >= durationMs) {
+
+            this._finalizeBrakeStop(simulation);
+
+        }
+
+    }
+
+    _finalizeBrakeStop(simulation) {
+
+        if (simulation.runtime.physicsStoppedEmitted) {
+
+            return;
+
+        }
+
+        simulation.runtime.brakeActive = false;
+
+        simulation.runtime.braking = false;
+
+        simulation.runtime.speedActive = false;
+
+        simulation.runtime.selfTestActive = false;
+
+        simulation.runtime.angularVelocity = 0;
+
+        simulation.runtime.triangleAngularVelocity = 0;
+
+        simulation.runtime.angularAcceleration = 0;
+
+        simulation.runtime.brakeElapsedMs = simulation.runtime.brakeDurationMs;
+
+        if (simulation.runtime.state !== PHYSICS_SIMULATION_STATE.STOPPED) {
+
+            simulation.runtime.state = PHYSICS_SIMULATION_STATE.STOPPED;
+
+        }
+
+        simulation.runtime.physicsStoppedEmitted = true;
+
+        this._logger.info("Simulation Stopped");
+
+        this._emit(
+            EVENT_TYPES.PHYSICS_STOPPED,
+            this._createPhysicsPayload(simulation)
+        );
+
+    }
+
     _finalizeStop(simulation) {
 
         if (simulation.runtime.state === PHYSICS_SIMULATION_STATE.STOPPED) {
@@ -925,6 +1204,8 @@ export class PhysicsEngine {
 
         simulation.runtime.speedActive = false;
 
+        simulation.runtime.brakeActive = false;
+
         simulation.runtime.angularVelocity = 0;
 
         simulation.runtime.triangleAngularVelocity = 0;
@@ -932,6 +1213,8 @@ export class PhysicsEngine {
         simulation.runtime.angularAcceleration = 0;
 
         simulation.runtime.state = PHYSICS_SIMULATION_STATE.STOPPED;
+
+        simulation.runtime.physicsStoppedEmitted = true;
 
         this._logger.info("Simulation Stopped");
 
@@ -969,6 +1252,10 @@ export class PhysicsEngine {
             angularAcceleration: simulation.runtime.angularAcceleration,
             selfTestActive: simulation.runtime.selfTestActive === true,
             speedActive: simulation.runtime.speedActive === true,
+            brakeActive: simulation.runtime.brakeActive === true,
+            brakeDurationMs: simulation.runtime.brakeDurationMs ?? 0,
+            brakeElapsedMs: simulation.runtime.brakeElapsedMs ?? 0,
+            brakeStartWheelOmega: simulation.runtime.brakeStartWheelOmega ?? 0,
             timestamp: simulation.runtime.simulationTimeMs
         };
 

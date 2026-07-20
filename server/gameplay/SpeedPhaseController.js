@@ -170,8 +170,8 @@ export class SpeedPhaseController {
 
         }
 
-        // P5.6B — freeze velocities; reject further PRESS/RELEASE.
-        this._physicsEngine.endSpeed(gameId, { keepMotion: false });
+        // P5.7 — preserve SPEED end velocities as BRAKE initial conditions.
+        this._physicsEngine.endSpeed(gameId, { keepMotion: true });
 
         if (typeof this._inputAuthority.closeSpeedInput === "function") {
 

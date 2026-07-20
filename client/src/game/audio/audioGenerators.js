@@ -183,6 +183,26 @@ export function createPlaceholderBuffers(audioContext) {
             ]),
             sampleRate
         ),
+        [AUDIO_TRACKS.BRAKE]: createWavBuffer(
+            audioContext,
+            mixSamples([
+                renderTone({
+                    duration: 1.2,
+                    sampleRate,
+                    frequency: 70,
+                    gain: 0.12,
+                    type: "saw"
+                }),
+                renderTone({
+                    duration: 1.2,
+                    sampleRate,
+                    frequency: 110,
+                    gain: 0.08,
+                    type: "noise"
+                })
+            ]),
+            sampleRate
+        ),
         [AUDIO_TRACKS.BUTTON_PRESS]: createWavBuffer(
             audioContext,
             renderTone({

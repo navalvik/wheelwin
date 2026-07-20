@@ -32,11 +32,15 @@ export class AdaptiveAudioEngine {
 
         this._selfTestNodes = null;
 
+        this._brakeNodes = null;
+
         this._musicPlaying = false;
 
         this._mechanicalPlaying = false;
 
         this._selfTestPlaying = false;
+
+        this._brakePlaying = false;
 
         this._musicPaused = false;
 
@@ -117,6 +121,8 @@ export class AdaptiveAudioEngine {
 
         this._applyChannelVolume(AUDIO_CHANNELS.EFFECTS, this._selfTestNodes);
 
+        this._applyChannelVolume(AUDIO_CHANNELS.EFFECTS, this._brakeNodes);
+
     }
 
     setPlaybackRate(rate) {
@@ -127,11 +133,19 @@ export class AdaptiveAudioEngine {
 
         this._applyPlaybackRate(this._mechanicalNodes);
 
+        this._applyPlaybackRate(this._brakeNodes);
+
     }
 
     updateWheelSpeed(wheelSpeed) {
 
         this.setPlaybackRate(mapWheelSpeedToPlaybackRate(wheelSpeed));
+
+        if (this._brakePlaying && Math.max(0, wheelSpeed) <= 0.5) {
+
+            this.stopBrake();
+
+        }
 
     }
 
@@ -286,6 +300,35 @@ export class AdaptiveAudioEngine {
 
     }
 
+    playBrake() {
+
+        if (!this._canPlay()) {
+
+            return;
+
+        }
+
+        this.stopBrake();
+
+        this._brakeNodes = this._startLoop(
+            AUDIO_TRACKS.BRAKE,
+            AUDIO_CHANNELS.EFFECTS
+        );
+
+        this._brakePlaying = Boolean(this._brakeNodes);
+
+    }
+
+    stopBrake() {
+
+        this._stopNodes(this._brakeNodes);
+
+        this._brakeNodes = null;
+
+        this._brakePlaying = false;
+
+    }
+
     handleGameState(gameState, options = {}) {
 
         if (gameState === this._lastGameState) {
@@ -305,6 +348,13 @@ export class AdaptiveAudioEngine {
 
         }
 
+        if (previousState === GAME_STATES.BRAKE
+            && gameState !== GAME_STATES.BRAKE) {
+
+            this.stopBrake();
+
+        }
+
         switch (gameState) {
 
             case GAME_STATES.READY:
@@ -312,6 +362,8 @@ export class AdaptiveAudioEngine {
                 this.stopBackground();
 
                 this.stopSelfTest();
+
+                this.stopBrake();
 
                 break;
 
@@ -331,6 +383,8 @@ export class AdaptiveAudioEngine {
 
                 this.stopBackground();
 
+                this.stopBrake();
+
                 this.playSelfTest();
 
                 break;
@@ -338,6 +392,8 @@ export class AdaptiveAudioEngine {
             case GAME_STATES.SPEED:
 
                 this.stopSelfTest();
+
+                this.stopBrake();
 
                 this.playBackground();
 
@@ -349,19 +405,17 @@ export class AdaptiveAudioEngine {
 
                 this.stopSelfTest();
 
-                if (!this._musicPlaying) {
+                this.stopBackground();
 
-                    this.playBackground();
-
-                    this.playMechanical();
-
-                }
+                this.playBrake();
 
                 break;
 
             case GAME_STATES.RESULT:
 
                 this.stopSelfTest();
+
+                this.stopBrake();
 
                 this.stopBackground();
 
@@ -394,6 +448,7 @@ export class AdaptiveAudioEngine {
             musicPaused: this._musicPaused,
             mechanicalPlaying: this._mechanicalPlaying,
             selfTestPlaying: this._selfTestPlaying,
+            brakePlaying: this._brakePlaying,
             playbackRate: this._playbackRate,
             volumes: { ...this._volumes },
             loadedTracks: [...this._loadedTracks],
@@ -407,6 +462,8 @@ export class AdaptiveAudioEngine {
         this.stopBackground();
 
         this.stopSelfTest();
+
+        this.stopBrake();
 
         this._buffers.clear();
 

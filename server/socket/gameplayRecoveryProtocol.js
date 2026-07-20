@@ -205,7 +205,15 @@ export function buildClientRecoveryPayload({
             remainingBrakeTime: null,
             elapsedTime: snapshot?.clock?.elapsed ?? null,
             selfTestActive: snapshot?.physics?.selfTestActive === true,
-            speedActive: snapshot?.physics?.speedActive === true
+            speedActive: snapshot?.physics?.speedActive === true,
+            brakeActive: snapshot?.physics?.brakeActive === true,
+            brakeDurationMs: snapshot?.physics?.brakeDurationMs ?? null,
+            brakeElapsedMs: snapshot?.physics?.brakeElapsedMs ?? null,
+            brakeStartWheelOmega:
+                snapshot?.physics?.brakeStartWheelOmega ?? null,
+            remainingBrakeTime: Number.isFinite(snapshot?.clock?.remainingTime)
+                ? snapshot.clock.remainingTime
+                : null
         },
         playerStates,
         button: {

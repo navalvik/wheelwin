@@ -23,6 +23,7 @@ export const AUDIO_TRACKS = Object.freeze({
     MECHANICAL_LOOP: "mechanicalLoop",
     COUNTDOWN_INTRO: "countdownIntro",
     SELF_TEST: "selfTest",
+    BRAKE: "brake",
     BUTTON_PRESS: "buttonPress",
     BUTTON_RELEASE: "buttonRelease",
     WIN: "win",

@@ -221,17 +221,19 @@ assert(
     "no synthetic continuation cursors"
 );
 
-// SPEED_COMPLETED freezes + closes input
+// SPEED_COMPLETED preserves motion for BRAKE; input stays closed
 speedController._handleSpeedCompleted({
     gameId,
     phase: GAME_STATES.SPEED
 });
 
-const frozen = physicsEngine.getSimulation(gameId);
+const preserved = physicsEngine.getSimulation(gameId);
 
-assert(frozen.runtime.angularVelocity === 0, "wheel frozen");
-
-assert(frozen.runtime.triangleAngularVelocity === 0, "triangle frozen");
+assert(
+    preserved.runtime.angularVelocity !== 0
+        || preserved.runtime.speedActive === true,
+    "SPEED end velocities preserved for BRAKE handoff"
+);
 
 assert(
     inputAuthority.handleButtonPress(gameId, playerId) === null,

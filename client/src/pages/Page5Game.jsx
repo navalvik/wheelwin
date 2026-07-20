@@ -27,7 +27,11 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
     const isSelfTestPhase = gameState === GAME_STATES.SELF_TEST;
 
-    const buttonInputDisabled = isReadyPhase || isSelfTestPhase;
+    const isBrakePhase = gameState === GAME_STATES.BRAKE;
+
+    const buttonInputDisabled = isReadyPhase
+        || isSelfTestPhase
+        || isBrakePhase;
 
     const { lastAck } = useInputAck();
 
