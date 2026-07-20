@@ -320,6 +320,18 @@ export class RoomLobbyBridge {
             }
         );
 
+        this._subscribe(
+            EVENT_TYPES.AUTO_FINISH_STARTED,
+            (envelope) => {
+
+                this._deliverGameplayTimerEvent(
+                    LOBBY_SERVER_EVENTS.AUTO_FINISH_STARTED,
+                    envelope.payload
+                );
+
+            }
+        );
+
         this._initialized = true;
 
     }

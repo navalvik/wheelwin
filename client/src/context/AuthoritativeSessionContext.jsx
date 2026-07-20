@@ -293,6 +293,15 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onAutoFinishStarted: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.AUTO_FINISH_STARTED,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

@@ -13,6 +13,7 @@ import { WinnerEngine } from "../../engines/WinnerEngine.js";
 import { GameStateActivation } from "../../gameplay/GameStateActivation.js";
 import { SpeedActivation } from "../../gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "../../gameplay/OfflineInputContinuation.js";
+import { AutoFinishActivation } from "../../gameplay/AutoFinishActivation.js";
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
 import { PaymentActivation } from "../../gameplay/PaymentActivation.js";
 import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
@@ -259,6 +260,21 @@ export function wireGameplayBootstrap({
 
     gameplayTimerActivation.initialize();
 
+    const autoFinishActivation = new AutoFinishActivation({
+        logger,
+        eventBus,
+        physicsEngine,
+        inputAuthority,
+        gameStateEngine,
+        gameClockEngine,
+        gameCatalog: fastInputCatalog,
+        brakeLeadMs: 50,
+        spinGraceMs: 20,
+        devMode
+    });
+
+    autoFinishActivation.initialize();
+
     const paymentEngine = new PaymentEngine({
         logger,
         eventBus,
@@ -336,6 +352,7 @@ export function wireGameplayBootstrap({
         gameStateActivation,
         speedActivation,
         offlineInputContinuation,
+        autoFinishActivation,
         winnerEngine,
         winnerActivation,
         gameplayTimerLifecycle,

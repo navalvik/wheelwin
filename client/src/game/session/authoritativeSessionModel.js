@@ -42,6 +42,7 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
     ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
     GAMEPLAY_TIMER: "GAMEPLAY_TIMER",
+    AUTO_FINISH_STARTED: "AUTO_FINISH_STARTED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -62,6 +63,7 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     recovery: null,
     setup: null,
     gameplayTimer: null,
+    autoFinish: null,
     lifecycle: Object.freeze({
         gameStarted: false,
         gameEnded: false,
@@ -623,12 +625,38 @@ export function authoritativeSessionReducer(state, action) {
 
         }
 
+        case AUTHORITATIVE_SESSION_ACTIONS.AUTO_FINISH_STARTED: {
+
+            if (!payload?.gameId) {
+
+                return state;
+
+            }
+
+            return stamp({
+                ...state,
+                gameId: payload.gameId ?? state.gameId,
+                roomId: payload.roomId ?? state.roomId,
+                autoFinish: Object.freeze({
+                    active: true,
+                    gameId: payload.gameId,
+                    roomId: payload.roomId ?? null,
+                    startedAt: payload.startedAt ?? Date.now(),
+                    expiresAt: Number.isFinite(payload.expiresAt)
+                        ? payload.expiresAt
+                        : null
+                })
+            }, action.type);
+
+        }
+
         case AUTHORITATIVE_SESSION_ACTIONS.GAME_END: {
 
             return stamp({
                 ...state,
                 gameId: payload.gameId ?? state.gameId,
                 gameplayTimer: null,
+                autoFinish: null,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     gameEnded: true,

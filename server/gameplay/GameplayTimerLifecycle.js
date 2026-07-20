@@ -12,6 +12,10 @@ import {
  *
  * Owns the Page5 wall clock only. Does not own phases, physics, winners,
  * or cleanup. One timer per gameId.
+ *
+ * R1.3G — WARNING is derived from authoritative remainingTime() (expiresAt
+ * anchor), not from blind setTimeout success. Scheduled wake-ups only prompt
+ * evaluation; expiry and sync paths re-check before marking expired.
  */
 export class GameplayTimerLifecycle {
 
@@ -130,6 +134,8 @@ export class GameplayTimerLifecycle {
 
         if (this._timers.has(gameId)) {
 
+            this._evaluateWarning(gameId, now);
+
             return this._timers.get(gameId);
 
         }
@@ -144,9 +150,11 @@ export class GameplayTimerLifecycle {
 
         this._timers.set(gameId, timer);
 
-        this._scheduleWarning(timer, now);
+        this._scheduleWarningEvaluation(timer, now);
 
         this._scheduleExpiry(timer, now);
+
+        this._evaluateWarning(gameId, now);
 
         const snapshot = timer.toSnapshot(now);
 
@@ -183,6 +191,8 @@ export class GameplayTimerLifecycle {
             return null;
 
         }
+
+        this._evaluateWarning(gameId, now);
 
         return timer.toSnapshot(now);
 
@@ -221,25 +231,21 @@ export class GameplayTimerLifecycle {
 
     }
 
-    _scheduleWarning(timer, now = Date.now()) {
+    /**
+     * Schedule a one-shot wake-up near the warning threshold. The callback only
+     * prompts _evaluateWarning(); emission requires remainingTime() <= warningMs.
+     */
+    _scheduleWarningEvaluation(timer, now = Date.now()) {
 
         const remaining = timer.remainingTime(now);
 
         const delay = Math.max(0, remaining - this._warningMs);
 
-        if (remaining <= this._warningMs) {
-
-            this._emitWarning(timer.gameId);
-
-            return;
-
-        }
-
         const handle = setTimeout(() => {
 
             this._warningHandles.delete(timer.gameId);
 
-            this._emitWarning(timer.gameId);
+            this._evaluateWarning(timer.gameId, Date.now());
 
         }, delay);
 
@@ -275,23 +281,36 @@ export class GameplayTimerLifecycle {
 
     }
 
-    _emitWarning(gameId) {
+    /**
+     * Authoritative warning gate — single source of truth is remainingTime().
+     */
+    _evaluateWarning(gameId, now = Date.now()) {
 
         const timer = this._timers.get(gameId);
 
         if (!timer || timer.expired || timer.warningEmitted) {
 
-            return;
+            return false;
+
+        }
+
+        const remaining = timer.remainingTime(now);
+
+        if (remaining > this._warningMs) {
+
+            return false;
 
         }
 
         timer.markWarningEmitted();
 
-        const snapshot = timer.toSnapshot();
+        const snapshot = timer.toSnapshot(now);
 
         this._emit(EVENT_TYPES.GAMEPLAY_TIMER_WARNING, snapshot);
 
-        this._log(`WARNING | gameId=${gameId}`);
+        this._log(`WARNING | gameId=${gameId} | remainingMs=${remaining}`);
+
+        return true;
 
     }
 
@@ -305,11 +324,16 @@ export class GameplayTimerLifecycle {
 
         }
 
+        const now = Date.now();
+
+        // Last-chance warning before expiry — survives event-loop delay/races.
+        this._evaluateWarning(gameId, now);
+
         this._clearSchedules(gameId);
 
         timer.markExpired();
 
-        const snapshot = timer.toSnapshot();
+        const snapshot = timer.toSnapshot(now);
 
         this._emit(EVENT_TYPES.GAMEPLAY_TIMER_EXPIRED, snapshot);
 

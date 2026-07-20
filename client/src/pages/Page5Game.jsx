@@ -8,6 +8,7 @@ import WheelPlaceholder from "../components/page5/WheelPlaceholder";
 import PlayerPanel from "../components/page5/PlayerPanel";
 
 import { useCentralButton } from "../context/CentralButtonContext";
+import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameState } from "../context/GameStateContext";
 import { useInputAck } from "../context/InputAckContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
@@ -21,6 +22,10 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     // (GameResultContext). Back/Next must not navigate locally.
 
     const { gameState } = useGameState();
+
+    const authoritative = useAuthoritativeSession();
+
+    const autoFinishActive = authoritative.autoFinish?.active === true;
 
     const { lastAck } = useInputAck();
 
@@ -62,6 +67,19 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
                     {gameState}
 
                 </div>
+
+                {autoFinishActive && (
+
+                    <div
+                        className="page5__autoFinishBadge"
+                        aria-live="polite"
+                    >
+
+                        AUTO FINISH
+
+                    </div>
+
+                )}
 
                 {lastAck && (
 
