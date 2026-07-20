@@ -31,6 +31,8 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
     // R1.3D — sole authoritative signal for clients to open Page5.
     OPEN_PAGE5: "OPEN_PAGE5",
+    // P5.3 — authoritative signal for clients to open Page6 after RESULT.
+    OPEN_PAGE6: "OPEN_PAGE6",
     WALLET_REJECTED: "WALLET_REJECTED"
 });
 

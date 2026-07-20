@@ -1,30 +1,36 @@
+import { GAME_STATES } from "../engines/gameState/GameStates.js";
+
 export const TIMER_PHASES = Object.freeze({
-    COUNTDOWN: "COUNTDOWN",
-    SELF_TEST: "SELF_TEST",
-    SPEED: "SPEED",
-    BRAKE: "BRAKE",
-    RESULT: "RESULT"
+    READY: GAME_STATES.READY,
+    SELF_TEST: GAME_STATES.SELF_TEST,
+    SPEED: GAME_STATES.SPEED,
+    BRAKE: GAME_STATES.BRAKE,
+    RESULT: GAME_STATES.RESULT
 });
 
+/**
+ * Default catalog timers. Runtime values are supplied by loadGameplayPhaseConfig()
+ * via GameCatalog.configurePhaseTimers() during server bootstrap.
+ */
 export const TIMERS = Object.freeze({
-    [TIMER_PHASES.COUNTDOWN]: Object.freeze({
-        phase: TIMER_PHASES.COUNTDOWN,
+    [TIMER_PHASES.READY]: Object.freeze({
+        phase: TIMER_PHASES.READY,
         durationMs: 3000
     }),
     [TIMER_PHASES.SELF_TEST]: Object.freeze({
         phase: TIMER_PHASES.SELF_TEST,
-        durationMs: 2000
+        durationMs: 1500
     }),
     [TIMER_PHASES.SPEED]: Object.freeze({
         phase: TIMER_PHASES.SPEED,
-        durationMs: null
+        durationMs: 6000
     }),
     [TIMER_PHASES.BRAKE]: Object.freeze({
         phase: TIMER_PHASES.BRAKE,
-        durationMs: 3000
+        durationMs: 6000
     }),
     [TIMER_PHASES.RESULT]: Object.freeze({
         phase: TIMER_PHASES.RESULT,
-        durationMs: 5000
+        durationMs: 4000
     })
 });

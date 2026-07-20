@@ -20,8 +20,8 @@ function createFastCatalog() {
         getTimers() {
 
             return {
-                [TIMER_PHASES.COUNTDOWN]: {
-                    phase: TIMER_PHASES.COUNTDOWN,
+                [TIMER_PHASES.READY]: {
+                    phase: TIMER_PHASES.READY,
                     durationMs: 15
                 },
                 [TIMER_PHASES.SELF_TEST]: {
@@ -30,7 +30,7 @@ function createFastCatalog() {
                 },
                 [TIMER_PHASES.SPEED]: {
                     phase: TIMER_PHASES.SPEED,
-                    durationMs: null
+                    durationMs: 15
                 },
                 [TIMER_PHASES.BRAKE]: {
                     phase: TIMER_PHASES.BRAKE,
@@ -38,7 +38,7 @@ function createFastCatalog() {
                 },
                 [TIMER_PHASES.RESULT]: {
                     phase: TIMER_PHASES.RESULT,
-                    durationMs: null
+                    durationMs: 15
                 }
             };
 
@@ -124,9 +124,14 @@ gameClockEngine.startClock(gameId);
 
 assert(gameClockEngine.isRunning(gameId), "clock should be running");
 
-await waitForPhase(eventBus, gameId, "COUNTDOWN");
+const schedule = gameClockEngine.getPhaseSchedule(gameId);
 
-await waitForPhase(eventBus, gameId, "SELF_TEST");
+assert(schedule?.phase === TIMER_PHASES.READY, "clock should start in READY");
+
+assert(
+    Number.isFinite(schedule?.startedAt) && Number.isFinite(schedule?.endsAt),
+    "phase schedule should include authoritative timestamps"
+);
 
 const elapsedBeforePause = gameClockEngine.getElapsed(gameId);
 
@@ -153,9 +158,15 @@ assert(
 
 gameClockEngine.resumeClock(gameId);
 
-gameClockEngine.completePhase(gameId);
+await waitForPhase(eventBus, gameId, TIMER_PHASES.READY);
 
-await waitForPhase(eventBus, gameId, "BRAKE");
+await waitForPhase(eventBus, gameId, TIMER_PHASES.SELF_TEST);
+
+await waitForPhase(eventBus, gameId, TIMER_PHASES.SPEED);
+
+await waitForPhase(eventBus, gameId, TIMER_PHASES.BRAKE);
+
+await waitForPhase(eventBus, gameId, TIMER_PHASES.RESULT);
 
 gameClockEngine.stopClock(gameId);
 
@@ -169,7 +180,7 @@ assert(
 );
 
 assert(
-    timeouts.join(",") === "COUNTDOWN,SELF_TEST,SPEED,BRAKE",
+    timeouts.join(",") === "READY,SELF_TEST,SPEED,BRAKE,RESULT",
     "phase timeouts should fire in order"
 );
 

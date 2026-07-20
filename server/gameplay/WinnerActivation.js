@@ -206,35 +206,17 @@ export class WinnerActivation {
 
         const gameId = payload?.gameId;
 
-        if (!gameId || this._resultTransitioned.has(gameId)) {
+        if (!gameId) {
 
             return;
 
         }
 
-        if (this._gameStateEngine.getState(gameId) === GAME_STATES.RESULT) {
-
-            this._resultTransitioned.add(gameId);
-
-            return;
-
-        }
-
-        const snapshot = this._gameStateEngine.transition(
-            gameId,
-            GAME_STATES.RESULT,
-            { reason: "Winner determined" }
-        );
-
-        if (!snapshot) {
-
-            return;
-
-        }
-
+        // P5.3 — GameplayPhaseLifecycle owns the BRAKE → RESULT transition.
+        // Winner resolution still runs here; RESULT entry is lifecycle-timed.
         this._resultTransitioned.add(gameId);
 
-        this._logStep("RESULT");
+        this._logStep("Winner ready (RESULT transition deferred to lifecycle)");
 
     }
 

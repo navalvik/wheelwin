@@ -4,6 +4,10 @@ import {
     CLOCK_PHASE_SEQUENCE,
     getNextClockPhase
 } from "./gameClock/ClockPhases.js";
+import {
+    getPhaseCompletedEventType,
+    getPhaseStartedEventType
+} from "../gameplay/GameplayPhaseSequence.js";
 
 export class GameClockEngine {
 
@@ -99,6 +103,7 @@ export class GameClockEngine {
             running: false,
             paused: false,
             phaseStartedAt: null,
+            phaseEndsAt: null,
             phaseRemainingMs: null,
             totalPausedMs: 0,
             pauseStartedAt: null,
@@ -156,15 +161,21 @@ export class GameClockEngine {
 
         record.phaseStartedAt = now;
 
+        record.phaseEndsAt = this._computePhaseEndsAt(record.currentPhase, now);
+
         record.phaseRemainingMs = this._getPhaseDuration(record.currentPhase);
 
         this._schedulePhaseTimeout(record);
 
         this._logger.info("Clock Started");
 
+        this._emitPhaseStarted(record);
+
         this._emit(EVENT_TYPES.CLOCK_STARTED, {
             gameId,
             phase: record.currentPhase,
+            startedAt: record.phaseStartedAt,
+            endsAt: record.phaseEndsAt,
             timestamp: now
         });
 
@@ -358,37 +369,43 @@ export class GameClockEngine {
 
         this._assertInitialized();
 
-        const record = this._getClockOrLog(gameId, "complete phase for");
+        this._logger.error(
+            "Phase completion failed: P5.3 lifecycle uses scheduled phase durations only"
+        );
 
-        if (!record) {
+        return null;
 
-            return null;
+    }
 
-        }
+    restorePhaseSchedule(gameId, { phase, phaseStartedAt, phaseEndsAt }) {
 
-        if (!record.running || record.paused) {
+        this._assertInitialized();
 
-            this._logger.error(
-                `Phase completion failed: clock must be running and not paused (${gameId})`
-            );
+        const record = this._getClockOrLog(gameId, "restore phase schedule for");
 
-            return null;
-
-        }
-
-        const duration = this._getPhaseDuration(record.currentPhase);
-
-        if (duration !== null) {
-
-            this._logger.error(
-                `Phase completion failed: phase has scheduled duration (${record.currentPhase})`
-            );
+        if (!record || !record.running || record.paused) {
 
             return null;
 
         }
 
-        this._handlePhaseTimeout(record);
+        if (!phase || !Number.isFinite(phaseStartedAt) || !Number.isFinite(phaseEndsAt)) {
+
+            return null;
+
+        }
+
+        this._clearPhaseTimeout(record);
+
+        record.currentPhase = phase;
+
+        record.phaseStartedAt = phaseStartedAt;
+
+        record.phaseEndsAt = phaseEndsAt;
+
+        record.phaseRemainingMs = Math.max(0, phaseEndsAt - Date.now());
+
+        this._schedulePhaseTimeout(record, record.phaseRemainingMs);
 
         return this._createSnapshot(record);
 
@@ -491,9 +508,29 @@ export class GameClockEngine {
 
         }
 
-        const elapsedInPhase = Date.now() - record.phaseStartedAt;
+        return Math.max(0, (record.phaseEndsAt ?? (record.phaseStartedAt + duration))
+            - Date.now());
 
-        return Math.max(0, duration - elapsedInPhase);
+    }
+
+    getPhaseSchedule(gameId) {
+
+        const record = this._clocks.get(gameId);
+
+        if (!record || !record.currentPhase) {
+
+            return null;
+
+        }
+
+        return {
+            gameId,
+            phase: record.currentPhase,
+            startedAt: record.phaseStartedAt,
+            endsAt: record.phaseEndsAt,
+            running: record.running,
+            paused: record.paused
+        };
 
     }
 
@@ -531,10 +568,14 @@ export class GameClockEngine {
 
         this._logger.info("Phase Timeout");
 
+        this._emitPhaseCompleted(record, now);
+
         this._emit(EVENT_TYPES.PHASE_TIMEOUT, {
             gameId: record.gameId,
             phase,
             elapsed,
+            startedAt: record.phaseStartedAt,
+            endsAt: record.phaseEndsAt,
             timestamp: now
         });
 
@@ -564,7 +605,11 @@ export class GameClockEngine {
 
         record.phaseStartedAt = now;
 
+        record.phaseEndsAt = this._computePhaseEndsAt(nextPhase, now);
+
         record.phaseRemainingMs = this._getPhaseDuration(nextPhase);
+
+        this._emitPhaseStarted(record);
 
         this._schedulePhaseTimeout(record);
 
@@ -576,13 +621,19 @@ export class GameClockEngine {
 
         const duration = remainingMs ?? this._getPhaseDuration(record.currentPhase);
 
-        if (duration === null) {
+        if (!Number.isFinite(duration) || duration <= 0) {
 
             return;
 
         }
 
         record.phaseRemainingMs = duration;
+
+        if (!Number.isFinite(record.phaseEndsAt)) {
+
+            record.phaseEndsAt = record.phaseStartedAt + duration;
+
+        }
 
         record.timeoutHandle = setTimeout(() => {
 
@@ -591,6 +642,50 @@ export class GameClockEngine {
             this._handlePhaseTimeout(record);
 
         }, duration);
+
+    }
+
+    _computePhaseEndsAt(phase, startedAt) {
+
+        const duration = this._getPhaseDuration(phase);
+
+        if (!Number.isFinite(duration)) {
+
+            return null;
+
+        }
+
+        return startedAt + duration;
+
+    }
+
+    _emitPhaseStarted(record) {
+
+        const payload = {
+            gameId: record.gameId,
+            phase: record.currentPhase,
+            startedAt: record.phaseStartedAt,
+            endsAt: record.phaseEndsAt,
+            durationMs: this._getPhaseDuration(record.currentPhase),
+            timestamp: record.phaseStartedAt
+        };
+
+        this._emit(getPhaseStartedEventType(record.currentPhase), payload);
+
+    }
+
+    _emitPhaseCompleted(record, completedAt) {
+
+        const payload = {
+            gameId: record.gameId,
+            phase: record.currentPhase,
+            startedAt: record.phaseStartedAt,
+            endsAt: record.phaseEndsAt,
+            completedAt,
+            timestamp: completedAt
+        };
+
+        this._emit(getPhaseCompletedEventType(record.currentPhase), payload);
 
     }
 
@@ -674,6 +769,8 @@ export class GameClockEngine {
             gameId: record.gameId,
             currentPhase: record.currentPhase,
             startedAt: record.startedAt,
+            phaseStartedAt: record.phaseStartedAt,
+            phaseEndsAt: record.phaseEndsAt,
             pausedAt: record.pausedAt,
             elapsed: this.getElapsed(record.gameId),
             running: record.running,

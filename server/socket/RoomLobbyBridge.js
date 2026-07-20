@@ -269,6 +269,15 @@ export class RoomLobbyBridge {
             }
         );
 
+        this._subscribe(
+            EVENT_TYPES.OPEN_PAGE6,
+            (envelope) => {
+
+                this._deliverOpenPage6(envelope.payload);
+
+            }
+        );
+
         this._initialized = true;
 
     }
@@ -1993,6 +2002,27 @@ export class RoomLobbyBridge {
             roomId,
             LOBBY_SERVER_EVENTS.OPEN_PAGE5,
             { roomId }
+        );
+
+    }
+
+    _deliverOpenPage6({ gameId, roomId: payloadRoomId }) {
+
+        const roomId = payloadRoomId
+            ?? (gameId
+                ? this._gameplayContextResolver?.resolveRoomByGameId(gameId)
+                : null);
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.OPEN_PAGE6,
+            { roomId, gameId: gameId ?? null }
         );
 
     }

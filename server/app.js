@@ -55,7 +55,12 @@ import { SocketGateway } from "./socket/SocketGateway.js";
 import { GameplayContextResolver } from "./socket/GameplayContextResolver.js";
 import { RoomLobbyBridge } from "./socket/RoomLobbyBridge.js";
 import { SimulationLoop } from "./simulation/SimulationLoop.js";
-import { GameStateActivation } from "./gameplay/GameStateActivation.js";
+import { GameplayPhaseLifecycle } from "./gameplay/GameplayPhaseLifecycle.js";
+import { validateGameplayPhaseSequence } from "./gameplay/GameplayPhaseSequence.js";
+import {
+    buildGameplayPhaseTimers,
+    loadGameplayPhaseConfig
+} from "./config/gameplayPhases.js";
 import { GameClockBroadcaster } from "./gameplay/GameClockBroadcaster.js";
 import { SpeedActivation } from "./gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js";
@@ -113,7 +118,7 @@ class WheelWinApplication {
 
         this._simulationLoop = null;
 
-        this._gameStateActivation = null;
+        this._gameplayPhaseLifecycle = null;
 
         this._speedActivation = null;
 
@@ -194,6 +199,14 @@ class WheelWinApplication {
         });
 
         this._gameCatalog.initialize();
+
+        this._gameplayPhaseConfig = loadGameplayPhaseConfig();
+
+        this._gameCatalog.configurePhaseTimers(
+            buildGameplayPhaseTimers(this._gameplayPhaseConfig)
+        );
+
+        validateGameplayPhaseSequence();
 
         validateStartupConfiguration({
             serverConfig: this._serverConfig,
@@ -281,17 +294,18 @@ class WheelWinApplication {
 
         this._logger.startupLine("SimulationLoop");
 
-        this._gameStateActivation = new GameStateActivation({
+        this._gameplayPhaseLifecycle = new GameplayPhaseLifecycle({
             logger: this._logger,
             eventBus: this._eventBus,
             gameStateEngine: this._engines.gameStateEngine,
             gameClockEngine: this._engines.gameClockEngine,
+            winnerEngine: this._engines.winnerEngine,
             devMode: this._productionConfig.isDevelopment
         });
 
-        this._gameStateActivation.initialize();
+        this._gameplayPhaseLifecycle.initialize();
 
-        this._logger.startupLine("GameStateActivation");
+        this._logger.startupLine("GameplayPhaseLifecycle");
 
         this._speedActivation = new SpeedActivation({
             logger: this._logger,
@@ -504,7 +518,7 @@ class WheelWinApplication {
             gameClockEngine: Boolean(this._engines?.gameClockEngine),
             physicsEngine: Boolean(this._engines?.physicsEngine),
             simulationLoop: Boolean(this._simulationLoop),
-            gameStateActivation: Boolean(this._gameStateActivation),
+            gameplayPhaseLifecycle: Boolean(this._gameplayPhaseLifecycle),
             speedActivation: Boolean(this._speedActivation),
             offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
@@ -598,7 +612,7 @@ class WheelWinApplication {
             gameClockEngine: Boolean(this._engines?.gameClockEngine),
             physicsEngine: Boolean(this._engines?.physicsEngine),
             simulationLoop: Boolean(this._simulationLoop),
-            gameStateActivation: Boolean(this._gameStateActivation),
+            gameplayPhaseLifecycle: Boolean(this._gameplayPhaseLifecycle),
             speedActivation: Boolean(this._speedActivation),
             offlineInputContinuation: Boolean(this._offlineInputContinuation),
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
@@ -769,11 +783,11 @@ class WheelWinApplication {
 
         });
 
-        this._safeShutdownStep("gameStateActivation", () => {
+        this._safeShutdownStep("gameplayPhaseLifecycle", () => {
 
-            if (this._gameStateActivation) {
+            if (this._gameplayPhaseLifecycle) {
 
-                this._gameStateActivation.shutdown();
+                this._gameplayPhaseLifecycle.shutdown();
 
             }
 

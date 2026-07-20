@@ -46,16 +46,24 @@ export class GameClockBroadcaster {
 
         });
 
-        // A phase transition changes the authoritative phase synchronously right
-        // after PHASE_TIMEOUT is emitted; defer one tick so the sampled snapshot
-        // reflects the new phase, then push it immediately (no waiting a second).
-        this._subscribe(EVENT_TYPES.PHASE_TIMEOUT, (envelope) => {
+        for (const phaseEvent of [
+            EVENT_TYPES.READY_STARTED,
+            EVENT_TYPES.SELF_TEST_STARTED,
+            EVENT_TYPES.SPEED_STARTED,
+            EVENT_TYPES.BRAKE_STARTED,
+            EVENT_TYPES.RESULT_STARTED,
+            EVENT_TYPES.PHASE_TIMEOUT
+        ]) {
 
-            const gameId = envelope.payload?.gameId;
+            this._subscribe(phaseEvent, (envelope) => {
 
-            setImmediate(() => this._emitUpdate(gameId));
+                const gameId = envelope.payload?.gameId;
 
-        });
+                setImmediate(() => this._emitUpdate(gameId));
+
+            });
+
+        }
 
         this._subscribe(EVENT_TYPES.CLOCK_STOPPED, (envelope) => {
 
@@ -113,7 +121,7 @@ export class GameClockBroadcaster {
 
         }
 
-        // Push the current phase immediately so clients see COUNTDOWN at once.
+        // Push the current phase immediately so clients see READY at once.
         this._emitUpdate(gameId);
 
         const handle = setInterval(() => {
@@ -184,6 +192,8 @@ export class GameClockBroadcaster {
 
         const remainingMs = this._gameClockEngine.getRemaining(gameId);
 
+        const schedule = this._gameClockEngine.getPhaseSchedule(gameId);
+
         const remainingSeconds = remainingMs === null
             ? null
             : Math.ceil(remainingMs / 1000);
@@ -194,6 +204,8 @@ export class GameClockBroadcaster {
             payload: {
                 gameId,
                 phase: snapshot.currentPhase,
+                startedAt: schedule?.startedAt ?? snapshot.phaseStartedAt ?? null,
+                endsAt: schedule?.endsAt ?? snapshot.phaseEndsAt ?? null,
                 remainingMs,
                 remainingSeconds,
                 running: snapshot.running

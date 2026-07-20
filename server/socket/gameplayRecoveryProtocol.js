@@ -161,6 +161,8 @@ export function buildClientRecoveryPayload({
             )?.pressCount ?? 0
         },
         remainingGameTime: snapshot?.clock?.remainingTime ?? null,
+        phaseStartedAt: snapshot?.clock?.phaseStartedAt ?? null,
+        phaseEndsAt: snapshot?.clock?.phaseEndsAt ?? null,
         gameResult,
         payment: mapPaymentStatusForClient(
             paymentStatus ?? payment?.paymentStatus ?? null,

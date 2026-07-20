@@ -1,6 +1,5 @@
 export const GAME_STATES = Object.freeze({
     READY: "READY",
-    COUNTDOWN: "COUNTDOWN",
     SELF_TEST: "SELF_TEST",
     SPEED: "SPEED",
     BRAKE: "BRAKE",
@@ -9,7 +8,6 @@ export const GAME_STATES = Object.freeze({
 
 export const GAME_STATE_SEQUENCE = Object.freeze([
     GAME_STATES.READY,
-    GAME_STATES.COUNTDOWN,
     GAME_STATES.SELF_TEST,
     GAME_STATES.SPEED,
     GAME_STATES.BRAKE,

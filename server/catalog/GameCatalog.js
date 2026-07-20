@@ -174,6 +174,18 @@ export class GameCatalog {
 
     }
 
+    configurePhaseTimers(timers) {
+
+        if (!timers || typeof timers !== "object") {
+
+            throw new Error("GameCatalog.configurePhaseTimers requires timers");
+
+        }
+
+        this._timers = deepFreeze({ ...timers });
+
+    }
+
     getColors() {
 
         this._assertInitialized();

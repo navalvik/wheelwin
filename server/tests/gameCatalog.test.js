@@ -29,7 +29,7 @@ assert(catalog.getStakes().length === 2, "catalog should expose 2 stakes");
 
 assert(catalog.getWheelRules().minSectors === 3, "wheel min sectors should be 3");
 
-assert(catalog.getTimers().COUNTDOWN.durationMs === 3000, "countdown timer should be defined");
+assert(catalog.getTimers().READY.durationMs === 3000, "ready timer should be defined");
 
 const colors = catalog.getColors();
 

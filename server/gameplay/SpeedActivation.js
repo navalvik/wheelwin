@@ -233,9 +233,8 @@ export class SpeedActivation {
 
         this._logStep(`All players finished | gameId=${gameId}`);
 
-        this._logStep("GameClock.completePhase() -> SPEED complete");
-
-        this._gameClockEngine.completePhase(gameId);
+        // P5.3 — SPEED duration is lifecycle-scheduled; press-limit tracking only.
+        this._logStep("SPEED input budget exhausted (phase owned by lifecycle)");
 
     }
 

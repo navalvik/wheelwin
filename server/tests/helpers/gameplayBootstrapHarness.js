@@ -10,7 +10,7 @@ import { LoggerService } from "../../services/LoggerService.js";
 import { RandomService } from "../../services/RandomService.js";
 import { SimulationLoop } from "../../simulation/SimulationLoop.js";
 import { WinnerEngine } from "../../engines/WinnerEngine.js";
-import { GameStateActivation } from "../../gameplay/GameStateActivation.js";
+import { GameplayPhaseLifecycle } from "../../gameplay/GameplayPhaseLifecycle.js";
 import { SpeedActivation } from "../../gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "../../gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
@@ -45,8 +45,8 @@ export function emitEntryPaymentCompleted(eventBus, roomId) {
 export function createFastTimers() {
 
     return {
-        [TIMER_PHASES.COUNTDOWN]: {
-            phase: TIMER_PHASES.COUNTDOWN,
+        [TIMER_PHASES.READY]: {
+            phase: TIMER_PHASES.READY,
             durationMs: 25
         },
         [TIMER_PHASES.SELF_TEST]: {
@@ -55,7 +55,7 @@ export function createFastTimers() {
         },
         [TIMER_PHASES.SPEED]: {
             phase: TIMER_PHASES.SPEED,
-            durationMs: null
+            durationMs: 25
         },
         [TIMER_PHASES.BRAKE]: {
             phase: TIMER_PHASES.BRAKE,
@@ -190,15 +190,16 @@ export function wireGameplayBootstrap({
 
     winnerEngine.initialize();
 
-    const gameStateActivation = new GameStateActivation({
+    const gameplayPhaseLifecycle = new GameplayPhaseLifecycle({
         logger,
         eventBus,
         gameStateEngine,
         gameClockEngine,
+        winnerEngine,
         devMode
     });
 
-    gameStateActivation.initialize();
+    gameplayPhaseLifecycle.initialize();
 
     const speedActivation = new SpeedActivation({
         logger,
@@ -307,7 +308,7 @@ export function wireGameplayBootstrap({
         physicsEngine,
         inputAuthority,
         simulationLoop,
-        gameStateActivation,
+        gameplayPhaseLifecycle,
         speedActivation,
         offlineInputContinuation,
         winnerEngine,
@@ -352,7 +353,7 @@ export function shutdownGameplayBootstrap(engines) {
 
     engines.winnerEngine.shutdown();
 
-    engines.gameStateActivation.shutdown();
+    engines.gameplayPhaseLifecycle.shutdown();
 
     engines.simulationLoop.shutdown();
 

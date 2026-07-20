@@ -7,6 +7,8 @@ export function buildGameClockUpdatePayload(clockPayload) {
     return {
         gameId: clockPayload?.gameId ?? null,
         phase: clockPayload?.phase ?? null,
+        startedAt: clockPayload?.startedAt ?? null,
+        endsAt: clockPayload?.endsAt ?? null,
         remainingMs: clockPayload?.remainingMs ?? null,
         remainingSeconds: clockPayload?.remainingSeconds ?? null,
         running: clockPayload?.running ?? false,
