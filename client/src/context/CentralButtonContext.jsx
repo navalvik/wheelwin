@@ -19,6 +19,7 @@ import socket from "../socket/socket";
 import { useRegisterEngineModule } from "./EngineBridgeContext";
 import { useGameState } from "./GameStateContext";
 import { usePhysics } from "./PhysicsContext";
+import { usePlayerIdentity } from "./PlayerIdentityContext";
 
 const CentralButtonContext = createContext(null);
 
@@ -27,6 +28,12 @@ export function CentralButtonProvider({ children, onReadyComplete }) {
     const { gameState } = useGameState();
 
     const { handleButtonEvent } = usePhysics();
+
+    const { playerId: localPlayerId } = usePlayerIdentity();
+
+    const localPlayerIdRef = useRef(localPlayerId);
+
+    localPlayerIdRef.current = localPlayerId;
 
     const engineRef = useRef(null);
 
@@ -132,6 +139,26 @@ export function CentralButtonProvider({ children, onReadyComplete }) {
                 setResultOutcome(snapshot.resultOutcome);
 
             }
+
+        },
+
+        applyAuthoritativeInput: (payload) => {
+
+            const payloadPlayerId = payload?.playerId;
+
+            const currentLocalId = localPlayerIdRef.current;
+
+            if (currentLocalId != null
+                && payloadPlayerId != null
+                && String(payloadPlayerId) !== String(currentLocalId)) {
+
+                return;
+
+            }
+
+            engineRef.current.applyAuthoritativeInput(payload);
+
+            setSnapshot(engineRef.current.getSnapshot());
 
         }
 

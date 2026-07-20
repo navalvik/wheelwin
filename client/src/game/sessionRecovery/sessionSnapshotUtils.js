@@ -53,9 +53,20 @@ export function normalizeSessionSnapshot(snapshot = {}) {
                 ?? buttonSource.state
                 ?? null,
             pressCounter,
-            buttonPressed: buttonSource.buttonPressed === true,
-            enabled: buttonSource.enabled,
-            locked: buttonSource.locked
+            completedCycles: buttonSource.completedCycles
+                ?? pressCounter,
+            remainingPresses: buttonSource.remainingPresses,
+            buttonPressed: buttonSource.buttonPressed === true
+                || buttonSource.pressed === true,
+            pressed: buttonSource.pressed === true
+                || buttonSource.buttonPressed === true,
+            locked: buttonSource.buttonLocked === true
+                || buttonSource.locked === true,
+            buttonLocked: buttonSource.buttonLocked === true
+                || buttonSource.locked === true,
+            lastReleaseAt: buttonSource.lastReleaseAt ?? null,
+            cooldownUntil: buttonSource.cooldownUntil ?? null,
+            enabled: buttonSource.enabled
         },
         remainingGameTime: snapshot.remainingGameTime ?? null,
         phaseStartedAt: snapshot.phaseStartedAt ?? null,

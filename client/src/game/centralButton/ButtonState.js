@@ -7,7 +7,8 @@ export const BUTTON_STATES = Object.freeze({
     SPEED: "SPEED",
     BRAKE: "BRAKE",
     WIN: "WIN",
-    LOST: "LOST"
+    LOST: "LOST",
+    LOCKED: "LOCKED"
 });
 
 export const RESULT_OUTCOMES = Object.freeze({
@@ -64,6 +65,13 @@ export const BUTTON_PRESENTATION = Object.freeze({
         label: "LOST",
         backgroundColor: "#d62828",
         borderColor: "#b81f1f",
+        textColor: "#ffffff",
+        pulseClass: ""
+    },
+    [BUTTON_STATES.LOCKED]: {
+        label: "",
+        backgroundColor: "#ffffff",
+        borderColor: "#dddddd",
         textColor: "#ffffff",
         pulseClass: ""
     }

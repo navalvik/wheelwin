@@ -79,7 +79,11 @@ export function createDefaultPlayerRecord({
         color,
         wallet,
         seat,
-        status
+        status,
+        completedCycles: 0,
+        remainingPresses: 3,
+        buttonLocked: false,
+        pressed: false
     };
 
 }

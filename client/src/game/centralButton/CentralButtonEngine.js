@@ -121,6 +121,7 @@ export class CentralButtonEngine {
         const button = snapshot.button || snapshot.pressCounters || snapshot;
 
         const pressCounter = button.pressCounter
+            ?? button.completedCycles
             ?? button.pressCount
             ?? this._pressCount;
 
@@ -132,9 +133,14 @@ export class CentralButtonEngine {
 
         this._pressCount = Math.max(0, pressCounter);
 
-        this._isPressed = button.buttonPressed === true;
+        // Reconnect never restores a held press — server RELEASE-on-disconnect
+        // guarantees pressed is false after offline mid-hold.
+        this._isPressed = button.pressed === true
+            || button.buttonPressed === true;
 
-        this._locked = button.locked ?? (this._pressCount >= MAX_BUTTON_PRESSES);
+        this._locked = button.buttonLocked === true
+            || button.locked === true
+            || this._pressCount >= MAX_BUTTON_PRESSES;
 
         if (button.enabled === false || this._locked) {
 
@@ -151,9 +157,64 @@ export class CentralButtonEngine {
         }
 
         if (nextState === BUTTON_STATES.WIN
-            || nextState === BUTTON_STATES.LOST) {
+            || nextState === BUTTON_STATES.LOST
+            || this._locked) {
 
             this._enabled = false;
+
+        }
+
+        this._refreshPresentation();
+
+        this._notifyState();
+
+    }
+
+    /**
+     * P5.6B — Apply authoritative SPEED input sync (ack / recovery).
+     * Clients display server state only; local counters are overwritten.
+     */
+    applyAuthoritativeInput(payload = {}) {
+
+        if (payload.pressCount !== undefined
+            || payload.completedCycles !== undefined) {
+
+            this._pressCount = Math.max(
+                0,
+                payload.completedCycles ?? payload.pressCount
+            );
+
+        }
+
+        if (payload.pressed !== undefined
+            || payload.buttonPressed !== undefined) {
+
+            this._isPressed = payload.pressed === true
+                || payload.buttonPressed === true;
+
+        }
+
+        if (payload.buttonLocked !== undefined
+            || payload.locked !== undefined) {
+
+            this._locked = payload.buttonLocked === true
+                || payload.locked === true;
+
+        } else if (this._pressCount >= MAX_BUTTON_PRESSES) {
+
+            this._locked = true;
+
+        }
+
+        if (this._locked) {
+
+            this._enabled = false;
+
+            this._isPressed = false;
+
+        } else if (isButtonStateInteractive(this._state)) {
+
+            this._enabled = true;
 
         }
 
@@ -334,14 +395,35 @@ export class CentralButtonEngine {
             state: this._state,
             presentation: this._presentation,
             pressCount: this._pressCount,
+            completedCycles: this._pressCount,
+            remainingPresses: Math.max(0, MAX_BUTTON_PRESSES - this._pressCount),
             enabled: this._enabled,
             locked: this._locked,
+            buttonLocked: this._locked,
             isPressed: this._isPressed
         };
 
     }
 
     _buildPresentation() {
+
+        if (this._locked) {
+
+            const lockedTheme = BUTTON_PRESENTATION[BUTTON_STATES.LOCKED];
+
+            return {
+                state: BUTTON_STATES.LOCKED,
+                label: lockedTheme.label,
+                backgroundColor: lockedTheme.backgroundColor,
+                borderColor: lockedTheme.borderColor,
+                textColor: lockedTheme.textColor,
+                pulseClass: "",
+                enabled: false,
+                locked: true,
+                pressCount: this._pressCount
+            };
+
+        }
 
         const theme = BUTTON_PRESENTATION[this._state]
             || BUTTON_PRESENTATION[BUTTON_STATES.PUSH];

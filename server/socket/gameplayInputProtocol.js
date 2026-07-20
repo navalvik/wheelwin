@@ -13,6 +13,24 @@ export function buildInputAckPayload(inputPayload, accepted) {
         gameState: inputPayload?.gameState ?? null,
         reason: inputPayload?.reason ?? null,
         pressCount: inputPayload?.pressCount ?? null,
+        completedCycles: inputPayload?.completedCycles
+            ?? inputPayload?.pressCount
+            ?? null,
+        remainingPresses: inputPayload?.remainingPresses ?? null,
+        buttonPressed: inputPayload?.buttonPressed
+            ?? inputPayload?.pressed
+            ?? null,
+        pressed: inputPayload?.pressed
+            ?? inputPayload?.buttonPressed
+            ?? null,
+        locked: inputPayload?.locked
+            ?? inputPayload?.buttonLocked
+            ?? null,
+        buttonLocked: inputPayload?.buttonLocked
+            ?? inputPayload?.locked
+            ?? null,
+        lastReleaseAt: inputPayload?.lastReleaseAt ?? null,
+        cooldownUntil: inputPayload?.cooldownUntil ?? null,
         timestamp: inputPayload?.timestamp ?? null,
         accepted,
         serverTimestamp: Date.now()

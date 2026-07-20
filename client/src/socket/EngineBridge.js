@@ -226,6 +226,14 @@ export class EngineBridge {
 
                 modules.inputAck?.onInputAccepted?.(payload);
 
+                modules.button?.applyAuthoritativeInput?.(payload);
+
+                if (payload?.playerId !== undefined) {
+
+                    modules.playerUI?.updateSpeedInput?.(payload);
+
+                }
+
             },
             [INCOMING_SOCKET_EVENTS.PLAYER_INPUT_REJECTED]: (payload) => {
 

@@ -11,13 +11,20 @@ function PlayerCard({ player }) {
 
     const statusLabel = isOffline
         ? PLAYER_UI_STATES.OFFLINE
-        : player.state;
+        : player.buttonLocked
+            ? "LOCKED"
+            : player.state;
 
     const statusClassName = [
         "playerCard__status",
-        `playerCard__status--${statusLabel.toLowerCase()}`,
-        isOffline ? "playerCard__status--offlineBlink" : ""
+        `playerCard__status--${String(statusLabel).toLowerCase()}`,
+        isOffline ? "playerCard__status--offlineBlink" : "",
+        player.buttonLocked ? "playerCard__status--locked" : ""
     ].filter(Boolean).join(" ");
+
+    const remainingPresses = Number.isFinite(player.remainingPresses)
+        ? player.remainingPresses
+        : null;
 
     return (
 
@@ -51,6 +58,20 @@ function PlayerCard({ player }) {
 
             </span>
 
+            {remainingPresses !== null && (
+
+                <span className="playerCard__cycles">
+
+                    {remainingPresses}
+
+                    {" "}
+
+                    left
+
+                </span>
+
+            )}
+
         </div>
 
     );
@@ -67,7 +88,10 @@ function arePlayerPropsEqual(previous, next) {
         && prevPlayer.nickname === nextPlayer.nickname
         && prevPlayer.icon === nextPlayer.icon
         && prevPlayer.online === nextPlayer.online
-        && prevPlayer.state === nextPlayer.state;
+        && prevPlayer.state === nextPlayer.state
+        && prevPlayer.remainingPresses === nextPlayer.remainingPresses
+        && prevPlayer.buttonLocked === nextPlayer.buttonLocked
+        && prevPlayer.completedCycles === nextPlayer.completedCycles;
 
 }
 

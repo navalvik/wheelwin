@@ -144,13 +144,23 @@ export function buildClientRecoveryPayload({
 
         playerId: player.playerId,
 
-        pressCount: player.pressCount ?? 0,
+        pressCount: player.pressCount ?? player.completedCycles ?? 0,
+
+        completedCycles: player.completedCycles ?? player.pressCount ?? 0,
 
         remainingPresses: player.remainingPresses ?? 0,
 
-        locked: player.locked ?? false,
+        locked: player.locked ?? player.buttonLocked ?? false,
 
-        buttonPressed: player.buttonPressed === true
+        buttonLocked: player.buttonLocked ?? player.locked ?? false,
+
+        buttonPressed: player.buttonPressed === true || player.pressed === true,
+
+        pressed: player.pressed === true || player.buttonPressed === true,
+
+        lastReleaseAt: player.lastReleaseAt ?? null,
+
+        cooldownUntil: player.cooldownUntil ?? null
 
     }));
 
@@ -199,8 +209,19 @@ export function buildClientRecoveryPayload({
         },
         playerStates,
         button: {
-            pressCounter: localPlayerState?.pressCount ?? 0,
-            buttonPressed: localPlayerState?.buttonPressed === true
+            pressCounter: localPlayerState?.completedCycles
+                ?? localPlayerState?.pressCount
+                ?? 0,
+            completedCycles: localPlayerState?.completedCycles
+                ?? localPlayerState?.pressCount
+                ?? 0,
+            remainingPresses: localPlayerState?.remainingPresses ?? 0,
+            buttonPressed: localPlayerState?.pressed === true,
+            pressed: localPlayerState?.pressed === true,
+            locked: localPlayerState?.buttonLocked === true,
+            buttonLocked: localPlayerState?.buttonLocked === true,
+            lastReleaseAt: localPlayerState?.lastReleaseAt ?? null,
+            cooldownUntil: localPlayerState?.cooldownUntil ?? null
         },
         remainingGameTime: snapshot?.clock?.remainingTime ?? null,
         phaseStartedAt: snapshot?.clock?.phaseStartedAt ?? null,

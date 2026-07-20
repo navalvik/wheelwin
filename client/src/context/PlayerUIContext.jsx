@@ -90,6 +90,12 @@ export function PlayerUIProvider({ children }) {
 
         },
 
+        updateSpeedInput: (payload) => {
+
+            engineRef.current.updateSpeedInput(payload);
+
+        },
+
         restorePlayerUI: (snapshot) => {
 
             engineRef.current.restoreSessionSnapshot(snapshot);

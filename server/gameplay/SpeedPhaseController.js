@@ -126,6 +126,13 @@ export class SpeedPhaseController {
 
         }
 
+        // Allow SPEED input for this game (reopen if a prior match left it closed).
+        if (typeof this._inputAuthority.clearSpeedInputClosed === "function") {
+
+            this._inputAuthority.clearSpeedInputClosed(gameId);
+
+        }
+
         const heldButtonCount = this._countHeldButtons(gameId);
 
         const started = this._physicsEngine.beginSpeed(gameId, {
@@ -163,8 +170,14 @@ export class SpeedPhaseController {
 
         }
 
-        // Keep current velocities for a future BRAKE stage; stop hold control.
-        this._physicsEngine.endSpeed(gameId, { keepMotion: true });
+        // P5.6B — freeze velocities; reject further PRESS/RELEASE.
+        this._physicsEngine.endSpeed(gameId, { keepMotion: false });
+
+        if (typeof this._inputAuthority.closeSpeedInput === "function") {
+
+            this._inputAuthority.closeSpeedInput(gameId);
+
+        }
 
         this._activeGames.delete(gameId);
 

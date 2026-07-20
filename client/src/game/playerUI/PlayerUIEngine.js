@@ -393,7 +393,6 @@ export class PlayerUIEngine {
 
         const next = {
             ...current,
-            ...partialPlayer,
             id: current.id
         };
 
@@ -440,6 +439,36 @@ export class PlayerUIEngine {
 
         }
 
+        if (partialPlayer.completedCycles !== undefined) {
+
+            next.completedCycles = partialPlayer.completedCycles;
+
+        }
+
+        if (partialPlayer.remainingPresses !== undefined) {
+
+            next.remainingPresses = partialPlayer.remainingPresses;
+
+        }
+
+        if (partialPlayer.buttonLocked !== undefined) {
+
+            next.buttonLocked = partialPlayer.buttonLocked === true;
+
+        }
+
+        if (partialPlayer.pressed !== undefined) {
+
+            next.pressed = partialPlayer.pressed === true;
+
+        }
+
+        if (partialPlayer.online !== undefined) {
+
+            next.online = partialPlayer.online === true;
+
+        }
+
         if (!next.online) {
 
             next.state = PLAYER_UI_STATES.OFFLINE;
@@ -451,6 +480,36 @@ export class PlayerUIEngine {
         commitPlayerSnapshot(this, current.id);
 
         this._notifyPlayer(current.id);
+
+    }
+
+    /**
+     * P5.6B — Authoritative SPEED cycle / lock sync for player panels.
+     */
+    updateSpeedInput(payload = {}) {
+
+        const playerId = payload.playerId;
+
+        if (playerId === null || playerId === undefined || playerId === "") {
+
+            return;
+
+        }
+
+        const completedCycles = payload.completedCycles ?? payload.pressCount ?? 0;
+
+        const remainingPresses = payload.remainingPresses
+            ?? Math.max(0, 3 - completedCycles);
+
+        this.updatePlayer({
+            playerId,
+            completedCycles,
+            remainingPresses,
+            buttonLocked: payload.buttonLocked === true
+                || payload.locked === true,
+            pressed: payload.pressed === true
+                || payload.buttonPressed === true
+        });
 
     }
 

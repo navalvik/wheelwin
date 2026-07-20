@@ -13,6 +13,7 @@ function createDefaultPlayerInputState(playerId) {
         pressCount: 0,
         buttonPressed: false,
         lastPressTime: null,
+        lastReleaseAt: null,
         cooldownUntil: 0,
         locked: false
     };
@@ -46,6 +47,9 @@ export class InputAuthority {
         this._devMode = devMode;
 
         this._registries = new Map();
+
+        // P5.6B — after SPEED_COMPLETED, reject all PRESS/RELEASE for the game.
+        this._speedInputClosed = new Set();
 
         this._infrastructureHandlers = [];
 
@@ -82,6 +86,8 @@ export class InputAuthority {
             this._removeGameRegistry(gameId);
 
         }
+
+        this._speedInputClosed.clear();
 
         for (const subscription of this._infrastructureHandlers) {
 
@@ -225,6 +231,40 @@ export class InputAuthority {
     }
 
     /**
+     * P5.6B — Close SPEED input when the authoritative SPEED timer ends.
+     * Rejects all future PRESS/RELEASE for this game until registry removal.
+     */
+    closeSpeedInput(gameId) {
+
+        if (!gameId) {
+
+            return;
+
+        }
+
+        this._speedInputClosed.add(gameId);
+
+    }
+
+    clearSpeedInputClosed(gameId) {
+
+        if (!gameId) {
+
+            return;
+
+        }
+
+        this._speedInputClosed.delete(gameId);
+
+    }
+
+    isSpeedInputClosed(gameId) {
+
+        return this._speedInputClosed.has(gameId);
+
+    }
+
+    /**
      * P5.6A — Number of players currently holding PRESS in this game.
      */
     countHeldButtons(gameId) {
@@ -264,6 +304,8 @@ export class InputAuthority {
         }
 
         this._removeGameRegistry(gameId);
+
+        this._speedInputClosed.delete(gameId);
 
         return true;
 
@@ -317,10 +359,15 @@ export class InputAuthority {
             gameId,
             playerId,
             pressCount: state.pressCount,
+            completedCycles: state.pressCount,
             buttonPressed: state.buttonPressed,
+            pressed: state.buttonPressed,
+            lastPressTime: state.lastPressTime,
+            lastReleaseAt: state.lastReleaseAt,
             cooldownActive: now < state.cooldownUntil,
             cooldownUntil: state.cooldownUntil,
-            locked: state.locked
+            locked: state.locked,
+            buttonLocked: state.locked
         };
 
     }
@@ -394,6 +441,8 @@ export class InputAuthority {
 
             state.pressCount += 1;
 
+            state.lastReleaseAt = timestamp;
+
             const inputRules = this._gameCatalog.getInputRules();
 
             state.cooldownUntil = timestamp + inputRules.pressCooldownMs;
@@ -445,7 +494,7 @@ export class InputAuthority {
             playerId,
             action,
             gameState,
-            pressCount: state.pressCount,
+            ...this._createPlayerSnapshot(state),
             timestamp
         });
 
@@ -454,6 +503,15 @@ export class InputAuthority {
     }
 
     _validateInput(gameId, playerId, state, action, gameState) {
+
+        if (this._speedInputClosed.has(gameId)) {
+
+            return {
+                valid: false,
+                reason: "SPEED input is closed"
+            };
+
+        }
 
         if (gameState !== GAME_STATES.SPEED) {
 
@@ -694,13 +752,25 @@ export class InputAuthority {
 
     _createPlayerSnapshot(state) {
 
+        const inputRules = this._gameCatalog.getInputRules();
+
+        const remainingPresses = Math.max(
+            0,
+            inputRules.maxPressCycles - state.pressCount
+        );
+
         return {
             playerId: state.playerId,
             pressCount: state.pressCount,
+            completedCycles: state.pressCount,
             buttonPressed: state.buttonPressed,
+            pressed: state.buttonPressed,
             lastPressTime: state.lastPressTime,
+            lastReleaseAt: state.lastReleaseAt,
             cooldownUntil: state.cooldownUntil,
-            locked: state.locked
+            locked: state.locked,
+            buttonLocked: state.locked,
+            remainingPresses
         };
 
     }
@@ -718,6 +788,8 @@ export class InputAuthority {
     _handleServerShutdown() {
 
         this._registries.clear();
+
+        this._speedInputClosed.clear();
 
     }
 
