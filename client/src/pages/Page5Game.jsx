@@ -10,24 +10,16 @@ import Page5ResultOverlay from "../components/page5/Page5ResultOverlay";
 
 import { useCentralButton } from "../context/CentralButtonContext";
 import { useGameState } from "../context/GameStateContext";
-import { useGameClock } from "../context/GameClockContext";
 import { GAME_STATES } from "../game/GameState";
 import { useInputAck } from "../context/InputAckContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
 import { usePreGameReady } from "../context/PreGameReadyContext";
-import {
-    formatClockSeconds,
-    remainingSecondsFromEndsAt,
-    resolveClockPhaseLabel
-} from "../game/gameClock/gameClockView";
 
 import "../styles/page5game.css";
 
 export default function Page5Game({ onNavigate: _onNavigate }) {
 
     const { gameState } = useGameState();
-
-    const { clock } = useGameClock();
 
     const { localConfirmed } = usePreGameReady();
 
@@ -58,10 +50,6 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
         confirmPreGameReady,
         applyPreGameReadyConfirmation
     } = useCentralButton();
-
-    const preparationRemainingSeconds = isPreGameReadyPhase
-        ? remainingSecondsFromEndsAt(clock.endsAt)
-        : null;
 
     useEffect(() => {
 
@@ -101,37 +89,11 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
             <div className="page5" data-game-state={gameState}>
 
-                <div className="page5__gameStateBadge" aria-live="polite">
+                {!isPreGameReadyPhase && (
 
-                    {gameState}
+                    <div className="page5__gameStateBadge" aria-live="polite">
 
-                </div>
-
-                {isPreGameReadyPhase && (
-
-                    <div className="page5__preGameReadyBanner" aria-live="polite">
-
-                        <p className="page5__preGameReadyMessage">
-
-                            Press the center button when you are ready.
-
-                        </p>
-
-                        <p className="page5__preGameReadyTimer">
-
-                            Preparation Time Remaining
-
-                            {" "}
-
-                            {formatClockSeconds(preparationRemainingSeconds)}
-
-                        </p>
-
-                        <p className="page5__preGameReadyPhase">
-
-                            {resolveClockPhaseLabel(clock.phase)}
-
-                        </p>
+                        {gameState}
 
                     </div>
 

@@ -71,58 +71,6 @@
     background: rgba(214, 40, 40, 0.92);
 }
 
-.page5__preGameReadyBanner {
-
-    position: absolute;
-    top: 48px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 20;
-
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-
-    min-width: 240px;
-    padding: 10px 16px;
-
-    border-radius: 12px;
-
-    background: rgba(28, 115, 208, 0.92);
-    color: #ffffff;
-
-    text-align: center;
-
-    pointer-events: none;
-}
-
-.page5__preGameReadyMessage {
-
-    margin: 0;
-
-    font-size: 0.85rem;
-    font-weight: 700;
-}
-
-.page5__preGameReadyTimer {
-
-    margin: 0;
-
-    font-size: 0.95rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-}
-
-.page5__preGameReadyPhase {
-
-    margin: 0;
-
-    font-size: 0.75rem;
-    font-weight: 600;
-    opacity: 0.9;
-}
-
 .playerPanel--preGameReady .playerCard--preGameReady {
 
     display: grid;
