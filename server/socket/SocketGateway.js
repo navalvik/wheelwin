@@ -10,6 +10,7 @@ import {
 import {
     isGameplayClientMessageType,
     isGameplayInputMessageType,
+    isGameplayPreparationMessageType,
     isRecoveryRequestMessageType,
     normalizeGameplayMessage
 } from "./gameplaySocketProtocol.js";
@@ -44,6 +45,10 @@ import {
     buildAuditStatusMessage,
     AUDIT_CLIENT_STATUS
 } from "./gameplayAuditProtocol.js";
+import {
+    buildPreGameReadyMessage,
+    PRE_GAME_READY_MESSAGE_TYPES
+} from "./gameplayPreGameReadyProtocol.js";
 
 export class SocketGateway {
 
@@ -52,6 +57,7 @@ export class SocketGateway {
         socketConfig,
         eventBus = null,
         inputAuthority = null,
+        preGameReadyActivation = null,
         gameplayContextResolver = null,
         recoveryEngine = null,
         recoverySnapshotCache = null,
@@ -68,6 +74,8 @@ export class SocketGateway {
         this._eventBus = eventBus;
 
         this._inputAuthority = inputAuthority;
+
+        this._preGameReadyActivation = preGameReadyActivation;
 
         this._gameplayContextResolver = gameplayContextResolver;
 
@@ -114,6 +122,12 @@ export class SocketGateway {
         this._auditFailedHandler = null;
 
         this._clockUpdateHandler = null;
+
+        this._preGameReadyStartedHandler = null;
+
+        this._preGameReadyUpdatedHandler = null;
+
+        this._preGameReadyCompletedHandler = null;
 
         this._socketRooms = new Map();
 
@@ -185,6 +199,48 @@ export class SocketGateway {
         eventBus.subscribe(
             EVENT_TYPES.CLOCK_UPDATE,
             this._clockUpdateHandler
+        );
+
+        this._preGameReadyStartedHandler = (envelope) => {
+
+            this._handlePreGameReadyEvent(
+                PRE_GAME_READY_MESSAGE_TYPES.PRE_GAME_READY_STARTED,
+                envelope.payload
+            );
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.PRE_GAME_READY_STARTED,
+            this._preGameReadyStartedHandler
+        );
+
+        this._preGameReadyUpdatedHandler = (envelope) => {
+
+            this._handlePreGameReadyEvent(
+                PRE_GAME_READY_MESSAGE_TYPES.PRE_GAME_READY_UPDATED,
+                envelope.payload
+            );
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.PRE_GAME_READY_UPDATED,
+            this._preGameReadyUpdatedHandler
+        );
+
+        this._preGameReadyCompletedHandler = (envelope) => {
+
+            this._handlePreGameReadyEvent(
+                PRE_GAME_READY_MESSAGE_TYPES.PRE_GAME_READY_COMPLETED,
+                envelope.payload
+            );
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.PRE_GAME_READY_COMPLETED,
+            this._preGameReadyCompletedHandler
         );
 
         this._wheelConfigurationHandler = (envelope) => {
@@ -550,6 +606,16 @@ export class SocketGateway {
 
     }
 
+    configurePreGameReady({ preGameReadyActivation }) {
+
+        if (preGameReadyActivation) {
+
+            this._preGameReadyActivation = preGameReadyActivation;
+
+        }
+
+    }
+
     configureRecovery({
         recoveryEngine,
         recoverySnapshotCache,
@@ -727,7 +793,8 @@ export class SocketGateway {
 
         }
 
-        if (!isGameplayInputMessageType(message.type)) {
+        if (!isGameplayInputMessageType(message.type)
+            && !isGameplayPreparationMessageType(message.type)) {
 
             this._logGameplayDrop(`unsupported gameplay message: ${message.type}`);
 
@@ -743,7 +810,7 @@ export class SocketGateway {
 
         }
 
-        if (!this._inputAuthority || !this._gameplayContextResolver) {
+        if (!this._gameplayContextResolver) {
 
             this._logGameplayDrop("gameplay bridge is not configured");
 
@@ -766,6 +833,39 @@ export class SocketGateway {
         this._logGameplayStep("Player resolved");
 
         this._logGameplayStep("Game resolved");
+
+        if (isGameplayPreparationMessageType(message.type)) {
+
+            if (!this._preGameReadyActivation) {
+
+                this._logGameplayDrop("preparation handler is not configured");
+
+                return;
+
+            }
+
+            if (message.type === EVENT_TYPES.PLAYER_READY_CONFIRM) {
+
+                this._preGameReadyActivation.handlePlayerReadyConfirm(
+                    context.gameId,
+                    context.playerId
+                );
+
+            }
+
+            this._logGameplayStep("Forwarded to PreGameReadyActivation");
+
+            return;
+
+        }
+
+        if (!this._inputAuthority) {
+
+            this._logGameplayDrop("input authority is not configured");
+
+            return;
+
+        }
 
         if (message.type === EVENT_TYPES.BUTTON_PRESS) {
 
@@ -1118,6 +1218,55 @@ export class SocketGateway {
         }
 
         const { channel, message } = buildGameClockUpdateMessage(clockPayload);
+
+        this._io.to(roomId).emit(channel, message);
+
+    }
+
+    _handlePreGameReadyEvent(eventType, payload) {
+
+        if (!this._io || !payload?.gameId) {
+
+            return;
+
+        }
+
+        if (!this._gameplayContextResolver) {
+
+            return;
+
+        }
+
+        const roomId = this._gameplayContextResolver
+            .resolveRoomByGameId(payload.gameId);
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        const snapshot = this._preGameReadyActivation
+            ?.getSnapshot(payload.gameId);
+
+        const enrichedPayload = {
+            ...payload,
+            readyPlayers: snapshot?.readyPlayers
+                ?? payload.readyPlayers
+                ?? {},
+            startedAt: snapshot?.startedAt
+                ?? payload.startedAt
+                ?? null,
+            expiresAt: snapshot?.expiresAt
+                ?? payload.expiresAt
+                ?? payload.endsAt
+                ?? null
+        };
+
+        const { channel, message } = buildPreGameReadyMessage(
+            eventType,
+            enrichedPayload
+        );
 
         this._io.to(roomId).emit(channel, message);
 

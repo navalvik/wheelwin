@@ -689,11 +689,10 @@ export class GameManager {
 
             this._bootstrap.gameStateEngine.initializeGameState(gameId);
 
-            this._logBootstrap("Starting physics simulation...");
+            // Physics stays CREATED through PRE_GAME_READY (static wheel/triangle).
+            // ReadyPhaseBroadcaster starts the simulation when READY begins.
 
-            this._bootstrap.physicsEngine.startSimulation(gameId);
-
-            this._logBootstrap("Starting GameClock...");
+            this._logBootstrap("Starting GameClock (PRE_GAME_READY)...");
 
             this._bootstrap.gameClockEngine.startClock(gameId);
 

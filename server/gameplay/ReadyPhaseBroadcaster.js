@@ -129,15 +129,22 @@ export class ReadyPhaseBroadcaster {
             triangleAngle: configuration.triangle?.startAngle ?? null
         };
 
-        if (this._physicsEngine
-            && Number.isFinite(payload.wheelAngle)
-            && Number.isFinite(payload.triangleAngle)) {
+        // P5.11 — Physics remains CREATED during PRE_GAME_READY.
+        // Start the simulation only when authoritative READY begins.
+        if (this._physicsEngine) {
 
-            this._physicsEngine.setPoseDegrees(
-                gameId,
-                payload.wheelAngle,
-                payload.triangleAngle
-            );
+            this._physicsEngine.startSimulation(gameId);
+
+            if (Number.isFinite(payload.wheelAngle)
+                && Number.isFinite(payload.triangleAngle)) {
+
+                this._physicsEngine.setPoseDegrees(
+                    gameId,
+                    payload.wheelAngle,
+                    payload.triangleAngle
+                );
+
+            }
 
         }
 

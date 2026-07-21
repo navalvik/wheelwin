@@ -12,6 +12,7 @@ import { InputAckProvider } from "../context/InputAckContext";
 import { WinnerResolverProvider } from "../context/WinnerResolverContext";
 import { WheelConfigProvider, useWheelConfig } from "../context/WheelConfigContext";
 import { GameClockProvider } from "../context/GameClockContext";
+import { PreGameReadyProvider } from "../context/PreGameReadyContext";
 
 function GameEngineProviderStack({
     children,
@@ -97,26 +98,30 @@ export function GameEngineProviders({
 
                     <GameClockProvider>
 
-                        <GameStateProvider>
+                        <PreGameReadyProvider>
 
-                            <PhysicsProvider>
+                            <GameStateProvider>
 
-                                <InputAckProvider>
+                                <PhysicsProvider>
 
-                                    <GameEngineProviderStack
-                                        currentPage={currentPage}
-                                        onNavigate={onNavigate}
-                                    >
+                                    <InputAckProvider>
 
-                                        {children}
+                                        <GameEngineProviderStack
+                                            currentPage={currentPage}
+                                            onNavigate={onNavigate}
+                                        >
 
-                                    </GameEngineProviderStack>
+                                            {children}
 
-                                </InputAckProvider>
+                                        </GameEngineProviderStack>
 
-                            </PhysicsProvider>
+                                    </InputAckProvider>
 
-                        </GameStateProvider>
+                                </PhysicsProvider>
+
+                            </GameStateProvider>
+
+                        </PreGameReadyProvider>
 
                     </GameClockProvider>
 

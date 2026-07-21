@@ -194,7 +194,7 @@ function setupActiveGame(stack, gameId, playerIds) {
 
     gameStateEngine.initializeGameState(gameId);
 
-    gameStateEngine.transition(gameId, GAME_STATES.COUNTDOWN, { reason: "test" });
+    gameStateEngine.transition(gameId, GAME_STATES.READY, { reason: "test" });
 
     gameStateEngine.transition(gameId, GAME_STATES.SELF_TEST, { reason: "test" });
 

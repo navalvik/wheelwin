@@ -244,6 +244,23 @@ export class EngineBridge {
 
                 modules.inputAck?.onInputRejected?.(payload);
 
+            },
+            [INCOMING_SOCKET_EVENTS.PRE_GAME_READY_STARTED]: (payload) => {
+
+                modules.preGameReady?.onPreGameReadyStarted?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.PRE_GAME_READY_UPDATED]: (payload) => {
+
+                modules.preGameReady?.onPreGameReadyUpdated?.(payload);
+
+                modules.button?.applyPreGameReadyUpdate?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.PRE_GAME_READY_COMPLETED]: (payload) => {
+
+                modules.preGameReady?.onPreGameReadyCompleted?.(payload);
+
             }
         };
 

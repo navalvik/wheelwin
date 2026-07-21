@@ -182,8 +182,8 @@ assert(
 );
 
 assert(
-    bootstrapEngines.gameStateEngine.getHistory(gameId)[0].state === GAME_STATES.READY,
-    "activation should initialize authoritative GameState to READY"
+    bootstrapEngines.gameStateEngine.getHistory(gameId)[0].state === GAME_STATES.PRE_GAME_READY,
+    "activation should initialize authoritative GameState to PRE_GAME_READY"
 );
 
 for (const playerId of playerIds) {
@@ -198,6 +198,12 @@ for (const playerId of playerIds) {
 assert(
     bootstrapEngines.gameClockEngine.isRunning(gameId),
     "GameClock should be running after ENTRY_PAYMENT_COMPLETED"
+);
+
+assert(
+    bootstrapEngines.physicsEngine.getSimulation(gameId)?.runtime?.state
+        === "CREATED",
+    "physics must stay CREATED during PRE_GAME_READY"
 );
 
 assert(

@@ -248,7 +248,11 @@ export function buildClientRecoveryPayload({
             locked: localPlayerState?.buttonLocked === true,
             buttonLocked: localPlayerState?.buttonLocked === true,
             lastReleaseAt: localPlayerState?.lastReleaseAt ?? null,
-            cooldownUntil: localPlayerState?.cooldownUntil ?? null
+            cooldownUntil: localPlayerState?.cooldownUntil ?? null,
+            preGameReadyConfirmed: snapshot?.preGameReady?.readyPlayers
+                && playerId != null
+                ? snapshot.preGameReady.readyPlayers[playerId] === true
+                : false
         },
         remainingGameTime: snapshot?.clock?.remainingTime ?? null,
         phaseStartedAt: snapshot?.clock?.phaseStartedAt ?? null,
@@ -259,6 +263,13 @@ export function buildClientRecoveryPayload({
             paymentStatus ?? payment?.paymentStatus ?? null,
             payment ?? snapshot?.payment
         ),
+        preGameReady: snapshot?.preGameReady
+            ? {
+                readyPlayers: { ...snapshot.preGameReady.readyPlayers },
+                startedAt: snapshot.preGameReady.startedAt ?? null,
+                expiresAt: snapshot.preGameReady.expiresAt ?? null
+            }
+            : null,
         audit: mapAuditStatusForClient(auditStatus),
         timestamp: snapshot?.recoveredAt ?? Date.now(),
         traceSeed: snapshot?.metadata?.traceSeed ?? null

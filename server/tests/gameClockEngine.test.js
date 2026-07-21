@@ -20,6 +20,10 @@ function createFastCatalog() {
         getTimers() {
 
             return {
+                [TIMER_PHASES.PRE_GAME_READY]: {
+                    phase: TIMER_PHASES.PRE_GAME_READY,
+                    durationMs: 15
+                },
                 [TIMER_PHASES.READY]: {
                     phase: TIMER_PHASES.READY,
                     durationMs: 15
@@ -126,7 +130,7 @@ assert(gameClockEngine.isRunning(gameId), "clock should be running");
 
 const schedule = gameClockEngine.getPhaseSchedule(gameId);
 
-assert(schedule?.phase === TIMER_PHASES.READY, "clock should start in READY");
+assert(schedule?.phase === TIMER_PHASES.PRE_GAME_READY, "clock should start in PRE_GAME_READY");
 
 assert(
     Number.isFinite(schedule?.startedAt) && Number.isFinite(schedule?.endsAt),
@@ -158,6 +162,8 @@ assert(
 
 gameClockEngine.resumeClock(gameId);
 
+await waitForPhase(eventBus, gameId, TIMER_PHASES.PRE_GAME_READY);
+
 await waitForPhase(eventBus, gameId, TIMER_PHASES.READY);
 
 await waitForPhase(eventBus, gameId, TIMER_PHASES.SELF_TEST);
@@ -186,8 +192,8 @@ assert(
 );
 
 assert(
-    timeouts.join(",") === "READY,SELF_TEST,SPEED,BRAKE,RESULT",
-    "phase timeouts should fire in order"
+    timeouts.join(",") === "PRE_GAME_READY,READY,SELF_TEST,SPEED,BRAKE,RESULT",
+    `phase timeouts should fire in order (got: ${timeouts.join(",")})`
 );
 
 gameClockEngine.shutdown();

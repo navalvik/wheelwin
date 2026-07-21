@@ -10,18 +10,28 @@ import Page5ResultOverlay from "../components/page5/Page5ResultOverlay";
 
 import { useCentralButton } from "../context/CentralButtonContext";
 import { useGameState } from "../context/GameStateContext";
+import { useGameClock } from "../context/GameClockContext";
 import { GAME_STATES } from "../game/GameState";
 import { useInputAck } from "../context/InputAckContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
+import { usePreGameReady } from "../context/PreGameReadyContext";
+import {
+    formatClockSeconds,
+    remainingSecondsFromEndsAt,
+    resolveClockPhaseLabel
+} from "../game/gameClock/gameClockView";
 
 import "../styles/page5game.css";
 
 export default function Page5Game({ onNavigate: _onNavigate }) {
 
-    // P5.9 — Page5 → Page6 only via authoritative OPEN_PAGE6.
-    // GAME_RESULT is stored for RESULT presentation; it does not navigate.
-
     const { gameState } = useGameState();
+
+    const { clock } = useGameClock();
+
+    const { localConfirmed } = usePreGameReady();
+
+    const isPreGameReadyPhase = gameState === GAME_STATES.PRE_GAME_READY;
 
     const isReadyPhase = gameState === GAME_STATES.READY;
 
@@ -34,7 +44,8 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     const buttonInputDisabled = isReadyPhase
         || isSelfTestPhase
         || isBrakePhase
-        || isResultPhase;
+        || isResultPhase
+        || (isPreGameReadyPhase && localConfirmed);
 
     const { lastAck } = useInputAck();
 
@@ -43,8 +54,30 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     const {
         snapshot: buttonSnapshot,
         press,
-        release
+        release,
+        confirmPreGameReady,
+        applyPreGameReadyConfirmation
     } = useCentralButton();
+
+    const preparationRemainingSeconds = isPreGameReadyPhase
+        ? remainingSecondsFromEndsAt(clock.endsAt)
+        : null;
+
+    useEffect(() => {
+
+        if (!isPreGameReadyPhase) {
+
+            return;
+
+        }
+
+        applyPreGameReadyConfirmation(localConfirmed);
+
+    }, [
+        isPreGameReadyPhase,
+        localConfirmed,
+        applyPreGameReadyConfirmation
+    ]);
 
     useEffect(() => () => {
 
@@ -74,6 +107,36 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
                 </div>
 
+                {isPreGameReadyPhase && (
+
+                    <div className="page5__preGameReadyBanner" aria-live="polite">
+
+                        <p className="page5__preGameReadyMessage">
+
+                            Press the center button when you are ready.
+
+                        </p>
+
+                        <p className="page5__preGameReadyTimer">
+
+                            Preparation Time Remaining
+
+                            {" "}
+
+                            {formatClockSeconds(preparationRemainingSeconds)}
+
+                        </p>
+
+                        <p className="page5__preGameReadyPhase">
+
+                            {resolveClockPhaseLabel(clock.phase)}
+
+                        </p>
+
+                    </div>
+
+                )}
+
                 {lastAck && (
 
                     <div
@@ -98,8 +161,16 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
                             <WheelPlaceholder
                                 wheelConfiguration={wheelConfiguration}
                                 buttonSnapshot={buttonSnapshot}
-                                onButtonPress={buttonInputDisabled ? undefined : press}
-                                onButtonRelease={buttonInputDisabled ? undefined : release}
+                                onButtonPress={
+                                    isPreGameReadyPhase
+                                        ? confirmPreGameReady
+                                        : (buttonInputDisabled ? undefined : press)
+                                }
+                                onButtonRelease={
+                                    isPreGameReadyPhase
+                                        ? undefined
+                                        : (buttonInputDisabled ? undefined : release)
+                                }
                             />
 
                             {isResultPhase && <Page5ResultOverlay />}

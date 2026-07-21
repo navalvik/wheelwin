@@ -589,7 +589,7 @@ function runDeterministicGame(seed) {
         stack.gameStateEngine.initializeGameState(gameId);
 
         for (const state of [
-            GAME_STATES.COUNTDOWN,
+            GAME_STATES.READY,
             GAME_STATES.SELF_TEST,
             GAME_STATES.SPEED
         ]) {

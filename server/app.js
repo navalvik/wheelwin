@@ -63,6 +63,7 @@ import {
 } from "./config/gameplayPhases.js";
 import { GameClockBroadcaster } from "./gameplay/GameClockBroadcaster.js";
 import { ReadyPhaseBroadcaster } from "./gameplay/ReadyPhaseBroadcaster.js";
+import { PreGameReadyActivation } from "./gameplay/PreGameReadyActivation.js";
 import { SelfTestPhaseController } from "./gameplay/SelfTestPhaseController.js";
 import { SpeedPhaseController } from "./gameplay/SpeedPhaseController.js";
 import { BrakePhaseController } from "./gameplay/BrakePhaseController.js";
@@ -126,6 +127,8 @@ class WheelWinApplication {
         this._gameplayPhaseLifecycle = null;
 
         this._readyPhaseBroadcaster = null;
+
+        this._preGameReadyActivation = null;
 
         this._selfTestPhaseController = null;
 
@@ -334,6 +337,20 @@ class WheelWinApplication {
 
         this._logger.startupLine("ReadyPhaseBroadcaster");
 
+        this._preGameReadyActivation = new PreGameReadyActivation({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            configurationEngine: this._engines.configurationEngine,
+            gameStateEngine: this._engines.gameStateEngine,
+            gameClockEngine: this._engines.gameClockEngine,
+            physicsEngine: this._engines.physicsEngine,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._preGameReadyActivation.initialize();
+
+        this._logger.startupLine("PreGameReadyActivation");
+
         this._selfTestPhaseController = new SelfTestPhaseController({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -512,6 +529,7 @@ class WheelWinApplication {
             winnerEngine: this._engines.winnerEngine,
             paymentEngine: this._engines.paymentEngine,
             resultActivation: this._resultActivation,
+            preGameReadyActivation: this._preGameReadyActivation,
             metricsService: this._metricsService
         });
 
@@ -598,6 +616,7 @@ class WheelWinApplication {
             simulationLoop: Boolean(this._simulationLoop),
             gameplayPhaseLifecycle: Boolean(this._gameplayPhaseLifecycle),
             readyPhaseBroadcaster: Boolean(this._readyPhaseBroadcaster),
+            preGameReadyActivation: Boolean(this._preGameReadyActivation),
             selfTestPhaseController: Boolean(this._selfTestPhaseController),
             speedPhaseController: Boolean(this._speedPhaseController),
             brakePhaseController: Boolean(this._brakePhaseController),
@@ -671,6 +690,10 @@ class WheelWinApplication {
             devMode: this._productionConfig.isDevelopment
         });
 
+        this._socketGateway.configurePreGameReady({
+            preGameReadyActivation: this._preGameReadyActivation
+        });
+
         this._socketGateway.configureRecovery({
             recoveryEngine: this._recoveryEngine,
             recoverySnapshotCache: this._recoverySnapshotCache,
@@ -697,6 +720,7 @@ class WheelWinApplication {
             simulationLoop: Boolean(this._simulationLoop),
             gameplayPhaseLifecycle: Boolean(this._gameplayPhaseLifecycle),
             readyPhaseBroadcaster: Boolean(this._readyPhaseBroadcaster),
+            preGameReadyActivation: Boolean(this._preGameReadyActivation),
             selfTestPhaseController: Boolean(this._selfTestPhaseController),
             speedPhaseController: Boolean(this._speedPhaseController),
             brakePhaseController: Boolean(this._brakePhaseController),
@@ -886,6 +910,16 @@ class WheelWinApplication {
             if (this._readyPhaseBroadcaster) {
 
                 this._readyPhaseBroadcaster.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("preGameReadyActivation", () => {
+
+            if (this._preGameReadyActivation) {
+
+                this._preGameReadyActivation.shutdown();
 
             }
 

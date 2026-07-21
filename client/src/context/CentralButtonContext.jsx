@@ -132,6 +132,12 @@ export function CentralButtonProvider({ children, onReadyComplete }) {
 
             engineRef.current.restoreSessionSnapshot(snapshot);
 
+            if (snapshot.button?.preGameReadyConfirmed === true) {
+
+                engineRef.current.applyPreGameReadyConfirmation(true);
+
+            }
+
             setSnapshot(engineRef.current.getSnapshot());
 
             if (snapshot.resultOutcome) {
@@ -160,6 +166,29 @@ export function CentralButtonProvider({ children, onReadyComplete }) {
 
             setSnapshot(engineRef.current.getSnapshot());
 
+        },
+
+        applyPreGameReadyConfirmation: (confirmed = true) => {
+
+            engineRef.current.applyPreGameReadyConfirmation(confirmed);
+
+            setSnapshot(engineRef.current.getSnapshot());
+
+        },
+
+        applyPreGameReadyUpdate: (payload) => {
+
+            const currentLocalId = localPlayerIdRef.current;
+
+            if (currentLocalId != null
+                && payload?.readyPlayers?.[currentLocalId] === true) {
+
+                engineRef.current.applyPreGameReadyConfirmation(true);
+
+                setSnapshot(engineRef.current.getSnapshot());
+
+            }
+
         }
 
     }));
@@ -173,6 +202,20 @@ export function CentralButtonProvider({ children, onReadyComplete }) {
     const release = useCallback(() => {
 
         engineRef.current.release();
+
+    }, []);
+
+    const confirmPreGameReady = useCallback(() => {
+
+        return engineRef.current.confirmPreGameReady();
+
+    }, []);
+
+    const applyPreGameReadyConfirmation = useCallback((confirmed = true) => {
+
+        engineRef.current.applyPreGameReadyConfirmation(confirmed);
+
+        setSnapshot(engineRef.current.getSnapshot());
 
     }, []);
 
@@ -206,6 +249,8 @@ export function CentralButtonProvider({ children, onReadyComplete }) {
         snapshot,
         press,
         release,
+        confirmPreGameReady,
+        applyPreGameReadyConfirmation,
         setResultOutcome,
         setDebugResultOutcome,
         resultOutcome,
@@ -214,6 +259,8 @@ export function CentralButtonProvider({ children, onReadyComplete }) {
         snapshot,
         press,
         release,
+        confirmPreGameReady,
+        applyPreGameReadyConfirmation,
         setResultOutcome,
         setDebugResultOutcome,
         resultOutcome,

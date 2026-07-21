@@ -67,7 +67,7 @@ async function runConnectionLossScenario(label, phase) {
 
 await runConnectionLossScenario("A1", GAME_STATES.READY);
 
-await runConnectionLossScenario("A2", GAME_STATES.COUNTDOWN);
+await runConnectionLossScenario("A2", GAME_STATES.READY);
 
 await runConnectionLossScenario("A3", GAME_STATES.SELF_TEST);
 

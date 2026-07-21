@@ -464,6 +464,7 @@ function activateAndFinishGame(stack, gameId, roomId, playerIds) {
     stack.gameStateEngine.initializeGameState(gameId);
 
     for (const state of [
+        GAME_STATES.READY,
         GAME_STATES.SELF_TEST,
         GAME_STATES.SPEED,
         GAME_STATES.BRAKE
@@ -758,7 +759,7 @@ function assertExactlyOncePerGame(tallies, type, gameIds) {
             stack.gameStateEngine.initializeGameState(game.gameId);
 
             for (const state of [
-                GAME_STATES.COUNTDOWN,
+                GAME_STATES.READY,
                 GAME_STATES.SELF_TEST,
                 GAME_STATES.SPEED
             ]) {
@@ -1115,7 +1116,7 @@ function assertExactlyOncePerGame(tallies, type, gameIds) {
         stack.gameStateEngine.initializeGameState(gameId);
 
         for (const state of [
-            GAME_STATES.COUNTDOWN,
+            GAME_STATES.READY,
             GAME_STATES.SELF_TEST,
             GAME_STATES.SPEED
         ]) {

@@ -23,6 +23,7 @@ export const EVENT_SOURCES = Object.freeze({
     GAMEPLAY_LIFECYCLE: "GameplayLifecycle",
     GAMEPLAY_PHASE_LIFECYCLE: "GameplayPhaseLifecycle",
     READY_PHASE_BROADCASTER: "ReadyPhaseBroadcaster",
+    PRE_GAME_READY_ACTIVATION: "PreGameReadyActivation",
     SELF_TEST_PHASE_CONTROLLER: "SelfTestPhaseController",
     SPEED_PHASE_CONTROLLER: "SpeedPhaseController",
     BRAKE_PHASE_CONTROLLER: "BrakePhaseController",

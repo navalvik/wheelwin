@@ -15,6 +15,8 @@ import { SpeedActivation } from "../../gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "../../gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "../../gameplay/WinnerActivation.js";
 import { ResultActivation } from "../../gameplay/ResultActivation.js";
+import { PreGameReadyActivation } from "../../gameplay/PreGameReadyActivation.js";
+import { ReadyPhaseBroadcaster } from "../../gameplay/ReadyPhaseBroadcaster.js";
 import { BrakePhaseController } from "../../gameplay/BrakePhaseController.js";
 import { PaymentActivation } from "../../gameplay/PaymentActivation.js";
 import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
@@ -26,7 +28,8 @@ import { EVENT_TYPES } from "../../events/EventTypes.js";
 
 /**
  * R1.1 — After room-full prep, emit entry-payment completion so GameManager
- * starts physics / clock / READY. Used by tests that skip the lobby payment UI.
+ * starts GameClock in PRE_GAME_READY (physics stays CREATED until READY).
+ * Used by tests that skip the lobby payment UI.
  */
 export function emitEntryPaymentCompleted(eventBus, roomId) {
 
@@ -47,6 +50,10 @@ export function emitEntryPaymentCompleted(eventBus, roomId) {
 export function createFastTimers() {
 
     return {
+        [TIMER_PHASES.PRE_GAME_READY]: {
+            phase: TIMER_PHASES.PRE_GAME_READY,
+            durationMs: 25
+        },
         [TIMER_PHASES.READY]: {
             phase: TIMER_PHASES.READY,
             durationMs: 25
@@ -203,6 +210,16 @@ export function wireGameplayBootstrap({
 
     gameplayPhaseLifecycle.initialize();
 
+    const readyPhaseBroadcaster = new ReadyPhaseBroadcaster({
+        logger,
+        eventBus,
+        configurationEngine,
+        physicsEngine,
+        devMode
+    });
+
+    readyPhaseBroadcaster.initialize();
+
     const speedActivation = new SpeedActivation({
         logger,
         eventBus,
@@ -255,6 +272,18 @@ export function wireGameplayBootstrap({
     });
 
     resultActivation.initialize();
+
+    const preGameReadyActivation = new PreGameReadyActivation({
+        logger,
+        eventBus,
+        configurationEngine,
+        gameStateEngine,
+        gameClockEngine,
+        physicsEngine,
+        devMode
+    });
+
+    preGameReadyActivation.initialize();
 
     const paymentEngine = new PaymentEngine({
         logger,
@@ -332,12 +361,14 @@ export function wireGameplayBootstrap({
         inputAuthority,
         simulationLoop,
         gameplayPhaseLifecycle,
+        readyPhaseBroadcaster,
         speedActivation,
         offlineInputContinuation,
         winnerEngine,
         winnerActivation,
         brakePhaseController,
         resultActivation,
+        preGameReadyActivation,
         paymentEngine,
         paymentActivation,
         gameplayLifecycle,
@@ -376,6 +407,12 @@ export function shutdownGameplayBootstrap(engines) {
 
     }
 
+    if (engines.preGameReadyActivation) {
+
+        engines.preGameReadyActivation.shutdown();
+
+    }
+
     if (engines.brakePhaseController) {
 
         engines.brakePhaseController.shutdown();
@@ -387,6 +424,12 @@ export function shutdownGameplayBootstrap(engines) {
     engines.offlineInputContinuation.shutdown();
 
     engines.speedActivation.shutdown();
+
+    if (engines.readyPhaseBroadcaster) {
+
+        engines.readyPhaseBroadcaster.shutdown();
+
+    }
 
     engines.winnerEngine.shutdown();
 

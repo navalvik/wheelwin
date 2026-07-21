@@ -1,6 +1,7 @@
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 
 export const TIMER_PHASES = Object.freeze({
+    PRE_GAME_READY: GAME_STATES.PRE_GAME_READY,
     READY: GAME_STATES.READY,
     SELF_TEST: GAME_STATES.SELF_TEST,
     SPEED: GAME_STATES.SPEED,
@@ -13,6 +14,10 @@ export const TIMER_PHASES = Object.freeze({
  * via GameCatalog.configurePhaseTimers() during server bootstrap.
  */
 export const TIMERS = Object.freeze({
+    [TIMER_PHASES.PRE_GAME_READY]: Object.freeze({
+        phase: TIMER_PHASES.PRE_GAME_READY,
+        durationMs: 180000
+    }),
     [TIMER_PHASES.READY]: Object.freeze({
         phase: TIMER_PHASES.READY,
         durationMs: 3000

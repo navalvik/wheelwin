@@ -66,8 +66,13 @@ export function normalizeSessionSnapshot(snapshot = {}) {
                 || buttonSource.locked === true,
             lastReleaseAt: buttonSource.lastReleaseAt ?? null,
             cooldownUntil: buttonSource.cooldownUntil ?? null,
-            enabled: buttonSource.enabled
+            enabled: buttonSource.enabled,
+            preGameReadyConfirmed: snapshot.preGameReady?.readyPlayers
+                && snapshot.playerId != null
+                ? snapshot.preGameReady.readyPlayers[snapshot.playerId] === true
+                : buttonSource.preGameReadyConfirmed === true
         },
+        preGameReady: snapshot.preGameReady || null,
         remainingGameTime: snapshot.remainingGameTime ?? null,
         phaseStartedAt: snapshot.phaseStartedAt ?? null,
         phaseEndsAt: snapshot.phaseEndsAt ?? null,
@@ -119,6 +124,13 @@ export function getModulesToRestore(snapshot) {
         "button",
         "audio"
     ];
+
+    if (normalized.preGameReady
+        || normalized.gameState === GAME_STATES.PRE_GAME_READY) {
+
+        modules.splice(6, 0, "preGameReady");
+
+    }
 
     if (normalized.gameResult
         || normalized.gameState === GAME_STATES.RESULT) {

@@ -382,6 +382,56 @@ export class GameClockEngine {
     }
 
     /**
+     * P5.11 — Complete PRE_GAME_READY early when all players confirm.
+     * Called only by PreGameReadyActivation.
+     */
+    completePreGameReadyPhase(gameId) {
+
+        this._assertInitialized();
+
+        const record = this._getClockOrLog(gameId, "complete PRE_GAME_READY for");
+
+        if (!record || !record.running || record.paused) {
+
+            return null;
+
+        }
+
+        if (record.currentPhase !== TIMER_PHASES.PRE_GAME_READY) {
+
+            return this._createSnapshot(record);
+
+        }
+
+        this._clearPhaseTimeout(record);
+
+        const now = Date.now();
+
+        this._emitPhaseCompleted(record, now);
+
+        record.history.push({
+            phase: TIMER_PHASES.PRE_GAME_READY,
+            completedAt: now,
+            elapsed: this._calculateElapsed(record, now)
+        });
+
+        record.currentPhase = TIMER_PHASES.READY;
+
+        record.phaseStartedAt = now;
+
+        record.phaseEndsAt = this._computePhaseEndsAt(TIMER_PHASES.READY, now);
+
+        record.phaseRemainingMs = this._getPhaseDuration(TIMER_PHASES.READY);
+
+        this._emitPhaseStarted(record);
+
+        this._schedulePhaseTimeout(record);
+
+        return this._createSnapshot(record);
+
+    }
+
+    /**
      * P5.9 — Begin the RESULT phase after winner determination.
      * Called only by ResultActivation. Schedules the catalog RESULT duration
      * (4s) on GameClockEngine — no client timers.

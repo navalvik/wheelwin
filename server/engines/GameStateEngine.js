@@ -95,12 +95,12 @@ export class GameStateEngine {
         const reason = context.reason ?? "Game initialized";
 
         const record = {
-            currentState: GAME_STATES.READY,
+            currentState: GAME_STATES.PRE_GAME_READY,
             previousState: null,
             enteredAt,
             history: [
                 {
-                    state: GAME_STATES.READY,
+                    state: GAME_STATES.PRE_GAME_READY,
                     enteredAt,
                     reason
                 }
@@ -114,7 +114,7 @@ export class GameStateEngine {
         this._emitStateChanged({
             gameId,
             previousState: null,
-            currentState: GAME_STATES.READY,
+            currentState: GAME_STATES.PRE_GAME_READY,
             timestamp: enteredAt,
             reason
         });

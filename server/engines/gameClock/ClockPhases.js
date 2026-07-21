@@ -1,6 +1,7 @@
 import { TIMER_PHASES } from "../../catalog/Timers.js";
 
 export const CLOCK_PHASE_SEQUENCE = Object.freeze([
+    TIMER_PHASES.PRE_GAME_READY,
     TIMER_PHASES.READY,
     TIMER_PHASES.SELF_TEST,
     TIMER_PHASES.SPEED,

@@ -211,7 +211,7 @@ function sendButtonPress(socket, buttonState = "SPEED") {
 
 const STATE_INPUT_EXPECTATIONS = [
     { state: GAME_STATES.READY, accept: false },
-    { state: GAME_STATES.COUNTDOWN, accept: false },
+    { state: GAME_STATES.READY, accept: false },
     { state: GAME_STATES.SELF_TEST, accept: false },
     { state: GAME_STATES.SPEED, accept: true },
     { state: GAME_STATES.BRAKE, accept: false },

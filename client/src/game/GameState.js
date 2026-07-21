@@ -1,4 +1,5 @@
 export const GAME_STATES = Object.freeze({
+    PRE_GAME_READY: "PRE_GAME_READY",
     READY: "READY",
     SELF_TEST: "SELF_TEST",
     SPEED: "SPEED",
@@ -30,6 +31,6 @@ export function getNextGameState(currentState) {
 
 export function isValidGameState(value) {
 
-    return GAME_STATE_SEQUENCE.includes(value);
+    return Object.values(GAME_STATES).includes(value);
 
 }

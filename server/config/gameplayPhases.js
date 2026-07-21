@@ -1,6 +1,7 @@
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 
 export const DEFAULT_GAMEPLAY_PHASE_DURATIONS_MS = Object.freeze({
+    [GAME_STATES.PRE_GAME_READY]: 180000,
     [GAME_STATES.READY]: 3000,
     [GAME_STATES.SELF_TEST]: 1500,
     [GAME_STATES.SPEED]: 6000,
@@ -25,6 +26,10 @@ function parsePositiveDuration(value, fallback) {
 export function loadGameplayPhaseConfig(env = process.env) {
 
     return Object.freeze({
+        preGameReadyDurationMs: parsePositiveDuration(
+            env.GAMEPLAY_PRE_GAME_READY_DURATION_MS,
+            DEFAULT_GAMEPLAY_PHASE_DURATIONS_MS[GAME_STATES.PRE_GAME_READY]
+        ),
         readyDurationMs: parsePositiveDuration(
             env.GAMEPLAY_READY_DURATION_MS,
             DEFAULT_GAMEPLAY_PHASE_DURATIONS_MS[GAME_STATES.READY]
@@ -52,6 +57,10 @@ export function loadGameplayPhaseConfig(env = process.env) {
 export function buildGameplayPhaseTimers(phaseConfig) {
 
     return Object.freeze({
+        [GAME_STATES.PRE_GAME_READY]: Object.freeze({
+            phase: GAME_STATES.PRE_GAME_READY,
+            durationMs: phaseConfig.preGameReadyDurationMs
+        }),
         [GAME_STATES.READY]: Object.freeze({
             phase: GAME_STATES.READY,
             durationMs: phaseConfig.readyDurationMs

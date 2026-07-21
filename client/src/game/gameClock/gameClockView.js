@@ -17,6 +17,7 @@ export const INITIAL_GAME_CLOCK = Object.freeze({
 });
 
 const PHASE_LABELS = Object.freeze({
+    PRE_GAME_READY: "PREPARATION",
     READY: "READY",
     SELF_TEST: "SELF TEST",
     SPEED: "SPINNING",

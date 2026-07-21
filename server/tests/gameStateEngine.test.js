@@ -50,12 +50,20 @@ const gameId = "game-fsm-test";
 gameStateEngine.initializeGameState(gameId);
 
 assert(
-    gameStateEngine.getState(gameId) === GAME_STATES.READY,
-    "initialized game should be READY"
+    gameStateEngine.getState(gameId) === GAME_STATES.PRE_GAME_READY,
+    "initialized game should be PRE_GAME_READY"
 );
 
+assert(
+    gameStateEngine.canTransition(gameId, GAME_STATES.READY),
+    "PRE_GAME_READY to READY should be allowed"
+);
+
+gameStateEngine.transition(gameId, GAME_STATES.READY, {
+    reason: "Move to READY"
+});
+
 const sequence = [
-    GAME_STATES.COUNTDOWN,
     GAME_STATES.SELF_TEST,
     GAME_STATES.SPEED,
     GAME_STATES.BRAKE,

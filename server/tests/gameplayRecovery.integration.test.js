@@ -337,6 +337,7 @@ function activateGame(stack, gameId, playerIds) {
     stack.gameStateEngine.initializeGameState(gameId);
 
     for (const state of [
+        GAME_STATES.READY,
         GAME_STATES.SELF_TEST,
         GAME_STATES.SPEED
     ]) {

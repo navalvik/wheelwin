@@ -169,6 +169,7 @@ configurationEngine.generateConfiguration(
 gameStateEngine.initializeGameState(gameId);
 
 for (const state of [
+    GAME_STATES.READY,
     GAME_STATES.SELF_TEST,
     GAME_STATES.SPEED,
     GAME_STATES.BRAKE

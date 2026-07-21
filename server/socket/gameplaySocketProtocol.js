@@ -10,12 +10,21 @@ export const GAMEPLAY_INPUT_MESSAGE_TYPES = Object.freeze([
     EVENT_TYPES.BUTTON_RELEASE
 ]);
 
+export const GAMEPLAY_PREPARATION_MESSAGE_TYPES = Object.freeze([
+    EVENT_TYPES.PLAYER_READY_CONFIRM
+]);
+
 export const GAMEPLAY_CLIENT_MESSAGE_TYPES = Object.freeze([
     ...GAMEPLAY_INPUT_MESSAGE_TYPES,
+    ...GAMEPLAY_PREPARATION_MESSAGE_TYPES,
     RECOVERY_SOCKET_MESSAGE_TYPES.SESSION_RECOVERY_REQUEST
 ]);
 
 const GAMEPLAY_INPUT_MESSAGE_SET = new Set(GAMEPLAY_INPUT_MESSAGE_TYPES);
+
+const GAMEPLAY_PREPARATION_MESSAGE_SET = new Set(
+    GAMEPLAY_PREPARATION_MESSAGE_TYPES
+);
 
 const GAMEPLAY_CLIENT_MESSAGE_SET = new Set(GAMEPLAY_CLIENT_MESSAGE_TYPES);
 
@@ -23,6 +32,13 @@ export function isGameplayInputMessageType(type) {
 
     return typeof type === "string"
         && GAMEPLAY_INPUT_MESSAGE_SET.has(type.trim().toUpperCase());
+
+}
+
+export function isGameplayPreparationMessageType(type) {
+
+    return typeof type === "string"
+        && GAMEPLAY_PREPARATION_MESSAGE_SET.has(type.trim().toUpperCase());
 
 }
 

@@ -170,7 +170,7 @@ function activateGame(stack, gameId, { targetState = GAME_STATES.SPEED } = {}) {
     stack.gameStateEngine.initializeGameState(gameId);
 
     const path = [
-        GAME_STATES.COUNTDOWN,
+        GAME_STATES.READY,
         GAME_STATES.SELF_TEST,
         GAME_STATES.SPEED,
         GAME_STATES.BRAKE,
@@ -323,7 +323,7 @@ function activateGame(stack, gameId, { targetState = GAME_STATES.SPEED } = {}) {
         const gameId = "physics-control-reject";
 
         const { playerId } = activateGame(stack, gameId, {
-            targetState: GAME_STATES.COUNTDOWN
+            targetState: GAME_STATES.READY
         });
 
         const rejected = stack.inputAuthority.handleButtonPress(gameId, playerId);

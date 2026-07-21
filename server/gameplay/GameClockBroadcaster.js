@@ -47,6 +47,7 @@ export class GameClockBroadcaster {
         });
 
         for (const phaseEvent of [
+            EVENT_TYPES.PRE_GAME_READY_STARTED,
             EVENT_TYPES.READY_STARTED,
             EVENT_TYPES.SELF_TEST_STARTED,
             EVENT_TYPES.SPEED_STARTED,

@@ -197,6 +197,7 @@ function waitForGameState(updates, state, timeoutMs = 5000) {
 }
 
 const EXPECTED_CLIENT_STATES = [
+    GAME_STATES.PRE_GAME_READY,
     GAME_STATES.READY,
     GAME_STATES.SELF_TEST,
     GAME_STATES.SPEED,
@@ -252,6 +253,7 @@ try {
 
     assert(
         serverHistory.join(",") === [
+            GAME_STATES.PRE_GAME_READY,
             GAME_STATES.READY,
             GAME_STATES.SELF_TEST,
             GAME_STATES.SPEED,

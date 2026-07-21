@@ -26,6 +26,8 @@ export class CentralButtonEngine {
 
         this._transmitAlways = false;
 
+        this._preGameReadyConfirmed = false;
+
         this._presentation = this._buildPresentation();
 
         this._stateListeners = new Set();
@@ -49,6 +51,8 @@ export class CentralButtonEngine {
         this._resultOutcome = null;
 
         this._transmitAlways = false;
+
+        this._preGameReadyConfirmed = false;
 
         this._refreshPresentation();
 
@@ -95,9 +99,73 @@ export class CentralButtonEngine {
 
         this._resultOutcome = resultOutcome;
 
+        if (gameState !== GAME_STATES.PRE_GAME_READY) {
+
+            this._preGameReadyConfirmed = false;
+
+        }
+
+        if (gameState === GAME_STATES.PRE_GAME_READY
+            && this._preGameReadyConfirmed) {
+
+            this.setState(BUTTON_STATES.PRE_GAME_READY_CONFIRMED);
+
+            this.disable();
+
+            return;
+
+        }
+
         const nextState = mapGameStateToButtonState(gameState, resultOutcome);
 
         this.setState(nextState);
+
+    }
+
+    applyPreGameReadyConfirmation(confirmed = true) {
+
+        if (this._state !== BUTTON_STATES.PRE_GAME_READY
+            && this._state !== BUTTON_STATES.PRE_GAME_READY_CONFIRMED) {
+
+            return;
+
+        }
+
+        if (!confirmed) {
+
+            this._preGameReadyConfirmed = false;
+
+            this.setState(BUTTON_STATES.PRE_GAME_READY);
+
+            this.enable();
+
+            return;
+
+        }
+
+        this._preGameReadyConfirmed = true;
+
+        this.setState(BUTTON_STATES.PRE_GAME_READY_CONFIRMED);
+
+        this.disable();
+
+    }
+
+    confirmPreGameReady() {
+
+        if (this._state !== BUTTON_STATES.PRE_GAME_READY
+            || this._preGameReadyConfirmed) {
+
+            return false;
+
+        }
+
+        this._emitEvent({
+            type: "preGameReadyConfirm",
+            buttonState: this._state
+        });
+
+        return true;
 
     }
 
@@ -158,7 +226,18 @@ export class CentralButtonEngine {
 
         if (nextState === BUTTON_STATES.WIN
             || nextState === BUTTON_STATES.LOST
+            || nextState === BUTTON_STATES.PRE_GAME_READY_CONFIRMED
             || this._locked) {
+
+            this._enabled = false;
+
+        }
+
+        if (button.preGameReadyConfirmed === true) {
+
+            this._preGameReadyConfirmed = true;
+
+            this._state = BUTTON_STATES.PRE_GAME_READY_CONFIRMED;
 
             this._enabled = false;
 

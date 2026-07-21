@@ -120,6 +120,14 @@ export function SocketSyncProvider({ children, autoConnect = true }) {
 
         const unsubscribe = subscribeToButtonEvents((event) => {
 
+            if (event.type === "preGameReadyConfirm") {
+
+                layer.send(OUTGOING_SOCKET_EVENTS.PLAYER_READY_CONFIRM, {});
+
+                return;
+
+            }
+
             const outgoingType = event.type === "press"
                 ? OUTGOING_SOCKET_EVENTS.BUTTON_PRESS
                 : OUTGOING_SOCKET_EVENTS.BUTTON_RELEASE;

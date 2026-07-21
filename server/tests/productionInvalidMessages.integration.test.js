@@ -256,7 +256,7 @@ function assertRosterUntouched(ia, gameId, roster, label) {
         const result = await stack.runGame({
             index: "E4",
             hooks: {
-                [GAME_STATES.COUNTDOWN]: (ctx) => {
+                [GAME_STATES.READY]: (ctx) => {
 
                     const pid = ctx.roster[0];
 

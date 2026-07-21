@@ -17,6 +17,7 @@ export class RecoveryEngine {
         winnerEngine,
         paymentEngine,
         resultActivation = null,
+        preGameReadyActivation = null,
         metricsService = null
     }) {
 
@@ -41,6 +42,8 @@ export class RecoveryEngine {
         this._paymentEngine = paymentEngine;
 
         this._resultActivation = resultActivation;
+
+        this._preGameReadyActivation = preGameReadyActivation;
 
         this._metricsService = metricsService;
 
@@ -197,6 +200,8 @@ export class RecoveryEngine {
                 input: sources.input,
                 winner: sources.winner,
                 payment: sources.payment,
+                preGameReady: sources.preGameReady,
+                openPage6: sources.openPage6 === true,
                 recoveredAt: Date.now(),
                 metadata: {
                     traceSeed: sources.configuration.traceSeed,
@@ -345,6 +350,7 @@ export class RecoveryEngine {
             input,
             winner: this._winnerEngine.getResult(gameId),
             payment: this._paymentEngine.getPayment(gameId),
+            preGameReady: this._preGameReadyActivation?.getSnapshot(gameId) ?? null,
             openPage6: this._resultActivation?.hasOpenedPage6(gameId) === true
         };
 
