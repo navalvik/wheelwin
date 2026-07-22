@@ -8,6 +8,7 @@ import { PhysicsEngine } from "../engines/PhysicsEngine.js";
 import { WinnerEngine } from "../engines/WinnerEngine.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { RandomService } from "../services/RandomService.js";
+import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
 import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 
 function assert(condition, message) {
@@ -86,11 +87,11 @@ const gameId = "payment-test-game";
 configurationEngine.generateConfiguration(
     gameId,
     { roomId: "payment-room", stake: 10 },
-    [
-        { playerId: "player-1", sectorCount: 2 },
-        { playerId: "player-2", sectorCount: 2 },
-        { playerId: "player-3", sectorCount: 2 }
-    ]
+    createStandardConfigurationPlayers([
+        "player-1",
+        "player-2",
+        "player-3"
+    ])
 );
 
 physicsEngine.createSimulation(gameId);

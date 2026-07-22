@@ -12,6 +12,7 @@ import { ResultActivation } from "../gameplay/ResultActivation.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { RandomService } from "../services/RandomService.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
+import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
 
 function assert(condition, message) {
 
@@ -159,11 +160,11 @@ eventBus.subscribe(EVENT_TYPES.OPEN_PAGE6, (envelope) => {
 configurationEngine.generateConfiguration(
     gameId,
     { roomId: "room-p59", stake: 1 },
-    [
-        { playerId: "player-a", sectorCount: 2 },
-        { playerId: "player-b", sectorCount: 2 },
-        { playerId: "player-c", sectorCount: 2 }
-    ]
+    createStandardConfigurationPlayers([
+        "player-a",
+        "player-b",
+        "player-c"
+    ])
 );
 
 gameStateEngine.initializeGameState(gameId);

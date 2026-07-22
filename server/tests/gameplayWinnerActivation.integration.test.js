@@ -8,6 +8,7 @@ import { WinnerEngine } from "../engines/WinnerEngine.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { RandomService } from "../services/RandomService.js";
 import { WinnerActivation } from "../gameplay/WinnerActivation.js";
+import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
 
 function assert(condition, message) {
 
@@ -122,11 +123,11 @@ function prepareStoppedGame(stack, gameId, wheelDeg, triangleDeg) {
     stack.configurationEngine.generateConfiguration(
         gameId,
         { roomId: "winner-room", stake: 10 },
-        [
-            { playerId: "player-a", sectorCount: 2 },
-            { playerId: "player-b", sectorCount: 2 },
-            { playerId: "player-c", sectorCount: 2 }
-        ]
+        createStandardConfigurationPlayers([
+            "player-a",
+            "player-b",
+            "player-c"
+        ])
     );
 
     stack.physicsEngine.createSimulation(gameId);

@@ -103,6 +103,7 @@ export class PlayerManager {
             icon: identityInput.icon ?? null,
             age: identityInput.age ?? null,
             color: identityInput.color ?? null,
+            colorSector2: identityInput.colorSector2 ?? null,
             sectorCount: identityInput.sectorCount ?? null,
             sectorArrangement: identityInput.sectorArrangement ?? null,
             createdAt: identityInput.createdAt ?? Date.now()
@@ -217,6 +218,9 @@ export class PlayerManager {
             color: identityPatch.color !== undefined
                 ? identityPatch.color
                 : previous.color,
+            colorSector2: identityPatch.colorSector2 !== undefined
+                ? identityPatch.colorSector2
+                : previous.colorSector2,
             sectorCount: identityPatch.sectorCount !== undefined
                 ? identityPatch.sectorCount
                 : previous.sectorCount,

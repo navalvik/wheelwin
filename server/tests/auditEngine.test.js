@@ -1,4 +1,5 @@
 import { GameCatalog } from "../catalog/GameCatalog.js";
+import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
 import { PAYMENT_STATUS } from "../catalog/PaymentRules.js";
 import { EventBus } from "../events/EventBus.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
@@ -208,10 +209,7 @@ function setupCompletedGame(stack, gameId, playerIds) {
     configurationEngine.generateConfiguration(
         gameId,
         { roomId: `room-${gameId}`, stake: 10 },
-        playerIds.map((playerId) => ({
-            playerId,
-            sectorCount: 2
-        }))
+        createStandardConfigurationPlayers(playerIds)
     );
 
     gameStateEngine.initializeGameState(gameId);

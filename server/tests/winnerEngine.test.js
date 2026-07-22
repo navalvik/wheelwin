@@ -8,6 +8,7 @@ import { PHYSICS_SIMULATION_STATE } from "../engines/physics/PhysicsSimulationSt
 import { WinnerEngine } from "../engines/WinnerEngine.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { RandomService } from "../services/RandomService.js";
+import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
 
 function assert(condition, message) {
 
@@ -72,11 +73,11 @@ const gameId = "winner-test-game";
 const configuration = configurationEngine.generateConfiguration(
     gameId,
     { roomId: "room-winner", stake: 1 },
-    [
-        { playerId: "player-a", sectorCount: 2 },
-        { playerId: "player-b", sectorCount: 2 },
-        { playerId: "player-c", sectorCount: 2 }
-    ]
+    createStandardConfigurationPlayers([
+        "player-a",
+        "player-b",
+        "player-c"
+    ])
 );
 
 physicsEngine.createSimulation(gameId);

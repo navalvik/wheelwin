@@ -25,6 +25,7 @@ import { EVENT_TYPES } from "./events/EventTypes.js";
 
 import { AuditEngine } from "./engines/AuditEngine.js";
 import { ConfigurationEngine } from "./engines/ConfigurationEngine.js";
+import { createStandardConfigurationPlayers } from "./engines/configuration/configurationPlayers.js";
 import { GameClockEngine } from "./engines/GameClockEngine.js";
 import { GameStateEngine } from "./engines/GameStateEngine.js";
 import { PaymentEngine } from "./engines/PaymentEngine.js";
@@ -1276,11 +1277,11 @@ class WheelWinApplication {
                     roomId: "config-demo-room",
                     stake: 1
                 },
-                [
-                    { playerId: "demo-player-1", sectorCount: 2 },
-                    { playerId: "demo-player-2", sectorCount: 2 },
-                    { playerId: "demo-player-3", sectorCount: 2 }
-                ]
+                createStandardConfigurationPlayers([
+                    "demo-player-1",
+                    "demo-player-2",
+                    "demo-player-3"
+                ])
             );
 
         } finally {
@@ -1524,11 +1525,11 @@ class WheelWinApplication {
                 roomId: "winner-demo-room",
                 stake: 1
             },
-            [
-                { playerId: "winner-player-1", sectorCount: 2 },
-                { playerId: "winner-player-2", sectorCount: 2 },
-                { playerId: "winner-player-3", sectorCount: 2 }
-            ]
+            createStandardConfigurationPlayers([
+                "winner-player-1",
+                "winner-player-2",
+                "winner-player-3"
+            ])
         );
 
         if (!configuration) {
@@ -1583,11 +1584,11 @@ class WheelWinApplication {
         configurationEngine.generateConfiguration(
             gameId,
             { roomId: "payment-demo-room", stake: 10 },
-            [
-                { playerId: "payment-player-1", sectorCount: 2 },
-                { playerId: "payment-player-2", sectorCount: 2 },
-                { playerId: "payment-player-3", sectorCount: 2 }
-            ]
+            createStandardConfigurationPlayers([
+                "payment-player-1",
+                "payment-player-2",
+                "payment-player-3"
+            ])
         );
 
         physicsEngine.createSimulation(gameId);
@@ -1634,10 +1635,7 @@ class WheelWinApplication {
         configurationEngine.generateConfiguration(
             gameId,
             { roomId: "recovery-demo-room", stake: 10 },
-            playerIds.map((playerId) => ({
-                playerId,
-                sectorCount: 2
-            }))
+            createStandardConfigurationPlayers(playerIds)
         );
 
         gameStateEngine.initializeGameState(gameId);
@@ -1712,10 +1710,7 @@ class WheelWinApplication {
         configurationEngine.generateConfiguration(
             gameId,
             { roomId: "audit-demo-room", stake: 10 },
-            playerIds.map((playerId) => ({
-                playerId,
-                sectorCount: 2
-            }))
+            createStandardConfigurationPlayers(playerIds)
         );
 
         gameStateEngine.initializeGameState(gameId);

@@ -60,7 +60,8 @@ export default function Page2PlayerSetup({ onNavigate }) {
             baseStake,
             sectorCount: Number(sectors),
             sectorArrangement: sectors === "2" ? sectorArrangement : "together",
-            color: colorSector1
+            color: colorSector1,
+            colorSector2: sectors === "2" ? colorSector2 : null
         });
 
         onNavigate(4);

@@ -11,6 +11,7 @@ import {
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
 } from "./helpers/gameplayBootstrapHarness.js";
+import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
 
 // Deterministic-stack dependencies (isolated from the shared server).
 import { GameCatalog } from "../catalog/GameCatalog.js";
@@ -577,7 +578,7 @@ function runDeterministicGame(seed) {
         let configuration = stack.configurationEngine.buildConfiguration(
             gameId,
             { roomId: "determinism-room", stake: 10 },
-            players.map((playerId) => ({ playerId, sectorCount: 2 }))
+            createStandardConfigurationPlayers(players)
         );
 
         stack.configurationEngine.validateConfiguration(configuration);

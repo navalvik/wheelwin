@@ -5,6 +5,7 @@ import { ConfigurationEngine } from "../engines/ConfigurationEngine.js";
 import { ConfigurationValidationError } from "../engines/configuration/ConfigurationValidationError.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { RandomService } from "../services/RandomService.js";
+import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
 
 function assert(condition, message) {
 
@@ -62,11 +63,11 @@ const configuration = configurationEngine.generateConfiguration(
         roomId: "room-test",
         stake: 1
     },
-    [
-        { playerId: "player-1", sectorCount: 2 },
-        { playerId: "player-2", sectorCount: 2 },
-        { playerId: "player-3", sectorCount: 2 }
-    ]
+    createStandardConfigurationPlayers([
+        "player-1",
+        "player-2",
+        "player-3"
+    ])
 );
 
 assert(configuration.gameId === gameId, "configuration should include gameId");
@@ -76,6 +77,16 @@ assert(configuration.sectors.length === 6, "configuration should include 6 secto
 assert(
     configuration.players.length === 3,
     "configuration should include 3 players"
+);
+
+assert(
+    configuration.sectors.every((sector) => Number.isFinite(sector.angleStart)),
+    "every sector must include angleStart"
+);
+
+assert(
+    configuration.sectors.every((sector) => Number.isFinite(sector.angleEnd)),
+    "every sector must include angleEnd"
 );
 
 assert(
@@ -115,7 +126,11 @@ try {
     configurationEngine.generateConfiguration(
         gameId,
         { roomId: "room-test", stake: 99 },
-        [{ playerId: "player-1", sectorCount: 6 }]
+        [{
+            playerId: "player-1",
+            sectorCount: 6,
+            colors: ["Red", "Green", "Blue", "Yellow", "Orange", "Violet"]
+        }]
     );
 
 } catch (error) {

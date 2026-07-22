@@ -7,6 +7,7 @@ export class PlayerIdentity {
         icon = null,
         age = null,
         color = null,
+        colorSector2 = null,
         sectorCount = null,
         sectorArrangement = null,
         createdAt = null
@@ -23,6 +24,8 @@ export class PlayerIdentity {
         this.age = age;
 
         this.color = color;
+
+        this.colorSector2 = colorSector2;
 
         this.sectorCount = sectorCount;
 
@@ -43,6 +46,7 @@ export class PlayerIdentity {
             icon: this.icon,
             age: this.age,
             color: this.color,
+            colorSector2: this.colorSector2,
             sectorCount: this.sectorCount,
             sectorArrangement: this.sectorArrangement,
             createdAt: this.createdAt

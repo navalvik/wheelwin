@@ -1,8 +1,13 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { resolvePlayerSetupColors } from "./configuration/colorCatalog.js";
 import { ConfigurationValidationError } from "./configuration/ConfigurationValidationError.js";
 import { deepFreezeConfiguration } from "./configuration/configurationFreeze.js";
 import { CONFIGURATION_VERSION } from "./configuration/ConfigurationVersion.js";
+import {
+    generateWheelLayout,
+    validateWheelLayout
+} from "./configuration/wheelLayoutGenerator.js";
 
 export class ConfigurationEngine {
 
@@ -150,61 +155,83 @@ export class ConfigurationEngine {
 
         const wheelRules = this._gameCatalog.getWheelRules();
 
-        const colorIds = this._randomService.shuffle(
-            catalogColors.map((color) => color.id)
-        );
-
         const iconIds = this._randomService.shuffle(
             catalogIcons.map((icon) => icon.id)
         );
 
-        const playerConfigurations = players.map((player, index) => ({
+        const resolvedPlayers = players.map((player, index) => {
 
-            playerId: player.playerId,
+            const colors = resolvePlayerSetupColors(
+                player.colors,
+                catalogColors
+            );
 
-            color: colorIds[index],
+            if (colors.length !== player.sectorCount) {
 
-            icon: iconIds[index],
-
-            sectorCount: player.sectorCount
-
-        }));
-
-        const sectors = [];
-
-        let sectorIndex = 0;
-
-        for (const playerConfiguration of playerConfigurations) {
-
-            for (let count = 0; count < playerConfiguration.sectorCount; count += 1) {
-
-                sectors.push({
-                    sectorId: `sector_${sectorIndex}`,
-                    ownerId: playerConfiguration.playerId,
-                    color: playerConfiguration.color,
-                    icon: playerConfiguration.icon
+                throw new ConfigurationValidationError({
+                    gameId,
+                    reason: `Player ${player.playerId} color count does not match sectorCount`,
+                    traceSeed
                 });
-
-                sectorIndex += 1;
 
             }
 
-        }
+            return {
+                playerId: player.playerId,
+                nickname: player.nickname ?? null,
+                icon: iconIds[index],
+                sectorCount: player.sectorCount,
+                sectorArrangement: player.sectorCount === 2
+                    ? (player.sectorArrangement === "separate" ? "separate" : "together")
+                    : null,
+                colors
+            };
 
-        const orderedSectors = this._randomService.shuffle(sectors);
+        });
+
+        const layout = generateWheelLayout({
+            players: resolvedPlayers,
+            randomService: this._randomService
+        });
+
+        validateWheelLayout({
+            sectors: layout.sectors,
+            players: resolvedPlayers,
+            minSectors: wheelRules.minSectors,
+            maxSectors: wheelRules.maxSectors
+        });
+
+        const playerConfigurations = resolvedPlayers.map((player) => ({
+
+            playerId: player.playerId,
+
+            nickname: player.nickname,
+
+            color: player.colors[0].id,
+
+            colors: player.colors.map((entry) => entry.id),
+
+            icon: player.icon,
+
+            sectorCount: player.sectorCount,
+
+            sectorArrangement: player.sectorArrangement
+
+        }));
 
         const configuration = {
             gameId,
             configurationVersion: CONFIGURATION_VERSION,
             createdAt: Date.now(),
             traceSeed,
-            sectors: orderedSectors,
+            sectors: layout.sectors,
             players: playerConfigurations,
             wheel: {
                 startAngle: this._randomService.nextInt(0, 359),
                 minSectors: wheelRules.minSectors,
                 maxSectors: wheelRules.maxSectors,
-                sectorCount: orderedSectors.length
+                sectorCount: layout.sectors.length,
+                playerOrder: layout.playerOrder
             },
             triangle: {
                 startAngle: this._randomService.nextInt(0, 359),
@@ -314,9 +341,9 @@ export class ConfigurationEngine {
 
         const playerIcons = new Set();
 
-        const playerColors = new Set();
-
         let expectedSectorTotal = 0;
+
+        const playersById = new Map();
 
         for (const player of configuration.players) {
 
@@ -368,21 +395,11 @@ export class ConfigurationEngine {
 
             }
 
-            if (playerColors.has(player.color)) {
-
-                throw new ConfigurationValidationError({
-                    gameId,
-                    reason: "Player colors must be unique",
-                    traceSeed
-                });
-
-            }
-
             playerIcons.add(player.icon);
 
-            playerColors.add(player.color);
-
             expectedSectorTotal += player.sectorCount;
+
+            playersById.set(player.playerId, player);
 
         }
 
@@ -407,9 +424,7 @@ export class ConfigurationEngine {
 
         }
 
-        const playersById = new Map(
-            configuration.players.map((player) => [player.playerId, player])
-        );
+        const sectorIds = new Set();
 
         for (const sector of configuration.sectors) {
 
@@ -420,6 +435,24 @@ export class ConfigurationEngine {
             this._requireField(sector, "color", gameId, traceSeed);
 
             this._requireField(sector, "icon", gameId, traceSeed);
+
+            this._requireField(sector, "sectorIndexForPlayer", gameId, traceSeed);
+
+            this._requireField(sector, "angleStart", gameId, traceSeed);
+
+            this._requireField(sector, "angleEnd", gameId, traceSeed);
+
+            if (sectorIds.has(sector.sectorId)) {
+
+                throw new ConfigurationValidationError({
+                    gameId,
+                    reason: `Duplicate sectorId (${sector.sectorId})`,
+                    traceSeed
+                });
+
+            }
+
+            sectorIds.add(sector.sectorId);
 
             const owner = playersById.get(sector.ownerId);
 
@@ -433,15 +466,73 @@ export class ConfigurationEngine {
 
             }
 
-            if (sector.color !== owner.color || sector.icon !== owner.icon) {
+            if (!allowedIcons.has(sector.icon)) {
 
                 throw new ConfigurationValidationError({
                     gameId,
-                    reason: "Sector color and icon must match owner configuration",
+                    reason: `Sector icon is not in catalog (${sector.icon})`,
                     traceSeed
                 });
 
             }
+
+            if (sector.icon !== owner.icon) {
+
+                throw new ConfigurationValidationError({
+                    gameId,
+                    reason: "Sector icon must match owner configuration",
+                    traceSeed
+                });
+
+            }
+
+        }
+
+        const resolvedPlayers = configuration.players.map((player) => {
+
+            const catalogColors = this._gameCatalog.getColors();
+
+            const colorLabels = Array.isArray(player.colors)
+                ? player.colors.map((colorId) => {
+
+                    const entry = catalogColors.find((color) => color.id === colorId);
+
+                    return {
+                        id: colorId,
+                        hex: entry?.hex ?? null
+                    };
+
+                })
+                : [{
+                    id: player.color,
+                    hex: catalogColors.find((color) => color.id === player.color)?.hex ?? null
+                }];
+
+            return {
+                playerId: player.playerId,
+                sectorCount: player.sectorCount,
+                sectorArrangement: player.sectorArrangement,
+                colors: colorLabels.filter((entry) => entry.hex)
+            };
+
+        });
+
+        try {
+
+            validateWheelLayout({
+                sectors: configuration.sectors,
+                players: resolvedPlayers,
+                minSectors: wheelRules.minSectors,
+                maxSectors: wheelRules.maxSectors
+            });
+
+        } catch (error) {
+
+            throw new ConfigurationValidationError({
+                gameId,
+                reason: error.message,
+                traceSeed
+            });
 
         }
 
@@ -667,6 +758,39 @@ export class ConfigurationEngine {
                 throw new ConfigurationValidationError({
                     gameId,
                     reason: "Each player must include a positive sectorCount"
+                });
+
+            }
+
+            if (!Array.isArray(player.colors) || player.colors.length !== player.sectorCount) {
+
+                throw new ConfigurationValidationError({
+                    gameId,
+                    reason: "Each player must include colors matching sectorCount"
+                });
+
+            }
+
+            for (const colorLabel of player.colors) {
+
+                if (typeof colorLabel !== "string" || !colorLabel.trim()) {
+
+                    throw new ConfigurationValidationError({
+                        gameId,
+                        reason: "Each player color must be a non-empty string"
+                    });
+
+                }
+
+            }
+
+            if (player.sectorCount === 2
+                && player.sectorArrangement !== "together"
+                && player.sectorArrangement !== "separate") {
+
+                throw new ConfigurationValidationError({
+                    gameId,
+                    reason: "Two-sector players must include together or separate arrangement"
                 });
 
             }

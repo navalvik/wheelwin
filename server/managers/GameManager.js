@@ -722,12 +722,29 @@ export class GameManager {
 
     _buildConfigurationPlayers(room) {
 
-        const sectorCount = 2;
+        return room.players.map((playerId) => {
 
-        return room.players.map((playerId) => ({
-            playerId,
-            sectorCount
-        }));
+            const identity = this._bootstrap.playerManager.getIdentity(playerId);
+
+            const sectorCount = identity?.sectorCount === 2 ? 2 : 1;
+
+            const colors = [identity?.color ?? "Red"];
+
+            if (sectorCount === 2) {
+
+                colors.push(identity?.colorSector2 ?? identity?.color ?? "Blue");
+
+            }
+
+            return {
+                playerId,
+                nickname: identity?.nickname ?? null,
+                sectorCount,
+                sectorArrangement: identity?.sectorArrangement ?? "together",
+                colors
+            };
+
+        });
 
     }
 

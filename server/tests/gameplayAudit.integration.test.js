@@ -1,4 +1,5 @@
 import { GameCatalog } from "../catalog/GameCatalog.js";
+import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
 import { INPUT_RULES } from "../catalog/InputRules.js";
 import { EventBus } from "../events/EventBus.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
@@ -265,7 +266,7 @@ function activateAndFinishGame(stack, gameId, playerIds) {
     stack.configurationEngine.generateConfiguration(
         gameId,
         { roomId: `room-${gameId}`, stake: 10 },
-        playerIds.map((playerId) => ({ playerId, sectorCount: 2 }))
+        createStandardConfigurationPlayers(playerIds)
     );
 
     stack.gameStateEngine.initializeGameState(gameId);

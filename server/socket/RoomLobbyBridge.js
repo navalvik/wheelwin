@@ -1379,6 +1379,7 @@ export class RoomLobbyBridge {
             age: profile.age,
             icon,
             color: profile.color,
+            colorSector2: profile.colorSector2,
             sectorCount: profile.sectorCount,
             sectorArrangement: profile.sectorArrangement
         });
@@ -2157,6 +2158,10 @@ export class RoomLobbyBridge {
             ? rawProfile.color.trim().slice(0, 32)
             : null;
 
+        const colorSector2 = typeof rawProfile.colorSector2 === "string"
+            ? rawProfile.colorSector2.trim().slice(0, 32)
+            : null;
+
         const baseStake = rawProfile.baseStake === undefined
             || rawProfile.baseStake === null
             ? null
@@ -2168,6 +2173,7 @@ export class RoomLobbyBridge {
             sectorCount,
             sectorArrangement,
             color,
+            colorSector2,
             baseStake
         };
 

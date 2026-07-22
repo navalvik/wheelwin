@@ -19,6 +19,7 @@ import {
     createFastTimers,
     createFastInputCatalog
 } from "./helpers/gameplayBootstrapHarness.js";
+import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
 
 const logger = new LoggerService({ logLevel: "error" });
 
@@ -146,7 +147,7 @@ function prepareGame(stack, gameId, playerIds) {
     let configuration = stack.configurationEngine.buildConfiguration(
         gameId,
         { roomId: `room-${gameId}`, stake: 1 },
-        playerIds.map((playerId) => ({ playerId, sectorCount: 2 }))
+        createStandardConfigurationPlayers(playerIds)
     );
 
     stack.configurationEngine.validateConfiguration(configuration);
