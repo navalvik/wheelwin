@@ -15,6 +15,7 @@ export {
     WHEEL_ANGLE,
     WHEEL_ICON_GLYPHS,
     resolveWheelIcon,
+    resolvePlayerIconFromWheel,
     validateWheelConfiguration,
     calculateWheelDiameter
 } from "./wheelUtils";

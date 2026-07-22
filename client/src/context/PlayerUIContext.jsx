@@ -18,6 +18,7 @@ import { useAuthoritativeSession } from "./AuthoritativeSessionContext";
 import { useRegisterEngineModule } from "./EngineBridgeContext";
 import { useGameState } from "./GameStateContext";
 import { useCentralButton } from "./CentralButtonContext";
+import { useWheelConfig } from "./WheelConfigContext";
 
 const PlayerUIContext = createContext(null);
 
@@ -28,6 +29,8 @@ export function PlayerUIProvider({ children }) {
     const { resultOutcome } = useCentralButton();
 
     const authoritative = useAuthoritativeSession();
+
+    const { wheelConfiguration } = useWheelConfig();
 
     const engineRef = useRef(null);
 
@@ -45,6 +48,41 @@ export function PlayerUIProvider({ children }) {
         engineRef.current.syncFromAuthoritativeRoster(roster);
 
     }, [authoritative.players]);
+
+    // R5.13B — Player box icons must match authoritative sector.icon values.
+    useEffect(() => {
+
+        const sectors = wheelConfiguration?.sectors;
+
+        if (!Array.isArray(sectors)) {
+
+            return;
+
+        }
+
+        const iconByOwnerId = new Map();
+
+        for (const sector of sectors) {
+
+            const ownerId = sector?.ownerId;
+
+            if (!ownerId || !sector?.icon || iconByOwnerId.has(ownerId)) {
+
+                continue;
+
+            }
+
+            iconByOwnerId.set(ownerId, sector.icon);
+
+        }
+
+        for (const [playerId, icon] of iconByOwnerId) {
+
+            engineRef.current.updatePlayer({ id: playerId, icon });
+
+        }
+
+    }, [wheelConfiguration]);
 
     useEffect(() => {
 

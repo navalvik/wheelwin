@@ -1,3 +1,5 @@
+import { resolveWheelIcon } from "../game/WheelEngine/wheelUtils";
+
 import { useGameResult } from "../../context/GameResultContext";
 
 /**
@@ -35,7 +37,9 @@ export default function Page5ResultOverlay() {
             />
 
             <div className="page5ResultOverlay__icon">
-                {winner?.icon ?? sector?.icon ?? "—"}
+                {sector?.icon
+                    ? resolveWheelIcon(sector.icon)
+                    : "—"}
             </div>
 
             <div className="page5ResultOverlay__meta">

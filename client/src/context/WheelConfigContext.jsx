@@ -6,7 +6,6 @@ import {
 } from "react";
 
 import {
-    DEFAULT_WHEEL_SECTOR_COUNT,
     getWheelDebugConfig
 } from "../components/game/WheelEngine";
 
@@ -48,9 +47,7 @@ function resolveWheelConfig(payload) {
 
 export function WheelConfigProvider({ children }) {
 
-    const [wheelConfiguration, setWheelConfiguration] = useState(
-        () => getWheelDebugConfig(DEFAULT_WHEEL_SECTOR_COUNT)
-    );
+    const [wheelConfiguration, setWheelConfiguration] = useState(null);
 
     // The wheel presentation config is server-driven (WHEEL_CONFIGURATION) and
     // restored during recovery. Registering the module here — above Page5 —

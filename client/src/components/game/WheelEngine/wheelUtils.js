@@ -14,7 +14,23 @@ export const WHEEL_ICON_GLYPHS = Object.freeze({
     heart: "♥",
     anchor: "⚓",
     star: "★",
-    diamond: "◆"
+    diamond: "◆",
+    turtle: "🐢",
+    shark: "🦈",
+    fox: "🦊",
+    owl: "🦉",
+    dolphin: "🐬",
+    butterfly: "🦋",
+    elephant: "🐘",
+    lion: "🦁",
+    panda: "🐼",
+    rabbit: "🐰",
+    cat: "🐱",
+    dog: "🐶",
+    bear: "🐻",
+    frog: "🐸",
+    snake: "🐍",
+    eagle: "🦅"
 });
 
 export function resolveWheelIcon(iconKey) {
@@ -25,7 +41,41 @@ export function resolveWheelIcon(iconKey) {
 
     }
 
-    return WHEEL_ICON_GLYPHS[iconKey] || iconKey;
+    const normalized = String(iconKey).trim().toLowerCase();
+
+    if (WHEEL_ICON_GLYPHS[normalized]) {
+
+        return WHEEL_ICON_GLYPHS[normalized];
+
+    }
+
+    return iconKey;
+
+}
+
+/**
+ * R5.13B — Resolve a player's display icon from authoritative wheel sectors.
+ * Uses the first sector owned by playerId; never reads roster / PlayerUI data.
+ */
+export function resolvePlayerIconFromWheel(sectors, playerId) {
+
+    if (!Array.isArray(sectors) || !playerId) {
+
+        return null;
+
+    }
+
+    const sector = sectors.find(
+        (entry) => entry?.ownerId === playerId
+    );
+
+    if (!sector?.icon) {
+
+        return null;
+
+    }
+
+    return resolveWheelIcon(sector.icon);
 
 }
 

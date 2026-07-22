@@ -1,13 +1,14 @@
 import { memo } from "react";
 
-import { getPlayerIconGlyph } from "../../game/playerUI";
+import { resolvePlayerIconFromWheel } from "../../components/game/WheelEngine/wheelUtils";
 
 import { listAuthoritativePlayers } from "../../game/session/authoritativePlayerView";
 
 import { useAuthoritativeSession } from "../../context/AuthoritativeSessionContext";
 import { usePreGameReady } from "../../context/PreGameReadyContext";
+import { useWheelConfig } from "../../context/WheelConfigContext";
 
-function PreGameReadyPlayerCard({ player, confirmed }) {
+function PreGameReadyPlayerCard({ player, confirmed, iconGlyph }) {
 
     const color = player.color && player.color !== "—"
         ? player.color
@@ -33,7 +34,7 @@ function PreGameReadyPlayerCard({ player, confirmed }) {
                 aria-hidden="true"
             >
 
-                {getPlayerIconGlyph(player.icon)}
+                {iconGlyph ?? "?"}
 
             </span>
 
@@ -65,9 +66,13 @@ export default memo(function PreGameReadyPlayerPanel() {
 
     const authoritative = useAuthoritativeSession();
 
+    const { wheelConfiguration } = useWheelConfig();
+
     const { isPlayerReady } = usePreGameReady();
 
     const players = listAuthoritativePlayers(authoritative.players);
+
+    const sectors = wheelConfiguration?.sectors ?? [];
 
     return (
 
@@ -79,6 +84,10 @@ export default memo(function PreGameReadyPlayerPanel() {
                     key={player.playerId}
                     player={player}
                     confirmed={isPlayerReady(player.playerId)}
+                    iconGlyph={resolvePlayerIconFromWheel(
+                        sectors,
+                        player.playerId
+                    )}
                 />
 
             ))}

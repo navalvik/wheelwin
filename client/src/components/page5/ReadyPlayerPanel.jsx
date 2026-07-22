@@ -1,6 +1,6 @@
 import { memo } from "react";
 
-import { getPlayerIconGlyph } from "../../game/playerUI";
+import { resolvePlayerIconFromWheel } from "../../components/game/WheelEngine/wheelUtils";
 
 import { listAuthoritativePlayers } from "../../game/session/authoritativePlayerView";
 
@@ -19,7 +19,7 @@ function countSectorsForPlayer(sectors, playerId) {
 
 }
 
-function ReadyPlayerCard({ player, sectorCount }) {
+function ReadyPlayerCard({ player, sectorCount, iconGlyph }) {
 
     const color = player.color && player.color !== "—"
         ? player.color
@@ -44,7 +44,7 @@ function ReadyPlayerCard({ player, sectorCount }) {
                 aria-hidden="true"
             >
 
-                {getPlayerIconGlyph(player.icon)}
+                {iconGlyph ?? "?"}
 
             </span>
 
@@ -90,6 +90,10 @@ export default memo(function ReadyPlayerPanel() {
                     key={player.playerId}
                     player={player}
                     sectorCount={countSectorsForPlayer(
+                        sectors,
+                        player.playerId
+                    )}
+                    iconGlyph={resolvePlayerIconFromWheel(
                         sectors,
                         player.playerId
                     )}
