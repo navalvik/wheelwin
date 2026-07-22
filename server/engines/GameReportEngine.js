@@ -28,6 +28,8 @@ export class GameReportEngine {
 
         this._reports = new Map();
 
+        this._reportsByReportId = new Map();
+
         this._initialized = false;
 
     }
@@ -41,6 +43,8 @@ export class GameReportEngine {
     shutdown() {
 
         this._reports.clear();
+
+        this._reportsByReportId.clear();
 
         this._initialized = false;
 
@@ -95,6 +99,12 @@ export class GameReportEngine {
 
         this._reports.set(gameId, report);
 
+        if (report.reportId) {
+
+            this._reportsByReportId.set(report.reportId, gameId);
+
+        }
+
         this._logger?.info?.(
             `Game Report Created: ${report.reportId} | gameId=${gameId}`
         );
@@ -103,21 +113,70 @@ export class GameReportEngine {
 
     }
 
-    getReport(gameId) {
+    /**
+     * Resolve by gameId or reportId.
+     */
+    resolveReport(id) {
 
-        return this._reports.get(gameId) ?? null;
+        if (!id) {
+
+            return null;
+
+        }
+
+        const byGameId = this._reports.get(id);
+
+        if (byGameId) {
+
+            return byGameId;
+
+        }
+
+        const gameId = this._reportsByReportId.get(id);
+
+        if (gameId) {
+
+            return this._reports.get(gameId) ?? null;
+
+        }
+
+        for (const report of this._reports.values()) {
+
+            if (report?.reportId === id) {
+
+                return report;
+
+            }
+
+        }
+
+        return null;
 
     }
 
-    getReportText(gameId) {
+    getReport(gameId) {
 
-        const report = this.getReport(gameId);
+        return this.resolveReport(gameId);
+
+    }
+
+    getReportText(id) {
+
+        const report = this.resolveReport(id);
 
         return report ? formatGameReportAsText(report) : null;
 
     }
 
     removeReport(gameId) {
+
+        const report = this._reports.get(gameId);
+
+        if (report?.reportId) {
+
+            this._reportsByReportId.delete(report.reportId);
+
+        }
 
         return this._reports.delete(gameId);
 

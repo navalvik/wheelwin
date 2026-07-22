@@ -17,8 +17,7 @@ import {
 } from "../game/result/gameResultFlow";
 
 import {
-    downloadTextFile,
-    formatGameReportAsText
+    downloadGameReportNative
 } from "../game/result/gameReportDownload";
 
 import { resolveLocalPlayerId } from "../game/session";
@@ -316,11 +315,7 @@ export default function Page6Result() {
 
         }
 
-        downloadTextFile(
-            `${gameReport.reportId ?? "wheelwin-report"}.json`,
-            `${JSON.stringify(gameReport, null, 2)}\n`,
-            "application/json"
-        );
+        downloadGameReportNative(gameReport, "json");
 
     }
 
@@ -332,11 +327,7 @@ export default function Page6Result() {
 
         }
 
-        downloadTextFile(
-            `${gameReport.reportId ?? "wheelwin-report"}.txt`,
-            formatGameReportAsText(gameReport),
-            "text/plain"
-        );
+        downloadGameReportNative(gameReport, "txt");
 
     }
 

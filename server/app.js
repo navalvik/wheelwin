@@ -2062,12 +2062,21 @@ class WheelWinApplication {
 
         });
 
-        // R6.4 — Authoritative Game Report download (JSON / TXT).
-        app.get("/api/game-report/:gameId", (req, res) => {
+        // R6.4 / R6.5B — Native Game Report download (JSON / TXT).
+        // Content-Disposition: attachment + Content-Length so browsers use the
+        // standard file-download path (no client-side Blob required).
+        const sendGameReportDownload = (req, res) => {
 
-            const report = this._gameReportEngine?.getReport(req.params.gameId);
+            const id = req.params.reportId ?? req.params.gameId;
+
+            const report = this._gameReportEngine?.resolveReport?.(id)
+                ?? this._gameReportEngine?.getReport?.(id);
 
             if (!report) {
+
+                this._logger?.error?.(
+                    `[GameReport] Download 404 | id=${id}`
+                );
 
                 res.status(404).json({ error: "Game report not found" });
 
@@ -2079,19 +2088,50 @@ class WheelWinApplication {
                 .toLowerCase() === "txt"
                 || String(req.headers.accept ?? "").includes("text/plain");
 
-            if (wantsText) {
+            const reportId = report.reportId ?? report.gameId ?? id;
 
-                res.type("text/plain").send(
-                    this._gameReportEngine.getReportText(req.params.gameId)
-                );
+            const body = wantsText
+                ? (this._gameReportEngine.getReportText(report.gameId) ?? "")
+                : `${JSON.stringify(report, null, 2)}\n`;
 
-                return;
+            const buffer = Buffer.from(body, "utf8");
 
-            }
+            const contentType = "application/octet-stream";
 
-            res.json(report);
+            const filename = wantsText
+                ? `${reportId}.txt`
+                : `${reportId}.json`;
 
-        });
+            this._logger?.info?.(
+                [
+                    "[GameReport] Download",
+                    `id=${id}`,
+                    `reportId=${reportId}`,
+                    `format=${wantsText ? "txt" : "json"}`,
+                    `bytes=${buffer.length}`,
+                    `status=200`
+                ].join(" | ")
+            );
+
+            res.status(200);
+            res.setHeader("Content-Type", contentType);
+            res.setHeader(
+                "Content-Disposition",
+                `attachment; filename="${filename}"`
+            );
+            res.setHeader("Content-Length", String(buffer.length));
+            res.setHeader("Cache-Control", "no-store");
+            res.end(buffer);
+
+        };
+
+        app.get(
+            "/api/game-report/:reportId/download",
+            sendGameReportDownload
+        );
+
+        // Compatibility alias (gameId or reportId without /download).
+        app.get("/api/game-report/:gameId", sendGameReportDownload);
 
         if (this._eventBusConfig.showDebugPanel) {
 

@@ -1,6 +1,6 @@
 /**
  * R6.4 — Deterministic TXT rendering of an authoritative Game Report.
- * Mirrors server formatGameReportAsText so downloads match the server record.
+ * Kept for server parity / tests; Page6 downloads use the native HTTP endpoint.
  */
 export function formatGameReportAsText(report) {
 
@@ -150,24 +150,76 @@ function formatMoney(amount, currency) {
 
 }
 
-export function downloadTextFile(filename, contents, mimeType) {
+const SERVER_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3001";
 
-    const blob = new Blob([contents], { type: mimeType });
+/**
+ * R6.5B — Native browser download of an already-generated Game Report.
+ * No Blob / ObjectURL — the browser downloads the file from the server.
+ */
+export function buildGameReportDownloadUrl(report, format = "json") {
 
-    const url = URL.createObjectURL(blob);
+    if (!report) {
 
-    const anchor = document.createElement("a");
+        return null;
 
-    anchor.href = url;
+    }
 
-    anchor.download = filename;
+    const id = report.reportId ?? report.gameId;
 
-    document.body.appendChild(anchor);
+    if (!id) {
 
-    anchor.click();
+        return null;
 
-    anchor.remove();
+    }
 
-    URL.revokeObjectURL(url);
+    const normalized = format === "txt" ? "txt" : "json";
+
+    return `${SERVER_URL}/api/game-report/${encodeURIComponent(id)}/download`
+        + `?format=${normalized}`;
+
+}
+
+export function downloadGameReportNative(report, format = "json") {
+
+    const url = buildGameReportDownloadUrl(report, format);
+
+    if (!url) {
+
+        console.error("[GameReport] Download aborted: missing report id");
+
+        return null;
+
+    }
+
+    console.debug("[GameReport] Native download", {
+        url,
+        format,
+        reportId: report.reportId ?? null,
+        gameId: report.gameId ?? null
+    });
+
+    // Hidden iframe keeps Page6 mounted while the browser performs a native
+    // attachment download from the server (no Blob / ObjectURL).
+    const frame = document.createElement("iframe");
+
+    frame.style.display = "none";
+
+    frame.setAttribute("aria-hidden", "true");
+
+    frame.src = url;
+
+    document.body.appendChild(frame);
+
+    window.setTimeout(() => {
+
+        if (frame.parentNode) {
+
+            frame.parentNode.removeChild(frame);
+
+        }
+
+    }, 60_000);
+
+    return url;
 
 }
