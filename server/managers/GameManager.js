@@ -571,6 +571,13 @@ export class GameManager {
 
             this._logBootstrap("Configuration frozen");
 
+            // R5.13D — Temporary diagnostic only. Logs immutable config BEFORE
+            // commit / any client broadcast. Remove after diagnosis.
+            this._logWheelConfigurationDiagnostic(
+                configuration,
+                configurationPlayers
+            );
+
             this._bootstrap.configurationEngine.commitConfiguration(
                 configuration
             );
@@ -745,6 +752,110 @@ export class GameManager {
             };
 
         });
+
+    }
+
+    /**
+     * R5.13D — Temporary diagnostic dump of generated WHEEL_CONFIGURATION.
+     * Does not alter configuration, gameplay, or protocol.
+     */
+    _logWheelConfigurationDiagnostic(configuration, configurationPlayers) {
+
+        const lines = [];
+
+        const push = (line = "") => {
+
+            lines.push(line);
+
+        };
+
+        push("====================================================");
+        push("WHEEL_CONFIGURATION GENERATED (R5.13D)");
+        push(`Game ID: ${configuration?.gameId ?? "—"}`);
+        push(`Room ID: ${configuration?.metadata?.roomId ?? "—"}`);
+        push(`Trace Seed: ${configuration?.traceSeed ?? "—"}`);
+        push("");
+        push("INPUT to ConfigurationEngine (_buildConfigurationPlayers):");
+        push("");
+
+        const inputPlayers = Array.isArray(configurationPlayers)
+            ? configurationPlayers
+            : [];
+
+        inputPlayers.forEach((player, index) => {
+
+            push(`Input Player ${index + 1}`);
+            push(`  playerId: ${player?.playerId ?? "—"}`);
+            push(`  nickname: ${player?.nickname ?? "—"}`);
+            push(`  sectorCount: ${player?.sectorCount ?? "—"}`);
+            push(`  colors: ${JSON.stringify(player?.colors ?? [])}`);
+            push(`  sectorArrangement: ${player?.sectorArrangement ?? "—"}`);
+            push("");
+
+        });
+
+        push("----------------------------------------------------");
+        push("Players (committed configuration.players):");
+        push("");
+
+        const players = Array.isArray(configuration?.players)
+            ? configuration.players
+            : [];
+
+        players.forEach((player, index) => {
+
+            push(`Player ${index + 1}`);
+            push(`  ownerId: ${player?.playerId ?? "—"}`);
+            push(`  nickname: ${player?.nickname ?? "—"}`);
+            push(`  sectorCount: ${player?.sectorCount ?? "—"}`);
+            push(`  color: ${player?.color ?? "—"}`);
+            push(`  colors: ${JSON.stringify(player?.colors ?? [])}`);
+            push(`  icon: ${player?.icon ?? "—"}`);
+            push(`  sectorArrangement: ${player?.sectorArrangement ?? "—"}`);
+            push("");
+
+        });
+
+        push("----------------------------------------------------");
+        push("Generated Wheel");
+        push("");
+
+        const sectors = Array.isArray(configuration?.sectors)
+            ? configuration.sectors
+            : [];
+
+        push(`Total sectors: ${sectors.length}`);
+        push(`wheel.sectorCount: ${configuration?.wheel?.sectorCount ?? "—"}`);
+        push("");
+
+        sectors.forEach((sector, index) => {
+
+            push(`Sector ${index + 1}`);
+            push(`  sectorId: ${sector?.sectorId ?? "—"}`);
+            push(`  ownerId: ${sector?.ownerId ?? "—"}`);
+            push(`  nickname: ${sector?.nickname ?? "—"}`);
+            push(`  color: ${sector?.color ?? "—"}`);
+            push(`  colorId: ${sector?.colorId ?? "—"}`);
+            push(`  icon: ${sector?.icon ?? "—"}`);
+            push(
+                `  sectorIndexForPlayer: ${
+                    sector?.sectorIndexForPlayer ?? "—"
+                }`
+            );
+            push(`  angleStart: ${sector?.angleStart ?? "—"}`);
+            push(`  angleEnd: ${sector?.angleEnd ?? "—"}`);
+            push("");
+
+        });
+
+        push("====================================================");
+
+        const report = lines.join("\n");
+
+        // Always print to server console for this diagnostic stage.
+        console.log(report);
+
+        this._logger.info(report);
 
     }
 

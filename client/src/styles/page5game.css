@@ -567,8 +567,72 @@
 ---------------------------------------------------------- */
 
 /* ----------------------------------------------------------
-   DESKTOP / LAPTOP
+   DESKTOP / LAPTOP — player bar above centered wheel
 ---------------------------------------------------------- */
+
+@media (min-width: 601px) {
+
+    .gameArea,
+    .gamePanel__body {
+
+        flex-direction: column;
+
+        align-items: stretch;
+
+        gap: clamp(12px, 1.6vh, 20px);
+
+        padding: clamp(10px, 1.4vh, 16px) clamp(12px, 1.6vw, 20px);
+    }
+
+    .playerPanel {
+
+        flex: 0 0 auto;
+
+        flex-direction: row;
+
+        justify-content: stretch;
+
+        width: 100%;
+        height: auto;
+
+        gap: clamp(8px, 1.2vw, 16px);
+    }
+
+    .playerPanel--preGameReady,
+    .playerPanel--ready {
+
+        width: 100%;
+    }
+
+    .playerPanel--preGameReady .playerCard--preGameReady,
+    .playerPanel--ready .playerCard--ready {
+
+        flex: 1 1 0;
+
+        min-width: 0;
+    }
+
+    .playerCard {
+
+        flex: 1 1 0;
+
+        min-width: 0;
+    }
+
+    .wheelContainer,
+    .gamePanel__wheelArea {
+
+        flex: 1 1 auto;
+
+        width: 100%;
+        min-height: 0;
+    }
+
+    .wheelPlaceholder {
+
+        --wheel-size: min(98cqw, calc(98cqh - var(--marker-size)));
+    }
+}
 
 @media (min-width: 901px) {
 
