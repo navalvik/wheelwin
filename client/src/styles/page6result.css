@@ -39,6 +39,65 @@
     gap: 16px;
 }
 
+.page6__summary {
+
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    flex-shrink: 0;
+}
+
+.page6__localPlayer {
+
+    display: flex;
+    align-items: center;
+    gap: 14px;
+
+    padding: 14px 16px;
+
+    border-radius: 14px;
+    background: #f3f4f6;
+}
+
+.page6__localIcon {
+
+    font-size: 2rem;
+    line-height: 1;
+}
+
+.page6__localBody {
+
+    flex: 1;
+    min-width: 0;
+}
+
+.page6__localName {
+
+    font-size: 1.2rem;
+    font-weight: 800;
+
+    color: #111827;
+}
+
+.page6__outcome {
+
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    line-height: 1;
+}
+
+.page6__outcome--win {
+
+    color: #00aa44;
+}
+
+.page6__outcome--lost {
+
+    color: #d62828;
+}
+
 .page6__winnerCard {
 
     display: flex;
@@ -142,6 +201,27 @@
     font-weight: 600;
 }
 
+.page6__youReceived {
+
+    padding: 14px 16px;
+
+    border-radius: 12px;
+    background: rgba(28, 115, 208, 0.08);
+    border: 1px solid rgba(28, 115, 208, 0.2);
+
+    text-align: center;
+}
+
+.page6__youReceivedAmount {
+
+    margin-top: 4px;
+
+    font-size: 1.35rem;
+    font-weight: 800;
+
+    color: #111827;
+}
+
 /* Authoritative payment status (server-driven, display only). */
 .page6__payment {
 
@@ -239,35 +319,89 @@
     color: #4c1d95;
 }
 
-/* Development-only diagnostics — safe to remove later. */
-.page6__dev {
+/* Authoritative Game Report (R6.4) */
+.page6__gameReport {
 
     width: 100%;
     max-width: 420px;
 
     padding: 12px 14px;
 
-    border: 1px dashed #9ca3af;
+    border: 1px solid #cbd5e1;
     border-radius: 10px;
 
-    background: #fafafa;
+    background: #f8fafc;
 
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 10px;
+
+    min-height: 0;
 }
 
-.page6__devTitle {
+.page6__gameReportHeader {
+
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.page6__gameReportTitle {
 
     font-size: 0.72rem;
     font-weight: 800;
     letter-spacing: 0.1em;
     text-transform: uppercase;
 
-    color: #9ca3af;
+    color: #1c73d0;
 }
 
-.page6__devRow {
+.page6__gameReportActions {
+
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.page6__downloadBtn {
+
+    appearance: none;
+    border: 1px solid #1c73d0;
+    border-radius: 6px;
+
+    padding: 4px 10px;
+
+    background: #ffffff;
+    color: #1c73d0;
+
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+
+    cursor: pointer;
+}
+
+.page6__downloadBtn:hover {
+
+    background: rgba(28, 115, 208, 0.08);
+}
+
+.page6__gameReportScroll {
+
+    max-height: 280px;
+    overflow-y: auto;
+
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    padding-right: 4px;
+}
+
+.page6__reportRow {
 
     display: flex;
     justify-content: space-between;
@@ -277,11 +411,39 @@
     color: #374151;
 }
 
-.page6__devRow span:last-child {
+.page6__reportRow span:last-child {
 
     font-family: monospace;
     word-break: break-all;
     text-align: right;
+}
+
+.page6__reportPlayer {
+
+    margin-top: 8px;
+    padding-top: 8px;
+
+    border-top: 1px dashed #cbd5e1;
+
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.page6__reportPlayerTitle {
+
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+
+    color: #111827;
+}
+
+.page6__gameReportPending {
+
+    font-size: 0.85rem;
+    color: #6b7280;
 }
 
 /* Reserved layout slots for future C4 features (inert). */

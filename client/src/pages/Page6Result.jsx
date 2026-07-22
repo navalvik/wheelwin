@@ -16,6 +16,11 @@ import {
     AUDIT_VIEW_STATUS
 } from "../game/result/gameResultFlow";
 
+import {
+    downloadTextFile,
+    formatGameReportAsText
+} from "../game/result/gameReportDownload";
+
 import { resolveLocalPlayerId } from "../game/session";
 
 import "../styles/page6result.css";
@@ -84,8 +89,6 @@ function formatTimestamp(timestamp) {
 
 /**
  * Page6 presentation: resolve the swatch to the same fill color Page5 uses.
- * Prefer GAME_RESULT winningSector.color (catalog hex from ConfigurationEngine).
- * Fall back to WHEEL_CONFIGURATION sector by sectorId — never invent a palette.
  */
 function resolveWinningSwatchColor(winningSector, wheelConfiguration) {
 
@@ -121,10 +124,48 @@ function resolveWinningSwatchColor(winningSector, wheelConfiguration) {
 }
 
 /**
- * Presentation-only: winners show the authoritative server winnerAmount;
- * losers show 0.00. No client-side prize math.
+ * Present the authoritative WIN/LOST outcome for the local seat.
+ * Does not decide the winner — only compares server winnerId to local id.
  */
-function resolveDisplayedPayout({ payment, localPlayerId, fallbackWinnerId }) {
+function resolveLocalOutcome({ localPlayerId, winnerId }) {
+
+    if (
+        localPlayerId == null
+        || localPlayerId === ""
+        || winnerId == null
+        || winnerId === ""
+    ) {
+
+        return null;
+
+    }
+
+    return String(localPlayerId) === String(winnerId)
+        ? "WIN"
+        : "LOST";
+
+}
+
+/**
+ * Presentation-only payout line from server payment + winner id.
+ */
+function resolveYouReceived({ payment, localPlayerId, winnerId }) {
+
+    if (winnerId == null || winnerId === "") {
+
+        return null;
+
+    }
+
+    const isLocalWinner = localPlayerId != null
+        && localPlayerId !== ""
+        && String(localPlayerId) === String(winnerId);
+
+    if (!isLocalWinner) {
+
+        return "0.00 GRM";
+
+    }
 
     if (
         payment?.status !== PAYMENT_VIEW_STATUS.COMPLETED
@@ -136,20 +177,25 @@ function resolveDisplayedPayout({ payment, localPlayerId, fallbackWinnerId }) {
 
     }
 
-    const winnerId = payment.winnerId ?? fallbackWinnerId ?? null;
+    const amount = Number(payment.winnerAmount);
 
-    const isLocalWinner = localPlayerId != null
-        && localPlayerId !== ""
-        && winnerId != null
-        && String(localPlayerId) === String(winnerId);
+    return Number.isFinite(amount)
+        ? `${amount.toFixed(2)} GRM`
+        : "0.00 GRM";
 
-    const amount = isLocalWinner ? Number(payment.winnerAmount) : 0;
+}
 
-    const formatted = Number.isFinite(amount)
-        ? amount.toFixed(2)
-        : "0.00";
+function resolvePlayerFromReport(gameReport, playerId) {
 
-    return `${formatted} GRM`;
+    if (!gameReport || playerId == null) {
+
+        return null;
+
+    }
+
+    return (gameReport.players ?? []).find(
+        (player) => String(player.playerId) === String(playerId)
+    ) ?? null;
 
 }
 
@@ -192,19 +238,107 @@ export default function Page6Result() {
 
     const winningSector = result?.winningSector ?? null;
 
+    const gameReport = audit?.gameReport ?? null;
+
+    const winnerId = payment?.winnerId
+        ?? gameReport?.winningPlayer?.playerId
+        ?? winner?.id
+        ?? null;
+
+    const localReportPlayer = useMemo(
+        () => resolvePlayerFromReport(gameReport, localPlayerId),
+        [gameReport, localPlayerId]
+    );
+
+    const authoritativeLocal = localPlayerId
+        ? authoritative.players?.[localPlayerId]
+        : null;
+
+    const localNickname = localReportPlayer?.nickname
+        ?? authoritativeLocal?.nickname
+        ?? null;
+
+    const localIcon = localReportPlayer?.icon
+        ?? authoritativeLocal?.icon
+        ?? null;
+
+    const winnerNickname = gameReport?.winningPlayer?.nickname
+        ?? resolvePlayerFromReport(gameReport, winnerId)?.nickname
+        ?? (winnerId && authoritative.players?.[winnerId]?.nickname)
+        ?? null;
+
+    const winnerIcon = gameReport?.winningIcon
+        ?? gameReport?.winningPlayer?.icon
+        ?? winner?.icon
+        ?? null;
+
     const winningSwatchColor = useMemo(
         () => resolveWinningSwatchColor(winningSector, wheelConfiguration),
         [winningSector, wheelConfiguration]
     );
 
-    const displayedPayout = useMemo(
-        () => resolveDisplayedPayout({
-            payment,
-            localPlayerId,
-            fallbackWinnerId: winner?.id ?? null
-        }),
-        [payment, localPlayerId, winner?.id]
+    const localOutcome = useMemo(
+        () => resolveLocalOutcome({ localPlayerId, winnerId }),
+        [localPlayerId, winnerId]
     );
+
+    const youReceived = useMemo(
+        () => resolveYouReceived({ payment, localPlayerId, winnerId }),
+        [payment, localPlayerId, winnerId]
+    );
+
+    const winnerPayoutDisplay = useMemo(() => {
+
+        if (gameReport?.winnerPayout != null) {
+
+            return `${Number(gameReport.winnerPayout).toFixed(2)} GRM`;
+
+        }
+
+        if (
+            payment?.status === PAYMENT_VIEW_STATUS.COMPLETED
+            && payment.winnerAmount != null
+        ) {
+
+            return `${Number(payment.winnerAmount).toFixed(2)} GRM`;
+
+        }
+
+        return null;
+
+    }, [gameReport, payment]);
+
+    function handleDownloadJson() {
+
+        if (!gameReport) {
+
+            return;
+
+        }
+
+        downloadTextFile(
+            `${gameReport.reportId ?? "wheelwin-report"}.json`,
+            `${JSON.stringify(gameReport, null, 2)}\n`,
+            "application/json"
+        );
+
+    }
+
+    function handleDownloadTxt() {
+
+        if (!gameReport) {
+
+            return;
+
+        }
+
+        downloadTextFile(
+            `${gameReport.reportId ?? "wheelwin-report"}.txt`,
+            formatGameReportAsText(gameReport),
+            "text/plain"
+        );
+
+    }
 
     return (
 
@@ -224,181 +358,401 @@ export default function Page6Result() {
 
                         <div className="page6__result">
 
-                            <div
-                                className="page6__winnerCard"
-                                style={{ borderColor: winningSwatchColor }}
-                            >
+                            <section className="page6__summary" aria-label="Game summary">
 
-                                <div className="page6__winnerIcon">
+                                <div className="page6__localPlayer">
 
-                                    {formatIcon(winner?.icon)}
-
-                                </div>
-
-                                <div className="page6__winnerBody">
-
-                                    <div className="page6__label">Winner</div>
-
-                                    <div className="page6__winnerName">
-
-                                        {formatValue(winner?.id)}
-
+                                    <div className="page6__localIcon">
+                                        {formatIcon(localIcon)}
                                     </div>
 
-                                </div>
+                                    <div className="page6__localBody">
 
-                            </div>
+                                        <div className="page6__label">Player</div>
 
-                            <dl className="page6__facts">
-
-                                <div className="page6__fact">
-
-                                    <dt>Winning Color</dt>
-
-                                    <dd>
-
-                                        <span
-                                            className="page6__swatch"
-                                            style={{
-                                                backgroundColor:
-                                                    winningSwatchColor
-                                            }}
-                                        />
-
-                                        {formatValue(winner?.color)}
-
-                                    </dd>
-
-                                </div>
-
-                                <div className="page6__fact">
-
-                                    <dt>Winning Icon</dt>
-
-                                    <dd>{formatIcon(winner?.icon)}</dd>
-
-                                </div>
-
-                                <div className="page6__fact">
-
-                                    <dt>Winning Sector</dt>
-
-                                    <dd>
-
-                                        {formatValue(winningSector?.sectorId)}
-
-                                        {typeof winningSector?.index === "number"
-                                            ? ` (#${winningSector.index + 1})`
-                                            : ""}
-
-                                    </dd>
-
-                                </div>
-
-                            </dl>
-
-                            <div
-                                className="page6__payment"
-                                data-status={payment?.status ?? "PENDING"}
-                                aria-live="polite"
-                            >
-
-                                <div className="page6__paymentLabel">
-
-                                    {payment
-                                        ? (PAYMENT_STATUS_LABEL[payment.status]
-                                            ?? payment.status)
-                                        : "Awaiting settlement…"}
-
-                                </div>
-
-                                {displayedPayout !== null && (
-
-                                    <div className="page6__paymentAmount">
-
-                                        Payout: {displayedPayout}
-
-                                    </div>
-
-                                )}
-
-                                {payment?.status === PAYMENT_VIEW_STATUS.FAILED
-                                    && DEV_MODE && payment.reason && (
-
-                                    <div className="page6__paymentReason">
-
-                                        {payment.reason}
-
-                                    </div>
-
-                                )}
-
-                            </div>
-
-                            <div
-                                className="page6__audit"
-                                data-status={audit?.status ?? "PENDING"}
-                                aria-live="polite"
-                            >
-
-                                <div className="page6__auditLabel">
-
-                                    {audit
-                                        ? (AUDIT_STATUS_LABEL[audit.status]
-                                            ?? audit.status)
-                                        : "Audit pending"}
-
-                                </div>
-
-                                {DEV_MODE && audit?.auditId && (
-
-                                    <div className="page6__auditDetail">
-
-                                        <div className="page6__devRow">
-                                            <span>Audit ID</span>
-                                            <span>{audit.auditId}</span>
+                                        <div className="page6__localName">
+                                            {formatValue(localNickname)}
                                         </div>
 
-                                        <div className="page6__devRow">
-                                            <span>Audit Timestamp</span>
+                                    </div>
+
+                                    {localOutcome && (
+
+                                        <div
+                                            className={
+                                                localOutcome === "WIN"
+                                                    ? "page6__outcome page6__outcome--win"
+                                                    : "page6__outcome page6__outcome--lost"
+                                            }
+                                        >
+                                            {localOutcome}
+                                        </div>
+
+                                    )}
+
+                                </div>
+
+                                <div
+                                    className="page6__winnerCard"
+                                    style={{ borderColor: winningSwatchColor }}
+                                >
+
+                                    <div className="page6__winnerIcon">
+                                        {formatIcon(winnerIcon)}
+                                    </div>
+
+                                    <div className="page6__winnerBody">
+
+                                        <div className="page6__label">Winner</div>
+
+                                        <div className="page6__winnerName">
+                                            {formatValue(winnerNickname ?? winnerId)}
+                                        </div>
+
+                                    </div>
+
+                                </div>
+
+                                <dl className="page6__facts">
+
+                                    <div className="page6__fact">
+
+                                        <dt>Winning Sector</dt>
+
+                                        <dd>
+
+                                            {formatValue(
+                                                gameReport?.winningSector?.sectorId
+                                                    ?? winningSector?.sectorId
+                                            )}
+
+                                            {typeof (
+                                                gameReport?.winningSector?.index
+                                                    ?? winningSector?.index
+                                            ) === "number"
+                                                ? ` (#${(
+                                                    gameReport?.winningSector?.index
+                                                        ?? winningSector?.index
+                                                ) + 1})`
+                                                : ""}
+
+                                        </dd>
+
+                                    </div>
+
+                                    <div className="page6__fact">
+
+                                        <dt>Winning Color</dt>
+
+                                        <dd>
+
+                                            <span
+                                                className="page6__swatch"
+                                                style={{
+                                                    backgroundColor:
+                                                        winningSwatchColor
+                                                }}
+                                            />
+
+                                            {formatValue(
+                                                gameReport?.winningColor
+                                                    ?? winner?.color
+                                            )}
+
+                                        </dd>
+
+                                    </div>
+
+                                    <div className="page6__fact">
+
+                                        <dt>Winner Payout</dt>
+
+                                        <dd>
+                                            {winnerPayoutDisplay ?? EMPTY_VALUE}
+                                        </dd>
+
+                                    </div>
+
+                                </dl>
+
+                                <div
+                                    className="page6__youReceived"
+                                    data-status={payment?.status ?? "PENDING"}
+                                >
+
+                                    <div className="page6__label">You received</div>
+
+                                    <div className="page6__youReceivedAmount">
+                                        {youReceived
+                                            ?? (payment
+                                                ? (PAYMENT_STATUS_LABEL[payment.status]
+                                                    ?? payment.status)
+                                                : "Awaiting settlement…")}
+                                    </div>
+
+                                    {payment?.status === PAYMENT_VIEW_STATUS.FAILED
+                                        && DEV_MODE && payment.reason && (
+
+                                        <div className="page6__paymentReason">
+                                            {payment.reason}
+                                        </div>
+
+                                    )}
+
+                                </div>
+
+                                <div
+                                    className="page6__audit"
+                                    data-status={audit?.status ?? "PENDING"}
+                                    aria-live="polite"
+                                >
+
+                                    <div className="page6__auditLabel">
+
+                                        {audit
+                                            ? (AUDIT_STATUS_LABEL[audit.status]
+                                                ?? audit.status)
+                                            : "Audit pending"}
+
+                                    </div>
+
+                                </div>
+
+                            </section>
+
+                            {gameReport ? (
+
+                                <div className="page6__gameReport">
+
+                                    <div className="page6__gameReportHeader">
+
+                                        <div className="page6__gameReportTitle">
+                                            Game Report
+                                        </div>
+
+                                        <div className="page6__gameReportActions">
+
+                                            <button
+                                                type="button"
+                                                className="page6__downloadBtn"
+                                                onClick={handleDownloadJson}
+                                            >
+                                                Download JSON
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                className="page6__downloadBtn"
+                                                onClick={handleDownloadTxt}
+                                            >
+                                                Download TXT
+                                            </button>
+
+                                        </div>
+
+                                    </div>
+
+                                    <div className="page6__gameReportScroll">
+
+                                        <div className="page6__reportRow">
+                                            <span>Report ID</span>
+                                            <span>{formatValue(gameReport.reportId)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Game ID</span>
+                                            <span>{formatValue(gameReport.gameId)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Room ID</span>
+                                            <span>{formatValue(gameReport.roomId)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Audit Trace ID</span>
+                                            <span>{formatValue(gameReport.auditTraceId)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Game Start</span>
+                                            <span>{formatTimestamp(gameReport.gameStartTime)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Game Finish</span>
+                                            <span>{formatTimestamp(gameReport.gameFinishTime)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Duration</span>
                                             <span>
-                                                {formatTimestamp(
-                                                    audit.serverTimestamp
+                                                {Number.isFinite(gameReport.gameDurationMs)
+                                                    ? `${gameReport.gameDurationMs} ms`
+                                                    : EMPTY_VALUE}
+                                            </span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Server Timestamp</span>
+                                            <span>{formatTimestamp(gameReport.serverTimestamp)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Final Wheel Angle</span>
+                                            <span>{formatAngle(gameReport.finalWheelAngle)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Winning Sector</span>
+                                            <span>{formatValue(gameReport.winningSector?.sectorId)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Winning Color</span>
+                                            <span>{formatValue(gameReport.winningColor)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Winning Icon</span>
+                                            <span>{formatIcon(gameReport.winningIcon)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Winning Player</span>
+                                            <span>
+                                                {formatValue(
+                                                    gameReport.winningPlayer?.nickname
+                                                        ?? gameReport.winningPlayer?.playerId
                                                 )}
                                             </span>
                                         </div>
 
+                                        <div className="page6__reportRow">
+                                            <span>Winner Payout</span>
+                                            <span>
+                                                {gameReport.winnerPayout == null
+                                                    ? EMPTY_VALUE
+                                                    : `${gameReport.winnerPayout} GRM`}
+                                            </span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>WheelWin Commission</span>
+                                            <span>
+                                                {gameReport.wheelWinCommission == null
+                                                    ? EMPTY_VALUE
+                                                    : `${gameReport.wheelWinCommission} GRM`}
+                                            </span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Total Prize Pool</span>
+                                            <span>
+                                                {gameReport.totalPrizePool == null
+                                                    ? EMPTY_VALUE
+                                                    : `${gameReport.totalPrizePool} GRM`}
+                                            </span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Base Stake</span>
+                                            <span>{formatValue(gameReport.baseStake)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Total Sectors</span>
+                                            <span>{formatValue(gameReport.totalSectorCount)}</span>
+                                        </div>
+
+                                        <div className="page6__reportRow">
+                                            <span>Game Version</span>
+                                            <span>{formatValue(gameReport.gameVersion)}</span>
+                                        </div>
+
+                                        {(gameReport.players ?? []).map((player) => (
+
+                                            <div
+                                                className="page6__reportPlayer"
+                                                key={player.playerId ?? player.index}
+                                            >
+
+                                                <div className="page6__reportPlayerTitle">
+                                                    Player {player.index}
+                                                    {" — "}
+                                                    {player.result}
+                                                </div>
+
+                                                <div className="page6__reportRow">
+                                                    <span>Nickname</span>
+                                                    <span>{formatValue(player.nickname)}</span>
+                                                </div>
+
+                                                <div className="page6__reportRow">
+                                                    <span>Player ID</span>
+                                                    <span>{formatValue(player.playerId)}</span>
+                                                </div>
+
+                                                <div className="page6__reportRow">
+                                                    <span>Icon</span>
+                                                    <span>{formatIcon(player.icon)}</span>
+                                                </div>
+
+                                                <div className="page6__reportRow">
+                                                    <span>Sectors</span>
+                                                    <span>{formatValue(player.sectorCount)}</span>
+                                                </div>
+
+                                                <div className="page6__reportRow">
+                                                    <span>Colors</span>
+                                                    <span>
+                                                        {Array.isArray(player.sectorColors)
+                                                            ? player.sectorColors.join(", ")
+                                                            : EMPTY_VALUE}
+                                                    </span>
+                                                </div>
+
+                                                <div className="page6__reportRow">
+                                                    <span>Paid</span>
+                                                    <span>
+                                                        {player.amountPaid == null
+                                                            ? EMPTY_VALUE
+                                                            : `${player.amountPaid} GRM`}
+                                                    </span>
+                                                </div>
+
+                                                <div className="page6__reportRow">
+                                                    <span>Wallet</span>
+                                                    <span>{formatValue(player.walletAddress)}</span>
+                                                </div>
+
+                                                <div className="page6__reportRow">
+                                                    <span>Prize</span>
+                                                    <span>
+                                                        {player.prizeReceived == null
+                                                            ? EMPTY_VALUE
+                                                            : `${player.prizeReceived} GRM`}
+                                                    </span>
+                                                </div>
+
+                                            </div>
+
+                                        ))}
+
                                     </div>
 
-                                )}
+                                </div>
 
-                            </div>
+                            ) : (
 
-                            {DEV_MODE && (
+                                <div className="page6__gameReport page6__gameReport--pending">
 
-                                <div className="page6__dev">
-
-                                    <div className="page6__devTitle">
-                                        Development Info
+                                    <div className="page6__gameReportTitle">
+                                        Game Report
                                     </div>
 
-                                    <div className="page6__devRow">
-                                        <span>Game ID</span>
-                                        <span>{formatValue(result.gameId)}</span>
-                                    </div>
-
-                                    <div className="page6__devRow">
-                                        <span>Final Wheel Angle</span>
-                                        <span>
-                                            {formatAngle(result.finalWheelAngle)}
-                                        </span>
-                                    </div>
-
-                                    <div className="page6__devRow">
-                                        <span>Server Timestamp</span>
-                                        <span>
-                                            {formatTimestamp(result.serverTimestamp)}
-                                        </span>
+                                    <div className="page6__gameReportPending">
+                                        Awaiting authoritative report…
                                     </div>
 
                                 </div>

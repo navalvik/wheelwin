@@ -39,12 +39,24 @@ export function mapAuditStatus(eventType) {
  */
 export function buildAuditStatusPayload(eventType, auditPayload) {
 
-    return {
+    const payload = {
         gameId: auditPayload?.gameId ?? null,
         status: EVENT_TO_STATUS[eventType] ?? null,
         auditId: auditPayload?.auditId ?? null,
         serverTimestamp: auditPayload?.timestamp ?? Date.now()
     };
+
+    // R6.4 — forward the authoritative Game Report on AUDIT_READY only.
+    if (
+        eventType === EVENT_TYPES.AUDIT_READY
+        && auditPayload?.gameReport
+    ) {
+
+        payload.gameReport = auditPayload.gameReport;
+
+    }
+
+    return payload;
 
 }
 

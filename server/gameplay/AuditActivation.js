@@ -31,6 +31,7 @@ export class AuditActivation {
         logger,
         eventBus,
         auditEngine,
+        gameReportEngine = null,
         devMode = false
     }) {
 
@@ -39,6 +40,8 @@ export class AuditActivation {
         this._eventBus = eventBus;
 
         this._auditEngine = auditEngine;
+
+        this._gameReportEngine = gameReportEngine;
 
         this._devMode = devMode;
 
@@ -153,10 +156,36 @@ export class AuditActivation {
 
         }
 
+        const readyPayload = buildAuditReadyPayload(report);
+
+        let gameReport = null;
+
+        if (this._gameReportEngine) {
+
+            try {
+
+                gameReport = this._gameReportEngine.createFromAuditReport(
+                    report,
+                    { auditId: readyPayload.auditId }
+                );
+
+            } catch (error) {
+
+                this._logger?.error?.(
+                    `Game Report creation failed: ${error.message}`
+                );
+
+            }
+
+        }
+
         this._eventBus.emit({
             source: EVENT_SOURCES.AUDIT_ENGINE,
             type: EVENT_TYPES.AUDIT_READY,
-            payload: buildAuditReadyPayload(report)
+            payload: {
+                ...readyPayload,
+                gameReport
+            }
         });
 
     }

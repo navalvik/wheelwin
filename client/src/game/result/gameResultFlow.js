@@ -85,7 +85,8 @@ export function mapAuditStatusToView(payload) {
         gameId: payload.gameId ?? null,
         status: payload.status,
         auditId: payload.auditId ?? null,
-        serverTimestamp: payload.serverTimestamp ?? null
+        serverTimestamp: payload.serverTimestamp ?? null,
+        gameReport: payload.gameReport ?? null
     };
 
 }

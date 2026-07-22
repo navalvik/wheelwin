@@ -24,6 +24,7 @@ import { EVENT_SOURCES } from "./events/EventSources.js";
 import { EVENT_TYPES } from "./events/EventTypes.js";
 
 import { AuditEngine } from "./engines/AuditEngine.js";
+import { GameReportEngine } from "./engines/GameReportEngine.js";
 import { ConfigurationEngine } from "./engines/ConfigurationEngine.js";
 import { createStandardConfigurationPlayers } from "./engines/configuration/configurationPlayers.js";
 import { GameClockEngine } from "./engines/GameClockEngine.js";
@@ -120,6 +121,8 @@ class WheelWinApplication {
         this._recoveryEngine = null;
 
         this._auditEngine = null;
+
+        this._gameReportEngine = null;
 
         this._roomLobbyBridge = null;
 
@@ -557,10 +560,22 @@ class WheelWinApplication {
 
         this._logger.startupLine("AuditEngine");
 
+        this._gameReportEngine = new GameReportEngine({
+            logger: this._logger,
+            gameCatalog: this._gameCatalog,
+            playerManager: this._managers.playerManager,
+            serverVersion: "1.0.0"
+        });
+
+        this._gameReportEngine.initialize();
+
+        this._logger.startupLine("GameReportEngine");
+
         this._auditActivation = new AuditActivation({
             logger: this._logger,
             eventBus: this._eventBus,
             auditEngine: this._auditEngine,
+            gameReportEngine: this._gameReportEngine,
             devMode: this._productionConfig.isDevelopment
         });
 
@@ -1027,6 +1042,16 @@ class WheelWinApplication {
             if (this._auditEngine) {
 
                 this._auditEngine.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("gameReportEngine", () => {
+
+            if (this._gameReportEngine) {
+
+                this._gameReportEngine.shutdown();
 
             }
 
@@ -2034,6 +2059,37 @@ class WheelWinApplication {
         app.get("/health", (req, res) => {
 
             res.json(this._healthService.getHealthSnapshot());
+
+        });
+
+        // R6.4 — Authoritative Game Report download (JSON / TXT).
+        app.get("/api/game-report/:gameId", (req, res) => {
+
+            const report = this._gameReportEngine?.getReport(req.params.gameId);
+
+            if (!report) {
+
+                res.status(404).json({ error: "Game report not found" });
+
+                return;
+
+            }
+
+            const wantsText = String(req.query.format ?? "")
+                .toLowerCase() === "txt"
+                || String(req.headers.accept ?? "").includes("text/plain");
+
+            if (wantsText) {
+
+                res.type("text/plain").send(
+                    this._gameReportEngine.getReportText(req.params.gameId)
+                );
+
+                return;
+
+            }
+
+            res.json(report);
 
         });
 
