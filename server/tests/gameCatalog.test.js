@@ -21,7 +21,7 @@ catalog.initialize();
 
 assert(catalog.getCatalogVersion() === "1.0", "catalog version should be 1.0");
 
-assert(catalog.getColors().length === 6, "catalog should expose 6 colors");
+assert(catalog.getColors().length === 10, "catalog should expose 10 colors");
 
 assert(catalog.getIcons().length === 24, "catalog should expose 24 icons");
 

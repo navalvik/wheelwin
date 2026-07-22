@@ -13,6 +13,8 @@ import {
     MIN_PLAYER_AGE
 } from "../utils/playerProfileRules";
 
+import { SECTOR_COLOR_OPTIONS } from "../utils/sectorColors";
+
 import "../styles/page2player.css";
 
 export default function Page2PlayerSetup({ onNavigate }) {
@@ -372,9 +374,15 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                             >
 
-                                <option value="Green">Green</option>
-                                <option value="Blue">Blue</option>
-                                <option value="Red">Red</option>
+                                {SECTOR_COLOR_OPTIONS.map((color) => (
+
+                                    <option key={color} value={color}>
+
+                                        {color}
+
+                                    </option>
+
+                                ))}
 
                             </select>
 
@@ -401,9 +409,15 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                     >
 
-                                        <option value="Green">Green</option>
-                                        <option value="Blue">Blue</option>
-                                        <option value="Red">Red</option>
+                                        {SECTOR_COLOR_OPTIONS.map((color) => (
+
+                                            <option key={color} value={color}>
+
+                                                {color}
+
+                                            </option>
+
+                                        ))}
 
                                     </select>
 
