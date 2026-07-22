@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
@@ -6,12 +6,17 @@ import { DEV_MODE } from "../config/devMode";
 
 import { resolveWheelIcon } from "../components/game/WheelEngine/wheelUtils";
 
+import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameResult } from "../context/GameResultContext";
+import { usePlayerIdentity } from "../context/PlayerIdentityContext";
+import { useWheelConfig } from "../context/WheelConfigContext";
 
 import {
     PAYMENT_VIEW_STATUS,
     AUDIT_VIEW_STATUS
 } from "../game/result/gameResultFlow";
+
+import { resolveLocalPlayerId } from "../game/session";
 
 import "../styles/page6result.css";
 
@@ -77,6 +82,77 @@ function formatTimestamp(timestamp) {
 
 }
 
+/**
+ * Page6 presentation: resolve the swatch to the same fill color Page5 uses.
+ * Prefer GAME_RESULT winningSector.color (catalog hex from ConfigurationEngine).
+ * Fall back to WHEEL_CONFIGURATION sector by sectorId — never invent a palette.
+ */
+function resolveWinningSwatchColor(winningSector, wheelConfiguration) {
+
+    const sectorColor = winningSector?.color;
+
+    if (typeof sectorColor === "string" && sectorColor.startsWith("#")) {
+
+        return sectorColor;
+
+    }
+
+    const sectorId = winningSector?.sectorId;
+
+    if (sectorId && Array.isArray(wheelConfiguration?.sectors)) {
+
+        const wheelSector = wheelConfiguration.sectors.find(
+            (sector) => sector?.sectorId === sectorId
+        );
+
+        if (
+            typeof wheelSector?.color === "string"
+            && wheelSector.color.startsWith("#")
+        ) {
+
+            return wheelSector.color;
+
+        }
+
+    }
+
+    return undefined;
+
+}
+
+/**
+ * Presentation-only: winners show the authoritative server winnerAmount;
+ * losers show 0.00. No client-side prize math.
+ */
+function resolveDisplayedPayout({ payment, localPlayerId, fallbackWinnerId }) {
+
+    if (
+        payment?.status !== PAYMENT_VIEW_STATUS.COMPLETED
+        || payment.winnerAmount === null
+        || payment.winnerAmount === undefined
+    ) {
+
+        return null;
+
+    }
+
+    const winnerId = payment.winnerId ?? fallbackWinnerId ?? null;
+
+    const isLocalWinner = localPlayerId != null
+        && localPlayerId !== ""
+        && winnerId != null
+        && String(localPlayerId) === String(winnerId);
+
+    const amount = isLocalWinner ? Number(payment.winnerAmount) : 0;
+
+    const formatted = Number.isFinite(amount)
+        ? amount.toFixed(2)
+        : "0.00";
+
+    return `${formatted} GRM`;
+
+}
+
 // Reserved for later C4 stages — layout only, intentionally inert.
 const RESERVED_AREAS = [
     "Recovery Information",
@@ -87,6 +163,20 @@ const RESERVED_AREAS = [
 export default function Page6Result() {
 
     const { result, payment, audit } = useGameResult();
+
+    const { identity } = usePlayerIdentity();
+
+    const authoritative = useAuthoritativeSession();
+
+    const { wheelConfiguration } = useWheelConfig();
+
+    const localPlayerId = resolveLocalPlayerId(
+        identity.playerId ?? null,
+        authoritative.players,
+        {
+            verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted)
+        }
+    );
 
     useEffect(() => {
 
@@ -101,6 +191,20 @@ export default function Page6Result() {
     const winner = result?.winner ?? null;
 
     const winningSector = result?.winningSector ?? null;
+
+    const winningSwatchColor = useMemo(
+        () => resolveWinningSwatchColor(winningSector, wheelConfiguration),
+        [winningSector, wheelConfiguration]
+    );
+
+    const displayedPayout = useMemo(
+        () => resolveDisplayedPayout({
+            payment,
+            localPlayerId,
+            fallbackWinnerId: winner?.id ?? null
+        }),
+        [payment, localPlayerId, winner?.id]
+    );
 
     return (
 
@@ -122,7 +226,7 @@ export default function Page6Result() {
 
                             <div
                                 className="page6__winnerCard"
-                                style={{ borderColor: winner?.color ?? undefined }}
+                                style={{ borderColor: winningSwatchColor }}
                             >
 
                                 <div className="page6__winnerIcon">
@@ -157,7 +261,7 @@ export default function Page6Result() {
                                             className="page6__swatch"
                                             style={{
                                                 backgroundColor:
-                                                    winner?.color ?? undefined
+                                                    winningSwatchColor
                                             }}
                                         />
 
@@ -208,13 +312,11 @@ export default function Page6Result() {
 
                                 </div>
 
-                                {payment?.status === PAYMENT_VIEW_STATUS.COMPLETED
-                                    && payment.winnerAmount !== null
-                                    && payment.winnerAmount !== undefined && (
+                                {displayedPayout !== null && (
 
                                     <div className="page6__paymentAmount">
 
-                                        Payout: {payment.winnerAmount}
+                                        Payout: {displayedPayout}
 
                                     </div>
 

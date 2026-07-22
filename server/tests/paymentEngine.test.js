@@ -124,11 +124,12 @@ for (const type of [
 
 const prepared = paymentEngine.preparePayment(gameId);
 
+// stake 10 × 2 sectors × 3 players → 25 × 3 = 75; commission 5% → winner 71.25
 assert(prepared.totalPrize === 75, "total prize should be 25 * 3 players");
 
-assert(prepared.platformFee === 7.5, "platform fee should be 10%");
+assert(prepared.platformFee === 3.75, "platform fee should be 5%");
 
-assert(prepared.winnerAmount === 67.5, "winner amount should be deterministic");
+assert(prepared.winnerAmount === 71.25, "winner amount should be deterministic");
 
 const payment = paymentEngine.processPayment(gameId);
 
