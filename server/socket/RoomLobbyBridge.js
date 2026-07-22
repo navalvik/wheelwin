@@ -1391,7 +1391,8 @@ export class RoomLobbyBridge {
             color: profile.color,
             colorSector2: profile.colorSector2,
             sectorCount: profile.sectorCount,
-            sectorArrangement: profile.sectorArrangement
+            sectorArrangement: profile.sectorArrangement,
+            baseStake: profile.baseStake
         });
 
         if (!identity) {

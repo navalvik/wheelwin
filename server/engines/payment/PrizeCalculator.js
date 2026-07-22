@@ -6,6 +6,27 @@ function roundMoney(value) {
 
 }
 
+/**
+ * Authoritative per-player payment:
+ *   first sector  = 1 × BaseStake
+ *   second sector = 1.5 × BaseStake (when sectorCount === 2)
+ */
+function contributionForPlayer(baseStake, sectorCount, secondSectorMultiplier) {
+
+    const firstSectorCost = baseStake;
+
+    if (Number(sectorCount) !== 2) {
+
+        return roundMoney(firstSectorCost);
+
+    }
+
+    const secondSectorCost = baseStake * secondSectorMultiplier;
+
+    return roundMoney(firstSectorCost + secondSectorCost);
+
+}
+
 export class PrizeCalculator {
 
     constructor({ paymentRules }) {
@@ -40,15 +61,16 @@ export class PrizeCalculator {
 
         }
 
-        const twoSectorMultiplier = this._paymentRules.twoSectorMultiplier ?? 2.5;
+        const secondSectorMultiplier = this._paymentRules.secondSectorMultiplier
+            ?? 1.5;
 
         const playerContributions = players.map((player) => {
 
-            const sectorCount = Number(player.sectorCount) === 2 ? 2 : 1;
-
-            const contribution = sectorCount === 2
-                ? baseContribution * twoSectorMultiplier
-                : baseContribution;
+            const contribution = contributionForPlayer(
+                baseContribution,
+                player.sectorCount,
+                secondSectorMultiplier
+            );
 
             if (!Number.isFinite(contribution) || contribution <= 0) {
 
@@ -61,7 +83,7 @@ export class PrizeCalculator {
 
             return {
                 playerId: player.playerId,
-                contribution: roundMoney(contribution)
+                contribution
             };
 
         });

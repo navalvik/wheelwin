@@ -107,6 +107,7 @@ export function seedCompletePlayerProfiles(playerManager, playerIds) {
     const setups = [
         {
             nickname: "Bob",
+            baseStake: 10,
             sectorCount: 2,
             color: "Orange",
             colorSector2: "Orange",
@@ -115,6 +116,7 @@ export function seedCompletePlayerProfiles(playerManager, playerIds) {
         },
         {
             nickname: "Lena",
+            baseStake: 10,
             sectorCount: 2,
             color: "Green",
             colorSector2: "Green",
@@ -123,6 +125,7 @@ export function seedCompletePlayerProfiles(playerManager, playerIds) {
         },
         {
             nickname: "Ol4a",
+            baseStake: 10,
             sectorCount: 1,
             color: "Red",
             colorSector2: null,
@@ -149,7 +152,8 @@ export function seedCompletePlayerProfiles(playerManager, playerIds) {
                 color: setup.color,
                 colorSector2: setup.colorSector2,
                 sectorCount: setup.sectorCount,
-                sectorArrangement: setup.sectorArrangement
+                sectorArrangement: setup.sectorArrangement,
+                baseStake: setup.baseStake
             });
 
             continue;
@@ -163,7 +167,8 @@ export function seedCompletePlayerProfiles(playerManager, playerIds) {
             color: setup.color,
             colorSector2: setup.colorSector2,
             sectorCount: setup.sectorCount,
-            sectorArrangement: setup.sectorArrangement
+            sectorArrangement: setup.sectorArrangement,
+            baseStake: setup.baseStake
         });
 
     }

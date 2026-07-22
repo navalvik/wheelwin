@@ -41,20 +41,33 @@ function assert(condition, message) {
     );
 
     assert(
-        isPlayerProfileComplete({
+        !isPlayerProfileComplete({
             playerId: "p1",
             nickname: "Bob",
             sectorCount: 1,
             color: "Red",
             icon: "dice"
         }),
-        "single-sector profile with color+icon is complete"
+        "missing baseStake is incomplete"
+    );
+
+    assert(
+        isPlayerProfileComplete({
+            playerId: "p1",
+            nickname: "Bob",
+            baseStake: 10,
+            sectorCount: 1,
+            color: "Red",
+            icon: "dice"
+        }),
+        "single-sector profile with color+icon+stake is complete"
     );
 
     assert(
         !isPlayerProfileComplete({
             playerId: "p1",
             nickname: "Bob",
+            baseStake: 10,
             sectorCount: 2,
             color: "Orange",
             icon: "dice"
@@ -139,6 +152,11 @@ const harness = wireGameplayBootstrap({
     const configuration = harness.configurationEngine.getConfiguration(gameId);
 
     assert(configuration, "configuration builds after profiles ready");
+
+    assert(
+        configuration.stake === 10,
+        `configuration stake must come from Page2 baseStake, got ${configuration.stake}`
+    );
 
     assert(
         configuration.sectors.length === 5,

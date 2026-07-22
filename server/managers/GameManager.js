@@ -5,6 +5,7 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { ConfigurationValidationError } from "../engines/configuration/ConfigurationValidationError.js";
 import { Game } from "../models/Game.js";
 import { GAME_STATUS } from "../models/GameStatus.js";
+import { isAllowedBaseStake } from "../models/PlayerProfileRules.js";
 import {
     areRoomPlayerProfilesComplete,
     isPlayerProfileComplete
@@ -690,7 +691,7 @@ export class GameManager {
 
             const configurationRoom = {
                 roomId: room.roomId,
-                stake: this._resolveBootstrapStake()
+                stake: this._resolveBootstrapStake(room)
             };
 
             const configurationPlayers = this._buildConfigurationPlayers(room);
@@ -860,11 +861,49 @@ export class GameManager {
 
     }
 
-    _resolveBootstrapStake() {
+    /**
+     * Authoritative room stake from Page2 player profiles (baseStake).
+     * All seats must share the same allowed stake — never catalog defaults.
+     */
+    _resolveBootstrapStake(room) {
 
-        const stakes = this._bootstrap.gameCatalog.getStakes();
+        const stakes = (room?.players ?? []).map((playerId) => {
 
-        return stakes[0] ?? 1;
+            const identity = this._bootstrap.playerManager.getIdentity(playerId);
+
+            return identity?.baseStake;
+
+        });
+
+        if (stakes.length === 0) {
+
+            throw new Error("Cannot resolve stake: room has no players");
+
+        }
+
+        const stake = Number(stakes[0]);
+
+        if (!isAllowedBaseStake(stake)) {
+
+            throw new Error(
+                `Cannot resolve stake: invalid baseStake (${stakes[0]})`
+            );
+
+        }
+
+        const mismatched = stakes.some(
+            (entry) => Number(entry) !== stake
+        );
+
+        if (mismatched) {
+
+            throw new Error(
+                "Cannot resolve stake: players selected different base stakes"
+            );
+
+        }
+
+        return stake;
 
     }
 

@@ -36,9 +36,14 @@ export function calculatePaymentGram(baseStake, sectorCount = 1) {
 
     }
 
-    const sectors = Number(sectorCount) === 2 ? 2 : 1;
+    // Authoritative Page2 preview (mirrors server PrizeCalculator):
+    // first sector = 1 × BaseStake; second sector = 1.5 × BaseStake.
+    if (Number(sectorCount) === 2) {
 
-    // 1 sector → BaseStake; 2 sectors → BaseStake × 2.5
-    return sectors === 2 ? stake * 2.5 : stake;
+        return stake + (stake * 1.5);
+
+    }
+
+    return stake;
 
 }

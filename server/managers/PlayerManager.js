@@ -106,6 +106,7 @@ export class PlayerManager {
             colorSector2: identityInput.colorSector2 ?? null,
             sectorCount: identityInput.sectorCount ?? null,
             sectorArrangement: identityInput.sectorArrangement ?? null,
+            baseStake: identityInput.baseStake ?? null,
             createdAt: identityInput.createdAt ?? Date.now()
         });
 
@@ -227,6 +228,9 @@ export class PlayerManager {
             sectorArrangement: identityPatch.sectorArrangement !== undefined
                 ? identityPatch.sectorArrangement
                 : previous.sectorArrangement,
+            baseStake: identityPatch.baseStake !== undefined
+                ? identityPatch.baseStake
+                : previous.baseStake,
             createdAt: previous.createdAt
         });
 

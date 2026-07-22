@@ -10,6 +10,7 @@ export class PlayerIdentity {
         colorSector2 = null,
         sectorCount = null,
         sectorArrangement = null,
+        baseStake = null,
         createdAt = null
     } = {}) {
 
@@ -31,6 +32,8 @@ export class PlayerIdentity {
 
         this.sectorArrangement = sectorArrangement;
 
+        this.baseStake = baseStake;
+
         this.createdAt = createdAt;
 
         Object.freeze(this);
@@ -49,6 +52,7 @@ export class PlayerIdentity {
             colorSector2: this.colorSector2,
             sectorCount: this.sectorCount,
             sectorArrangement: this.sectorArrangement,
+            baseStake: this.baseStake,
             createdAt: this.createdAt
         };
 

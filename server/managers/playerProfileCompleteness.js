@@ -1,3 +1,7 @@
+import {
+    isAllowedBaseStake
+} from "../models/PlayerProfileRules.js";
+
 /**
  * R5.15 / R5.17 — Authoritative player profile completeness.
  *
@@ -15,6 +19,12 @@ export function isPage2ProfileComplete(identity) {
     }
 
     if (typeof identity.nickname !== "string" || !identity.nickname.trim()) {
+
+        return false;
+
+    }
+
+    if (!isAllowedBaseStake(identity.baseStake)) {
 
         return false;
 
