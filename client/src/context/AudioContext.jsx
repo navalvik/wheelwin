@@ -84,6 +84,14 @@ export function AudioProvider({ children }) {
 
         }
 
+        // R5.22 — Unlock on Self-Test so wheel spin audio can start with the
+        // visible spin (PRE_GAME_READY confirm usually already unlocked).
+        if (gameState === GAME_STATES.SELF_TEST && !engine.isUnlocked()) {
+
+            engine.unlock();
+
+        }
+
         engine.handleGameState(gameState, { resultOutcome });
 
         setStatus(engine.getStatus());
@@ -204,21 +212,10 @@ export function AudioProvider({ children }) {
 
     useRegisterEngineModule("audio", () => ({
 
-        onGameStart: () => {
-
-            const engine = engineRef.current;
-
-            if (!engine) {
-
-                return;
-
-            }
-
-            engine.handleGameState(GAME_STATES.SPEED);
-
-            setStatus(engine.getStatus());
-
-        },
+        // R5.22 — Do NOT start wheel/music audio on lobby startGame.
+        // Room-full "startGame" arrives during Page2 setup; wheel audio must
+        // wait for authoritative SELF_TEST (then SPEED) via handleGameState.
+        onGameStart: () => {},
 
         onGameEnd: (payload) => {
 
