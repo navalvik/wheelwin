@@ -22,14 +22,14 @@ export const MAX_BUTTON_PRESSES = 3;
 
 export const BUTTON_PRESENTATION = Object.freeze({
     [BUTTON_STATES.PRE_GAME_READY]: {
-        label: "READY",
+        label: "PUSH",
         backgroundColor: "#ffffff",
         borderColor: "#cccccc",
         textColor: "#000000",
         pulseClass: ""
     },
     [BUTTON_STATES.PRE_GAME_READY_CONFIRMED]: {
-        label: "✓ READY",
+        label: "READY",
         backgroundColor: "#00aa44",
         borderColor: "#008833",
         textColor: "#ffffff",
