@@ -66,6 +66,16 @@
     color:#00aa44;
 }
 
+.center.headerMessage--win{
+
+    color:#d62828;
+}
+
+.center.headerMessage--lost{
+
+    color:#000000;
+}
+
 .left,
 .right,
 .jump{

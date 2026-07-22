@@ -40,37 +40,6 @@
     pointer-events: none;
 }
 
-.page5__inputAckBadge {
-
-    position: absolute;
-    top: 48px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 20;
-
-    padding: 6px 14px;
-
-    border-radius: 999px;
-
-    color: #ffffff;
-
-    font-size: 0.8rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-
-    pointer-events: none;
-}
-
-.page5__inputAckBadge--accepted {
-
-    background: rgba(0, 170, 68, 0.92);
-}
-
-.page5__inputAckBadge--rejected {
-
-    background: rgba(214, 40, 40, 0.92);
-}
-
 .playerPanel--preGameReady .playerCard--preGameReady {
 
     display: grid;

@@ -1,5 +1,6 @@
 export default function HeaderBar({
     message,
+    messageClassName = "",
     nextEnabled = false,
     showNextButton = true,
     backEnabled = false,
@@ -26,7 +27,7 @@ export default function HeaderBar({
 
             </div>
 
-            <div className="center">
+            <div className={`center${messageClassName ? ` ${messageClassName}` : ""}`}>
 
                 {message}
 

@@ -11,6 +11,8 @@ export default function GameLayout({
 
     message,
 
+    messageClassName = "",
+
     nextEnabled = false,
 
     showNextButton = true,
@@ -39,6 +41,7 @@ export default function GameLayout({
 
             <HeaderBar
               message={message}
+              messageClassName={messageClassName}
               nextEnabled={nextEnabled}
               showNextButton={showNextButton}
               backEnabled={backEnabled}
