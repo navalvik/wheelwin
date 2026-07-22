@@ -98,6 +98,104 @@ export function createFastInputCatalog(catalog) {
 
 }
 
+/**
+ * R5.15 — Seed Page2-complete identities so ROOM_FULL bootstrap can build
+ * WHEEL_CONFIGURATION without default Red/sectorCount=1 placeholders.
+ */
+export function seedCompletePlayerProfiles(playerManager, playerIds) {
+
+    const setups = [
+        {
+            nickname: "Bob",
+            sectorCount: 2,
+            color: "Orange",
+            colorSector2: "Orange",
+            icon: "dice",
+            sectorArrangement: "together"
+        },
+        {
+            nickname: "Lena",
+            sectorCount: 2,
+            color: "Green",
+            colorSector2: "Green",
+            icon: "spade",
+            sectorArrangement: "together"
+        },
+        {
+            nickname: "Ol4a",
+            sectorCount: 1,
+            color: "Red",
+            colorSector2: null,
+            icon: "queen",
+            sectorArrangement: "together"
+        }
+    ];
+
+    for (let index = 0; index < playerIds.length; index += 1) {
+
+        const playerId = playerIds[index];
+
+        const setup = setups[index % setups.length];
+
+        const existing = playerManager.getIdentity(playerId);
+
+        if (!existing) {
+
+            playerManager.createPlayer({
+                playerId,
+                nickname: setup.nickname,
+                age: 25,
+                icon: setup.icon,
+                color: setup.color,
+                colorSector2: setup.colorSector2,
+                sectorCount: setup.sectorCount,
+                sectorArrangement: setup.sectorArrangement
+            });
+
+            continue;
+
+        }
+
+        playerManager.updateIdentity(playerId, {
+            nickname: setup.nickname,
+            age: 25,
+            icon: setup.icon,
+            color: setup.color,
+            colorSector2: setup.colorSector2,
+            sectorCount: setup.sectorCount,
+            sectorArrangement: setup.sectorArrangement
+        });
+
+    }
+
+}
+
+/**
+ * R5.15 — For tests that fill a lobby without Page2 socket profiles, seed
+ * complete identities and emit ALL_PLAYER_PROFILES_READY so configuration builds.
+ */
+export function completeRoomProfilesForConfiguration(
+    playerManager,
+    eventBus,
+    room
+) {
+
+    if (!playerManager || !eventBus || !room?.roomId) {
+
+        return;
+
+    }
+
+    seedCompletePlayerProfiles(playerManager, room.players);
+
+    eventBus.emit({
+        source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+        type: EVENT_TYPES.ALL_PLAYER_PROFILES_READY,
+        payload: { roomId: room.roomId }
+    });
+
+}
+
 export function wireGameplayBootstrap({
     gameManager,
     roomManager,

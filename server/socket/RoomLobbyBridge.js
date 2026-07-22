@@ -20,6 +20,12 @@ import {
     isValidRoomId,
     normalizeRoomId
 } from "../managers/room/roomIdAlphabet.js";
+import {
+    areRoomPage2ProfilesComplete,
+    areRoomPlayerProfilesComplete,
+    isPage2ProfileComplete,
+    isPlayerProfileComplete
+} from "../managers/playerProfileCompleteness.js";
 import { CONNECTION_STATE } from "../models/ConnectionState.js";
 import { PLAYER_STATE } from "../models/PlayerState.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
@@ -100,6 +106,12 @@ export class RoomLobbyBridge {
         this._verifyConfirmedByRoom = new Map();
 
         this._profilesRevealedByRoom = new Set();
+
+        // R5.15 — rooms that have emitted ALL_PLAYER_PROFILES_READY (once).
+        this._allProfilesReadyByRoom = new Set();
+
+        // R5.17 — rooms that have received VERIFY-phase icon assignment (once).
+        this._verifyIconsAssignedByRoom = new Set();
 
         // C5.8A — continuation barrier: all verified players press NEXT before
         // PAYMENT_STAGE_READY. Keyed by roomId → Set(playerId).
@@ -306,6 +318,10 @@ export class RoomLobbyBridge {
         this._verifyConfirmedByRoom.clear();
 
         this._profilesRevealedByRoom.clear();
+
+        this._allProfilesReadyByRoom.clear();
+
+        this._verifyIconsAssignedByRoom.clear();
 
         this._continueToPaymentByRoom.clear();
 
@@ -1369,15 +1385,9 @@ export class RoomLobbyBridge {
 
         }
 
-        const existing = this._playerManager.getIdentity(playerId);
-
-        const icon = existing?.icon
-            ?? this._assignUniqueIcon(roomId);
-
         const identity = this._playerManager.updateIdentity(playerId, {
             nickname: profile.nickname,
             age: profile.age,
-            icon,
             color: profile.color,
             colorSector2: profile.colorSector2,
             sectorCount: profile.sectorCount,
@@ -1450,6 +1460,189 @@ export class RoomLobbyBridge {
         this._logger.info(
             `Lobby player profile updated (private) | roomId=${roomId} | playerId=${playerId}`
         );
+
+        this._tryEmitAllPlayerProfilesReady(roomId);
+
+    }
+
+    /**
+     * R5.15 / R5.17 — After all Page2 profiles exist, assign VERIFY icons once,
+     * then notify GameManager so WHEEL_CONFIGURATION can be generated.
+     */
+    _tryEmitAllPlayerProfilesReady(roomId) {
+
+        if (!roomId || this._allProfilesReadyByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room || room.players.length !== room.maxPlayers) {
+
+            return;
+
+        }
+
+        if (!areRoomPage2ProfilesComplete(this._playerManager, room.players)) {
+
+            return;
+
+        }
+
+        // R5.17 — VERIFY-phase icon assignment (once per room).
+        this._assignVerifyIcons(roomId);
+
+        if (!areRoomPlayerProfilesComplete(this._playerManager, room.players)) {
+
+            this._logger.error(
+                `VERIFY icons incomplete after assignment | roomId=${roomId}`
+            );
+
+            return;
+
+        }
+
+        this._allProfilesReadyByRoom.add(roomId);
+
+        this._logger.info(
+            `Lobby all player profiles ready | roomId=${roomId}`
+        );
+
+        this._eventBus.emit({
+            source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+            type: EVENT_TYPES.ALL_PLAYER_PROFILES_READY,
+            payload: { roomId }
+        });
+
+    }
+
+    /**
+     * R5.17 — Assign one unique random catalog icon id per player during VERIFY.
+     * Idempotent. Broadcasts PLAYER_UPDATE so Page3 displays the icons.
+     */
+    _assignVerifyIcons(roomId) {
+
+        if (!roomId || this._verifyIconsAssignedByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            return;
+
+        }
+
+        const used = new Set(
+            room.players
+                .map((playerId) => this._playerManager.getIdentity(playerId)?.icon)
+                .filter(Boolean)
+        );
+
+        const available = ICONS
+            .map((entry) => entry.id)
+            .filter((iconId) => !used.has(iconId));
+
+        const shuffled = this._shuffleIconIds(available);
+
+        let nextIndex = 0;
+
+        for (const playerId of room.players) {
+
+            const identity = this._playerManager.getIdentity(playerId);
+
+            if (identity?.icon) {
+
+                continue;
+
+            }
+
+            const iconId = shuffled[nextIndex]
+                ?? ICONS[nextIndex % ICONS.length]?.id
+                ?? null;
+
+            nextIndex += 1;
+
+            if (!iconId) {
+
+                this._logger.error(
+                    `VERIFY icon assignment failed | roomId=${roomId} | playerId=${playerId}`
+                );
+
+                continue;
+
+            }
+
+            used.add(iconId);
+
+            this._playerManager.updateIdentity(playerId, { icon: iconId });
+
+        }
+
+        this._verifyIconsAssignedByRoom.add(roomId);
+
+        this._broadcastVerifyIcons(roomId, room);
+
+        this._logger.info(
+            `VERIFY icons assigned | roomId=${roomId} | players=${room.players.length}`
+        );
+
+    }
+
+    _broadcastVerifyIcons(roomId, room) {
+
+        const profilesRevealed = this._profilesRevealedByRoom.has(roomId);
+
+        for (const recipientId of room.players) {
+
+            const recipientSocketId = this._playerToSocket.get(recipientId);
+
+            if (!recipientSocketId) {
+
+                continue;
+
+            }
+
+            for (const subjectId of room.players) {
+
+                const identity = this._playerManager.getIdentity(subjectId);
+
+                const reveal = profilesRevealed || subjectId === recipientId;
+
+                this._deliverToSocket(
+                    recipientSocketId,
+                    LOBBY_SERVER_EVENTS.PLAYER_UPDATE,
+                    this._mapIdentityToLobbyPlayer(identity, subjectId, { reveal })
+                );
+
+            }
+
+        }
+
+    }
+
+    _shuffleIconIds(iconIds) {
+
+        const pool = [...iconIds];
+
+        for (let index = pool.length - 1; index > 0; index -= 1) {
+
+            const swapIndex = Math.floor(Math.random() * (index + 1));
+
+            const temporary = pool[index];
+
+            pool[index] = pool[swapIndex];
+
+            pool[swapIndex] = temporary;
+
+        }
+
+        return pool;
 
     }
 
@@ -1987,7 +2180,85 @@ export class RoomLobbyBridge {
 
         }
 
+        // R5.15 — Dev shortcut may skip Page2; seed any incomplete seats so
+        // ConfigurationEngine never builds from null defaults.
+        this._ensureDebugProfilesReady(roomId);
+
         this._completeEntryPayment(roomId);
+
+    }
+
+    /**
+     * R5.15 / R5.17 — Development-only: fill incomplete Page2 fields, then
+     * assign VERIFY icons so wheel configuration can build.
+     */
+    _ensureDebugProfilesReady(roomId) {
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            return;
+
+        }
+
+        const debugSetups = [
+            {
+                nickname: "Dev1",
+                sectorCount: 2,
+                color: "Orange",
+                colorSector2: "Orange",
+                sectorArrangement: "together"
+            },
+            {
+                nickname: "Dev2",
+                sectorCount: 2,
+                color: "Green",
+                colorSector2: "Green",
+                sectorArrangement: "together"
+            },
+            {
+                nickname: "Dev3",
+                sectorCount: 1,
+                color: "Red",
+                colorSector2: null,
+                sectorArrangement: "together"
+            }
+        ];
+
+        room.players.forEach((playerId, index) => {
+
+            const identity = this._playerManager.getIdentity(playerId);
+
+            if (isPage2ProfileComplete(identity)
+                && isPlayerProfileComplete(identity)) {
+
+                return;
+
+            }
+
+            const setup = debugSetups[index % debugSetups.length];
+
+            this._playerManager.updateIdentity(playerId, {
+                nickname: identity?.nickname ?? setup.nickname,
+                age: identity?.age ?? 25,
+                color: identity?.color ?? setup.color,
+                colorSector2: identity?.sectorCount === 2
+                    || (!identity?.sectorCount && setup.sectorCount === 2)
+                    ? (identity?.colorSector2 ?? setup.colorSector2 ?? setup.color)
+                    : (identity?.colorSector2 ?? null),
+                sectorCount: identity?.sectorCount === 2 || identity?.sectorCount === 1
+                    ? identity.sectorCount
+                    : setup.sectorCount,
+                sectorArrangement: identity?.sectorArrangement
+                    ?? setup.sectorArrangement
+            });
+
+        });
+
+        this._assignVerifyIcons(roomId);
+
+        this._tryEmitAllPlayerProfilesReady(roomId);
 
     }
 
@@ -2124,6 +2395,10 @@ export class RoomLobbyBridge {
 
         this._profilesRevealedByRoom.delete(roomId);
 
+        this._allProfilesReadyByRoom.delete(roomId);
+
+        this._verifyIconsAssignedByRoom.delete(roomId);
+
         this._continueToPaymentByRoom.delete(roomId);
 
         this._paymentStageReadyByRoom.delete(roomId);
@@ -2189,10 +2464,11 @@ export class RoomLobbyBridge {
                 .filter(Boolean)
         );
 
-        const available = ICONS.find((entry) => !used.has(entry.glyph))
+        // R5.17 — catalog id (not glyph). Prefer unused ids.
+        const available = ICONS.find((entry) => !used.has(entry.id))
             ?? ICONS[0];
 
-        return available.glyph;
+        return available.id;
 
     }
 

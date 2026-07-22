@@ -5,6 +5,10 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { ConfigurationValidationError } from "../engines/configuration/ConfigurationValidationError.js";
 import { Game } from "../models/Game.js";
 import { GAME_STATUS } from "../models/GameStatus.js";
+import {
+    areRoomPlayerProfilesComplete,
+    isPlayerProfileComplete
+} from "./playerProfileCompleteness.js";
 
 export class GameManager {
 
@@ -22,12 +26,17 @@ export class GameManager {
 
         this._bootstrapHandler = null;
 
+        this._profilesReadyHandler = null;
+
         this._entryPaymentCompletedHandler = null;
 
         this._bootstrap = null;
 
         // roomId → gameId waiting for ENTRY_PAYMENT_COMPLETED (R1.1).
         this._pendingGameplayActivation = new Map();
+
+        // R5.15 — roomId → gameId waiting for complete Page2 profiles.
+        this._pendingConfigurationByRoom = new Map();
 
         this._initialized = false;
 
@@ -116,6 +125,17 @@ export class GameManager {
 
         }
 
+        if (this._profilesReadyHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.ALL_PLAYER_PROFILES_READY,
+                this._profilesReadyHandler
+            );
+
+            this._profilesReadyHandler = null;
+
+        }
+
         if (this._entryPaymentCompletedHandler) {
 
             this._eventBus.unsubscribe(
@@ -128,6 +148,8 @@ export class GameManager {
         }
 
         this._pendingGameplayActivation.clear();
+
+        this._pendingConfigurationByRoom.clear();
 
         for (const gameId of [...this._games.keys()]) {
 
@@ -330,6 +352,8 @@ export class GameManager {
 
             this._pendingGameplayActivation.delete(game.roomId);
 
+            this._pendingConfigurationByRoom.delete(game.roomId);
+
         }
 
         this._emit(EVENT_TYPES.GAME_DESTROYED, {
@@ -478,6 +502,17 @@ export class GameManager {
             this._bootstrapHandler
         );
 
+        this._profilesReadyHandler = (envelope) => {
+
+            this._handleAllPlayerProfilesReady(envelope);
+
+        };
+
+        this._eventBus.subscribe(
+            EVENT_TYPES.ALL_PLAYER_PROFILES_READY,
+            this._profilesReadyHandler
+        );
+
         this._entryPaymentCompletedHandler = (envelope) => {
 
             this._handleEntryPaymentCompleted(envelope);
@@ -546,44 +581,6 @@ export class GameManager {
                 game.gameId
             );
 
-            const configurationRoom = {
-                roomId: room.roomId,
-                stake: this._resolveBootstrapStake()
-            };
-
-            const configurationPlayers = this._buildConfigurationPlayers(room);
-
-            this._logBootstrap("Generating configuration...");
-
-            let configuration = this._bootstrap.configurationEngine
-                .buildConfiguration(
-                    game.gameId,
-                    configurationRoom,
-                    configurationPlayers
-                );
-
-            this._bootstrap.configurationEngine.validateConfiguration(
-                configuration
-            );
-
-            configuration = this._bootstrap.configurationEngine
-                .freezeConfiguration(configuration);
-
-            this._logBootstrap("Configuration frozen");
-
-            // R5.13D — Temporary diagnostic only. Logs immutable config BEFORE
-            // commit / any client broadcast. Remove after diagnosis.
-            this._logWheelConfigurationDiagnostic(
-                configuration,
-                configurationPlayers
-            );
-
-            this._bootstrap.configurationEngine.commitConfiguration(
-                configuration
-            );
-
-            this._logBootstrap("CONFIGURATION_READY");
-
             this._logBootstrap("Registering players...");
 
             this._bootstrap.inputAuthority.registerPlayers(
@@ -603,9 +600,132 @@ export class GameManager {
             // ENTRY_PAYMENT_COMPLETED. Prep only; gameplay waits.
             this._pendingGameplayActivation.set(roomId, game.gameId);
 
+            // R5.15 — Configuration waits for complete Page2 profiles.
+            this._pendingConfigurationByRoom.set(roomId, game.gameId);
+
             this._logBootstrap(
-                "Gameplay prep ready — waiting for ENTRY_PAYMENT_COMPLETED"
+                "Gameplay prep ready — waiting for player profiles / ENTRY_PAYMENT"
             );
+
+            this._tryGenerateConfiguration(roomId);
+
+        } catch (error) {
+
+            this._logger.error(
+                `Gameplay bootstrap failed: ${error.message}`
+            );
+
+        }
+
+    }
+
+    _handleAllPlayerProfilesReady(envelope) {
+
+        const roomId = envelope.payload?.roomId;
+
+        if (!roomId || !this._bootstrap) {
+
+            return;
+
+        }
+
+        this._logBootstrap(
+            `ALL_PLAYER_PROFILES_READY | roomId=${roomId}`
+        );
+
+        this._tryGenerateConfiguration(roomId);
+
+    }
+
+    /**
+     * R5.15 — Build/freeze/commit WHEEL_CONFIGURATION only when every seat
+     * has a complete Page2 profile in PlayerManager. Idempotent.
+     */
+    _tryGenerateConfiguration(roomId) {
+
+        if (!this._bootstrap || !roomId) {
+
+            return;
+
+        }
+
+        const gameId = this._pendingConfigurationByRoom.get(roomId);
+
+        if (!gameId) {
+
+            return;
+
+        }
+
+        if (this._bootstrap.configurationEngine.getConfiguration(gameId)) {
+
+            this._pendingConfigurationByRoom.delete(roomId);
+
+            return;
+
+        }
+
+        const room = this._bootstrap.roomManager.getRoom(roomId);
+
+        if (!room || room.players.length !== room.maxPlayers) {
+
+            return;
+
+        }
+
+        if (!areRoomPlayerProfilesComplete(
+            this._bootstrap.playerManager,
+            room.players
+        )) {
+
+            this._logBootstrap(
+                `Configuration deferred — incomplete profiles | roomId=${roomId}`
+            );
+
+            return;
+
+        }
+
+        try {
+
+            const configurationRoom = {
+                roomId: room.roomId,
+                stake: this._resolveBootstrapStake()
+            };
+
+            const configurationPlayers = this._buildConfigurationPlayers(room);
+
+            this._logBootstrap("Generating configuration...");
+
+            let configuration = this._bootstrap.configurationEngine
+                .buildConfiguration(
+                    gameId,
+                    configurationRoom,
+                    configurationPlayers
+                );
+
+            this._bootstrap.configurationEngine.validateConfiguration(
+                configuration
+            );
+
+            configuration = this._bootstrap.configurationEngine
+                .freezeConfiguration(configuration);
+
+            this._logBootstrap("Configuration frozen");
+
+            // R5.13D — Temporary diagnostic only.
+            this._logWheelConfigurationDiagnostic(
+                configuration,
+                configurationPlayers
+            );
+
+            this._bootstrap.configurationEngine.commitConfiguration(
+                configuration
+            );
+
+            this._pendingConfigurationByRoom.delete(roomId);
+
+            this._logBootstrap("CONFIGURATION_READY");
 
         } catch (error) {
 
@@ -613,7 +733,7 @@ export class GameManager {
 
                 this._logger.error(
                     [
-                        "Gameplay bootstrap failed",
+                        "Gameplay configuration failed",
                         `roomId=${roomId}`,
                         `reason=${error.reason}`
                     ].join(" | ")
@@ -624,7 +744,7 @@ export class GameManager {
             }
 
             this._logger.error(
-                `Gameplay bootstrap failed: ${error.message}`
+                `Gameplay configuration failed: ${error.message}`
             );
 
         }
@@ -652,6 +772,27 @@ export class GameManager {
             );
 
             return;
+
+        }
+
+        // R5.15 — Do not activate PRE_GAME_READY without immutable wheel config.
+        if (!this._bootstrap.configurationEngine.getConfiguration(gameId)) {
+
+            this._logBootstrap(
+                `ENTRY_PAYMENT_COMPLETED deferred — waiting for configuration | roomId=${roomId}`
+            );
+
+            this._tryGenerateConfiguration(roomId);
+
+            if (!this._bootstrap.configurationEngine.getConfiguration(gameId)) {
+
+                this._logger.error(
+                    `Gameplay activation failed: configuration missing (${gameId})`
+                );
+
+                return;
+
+            }
 
         }
 
@@ -733,22 +874,33 @@ export class GameManager {
 
             const identity = this._bootstrap.playerManager.getIdentity(playerId);
 
-            const sectorCount = identity?.sectorCount === 2 ? 2 : 1;
+            if (!isPlayerProfileComplete(identity)) {
 
-            const colors = [identity?.color ?? "Red"];
+                throw new Error(
+                    `Incomplete player profile for configuration (${playerId})`
+                );
+
+            }
+
+            const sectorCount = identity.sectorCount === 2 ? 2 : 1;
+
+            const colors = [identity.color];
 
             if (sectorCount === 2) {
 
-                colors.push(identity?.colorSector2 ?? identity?.color ?? "Blue");
+                colors.push(identity.colorSector2);
 
             }
 
             return {
                 playerId,
-                nickname: identity?.nickname ?? null,
+                nickname: identity.nickname,
                 sectorCount,
-                sectorArrangement: identity?.sectorArrangement ?? "together",
-                colors
+                sectorArrangement: identity.sectorArrangement === "separate"
+                    ? "separate"
+                    : "together",
+                colors,
+                icon: identity.icon
             };
 
         });

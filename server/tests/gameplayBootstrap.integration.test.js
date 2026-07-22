@@ -7,6 +7,7 @@ import { PlayerManager } from "../managers/PlayerManager.js";
 import { RoomManager } from "../managers/RoomManager.js";
 import { LoggerService } from "../services/LoggerService.js";
 import {
+    seedCompletePlayerProfiles,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
 } from "./helpers/gameplayBootstrapHarness.js";
@@ -110,9 +111,9 @@ const room = roomManager.createRoom();
 
 const playerIds = ["player-1", "player-2", "player-3"];
 
-for (const playerId of playerIds) {
+seedCompletePlayerProfiles(playerManager, playerIds);
 
-    playerManager.createPlayer({ playerId });
+for (const playerId of playerIds) {
 
     roomManager.addPlayer(room.roomId, playerId);
 

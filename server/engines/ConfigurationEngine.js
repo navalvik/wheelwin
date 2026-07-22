@@ -149,17 +149,21 @@ export class ConfigurationEngine {
 
         const catalogColors = this._gameCatalog.getColors();
 
-        const catalogIcons = this._gameCatalog.getIcons();
-
         const catalogTimers = this._gameCatalog.getTimers();
 
         const wheelRules = this._gameCatalog.getWheelRules();
 
-        const iconIds = this._randomService.shuffle(
-            catalogIcons.map((icon) => icon.id)
-        );
+        const resolvedPlayers = players.map((player) => {
 
-        const resolvedPlayers = players.map((player, index) => {
+            if (typeof player.icon !== "string" || !player.icon.trim()) {
+
+                throw new ConfigurationValidationError({
+                    gameId,
+                    reason: `Player ${player.playerId} is missing authoritative icon`,
+                    traceSeed
+                });
+
+            }
 
             const colors = resolvePlayerSetupColors(
                 player.colors,
@@ -179,7 +183,8 @@ export class ConfigurationEngine {
             return {
                 playerId: player.playerId,
                 nickname: player.nickname ?? null,
-                icon: iconIds[index],
+                // R5.17 — copy authoritative VERIFY icon; never generate here.
+                icon: player.icon,
                 sectorCount: player.sectorCount,
                 sectorArrangement: player.sectorCount === 2
                     ? (player.sectorArrangement === "separate" ? "separate" : "together")
@@ -767,6 +772,15 @@ export class ConfigurationEngine {
                 throw new ConfigurationValidationError({
                     gameId,
                     reason: "Each player must include colors matching sectorCount"
+                });
+
+            }
+
+            if (typeof player.icon !== "string" || !player.icon.trim()) {
+
+                throw new ConfigurationValidationError({
+                    gameId,
+                    reason: "Each player must include an authoritative icon"
                 });
 
             }

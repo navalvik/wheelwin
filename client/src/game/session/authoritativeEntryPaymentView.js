@@ -5,6 +5,20 @@
  * AuthoritativeSession.payment / PaymentEngine payloads.
  */
 
+import { resolveWheelIcon } from "../../components/game/WheelEngine/wheelUtils.js";
+
+function resolveDisplayIcon(icon) {
+
+    if (icon == null || icon === "" || icon === "—") {
+
+        return "—";
+
+    }
+
+    return resolveWheelIcon(icon);
+
+}
+
 export function listEntryPaymentPlayers(entryPayment) {
 
     if (!Array.isArray(entryPayment?.players)) {
@@ -101,7 +115,7 @@ export function mapEntryPaymentRows(entryPayment, playersById = {}) {
             playerId: seat.playerId,
             labelTitle: index === 0 ? "YOUR NICKNAME" : "PLAYER NICKNAME",
             nickname: roster?.nickname ?? "—",
-            icon: roster?.icon ?? "—",
+            icon: resolveDisplayIcon(roster?.icon),
             walletRegistered: Boolean(seat.wallet),
             paymentStatus: seat.paymentStatus ?? "waiting",
             paymentStatusLabel: mapEntryPaymentStatusLabel(

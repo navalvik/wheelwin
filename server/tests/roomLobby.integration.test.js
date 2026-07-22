@@ -235,7 +235,8 @@ try {
     host.emit("updatePlayerProfile", {
         nickname: "Host",
         age: 30,
-        color: "#111111",
+        color: "Orange",
+        colorSector2: "Blue",
         sectorCount: 2,
         sectorArrangement: "together",
         baseStake: 10
@@ -269,9 +270,13 @@ try {
     assert(
         peerSeat.nickname === "Host"
             && peerSeat.age === 30
-            && peerSeat.sectorCount === 2
-            && peerSeat.icon != null,
-        "peers must receive public nickname/age/icon/sectorCount before Confirm"
+            && peerSeat.sectorCount === 2,
+        "peers must receive public nickname/age/sectorCount before Confirm"
+    );
+
+    assert(
+        peerSeat.icon == null,
+        "R5.17 — icons are assigned during VERIFY, not on Page2 profile update"
     );
 
     assert(
@@ -283,22 +288,57 @@ try {
     guestA.emit("updatePlayerProfile", {
         nickname: "GueA",
         age: 25,
-        color: "#222222",
+        color: "Green",
         sectorCount: 1,
         baseStake: 10
     });
 
     await waitForEvent(guestA, "PLAYER_UPDATE", 5000, "guestA.PLAYER_UPDATE");
 
+    const verifyIconUpdates = [];
+
+    function onVerifyIcon(payload) {
+
+        verifyIconUpdates.push(payload);
+
+    }
+
+    host.on("PLAYER_UPDATE", onVerifyIcon);
+
     guestB.emit("updatePlayerProfile", {
         nickname: "GueB",
         age: 28,
-        color: "#333333",
+        color: "Red",
         sectorCount: 1,
         baseStake: 10
     });
 
-    await waitForEvent(guestB, "PLAYER_UPDATE", 5000, "guestB.PLAYER_UPDATE");
+    let verifyIconUpdate = null;
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+
+        verifyIconUpdate = verifyIconUpdates.find(
+            (payload) => typeof payload?.icon === "string"
+                && payload.icon.length > 0
+        );
+
+        if (verifyIconUpdate) {
+
+            break;
+
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+    }
+
+    host.off("PLAYER_UPDATE", onVerifyIcon);
+
+    assert(
+        typeof verifyIconUpdate?.icon === "string"
+            && verifyIconUpdate.icon.length > 0,
+        "VERIFY must assign authoritative icon after all Page2 profiles"
+    );
 
     // RC1.3 Bug #9 — Secret Matrix must match before Verify.
     const matrix = ["A", "1", "B", "2", "C", "3", "D", "4", "E"];

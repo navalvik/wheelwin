@@ -4,6 +4,8 @@ import GameLayout from "../layouts/GameLayout";
 
 import { DEV_MODE } from "../config/devMode";
 
+import { resolveWheelIcon } from "../components/game/WheelEngine/wheelUtils";
+
 import { useGameResult } from "../context/GameResultContext";
 
 import {
@@ -36,6 +38,18 @@ function formatValue(value) {
     }
 
     return value;
+
+}
+
+function formatIcon(icon) {
+
+    if (icon === null || icon === undefined || icon === "") {
+
+        return EMPTY_VALUE;
+
+    }
+
+    return resolveWheelIcon(icon);
 
 }
 
@@ -113,7 +127,7 @@ export default function Page6Result() {
 
                                 <div className="page6__winnerIcon">
 
-                                    {formatValue(winner?.icon)}
+                                    {formatIcon(winner?.icon)}
 
                                 </div>
 
@@ -157,7 +171,7 @@ export default function Page6Result() {
 
                                     <dt>Winning Icon</dt>
 
-                                    <dd>{formatValue(winner?.icon)}</dd>
+                                    <dd>{formatIcon(winner?.icon)}</dd>
 
                                 </div>
 

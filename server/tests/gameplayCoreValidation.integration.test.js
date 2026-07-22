@@ -8,6 +8,7 @@ import { LoggerService } from "../services/LoggerService.js";
 import {
     emitEntryPaymentCompleted,
     exhaustAllPlayerInput,
+    seedCompletePlayerProfiles,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
 } from "./helpers/gameplayBootstrapHarness.js";
@@ -189,6 +190,8 @@ function startGame() {
         players.push(playerId);
 
     }
+
+    seedCompletePlayerProfiles(playerManager, players);
 
     // ROOM_FULL fires synchronously on the third add, running prep bootstrap.
     for (const playerId of players) {

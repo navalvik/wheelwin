@@ -30,6 +30,7 @@ import { RecoveryEngine } from "../engines/RecoveryEngine.js";
 import { AuditEngine } from "../engines/AuditEngine.js";
 import { AuditActivation } from "../gameplay/AuditActivation.js";
 import {
+    completeRoomProfilesForConfiguration,
     emitEntryPaymentCompleted,
     exhaustAllPlayerInput,
     shutdownGameplayBootstrap,
@@ -317,6 +318,8 @@ async function run() {
     const bootstrapped = await poll(() => Boolean(captured.gameId));
 
     assert(bootstrapped, "ROOM_FULL should bootstrap a game");
+
+    completeRoomProfilesForConfiguration(playerManager, eventBus, room);
 
     emitEntryPaymentCompleted(eventBus, roomId);
 

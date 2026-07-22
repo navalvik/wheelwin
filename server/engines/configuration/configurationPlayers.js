@@ -3,7 +3,8 @@ export function createConfigurationPlayer({
     sectorCount = 2,
     sectorArrangement = "together",
     colors = null,
-    nickname = null
+    nickname = null,
+    icon = null
 }) {
 
     const palette = [
@@ -22,7 +23,9 @@ export function createConfigurationPlayer({
         nickname: nickname ?? playerId,
         sectorCount,
         sectorArrangement: sectorCount === 2 ? sectorArrangement : undefined,
-        colors: resolvedColors
+        colors: resolvedColors,
+        // R5.17 — authoritative icon required by ConfigurationEngine.
+        icon: icon ?? "dice"
     };
 
 }
@@ -35,10 +38,13 @@ export function createStandardConfigurationPlayers(playerIds) {
         ["Orange", "Violet"]
     ];
 
+    const icons = ["dice", "spade", "queen", "ladybug", "heart", "anchor"];
+
     return playerIds.map((playerId, index) => createConfigurationPlayer({
         playerId,
         sectorCount: 2,
-        colors: twoSectorColors[index] ?? ["Red", "Blue"]
+        colors: twoSectorColors[index] ?? ["Red", "Blue"],
+        icon: icons[index % icons.length]
     }));
 
 }

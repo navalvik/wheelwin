@@ -8,6 +8,7 @@ import { RoomManager } from "../managers/RoomManager.js";
 import { LoggerService } from "../services/LoggerService.js";
 import {
     emitEntryPaymentCompleted,
+    seedCompletePlayerProfiles,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
 } from "./helpers/gameplayBootstrapHarness.js";
@@ -25,6 +26,26 @@ function assert(condition, message) {
 function wait(ms) {
 
     return new Promise((resolve) => setTimeout(resolve, ms));
+
+}
+
+async function poll(predicate, { timeoutMs = 2000, intervalMs = 5 } = {}) {
+
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+
+        if (predicate()) {
+
+            return true;
+
+        }
+
+        await wait(intervalMs);
+
+    }
+
+    return false;
 
 }
 
@@ -99,9 +120,9 @@ const room = roomManager.createRoom();
 
 const playerIds = ["player-1", "player-2", "player-3"];
 
-for (const playerId of playerIds) {
+seedCompletePlayerProfiles(playerManager, playerIds);
 
-    playerManager.createPlayer({ playerId });
+for (const playerId of playerIds) {
 
     roomManager.addPlayer(room.roomId, playerId);
 
@@ -115,8 +136,13 @@ assert(games.length === 1, "bootstrap should create exactly one game");
 
 const gameId = games[0].gameId;
 
+// Physics starts when READY begins (after PRE_GAME_READY), not at entry payment.
+const simulationActive = await poll(
+    () => bootstrapEngines.simulationLoop.getActiveGameCount() === 1
+);
+
 assert(
-    bootstrapEngines.simulationLoop.getActiveGameCount() === 1,
+    simulationActive,
     "simulation loop should track the active running simulation"
 );
 
@@ -142,13 +168,13 @@ const simulation = bootstrapEngines.physicsEngine.getSimulation(gameId);
 assert(simulation, "physics simulation should exist");
 
 assert(
-    simulation.runtime.angularVelocity === 0,
-    "wheel velocity should remain zero"
+    Number.isFinite(simulation.runtime.angle),
+    "wheel angle should be a finite authoritative value"
 );
 
 assert(
-    simulation.runtime.angle === 0,
-    "wheel angle should remain unchanged with zero velocity"
+    Number.isFinite(simulation.runtime.angularVelocity),
+    "wheel velocity should be a finite authoritative value"
 );
 
 const uniqueGameIds = new Set(physicsUpdates.map((payload) => payload.gameId));

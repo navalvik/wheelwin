@@ -58,6 +58,9 @@ export const EVENT_TYPES = Object.freeze({
     SETUP_SESSION_COMPLETED: "SETUP_SESSION_COMPLETED",
     SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
 
+    // R5.15 — All Page2 profiles stored in PlayerManager; wheel config may build.
+    ALL_PLAYER_PROFILES_READY: "ALL_PLAYER_PROFILES_READY",
+
     // R1.1 — Entry payment finished; GameManager may activate gameplay.
     ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
 

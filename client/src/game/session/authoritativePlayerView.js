@@ -5,9 +5,22 @@
  * Missing server fields render as empty/placeholder presentation values only.
  */
 
+import { resolveWheelIcon } from "../../components/game/WheelEngine/wheelUtils.js";
 import { calculatePaymentGram } from "../../utils/playerProfileRules.js";
 
 const MISSING = "—";
+
+function resolveDisplayIcon(icon) {
+
+    if (icon == null || icon === "" || icon === MISSING) {
+
+        return MISSING;
+
+    }
+
+    return resolveWheelIcon(icon);
+
+}
 
 export function listAuthoritativePlayers(playersById = {}) {
 
@@ -167,7 +180,7 @@ export function mapAuthoritativePlayerToInfoProp(
             ? `PLAYER ${ordinal} — YOU`
             : (player.labelTitle ?? `PLAYER ${ordinal}`),
         nickname: player.nickname ?? MISSING,
-        icon: player.icon ?? MISSING,
+        icon: resolveDisplayIcon(player.icon),
         age: player.age ?? MISSING,
         sectorLabel: player.sectorLabel ?? "SECTOR",
         sectorValue: player.sectorValue ?? MISSING,
