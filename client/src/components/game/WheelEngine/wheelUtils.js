@@ -79,6 +79,34 @@ export function resolvePlayerIconFromWheel(sectors, playerId) {
 
 }
 
+/**
+ * R5.24B — Resolve a player's display color from authoritative wheel sectors.
+ * Uses the first sector owned by playerId; never reads PLAYER_UPDATE.color.
+ */
+export function resolvePlayerColorFromWheel(sectors, playerId) {
+
+    if (!Array.isArray(sectors) || !playerId) {
+
+        return null;
+
+    }
+
+    const sector = sectors.find(
+        (entry) => entry?.ownerId === playerId
+    );
+
+    if (!sector?.color || typeof sector.color !== "string") {
+
+        return null;
+
+    }
+
+    const color = sector.color.trim();
+
+    return color.length > 0 ? color : null;
+
+}
+
 export function validateWheelConfiguration(config) {
 
     if (!config || !Array.isArray(config.sectors)) {

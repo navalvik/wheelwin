@@ -16,6 +16,7 @@ export {
     WHEEL_ICON_GLYPHS,
     resolveWheelIcon,
     resolvePlayerIconFromWheel,
+    resolvePlayerColorFromWheel,
     validateWheelConfiguration,
     calculateWheelDiameter
 } from "./wheelUtils";

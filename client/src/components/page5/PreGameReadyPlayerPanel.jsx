@@ -1,6 +1,9 @@
 import { memo } from "react";
 
-import { resolvePlayerIconFromWheel } from "../../components/game/WheelEngine/wheelUtils";
+import {
+    resolvePlayerColorFromWheel,
+    resolvePlayerIconFromWheel
+} from "../../components/game/WheelEngine/wheelUtils";
 
 import { listAuthoritativePlayers } from "../../game/session/authoritativePlayerView";
 
@@ -8,11 +11,7 @@ import { useAuthoritativeSession } from "../../context/AuthoritativeSessionConte
 import { usePreGameReady } from "../../context/PreGameReadyContext";
 import { useWheelConfig } from "../../context/WheelConfigContext";
 
-function PreGameReadyPlayerCard({ player, confirmed, iconGlyph }) {
-
-    const color = player.color && player.color !== "—"
-        ? player.color
-        : "#cccccc";
+function PreGameReadyPlayerCard({ player, confirmed, iconGlyph, color }) {
 
     return (
 
@@ -88,6 +87,12 @@ export default memo(function PreGameReadyPlayerPanel() {
                         sectors,
                         player.playerId
                     )}
+                    color={
+                        resolvePlayerColorFromWheel(
+                            sectors,
+                            player.playerId
+                        ) ?? "#cccccc"
+                    }
                 />
 
             ))}

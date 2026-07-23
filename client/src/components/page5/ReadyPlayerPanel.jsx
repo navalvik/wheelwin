@@ -1,6 +1,9 @@
 import { memo } from "react";
 
-import { resolvePlayerIconFromWheel } from "../../components/game/WheelEngine/wheelUtils";
+import {
+    resolvePlayerColorFromWheel,
+    resolvePlayerIconFromWheel
+} from "../../components/game/WheelEngine/wheelUtils";
 
 import { listAuthoritativePlayers } from "../../game/session/authoritativePlayerView";
 
@@ -19,11 +22,7 @@ function countSectorsForPlayer(sectors, playerId) {
 
 }
 
-function ReadyPlayerCard({ player, sectorCount, iconGlyph }) {
-
-    const color = player.color && player.color !== "—"
-        ? player.color
-        : "#cccccc";
+function ReadyPlayerCard({ player, sectorCount, iconGlyph, color }) {
 
     return (
 
@@ -97,6 +96,12 @@ export default memo(function ReadyPlayerPanel() {
                         sectors,
                         player.playerId
                     )}
+                    color={
+                        resolvePlayerColorFromWheel(
+                            sectors,
+                            player.playerId
+                        ) ?? "#cccccc"
+                    }
                 />
 
             ))}
