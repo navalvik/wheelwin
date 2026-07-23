@@ -79,6 +79,7 @@ import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
+import { SessionWalletStore } from "./session/SessionWalletStore.js";
 
 class WheelWinApplication {
     constructor() {
@@ -162,6 +163,8 @@ class WheelWinApplication {
         this._setupSessionLifecycle = null;
 
         this._resultSessionLifecycle = null;
+
+        this._sessionWalletStore = null;
 
         this._isShuttingDown = false;
 
@@ -578,10 +581,13 @@ class WheelWinApplication {
 
         this._logger.startupLine("AuditEngine");
 
+        this._sessionWalletStore = new SessionWalletStore();
+
         this._gameReportEngine = new GameReportEngine({
             logger: this._logger,
             gameCatalog: this._gameCatalog,
             playerManager: this._managers.playerManager,
+            sessionWalletStore: this._sessionWalletStore,
             serverVersion: "1.0.0"
         });
 
@@ -707,6 +713,7 @@ class WheelWinApplication {
             gameplayContextResolver: this._gameplayContextResolver,
             setupSessionLifecycle: this._setupSessionLifecycle,
             resultSessionLifecycle: this._resultSessionLifecycle,
+            sessionWalletStore: this._sessionWalletStore,
             isDevelopment: this._productionConfig.isDevelopment
         });
 

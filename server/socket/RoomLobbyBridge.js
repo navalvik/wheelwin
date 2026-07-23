@@ -35,6 +35,8 @@ import {
     LOBBY_SERVER_EVENTS
 } from "./lobbyProtocol.js";
 
+import { SessionWalletStore } from "../session/SessionWalletStore.js";
+
 export class RoomLobbyBridge {
 
     constructor({
@@ -45,6 +47,7 @@ export class RoomLobbyBridge {
         gameplayContextResolver = null,
         setupSessionLifecycle = null,
         resultSessionLifecycle = null,
+        sessionWalletStore = null,
         telegramWalletAdapter = null,
         entryPaymentDelays = null,
         isDevelopment = false
@@ -107,6 +110,9 @@ export class RoomLobbyBridge {
 
         // R6.5 — rooms currently running the single SESSION_FINISHED cleanup path.
         this._finishingResultSessions = new Set();
+
+        // P6.1 — session wallets keyed by room (not PlayerIdentity).
+        this._sessionWalletStore = sessionWalletStore ?? new SessionWalletStore();
 
         // Verify barrier: profiles stay private until every player confirms.
         this._verifyConfirmedByRoom = new Map();
@@ -331,6 +337,8 @@ export class RoomLobbyBridge {
         this._startedRooms.clear();
 
         this._finishingResultSessions.clear();
+
+        this._sessionWalletStore.clearAll();
 
         this._verifyConfirmedByRoom.clear();
 
@@ -1962,23 +1970,6 @@ export class RoomLobbyBridge {
 
         }
 
-        let continued = this._continueToPaymentByRoom.get(roomId);
-
-        if (!continued) {
-
-            continued = new Set();
-
-            this._continueToPaymentByRoom.set(roomId, continued);
-
-        }
-
-        // Exactly one submission per player; duplicates are ignored.
-        if (continued.has(playerId)) {
-
-            return;
-
-        }
-
         const wallet = normalizeTelegramWallet(rawWalletAddress);
 
         if (!wallet) {
@@ -1999,18 +1990,33 @@ export class RoomLobbyBridge {
 
         }
 
-        const stored = this._playerManager.updateIdentity(playerId, { wallet });
+        // P6.1 — wallet is session data for this room only (never PlayerIdentity).
+        this._sessionWalletStore.setWallet(roomId, playerId, wallet);
 
-        if (!stored) {
+        // Private ack so reconnect / local mirror can restore the session wallet.
+        this._deliverOwnWallet(socketId, playerId, roomId);
 
-            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+        let continued = this._continueToPaymentByRoom.get(roomId);
+
+        if (!continued) {
+
+            continued = new Set();
+
+            this._continueToPaymentByRoom.set(roomId, continued);
+
+        }
+
+        // First successful submit joins the barrier; later submits before freeze
+        // may replace the session wallet without re-entering the barrier.
+        if (continued.has(playerId)) {
+
+            this._logger.info(
+                `Verify NEXT wallet updated | roomId=${roomId} | playerId=${playerId}`
+            );
 
             return;
 
         }
-
-        // Private ack so reconnect / local mirror can restore ownership.
-        this._deliverOwnWallet(socketId, playerId);
 
         continued.add(playerId);
 
@@ -2029,11 +2035,18 @@ export class RoomLobbyBridge {
 
     }
 
-    _deliverOwnWallet(socketId, playerId) {
+    _deliverOwnWallet(socketId, playerId, roomId = null) {
 
-        const identity = this._playerManager.getIdentity(playerId);
+        const resolvedRoomId = roomId
+            ?? this._playerManager.getRuntime(playerId)?.roomId
+            ?? null;
 
-        if (!identity?.wallet) {
+        const wallet = this._sessionWalletStore.getWallet(
+            resolvedRoomId,
+            playerId
+        );
+
+        if (!wallet) {
 
             return;
 
@@ -2044,7 +2057,7 @@ export class RoomLobbyBridge {
             LOBBY_SERVER_EVENTS.PLAYER_UPDATE,
             {
                 playerId,
-                wallet: identity.wallet
+                wallet
             }
         );
 
@@ -2092,11 +2105,9 @@ export class RoomLobbyBridge {
 
         const roster = room.players.map((playerId) => {
 
-            const identity = this._playerManager.getIdentity(playerId);
-
             return {
                 playerId,
-                wallet: identity?.wallet ?? null
+                wallet: this._sessionWalletStore.getWallet(roomId, playerId)
             };
 
         });
@@ -2510,6 +2521,9 @@ export class RoomLobbyBridge {
 
         this._secretMatrixByRoom.delete(roomId);
 
+        // P6.1 — destroy session wallets with the finished setup / result session.
+        this._sessionWalletStore.clearRoom(roomId);
+
     }
 
     _normalizePlayerProfile(rawProfile) {
@@ -2785,6 +2799,19 @@ export class RoomLobbyBridge {
     _isProtectedSession(roomId) {
 
         return this._startedRooms.has(roomId);
+
+    }
+
+    /** P6.1 — test / report access to session-scoped wallets. */
+    getSessionWallet(roomId, playerId) {
+
+        return this._sessionWalletStore.getWallet(roomId, playerId);
+
+    }
+
+    clearSessionWallets(roomId) {
+
+        this._sessionWalletStore.clearRoom(roomId);
 
     }
 

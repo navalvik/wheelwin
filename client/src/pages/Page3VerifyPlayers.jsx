@@ -19,6 +19,10 @@ import {
 
 import { calculatePaymentGram } from "../utils/playerProfileRules";
 
+import {
+    isValidTelegramWallet
+} from "../utils/telegramWalletRules";
+
 import socket from "../socket/socket";
 
 import "../styles/page3verify.css";
@@ -49,6 +53,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
         ? (authoritative.players[localPlayerId] ?? null)
         : null;
 
+    // P6.1 — session wallet ack only (never localStorage / permanent identity).
     const authoritativeWallet = typeof localAuthoritativePlayer?.wallet === "string"
         ? localAuthoritativePlayer.wallet
         : "";
@@ -61,9 +66,10 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     const [walletError, setWalletError] = useState("");
 
-    const isWalletValid = walletAddress.trim().length > 0;
+    const isWalletValid = isValidTelegramWallet(walletAddress);
 
-    const walletLocked = waitingForPaymentStage || paymentStageReady;
+    // P6.1 — locked only after server freezes setup (PAYMENT_STAGE_READY).
+    const walletLocked = paymentStageReady;
 
     const playersReady = hasAuthoritativePlayers(authoritative.players);
 
@@ -171,7 +177,12 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     function handleVerifyNextRequest() {
 
-        if (!verifyCompleted || waitingForPaymentStage || paymentStageReady) {
+        if (
+            !verifyCompleted
+            || !isWalletValid
+            || waitingForPaymentStage
+            || paymentStageReady
+        ) {
 
             return;
 
@@ -190,6 +201,16 @@ export default function Page3VerifyPlayers({ onNavigate }) {
     }
 
     function handleNext() {
+
+        if (!isWalletValid) {
+
+            setWalletError(
+                "Enter a valid Telegram Wallet address starting with EQ."
+            );
+
+            return;
+
+        }
 
         if (verifyCompleted) {
 
@@ -218,7 +239,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                     ? false
                     : (
                         verifyCompleted
-                            ? !waitingForPaymentStage
+                            ? (isWalletValid && !waitingForPaymentStage)
                             : (isWalletValid && !waitingForVerify)
                     )
             }
@@ -371,19 +392,19 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                             className="verifyWalletInput"
                             type="text"
                             value={walletAddress}
-                            disabled={
-                                waitingForVerify
-                                || (
-                                    verifyCompleted
-                                        ? walletLocked
-                                        : false
-                                )
-                            }
+                            disabled={walletLocked}
                             onChange={(e) => {
 
                                 setWalletError("");
 
                                 setWalletAddress(e.target.value);
+
+                                // P6.1 — editing before freeze unlocks another NEXT submit.
+                                if (waitingForPaymentStage && !paymentStageReady) {
+
+                                    setWaitingForPaymentStage(false);
+
+                                }
 
                             }}
                         />

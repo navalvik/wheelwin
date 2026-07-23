@@ -112,6 +112,7 @@ export function buildGameReport({
     auditReport,
     auditId = null,
     playerIdentities = {},
+    sessionWallets = {},
     catalogColors = [],
     serverVersion = null,
     createdAt = Date.now()
@@ -200,7 +201,9 @@ export function buildGameReport({
             ),
             baseStake: configuration.stake ?? identity.baseStake ?? null,
             amountPaid,
-            walletAddress: identity.wallet ?? null,
+            walletAddress: sessionWallets?.[playerId]
+                ?? identity.wallet
+                ?? null,
             result: isWinner ? "WINNER" : "LOSER",
             prizeReceived: isWinner
                 ? (payment.winnerAmount ?? null)

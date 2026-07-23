@@ -551,6 +551,14 @@ try {
         "invalid wallet must not populate PlayerIdentity.wallet"
     );
 
+    assert(
+        harness.roomLobbyBridge.getSessionWallet(
+            created.roomId,
+            joinedB.playerId
+        ) == null,
+        "invalid wallet must not populate session wallet store"
+    );
+
     host.emit("VERIFY_NEXT_REQUEST", {
         roomId: created.roomId,
         playerId: created.playerId,
@@ -571,13 +579,29 @@ try {
     );
 
     assert(
-        harness.playerManager.getIdentity(created.playerId)?.wallet === hostWallet,
-        "host wallet must be stored authoritatively"
+        harness.playerManager.getIdentity(created.playerId)?.wallet == null,
+        "host wallet must not be stored on PlayerIdentity"
     );
 
     assert(
-        harness.playerManager.getIdentity(joined.playerId)?.wallet === guestAWallet,
-        "guest A wallet must be stored authoritatively"
+        harness.roomLobbyBridge.getSessionWallet(
+            created.roomId,
+            created.playerId
+        ) === hostWallet,
+        "host wallet must be stored in the session wallet store"
+    );
+
+    assert(
+        harness.playerManager.getIdentity(joined.playerId)?.wallet == null,
+        "guest A wallet must not be stored on PlayerIdentity"
+    );
+
+    assert(
+        harness.roomLobbyBridge.getSessionWallet(
+            created.roomId,
+            joined.playerId
+        ) === guestAWallet,
+        "guest A wallet must be stored in the session wallet store"
     );
 
     const paymentHostPromise = waitForEvent(
@@ -705,8 +729,16 @@ try {
     );
 
     assert(
-        harness.playerManager.getIdentity(joinedB.playerId)?.wallet === guestBWallet,
-        "guest B corrected wallet must be stored authoritatively"
+        harness.playerManager.getIdentity(joinedB.playerId)?.wallet == null,
+        "guest B wallet must not be stored on PlayerIdentity"
+    );
+
+    assert(
+        harness.roomLobbyBridge.getSessionWallet(
+            created.roomId,
+            joinedB.playerId
+        ) === guestBWallet,
+        "guest B corrected wallet must be stored in the session wallet store"
     );
 
     // Duplicate NEXT after barrier: no additional room broadcast.

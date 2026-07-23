@@ -15,6 +15,7 @@ export class GameReportEngine {
         logger,
         gameCatalog,
         playerManager,
+        sessionWalletStore = null,
         serverVersion = "1.0.0"
     }) {
 
@@ -23,6 +24,8 @@ export class GameReportEngine {
         this._gameCatalog = gameCatalog;
 
         this._playerManager = playerManager;
+
+        this._sessionWalletStore = sessionWalletStore;
 
         this._serverVersion = serverVersion;
 
@@ -88,10 +91,17 @@ export class GameReportEngine {
 
         }
 
+        const roomId = auditReport.configuration?.metadata?.roomId ?? null;
+
+        const sessionWallets = roomId
+            ? (this._sessionWalletStore?.getRoomWallets(roomId) ?? {})
+            : {};
+
         const report = buildGameReport({
             auditReport,
             auditId,
             playerIdentities,
+            sessionWallets,
             catalogColors: this._gameCatalog?.getColors?.() ?? [],
             serverVersion: this._serverVersion,
             createdAt: auditReport.createdAt ?? Date.now()
