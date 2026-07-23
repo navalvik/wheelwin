@@ -238,6 +238,11 @@ export class EngineBridge {
                 session()?.onPaymentSessionFailed?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED]: (payload) => {
+
+                session()?.onGameContractUpdated?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE5]: (payload) => {
 
                 modules.pageNavigation?.onOpenPage5?.(payload);

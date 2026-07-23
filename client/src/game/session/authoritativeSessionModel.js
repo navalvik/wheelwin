@@ -47,6 +47,7 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     PAYMENT_REQUEST: "PAYMENT_REQUEST",
     PAYMENT_SESSION_COMPLETED: "PAYMENT_SESSION_COMPLETED",
     PAYMENT_SESSION_FAILED: "PAYMENT_SESSION_FAILED",
+    GAME_CONTRACT_UPDATED: "GAME_CONTRACT_UPDATED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -64,6 +65,7 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     entryPayment: null,
     walletConnection: null,
     paymentSession: null,
+    gameContract: null,
     audit: null,
     winner: null,
     recovery: null,
@@ -252,6 +254,7 @@ export function authoritativeSessionReducer(state, action) {
                 entryPayment: null,
                 walletConnection: null,
                 paymentSession: null,
+                gameContract: null,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     gameStarted: true,
@@ -713,6 +716,29 @@ export function authoritativeSessionReducer(state, action) {
                 ...state,
                 roomId: payload.roomId ?? state.roomId,
                 gameId: payload.gameId ?? state.gameId
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED: {
+
+            if (!payload || typeof payload !== "object") {
+
+                return state;
+
+            }
+
+            return stamp({
+                ...state,
+                roomId: payload.roomId ?? state.roomId,
+                gameId: payload.gameId ?? state.gameId,
+                gameContract: Object.freeze({
+                    contractId: payload.contractId ?? null,
+                    gameId: payload.gameId ?? null,
+                    roomId: payload.roomId ?? null,
+                    status: payload.status ?? null,
+                    createdAt: payload.createdAt ?? null
+                })
             }, action.type);
 
         }

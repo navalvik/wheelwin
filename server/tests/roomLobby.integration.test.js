@@ -834,6 +834,27 @@ try {
         "PAYMENT_CONFIRM_INTENT must advance the confirming player's status"
     );
 
+    // P6.4 — Game Contract architecture after PAYMENT_REQUESTED.
+    const gameContract = harness.gameContractManager
+        .getContract(created.roomId);
+
+    assert(gameContract, "GameContract must exist after payment requested");
+
+    assert(
+        gameContract.contractId
+            && gameContract.gameId
+            && gameContract.snapshot
+            && Object.isFrozen(gameContract.snapshot),
+        "GameContract must hold immutable snapshot server-side"
+    );
+
+    assert(
+        gameContract.status === "AWAITING_PAYMENTS"
+            || gameContract.status === "CREATED"
+            || gameContract.status === "READY_FOR_BLOCKCHAIN",
+        "GameContract must advance past CREATING"
+    );
+
     // Mismatch leaves the room on Page4 without OPEN_PAGE5.
     guestA.emit("WALLET_DISCONNECT_REPORT");
 

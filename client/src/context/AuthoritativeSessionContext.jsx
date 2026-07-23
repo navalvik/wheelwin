@@ -347,6 +347,15 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onGameContractUpdated: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

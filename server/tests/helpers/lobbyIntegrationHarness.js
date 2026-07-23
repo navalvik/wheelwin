@@ -5,6 +5,7 @@ import { GameManager } from "../../managers/GameManager.js";
 import { PlayerManager } from "../../managers/PlayerManager.js";
 import { RoomManager } from "../../managers/RoomManager.js";
 import { PaymentSessionManager } from "../../gameplay/PaymentSessionManager.js";
+import { GameContractManager } from "../../gameplay/GameContractManager.js";
 import { LoggerService } from "../../services/LoggerService.js";
 import { SessionWalletStore } from "../../session/SessionWalletStore.js";
 import { GameplayContextResolver } from "../../socket/GameplayContextResolver.js";
@@ -76,6 +77,19 @@ export async function createLobbyIntegrationHarness() {
 
     paymentSessionManager.initialize();
 
+    const gameContractManager = new GameContractManager({
+        logger,
+        eventBus,
+        playerManager,
+        roomManager,
+        sessionWalletStore,
+        configurationEngine: bootstrapEngines.configurationEngine,
+        creatingDelayMs: 0,
+        devMode: false
+    });
+
+    gameContractManager.initialize();
+
     const httpServer = http.createServer();
 
     const socketGateway = new SocketGateway({
@@ -102,6 +116,7 @@ export async function createLobbyIntegrationHarness() {
         gameplayContextResolver,
         setupSessionLifecycle: bootstrapEngines.setupSessionLifecycle,
         paymentSessionManager,
+        gameContractManager,
         sessionWalletStore,
         isDevelopment: true,
         // Fast stub delays so C5.8D/E lifecycle asserts finish quickly.
@@ -131,6 +146,7 @@ export async function createLobbyIntegrationHarness() {
         gameManager,
         gameplayContextResolver,
         paymentSessionManager,
+        gameContractManager,
         sessionWalletStore,
         bootstrapEngines,
         socketGateway,
@@ -140,6 +156,8 @@ export async function createLobbyIntegrationHarness() {
             roomLobbyBridge.shutdown();
 
             paymentSessionManager.shutdown();
+
+            gameContractManager.shutdown();
 
             shutdownGameplayBootstrap(bootstrapEngines);
 

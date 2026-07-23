@@ -80,6 +80,7 @@ import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
+import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 
 class WheelWinApplication {
@@ -166,6 +167,8 @@ class WheelWinApplication {
         this._resultSessionLifecycle = null;
 
         this._paymentSessionManager = null;
+
+        this._gameContractManager = null;
 
         this._sessionWalletStore = null;
 
@@ -714,6 +717,21 @@ class WheelWinApplication {
             this._paymentSessionManager
         );
 
+        this._gameContractManager = new GameContractManager({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            playerManager: this._managers.playerManager,
+            roomManager: this._managers.roomManager,
+            sessionWalletStore: this._sessionWalletStore,
+            configurationEngine: this._engines.configurationEngine,
+            creatingDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._gameContractManager.initialize();
+
+        this._logger.startupLine("GameContractManager");
+
         this._socketGateway = new SocketGateway({
             logger: this._logger,
             socketConfig,
@@ -736,6 +754,7 @@ class WheelWinApplication {
             setupSessionLifecycle: this._setupSessionLifecycle,
             resultSessionLifecycle: this._resultSessionLifecycle,
             paymentSessionManager: this._paymentSessionManager,
+            gameContractManager: this._gameContractManager,
             sessionWalletStore: this._sessionWalletStore,
             isDevelopment: this._productionConfig.isDevelopment
         });
@@ -799,6 +818,7 @@ class WheelWinApplication {
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
             paymentSessionManager: Boolean(this._paymentSessionManager),
+            gameContractManager: Boolean(this._gameContractManager),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
@@ -906,6 +926,16 @@ class WheelWinApplication {
             if (this._paymentSessionManager) {
 
                 this._paymentSessionManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("gameContractManager", () => {
+
+            if (this._gameContractManager) {
+
+                this._gameContractManager.shutdown();
 
             }
 

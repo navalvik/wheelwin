@@ -55,6 +55,7 @@ export class RoomLobbyBridge {
         setupSessionLifecycle = null,
         resultSessionLifecycle = null,
         paymentSessionManager = null,
+        gameContractManager = null,
         sessionWalletStore = null,
         telegramWalletAdapter = null,
         entryPaymentDelays = null,
@@ -76,6 +77,8 @@ export class RoomLobbyBridge {
         this._resultSessionLifecycle = resultSessionLifecycle;
 
         this._paymentSessionManager = paymentSessionManager;
+
+        this._gameContractManager = gameContractManager;
 
         // R1.3D — DEBUG_START_GAME is development-only.
         this._isDevelopment = isDevelopment === true;
@@ -404,6 +407,15 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handlePaymentConfirmIntent(envelope.payload.socketId);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_CONTRACT_UPDATED,
+            (envelope) => {
+
+                this._deliverGameContractUpdated(envelope.payload);
 
             }
         );
@@ -992,6 +1004,19 @@ export class RoomLobbyBridge {
                     socketId,
                     LOBBY_SERVER_EVENTS.PAYMENT_SESSION_UPDATED,
                     paymentSession.toSnapshot()
+                );
+
+            }
+
+            const gameContract = this._gameContractManager
+                ?.getContract(roomId);
+
+            if (gameContract) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.GAME_CONTRACT_UPDATED,
+                    gameContract.toClientSnapshot()
                 );
 
             }
@@ -2626,6 +2651,24 @@ export class RoomLobbyBridge {
 
     }
 
+    _deliverGameContractUpdated(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.GAME_CONTRACT_UPDATED,
+            payload
+        );
+
+    }
+
     _applyEntryPaymentUpdate(roomId, updater) {
 
         const current = this._entryPaymentByRoom.get(roomId);
@@ -2941,6 +2984,8 @@ export class RoomLobbyBridge {
         this._walletConnectionByRoom.delete(roomId);
 
         this._paymentSessionManager?.destroySession(roomId);
+
+        this._gameContractManager?.destroyContract(roomId);
 
     }
 

@@ -55,3 +55,9 @@ export {
     mapPaymentSessionRows,
     canConfirmLocalPayment
 } from "./authoritativePaymentSessionView.js";
+
+export {
+    GAME_CONTRACT_STATUS,
+    hasGameContract,
+    mapGameContractStatusLabel
+} from "./authoritativeGameContractView.js";

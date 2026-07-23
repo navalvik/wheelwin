@@ -44,6 +44,8 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     PAYMENT_REQUEST: "PAYMENT_REQUEST",
     PAYMENT_SESSION_COMPLETED: "PAYMENT_SESSION_COMPLETED",
     PAYMENT_SESSION_FAILED: "PAYMENT_SESSION_FAILED",
+    // P6.4 — Game Smart Contract (identifier + state only).
+    GAME_CONTRACT_UPDATED: "GAME_CONTRACT_UPDATED",
     // R1.3D — sole authoritative signal for clients to open Page5.
     OPEN_PAGE5: "OPEN_PAGE5",
     // P5.3 — authoritative signal for clients to open Page6 after RESULT.

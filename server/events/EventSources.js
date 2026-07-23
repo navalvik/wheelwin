@@ -31,5 +31,6 @@ export const EVENT_SOURCES = Object.freeze({
     SETUP_SESSION_LIFECYCLE: "SetupSessionLifecycle",
     RESULT_SESSION_LIFECYCLE: "ResultSessionLifecycle",
     PAYMENT_SESSION_MANAGER: "PaymentSessionManager",
+    GAME_CONTRACT_MANAGER: "GameContractManager",
     OPERATIONAL_METRICS: "OperationalMetrics"
 });

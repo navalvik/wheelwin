@@ -13,6 +13,7 @@ import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import {
     canConfirmLocalPayment,
     hasPaymentSession,
+    mapGameContractStatusLabel,
     mapPaymentSessionRows,
     mapWalletConnectionRows,
     shouldShowPaymentSessionWaiting,
@@ -52,11 +53,17 @@ export default function Page4Payment({ onNavigate }) {
 
     const paymentSession = authoritative.paymentSession;
 
+    const gameContract = authoritative.gameContract;
+
     const paymentConnectionReady = authoritative.lifecycle
         ?.paymentConnectionReady === true;
 
     const inPaymentPhase = paymentConnectionReady
         || hasPaymentSession(paymentSession);
+
+    const contractStatusLabel = gameContract?.status
+        ? mapGameContractStatusLabel(gameContract.status)
+        : null;
 
     const waiting = inPaymentPhase
         ? shouldShowPaymentSessionWaiting(paymentSession)
@@ -351,6 +358,21 @@ export default function Page4Payment({ onNavigate }) {
                     {inPaymentPhase ? (
 
                         <div className="page4__connectActions">
+
+                            {contractStatusLabel && (
+
+                                <div
+                                    className="smartContractStatus"
+                                    aria-live="polite"
+                                >
+
+                                    <div>Game Contract</div>
+
+                                    <div>{contractStatusLabel}</div>
+
+                                </div>
+
+                            )}
 
                             {paymentSession?.status === "COMPLETED" ? (
 

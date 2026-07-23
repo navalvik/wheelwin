@@ -374,6 +374,42 @@ function assert(condition, message) {
 
 }
 
+// P6.4 — GAME_CONTRACT_UPDATED mirrors identifier + state only.
+{
+
+    const state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED,
+            payload: {
+                contractId: "contract_1",
+                roomId: "ROOM01",
+                gameId: "G1",
+                status: "AWAITING_PAYMENTS",
+                createdAt: 99
+            }
+        }
+    );
+
+    assert(
+        state.gameContract?.contractId === "contract_1",
+        "gameContract id stamped"
+    );
+
+    assert(
+        state.gameContract?.status === "AWAITING_PAYMENTS",
+        "gameContract status mirrored"
+    );
+
+    assert(
+        state.gameContract?.snapshot === undefined,
+        "client must not receive contract snapshot body"
+    );
+
+    console.log("  GAME_CONTRACT_UPDATED mirror passed");
+
+}
+
 // Incomplete GAME_RESULT must not fabricate a winner.
 {
 
