@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 
 import MarkdownViewer from "../MarkdownViewer";
 
+import { useLanguage } from "../../context/LanguageContext";
+
 export default function DocumentManager({ document }) {
+
+    const { languageCode, t } = useLanguage();
 
     const [content, setContent] = useState("");
 
@@ -20,7 +24,18 @@ export default function DocumentManager({ document }) {
 
                 setError(false);
 
-                const response = await fetch(`/docs/${document}.md`);
+                // Prefer language-specific docs when present; fall back to default.
+                const localizedPath = `/docs/${languageCode}/${document}.md`;
+
+                const defaultPath = `/docs/${document}.md`;
+
+                let response = await fetch(localizedPath);
+
+                if (!response.ok) {
+
+                    response = await fetch(defaultPath);
+
+                }
 
                 if (!response.ok) {
 
@@ -50,7 +65,7 @@ export default function DocumentManager({ document }) {
 
         loadDocument();
 
-    }, [document]);
+    }, [document, languageCode]);
 
     if (loading) {
 
@@ -58,7 +73,7 @@ export default function DocumentManager({ document }) {
 
             <div className="documentStatus">
 
-                Loading document...
+                {t("common.loadingDocument")}
 
             </div>
 
@@ -72,7 +87,7 @@ export default function DocumentManager({ document }) {
 
             <div className="documentStatus">
 
-                Document not found.
+                {t("common.documentNotFound")}
 
             </div>
 

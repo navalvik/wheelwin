@@ -1,15 +1,21 @@
+import { useLanguage } from "../context/LanguageContext";
+
 export default function HeaderBar({
     message,
     messageClassName = "",
     nextEnabled = false,
     showNextButton = true,
-    nextLabel = "NEXT",
+    nextLabel,
     backEnabled = false,
     onBack,
     onNext,
     showJumpButton = false,
     onJump
 }) {
+
+    const { t } = useLanguage();
+
+    const resolvedNextLabel = nextLabel ?? t("common.next");
 
     return (
 
@@ -22,7 +28,7 @@ export default function HeaderBar({
                         type="button"
                         onClick={onBack}
                     >
-                        BACK
+                        {t("common.back")}
                     </button>
                 )}
 
@@ -59,7 +65,7 @@ export default function HeaderBar({
                         disabled={!nextEnabled}
                         onClick={onNext}
                     >
-                        {nextLabel}
+                        {resolvedNextLabel}
                     </button>
 
                 )}

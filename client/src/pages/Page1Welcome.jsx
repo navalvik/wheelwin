@@ -6,6 +6,8 @@ import InfoPanel from "../components/InfoPanel";
 
 import DocumentManager from "../components/document/DocumentManager";
 
+import { useLanguage } from "../context/LanguageContext";
+
 import { DOCUMENTS } from "../utils/documents";
 
 export default function Page1Welcome({
@@ -13,6 +15,8 @@ export default function Page1Welcome({
     onNext
 
 }){
+
+    const { t } = useLanguage();
 
     const [activeItem, setActiveItem] = useState(
 
@@ -24,7 +28,7 @@ export default function Page1Welcome({
 
          <GameLayout
 
-           message="WELCOME TO WHEELWIN"
+           message={t("page.welcome.title")}
 
            nextEnabled={true}
 

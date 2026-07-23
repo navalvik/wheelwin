@@ -8,6 +8,7 @@ import { resolveWheelIcon } from "../components/game/WheelEngine/wheelUtils";
 
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameResult } from "../context/GameResultContext";
+import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
 
@@ -209,6 +210,8 @@ export default function Page6Result({ onFinish }) {
 
     const { result, payment, audit } = useGameResult();
 
+    const { t } = useLanguage();
+
     const { identity } = usePlayerIdentity();
 
     const authoritative = useAuthoritativeSession();
@@ -334,17 +337,17 @@ export default function Page6Result({ onFinish }) {
     return (
 
         <GameLayout
-            message="GAME FINISHED"
+            message={t("page.result.title")}
             showNextButton={true}
             nextEnabled={typeof onFinish === "function"}
-            nextLabel="FINISH"
+            nextLabel={t("common.finish")}
             onNext={onFinish}
             showJumpButton={false}
         >
 
             <div className="page6" data-has-result={Boolean(result)}>
 
-                <div className="page6__headline">GAME FINISHED</div>
+                <div className="page6__headline">{t("page.result.title")}</div>
 
                 {result
                     ? (

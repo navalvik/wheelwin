@@ -3,6 +3,7 @@ import GameLayout from "../layouts/GameLayout";
 import PlayerPaymentRow from "../components/PlayerPaymentRow";
 
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
+import { useLanguage } from "../context/LanguageContext";
 
 import {
     mapEntryPaymentRows,
@@ -17,6 +18,8 @@ export default function Page4Payment({ onNavigate }) {
     // C5.8C/E — Page4 mirrors AuthoritativeSession.entryPayment.
     // R1.3D — Page5 opens only via authoritative OPEN_PAGE5 (not locally).
     const authoritative = useAuthoritativeSession();
+
+    const { t } = useLanguage();
 
     const entryPayment = authoritative.entryPayment;
 
@@ -38,7 +41,7 @@ export default function Page4Payment({ onNavigate }) {
 
         <GameLayout
 
-            message="PAYMENT"
+            message={t("page.payment.title")}
 
             backEnabled={!entryPaymentCompleted}
 

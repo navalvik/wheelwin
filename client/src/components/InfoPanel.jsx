@@ -1,4 +1,5 @@
 import InfoMenu from "./InfoMenu";
+import LanguageSelector from "./LanguageSelector";
 
 import "../styles/infoPanel.css";
 
@@ -17,6 +18,8 @@ export default function InfoPanel({
         <div className="infoPanel">
 
             <aside className="infoPanelMenu">
+
+                <LanguageSelector />
 
                 <InfoMenu
 

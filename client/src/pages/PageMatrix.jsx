@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
+import { useLanguage } from "../context/LanguageContext";
+
 import socket from "../socket/socket";
 
 import {
@@ -12,6 +14,8 @@ import {
 import "../styles/pageMatrix.css";
 
 export default function PageMatrix({ onNavigate }) {
+
+    const { t } = useLanguage();
 
     const [secretMatrix, setSecretMatrix] = useState(
         Array(9).fill("")
@@ -101,7 +105,7 @@ export default function PageMatrix({ onNavigate }) {
 
         <GameLayout
 
-            message="SECRET MATRIX"
+            message={t("page.matrix.title")}
 
             backEnabled={!waitingForMatch}
 

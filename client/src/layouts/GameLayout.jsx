@@ -17,7 +17,7 @@ export default function GameLayout({
 
     showNextButton = true,
 
-    nextLabel = "NEXT",
+    nextLabel,
 
     backEnabled = false,
 

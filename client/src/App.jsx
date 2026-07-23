@@ -15,6 +15,7 @@ import OpenPage5Navigator from "./components/OpenPage5Navigator";
 import { DevNavigationContext } from "./context/DevNavigationContext";
 import { GameSessionProvider } from "./context/GameSessionContext";
 import { GameResultProvider } from "./context/GameResultContext";
+import { LanguageProvider } from "./context/LanguageContext";
 import { PlayerIdentityProvider } from "./context/PlayerIdentityContext";
 import { GameEngineProviders } from "./providers/GameEngineProviders";
 import RecoveryOverlay from "./components/RecoveryOverlay";
@@ -285,26 +286,30 @@ export default function App() {
 
     return (
 
-        <Routes>
+        <LanguageProvider>
 
-            {DEV_DASHBOARD_ENABLED && PageDeveloperDashboard && (
+            <Routes>
 
-                <Route
-                    path="/debug"
-                    element={(
-                        <Suspense fallback={null}>
+                {DEV_DASHBOARD_ENABLED && PageDeveloperDashboard && (
 
-                            <PageDeveloperDashboard />
+                    <Route
+                        path="/debug"
+                        element={(
+                            <Suspense fallback={null}>
 
-                        </Suspense>
-                    )}
-                />
+                                <PageDeveloperDashboard />
 
-            )}
+                            </Suspense>
+                        )}
+                    />
 
-            <Route path="/*" element={<GameFlow />} />
+                )}
 
-        </Routes>
+                <Route path="/*" element={<GameFlow />} />
+
+            </Routes>
+
+        </LanguageProvider>
 
     );
 

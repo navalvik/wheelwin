@@ -1,6 +1,19 @@
 import "../styles/infoMenu.css";
 
+import { useLanguage } from "../context/LanguageContext";
+
 import { DOCUMENT_MENU } from "../utils/documents";
+
+const MENU_TITLE_KEYS = Object.freeze({
+    welcome: "menu.welcome",
+    rules: "menu.rules",
+    faq: "menu.faq",
+    privacy: "menu.privacy",
+    terms: "menu.terms",
+    news: "menu.news",
+    links: "menu.links",
+    changelog: "menu.changelog"
+});
 
 export default function InfoMenu({
 
@@ -9,6 +22,8 @@ export default function InfoMenu({
     onSelect
 
 }){
+
+    const { t } = useLanguage();
 
     return(
 
@@ -21,6 +36,8 @@ export default function InfoMenu({
                     <button
 
                         key={item.id}
+
+                        type="button"
 
                         className={
 
@@ -36,7 +53,7 @@ export default function InfoMenu({
 
                     >
 
-                        {item.title}
+                        {t(MENU_TITLE_KEYS[item.id] ?? item.title)}
 
                     </button>
 

@@ -22,9 +22,15 @@
 
     min-width:0;
 
+    display:flex;
+
+    flex-direction:column;
+
     background:#FFFFFF;
 
     border-right:1px solid #D6E3F1;
+
+    overflow:hidden;
 }
 
 .infoPanelContent{

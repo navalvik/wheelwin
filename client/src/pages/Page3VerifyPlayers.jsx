@@ -6,6 +6,7 @@ import PlayerInfoRow from "../components/PlayerInfoRow";
 
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameSession } from "../context/GameSessionContext";
+import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import {
@@ -29,6 +30,8 @@ export default function Page3VerifyPlayers({ onNavigate }) {
     const authoritative = useAuthoritativeSession();
 
     const { session } = useGameSession();
+
+    const { t } = useLanguage();
 
     const { identity } = usePlayerIdentity();
 
@@ -204,7 +207,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         <GameLayout
 
-            message="VERIFY"
+            message={t("page.verify.title")}
 
             backEnabled={!waitingForVerify && !verifyCompleted}
 

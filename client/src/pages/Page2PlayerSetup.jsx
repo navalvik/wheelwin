@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import GameLayout from "../layouts/GameLayout";
 
 import { useGameSession } from "../context/GameSessionContext";
+import { useLanguage } from "../context/LanguageContext";
 
 import socket from "../socket/socket";
 
@@ -21,7 +22,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
     const { setFinance } = useGameSession();
 
-    const [language, setLanguage] = useState("English");
+    const { languageLabel, t } = useLanguage();
 
     const [nickname, setNickname] = useState("");
 
@@ -72,7 +73,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
         <GameLayout
 
-            message="PLAYER SETUP"
+            message={t("page.setup.title")}
 
             nextEnabled={ageValid}
 
@@ -88,32 +89,26 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                         <div className="setupLabelCell">
 
-                            CHOOSE LANGUAGE
+                            {t("setup.yourLanguage")}
 
                         </div>
 
                         <div className="setupControlCell">
 
-                            <select
-
-                                className="setupSelect"
-
-                                value={language}
-
-                                onChange={(e) => setLanguage(e.target.value)}
-
+                            <div
+                                className="setupLanguageValue"
+                                aria-readonly="true"
                             >
 
-                                <option>English</option>
-                                <option>Русский</option>
+                                {languageLabel}
 
-                            </select>
+                            </div>
 
                         </div>
 
                         <div className="setupLabelCell">
 
-                            INPUT YOUR NICKNAME
+                            {t("setup.nickname")}
 
                         </div>
 
@@ -141,7 +136,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                         <div className="setupLabelCell">
 
-                            HOW OLD ARE YOU?
+                            {t("setup.age")}
 
                         </div>
 
@@ -169,7 +164,10 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                             <div className="ageValidation">
 
-                                {`You must be between ${MIN_PLAYER_AGE} and ${MAX_PLAYER_AGE} years old.`}
+                                {t("setup.ageHint", {
+                                    min: MIN_PLAYER_AGE,
+                                    max: MAX_PLAYER_AGE
+                                })}
 
                             </div>
 
@@ -177,7 +175,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                         <div className="setupLabelCell">
 
-                            BASE STAKE
+                            {t("setup.baseStake")}
 
                         </div>
 
@@ -203,7 +201,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                     />
 
-                                    1 GRAM
+                                    {t("setup.oneGram")}
 
                                 </label>
 
@@ -225,7 +223,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                     />
 
-                                    10 GRAM
+                                    {t("setup.tenGram")}
 
                                 </label>
 
@@ -235,7 +233,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                         <div className="setupLabelCell">
 
-                            SECTORS
+                            {t("setup.sectors")}
 
                         </div>
 
@@ -261,7 +259,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                     />
 
-                                    1 SECTOR
+                                    {t("setup.oneSector")}
 
                                 </label>
 
@@ -283,7 +281,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                     />
 
-                                    2 SECTORS
+                                    {t("setup.twoSectors")}
 
                                 </label>
 
@@ -297,7 +295,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                 <div className="setupLabelCell">
 
-                                    ARRANGEMENT
+                                    {t("setup.arrangement")}
 
                                 </div>
 
@@ -323,7 +321,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                             />
 
-                                            TOGETHER
+                                            {t("setup.together")}
 
                                         </label>
 
@@ -345,7 +343,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                             />
 
-                                            SEPARATE
+                                            {t("setup.separate")}
 
                                         </label>
 
@@ -359,7 +357,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                         <div className="setupLabelCell">
 
-                            COLOR FOR SECTOR 1
+                            {t("setup.colorSector1")}
 
                         </div>
 
@@ -395,7 +393,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                 <div className="setupLabelCell">
 
-                                    COLOR FOR SECTOR 2
+                                    {t("setup.colorSector2")}
 
                                 </div>
 

@@ -5,6 +5,7 @@ import GameLayout from "../layouts/GameLayout";
 import CreateRoomPanel from "../components/CreateRoomPanel";
 import JoinRoomPanel from "../components/JoinRoomPanel";
 
+import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import socket from "../socket/socket";
@@ -18,6 +19,8 @@ export default function RoomLobby({
     onNavigate
 
 }) {
+
+    const { t } = useLanguage();
 
     const [roomState, setRoomState] = useState(ROOM_DEFAULTS);
 
@@ -105,7 +108,7 @@ export default function RoomLobby({
 
         <GameLayout
 
-            message="CREATE OR JOIN ROOM"
+            message={t("page.lobby.title")}
 
             showNextButton={false}
 
