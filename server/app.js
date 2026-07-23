@@ -83,6 +83,7 @@ import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
+import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
 import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
 import { TonGameContractAdapter } from "./payment/TonGameContractAdapter.js";
 import {
@@ -179,6 +180,8 @@ class WheelWinApplication {
         this._gameContractManager = null;
 
         this._gameStartAuthorization = null;
+
+        this._contractSettlementManager = null;
 
         this._blockchainMonitor = null;
 
@@ -767,6 +770,8 @@ class WheelWinApplication {
                 tonClient: this._services.tonService.getClient()
             });
 
+        this._gameContractDeployAdapter = deployAdapter;
+
         this._gameContractManager = new GameContractManager({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -782,6 +787,25 @@ class WheelWinApplication {
         this._gameContractManager.initialize();
 
         this._logger.startupLine("GameContractManager");
+
+        this._contractSettlementManager = new ContractSettlementManager({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            gameContractManager: this._gameContractManager,
+            winnerEngine: this._engines.winnerEngine,
+            configurationEngine: this._engines.configurationEngine,
+            settlementAdapter: deployAdapter,
+            auditLedger: this._entryPaymentAuditLedger,
+            paymentSessionManager: this._paymentSessionManager,
+            gameplayContextResolver: this._gameplayContextResolver,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._contractSettlementManager.initialize();
+
+        this._gameplayPhaseLifecycle.configureSettlementGate({ enabled: true });
+
+        this._logger.startupLine("ContractSettlementManager");
 
         this._gameStartAuthorization = new GameStartAuthorization({
             logger: this._logger,
@@ -829,6 +853,7 @@ class WheelWinApplication {
             paymentSessionManager: this._paymentSessionManager,
             gameContractManager: this._gameContractManager,
             gameStartAuthorization: this._gameStartAuthorization,
+            contractSettlementManager: this._contractSettlementManager,
             sessionWalletStore: this._sessionWalletStore,
             isDevelopment: this._productionConfig.isDevelopment
         });
@@ -1030,6 +1055,16 @@ class WheelWinApplication {
             if (this._gameStartAuthorization) {
 
                 this._gameStartAuthorization.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("contractSettlementManager", () => {
+
+            if (this._contractSettlementManager) {
+
+                this._contractSettlementManager.shutdown();
 
             }
 

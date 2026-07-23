@@ -392,6 +392,51 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onSettlementStarted: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_STARTED,
+                payload
+            });
+
+        },
+
+        onSettlementSubmitted: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_SUBMITTED,
+                payload
+            });
+
+        },
+
+        onSettlementConfirmed: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_CONFIRMED,
+                payload
+            });
+
+        },
+
+        onSettlementCompleted: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_COMPLETED,
+                payload
+            });
+
+        },
+
+        onSettlementFailed: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_FAILED,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

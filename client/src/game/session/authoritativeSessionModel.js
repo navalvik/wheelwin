@@ -52,6 +52,11 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
     GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
     GAME_INITIALIZING: "GAME_INITIALIZING",
+    SETTLEMENT_STARTED: "SETTLEMENT_STARTED",
+    SETTLEMENT_SUBMITTED: "SETTLEMENT_SUBMITTED",
+    SETTLEMENT_CONFIRMED: "SETTLEMENT_CONFIRMED",
+    SETTLEMENT_COMPLETED: "SETTLEMENT_COMPLETED",
+    SETTLEMENT_FAILED: "SETTLEMENT_FAILED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -83,7 +88,9 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
         entryPaymentCompleted: false,
         paymentConnectionReady: false,
         gameStartAuthorized: false,
-        gameInitializing: false
+        gameInitializing: false,
+        settlementCompleted: false,
+        settlementFailed: false
     }),
     lastEventType: null,
     lastUpdatedAt: null
@@ -784,6 +791,47 @@ export function authoritativeSessionReducer(state, action) {
                     ...state.lifecycle,
                     gameStartAuthorized: true,
                     gameInitializing: true
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_STARTED:
+        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_SUBMITTED:
+        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_CONFIRMED: {
+
+            return stamp({
+                ...state,
+                roomId: payload?.roomId ?? state.roomId,
+                gameId: payload?.gameId ?? state.gameId
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_COMPLETED: {
+
+            return stamp({
+                ...state,
+                roomId: payload?.roomId ?? state.roomId,
+                gameId: payload?.gameId ?? state.gameId,
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    settlementCompleted: true,
+                    settlementFailed: false
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_FAILED: {
+
+            return stamp({
+                ...state,
+                roomId: payload?.roomId ?? state.roomId,
+                gameId: payload?.gameId ?? state.gameId,
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    settlementFailed: true
                 })
             }, action.type);
 

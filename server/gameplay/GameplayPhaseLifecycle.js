@@ -13,6 +13,9 @@ import {
  *
  * Server owns every phase entry and the transition to Page6. Clients render only.
  * Reacts to GameClockEngine scheduler events; never controls physics or inputs.
+ *
+ * P6.8B — when requireSettlementBeforePage6 is true, OPEN_PAGE6 waits for
+ * SETTLEMENT_COMPLETED (in addition to RESULT_COMPLETED).
  */
 export class GameplayPhaseLifecycle {
 
@@ -22,6 +25,7 @@ export class GameplayPhaseLifecycle {
         gameStateEngine,
         gameClockEngine,
         winnerEngine = null,
+        requireSettlementBeforePage6 = false,
         devMode = false
     }) {
 
@@ -35,11 +39,17 @@ export class GameplayPhaseLifecycle {
 
         this._winnerEngine = winnerEngine;
 
+        this._requireSettlementBeforePage6 = requireSettlementBeforePage6 === true;
+
         this._devMode = devMode;
 
         this._handlers = [];
 
         this._completedGames = new Set();
+
+        this._resultReady = new Set();
+
+        this._settlementReady = new Set();
 
         this._initialized = false;
 
@@ -65,7 +75,25 @@ export class GameplayPhaseLifecycle {
 
         }
 
+        this._subscribe(
+            EVENT_TYPES.SETTLEMENT_COMPLETED,
+            (envelope) => {
+
+                this._handleSettlementCompleted(envelope.payload);
+
+            }
+        );
+
         this._initialized = true;
+
+    }
+
+    /**
+     * P6.8B — enable OPEN_PAGE6 gate after ContractSettlementManager is wired.
+     */
+    configureSettlementGate({ enabled = true } = {}) {
+
+        this._requireSettlementBeforePage6 = enabled === true;
 
     }
 
@@ -84,7 +112,21 @@ export class GameplayPhaseLifecycle {
 
         this._completedGames.clear();
 
+        this._resultReady.clear();
+
+        this._settlementReady.clear();
+
         this._initialized = false;
+
+    }
+
+    forgetGame(gameId) {
+
+        this._completedGames.delete(gameId);
+
+        this._resultReady.delete(gameId);
+
+        this._settlementReady.delete(gameId);
 
     }
 
@@ -138,13 +180,66 @@ export class GameplayPhaseLifecycle {
 
         }
 
-        this._completedGames.add(gameId);
+        this._resultReady.add(gameId);
 
         this._emitLifecycle(EVENT_TYPES.GAME_RESULT_READY, {
             gameId,
             result: this._winnerEngine?.getResult(gameId) ?? null,
             timestamp: Date.now()
         });
+
+        this._tryOpenPage6(gameId);
+
+    }
+
+    _handleSettlementCompleted(payload) {
+
+        const gameId = payload?.gameId;
+
+        if (!gameId) {
+
+            return;
+
+        }
+
+        this._settlementReady.add(gameId);
+
+        this._tryOpenPage6(gameId);
+
+    }
+
+    _tryOpenPage6(gameId) {
+
+        if (!gameId || this._completedGames.has(gameId)) {
+
+            return;
+
+        }
+
+        if (!this._resultReady.has(gameId)) {
+
+            return;
+
+        }
+
+        if (
+            this._requireSettlementBeforePage6
+            && !this._settlementReady.has(gameId)
+        ) {
+
+            if (this._devMode) {
+
+                this._logger.info(
+                    `[GameplayPhaseLifecycle] OPEN_PAGE6 deferred — waiting for settlement | gameId=${gameId}`
+                );
+
+            }
+
+            return;
+
+        }
+
+        this._completedGames.add(gameId);
 
         this._emitLifecycle(EVENT_TYPES.OPEN_PAGE6, {
             gameId,

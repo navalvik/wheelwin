@@ -263,6 +263,31 @@ export class EngineBridge {
                 session()?.onGameInitializing?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.SETTLEMENT_STARTED]: (payload) => {
+
+                session()?.onSettlementStarted?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.SETTLEMENT_SUBMITTED]: (payload) => {
+
+                session()?.onSettlementSubmitted?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.SETTLEMENT_CONFIRMED]: (payload) => {
+
+                session()?.onSettlementConfirmed?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.SETTLEMENT_COMPLETED]: (payload) => {
+
+                session()?.onSettlementCompleted?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.SETTLEMENT_FAILED]: (payload) => {
+
+                session()?.onSettlementFailed?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE5]: (payload) => {
 
                 modules.pageNavigation?.onOpenPage5?.(payload);

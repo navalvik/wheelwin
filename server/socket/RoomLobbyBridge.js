@@ -57,6 +57,7 @@ export class RoomLobbyBridge {
         paymentSessionManager = null,
         gameContractManager = null,
         gameStartAuthorization = null,
+        contractSettlementManager = null,
         sessionWalletStore = null,
         telegramWalletAdapter = null,
         entryPaymentDelays = null,
@@ -82,6 +83,8 @@ export class RoomLobbyBridge {
         this._gameContractManager = gameContractManager;
 
         this._gameStartAuthorization = gameStartAuthorization;
+
+        this._contractSettlementManager = contractSettlementManager;
 
         // R1.3D — DEBUG_START_GAME is development-only.
         this._isDevelopment = isDevelopment === true;
@@ -482,6 +485,66 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleGameStartFailed(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETTLEMENT_STARTED,
+            (envelope) => {
+
+                this._deliverSettlementEvent(
+                    LOBBY_SERVER_EVENTS.SETTLEMENT_STARTED,
+                    envelope.payload
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETTLEMENT_SUBMITTED,
+            (envelope) => {
+
+                this._deliverSettlementEvent(
+                    LOBBY_SERVER_EVENTS.SETTLEMENT_SUBMITTED,
+                    envelope.payload
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETTLEMENT_CONFIRMED,
+            (envelope) => {
+
+                this._deliverSettlementEvent(
+                    LOBBY_SERVER_EVENTS.SETTLEMENT_CONFIRMED,
+                    envelope.payload
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETTLEMENT_COMPLETED,
+            (envelope) => {
+
+                this._deliverSettlementEvent(
+                    LOBBY_SERVER_EVENTS.SETTLEMENT_COMPLETED,
+                    envelope.payload
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETTLEMENT_FAILED,
+            (envelope) => {
+
+                this._deliverSettlementEvent(
+                    LOBBY_SERVER_EVENTS.SETTLEMENT_FAILED,
+                    envelope.payload
+                );
 
             }
         );
@@ -1146,6 +1209,37 @@ export class RoomLobbyBridge {
                     LOBBY_SERVER_EVENTS.OPEN_PAGE5,
                     { roomId }
                 );
+
+            }
+
+            // P6.8B — restore settlement status without re-submitting.
+            const settleGameId = gameId
+                ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
+                ?? null;
+
+            const settlement = settleGameId
+                ? this._contractSettlementManager
+                    ?.getReconnectSnapshot?.(settleGameId)
+                : null;
+
+            if (settlement) {
+
+                const eventByStatus = {
+                    SETTLEMENT_PREPARING: LOBBY_SERVER_EVENTS.SETTLEMENT_STARTED,
+                    SETTLEMENT_SUBMITTED: LOBBY_SERVER_EVENTS.SETTLEMENT_SUBMITTED,
+                    SETTLEMENT_PENDING: LOBBY_SERVER_EVENTS.SETTLEMENT_SUBMITTED,
+                    SETTLEMENT_CONFIRMED: LOBBY_SERVER_EVENTS.SETTLEMENT_CONFIRMED,
+                    SETTLEMENT_COMPLETED: LOBBY_SERVER_EVENTS.SETTLEMENT_COMPLETED,
+                    SETTLEMENT_FAILED: LOBBY_SERVER_EVENTS.SETTLEMENT_FAILED
+                };
+
+                const eventName = eventByStatus[settlement.status];
+
+                if (eventName) {
+
+                    this._deliverToSocket(socketId, eventName, settlement);
+
+                }
 
             }
 
@@ -2911,6 +3005,26 @@ export class RoomLobbyBridge {
 
         // Cancel game; payment + audit records stay on the ledger.
         this._closeRoom(roomId, payload?.reason ?? "game_start_failed");
+
+    }
+
+    _deliverSettlementEvent(eventName, payload) {
+
+        const roomId = payload?.roomId
+            ?? (payload?.gameId
+                ? this._gameplayContextResolver?.resolveRoomByGameId(payload.gameId)
+                : null);
+
+        if (!roomId || !eventName) {
+
+            return;
+
+        }
+
+        // Never forward ownerWallet — strip any accidental field.
+        const { ownerWallet: _omit, ...safePayload } = payload ?? {};
+
+        this._deliverToRoom(roomId, eventName, safePayload);
 
     }
 

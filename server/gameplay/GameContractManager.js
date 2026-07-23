@@ -178,6 +178,21 @@ export class GameContractManager {
 
     }
 
+    /**
+     * P6.8B — public client update emit for settlement state transitions.
+     */
+    notifyClientUpdate(contract) {
+
+        if (!contract) {
+
+            return;
+
+        }
+
+        this._emitClientUpdate(contract);
+
+    }
+
     createContractRequest(roomId, { gameId = null } = {}) {
 
         this._assertInitialized();

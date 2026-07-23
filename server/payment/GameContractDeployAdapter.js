@@ -90,4 +90,64 @@ export class GameContractDeployAdapter {
 
     }
 
+    /**
+     * P6.8B — Submit settlement transfers via the smart contract.
+     * Stub performs no real chain transfer; returns an immutable result.
+     *
+     * @param {object} settlementRequest
+     * @returns {Promise<{
+     *   ok: boolean,
+     *   settlementTxId?: string,
+     *   settledAt?: number,
+     *   reason?: string
+     * }>}
+     */
+    async settleContract(settlementRequest) {
+
+        if (!settlementRequest?.contractId || !settlementRequest?.winnerWallet) {
+
+            return {
+                ok: false,
+                reason: "invalid_settlement_request"
+            };
+
+        }
+
+        if (this._deployDelayMs > 0) {
+
+            await new Promise((resolve) => {
+
+                setTimeout(resolve, this._deployDelayMs);
+
+            });
+
+        }
+
+        if (this._shouldFail) {
+
+            this._logger?.warn?.(
+                `GameContract settle stub failed | contractId=${settlementRequest.contractId}`
+            );
+
+            return {
+                ok: false,
+                reason: "settle_stub_failed"
+            };
+
+        }
+
+        const result = {
+            ok: true,
+            settlementTxId: `settle_tx_${randomUUID()}`,
+            settledAt: Date.now()
+        };
+
+        this._logger?.info?.(
+            `GameContract settle stub ok | contractId=${settlementRequest.contractId}`
+        );
+
+        return result;
+
+    }
+
 }

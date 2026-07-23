@@ -404,6 +404,51 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleSettlementStarted = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_STARTED,
+                payload
+            });
+
+        };
+
+        this._handleSettlementSubmitted = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_SUBMITTED,
+                payload
+            });
+
+        };
+
+        this._handleSettlementConfirmed = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_CONFIRMED,
+                payload
+            });
+
+        };
+
+        this._handleSettlementCompleted = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_COMPLETED,
+                payload
+            });
+
+        };
+
+        this._handleSettlementFailed = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_FAILED,
+                payload
+            });
+
+        };
+
         this._handleOpenPage5 = (payload) => {
 
             this._handleIncoming({
@@ -542,6 +587,31 @@ export class SocketSyncLayer {
         );
 
         this._socket.on(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_STARTED,
+            this._handleSettlementStarted
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_SUBMITTED,
+            this._handleSettlementSubmitted
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_CONFIRMED,
+            this._handleSettlementConfirmed
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_COMPLETED,
+            this._handleSettlementCompleted
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_FAILED,
+            this._handleSettlementFailed
+        );
+
+        this._socket.on(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
             this._handleOpenPage5
         );
@@ -676,6 +746,31 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.GAME_INITIALIZING,
             this._handleGameInitializing
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_STARTED,
+            this._handleSettlementStarted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_SUBMITTED,
+            this._handleSettlementSubmitted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_CONFIRMED,
+            this._handleSettlementConfirmed
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_COMPLETED,
+            this._handleSettlementCompleted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.SETTLEMENT_FAILED,
+            this._handleSettlementFailed
         );
 
         this._socket.off(
