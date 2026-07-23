@@ -243,6 +243,16 @@ export class EngineBridge {
                 session()?.onGameContractUpdated?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED]: (payload) => {
+
+                session()?.onGameContractDeployed?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED]: (payload) => {
+
+                session()?.onGameContractDeployFailed?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE5]: (payload) => {
 
                 modules.pageNavigation?.onOpenPage5?.(payload);

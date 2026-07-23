@@ -53,11 +53,13 @@ export {
     shouldShowPaymentSessionWaiting,
     mapPaymentParticipantStatusLabel,
     mapPaymentSessionRows,
-    canConfirmLocalPayment
+    canConfirmLocalPayment,
+    getLocalPaymentRequest
 } from "./authoritativePaymentSessionView.js";
 
 export {
     GAME_CONTRACT_STATUS,
     hasGameContract,
+    isGameContractDeployed,
     mapGameContractStatusLabel
 } from "./authoritativeGameContractView.js";

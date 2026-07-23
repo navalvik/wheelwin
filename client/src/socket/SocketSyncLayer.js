@@ -368,6 +368,24 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleGameContractDeployed = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED,
+                payload
+            });
+
+        };
+
+        this._handleGameContractDeployFailed = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
+                payload
+            });
+
+        };
+
         this._handleOpenPage5 = (payload) => {
 
             this._handleIncoming({
@@ -486,6 +504,16 @@ export class SocketSyncLayer {
         );
 
         this._socket.on(
+            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED,
+            this._handleGameContractDeployed
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
+            this._handleGameContractDeployFailed
+        );
+
+        this._socket.on(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
             this._handleOpenPage5
         );
@@ -600,6 +628,16 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED,
             this._handleGameContractUpdated
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED,
+            this._handleGameContractDeployed
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
+            this._handleGameContractDeployFailed
         );
 
         this._socket.off(

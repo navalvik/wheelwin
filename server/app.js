@@ -81,6 +81,12 @@ import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "./gameplay/GameContractManager.js";
+import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
+import { TonGameContractAdapter } from "./payment/TonGameContractAdapter.js";
+import {
+    BlockchainMonitor,
+    EntryPaymentAuditLedger
+} from "./payment/BlockchainMonitor.js";
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 
 class WheelWinApplication {
@@ -170,7 +176,13 @@ class WheelWinApplication {
 
         this._gameContractManager = null;
 
+        this._blockchainMonitor = null;
+
+        this._entryPaymentAuditLedger = null;
+
         this._sessionWalletStore = null;
+
+        this._tonConfig = null;
 
         this._isShuttingDown = false;
 
@@ -208,6 +220,8 @@ class WheelWinApplication {
         const socketConfig = loadSocketConfig(this._serverConfig);
 
         const tonConfig = loadTonConfig();
+
+        this._tonConfig = tonConfig;
 
         this._eventBusConfig = loadEventBusConfig(
             process.env,
@@ -698,6 +712,20 @@ class WheelWinApplication {
             this._gameplayContextResolver
         );
 
+        this._entryPaymentAuditLedger = new EntryPaymentAuditLedger();
+
+        this._blockchainMonitor = new BlockchainMonitor({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            transport: this._services.tonService.getTransport(),
+            auditLedger: this._entryPaymentAuditLedger,
+            pollIntervalMs: this._tonConfig.pollIntervalMs
+        });
+
+        this._blockchainMonitor.initialize();
+
+        this._logger.startupLine("BlockchainMonitor");
+
         this._paymentSessionManager = new PaymentSessionManager({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -706,6 +734,7 @@ class WheelWinApplication {
             roomConfig: this._roomConfig,
             gameplayContextResolver: this._gameplayContextResolver,
             sessionWalletStore: this._sessionWalletStore,
+            blockchainMonitor: this._blockchainMonitor,
             devMode: this._productionConfig.isDevelopment
         });
 
@@ -717,6 +746,18 @@ class WheelWinApplication {
             this._paymentSessionManager
         );
 
+        const deployAdapter = this._tonConfig.deployMode === "stub"
+            ? new GameContractDeployAdapter({
+                logger: this._logger,
+                deployDelayMs: this._productionConfig.isDevelopment ? 40 : 0
+            })
+            : new TonGameContractAdapter({
+                logger: this._logger,
+                tonConfig: this._tonConfig,
+                transport: this._services.tonService.getTransport(),
+                tonClient: this._services.tonService.getClient()
+            });
+
         this._gameContractManager = new GameContractManager({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -724,6 +765,7 @@ class WheelWinApplication {
             roomManager: this._managers.roomManager,
             sessionWalletStore: this._sessionWalletStore,
             configurationEngine: this._engines.configurationEngine,
+            deployAdapter,
             creatingDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
             devMode: this._productionConfig.isDevelopment
         });
@@ -926,6 +968,16 @@ class WheelWinApplication {
             if (this._paymentSessionManager) {
 
                 this._paymentSessionManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("blockchainMonitor", () => {
+
+            if (this._blockchainMonitor) {
+
+                this._blockchainMonitor.shutdown();
 
             }
 

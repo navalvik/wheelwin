@@ -356,6 +356,24 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onGameContractDeployed: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOYED,
+                payload
+            });
+
+        },
+
+        onGameContractDeployFailed: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOY_FAILED,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

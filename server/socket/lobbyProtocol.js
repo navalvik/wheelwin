@@ -14,7 +14,9 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     WALLET_CONNECT_REPORT: "WALLET_CONNECT_REPORT",
     WALLET_DISCONNECT_REPORT: "WALLET_DISCONNECT_REPORT",
     // P6.3 — player confirms the authoritative payment request (no chain yet).
-    PAYMENT_CONFIRM_INTENT: "PAYMENT_CONFIRM_INTENT"
+    PAYMENT_CONFIRM_INTENT: "PAYMENT_CONFIRM_INTENT",
+    // P6.5 — player cancelled Telegram Wallet payment confirmation.
+    PAYMENT_CANCEL_INTENT: "PAYMENT_CANCEL_INTENT"
 });
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({
@@ -46,6 +48,9 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     PAYMENT_SESSION_FAILED: "PAYMENT_SESSION_FAILED",
     // P6.4 — Game Smart Contract (identifier + state only).
     GAME_CONTRACT_UPDATED: "GAME_CONTRACT_UPDATED",
+    // P6.5 — deployment results for clients.
+    GAME_CONTRACT_DEPLOYED: "GAME_CONTRACT_DEPLOYED",
+    GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
     // R1.3D — sole authoritative signal for clients to open Page5.
     OPEN_PAGE5: "OPEN_PAGE5",
     // P5.3 — authoritative signal for clients to open Page6 after RESULT.

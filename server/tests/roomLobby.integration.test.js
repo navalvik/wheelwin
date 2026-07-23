@@ -801,13 +801,52 @@ try {
         "PaymentSession must include gameId, session id, and three seats"
     );
 
-    assert(
-        paymentSession.participants.every(
+    // P6.5 — wait for deploy + wallet payment requests.
+    let seatsReady = false;
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+
+        seatsReady = paymentSession.participants.every(
             (participant) => (
                 participant.status === "AWAITING_PLAYER_CONFIRMATION"
             )
-        ),
-        "after PAYMENT_REQUEST every seat awaits confirmation"
+        );
+
+        if (seatsReady && harness.gameContractManager.getContract(created.roomId)
+            ?.contractAddress) {
+
+            break;
+
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 25));
+
+    }
+
+    const gameContract = harness.gameContractManager
+        .getContract(created.roomId);
+
+    assert(gameContract, "GameContract must exist after payment requested");
+
+    assert(
+        gameContract.contractId
+            && gameContract.gameId
+            && gameContract.snapshot
+            && Object.isFrozen(gameContract.snapshot)
+            && gameContract.contractAddress,
+        "GameContract must hold immutable snapshot and deployed address"
+    );
+
+    assert(
+        gameContract.status === "AWAITING_PLAYER_PAYMENTS"
+            || gameContract.status === "DEPLOYED"
+            || gameContract.status === "PAYMENTS_COMPLETE",
+        "GameContract must be deployed and awaiting player payments"
+    );
+
+    assert(
+        seatsReady,
+        "after DEPLOYED every seat awaits Telegram Wallet confirmation"
     );
 
     const sessionUpdatedPromise = waitForEvent(
@@ -826,33 +865,30 @@ try {
             (participant) => (
                 participant.playerId === created.playerId
                 && (
-                    participant.status === "PAYMENT_CONFIRMED"
+                    participant.status === "BLOCKCHAIN_PENDING"
                     || participant.status === "PAYMENT_SUBMITTED"
                 )
             )
         ),
-        "PAYMENT_CONFIRM_INTENT must advance the confirming player's status"
+        "PAYMENT_CONFIRM_INTENT must move seat to blockchain pending"
     );
 
-    // P6.4 — Game Contract architecture after PAYMENT_REQUESTED.
-    const gameContract = harness.gameContractManager
-        .getContract(created.roomId);
+    const pendingSeat = paymentSession.findParticipant(created.playerId);
 
-    assert(gameContract, "GameContract must exist after payment requested");
-
-    assert(
-        gameContract.contractId
-            && gameContract.gameId
-            && gameContract.snapshot
-            && Object.isFrozen(gameContract.snapshot),
-        "GameContract must hold immutable snapshot server-side"
-    );
+    await harness.blockchainMonitor.ingestTransaction(created.roomId, {
+        transaction_id: { hash: "lobby_tx_host" },
+        in_msg: {
+            source: hostWallet,
+            destination: gameContract.contractAddress,
+            message: pendingSeat.paymentReference,
+            grmAmount: pendingSeat.requiredGram
+        }
+    });
 
     assert(
-        gameContract.status === "AWAITING_PAYMENTS"
-            || gameContract.status === "CREATED"
-            || gameContract.status === "READY_FOR_BLOCKCHAIN",
-        "GameContract must advance past CREATING"
+        paymentSession.findParticipant(created.playerId)?.status
+            === "PAYMENT_CONFIRMED",
+        "BlockchainMonitor confirmation must set PAYMENT_CONFIRMED"
     );
 
     // Mismatch leaves the room on Page4 without OPEN_PAGE5.

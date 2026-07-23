@@ -5,6 +5,7 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GameContractManager } from "../gameplay/GameContractManager.js";
 import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
+import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
 
 function createLogger() {
 
@@ -17,7 +18,13 @@ function createLogger() {
 
 }
 
-function createHarness() {
+function wait(ms) {
+
+    return new Promise((resolve) => setTimeout(resolve, ms));
+
+}
+
+function createHarness({ shouldFail = false } = {}) {
 
     const logger = createLogger();
 
@@ -34,33 +41,25 @@ function createHarness() {
         ["p3", { nickname: "C", baseStake: 10, sectorCount: 1 }]
     ]);
 
-    const playerManager = {
-        getIdentity(playerId) {
-
-            return identities.get(playerId) ?? null;
-
-        }
-    };
-
-    const roomManager = {
-        getRoom(roomId) {
-
-            if (roomId !== "room-1") {
-
-                return null;
-
-            }
-
-            return { players: ["p1", "p2", "p3"] };
-
-        }
-    };
-
     const manager = new GameContractManager({
         logger,
         eventBus,
-        playerManager,
-        roomManager,
+        playerManager: {
+            getIdentity(playerId) {
+
+                return identities.get(playerId) ?? null;
+
+            }
+        },
+        roomManager: {
+            getRoom(roomId) {
+
+                return roomId === "room-1"
+                    ? { players: ["p1", "p2", "p3"] }
+                    : null;
+
+            }
+        },
         sessionWalletStore: {
             getWallet() {
 
@@ -71,14 +70,14 @@ function createHarness() {
         configurationEngine: {
             getConfiguration() {
 
-                return {
-                    stake: 10,
-                    players: [],
-                    sectors: []
-                };
+                return { stake: 10, players: [], sectors: [] };
 
             }
         },
+        deployAdapter: new GameContractDeployAdapter({
+            deployDelayMs: 0,
+            shouldFail
+        }),
         creatingDelayMs: 0,
         devMode: false
     });
@@ -94,9 +93,17 @@ function createHarness() {
 
     const updates = [];
 
+    const readyForPayments = [];
+
     eventBus.subscribe(EVENT_TYPES.GAME_CONTRACT_UPDATED, (envelope) => {
 
         updates.push(envelope.payload);
+
+    });
+
+    eventBus.subscribe(EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS, (envelope) => {
+
+        readyForPayments.push(envelope.payload);
 
     });
 
@@ -107,50 +114,41 @@ function createHarness() {
             roomId: "room-1",
             gameId: "game-1",
             participants: [
-                {
-                    playerId: "p1",
-                    status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
-                },
-                {
-                    playerId: "p2",
-                    status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
-                },
-                {
-                    playerId: "p3",
-                    status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
-                }
+                { playerId: "p1", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED },
+                { playerId: "p2", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED },
+                { playerId: "p3", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED }
             ]
         }
     });
 
+    await wait(10);
+
     const contract = manager.getContract("room-1");
 
-    assert.ok(contract, "contract created after PAYMENT_REQUESTED");
-
-    assert.equal(manager.getContractByGameId("game-1"), contract);
+    assert.ok(contract);
 
     assert.equal(
         contract.status,
-        GAME_CONTRACT_STATUS.AWAITING_PAYMENTS
+        GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS
     );
 
-    assert.ok(contract.snapshot, "immutable snapshot stored server-side");
+    assert.ok(contract.contractAddress);
+
+    assert.equal(readyForPayments.length, 1);
+
+    assert.equal(
+        readyForPayments[0].contractAddress,
+        contract.contractAddress
+    );
 
     assert.ok(
         updates.every((update) => update.snapshot === undefined),
-        "clients receive identifier + state only"
+        "clients never receive snapshot body"
     );
 
     assert.ok(
-        updates.some(
-            (update) => update.status === GAME_CONTRACT_STATUS.CREATING
-        )
-    );
-
-    assert.ok(
-        updates.some(
-            (update) => update.status === GAME_CONTRACT_STATUS.AWAITING_PAYMENTS
-        )
+        updates.some((update) => update.contractAddress),
+        "clients receive contractAddress after deploy"
     );
 
     eventBus.emit({
@@ -161,12 +159,48 @@ function createHarness() {
 
     assert.equal(
         contract.status,
-        GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN
+        GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
     );
 
-    manager.destroyContract("room-1");
+    manager.shutdown();
 
-    assert.equal(manager.getContract("room-1"), null);
+    eventBus.shutdown();
+
+}
+
+{
+    const { eventBus, manager } = createHarness({ shouldFail: true });
+
+    const failed = [];
+
+    eventBus.subscribe(EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED, (envelope) => {
+
+        failed.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.PAYMENT_SESSION_UPDATED,
+        payload: {
+            roomId: "room-1",
+            gameId: "game-1",
+            participants: [
+                { playerId: "p1", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED },
+                { playerId: "p2", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED },
+                { playerId: "p3", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED }
+            ]
+        }
+    });
+
+    await wait(10);
+
+    assert.equal(failed.length, 1);
+
+    assert.equal(
+        manager.getContract("room-1").status,
+        GAME_CONTRACT_STATUS.DEPLOY_FAILED
+    );
 
     manager.shutdown();
 

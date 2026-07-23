@@ -134,15 +134,10 @@ function createHarness({ durationMs = 60_000 } = {}) {
 
     assert.equal(created[0].gameId, "game-1");
 
-    assert.equal(requests.length, 3, "PAYMENT_REQUEST for every player");
-
-    assert.ok(
-        requests.every((request) => (
-            request.requiredGram > 0
-            && request.paymentDeadline
-            && request.paymentSessionId
-        )),
-        "PAYMENT_REQUEST carries amount, deadline, session id"
+    assert.equal(
+        requests.length,
+        0,
+        "PAYMENT_REQUEST waits until Game Contract is DEPLOYED"
     );
 
     const session = manager.getSession("room-1");
@@ -155,24 +150,64 @@ function createHarness({ durationMs = 60_000 } = {}) {
         session.participants.every(
             (participant) => (
                 participant.status
+                    === PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
+            )
+        ),
+        "all seats stay PAYMENT_REQUESTED until deploy"
+    );
+
+    manager.issueDeployedPaymentRequests("room-1", {
+        contractAddress: "EQdeployedcontractaddressxxxxxxxxxxxx",
+        paymentDeadline: Date.now() + 60_000
+    });
+
+    assert.equal(requests.length, 3, "PAYMENT_REQUEST for every player after deploy");
+
+    assert.ok(
+        requests.every((request) => (
+            request.requiredGram > 0
+            && request.paymentDeadline
+            && request.paymentSessionId
+            && request.contractAddress
+            && request.paymentReference
+        )),
+        "PAYMENT_REQUEST carries contract address and reference"
+    );
+
+    assert.ok(
+        session.participants.every(
+            (participant) => (
+                participant.status
                     === PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
             )
         ),
-        "all seats await confirmation after request"
+        "all seats await confirmation after deployed requests"
     );
 
     manager.submitPlayerConfirmation("room-1", "p1");
 
     assert.equal(
         session.findParticipant("p1").status,
-        PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+        PAYMENT_PARTICIPANT_STATUS.BLOCKCHAIN_PENDING,
+        "confirm intent waits for blockchain"
     );
 
     assert.equal(session.status, PAYMENT_SESSION_STATUS.ACTIVE);
 
+    manager.confirmBlockchainPayment("room-1", "p1", { txHash: "tx1" });
+
+    assert.equal(
+        session.findParticipant("p1").status,
+        PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+    );
+
     manager.submitPlayerConfirmation("room-1", "p2");
 
+    manager.confirmBlockchainPayment("room-1", "p2", { txHash: "tx2" });
+
     manager.submitPlayerConfirmation("room-1", "p3");
+
+    manager.confirmBlockchainPayment("room-1", "p3", { txHash: "tx3" });
 
     assert.equal(session.status, PAYMENT_SESSION_STATUS.COMPLETED);
 

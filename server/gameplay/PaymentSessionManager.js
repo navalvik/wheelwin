@@ -28,6 +28,8 @@ export class PaymentSessionManager {
         roomConfig = null,
         gameplayContextResolver = null,
         sessionWalletStore = null,
+        blockchainMonitor = null,
+        sessionWalletStoreForWatch = null,
         devMode = false
     }) {
 
@@ -41,7 +43,10 @@ export class PaymentSessionManager {
 
         this._gameplayContextResolver = gameplayContextResolver;
 
-        this._sessionWalletStore = sessionWalletStore;
+        this._sessionWalletStore = sessionWalletStore
+            ?? sessionWalletStoreForWatch;
+
+        this._blockchainMonitor = blockchainMonitor;
 
         this._durationMs = Number.isFinite(roomConfig?.paymentSessionDurationMs)
             && roomConfig.paymentSessionDurationMs > 0
@@ -71,6 +76,45 @@ export class PaymentSessionManager {
             (envelope) => {
 
                 this._handlePaymentConnectionReady(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS,
+            (envelope) => {
+
+                this._handleContractReadyForPayments(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
+            (envelope) => {
+
+                this.failSession(
+                    envelope.payload?.roomId,
+                    envelope.payload?.reason ?? "deploy_failed"
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED,
+            (envelope) => {
+
+                this._handleBlockchainConfirmed(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.PAYMENT_BLOCKCHAIN_REJECTED,
+            (envelope) => {
+
+                this._handleBlockchainRejected(envelope.payload);
 
             }
         );
@@ -258,23 +302,7 @@ export class PaymentSessionManager {
 
         }
 
-        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
-
-        for (const participant of session.participants) {
-
-            this._emit(EVENT_TYPES.PAYMENT_REQUEST, {
-                paymentSessionId: session.paymentSessionId,
-                roomId,
-                gameId: session.gameId,
-                playerId: participant.playerId,
-                requiredGram: participant.requiredGram,
-                paymentDeadline: session.expiresAt
-            });
-
-            participant.status = PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION;
-
-        }
-
+        // P6.5 — wallet payment requests wait until Game Contract is DEPLOYED.
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
         return session;
@@ -282,7 +310,82 @@ export class PaymentSessionManager {
     }
 
     /**
-     * Player confirmed the payment request (no chain tx yet — P6.3 stub path).
+     * After DEPLOYED — issue one Telegram Wallet payment request per seat.
+     */
+    issueDeployedPaymentRequests(roomId, {
+        contractAddress,
+        paymentDeadline = null
+    } = {}) {
+
+        this._assertInitialized();
+
+        const session = this._sessionsByRoom.get(roomId);
+
+        if (!session || session.status !== PAYMENT_SESSION_STATUS.ACTIVE) {
+
+            return null;
+
+        }
+
+        if (!contractAddress) {
+
+            return null;
+
+        }
+
+        const deadline = Number.isFinite(paymentDeadline)
+            ? paymentDeadline
+            : session.expiresAt;
+
+        if (Number.isFinite(deadline)) {
+
+            session.expiresAt = deadline;
+
+        }
+
+        for (const participant of session.participants) {
+
+            if (
+                participant.status !== PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
+                && participant.status !== PAYMENT_PARTICIPANT_STATUS.WAITING
+            ) {
+
+                continue;
+
+            }
+
+            participant.contractAddress = contractAddress;
+
+            participant.paymentReference = `payref_${session.paymentSessionId}_${participant.playerId}`;
+
+            participant.status = PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION;
+
+            this._emit(EVENT_TYPES.PAYMENT_REQUEST, {
+                paymentSessionId: session.paymentSessionId,
+                roomId,
+                gameId: session.gameId,
+                playerId: participant.playerId,
+                requiredGram: participant.requiredGram,
+                paymentDeadline: session.expiresAt,
+                contractAddress,
+                paymentReference: participant.paymentReference
+            });
+
+        }
+
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+        this._log(
+            `PAYMENT_REQUESTS_ISSUED | roomId=${roomId} | `
+                + `address=${contractAddress}`
+        );
+
+        return session;
+
+    }
+
+    /**
+     * Player confirmed in Telegram Wallet → blockchain pending until monitor confirms.
      */
     submitPlayerConfirmation(roomId, playerId) {
 
@@ -306,7 +409,6 @@ export class PaymentSessionManager {
 
         if (
             participant.status !== PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
-            && participant.status !== PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
         ) {
 
             return session;
@@ -317,16 +419,86 @@ export class PaymentSessionManager {
 
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
-        // P6.3 — no blockchain verification yet; server authoritatively confirms.
+        participant.status = PAYMENT_PARTICIPANT_STATUS.BLOCKCHAIN_PENDING;
+
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+        const expectedWallet = this._sessionWalletStore?.getWallet?.(roomId, playerId)
+            ?? participant.wallet
+            ?? null;
+
+        this._blockchainMonitor?.watchPayment?.({
+            roomId,
+            gameId: session.gameId,
+            playerId,
+            contractAddress: participant.contractAddress,
+            paymentReference: participant.paymentReference,
+            expectedGram: participant.requiredGram,
+            expectedWallet,
+            paymentDeadline: session.expiresAt
+        });
+
+        this._log(
+            `BLOCKCHAIN_PENDING | roomId=${roomId} | playerId=${playerId}`
+        );
+
+        return session;
+
+    }
+
+    /**
+     * Authoritative chain confirmation from BlockchainMonitor.
+     */
+    confirmBlockchainPayment(roomId, playerId, {
+        txHash = null
+    } = {}) {
+
+        this._assertInitialized();
+
+        const session = this._sessionsByRoom.get(roomId);
+
+        if (!session || session.status !== PAYMENT_SESSION_STATUS.ACTIVE) {
+
+            return null;
+
+        }
+
+        const participant = session.findParticipant(playerId);
+
+        if (!participant) {
+
+            return null;
+
+        }
+
+        if (
+            participant.status !== PAYMENT_PARTICIPANT_STATUS.BLOCKCHAIN_PENDING
+            && participant.status !== PAYMENT_PARTICIPANT_STATUS.PAYMENT_SUBMITTED
+        ) {
+
+            return session;
+
+        }
+
+        if (txHash) {
+
+            participant.txHash = txHash;
+
+        }
+
         participant.status = PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED;
 
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+        this._blockchainMonitor?.unwatchPayment?.(roomId, playerId);
 
         if (session.allConfirmed()) {
 
             session.markCompleted();
 
             this._clearExpiry(roomId);
+
+            this._blockchainMonitor?.stopRoom?.(roomId);
 
             this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
@@ -335,6 +507,48 @@ export class PaymentSessionManager {
             this._log(
                 `COMPLETED | roomId=${roomId} | paymentSessionId=${session.paymentSessionId}`
             );
+
+        }
+
+        return session;
+
+    }
+
+    /**
+     * Player cancelled Telegram Wallet confirmation — seat stays incomplete.
+     */
+    reportPlayerCancel(roomId, playerId) {
+
+        this._assertInitialized();
+
+        const session = this._sessionsByRoom.get(roomId);
+
+        if (!session || session.status !== PAYMENT_SESSION_STATUS.ACTIVE) {
+
+            return null;
+
+        }
+
+        const participant = session.findParticipant(playerId);
+
+        if (!participant) {
+
+            return null;
+
+        }
+
+        if (
+            participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_SUBMITTED
+            || participant.status === PAYMENT_PARTICIPANT_STATUS.BLOCKCHAIN_PENDING
+        ) {
+
+            this._blockchainMonitor?.unwatchPayment?.(roomId, playerId);
+
+            participant.status = PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION;
+
+            participant.txHash = null;
+
+            this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
         }
 
@@ -363,6 +577,8 @@ export class PaymentSessionManager {
 
         this._clearExpiry(roomId);
 
+        this._blockchainMonitor?.stopRoom?.(roomId);
+
         session.markFailed();
 
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
@@ -390,6 +606,8 @@ export class PaymentSessionManager {
 
         this._clearExpiry(roomId);
 
+        this._blockchainMonitor?.stopRoom?.(roomId);
+
         const session = this._sessionsByRoom.get(roomId);
 
         if (session?.gameId) {
@@ -415,6 +633,55 @@ export class PaymentSessionManager {
         this.createAndRequest(roomId, {
             gameId: payload?.gameId ?? null
         });
+
+    }
+
+    _handleContractReadyForPayments(payload) {
+
+        const roomId = payload?.roomId;
+
+        const contractAddress = payload?.contractAddress;
+
+        if (!roomId || !contractAddress) {
+
+            return;
+
+        }
+
+        this.issueDeployedPaymentRequests(roomId, {
+            contractAddress,
+            paymentDeadline: payload?.paymentDeadline ?? null
+        });
+
+    }
+
+    _handleBlockchainConfirmed(payload) {
+
+        const roomId = payload?.roomId;
+
+        const playerId = payload?.playerId;
+
+        if (!roomId || !playerId) {
+
+            return;
+
+        }
+
+        this.confirmBlockchainPayment(roomId, playerId, {
+            txHash: payload?.txHash ?? null
+        });
+
+    }
+
+    _handleBlockchainRejected(payload) {
+
+        // Invalid / expired chain payments are audited by BlockchainMonitor.
+        // Payment Session seat stays BLOCKCHAIN_PENDING / AWAITING until timeout
+        // or player retry — never invent client-facing chain errors.
+        this._log(
+            `BLOCKCHAIN_REJECTED | roomId=${payload?.roomId} | `
+                + `playerId=${payload?.playerId} | reason=${payload?.reason}`
+        );
 
     }
 

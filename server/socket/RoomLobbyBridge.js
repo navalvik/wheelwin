@@ -412,10 +412,37 @@ export class RoomLobbyBridge {
         );
 
         this._subscribe(
+            EVENT_TYPES.LOBBY_PAYMENT_CANCEL_INTENT_REQUEST,
+            (envelope) => {
+
+                this._handlePaymentCancelIntent(envelope.payload.socketId);
+
+            }
+        );
+
+        this._subscribe(
             EVENT_TYPES.GAME_CONTRACT_UPDATED,
             (envelope) => {
 
                 this._deliverGameContractUpdated(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_CONTRACT_DEPLOYED,
+            (envelope) => {
+
+                this._deliverGameContractDeployed(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
+            (envelope) => {
+
+                this._handleGameContractDeployFailed(envelope.payload);
 
             }
         );
@@ -2651,6 +2678,22 @@ export class RoomLobbyBridge {
 
     }
 
+    _handlePaymentCancelIntent(socketId) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        this._paymentSessionManager?.reportPlayerCancel(roomId, playerId);
+
+    }
+
     _deliverGameContractUpdated(payload) {
 
         const roomId = payload?.roomId;
@@ -2666,6 +2709,45 @@ export class RoomLobbyBridge {
             LOBBY_SERVER_EVENTS.GAME_CONTRACT_UPDATED,
             payload
         );
+
+    }
+
+    _deliverGameContractDeployed(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.GAME_CONTRACT_DEPLOYED,
+            payload
+        );
+
+    }
+
+    _handleGameContractDeployFailed(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
+            payload
+        );
+
+        // PaymentSessionManager fails the session on the same EventBus event;
+        // room cancellation follows PAYMENT_SESSION_FAILED.
 
     }
 

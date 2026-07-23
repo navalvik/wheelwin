@@ -6,6 +6,12 @@ import { PlayerManager } from "../../managers/PlayerManager.js";
 import { RoomManager } from "../../managers/RoomManager.js";
 import { PaymentSessionManager } from "../../gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "../../gameplay/GameContractManager.js";
+import { GameContractDeployAdapter } from "../../payment/GameContractDeployAdapter.js";
+import {
+    BlockchainMonitor,
+    EntryPaymentAuditLedger
+} from "../../payment/BlockchainMonitor.js";
+import { MockTonTransport } from "../../payment/ton/MockTonTransport.js";
 import { LoggerService } from "../../services/LoggerService.js";
 import { SessionWalletStore } from "../../session/SessionWalletStore.js";
 import { GameplayContextResolver } from "../../socket/GameplayContextResolver.js";
@@ -64,6 +70,20 @@ export async function createLobbyIntegrationHarness() {
 
     const sessionWalletStore = new SessionWalletStore();
 
+    const tonTransport = new MockTonTransport();
+
+    const entryPaymentAuditLedger = new EntryPaymentAuditLedger();
+
+    const blockchainMonitor = new BlockchainMonitor({
+        logger,
+        eventBus,
+        transport: tonTransport,
+        auditLedger: entryPaymentAuditLedger,
+        pollIntervalMs: 60_000
+    });
+
+    blockchainMonitor.initialize();
+
     const paymentSessionManager = new PaymentSessionManager({
         logger,
         eventBus,
@@ -72,6 +92,7 @@ export async function createLobbyIntegrationHarness() {
         roomConfig: { paymentSessionDurationMs: 60_000 },
         gameplayContextResolver,
         sessionWalletStore,
+        blockchainMonitor,
         devMode: false
     });
 
@@ -84,6 +105,7 @@ export async function createLobbyIntegrationHarness() {
         roomManager,
         sessionWalletStore,
         configurationEngine: bootstrapEngines.configurationEngine,
+        deployAdapter: new GameContractDeployAdapter({ deployDelayMs: 0 }),
         creatingDelayMs: 0,
         devMode: false
     });
@@ -119,7 +141,6 @@ export async function createLobbyIntegrationHarness() {
         gameContractManager,
         sessionWalletStore,
         isDevelopment: true,
-        // Fast stub delays so C5.8D/E lifecycle asserts finish quickly.
         entryPaymentDelays: {
             playerPaymentDelayMs: 40,
             smartContractDelayMs: 40,
@@ -147,6 +168,9 @@ export async function createLobbyIntegrationHarness() {
         gameplayContextResolver,
         paymentSessionManager,
         gameContractManager,
+        blockchainMonitor,
+        tonTransport,
+        entryPaymentAuditLedger,
         sessionWalletStore,
         bootstrapEngines,
         socketGateway,
@@ -156,6 +180,8 @@ export async function createLobbyIntegrationHarness() {
             roomLobbyBridge.shutdown();
 
             paymentSessionManager.shutdown();
+
+            blockchainMonitor.shutdown();
 
             gameContractManager.shutdown();
 

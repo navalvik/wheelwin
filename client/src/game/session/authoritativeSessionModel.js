@@ -48,6 +48,8 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     PAYMENT_SESSION_COMPLETED: "PAYMENT_SESSION_COMPLETED",
     PAYMENT_SESSION_FAILED: "PAYMENT_SESSION_FAILED",
     GAME_CONTRACT_UPDATED: "GAME_CONTRACT_UPDATED",
+    GAME_CONTRACT_DEPLOYED: "GAME_CONTRACT_DEPLOYED",
+    GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -680,7 +682,10 @@ export function authoritativeSessionReducer(state, action) {
                         playerId: participant?.playerId ?? null,
                         requiredGram: participant?.requiredGram ?? null,
                         status: participant?.status ?? "WAITING",
-                        wallet: participant?.wallet ?? null
+                        wallet: participant?.wallet ?? null,
+                        paymentReference: participant?.paymentReference ?? null,
+                        contractAddress: participant?.contractAddress ?? null,
+                        txHash: participant?.txHash ?? null
                     }))
                 )
                 : Object.freeze([]);
@@ -720,7 +725,9 @@ export function authoritativeSessionReducer(state, action) {
 
         }
 
-        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED: {
+        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED:
+        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOYED:
+        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOY_FAILED: {
 
             if (!payload || typeof payload !== "object") {
 
@@ -737,7 +744,11 @@ export function authoritativeSessionReducer(state, action) {
                     gameId: payload.gameId ?? null,
                     roomId: payload.roomId ?? null,
                     status: payload.status ?? null,
-                    createdAt: payload.createdAt ?? null
+                    createdAt: payload.createdAt ?? null,
+                    contractAddress: payload.contractAddress ?? null,
+                    deploymentStatus: payload.deploymentStatus ?? null,
+                    deployedAt: payload.deployedAt ?? null,
+                    deployError: payload.deployError ?? null
                 })
             }, action.type);
 

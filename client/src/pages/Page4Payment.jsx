@@ -12,7 +12,9 @@ import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import {
     canConfirmLocalPayment,
+    getLocalPaymentRequest,
     hasPaymentSession,
+    isGameContractDeployed,
     mapGameContractStatusLabel,
     mapPaymentSessionRows,
     mapWalletConnectionRows,
@@ -48,6 +50,8 @@ export default function Page4Payment({ onNavigate }) {
     const [localError, setLocalError] = useState("");
 
     const [connecting, setConnecting] = useState(false);
+
+    const [confirmingPayment, setConfirmingPayment] = useState(false);
 
     const walletConnection = authoritative.walletConnection;
 
@@ -110,7 +114,13 @@ export default function Page4Payment({ onNavigate }) {
         && localWalletStatus !== WALLET_CONNECTION_STATUS.CONNECTING
         && !connecting;
 
-    const canConfirm = canConfirmLocalPayment(paymentSession, localPlayerId);
+    const canConfirm = canConfirmLocalPayment(paymentSession, localPlayerId)
+        && isGameContractDeployed(gameContract);
+
+    const localPaymentRequest = useMemo(
+        () => getLocalPaymentRequest(paymentSession, localPlayerId),
+        [paymentSession, localPlayerId]
+    );
 
     const reportConnectedWallet = useCallback((rawAddress) => {
 
@@ -243,15 +253,69 @@ export default function Page4Payment({ onNavigate }) {
 
     }
 
-    function handleConfirmPayment() {
+    async function handleConfirmPayment() {
 
-        if (!canConfirm) {
+        if (!canConfirm || confirmingPayment) {
 
             return;
 
         }
 
-        socket.emit(LOBBY_OUTGOING_EVENTS.PAYMENT_CONFIRM_INTENT);
+        setLocalError("");
+
+        setConfirmingPayment(true);
+
+        try {
+
+            const contractAddress = localPaymentRequest?.contractAddress
+                ?? gameContract?.contractAddress
+                ?? null;
+
+            // Prefer official Telegram Wallet confirmation when a wallet session
+            // is connected. Stub deploy addresses may be rejected by the wallet;
+            // in that case Page4 confirmation still reports the user action.
+            if (tonWallet && contractAddress && tonConnectUI?.sendTransaction) {
+
+                try {
+
+                    await tonConnectUI.sendTransaction({
+                        validUntil: Math.floor(Date.now() / 1000) + 600,
+                        messages: [
+                            {
+                                address: contractAddress,
+                                amount: "1"
+                            }
+                        ]
+                    });
+
+                } catch {
+
+                    // Wallet rejected/cancelled the chain payload — fall through
+                    // to explicit intent reporting from this CONFIRM action only
+                    // when the user still wants to proceed via Page4 stub path.
+                }
+
+            }
+
+            socket.emit(LOBBY_OUTGOING_EVENTS.PAYMENT_CONFIRM_INTENT);
+
+        } finally {
+
+            setConfirmingPayment(false);
+
+        }
+
+    }
+
+    function handleCancelPayment() {
+
+        if (!canConfirm || confirmingPayment) {
+
+            return;
+
+        }
+
+        socket.emit(LOBBY_OUTGOING_EVENTS.PAYMENT_CANCEL_INTENT);
 
     }
 
@@ -359,6 +423,15 @@ export default function Page4Payment({ onNavigate }) {
 
                         <div className="page4__connectActions">
 
+                            <div
+                                className="smartContractStatus"
+                                aria-live="polite"
+                            >
+
+                                Wallet Connected
+
+                            </div>
+
                             {contractStatusLabel && (
 
                                 <div
@@ -369,6 +442,27 @@ export default function Page4Payment({ onNavigate }) {
                                     <div>Game Contract</div>
 
                                     <div>{contractStatusLabel}</div>
+
+                                    {gameContract?.contractAddress && (
+
+                                        <div className="page4__contractAddress">
+
+                                            {gameContract.contractAddress}
+
+                                        </div>
+
+                                    )}
+
+                                </div>
+
+                            )}
+
+                            {localPaymentRequest?.requiredGram != null
+                                && canConfirm && (
+
+                                <div className="smartContractStatus">
+
+                                    {`Pay ${localPaymentRequest.requiredGram} GRM`}
 
                                 </div>
 
@@ -382,26 +476,46 @@ export default function Page4Payment({ onNavigate }) {
 
                                 </div>
 
-                            ) : paymentSession?.status === "FAILED" ? (
+                            ) : paymentSession?.status === "FAILED"
+                                || gameContract?.status === "DEPLOY_FAILED" ? (
 
                                 <div className="smartContractStatus">
 
-                                    Payment session failed
+                                    {gameContract?.status === "DEPLOY_FAILED"
+                                        ? "Deployment failed"
+                                        : "Payment session failed"}
 
                                 </div>
 
                             ) : (
 
-                                <button
-                                    type="button"
-                                    className="page4__connectButton"
-                                    disabled={!canConfirm}
-                                    onClick={handleConfirmPayment}
-                                >
+                                <>
 
-                                    CONFIRM PAYMENT
+                                    <button
+                                        type="button"
+                                        className="page4__connectButton"
+                                        disabled={!canConfirm || confirmingPayment}
+                                        onClick={handleConfirmPayment}
+                                    >
 
-                                </button>
+                                        {confirmingPayment
+                                            ? "OPENING WALLET…"
+                                            : "CONFIRM IN TELEGRAM WALLET"}
+
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="page4__disconnectButton"
+                                        disabled={!canConfirm || confirmingPayment}
+                                        onClick={handleCancelPayment}
+                                    >
+
+                                        CANCEL
+
+                                    </button>
+
+                                </>
 
                             )}
 

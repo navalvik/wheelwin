@@ -1,5 +1,5 @@
 /**
- * P6.3 — Authoritative Payment Session view helpers for Page4.
+ * P6.3/P6.5 — Authoritative Payment Session view helpers for Page4.
  */
 
 import { resolveWheelIcon } from "../../components/game/WheelEngine/wheelUtils.js";
@@ -9,6 +9,7 @@ export const PAYMENT_PARTICIPANT_STATUS = Object.freeze({
     PAYMENT_REQUESTED: "PAYMENT_REQUESTED",
     AWAITING_PLAYER_CONFIRMATION: "AWAITING_PLAYER_CONFIRMATION",
     PAYMENT_SUBMITTED: "PAYMENT_SUBMITTED",
+    BLOCKCHAIN_PENDING: "BLOCKCHAIN_PENDING",
     PAYMENT_CONFIRMED: "PAYMENT_CONFIRMED",
     PAYMENT_FAILED: "PAYMENT_FAILED"
 });
@@ -43,16 +44,19 @@ export function mapPaymentParticipantStatusLabel(status) {
     switch (status) {
 
         case PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED:
-            return "Payment requested";
+            return "Payment Requested";
 
         case PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION:
-            return "Waiting for player confirmation";
+            return "Waiting for Confirmation";
 
         case PAYMENT_PARTICIPANT_STATUS.PAYMENT_SUBMITTED:
-            return "Payment submitted";
+            return "Waiting for Blockchain...";
+
+        case PAYMENT_PARTICIPANT_STATUS.BLOCKCHAIN_PENDING:
+            return "Waiting for Blockchain...";
 
         case PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED:
-            return "Payment confirmed";
+            return "Payment Confirmed";
 
         case PAYMENT_PARTICIPANT_STATUS.PAYMENT_FAILED:
             return "Payment failed";
@@ -85,6 +89,8 @@ export function mapPaymentSessionRows(paymentSession, playersById = {}) {
             icon: resolveDisplayIcon(roster?.icon),
             requiredGram: seat.requiredGram ?? null,
             wallet: seat.wallet ?? null,
+            paymentReference: seat.paymentReference ?? null,
+            contractAddress: seat.contractAddress ?? null,
             status: seat.status ?? PAYMENT_PARTICIPANT_STATUS.WAITING,
             statusLabel: mapPaymentParticipantStatusLabel(seat.status)
         };
@@ -111,7 +117,20 @@ export function canConfirmLocalPayment(paymentSession, localPlayerId) {
         (participant) => String(participant.playerId) === String(localPlayerId)
     );
 
-    return seat?.status === PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
-        || seat?.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED;
+    return seat?.status === PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION;
+
+}
+
+export function getLocalPaymentRequest(paymentSession, localPlayerId) {
+
+    if (!localPlayerId || !hasPaymentSession(paymentSession)) {
+
+        return null;
+
+    }
+
+    return paymentSession.participants.find(
+        (participant) => String(participant.playerId) === String(localPlayerId)
+    ) ?? null;
 
 }

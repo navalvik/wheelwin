@@ -3,6 +3,7 @@ export const PAYMENT_PARTICIPANT_STATUS = Object.freeze({
     PAYMENT_REQUESTED: "PAYMENT_REQUESTED",
     AWAITING_PLAYER_CONFIRMATION: "AWAITING_PLAYER_CONFIRMATION",
     PAYMENT_SUBMITTED: "PAYMENT_SUBMITTED",
+    BLOCKCHAIN_PENDING: "BLOCKCHAIN_PENDING",
     PAYMENT_CONFIRMED: "PAYMENT_CONFIRMED",
     PAYMENT_FAILED: "PAYMENT_FAILED"
 });
@@ -22,7 +23,10 @@ export class PaymentParticipant {
         playerId,
         requiredGram,
         status = PAYMENT_PARTICIPANT_STATUS.WAITING,
-        wallet = null
+        wallet = null,
+        paymentReference = null,
+        contractAddress = null,
+        txHash = null
     }) {
 
         this.playerId = playerId;
@@ -33,6 +37,12 @@ export class PaymentParticipant {
 
         this.wallet = wallet ?? null;
 
+        this.paymentReference = paymentReference ?? null;
+
+        this.contractAddress = contractAddress ?? null;
+
+        this.txHash = txHash ?? null;
+
     }
 
     toSnapshot() {
@@ -41,7 +51,10 @@ export class PaymentParticipant {
             playerId: this.playerId,
             requiredGram: this.requiredGram,
             status: this.status,
-            wallet: this.wallet
+            wallet: this.wallet,
+            paymentReference: this.paymentReference,
+            contractAddress: this.contractAddress,
+            txHash: this.txHash
         });
 
     }

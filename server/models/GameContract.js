@@ -3,7 +3,13 @@ export const GAME_CONTRACT_STATUS = Object.freeze({
     CREATING: "CREATING",
     CREATED: "CREATED",
     AWAITING_PAYMENTS: "AWAITING_PAYMENTS",
-    READY_FOR_BLOCKCHAIN: "READY_FOR_BLOCKCHAIN"
+    READY_FOR_BLOCKCHAIN: "READY_FOR_BLOCKCHAIN",
+    // P6.5 — deployment & on-chain payment collection.
+    DEPLOYING: "DEPLOYING",
+    DEPLOYED: "DEPLOYED",
+    AWAITING_PLAYER_PAYMENTS: "AWAITING_PLAYER_PAYMENTS",
+    PAYMENTS_COMPLETE: "PAYMENTS_COMPLETE",
+    DEPLOY_FAILED: "DEPLOY_FAILED"
 });
 
 const GAME_CONTRACT_TRANSITIONS = Object.freeze({
@@ -19,14 +25,28 @@ const GAME_CONTRACT_TRANSITIONS = Object.freeze({
     [GAME_CONTRACT_STATUS.AWAITING_PAYMENTS]: Object.freeze([
         GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN
     ]),
-    [GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN]: Object.freeze([])
+    [GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN]: Object.freeze([
+        GAME_CONTRACT_STATUS.DEPLOYING
+    ]),
+    [GAME_CONTRACT_STATUS.DEPLOYING]: Object.freeze([
+        GAME_CONTRACT_STATUS.DEPLOYED,
+        GAME_CONTRACT_STATUS.DEPLOY_FAILED
+    ]),
+    [GAME_CONTRACT_STATUS.DEPLOYED]: Object.freeze([
+        GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS
+    ]),
+    [GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS]: Object.freeze([
+        GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
+    ]),
+    [GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE]: Object.freeze([]),
+    [GAME_CONTRACT_STATUS.DEPLOY_FAILED]: Object.freeze([])
 });
 
 /**
- * P6.4 — Authoritative Game Smart Contract metadata (architecture only).
+ * P6.4/P6.5 — Authoritative Game Smart Contract metadata.
  *
  * One contract per game. Snapshot is immutable after create.
- * No blockchain deployment in this stage.
+ * P6.5 adds stub deployment + contractAddress (no live chain required).
  */
 export class GameContract {
 
@@ -36,7 +56,12 @@ export class GameContract {
         roomId,
         status = GAME_CONTRACT_STATUS.NOT_CREATED,
         snapshot = null,
-        createdAt = null
+        createdAt = null,
+        contractAddress = null,
+        deploymentStatus = null,
+        deployedAt = null,
+        deploymentTxId = null,
+        deployError = null
     }) {
 
         this.contractId = contractId;
@@ -50,6 +75,16 @@ export class GameContract {
         this.snapshot = snapshot;
 
         this.createdAt = createdAt;
+
+        this.contractAddress = contractAddress;
+
+        this.deploymentStatus = deploymentStatus;
+
+        this.deployedAt = deployedAt;
+
+        this.deploymentTxId = deploymentTxId;
+
+        this.deployError = deployError;
 
     }
 
@@ -80,12 +115,59 @@ export class GameContract {
 
         }
 
+        if (nextStatus === GAME_CONTRACT_STATUS.DEPLOYING) {
+
+            this.deploymentStatus = "DEPLOYING";
+
+            this.deployError = null;
+
+        }
+
+        if (nextStatus === GAME_CONTRACT_STATUS.DEPLOY_FAILED) {
+
+            this.deploymentStatus = "DEPLOY_FAILED";
+
+        }
+
+        if (nextStatus === GAME_CONTRACT_STATUS.DEPLOYED) {
+
+            this.deploymentStatus = "DEPLOYED";
+
+        }
+
         return true;
 
     }
 
+    applyDeploymentSuccess({
+        contractAddress,
+        deploymentTxId = null,
+        deployedAt = Date.now()
+    }) {
+
+        this.contractAddress = contractAddress;
+
+        this.deploymentTxId = deploymentTxId;
+
+        this.deployedAt = deployedAt;
+
+        this.deploymentStatus = "DEPLOYED";
+
+        this.deployError = null;
+
+    }
+
+    applyDeploymentFailure(reason = "deploy_failed") {
+
+        this.deploymentStatus = "DEPLOY_FAILED";
+
+        this.deployError = reason;
+
+    }
+
     /**
-     * Client-facing payload: identifier + state only (no snapshot body).
+     * Client-facing payload: identifier, address, deployment status.
+     * Never includes the immutable snapshot body.
      */
     toClientSnapshot() {
 
@@ -94,14 +176,15 @@ export class GameContract {
             gameId: this.gameId,
             roomId: this.roomId,
             status: this.status,
-            createdAt: this.createdAt
+            createdAt: this.createdAt,
+            contractAddress: this.contractAddress,
+            deploymentStatus: this.deploymentStatus,
+            deployedAt: this.deployedAt,
+            deployError: this.deployError
         });
 
     }
 
-    /**
-     * Server debug / internal view including immutable snapshot.
-     */
     toSnapshot() {
 
         return Object.freeze({
@@ -110,6 +193,11 @@ export class GameContract {
             roomId: this.roomId,
             status: this.status,
             createdAt: this.createdAt,
+            contractAddress: this.contractAddress,
+            deploymentStatus: this.deploymentStatus,
+            deployedAt: this.deployedAt,
+            deploymentTxId: this.deploymentTxId,
+            deployError: this.deployError,
             snapshot: this.snapshot
         });
 

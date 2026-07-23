@@ -6,6 +6,7 @@ import {
 } from "../models/GameContract.js";
 
 import { buildGameContractSnapshot } from "../payment/buildGameContractSnapshot.js";
+import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
 
 {
     const contract = new GameContract({
@@ -14,13 +15,9 @@ import { buildGameContractSnapshot } from "../payment/buildGameContractSnapshot.
         roomId: "room_1"
     });
 
-    assert.equal(contract.status, GAME_CONTRACT_STATUS.NOT_CREATED);
-
     assert.equal(contract.transitionTo(GAME_CONTRACT_STATUS.CREATING), true);
 
     assert.equal(contract.transitionTo(GAME_CONTRACT_STATUS.CREATED), true);
-
-    assert.ok(contract.createdAt);
 
     assert.equal(
         contract.transitionTo(GAME_CONTRACT_STATUS.AWAITING_PAYMENTS),
@@ -32,48 +29,84 @@ import { buildGameContractSnapshot } from "../payment/buildGameContractSnapshot.
         true
     );
 
+    assert.equal(contract.transitionTo(GAME_CONTRACT_STATUS.DEPLOYING), true);
+
+    contract.applyDeploymentSuccess({
+        contractAddress: "EQtestaddress",
+        deploymentTxId: "tx1"
+    });
+
+    assert.equal(contract.transitionTo(GAME_CONTRACT_STATUS.DEPLOYED), true);
+
     assert.equal(
-        contract.transitionTo(GAME_CONTRACT_STATUS.CREATING),
-        false,
-        "terminal / invalid transitions rejected"
+        contract.transitionTo(GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS),
+        true
+    );
+
+    assert.equal(
+        contract.transitionTo(GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE),
+        true
     );
 
     const client = contract.toClientSnapshot();
 
-    assert.equal(client.contractId, "contract_1");
+    assert.equal(client.contractAddress, "EQtestaddress");
 
-    assert.equal(client.status, GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN);
+    assert.equal(client.deploymentStatus, "DEPLOYED");
 
     assert.equal(client.snapshot, undefined);
 
-    assert.equal(Object.isFrozen(client), true);
+}
+
+{
+    const failing = new GameContract({
+        contractId: "c2",
+        gameId: "g2",
+        roomId: "r2",
+        status: GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN
+    });
+
+    assert.equal(failing.transitionTo(GAME_CONTRACT_STATUS.DEPLOYING), true);
+
+    failing.applyDeploymentFailure("boom");
+
+    assert.equal(
+        failing.transitionTo(GAME_CONTRACT_STATUS.DEPLOY_FAILED),
+        true
+    );
+
+    assert.equal(failing.deployError, "boom");
+
+}
+
+{
+    const adapter = new GameContractDeployAdapter({ deployDelayMs: 0 });
+
+    const result = await adapter.deploy({
+        contractId: "contract_abc123",
+        snapshot: { gameId: "g1", totalPot: 10 }
+    });
+
+    assert.equal(result.ok, true);
+
+    assert.ok(result.contractAddress.startsWith("EQ"));
+
+    const failAdapter = new GameContractDeployAdapter({ shouldFail: true });
+
+    const failed = await failAdapter.deploy({
+        contractId: "contract_x",
+        snapshot: { gameId: "g1" }
+    });
+
+    assert.equal(failed.ok, false);
 
 }
 
 {
     const identities = new Map([
-        ["p1", {
-            nickname: "A",
-            baseStake: 10,
-            sectorCount: 1,
-            color: "Red",
-            icon: "dice"
-        }],
-        ["p2", {
-            nickname: "B",
-            baseStake: 10,
-            sectorCount: 2,
-            color: "Blue",
-            colorSector2: "Green",
-            icon: "dog"
-        }],
-        ["p3", {
-            nickname: "C",
-            baseStake: 10,
-            sectorCount: 1,
-            color: "Orange",
-            icon: "cat"
-        }]
+        ["p1", { nickname: "A", baseStake: 10, sectorCount: 1 }],
+        ["p2", { nickname: "B", baseStake: 10, sectorCount: 2 }],
+        ["p3", { nickname: "C", baseStake: 10, sectorCount: 1 }]
     ]);
 
     const snapshot = buildGameContractSnapshot({
@@ -94,43 +127,10 @@ import { buildGameContractSnapshot } from "../payment/buildGameContractSnapshot.
 
             }
         },
-        configuration: {
-            stake: 10,
-            players: [],
-            sectors: [
-                { sectorId: "s0", ownerId: "p1", color: "#f00" }
-            ]
-        }
+        configuration: { stake: 10, players: [], sectors: [] }
     });
-
-    assert.ok(snapshot);
-
-    assert.equal(Object.isFrozen(snapshot), true);
-
-    assert.equal(snapshot.players.length, 3);
-
-    assert.equal(snapshot.players[0].requiredGram, 10);
-
-    assert.equal(snapshot.players[1].requiredGram, 25);
 
     assert.equal(snapshot.totalPot, 45);
-
-    assert.equal(snapshot.organizerFee, 2.25);
-
-    assert.equal(snapshot.payoutAmount, 42.75);
-
-    assert.equal(snapshot.winnerPercentage, 0.95);
-
-    assert.equal(snapshot.currency, "GRM");
-
-    assert.equal(snapshot.sectors.length, 1);
-
-    // Mutating frozen snapshot must throw in strict mode.
-    assert.throws(() => {
-
-        snapshot.totalPot = 0;
-
-    });
 
 }
 

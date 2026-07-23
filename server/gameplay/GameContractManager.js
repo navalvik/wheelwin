@@ -8,19 +8,21 @@ import {
 } from "../models/GameContract.js";
 import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 import { buildGameContractSnapshot } from "../payment/buildGameContractSnapshot.js";
+import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
 
 const REQUESTED_OR_BEYOND = new Set([
     PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED,
     PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION,
     PAYMENT_PARTICIPANT_STATUS.PAYMENT_SUBMITTED,
+    PAYMENT_PARTICIPANT_STATUS.BLOCKCHAIN_PENDING,
     PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
 ]);
 
 /**
- * P6.4 — Authoritative Game Smart Contract lifecycle (architecture only).
+ * P6.4/P6.5 — Authoritative Game Smart Contract lifecycle.
  *
- * Owns contract metadata and immutable snapshot. No blockchain deployment,
- * no TON/GRM transfer, no winner/payout logic.
+ * Creates immutable snapshot, deploys escrow (stub adapter), then signals
+ * PaymentSessionManager to issue per-player payment requests.
  */
 export class GameContractManager {
 
@@ -32,7 +34,9 @@ export class GameContractManager {
         sessionWalletStore = null,
         configurationEngine = null,
         paymentRules = null,
+        deployAdapter = null,
         creatingDelayMs = 0,
+        deployDelayMs = 0,
         devMode = false
     }) {
 
@@ -50,6 +54,12 @@ export class GameContractManager {
 
         this._paymentRules = paymentRules;
 
+        this._deployAdapter = deployAdapter
+            ?? new GameContractDeployAdapter({
+                logger,
+                deployDelayMs
+            });
+
         this._creatingDelayMs = Number.isFinite(creatingDelayMs)
             && creatingDelayMs >= 0
             ? creatingDelayMs
@@ -57,10 +67,8 @@ export class GameContractManager {
 
         this._devMode = devMode;
 
-        // roomId → GameContract
         this._contractsByRoom = new Map();
 
-        // gameId → roomId
         this._roomByGameId = new Map();
 
         this._creatingTimers = new Map();
@@ -170,9 +178,6 @@ export class GameContractManager {
 
     }
 
-    /**
-     * Create Game Contract Request once payment seats are PAYMENT_REQUESTED+.
-     */
     createContractRequest(roomId, { gameId = null } = {}) {
 
         this._assertInitialized();
@@ -264,7 +269,7 @@ export class GameContractManager {
 
     }
 
-    markReadyForBlockchain(roomId) {
+    markPaymentsComplete(roomId) {
 
         const contract = this._contractsByRoom.get(roomId);
 
@@ -274,19 +279,19 @@ export class GameContractManager {
 
         }
 
-        if (contract.status === GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN) {
+        if (contract.status === GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE) {
 
             return contract;
 
         }
 
-        if (contract.status !== GAME_CONTRACT_STATUS.AWAITING_PAYMENTS) {
+        if (contract.status !== GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS) {
 
             return contract;
 
         }
 
-        if (!contract.transitionTo(GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN)) {
+        if (!contract.transitionTo(GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE)) {
 
             return contract;
 
@@ -295,7 +300,7 @@ export class GameContractManager {
         this._emitClientUpdate(contract);
 
         this._log(
-            `READY_FOR_BLOCKCHAIN | roomId=${roomId} | `
+            `PAYMENTS_COMPLETE | roomId=${roomId} | `
                 + `contractId=${contract.contractId}`
         );
 
@@ -377,7 +382,7 @@ export class GameContractManager {
 
         }
 
-        this.markReadyForBlockchain(roomId);
+        this.markPaymentsComplete(roomId);
 
     }
 
@@ -422,10 +427,21 @@ export class GameContractManager {
 
             this._emitClientUpdate(current);
 
+            if (!current.transitionTo(GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN)) {
+
+                return;
+
+            }
+
+            this._emitClientUpdate(current);
+
             this._log(
-                `AWAITING_PAYMENTS | roomId=${current.roomId} | `
+                `READY_FOR_BLOCKCHAIN | roomId=${current.roomId} | `
                     + `contractId=${current.contractId}`
             );
+
+            // P6.5 — deploy immediately once snapshot is ready.
+            void this._beginDeploy(current.roomId);
 
         };
 
@@ -440,6 +456,133 @@ export class GameContractManager {
         const timerId = setTimeout(finish, this._creatingDelayMs);
 
         this._creatingTimers.set(contract.roomId, timerId);
+
+    }
+
+    async _beginDeploy(roomId) {
+
+        const contract = this._contractsByRoom.get(roomId);
+
+        if (!contract) {
+
+            return;
+
+        }
+
+        if (contract.status !== GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN) {
+
+            return;
+
+        }
+
+        if (!contract.transitionTo(GAME_CONTRACT_STATUS.DEPLOYING)) {
+
+            return;
+
+        }
+
+        this._emitClientUpdate(contract);
+
+        this._log(
+            `DEPLOYING | roomId=${roomId} | contractId=${contract.contractId}`
+        );
+
+        let result;
+
+        try {
+
+            result = await this._deployAdapter.deploy({
+                contractId: contract.contractId,
+                snapshot: contract.snapshot
+            });
+
+        } catch (error) {
+
+            result = {
+                ok: false,
+                reason: error?.message ?? "deploy_exception"
+            };
+
+        }
+
+        const current = this._contractsByRoom.get(roomId);
+
+        if (!current || current.contractId !== contract.contractId) {
+
+            return;
+
+        }
+
+        if (current.status !== GAME_CONTRACT_STATUS.DEPLOYING) {
+
+            return;
+
+        }
+
+        if (!result?.ok || !result.contractAddress) {
+
+            current.applyDeploymentFailure(result?.reason ?? "deploy_failed");
+
+            current.transitionTo(GAME_CONTRACT_STATUS.DEPLOY_FAILED);
+
+            this._emitClientUpdate(current);
+
+            this._emit(EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED, {
+                ...current.toClientSnapshot(),
+                reason: current.deployError
+            });
+
+            this._log(
+                `DEPLOY_FAILED | roomId=${roomId} | reason=${current.deployError}`
+            );
+
+            return;
+
+        }
+
+        current.applyDeploymentSuccess({
+            contractAddress: result.contractAddress,
+            deploymentTxId: result.deploymentTxId ?? null,
+            deployedAt: result.deployedAt ?? Date.now()
+        });
+
+        current.transitionTo(GAME_CONTRACT_STATUS.DEPLOYED);
+
+        this._emitClientUpdate(current);
+
+        this._emit(EVENT_TYPES.GAME_CONTRACT_DEPLOYED, current.toClientSnapshot());
+
+        this._log(
+            `DEPLOYED | roomId=${roomId} | address=${current.contractAddress}`
+        );
+
+        if (!current.transitionTo(GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS)) {
+
+            return;
+
+        }
+
+        this._emitClientUpdate(current);
+
+        this._emit(EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS, {
+            roomId: current.roomId,
+            gameId: current.gameId,
+            contractId: current.contractId,
+            contractAddress: current.contractAddress,
+            paymentDeadline: Date.now() + (5 * 60 * 1000),
+            participants: (current.snapshot?.players ?? []).map((player) => (
+                Object.freeze({
+                    playerId: player.playerId,
+                    requiredGram: player.requiredGram,
+                    wallet: player.wallet
+                })
+            ))
+        });
+
+        this._log(
+            `AWAITING_PLAYER_PAYMENTS | roomId=${roomId} | `
+                + `contractId=${current.contractId}`
+        );
 
     }
 
