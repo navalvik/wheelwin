@@ -35,9 +35,26 @@ function GameFlow() {
 
     const [currentPage, setCurrentPage] = useState(1);
 
+    // R6.4 — bumping remounts all session providers so FINISH matches a fresh launch.
+    const [sessionGeneration, setSessionGeneration] = useState(0);
+
     function navigate(page) {
 
         setCurrentPage(page);
+
+    }
+
+    function finishSession() {
+
+        if (socket.connected) {
+
+            socket.emit(LOBBY_OUTGOING_EVENTS.LEAVE_ROOM);
+
+        }
+
+        setCurrentPage(APP_PAGES.WELCOME);
+
+        setSessionGeneration((generation) => generation + 1);
 
     }
 
@@ -172,6 +189,7 @@ function GameFlow() {
                     <Page6Result
 
                         onNavigate={navigate}
+                        onFinish={finishSession}
 
                     />
 
@@ -195,7 +213,7 @@ function GameFlow() {
 
     return (
 
-        <PlayerIdentityProvider>
+        <PlayerIdentityProvider key={sessionGeneration}>
 
             <GameSessionProvider
                 currentPage={currentPage}

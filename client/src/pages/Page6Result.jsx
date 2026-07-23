@@ -205,7 +205,7 @@ const RESERVED_AREAS = [
     "Room Return"
 ];
 
-export default function Page6Result() {
+export default function Page6Result({ onFinish }) {
 
     const { result, payment, audit } = useGameResult();
 
@@ -335,9 +335,11 @@ export default function Page6Result() {
 
         <GameLayout
             message="GAME FINISHED"
-            showNextButton={false}
-            nextEnabled={false}
-            onNext={() => {}}
+            showNextButton={true}
+            nextEnabled={typeof onFinish === "function"}
+            nextLabel="FINISH"
+            onNext={onFinish}
+            showJumpButton={false}
         >
 
             <div className="page6" data-has-result={Boolean(result)}>

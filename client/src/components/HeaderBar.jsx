@@ -3,6 +3,7 @@ export default function HeaderBar({
     messageClassName = "",
     nextEnabled = false,
     showNextButton = true,
+    nextLabel = "NEXT",
     backEnabled = false,
     onBack,
     onNext,
@@ -54,10 +55,11 @@ export default function HeaderBar({
                 {showNextButton && (
 
                     <button
+                        type="button"
                         disabled={!nextEnabled}
                         onClick={onNext}
                     >
-                        NEXT
+                        {nextLabel}
                     </button>
 
                 )}

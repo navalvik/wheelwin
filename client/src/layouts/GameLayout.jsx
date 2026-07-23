@@ -17,11 +17,16 @@ export default function GameLayout({
 
     showNextButton = true,
 
+    nextLabel = "NEXT",
+
     backEnabled = false,
 
     onBack,
 
     onNext,
+
+    /** When false, hides JUMP even in DEV_MODE (e.g. Page6 FINISH). */
+    showJumpButton,
 
     children
 
@@ -32,6 +37,10 @@ export default function GameLayout({
     const gameSession = useContext(GameSessionContext);
 
     const showInfoBar = gameSession?.showInfoBar ?? false;
+
+    const jumpVisible = showJumpButton === false
+        ? false
+        : Boolean(devNavigation?.enabled);
 
     return (
 
@@ -44,10 +53,11 @@ export default function GameLayout({
               messageClassName={messageClassName}
               nextEnabled={nextEnabled}
               showNextButton={showNextButton}
+              nextLabel={nextLabel}
               backEnabled={backEnabled}
               onBack={onBack}
               onNext={onNext}
-              showJumpButton={devNavigation?.enabled}
+              showJumpButton={jumpVisible}
               onJump={devNavigation?.onJump}
             />
 
