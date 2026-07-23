@@ -314,6 +314,15 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleSessionFinished = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.SESSION_FINISHED,
+                payload
+            });
+
+        };
+
         this._socket.on("connect", this._handleConnect);
 
         this._socket.on("disconnect", this._handleDisconnect);
@@ -372,6 +381,11 @@ export class SocketSyncLayer {
         this._socket.on(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE6,
             this._handleOpenPage6
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.SESSION_FINISHED,
+            this._handleSessionFinished
         );
 
         this._bound = true;
@@ -444,6 +458,11 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE6,
             this._handleOpenPage6
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.SESSION_FINISHED,
+            this._handleSessionFinished
         );
 
         this._bound = false;

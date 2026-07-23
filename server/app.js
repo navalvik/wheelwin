@@ -78,6 +78,7 @@ import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
+import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 
 class WheelWinApplication {
     constructor() {
@@ -159,6 +160,8 @@ class WheelWinApplication {
         this._gameplayLifecycle = null;
 
         this._setupSessionLifecycle = null;
+
+        this._resultSessionLifecycle = null;
 
         this._isShuttingDown = false;
 
@@ -293,6 +296,21 @@ class WheelWinApplication {
 
         this._services.timerService.registerSetupSessionLifecycle(
             this._setupSessionLifecycle
+        );
+
+        this._resultSessionLifecycle = new ResultSessionLifecycle({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            roomConfig: this._roomConfig,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._resultSessionLifecycle.initialize();
+
+        this._logger.startupLine("ResultSessionLifecycle");
+
+        this._services.timerService.registerResultSessionLifecycle(
+            this._resultSessionLifecycle
         );
 
         this._engines = this._createEngines();
@@ -688,6 +706,7 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             gameplayContextResolver: this._gameplayContextResolver,
             setupSessionLifecycle: this._setupSessionLifecycle,
+            resultSessionLifecycle: this._resultSessionLifecycle,
             isDevelopment: this._productionConfig.isDevelopment
         });
 
@@ -836,6 +855,16 @@ class WheelWinApplication {
             if (this._setupSessionLifecycle) {
 
                 this._setupSessionLifecycle.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("resultSessionLifecycle", () => {
+
+            if (this._resultSessionLifecycle) {
+
+                this._resultSessionLifecycle.shutdown();
 
             }
 

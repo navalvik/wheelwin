@@ -33,6 +33,8 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     OPEN_PAGE5: "OPEN_PAGE5",
     // P5.3 — authoritative signal for clients to open Page6 after RESULT.
     OPEN_PAGE6: "OPEN_PAGE6",
+    // R6.5 — completed result session closed (FINISH or timeout).
+    SESSION_FINISHED: "SESSION_FINISHED",
     WALLET_REJECTED: "WALLET_REJECTED"
 });
 

@@ -5,12 +5,14 @@ import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 import { useRegisterEngineModule } from "../context/EngineBridgeContext";
 
 /**
- * R1.3D / P5.9 — Clients open Page5 / Page6 only on authoritative server events.
- * Production entry-payment → OPEN_PAGE5; RESULT completion → OPEN_PAGE6.
+ * R1.3D / P5.9 / R6.5 — Clients open Page5 / Page6 and finish sessions only on
+ * authoritative server events.
  */
-export default function OpenPage5Navigator({ onNavigate }) {
+export default function OpenPage5Navigator({ onNavigate, onSessionFinished }) {
 
     const onNavigateRef = useRef(onNavigate);
+
+    const onSessionFinishedRef = useRef(onSessionFinished);
 
     useEffect(() => {
 
@@ -18,9 +20,16 @@ export default function OpenPage5Navigator({ onNavigate }) {
 
     }, [onNavigate]);
 
+    useEffect(() => {
+
+        onSessionFinishedRef.current = onSessionFinished;
+
+    }, [onSessionFinished]);
+
     useRegisterEngineModule("pageNavigation", () => {
 
-        if (typeof onNavigateRef.current !== "function") {
+        if (typeof onNavigateRef.current !== "function"
+            && typeof onSessionFinishedRef.current !== "function") {
 
             return null;
 
@@ -35,6 +44,11 @@ export default function OpenPage5Navigator({ onNavigate }) {
             onOpenPage6: () => {
 
                 onNavigateRef.current?.(APP_PAGES.RESULT);
+
+            },
+            onSessionFinished: (payload) => {
+
+                onSessionFinishedRef.current?.(payload);
 
             }
         };

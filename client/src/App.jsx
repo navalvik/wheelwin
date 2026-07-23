@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { Routes, Route } from "react-router-dom";
 
 import Page1Welcome from "./pages/Page1Welcome";
@@ -35,7 +35,7 @@ function GameFlow() {
 
     const [currentPage, setCurrentPage] = useState(1);
 
-    // R6.4 — bumping remounts all session providers so FINISH matches a fresh launch.
+    // R6.4 / R6.5 — bumping remounts all session providers so reset matches a fresh launch.
     const [sessionGeneration, setSessionGeneration] = useState(0);
 
     function navigate(page) {
@@ -44,17 +44,30 @@ function GameFlow() {
 
     }
 
+    const resetToWelcome = useCallback(() => {
+
+        setCurrentPage(APP_PAGES.WELCOME);
+
+        setSessionGeneration((generation) => generation + 1);
+
+    }, []);
+
+    /**
+     * R6.4 / R6.5 — FINISH asks the server to close the session.
+     * Local remount happens only on authoritative SESSION_FINISHED
+     * (manual FINISH and result-session timeout share that path).
+     */
     function finishSession() {
 
         if (socket.connected) {
 
             socket.emit(LOBBY_OUTGOING_EVENTS.LEAVE_ROOM);
 
+            return;
+
         }
 
-        setCurrentPage(APP_PAGES.WELCOME);
-
-        setSessionGeneration((generation) => generation + 1);
+        resetToWelcome();
 
     }
 
@@ -245,7 +258,10 @@ function GameFlow() {
                             onNavigate={navigate}
                         >
 
-                            <OpenPage5Navigator onNavigate={navigate} />
+                            <OpenPage5Navigator
+                                onNavigate={navigate}
+                                onSessionFinished={resetToWelcome}
+                            />
 
                             {renderPage()}
 

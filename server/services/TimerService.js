@@ -13,6 +13,8 @@ export class TimerService {
 
         this._setupSessionLifecycle = null;
 
+        this._resultSessionLifecycle = null;
+
     }
 
     initialize() {
@@ -33,9 +35,23 @@ export class TimerService {
 
     }
 
+    registerResultSessionLifecycle(lifecycle) {
+
+        this._resultSessionLifecycle = lifecycle ?? null;
+
+    }
+
+    getResultSessionLifecycle() {
+
+        return this._resultSessionLifecycle;
+
+    }
+
     shutdown() {
 
         this._setupSessionLifecycle = null;
+
+        this._resultSessionLifecycle = null;
 
         this._initialized = false;
 

@@ -40,6 +40,11 @@ export const EVENT_TYPES = Object.freeze({
     RESULT_COMPLETED: "RESULT_COMPLETED",
     OPEN_PAGE6: "OPEN_PAGE6",
 
+    // R6.5 — Page6 result linger expired; RoomLobbyBridge finishes the session.
+    RESULT_SESSION_EXPIRED: "RESULT_SESSION_EXPIRED",
+    // R6.5 — Authoritative signal that the completed session is fully closed.
+    SESSION_FINISHED: "SESSION_FINISHED",
+
     GAME_FINISHED: "GAME_FINISHED",
     GAME_DESTROYED: "GAME_DESTROYED",
 

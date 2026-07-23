@@ -44,6 +44,7 @@ export class RoomLobbyBridge {
         playerManager,
         gameplayContextResolver = null,
         setupSessionLifecycle = null,
+        resultSessionLifecycle = null,
         telegramWalletAdapter = null,
         entryPaymentDelays = null,
         isDevelopment = false
@@ -60,6 +61,8 @@ export class RoomLobbyBridge {
         this._gameplayContextResolver = gameplayContextResolver;
 
         this._setupSessionLifecycle = setupSessionLifecycle;
+
+        this._resultSessionLifecycle = resultSessionLifecycle;
 
         // R1.3D — DEBUG_START_GAME is development-only.
         this._isDevelopment = isDevelopment === true;
@@ -101,6 +104,9 @@ export class RoomLobbyBridge {
 
         // Rooms whose Game Session has started (post Setup Session completion).
         this._startedRooms = new Set();
+
+        // R6.5 — rooms currently running the single SESSION_FINISHED cleanup path.
+        this._finishingResultSessions = new Set();
 
         // Verify barrier: profiles stay private until every player confirms.
         this._verifyConfirmedByRoom = new Map();
@@ -290,6 +296,15 @@ export class RoomLobbyBridge {
             }
         );
 
+        this._subscribe(
+            EVENT_TYPES.RESULT_SESSION_EXPIRED,
+            (envelope) => {
+
+                this._handleResultSessionExpired(envelope.payload);
+
+            }
+        );
+
         this._initialized = true;
 
     }
@@ -314,6 +329,8 @@ export class RoomLobbyBridge {
         this._roomCreators.clear();
 
         this._startedRooms.clear();
+
+        this._finishingResultSessions.clear();
 
         this._verifyConfirmedByRoom.clear();
 
@@ -1113,15 +1130,12 @@ export class RoomLobbyBridge {
 
         }
 
-        // C4.9 — Deliberate leave of a started room ends the session. Only an
-        // explicit "return to Page1" leave reaches this path for a started room:
-        // socket disconnects soft-detach and return earlier for reconnect. Close
-        // the whole session so no gameplay-owned lobby state (room, room->game
-        // mapping, started flag, players/sockets) survives the completed game.
-        // Recovery (disconnect/reconnect) is untouched — it never gets here.
+        // C4.9 / R6.5 — Deliberate leave of a started room ends the session via
+        // the single SESSION_FINISHED cleanup path (same as result-session timeout).
+        // Soft disconnect never reaches here; recovery is untouched.
         if (gameStarted) {
 
-            this._closeRoom(roomId, "session_ended");
+            this._finishResultSession(roomId, "session_ended");
 
             return;
 
@@ -1189,6 +1203,87 @@ export class RoomLobbyBridge {
 
     }
 
+    /**
+     * R6.5 — Single cleanup path for Page6 FINISH and Result Session timeout.
+     * Broadcasts SESSION_FINISHED while sockets are still joined, then closes.
+     */
+    _finishResultSession(roomId, reason) {
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        if (this._finishingResultSessions.has(roomId)) {
+
+            return;
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            this._resultSessionLifecycle?.cancel(roomId);
+
+            return;
+
+        }
+
+        this._finishingResultSessions.add(roomId);
+
+        const activeSession = this._resultSessionLifecycle?.getSession(roomId);
+
+        const gameId = activeSession?.gameId ?? null;
+
+        this._resultSessionLifecycle?.cancel(roomId);
+
+        this._eventBus.emit({
+            source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+            type: EVENT_TYPES.SESSION_FINISHED,
+            payload: {
+                roomId,
+                gameId,
+                reason,
+                timestamp: Date.now()
+            }
+        });
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.SESSION_FINISHED,
+            {
+                roomId,
+                gameId,
+                reason,
+                timestamp: Date.now()
+            }
+        );
+
+        this._closeRoom(roomId, reason);
+
+        this._finishingResultSessions.delete(roomId);
+
+    }
+
+    _handleResultSessionExpired(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._finishResultSession(
+            roomId,
+            payload?.reason ?? "result_session_expired"
+        );
+
+    }
+
     _closeRoom(roomId, reason) {
 
         const room = this._roomManager.getRoom(roomId);
@@ -1200,6 +1295,8 @@ export class RoomLobbyBridge {
         }
 
         const playerIds = [...room.players];
+
+        this._resultSessionLifecycle?.cancel(roomId);
 
         this._roomManager.destroyRoom(roomId);
 
@@ -2297,6 +2394,11 @@ export class RoomLobbyBridge {
             LOBBY_SERVER_EVENTS.OPEN_PAGE6,
             { roomId, gameId: gameId ?? null }
         );
+
+        // R6.5 — start the authoritative Page6 linger (FINISH or timeout).
+        this._resultSessionLifecycle?.start(roomId, {
+            gameId: gameId ?? null
+        });
 
     }
 
