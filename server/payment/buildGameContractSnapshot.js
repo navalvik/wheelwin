@@ -1,4 +1,5 @@
 import { PAYMENT_RULES } from "../catalog/PaymentRules.js";
+import { OwnerConfiguration } from "../config/OwnerConfiguration.js";
 import { calculateRequiredGram } from "./calculateRequiredGram.js";
 
 function roundMoney(value) {
@@ -10,6 +11,7 @@ function roundMoney(value) {
 /**
  * P6.4 — Build an immutable Game Contract snapshot from authoritative sources.
  * Values freeze at request time and must never change afterward.
+ * P6.8A — ownerWallet is copied from OwnerConfiguration into the snapshot.
  */
 export function buildGameContractSnapshot({
     gameId,
@@ -18,10 +20,20 @@ export function buildGameContractSnapshot({
     playerManager,
     sessionWalletStore,
     configuration = null,
-    paymentRules = PAYMENT_RULES
+    paymentRules = PAYMENT_RULES,
+    ownerWallet = null
 }) {
 
     if (!gameId || !roomId || !Array.isArray(playerIds) || playerIds.length === 0) {
+
+        return null;
+
+    }
+
+    const resolvedOwnerWallet = ownerWallet
+        ?? OwnerConfiguration.getOwnerWallet();
+
+    if (!resolvedOwnerWallet) {
 
         return null;
 
@@ -125,6 +137,7 @@ export function buildGameContractSnapshot({
         organizerFeeRate: feeRate,
         winnerPercentage,
         currency: "GRM",
+        ownerWallet: resolvedOwnerWallet,
         frozenAt: Date.now()
     });
 

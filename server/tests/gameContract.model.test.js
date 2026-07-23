@@ -56,6 +56,12 @@ import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.
 
     assert.equal(client.snapshot, undefined);
 
+    assert.equal(
+        client.ownerWallet,
+        undefined,
+        "P6.8A — owner wallet must never reach client snapshot"
+    );
+
 }
 
 {
@@ -127,10 +133,22 @@ import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.
 
             }
         },
-        configuration: { stake: 10, players: [], sectors: [] }
+        configuration: { stake: 10, players: [], sectors: [] },
+        ownerWallet: "EQOwnerConfigExampleWalletDoNotUseInProductionXX"
     });
 
     assert.equal(snapshot.totalPot, 45);
+
+    assert.equal(
+        snapshot.ownerWallet,
+        "EQOwnerConfigExampleWalletDoNotUseInProductionXX"
+    );
+
+    assert.equal(
+        Object.isFrozen(snapshot),
+        true,
+        "snapshot must be frozen"
+    );
 
 }
 

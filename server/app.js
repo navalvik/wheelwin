@@ -11,6 +11,7 @@ import { loadServerConfig } from "./config/server.js";
 import { loadSocketConfig } from "./config/socket.js";
 import { loadTonConfig } from "./config/ton.js";
 import { loadProductionConfig } from "./config/production.js";
+import { OwnerConfiguration } from "./config/OwnerConfiguration.js";
 import {
     validateEngineDependencies,
     validateStartupConfiguration
@@ -219,6 +220,11 @@ class WheelWinApplication {
         this._logger.info("");
         this._logger.info("Initializing...");
         this._logger.info("");
+
+        // P6.8A — owner wallet from external untracked config (fatal if missing).
+        OwnerConfiguration.load();
+
+        this._logger.startupLine("OwnerConfiguration");
 
         const socketConfig = loadSocketConfig(this._serverConfig);
 

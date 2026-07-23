@@ -2,3 +2,7 @@ node_modules/
 .env
 *.log
 .DS_Store
+
+# P6.8A — never commit the real owner wallet file (lives at repo config/).
+../config/owner.json
+config/owner.json

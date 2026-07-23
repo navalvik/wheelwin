@@ -6,6 +6,10 @@ import { GameContractManager } from "../gameplay/GameContractManager.js";
 import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
+import {
+    OWNER_CONFIG_EXAMPLE_PATH,
+    OwnerConfiguration
+} from "../config/OwnerConfiguration.js";
 
 function createLogger() {
 
@@ -25,6 +29,10 @@ function wait(ms) {
 }
 
 function createHarness({ shouldFail = false } = {}) {
+
+    OwnerConfiguration.resetForTests();
+
+    OwnerConfiguration.load({ configPath: OWNER_CONFIG_EXAMPLE_PATH });
 
     const logger = createLogger();
 

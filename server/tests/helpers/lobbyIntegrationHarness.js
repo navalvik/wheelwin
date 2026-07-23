@@ -13,6 +13,10 @@ import {
     EntryPaymentAuditLedger
 } from "../../payment/BlockchainMonitor.js";
 import { MockTonTransport } from "../../payment/ton/MockTonTransport.js";
+import {
+    OWNER_CONFIG_EXAMPLE_PATH,
+    OwnerConfiguration
+} from "../../config/OwnerConfiguration.js";
 import { LoggerService } from "../../services/LoggerService.js";
 import { SessionWalletStore } from "../../session/SessionWalletStore.js";
 import { GameplayContextResolver } from "../../socket/GameplayContextResolver.js";
@@ -24,6 +28,10 @@ import {
 } from "./gameplayBootstrapHarness.js";
 
 export async function createLobbyIntegrationHarness() {
+
+    OwnerConfiguration.resetForTests();
+
+    OwnerConfiguration.load({ configPath: OWNER_CONFIG_EXAMPLE_PATH });
 
     const logger = new LoggerService({ logLevel: "error" });
 
@@ -248,6 +256,8 @@ export async function createLobbyIntegrationHarness() {
             });
 
             logger.shutdown();
+
+            OwnerConfiguration.resetForTests();
 
         }
     };
