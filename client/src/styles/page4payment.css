@@ -119,6 +119,62 @@
     box-sizing: border-box;
 }
 
+.page4__connectActions {
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: center;
+
+    gap: 10px;
+
+    width: 100%;
+}
+
+.page4__connectButton,
+.page4__disconnectButton {
+
+    min-width: min(320px, 100%);
+
+    height: 44px;
+
+    padding: 0 18px;
+
+    font-size: 15px;
+
+    font-weight: 700;
+
+    border-radius: 10px;
+
+    cursor: pointer;
+}
+
+.page4__connectButton {
+
+    color: #ffffff;
+
+    background: #1c73d0;
+
+    border: 2px solid #155aa3;
+}
+
+.page4__connectButton:disabled {
+
+    opacity: 0.55;
+
+    cursor: default;
+}
+
+.page4__disconnectButton {
+
+    color: #334155;
+
+    background: #ffffff;
+
+    border: 2px solid #94a3b8;
+}
+
 @media (min-width: 601px) {
 
     .paymentPanel {

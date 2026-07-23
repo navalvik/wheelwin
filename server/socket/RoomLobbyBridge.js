@@ -30,6 +30,13 @@ import { CONNECTION_STATE } from "../models/ConnectionState.js";
 import { PLAYER_STATE } from "../models/PlayerState.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import {
+    WalletConnectionSession
+} from "../models/WalletConnectionSession.js";
+import {
+    canonicalizeTonWalletAddress,
+    sessionWalletsMatch
+} from "../models/TonWalletAddress.js";
+import {
     LOBBY_ERROR_CODES,
     LOBBY_ERROR_MESSAGES,
     LOBBY_SERVER_EVENTS
@@ -135,6 +142,9 @@ export class RoomLobbyBridge {
         // Separate from winner-settlement PaymentEngine.
         this._entryPaymentByRoom = new Map();
 
+        // P6.2 — Telegram Wallet connection session (Page4). One per room.
+        this._walletConnectionByRoom = new Map();
+
         // Secret Matrix submissions keyed by roomId → Map(playerId → cells).
         this._secretMatrixByRoom = new Map();
 
@@ -217,6 +227,36 @@ export class RoomLobbyBridge {
                     envelope.payload.socketId,
                     envelope.payload.walletAddress
                 );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_WALLET_CONNECT_STARTED_REQUEST,
+            (envelope) => {
+
+                this._handleWalletConnectStarted(envelope.payload.socketId);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_WALLET_CONNECT_REPORT_REQUEST,
+            (envelope) => {
+
+                this._handleWalletConnectReport(
+                    envelope.payload.socketId,
+                    envelope.payload.connectedWallet
+                );
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_WALLET_DISCONNECT_REPORT_REQUEST,
+            (envelope) => {
+
+                this._handleWalletDisconnectReport(envelope.payload.socketId);
 
             }
         );
@@ -365,6 +405,8 @@ export class RoomLobbyBridge {
         this._entryPaymentByRoom.clear();
 
         this._entryPaymentCompletedByRoom.clear();
+
+        this._walletConnectionByRoom.clear();
 
         this._secretMatrixByRoom.clear();
 
@@ -859,6 +901,28 @@ export class RoomLobbyBridge {
                     LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
                     entryPayment.toSnapshot()
                 );
+
+            }
+
+            const walletConnection = this._walletConnectionByRoom.get(roomId);
+
+            if (walletConnection) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
+                    walletConnection.toSnapshot()
+                );
+
+                if (walletConnection.paymentConnectionReady) {
+
+                    this._deliverToSocket(
+                        socketId,
+                        LOBBY_SERVER_EVENTS.PAYMENT_CONNECTION_READY,
+                        { roomId }
+                    );
+
+                }
 
             }
 
@@ -2081,7 +2145,80 @@ export class RoomLobbyBridge {
 
         this._logger.info(`Payment stage ready | roomId=${roomId}`);
 
-        this._createAndBroadcastEntryPaymentSession(roomId);
+        // P6.2 — start wallet connection barrier (no payment simulation).
+        this._createAndBroadcastWalletConnectionSession(roomId);
+
+        // Keep EntryPaymentSession shell for DEBUG_START_GAME / later stages,
+        // but do not auto-run TelegramWalletAdapter simulation.
+        this._createEntryPaymentSessionShell(roomId);
+
+    }
+
+    _createAndBroadcastWalletConnectionSession(roomId) {
+
+        if (this._walletConnectionByRoom.has(roomId)) {
+
+            this._broadcastWalletConnectionSession(roomId);
+
+            return;
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            return;
+
+        }
+
+        const roster = room.players.map((playerId) => ({
+            playerId,
+            sessionWallet: this._sessionWalletStore.getWallet(roomId, playerId)
+        }));
+
+        const session = WalletConnectionSession.createInitial(roomId, roster);
+
+        this._walletConnectionByRoom.set(roomId, session);
+
+        this._broadcastWalletConnectionSession(roomId);
+
+        this._logger.info(
+            `Wallet connection session created | roomId=${roomId} | `
+                + `players=${session.players.length}`
+        );
+
+    }
+
+    _createEntryPaymentSessionShell(roomId) {
+
+        if (this._entryPaymentByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            return;
+
+        }
+
+        const roster = room.players.map((playerId) => ({
+            playerId,
+            wallet: this._sessionWalletStore.getWallet(roomId, playerId)
+        }));
+
+        const session = EntryPaymentSession.createInitial(roomId, roster);
+
+        this._entryPaymentByRoom.set(roomId, session);
+
+        this._logger.info(
+            `Entry payment session shell created | roomId=${roomId} | `
+                + `players=${session.players.length}`
+        );
 
     }
 
@@ -2118,12 +2255,184 @@ export class RoomLobbyBridge {
 
         this._broadcastEntryPaymentSession(roomId);
 
+        // Legacy simulation path retained for explicit callers only (not P6.2).
         this._entryPaymentLifecycle.start(roomId, session);
 
         this._logger.info(
             `Entry payment session created | roomId=${roomId} | `
                 + `players=${session.players.length}`
         );
+
+    }
+
+    _handleWalletConnectStarted(socketId) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        if (!this._paymentStageReadyByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        const session = this._walletConnectionByRoom.get(roomId);
+
+        if (!session) {
+
+            return;
+
+        }
+
+        if (!session.setConnecting(playerId)) {
+
+            return;
+
+        }
+
+        this._broadcastWalletConnectionSession(roomId);
+
+    }
+
+    _handleWalletConnectReport(socketId, rawConnectedWallet) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        if (!this._paymentStageReadyByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        const session = this._walletConnectionByRoom.get(roomId);
+
+        if (!session) {
+
+            return;
+
+        }
+
+        const sessionWallet = this._sessionWalletStore.getWallet(
+            roomId,
+            playerId
+        );
+
+        const connectedWallet = canonicalizeTonWalletAddress(rawConnectedWallet);
+
+        if (!connectedWallet) {
+
+            session.setAddressMismatch(playerId, null);
+
+            this._broadcastWalletConnectionSession(roomId);
+
+            return;
+
+        }
+
+        if (!sessionWalletsMatch(sessionWallet, connectedWallet)) {
+
+            session.setAddressMismatch(playerId, connectedWallet);
+
+            this._broadcastWalletConnectionSession(roomId);
+
+            this._logger.info(
+                `Wallet address mismatch | roomId=${roomId} | playerId=${playerId}`
+            );
+
+            return;
+
+        }
+
+        session.setConnected(playerId, connectedWallet);
+
+        this._broadcastWalletConnectionSession(roomId);
+
+        if (session.paymentConnectionReady) {
+
+            this._deliverPaymentConnectionReady(roomId);
+
+        }
+
+    }
+
+    _handleWalletDisconnectReport(socketId) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        const session = this._walletConnectionByRoom.get(roomId);
+
+        if (!session) {
+
+            return;
+
+        }
+
+        if (!session.setWaiting(playerId)) {
+
+            return;
+
+        }
+
+        this._broadcastWalletConnectionSession(roomId);
+
+    }
+
+    _broadcastWalletConnectionSession(roomId) {
+
+        const session = this._walletConnectionByRoom.get(roomId);
+
+        if (!session) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
+            session.toSnapshot()
+        );
+
+    }
+
+    _deliverPaymentConnectionReady(roomId) {
+
+        this._eventBus.emit({
+            source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+            type: EVENT_TYPES.PAYMENT_CONNECTION_READY,
+            payload: { roomId, timestamp: Date.now() }
+        });
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.PAYMENT_CONNECTION_READY,
+            { roomId }
+        );
+
+        this._logger.info(`Payment connection ready | roomId=${roomId}`);
 
     }
 
@@ -2438,6 +2747,8 @@ export class RoomLobbyBridge {
         this._entryPaymentByRoom.delete(roomId);
 
         this._entryPaymentCompletedByRoom.delete(roomId);
+
+        this._walletConnectionByRoom.delete(roomId);
 
     }
 

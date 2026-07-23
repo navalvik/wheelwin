@@ -284,6 +284,24 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onWalletConnectionSessionUpdated: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.WALLET_CONNECTION_SESSION_UPDATED,
+                payload
+            });
+
+        },
+
+        onPaymentConnectionReady: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_CONNECTION_READY,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

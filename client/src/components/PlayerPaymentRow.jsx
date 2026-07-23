@@ -8,6 +8,11 @@ export default function PlayerPaymentRow({
 
     icon,
 
+    connectionStatus,
+
+    connectionStatusLabel,
+
+    // Legacy entry-payment props retained for compatibility.
     walletRegistered = false,
 
     paymentStatus,
@@ -16,7 +21,8 @@ export default function PlayerPaymentRow({
 
 }) {
 
-    const statusLabel = paymentStatusLabel
+    const statusLabel = connectionStatusLabel
+        ?? paymentStatusLabel
         ?? (
             paymentStatus === "paid"
                 ? "Paid ✓"
@@ -27,7 +33,34 @@ export default function PlayerPaymentRow({
                         : "Waiting"
         );
 
-    const isDone = paymentStatus === "paid" || paymentStatus === "confirmed";
+    const normalized = connectionStatus
+        ?? (
+            paymentStatus === "paid" || paymentStatus === "confirmed"
+                ? "CONNECTED"
+                : "WAITING"
+        );
+
+    const isDone = normalized === "CONNECTED"
+        || paymentStatus === "paid"
+        || paymentStatus === "confirmed";
+
+    const isMismatch = normalized === "ADDRESS_MISMATCH";
+
+    const walletLabel = connectionStatus
+        ? (
+            normalized === "CONNECTED"
+                ? "Wallet Connected ✓"
+                : normalized === "ADDRESS_MISMATCH"
+                    ? "Address Mismatch"
+                    : normalized === "CONNECTING"
+                        ? "Connecting…"
+                        : "Wallet Pending"
+        )
+        : (
+            walletRegistered
+                ? "Wallet Registered ✓"
+                : "Wallet Missing"
+        );
 
     return (
 
@@ -75,15 +108,15 @@ export default function PlayerPaymentRow({
 
                 <span
                     className={
-                        walletRegistered
+                        isDone
                             ? "paymentStatus paymentStatus--done"
-                            : "paymentStatus paymentStatus--awaiting"
+                            : isMismatch
+                                ? "paymentStatus paymentStatus--awaiting"
+                                : "paymentStatus paymentStatus--awaiting"
                     }
                 >
 
-                    {walletRegistered
-                        ? "Wallet Registered ✓"
-                        : "Wallet Missing"}
+                    {walletLabel}
 
                 </span>
 
@@ -93,7 +126,7 @@ export default function PlayerPaymentRow({
 
                 <span className="playerPaymentRow__label">
 
-                    Payment
+                    Status
 
                 </span>
 

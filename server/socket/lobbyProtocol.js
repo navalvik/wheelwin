@@ -8,7 +8,11 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     CONFIRM_VERIFY: "confirmVerify",
     VERIFY_NEXT_REQUEST: "VERIFY_NEXT_REQUEST",
     // R1.3D — development-only; SocketGateway rejects outside development.
-    DEBUG_START_GAME: "DEBUG_START_GAME"
+    DEBUG_START_GAME: "DEBUG_START_GAME",
+    // P6.2 — Telegram Wallet / TON Connect reports (connection only).
+    WALLET_CONNECT_STARTED: "WALLET_CONNECT_STARTED",
+    WALLET_CONNECT_REPORT: "WALLET_CONNECT_REPORT",
+    WALLET_DISCONNECT_REPORT: "WALLET_DISCONNECT_REPORT"
 });
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({
@@ -29,6 +33,9 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
     ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
     ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
+    // P6.2 — wallet connection session (Page4).
+    WALLET_CONNECTION_SESSION_UPDATED: "WALLET_CONNECTION_SESSION_UPDATED",
+    PAYMENT_CONNECTION_READY: "PAYMENT_CONNECTION_READY",
     // R1.3D — sole authoritative signal for clients to open Page5.
     OPEN_PAGE5: "OPEN_PAGE5",
     // P5.3 — authoritative signal for clients to open Page6 after RESULT.

@@ -38,3 +38,11 @@ export {
     shouldShowEntryPaymentWaiting,
     mapEntryPaymentRows
 } from "./authoritativeEntryPaymentView.js";
+
+export {
+    WALLET_CONNECTION_STATUS,
+    hasWalletConnectionSession,
+    shouldShowWalletConnectionWaiting,
+    mapWalletConnectionStatusLabel,
+    mapWalletConnectionRows
+} from "./authoritativeWalletConnectionView.js";

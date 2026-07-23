@@ -625,73 +625,25 @@ try {
         "guestB.PAYMENT_STAGE_READY"
     );
 
-    const entryHostPromise = waitForEvent(
+    const walletHostPromise = waitForEvent(
         host,
-        "ENTRY_PAYMENT_SESSION_UPDATED",
+        "WALLET_CONNECTION_SESSION_UPDATED",
         5000,
-        "host.ENTRY_PAYMENT_SESSION_UPDATED"
+        "host.WALLET_CONNECTION_SESSION_UPDATED"
     );
 
-    const entryAPromise = waitForEvent(
+    const walletAPromise = waitForEvent(
         guestA,
-        "ENTRY_PAYMENT_SESSION_UPDATED",
+        "WALLET_CONNECTION_SESSION_UPDATED",
         5000,
-        "guestA.ENTRY_PAYMENT_SESSION_UPDATED"
+        "guestA.WALLET_CONNECTION_SESSION_UPDATED"
     );
 
-    const entryBPromise = waitForEvent(
+    const walletBPromise = waitForEvent(
         guestB,
-        "ENTRY_PAYMENT_SESSION_UPDATED",
+        "WALLET_CONNECTION_SESSION_UPDATED",
         5000,
-        "guestB.ENTRY_PAYMENT_SESSION_UPDATED"
-    );
-
-    // C5.8D — listen for final lifecycle before barrier completes so we do not
-    // miss simulated paid / creating / created broadcasts.
-    const finalHostPromise = waitForEntryPaymentUpdate(
-        host,
-        (payload) => payload?.smartContractStatus === "created"
-            && payload.players?.every((player) => player.paymentStatus === "paid"),
-        5000,
-        "host.entryPayment.created"
-    );
-
-    const finalAPromise = waitForEntryPaymentUpdate(
-        guestA,
-        (payload) => payload?.smartContractStatus === "created"
-            && payload.players?.every((player) => player.paymentStatus === "paid"),
-        5000,
-        "guestA.entryPayment.created"
-    );
-
-    const finalBPromise = waitForEntryPaymentUpdate(
-        guestB,
-        (payload) => payload?.smartContractStatus === "created"
-            && payload.players?.every((player) => player.paymentStatus === "paid"),
-        5000,
-        "guestB.entryPayment.created"
-    );
-
-    // C5.8E — completion after the authoritative display timer.
-    const completedHostPromise = waitForEvent(
-        host,
-        "ENTRY_PAYMENT_COMPLETED",
-        5000,
-        "host.ENTRY_PAYMENT_COMPLETED"
-    );
-
-    const completedAPromise = waitForEvent(
-        guestA,
-        "ENTRY_PAYMENT_COMPLETED",
-        5000,
-        "guestA.ENTRY_PAYMENT_COMPLETED"
-    );
-
-    const completedBPromise = waitForEvent(
-        guestB,
-        "ENTRY_PAYMENT_COMPLETED",
-        5000,
-        "guestB.ENTRY_PAYMENT_COMPLETED"
+        "guestB.WALLET_CONNECTION_SESSION_UPDATED"
     );
 
     // Corrected valid wallet joins the barrier and completes it.
@@ -705,16 +657,16 @@ try {
         paymentHost,
         paymentA,
         paymentB,
-        entryHost,
-        entryA,
-        entryB
+        walletHost,
+        walletA,
+        walletB
     ] = await Promise.all([
         paymentHostPromise,
         paymentAPromise,
         paymentBPromise,
-        entryHostPromise,
-        entryAPromise,
-        entryBPromise
+        walletHostPromise,
+        walletAPromise,
+        walletBPromise
     ]);
 
     host.off("PAYMENT_STAGE_READY", onEarlyPayment);
@@ -770,78 +722,80 @@ try {
         "PAYMENT_STAGE_READY must reach every client with roomId"
     );
 
-    // C5.8C — EntryPaymentSession created immediately after PAYMENT_STAGE_READY.
+    // P6.2 — WalletConnectionSession replaces entry-payment simulation on Page4.
     assert(
-        entryHost.roomId === created.roomId
-            && entryA.roomId === created.roomId
-            && entryB.roomId === created.roomId,
-        "ENTRY_PAYMENT_SESSION_UPDATED must reach every client"
+        walletHost.roomId === created.roomId
+            && walletA.roomId === created.roomId
+            && walletB.roomId === created.roomId,
+        "WALLET_CONNECTION_SESSION_UPDATED must reach every client"
     );
 
     assert(
-        entryHost.players.length === 3
-            && entryA.players.length === 3
-            && entryB.players.length === 3,
-        "EntryPaymentSession must include all three players"
+        walletHost.players.length === 3
+            && walletA.players.length === 3
+            && walletB.players.length === 3,
+        "WalletConnectionSession must include all three players"
     );
 
     assert(
-        entryHost.players.every((player) => player.paymentStatus === "waiting"),
-        "every entry paymentStatus starts waiting"
+        walletHost.players.every((player) => player.status === "WAITING"),
+        "every wallet connection status starts WAITING"
     );
 
     assert(
-        entryHost.smartContractStatus === "waiting",
-        "smartContractStatus starts waiting"
+        walletHost.paymentConnectionReady === false,
+        "PAYMENT_CONNECTION_READY must wait for all CONNECTED reports"
+    );
+
+    const connectionReadyPromise = waitForEvent(
+        host,
+        "PAYMENT_CONNECTION_READY",
+        5000,
+        "host.PAYMENT_CONNECTION_READY"
+    );
+
+    host.emit("WALLET_CONNECT_REPORT", {
+        connectedWallet: hostWallet
+    });
+
+    guestA.emit("WALLET_CONNECT_REPORT", {
+        connectedWallet: guestAWallet
+    });
+
+    guestB.emit("WALLET_CONNECT_REPORT", {
+        connectedWallet: guestBWallet
+    });
+
+    const connectionReady = await connectionReadyPromise;
+
+    assert(
+        connectionReady.roomId === created.roomId,
+        "PAYMENT_CONNECTION_READY must include roomId"
+    );
+
+    const walletSession = harness.roomLobbyBridge
+        ._walletConnectionByRoom.get(created.roomId);
+
+    assert(walletSession, "WalletConnectionSession must exist on server");
+
+    assert(
+        walletSession.paymentConnectionReady === true,
+        "server marks payment connection ready when all wallets match"
     );
 
     assert(
-        entryHost.players.every((player) => typeof player.wallet === "string"
-            && player.wallet.startsWith("EQ")),
-        "EntryPaymentSession carries registered wallets"
+        walletSession.players.every((player) => player.status === "CONNECTED"),
+        "all seats must be CONNECTED"
     );
 
-    const entrySession = harness.roomLobbyBridge
-        ._entryPaymentByRoom.get(created.roomId);
+    // Mismatch leaves the room on Page4 without OPEN_PAGE5.
+    guestA.emit("WALLET_DISCONNECT_REPORT");
 
-    assert(entrySession, "EntryPaymentSession must exist on server");
-
-    const [finalHost, finalA, finalB] = await Promise.all([
-        finalHostPromise,
-        finalAPromise,
-        finalBPromise
-    ]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     assert(
-        finalHost.smartContractStatus === "created"
-            && finalA.smartContractStatus === "created"
-            && finalB.smartContractStatus === "created",
-        "all clients reach smartContractStatus=created"
-    );
-
-    assert(
-        finalHost.players.every((player) => player.paymentStatus === "paid")
-            && finalA.players.every((player) => player.paymentStatus === "paid")
-            && finalB.players.every((player) => player.paymentStatus === "paid"),
-        "all clients see every player paid"
-    );
-
-    const [completedHost, completedA, completedB] = await Promise.all([
-        completedHostPromise,
-        completedAPromise,
-        completedBPromise
-    ]);
-
-    assert(
-        completedHost.roomId === created.roomId
-            && completedA.roomId === created.roomId
-            && completedB.roomId === created.roomId,
-        "ENTRY_PAYMENT_COMPLETED must reach every client"
-    );
-
-    assert(
-        harness.roomLobbyBridge._entryPaymentCompletedByRoom.has(created.roomId),
-        "server marks entry payment completed"
+        walletSession.findPlayer(joined.playerId)?.status === "WAITING",
+        "disconnect returns seat to WAITING"
     );
 
     host.disconnect();

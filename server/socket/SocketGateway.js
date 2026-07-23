@@ -722,6 +722,36 @@ export class SocketGateway {
 
         });
 
+        socket.on(LOBBY_CLIENT_EVENTS.WALLET_CONNECT_STARTED, () => {
+
+            this._emitLobbyRequest(
+                EVENT_TYPES.LOBBY_WALLET_CONNECT_STARTED_REQUEST,
+                { socketId: socket.id }
+            );
+
+        });
+
+        socket.on(LOBBY_CLIENT_EVENTS.WALLET_CONNECT_REPORT, (payload) => {
+
+            this._emitLobbyRequest(
+                EVENT_TYPES.LOBBY_WALLET_CONNECT_REPORT_REQUEST,
+                {
+                    socketId: socket.id,
+                    connectedWallet: payload?.connectedWallet ?? null
+                }
+            );
+
+        });
+
+        socket.on(LOBBY_CLIENT_EVENTS.WALLET_DISCONNECT_REPORT, () => {
+
+            this._emitLobbyRequest(
+                EVENT_TYPES.LOBBY_WALLET_DISCONNECT_REPORT_REQUEST,
+                { socketId: socket.id }
+            );
+
+        });
+
         // R1.3D — never expose DEBUG_START_GAME outside development.
         if (this._devMode) {
 

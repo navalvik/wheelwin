@@ -203,6 +203,16 @@ export class EngineBridge {
                 session()?.onEntryPaymentCompleted?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.WALLET_CONNECTION_SESSION_UPDATED]: (payload) => {
+
+                session()?.onWalletConnectionSessionUpdated?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_CONNECTION_READY]: (payload) => {
+
+                session()?.onPaymentConnectionReady?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE5]: (payload) => {
 
                 modules.pageNavigation?.onOpenPage5?.(payload);

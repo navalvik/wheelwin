@@ -40,6 +40,8 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
     ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
     ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
+    WALLET_CONNECTION_SESSION_UPDATED: "WALLET_CONNECTION_SESSION_UPDATED",
+    PAYMENT_CONNECTION_READY: "PAYMENT_CONNECTION_READY",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -55,6 +57,7 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     configuration: null,
     payment: null,
     entryPayment: null,
+    walletConnection: null,
     audit: null,
     winner: null,
     recovery: null,
@@ -65,7 +68,8 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
         cleanupObserved: false,
         verifyCompleted: false,
         paymentStageReady: false,
-        entryPaymentCompleted: false
+        entryPaymentCompleted: false,
+        paymentConnectionReady: false
     }),
     lastEventType: null,
     lastUpdatedAt: null
@@ -240,6 +244,7 @@ export function authoritativeSessionReducer(state, action) {
                 maxPlayers: payload.maxPlayers ?? state.maxPlayers,
                 players,
                 entryPayment: null,
+                walletConnection: null,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     gameStarted: true,
@@ -247,7 +252,8 @@ export function authoritativeSessionReducer(state, action) {
                     cleanupObserved: false,
                     verifyCompleted: false,
                     paymentStageReady: false,
-                    entryPaymentCompleted: false
+                    entryPaymentCompleted: false,
+                    paymentConnectionReady: false
                 })
             }, action.type);
 
@@ -584,6 +590,65 @@ export function authoritativeSessionReducer(state, action) {
                     ...state.lifecycle,
                     entryPaymentCompleted: true
                 })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.WALLET_CONNECTION_SESSION_UPDATED: {
+
+            if (!payload || typeof payload !== "object") {
+
+                return state;
+
+            }
+
+            const players = Array.isArray(payload.players)
+                ? Object.freeze(
+                    payload.players.map((player) => Object.freeze({
+                        playerId: player?.playerId ?? null,
+                        sessionWallet: player?.sessionWallet ?? null,
+                        connectedWallet: player?.connectedWallet ?? null,
+                        status: player?.status ?? "WAITING"
+                    }))
+                )
+                : Object.freeze([]);
+
+            return stamp({
+                ...state,
+                roomId: payload.roomId ?? state.roomId,
+                walletConnection: Object.freeze({
+                    roomId: payload.roomId ?? null,
+                    createdAt: payload.createdAt ?? null,
+                    paymentConnectionReady:
+                        payload.paymentConnectionReady === true,
+                    players
+                }),
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    paymentConnectionReady:
+                        payload.paymentConnectionReady === true
+                            ? true
+                            : state.lifecycle.paymentConnectionReady
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_CONNECTION_READY: {
+
+            return stamp({
+                ...state,
+                roomId: payload?.roomId ?? state.roomId,
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    paymentConnectionReady: true
+                }),
+                walletConnection: state.walletConnection
+                    ? Object.freeze({
+                        ...state.walletConnection,
+                        paymentConnectionReady: true
+                    })
+                    : state.walletConnection
             }, action.type);
 
         }

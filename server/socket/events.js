@@ -1,33 +1,16 @@
 /**
- * Socket event names for future stages.
- * No handlers are registered in Stage S1.
+ * Socket event names.
+ * Prefer lobbyProtocol.js for lobby names; this module re-exports them so
+ * SocketGateway and older imports stay in sync.
  */
 export const SOCKET_EVENTS = Object.freeze({
     CONNECTION: "connection",
     DISCONNECT: "disconnect"
 });
 
-export const LOBBY_CLIENT_EVENTS = Object.freeze({
-    CREATE_ROOM: "createRoom",
-    JOIN_ROOM: "joinRoom",
-    LEAVE_ROOM: "leaveRoom",
-    UPDATE_PLAYER_PROFILE: "updatePlayerProfile",
-    SUBMIT_SECRET_MATRIX: "submitSecretMatrix",
-    CONFIRM_VERIFY: "confirmVerify",
-    VERIFY_NEXT_REQUEST: "VERIFY_NEXT_REQUEST",
-    DEBUG_START_GAME: "DEBUG_START_GAME"
-});
-
-export const LOBBY_SERVER_EVENTS = Object.freeze({
-    ROOM_CREATED: "roomCreated",
-    ROOM_STATE: "roomState",
-    ROOM_JOINED: "roomJoined",
-    ROOM_LEFT: "roomLeft",
-    ROOM_ERROR: "roomError",
-    ROOM_CLOSED: "roomClosed",
-    START_GAME: "startGame",
-    PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
-    OPEN_PAGE5: "OPEN_PAGE5"
-});
+export {
+    LOBBY_CLIENT_EVENTS,
+    LOBBY_SERVER_EVENTS
+} from "./lobbyProtocol.js";
 
 export const GAME_MESSAGE_CHANNEL = "game:message";

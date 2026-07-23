@@ -296,6 +296,24 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleWalletConnectionSessionUpdated = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
+                payload
+            });
+
+        };
+
+        this._handlePaymentConnectionReady = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.PAYMENT_CONNECTION_READY,
+                payload
+            });
+
+        };
+
         this._handleOpenPage5 = (payload) => {
 
             this._handleIncoming({
@@ -374,6 +392,16 @@ export class SocketSyncLayer {
         );
 
         this._socket.on(
+            INCOMING_SOCKET_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
+            this._handleWalletConnectionSessionUpdated
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.PAYMENT_CONNECTION_READY,
+            this._handlePaymentConnectionReady
+        );
+
+        this._socket.on(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
             this._handleOpenPage5
         );
@@ -448,6 +476,16 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
             this._handleEntryPaymentCompleted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
+            this._handleWalletConnectionSessionUpdated
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.PAYMENT_CONNECTION_READY,
+            this._handlePaymentConnectionReady
         );
 
         this._socket.off(
