@@ -25,8 +25,10 @@ export default function PlayerPaymentRow({
         ?? paymentStatusLabel
         ?? (
             paymentStatus === "paid"
+                || paymentStatus === "PAYMENT_CONFIRMED"
                 ? "Paid ✓"
                 : paymentStatus === "failed"
+                    || paymentStatus === "PAYMENT_FAILED"
                     ? "Failed"
                     : paymentStatus === "cancelled"
                         ? "Cancelled"
@@ -35,14 +37,17 @@ export default function PlayerPaymentRow({
 
     const normalized = connectionStatus
         ?? (
-            paymentStatus === "paid" || paymentStatus === "confirmed"
+            paymentStatus === "paid"
+                || paymentStatus === "confirmed"
+                || paymentStatus === "PAYMENT_CONFIRMED"
                 ? "CONNECTED"
                 : "WAITING"
         );
 
     const isDone = normalized === "CONNECTED"
         || paymentStatus === "paid"
-        || paymentStatus === "confirmed";
+        || paymentStatus === "confirmed"
+        || paymentStatus === "PAYMENT_CONFIRMED";
 
     const isMismatch = normalized === "ADDRESS_MISMATCH";
 

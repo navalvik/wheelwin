@@ -4,7 +4,10 @@ import { EventBus } from "../../events/EventBus.js";
 import { GameManager } from "../../managers/GameManager.js";
 import { PlayerManager } from "../../managers/PlayerManager.js";
 import { RoomManager } from "../../managers/RoomManager.js";
+import { PaymentSessionManager } from "../../gameplay/PaymentSessionManager.js";
 import { LoggerService } from "../../services/LoggerService.js";
+import { SessionWalletStore } from "../../session/SessionWalletStore.js";
+import { GameplayContextResolver } from "../../socket/GameplayContextResolver.js";
 import { RoomLobbyBridge } from "../../socket/RoomLobbyBridge.js";
 import { SocketGateway } from "../../socket/SocketGateway.js";
 import {
@@ -41,13 +44,37 @@ export async function createLobbyIntegrationHarness() {
 
     gameManager.initialize();
 
+    const gameplayContextResolver = new GameplayContextResolver({
+        logger,
+        playerManager,
+        roomManager
+    });
+
+    gameManager.linkGameplayContextResolver(gameplayContextResolver);
+
     const bootstrapEngines = wireGameplayBootstrap({
         gameManager,
         roomManager,
         playerManager,
         logger,
-        eventBus
+        eventBus,
+        gameplayContextResolver
     });
+
+    const sessionWalletStore = new SessionWalletStore();
+
+    const paymentSessionManager = new PaymentSessionManager({
+        logger,
+        eventBus,
+        playerManager,
+        roomManager,
+        roomConfig: { paymentSessionDurationMs: 60_000 },
+        gameplayContextResolver,
+        sessionWalletStore,
+        devMode: false
+    });
+
+    paymentSessionManager.initialize();
 
     const httpServer = http.createServer();
 
@@ -59,6 +86,7 @@ export async function createLobbyIntegrationHarness() {
             }
         },
         eventBus,
+        gameplayContextResolver,
         devMode: true
     });
 
@@ -71,7 +99,10 @@ export async function createLobbyIntegrationHarness() {
         eventBus,
         roomManager,
         playerManager,
+        gameplayContextResolver,
         setupSessionLifecycle: bootstrapEngines.setupSessionLifecycle,
+        paymentSessionManager,
+        sessionWalletStore,
         isDevelopment: true,
         // Fast stub delays so C5.8D/E lifecycle asserts finish quickly.
         entryPaymentDelays: {
@@ -98,12 +129,17 @@ export async function createLobbyIntegrationHarness() {
         roomManager,
         playerManager,
         gameManager,
+        gameplayContextResolver,
+        paymentSessionManager,
+        sessionWalletStore,
         bootstrapEngines,
         socketGateway,
         roomLobbyBridge,
         async shutdown() {
 
             roomLobbyBridge.shutdown();
+
+            paymentSessionManager.shutdown();
 
             shutdownGameplayBootstrap(bootstrapEngines);
 

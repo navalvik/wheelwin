@@ -1,0 +1,117 @@
+/**
+ * P6.3 — Authoritative Payment Session view helpers for Page4.
+ */
+
+import { resolveWheelIcon } from "../../components/game/WheelEngine/wheelUtils.js";
+
+export const PAYMENT_PARTICIPANT_STATUS = Object.freeze({
+    WAITING: "WAITING",
+    PAYMENT_REQUESTED: "PAYMENT_REQUESTED",
+    AWAITING_PLAYER_CONFIRMATION: "AWAITING_PLAYER_CONFIRMATION",
+    PAYMENT_SUBMITTED: "PAYMENT_SUBMITTED",
+    PAYMENT_CONFIRMED: "PAYMENT_CONFIRMED",
+    PAYMENT_FAILED: "PAYMENT_FAILED"
+});
+
+function resolveDisplayIcon(icon) {
+
+    if (icon == null || icon === "" || icon === "—") {
+
+        return "—";
+
+    }
+
+    return resolveWheelIcon(icon);
+
+}
+
+export function hasPaymentSession(paymentSession) {
+
+    return Array.isArray(paymentSession?.participants)
+        && paymentSession.participants.length > 0;
+
+}
+
+export function shouldShowPaymentSessionWaiting(paymentSession) {
+
+    return !hasPaymentSession(paymentSession);
+
+}
+
+export function mapPaymentParticipantStatusLabel(status) {
+
+    switch (status) {
+
+        case PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED:
+            return "Payment requested";
+
+        case PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION:
+            return "Waiting for player confirmation";
+
+        case PAYMENT_PARTICIPANT_STATUS.PAYMENT_SUBMITTED:
+            return "Payment submitted";
+
+        case PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED:
+            return "Payment confirmed";
+
+        case PAYMENT_PARTICIPANT_STATUS.PAYMENT_FAILED:
+            return "Payment failed";
+
+        case PAYMENT_PARTICIPANT_STATUS.WAITING:
+        default:
+            return "Preparing payment...";
+
+    }
+
+}
+
+export function mapPaymentSessionRows(paymentSession, playersById = {}) {
+
+    if (!Array.isArray(paymentSession?.participants)) {
+
+        return [];
+
+    }
+
+    return paymentSession.participants.map((seat, index) => {
+
+        const roster = playersById?.[seat.playerId] ?? null;
+
+        return {
+            key: seat.playerId ?? `payment-${index}`,
+            playerId: seat.playerId,
+            labelTitle: index === 0 ? "YOUR NICKNAME" : "PLAYER NICKNAME",
+            nickname: roster?.nickname ?? "—",
+            icon: resolveDisplayIcon(roster?.icon),
+            requiredGram: seat.requiredGram ?? null,
+            wallet: seat.wallet ?? null,
+            status: seat.status ?? PAYMENT_PARTICIPANT_STATUS.WAITING,
+            statusLabel: mapPaymentParticipantStatusLabel(seat.status)
+        };
+
+    });
+
+}
+
+export function canConfirmLocalPayment(paymentSession, localPlayerId) {
+
+    if (!localPlayerId || !hasPaymentSession(paymentSession)) {
+
+        return false;
+
+    }
+
+    if (paymentSession.status && paymentSession.status !== "ACTIVE") {
+
+        return false;
+
+    }
+
+    const seat = paymentSession.participants.find(
+        (participant) => String(participant.playerId) === String(localPlayerId)
+    );
+
+    return seat?.status === PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
+        || seat?.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED;
+
+}

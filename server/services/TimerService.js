@@ -15,6 +15,8 @@ export class TimerService {
 
         this._resultSessionLifecycle = null;
 
+        this._paymentSessionManager = null;
+
     }
 
     initialize() {
@@ -47,11 +49,25 @@ export class TimerService {
 
     }
 
+    registerPaymentSessionManager(manager) {
+
+        this._paymentSessionManager = manager ?? null;
+
+    }
+
+    getPaymentSessionManager() {
+
+        return this._paymentSessionManager;
+
+    }
+
     shutdown() {
 
         this._setupSessionLifecycle = null;
 
         this._resultSessionLifecycle = null;
+
+        this._paymentSessionManager = null;
 
         this._initialized = false;
 

@@ -213,6 +213,31 @@ export class EngineBridge {
                 session()?.onPaymentConnectionReady?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_CREATED]: (payload) => {
+
+                session()?.onPaymentSessionCreated?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_UPDATED]: (payload) => {
+
+                session()?.onPaymentSessionUpdated?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST]: (payload) => {
+
+                session()?.onPaymentRequest?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_COMPLETED]: (payload) => {
+
+                session()?.onPaymentSessionCompleted?.(payload);
+
+            },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED]: (payload) => {
+
+                session()?.onPaymentSessionFailed?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE5]: (payload) => {
 
                 modules.pageNavigation?.onOpenPage5?.(payload);

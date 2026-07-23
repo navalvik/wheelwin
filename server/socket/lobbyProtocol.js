@@ -12,7 +12,9 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     // P6.2 — Telegram Wallet / TON Connect reports (connection only).
     WALLET_CONNECT_STARTED: "WALLET_CONNECT_STARTED",
     WALLET_CONNECT_REPORT: "WALLET_CONNECT_REPORT",
-    WALLET_DISCONNECT_REPORT: "WALLET_DISCONNECT_REPORT"
+    WALLET_DISCONNECT_REPORT: "WALLET_DISCONNECT_REPORT",
+    // P6.3 — player confirms the authoritative payment request (no chain yet).
+    PAYMENT_CONFIRM_INTENT: "PAYMENT_CONFIRM_INTENT"
 });
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({
@@ -36,6 +38,12 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     // P6.2 — wallet connection session (Page4).
     WALLET_CONNECTION_SESSION_UPDATED: "WALLET_CONNECTION_SESSION_UPDATED",
     PAYMENT_CONNECTION_READY: "PAYMENT_CONNECTION_READY",
+    // P6.3 — authoritative Payment Session (Page4 payment lifecycle).
+    PAYMENT_SESSION_CREATED: "PAYMENT_SESSION_CREATED",
+    PAYMENT_SESSION_UPDATED: "PAYMENT_SESSION_UPDATED",
+    PAYMENT_REQUEST: "PAYMENT_REQUEST",
+    PAYMENT_SESSION_COMPLETED: "PAYMENT_SESSION_COMPLETED",
+    PAYMENT_SESSION_FAILED: "PAYMENT_SESSION_FAILED",
     // R1.3D — sole authoritative signal for clients to open Page5.
     OPEN_PAGE5: "OPEN_PAGE5",
     // P5.3 — authoritative signal for clients to open Page6 after RESULT.

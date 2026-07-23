@@ -99,6 +99,18 @@ export class GameplayContextResolver {
 
     }
 
+    resolveGameIdByRoomId(roomId) {
+
+        if (!roomId) {
+
+            return null;
+
+        }
+
+        return this._roomGames.get(roomId) ?? null;
+
+    }
+
     resolve(socketId) {
 
         const binding = this._socketBindings.get(socketId);

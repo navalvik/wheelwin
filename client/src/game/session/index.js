@@ -46,3 +46,12 @@ export {
     mapWalletConnectionStatusLabel,
     mapWalletConnectionRows
 } from "./authoritativeWalletConnectionView.js";
+
+export {
+    PAYMENT_PARTICIPANT_STATUS,
+    hasPaymentSession,
+    shouldShowPaymentSessionWaiting,
+    mapPaymentParticipantStatusLabel,
+    mapPaymentSessionRows,
+    canConfirmLocalPayment
+} from "./authoritativePaymentSessionView.js";

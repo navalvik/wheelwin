@@ -302,6 +302,51 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onPaymentSessionCreated: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_CREATED,
+                payload
+            });
+
+        },
+
+        onPaymentSessionUpdated: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_UPDATED,
+                payload
+            });
+
+        },
+
+        onPaymentRequest: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_REQUEST,
+                payload
+            });
+
+        },
+
+        onPaymentSessionCompleted: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_COMPLETED,
+                payload
+            });
+
+        },
+
+        onPaymentSessionFailed: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_FAILED,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

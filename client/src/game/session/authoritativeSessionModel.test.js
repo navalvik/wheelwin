@@ -320,6 +320,60 @@ function assert(condition, message) {
 
 }
 
+// P6.3 — PAYMENT_SESSION_UPDATED mirrors authoritative payment session.
+{
+
+    const state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_UPDATED,
+            payload: {
+                paymentSessionId: "pay_1",
+                roomId: "ROOM01",
+                gameId: "G1",
+                status: "ACTIVE",
+                expiresAt: 123456,
+                participants: [
+                    {
+                        playerId: "p1",
+                        requiredGram: 10,
+                        status: "AWAITING_PLAYER_CONFIRMATION"
+                    },
+                    {
+                        playerId: "p2",
+                        requiredGram: 25,
+                        status: "PAYMENT_CONFIRMED"
+                    }
+                ]
+            }
+        }
+    );
+
+    assert(
+        state.paymentSession?.paymentSessionId === "pay_1",
+        "paymentSession id stamped"
+    );
+
+    assert(
+        state.paymentSession?.participants?.length === 2,
+        "paymentSession participants mirrored"
+    );
+
+    assert(
+        state.paymentSession?.participants?.[0]?.status
+            === "AWAITING_PLAYER_CONFIRMATION",
+        "participant status mirrored from server"
+    );
+
+    assert(
+        state.entryPayment === null,
+        "PAYMENT_SESSION_UPDATED must not touch legacy entryPayment"
+    );
+
+    console.log("  PAYMENT_SESSION_UPDATED mirror passed");
+
+}
+
 // Incomplete GAME_RESULT must not fabricate a winner.
 {
 

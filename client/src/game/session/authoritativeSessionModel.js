@@ -42,6 +42,11 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
     WALLET_CONNECTION_SESSION_UPDATED: "WALLET_CONNECTION_SESSION_UPDATED",
     PAYMENT_CONNECTION_READY: "PAYMENT_CONNECTION_READY",
+    PAYMENT_SESSION_CREATED: "PAYMENT_SESSION_CREATED",
+    PAYMENT_SESSION_UPDATED: "PAYMENT_SESSION_UPDATED",
+    PAYMENT_REQUEST: "PAYMENT_REQUEST",
+    PAYMENT_SESSION_COMPLETED: "PAYMENT_SESSION_COMPLETED",
+    PAYMENT_SESSION_FAILED: "PAYMENT_SESSION_FAILED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -58,6 +63,7 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     payment: null,
     entryPayment: null,
     walletConnection: null,
+    paymentSession: null,
     audit: null,
     winner: null,
     recovery: null,
@@ -245,6 +251,7 @@ export function authoritativeSessionReducer(state, action) {
                 players,
                 entryPayment: null,
                 walletConnection: null,
+                paymentSession: null,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     gameStarted: true,
@@ -649,6 +656,63 @@ export function authoritativeSessionReducer(state, action) {
                         paymentConnectionReady: true
                     })
                     : state.walletConnection
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_CREATED:
+        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_UPDATED:
+        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_COMPLETED:
+        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_FAILED: {
+
+            if (!payload || typeof payload !== "object") {
+
+                return state;
+
+            }
+
+            const participants = Array.isArray(payload.participants)
+                ? Object.freeze(
+                    payload.participants.map((participant) => Object.freeze({
+                        playerId: participant?.playerId ?? null,
+                        requiredGram: participant?.requiredGram ?? null,
+                        status: participant?.status ?? "WAITING",
+                        wallet: participant?.wallet ?? null
+                    }))
+                )
+                : Object.freeze([]);
+
+            return stamp({
+                ...state,
+                roomId: payload.roomId ?? state.roomId,
+                gameId: payload.gameId ?? state.gameId,
+                paymentSession: Object.freeze({
+                    paymentSessionId: payload.paymentSessionId ?? null,
+                    roomId: payload.roomId ?? null,
+                    gameId: payload.gameId ?? null,
+                    createdAt: payload.createdAt ?? null,
+                    expiresAt: payload.expiresAt ?? null,
+                    status: payload.status ?? null,
+                    reason: payload.reason ?? null,
+                    participants
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_REQUEST: {
+
+            // Individual requests are informational; session UPDATED owns display.
+            if (!payload || typeof payload !== "object") {
+
+                return state;
+
+            }
+
+            return stamp({
+                ...state,
+                roomId: payload.roomId ?? state.roomId,
+                gameId: payload.gameId ?? state.gameId
             }, action.type);
 
         }

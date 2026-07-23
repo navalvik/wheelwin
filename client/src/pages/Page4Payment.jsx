@@ -11,7 +11,11 @@ import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import {
+    canConfirmLocalPayment,
+    hasPaymentSession,
+    mapPaymentSessionRows,
     mapWalletConnectionRows,
+    shouldShowPaymentSessionWaiting,
     shouldShowWalletConnectionWaiting,
     WALLET_CONNECTION_STATUS
 } from "../game/session";
@@ -28,8 +32,8 @@ import "../styles/page4payment.css";
 
 export default function Page4Payment({ onNavigate }) {
 
-    // P6.2 — Page4 mirrors AuthoritativeSession.walletConnection.
-    // OPEN_PAGE5 remains server-owned for a later payment stage.
+    // P6.2 — wallet connection; P6.3 — authoritative Payment Session after READY.
+    // OPEN_PAGE5 remains server-owned for a later stage.
     const authoritative = useAuthoritativeSession();
 
     const { t } = useLanguage();
@@ -46,10 +50,17 @@ export default function Page4Payment({ onNavigate }) {
 
     const walletConnection = authoritative.walletConnection;
 
+    const paymentSession = authoritative.paymentSession;
+
     const paymentConnectionReady = authoritative.lifecycle
         ?.paymentConnectionReady === true;
 
-    const waiting = shouldShowWalletConnectionWaiting(walletConnection);
+    const inPaymentPhase = paymentConnectionReady
+        || hasPaymentSession(paymentSession);
+
+    const waiting = inPaymentPhase
+        ? shouldShowPaymentSessionWaiting(paymentSession)
+        : shouldShowWalletConnectionWaiting(walletConnection);
 
     const localPlayerId = resolveLocalPlayerId(
         identity.playerId ?? null,
@@ -59,7 +70,7 @@ export default function Page4Payment({ onNavigate }) {
         }
     );
 
-    const players = useMemo(
+    const walletPlayers = useMemo(
         () => mapWalletConnectionRows(
             walletConnection,
             authoritative.players
@@ -67,19 +78,32 @@ export default function Page4Payment({ onNavigate }) {
         [walletConnection, authoritative.players]
     );
 
-    const localSeat = useMemo(
-        () => players.find(
-            (player) => String(player.playerId) === String(localPlayerId)
-        ) ?? null,
-        [players, localPlayerId]
+    const paymentPlayers = useMemo(
+        () => mapPaymentSessionRows(
+            paymentSession,
+            authoritative.players
+        ),
+        [paymentSession, authoritative.players]
     );
 
-    const localStatus = localSeat?.status ?? WALLET_CONNECTION_STATUS.WAITING;
+    const players = inPaymentPhase ? paymentPlayers : walletPlayers;
 
-    const canConnect = !paymentConnectionReady
-        && localStatus !== WALLET_CONNECTION_STATUS.CONNECTED
-        && localStatus !== WALLET_CONNECTION_STATUS.CONNECTING
+    const localWalletSeat = useMemo(
+        () => walletPlayers.find(
+            (player) => String(player.playerId) === String(localPlayerId)
+        ) ?? null,
+        [walletPlayers, localPlayerId]
+    );
+
+    const localWalletStatus = localWalletSeat?.status
+        ?? WALLET_CONNECTION_STATUS.WAITING;
+
+    const canConnect = !inPaymentPhase
+        && localWalletStatus !== WALLET_CONNECTION_STATUS.CONNECTED
+        && localWalletStatus !== WALLET_CONNECTION_STATUS.CONNECTING
         && !connecting;
+
+    const canConfirm = canConfirmLocalPayment(paymentSession, localPlayerId);
 
     const reportConnectedWallet = useCallback((rawAddress) => {
 
@@ -119,7 +143,7 @@ export default function Page4Payment({ onNavigate }) {
 
     useEffect(() => {
 
-        if (localStatus === WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH) {
+        if (localWalletStatus === WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH) {
 
             setLocalError(
                 "Connected wallet does not match the wallet entered during VERIFY."
@@ -129,13 +153,13 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-        if (localStatus === WALLET_CONNECTION_STATUS.CONNECTED) {
+        if (localWalletStatus === WALLET_CONNECTION_STATUS.CONNECTED) {
 
             setLocalError("");
 
         }
 
-    }, [localStatus]);
+    }, [localWalletStatus]);
 
     useEffect(() => {
 
@@ -145,7 +169,7 @@ export default function Page4Payment({ onNavigate }) {
 
                 setConnecting(false);
 
-                if (localStatus === WALLET_CONNECTION_STATUS.CONNECTING) {
+                if (localWalletStatus === WALLET_CONNECTION_STATUS.CONNECTING) {
 
                     socket.emit(LOBBY_OUTGOING_EVENTS.WALLET_DISCONNECT_REPORT);
 
@@ -161,7 +185,7 @@ export default function Page4Payment({ onNavigate }) {
 
         };
 
-    }, [tonConnectUI, localStatus]);
+    }, [tonConnectUI, localWalletStatus]);
 
     async function handleConnectWallet() {
 
@@ -212,13 +236,25 @@ export default function Page4Payment({ onNavigate }) {
 
     }
 
+    function handleConfirmPayment() {
+
+        if (!canConfirm) {
+
+            return;
+
+        }
+
+        socket.emit(LOBBY_OUTGOING_EVENTS.PAYMENT_CONFIRM_INTENT);
+
+    }
+
     return (
 
         <GameLayout
 
             message={t("page.payment.title")}
 
-            backEnabled={!paymentConnectionReady}
+            backEnabled={!inPaymentPhase}
 
             onBack={() => onNavigate(5)}
 
@@ -241,7 +277,9 @@ export default function Page4Payment({ onNavigate }) {
                                 aria-live="polite"
                             >
 
-                                Waiting for payment...
+                                {inPaymentPhase
+                                    ? "Preparing payment..."
+                                    : "Waiting for payment..."}
 
                             </div>
 
@@ -259,9 +297,35 @@ export default function Page4Payment({ onNavigate }) {
 
                                     icon={player.icon}
 
-                                    connectionStatus={player.status}
+                                    connectionStatus={
+                                        inPaymentPhase
+                                            ? undefined
+                                            : player.status
+                                    }
 
-                                    connectionStatusLabel={player.statusLabel}
+                                    connectionStatusLabel={
+                                        inPaymentPhase
+                                            ? undefined
+                                            : player.statusLabel
+                                    }
+
+                                    paymentStatus={
+                                        inPaymentPhase
+                                            ? player.status
+                                            : undefined
+                                    }
+
+                                    paymentStatusLabel={
+                                        inPaymentPhase
+                                            ? player.statusLabel
+                                            : undefined
+                                    }
+
+                                    walletRegistered={
+                                        inPaymentPhase
+                                            ? Boolean(player.wallet)
+                                            : undefined
+                                    }
 
                                 />
 
@@ -284,11 +348,40 @@ export default function Page4Payment({ onNavigate }) {
 
                     )}
 
-                    {paymentConnectionReady ? (
+                    {inPaymentPhase ? (
 
-                        <div className="smartContractStatus">
+                        <div className="page4__connectActions">
 
-                            All wallets connected
+                            {paymentSession?.status === "COMPLETED" ? (
+
+                                <div className="smartContractStatus">
+
+                                    All payments confirmed
+
+                                </div>
+
+                            ) : paymentSession?.status === "FAILED" ? (
+
+                                <div className="smartContractStatus">
+
+                                    Payment session failed
+
+                                </div>
+
+                            ) : (
+
+                                <button
+                                    type="button"
+                                    className="page4__connectButton"
+                                    disabled={!canConfirm}
+                                    onClick={handleConfirmPayment}
+                                >
+
+                                    CONFIRM PAYMENT
+
+                                </button>
+
+                            )}
 
                         </div>
 
@@ -308,8 +401,8 @@ export default function Page4Payment({ onNavigate }) {
                             </button>
 
                             {(
-                                localStatus === WALLET_CONNECTION_STATUS.CONNECTED
-                                || localStatus === WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH
+                                localWalletStatus === WALLET_CONNECTION_STATUS.CONNECTED
+                                || localWalletStatus === WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH
                                 || Boolean(tonWallet)
                             ) && (
 

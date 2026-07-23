@@ -79,6 +79,7 @@ import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
+import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 
 class WheelWinApplication {
@@ -163,6 +164,8 @@ class WheelWinApplication {
         this._setupSessionLifecycle = null;
 
         this._resultSessionLifecycle = null;
+
+        this._paymentSessionManager = null;
 
         this._sessionWalletStore = null;
 
@@ -692,6 +695,25 @@ class WheelWinApplication {
             this._gameplayContextResolver
         );
 
+        this._paymentSessionManager = new PaymentSessionManager({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            playerManager: this._managers.playerManager,
+            roomManager: this._managers.roomManager,
+            roomConfig: this._roomConfig,
+            gameplayContextResolver: this._gameplayContextResolver,
+            sessionWalletStore: this._sessionWalletStore,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._paymentSessionManager.initialize();
+
+        this._logger.startupLine("PaymentSessionManager");
+
+        this._services.timerService.registerPaymentSessionManager(
+            this._paymentSessionManager
+        );
+
         this._socketGateway = new SocketGateway({
             logger: this._logger,
             socketConfig,
@@ -713,6 +735,7 @@ class WheelWinApplication {
             gameplayContextResolver: this._gameplayContextResolver,
             setupSessionLifecycle: this._setupSessionLifecycle,
             resultSessionLifecycle: this._resultSessionLifecycle,
+            paymentSessionManager: this._paymentSessionManager,
             sessionWalletStore: this._sessionWalletStore,
             isDevelopment: this._productionConfig.isDevelopment
         });
@@ -775,6 +798,7 @@ class WheelWinApplication {
             auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
+            paymentSessionManager: Boolean(this._paymentSessionManager),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
@@ -872,6 +896,16 @@ class WheelWinApplication {
             if (this._resultSessionLifecycle) {
 
                 this._resultSessionLifecycle.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("paymentSessionManager", () => {
+
+            if (this._paymentSessionManager) {
+
+                this._paymentSessionManager.shutdown();
 
             }
 

@@ -788,6 +788,52 @@ try {
         "all seats must be CONNECTED"
     );
 
+    // P6.3 — Payment Session starts after PAYMENT_CONNECTION_READY.
+    const paymentSession = harness.paymentSessionManager
+        .getSession(created.roomId);
+
+    assert(paymentSession, "PaymentSession must exist after connection ready");
+
+    assert(
+        paymentSession.gameId
+            && paymentSession.paymentSessionId
+            && paymentSession.participants.length === 3,
+        "PaymentSession must include gameId, session id, and three seats"
+    );
+
+    assert(
+        paymentSession.participants.every(
+            (participant) => (
+                participant.status === "AWAITING_PLAYER_CONFIRMATION"
+            )
+        ),
+        "after PAYMENT_REQUEST every seat awaits confirmation"
+    );
+
+    const sessionUpdatedPromise = waitForEvent(
+        host,
+        "PAYMENT_SESSION_UPDATED",
+        5000,
+        "host.PAYMENT_SESSION_UPDATED after confirm"
+    );
+
+    host.emit("PAYMENT_CONFIRM_INTENT");
+
+    const afterConfirm = await sessionUpdatedPromise;
+
+    assert(
+        afterConfirm.participants.some(
+            (participant) => (
+                participant.playerId === created.playerId
+                && (
+                    participant.status === "PAYMENT_CONFIRMED"
+                    || participant.status === "PAYMENT_SUBMITTED"
+                )
+            )
+        ),
+        "PAYMENT_CONFIRM_INTENT must advance the confirming player's status"
+    );
+
     // Mismatch leaves the room on Page4 without OPEN_PAGE5.
     guestA.emit("WALLET_DISCONNECT_REPORT");
 

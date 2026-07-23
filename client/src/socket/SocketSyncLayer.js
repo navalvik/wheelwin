@@ -314,6 +314,51 @@ export class SocketSyncLayer {
 
         };
 
+        this._handlePaymentSessionCreated = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_CREATED,
+                payload
+            });
+
+        };
+
+        this._handlePaymentSessionUpdated = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_UPDATED,
+                payload
+            });
+
+        };
+
+        this._handlePaymentRequest = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST,
+                payload
+            });
+
+        };
+
+        this._handlePaymentSessionCompleted = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_COMPLETED,
+                payload
+            });
+
+        };
+
+        this._handlePaymentSessionFailed = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED,
+                payload
+            });
+
+        };
+
         this._handleOpenPage5 = (payload) => {
 
             this._handleIncoming({
@@ -402,6 +447,31 @@ export class SocketSyncLayer {
         );
 
         this._socket.on(
+            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_CREATED,
+            this._handlePaymentSessionCreated
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_UPDATED,
+            this._handlePaymentSessionUpdated
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST,
+            this._handlePaymentRequest
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_COMPLETED,
+            this._handlePaymentSessionCompleted
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED,
+            this._handlePaymentSessionFailed
+        );
+
+        this._socket.on(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
             this._handleOpenPage5
         );
@@ -486,6 +556,31 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.PAYMENT_CONNECTION_READY,
             this._handlePaymentConnectionReady
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_CREATED,
+            this._handlePaymentSessionCreated
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_UPDATED,
+            this._handlePaymentSessionUpdated
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST,
+            this._handlePaymentRequest
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_COMPLETED,
+            this._handlePaymentSessionCompleted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED,
+            this._handlePaymentSessionFailed
         );
 
         this._socket.off(

@@ -54,6 +54,7 @@ export class RoomLobbyBridge {
         gameplayContextResolver = null,
         setupSessionLifecycle = null,
         resultSessionLifecycle = null,
+        paymentSessionManager = null,
         sessionWalletStore = null,
         telegramWalletAdapter = null,
         entryPaymentDelays = null,
@@ -73,6 +74,8 @@ export class RoomLobbyBridge {
         this._setupSessionLifecycle = setupSessionLifecycle;
 
         this._resultSessionLifecycle = resultSessionLifecycle;
+
+        this._paymentSessionManager = paymentSessionManager;
 
         // R1.3D — DEBUG_START_GAME is development-only.
         this._isDevelopment = isDevelopment === true;
@@ -347,6 +350,60 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleResultSessionExpired(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.PAYMENT_SESSION_CREATED,
+            (envelope) => {
+
+                this._deliverPaymentSessionCreated(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.PAYMENT_SESSION_UPDATED,
+            (envelope) => {
+
+                this._deliverPaymentSessionUpdated(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.PAYMENT_REQUEST,
+            (envelope) => {
+
+                this._deliverPaymentRequest(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
+            (envelope) => {
+
+                this._deliverPaymentSessionCompleted(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.PAYMENT_SESSION_FAILED,
+            (envelope) => {
+
+                this._handlePaymentSessionFailed(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_PAYMENT_CONFIRM_INTENT_REQUEST,
+            (envelope) => {
+
+                this._handlePaymentConfirmIntent(envelope.payload.socketId);
 
             }
         );
@@ -923,6 +980,19 @@ export class RoomLobbyBridge {
                     );
 
                 }
+
+            }
+
+            const paymentSession = this._paymentSessionManager
+                ?.getSession(roomId);
+
+            if (paymentSession) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.PAYMENT_SESSION_UPDATED,
+                    paymentSession.toSnapshot()
+                );
 
             }
 
@@ -2436,6 +2506,126 @@ export class RoomLobbyBridge {
 
     }
 
+    _deliverPaymentSessionCreated(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_CREATED,
+            payload
+        );
+
+    }
+
+    _deliverPaymentSessionUpdated(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_UPDATED,
+            payload
+        );
+
+    }
+
+    _deliverPaymentRequest(payload) {
+
+        const roomId = payload?.roomId;
+
+        const playerId = payload?.playerId;
+
+        if (!roomId || !playerId) {
+
+            return;
+
+        }
+
+        // Broadcast so every client sees every seat's request; key by playerId.
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.PAYMENT_REQUEST,
+            payload
+        );
+
+    }
+
+    _deliverPaymentSessionCompleted(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_COMPLETED,
+            payload
+        );
+
+    }
+
+    _handlePaymentSessionFailed(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_FAILED,
+            payload
+        );
+
+        // Mirror setup expiry: cancel the room; game never starts.
+        if (!this._roomManager.getRoom(roomId)) {
+
+            this._paymentSessionManager?.destroySession(roomId);
+
+            return;
+
+        }
+
+        this._closeRoom(roomId, payload?.reason ?? "payment_failed");
+
+    }
+
+    _handlePaymentConfirmIntent(socketId) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        this._paymentSessionManager?.submitPlayerConfirmation(roomId, playerId);
+
+    }
+
     _applyEntryPaymentUpdate(roomId, updater) {
 
         const current = this._entryPaymentByRoom.get(roomId);
@@ -2749,6 +2939,8 @@ export class RoomLobbyBridge {
         this._entryPaymentCompletedByRoom.delete(roomId);
 
         this._walletConnectionByRoom.delete(roomId);
+
+        this._paymentSessionManager?.destroySession(roomId);
 
     }
 

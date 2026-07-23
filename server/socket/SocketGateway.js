@@ -752,6 +752,15 @@ export class SocketGateway {
 
         });
 
+        socket.on(LOBBY_CLIENT_EVENTS.PAYMENT_CONFIRM_INTENT, () => {
+
+            this._emitLobbyRequest(
+                EVENT_TYPES.LOBBY_PAYMENT_CONFIRM_INTENT_REQUEST,
+                { socketId: socket.id }
+            );
+
+        });
+
         // R1.3D — never expose DEBUG_START_GAME outside development.
         if (this._devMode) {
 
