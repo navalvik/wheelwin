@@ -56,6 +56,7 @@ export class RoomLobbyBridge {
         resultSessionLifecycle = null,
         paymentSessionManager = null,
         gameContractManager = null,
+        gameStartAuthorization = null,
         sessionWalletStore = null,
         telegramWalletAdapter = null,
         entryPaymentDelays = null,
@@ -79,6 +80,8 @@ export class RoomLobbyBridge {
         this._paymentSessionManager = paymentSessionManager;
 
         this._gameContractManager = gameContractManager;
+
+        this._gameStartAuthorization = gameStartAuthorization;
 
         // R1.3D — DEBUG_START_GAME is development-only.
         this._isDevelopment = isDevelopment === true;
@@ -443,6 +446,42 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleGameContractDeployFailed(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_START_AUTHORIZED,
+            (envelope) => {
+
+                this._deliverGameStartAuthorized(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_INITIALIZING,
+            (envelope) => {
+
+                this._deliverGameInitializing(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_START_BOOTSTRAP_READY,
+            (envelope) => {
+
+                this._handleGameStartBootstrapReady(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_START_FAILED,
+            (envelope) => {
+
+                this._handleGameStartFailed(envelope.payload);
 
             }
         );
@@ -1045,6 +1084,51 @@ export class RoomLobbyBridge {
                     LOBBY_SERVER_EVENTS.GAME_CONTRACT_UPDATED,
                     gameContract.toClientSnapshot()
                 );
+
+            }
+
+            // P6.7 — restore authoritative start gate without re-initializing.
+            const gameStart = this._gameStartAuthorization
+                ?.getReconnectSnapshot?.(roomId);
+
+            if (gameStart) {
+
+                if (
+                    gameStart.phase === "GAME_START_AUTHORIZED"
+                    || gameStart.phase === "GAME_INITIALIZING"
+                    || gameStart.phase === "OPEN_PAGE5"
+                ) {
+
+                    this._deliverToSocket(
+                        socketId,
+                        LOBBY_SERVER_EVENTS.GAME_START_AUTHORIZED,
+                        {
+                            roomId,
+                            gameId: gameStart.gameId,
+                            authorizedAt: gameStart.authorizedAt,
+                            blockchainCompletedAt:
+                                gameStart.blockchainCompletedAt
+                        }
+                    );
+
+                }
+
+                if (
+                    gameStart.phase === "GAME_INITIALIZING"
+                    || gameStart.phase === "OPEN_PAGE5"
+                ) {
+
+                    this._deliverToSocket(
+                        socketId,
+                        LOBBY_SERVER_EVENTS.GAME_INITIALIZING,
+                        {
+                            roomId,
+                            gameId: gameStart.gameId,
+                            initializingAt: gameStart.initializingAt
+                        }
+                    );
+
+                }
 
             }
 
@@ -2751,6 +2835,85 @@ export class RoomLobbyBridge {
 
     }
 
+    _deliverGameStartAuthorized(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.GAME_START_AUTHORIZED,
+            payload
+        );
+
+    }
+
+    _deliverGameInitializing(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.GAME_INITIALIZING,
+            payload
+        );
+
+    }
+
+    /**
+     * P6.7 — after validation succeeds, reuse ENTRY_PAYMENT_COMPLETED → OPEN_PAGE5.
+     */
+    _handleGameStartBootstrapReady(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._completeEntryPayment(roomId);
+
+    }
+
+    _handleGameStartFailed(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._logger.error(
+            `Game start failed | roomId=${roomId} | `
+                + `reason=${payload?.reason ?? "unknown"}`
+        );
+
+        if (!this._roomManager.getRoom(roomId)) {
+
+            return;
+
+        }
+
+        // Cancel game; payment + audit records stay on the ledger.
+        this._closeRoom(roomId, payload?.reason ?? "game_start_failed");
+
+    }
+
     _applyEntryPaymentUpdate(roomId, updater) {
 
         const current = this._entryPaymentByRoom.get(roomId);
@@ -2941,21 +3104,24 @@ export class RoomLobbyBridge {
                 sectorCount: 2,
                 color: "Orange",
                 colorSector2: "Orange",
-                sectorArrangement: "together"
+                sectorArrangement: "together",
+                baseStake: 10
             },
             {
                 nickname: "Dev2",
                 sectorCount: 2,
                 color: "Green",
                 colorSector2: "Green",
-                sectorArrangement: "together"
+                sectorArrangement: "together",
+                baseStake: 10
             },
             {
                 nickname: "Dev3",
                 sectorCount: 1,
                 color: "Red",
                 colorSector2: null,
-                sectorArrangement: "together"
+                sectorArrangement: "together",
+                baseStake: 10
             }
         ];
 
@@ -2984,7 +3150,8 @@ export class RoomLobbyBridge {
                     ? identity.sectorCount
                     : setup.sectorCount,
                 sectorArrangement: identity?.sectorArrangement
-                    ?? setup.sectorArrangement
+                    ?? setup.sectorArrangement,
+                baseStake: identity?.baseStake ?? setup.baseStake
             });
 
         });

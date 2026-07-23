@@ -320,6 +320,41 @@ function assert(condition, message) {
 
 }
 
+// P6.7 — GAME_START_AUTHORIZED / GAME_INITIALIZING stamp lifecycle only.
+{
+
+    let state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START_AUTHORIZED,
+            payload: { roomId: "ROOM01", gameId: "G1" }
+        }
+    );
+
+    assert(
+        state.lifecycle.gameStartAuthorized === true,
+        "GAME_START_AUTHORIZED stamps lifecycle"
+    );
+
+    assert(
+        state.lifecycle.gameInitializing !== true,
+        "initializing waits for GAME_INITIALIZING"
+    );
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_INITIALIZING,
+        payload: { roomId: "ROOM01", gameId: "G1" }
+    });
+
+    assert(
+        state.lifecycle.gameInitializing === true,
+        "GAME_INITIALIZING stamps lifecycle"
+    );
+
+    console.log("  GAME_START_AUTHORIZED lifecycle stamp passed");
+
+}
+
 // P6.3 — PAYMENT_SESSION_UPDATED mirrors authoritative payment session.
 {
 

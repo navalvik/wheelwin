@@ -374,6 +374,24 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onGameStartAuthorized: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START_AUTHORIZED,
+                payload
+            });
+
+        },
+
+        onGameInitializing: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_INITIALIZING,
+                payload
+            });
+
+        },
+
         onGameEnd: (payload) => {
 
             store.dispatch({

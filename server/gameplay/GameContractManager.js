@@ -299,6 +299,13 @@ export class GameContractManager {
 
         this._emitClientUpdate(contract);
 
+        this._emit(EVENT_TYPES.GAME_CONTRACT_PAYMENTS_COMPLETE, {
+            roomId,
+            gameId: contract.gameId,
+            contractId: contract.contractId,
+            paymentsCompletedAt: contract.paymentsCompletedAt
+        });
+
         this._log(
             `PAYMENTS_COMPLETE | roomId=${roomId} | `
                 + `contractId=${contract.contractId}`

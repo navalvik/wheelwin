@@ -50,6 +50,8 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     GAME_CONTRACT_UPDATED: "GAME_CONTRACT_UPDATED",
     GAME_CONTRACT_DEPLOYED: "GAME_CONTRACT_DEPLOYED",
     GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
+    GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
+    GAME_INITIALIZING: "GAME_INITIALIZING",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -79,7 +81,9 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
         verifyCompleted: false,
         paymentStageReady: false,
         entryPaymentCompleted: false,
-        paymentConnectionReady: false
+        paymentConnectionReady: false,
+        gameStartAuthorized: false,
+        gameInitializing: false
     }),
     lastEventType: null,
     lastUpdatedAt: null
@@ -700,6 +704,7 @@ export function authoritativeSessionReducer(state, action) {
                     gameId: payload.gameId ?? null,
                     createdAt: payload.createdAt ?? null,
                     expiresAt: payload.expiresAt ?? null,
+                    completedAt: payload.completedAt ?? null,
                     status: payload.status ?? null,
                     reason: payload.reason ?? null,
                     participants
@@ -748,7 +753,37 @@ export function authoritativeSessionReducer(state, action) {
                     contractAddress: payload.contractAddress ?? null,
                     deploymentStatus: payload.deploymentStatus ?? null,
                     deployedAt: payload.deployedAt ?? null,
+                    paymentsCompletedAt: payload.paymentsCompletedAt ?? null,
                     deployError: payload.deployError ?? null
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.GAME_START_AUTHORIZED: {
+
+            return stamp({
+                ...state,
+                roomId: payload?.roomId ?? state.roomId,
+                gameId: payload?.gameId ?? state.gameId,
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    gameStartAuthorized: true
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.GAME_INITIALIZING: {
+
+            return stamp({
+                ...state,
+                roomId: payload?.roomId ?? state.roomId,
+                gameId: payload?.gameId ?? state.gameId,
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    gameStartAuthorized: true,
+                    gameInitializing: true
                 })
             }, action.type);
 

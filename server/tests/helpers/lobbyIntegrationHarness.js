@@ -6,6 +6,7 @@ import { PlayerManager } from "../../managers/PlayerManager.js";
 import { RoomManager } from "../../managers/RoomManager.js";
 import { PaymentSessionManager } from "../../gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "../../gameplay/GameContractManager.js";
+import { GameStartAuthorization } from "../../gameplay/GameStartAuthorization.js";
 import { GameContractDeployAdapter } from "../../payment/GameContractDeployAdapter.js";
 import {
     BlockchainMonitor,
@@ -112,6 +113,25 @@ export async function createLobbyIntegrationHarness() {
 
     gameContractManager.initialize();
 
+    const gameStartAuthorization = new GameStartAuthorization({
+        logger,
+        eventBus,
+        roomManager,
+        playerManager,
+        gameManager,
+        paymentSessionManager,
+        gameContractManager,
+        configurationEngine: bootstrapEngines.configurationEngine,
+        physicsEngine: bootstrapEngines.physicsEngine,
+        gameClockEngine: bootstrapEngines.gameClockEngine,
+        gameplayContextResolver,
+        auditLedger: entryPaymentAuditLedger,
+        roomConfig: { maxPlayers: 3 },
+        devMode: false
+    });
+
+    gameStartAuthorization.initialize();
+
     const httpServer = http.createServer();
 
     const socketGateway = new SocketGateway({
@@ -139,6 +159,7 @@ export async function createLobbyIntegrationHarness() {
         setupSessionLifecycle: bootstrapEngines.setupSessionLifecycle,
         paymentSessionManager,
         gameContractManager,
+        gameStartAuthorization,
         sessionWalletStore,
         isDevelopment: true,
         entryPaymentDelays: {
@@ -168,6 +189,7 @@ export async function createLobbyIntegrationHarness() {
         gameplayContextResolver,
         paymentSessionManager,
         gameContractManager,
+        gameStartAuthorization,
         blockchainMonitor,
         tonTransport,
         entryPaymentAuditLedger,
@@ -184,6 +206,8 @@ export async function createLobbyIntegrationHarness() {
             blockchainMonitor.shutdown();
 
             gameContractManager.shutdown();
+
+            gameStartAuthorization.shutdown();
 
             shutdownGameplayBootstrap(bootstrapEngines);
 

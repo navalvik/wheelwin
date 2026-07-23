@@ -891,14 +891,113 @@ try {
         "BlockchainMonitor confirmation must set PAYMENT_CONFIRMED"
     );
 
-    // Mismatch leaves the room on Page4 without OPEN_PAGE5.
-    guestA.emit("WALLET_DISCONNECT_REPORT");
+    // P6.7 — confirm remaining seats; server alone opens Page5.
+    const openPage5Promise = waitForEvent(
+        host,
+        "OPEN_PAGE5",
+        5000,
+        "host.OPEN_PAGE5"
+    );
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const gameStartAuthorizedPromise = waitForEvent(
+        guestA,
+        "GAME_START_AUTHORIZED",
+        5000,
+        "guestA.GAME_START_AUTHORIZED"
+    );
+
+    const gameInitializingPromise = waitForEvent(
+        guestB,
+        "GAME_INITIALIZING",
+        5000,
+        "guestB.GAME_INITIALIZING"
+    );
+
+    for (const [client, playerId, wallet, txHash] of [
+        [guestA, joined.playerId, guestAWallet, "lobby_tx_a"],
+        [guestB, joinedB.playerId, guestBWallet, "lobby_tx_b"]
+    ]) {
+
+        client.emit("PAYMENT_CONFIRM_INTENT");
+
+        await new Promise((resolve) => setTimeout(resolve, 40));
+
+        const seat = paymentSession.findParticipant(playerId);
+
+        assert(seat, `payment seat must exist for ${playerId}`);
+
+        await harness.blockchainMonitor.ingestTransaction(created.roomId, {
+            transaction_id: { hash: txHash },
+            in_msg: {
+                source: wallet,
+                destination: gameContract.contractAddress,
+                message: seat.paymentReference,
+                grmAmount: seat.requiredGram
+            }
+        });
+
+        assert(
+            paymentSession.findParticipant(playerId)?.status
+                === "PAYMENT_CONFIRMED",
+            `seat ${playerId} must reach PAYMENT_CONFIRMED`
+        );
+
+    }
+
+    const [openPage5, gameStartAuthorized, gameInitializing] = await Promise.all([
+        openPage5Promise,
+        gameStartAuthorizedPromise,
+        gameInitializingPromise
+    ]);
 
     assert(
-        walletSession.findPlayer(joined.playerId)?.status === "WAITING",
-        "disconnect returns seat to WAITING"
+        openPage5.roomId === created.roomId,
+        "OPEN_PAGE5 must include roomId"
+    );
+
+    assert(
+        gameStartAuthorized.roomId === created.roomId,
+        "GAME_START_AUTHORIZED must reach clients before OPEN_PAGE5"
+    );
+
+    assert(
+        gameInitializing.roomId === created.roomId,
+        "GAME_INITIALIZING must reach clients before OPEN_PAGE5"
+    );
+
+    assert(
+        paymentSession.status === "COMPLETED",
+        "PaymentSession must be COMPLETED before gameplay start"
+    );
+
+    assert(
+        harness.gameContractManager.getContract(created.roomId)?.status
+            === "PAYMENTS_COMPLETE",
+        "GameContract must be PAYMENTS_COMPLETE before gameplay start"
+    );
+
+    assert(
+        harness.gameStartAuthorization.getLifecycle(created.roomId)?.phase
+            === "OPEN_PAGE5",
+        "GameStartAuthorization lifecycle must reach OPEN_PAGE5"
+    );
+
+    const auditTypes = harness.entryPaymentAuditLedger
+        .list(created.roomId)
+        .filter((entry) => entry.category === "GAME_START")
+        .map((entry) => entry.type);
+
+    assert(
+        auditTypes.includes("BLOCKCHAIN_COMPLETE")
+            && auditTypes.includes("GAME_START_AUTHORIZED")
+            && auditTypes.includes("GAME_INITIALIZING")
+            && auditTypes.includes("OPEN_PAGE5"),
+        "audit must record blockchain → authorize → initializing → OPEN_PAGE5"
+    );
+
+    assert(
+        harness.roomLobbyBridge._entryPaymentCompletedByRoom.has(created.roomId),
+        "ENTRY_PAYMENT_COMPLETED latch must be set after authoritative start"
     );
 
     host.disconnect();

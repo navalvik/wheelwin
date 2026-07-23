@@ -327,7 +327,7 @@ export class BlockchainMonitor {
 
         this._confirmedRefsByRoom.delete(roomId);
 
-        this._auditLedger?.clearRoom?.(roomId);
+        // P6.7 — audit trail is immutable; do not clear on watch stop.
 
     }
 

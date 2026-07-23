@@ -61,7 +61,8 @@ export class GameContract {
         deploymentStatus = null,
         deployedAt = null,
         deploymentTxId = null,
-        deployError = null
+        deployError = null,
+        paymentsCompletedAt = null
     }) {
 
         this.contractId = contractId;
@@ -85,6 +86,8 @@ export class GameContract {
         this.deploymentTxId = deploymentTxId;
 
         this.deployError = deployError;
+
+        this.paymentsCompletedAt = paymentsCompletedAt;
 
     }
 
@@ -135,6 +138,15 @@ export class GameContract {
 
         }
 
+        if (
+            nextStatus === GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
+            && this.paymentsCompletedAt == null
+        ) {
+
+            this.paymentsCompletedAt = Date.now();
+
+        }
+
         return true;
 
     }
@@ -180,6 +192,7 @@ export class GameContract {
             contractAddress: this.contractAddress,
             deploymentStatus: this.deploymentStatus,
             deployedAt: this.deployedAt,
+            paymentsCompletedAt: this.paymentsCompletedAt,
             deployError: this.deployError
         });
 
@@ -197,6 +210,7 @@ export class GameContract {
             deploymentStatus: this.deploymentStatus,
             deployedAt: this.deployedAt,
             deploymentTxId: this.deploymentTxId,
+            paymentsCompletedAt: this.paymentsCompletedAt,
             deployError: this.deployError,
             snapshot: this.snapshot
         });

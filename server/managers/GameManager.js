@@ -385,6 +385,15 @@ export class GameManager {
 
     }
 
+    /**
+     * P6.7 — gameId waiting for authoritative ENTRY_PAYMENT_COMPLETED activation.
+     */
+    getPendingGameplayGameId(roomId) {
+
+        return this._pendingGameplayActivation.get(roomId) ?? null;
+
+    }
+
     getGames() {
 
         return [...this._games.values()].map((game) => game.toSnapshot());

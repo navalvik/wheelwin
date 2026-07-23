@@ -74,7 +74,8 @@ export class PaymentSession {
         participants,
         createdAt = Date.now(),
         expiresAt = null,
-        status = PAYMENT_SESSION_STATUS.ACTIVE
+        status = PAYMENT_SESSION_STATUS.ACTIVE,
+        completedAt = null
     }) {
 
         this.paymentSessionId = paymentSessionId;
@@ -88,6 +89,8 @@ export class PaymentSession {
         this.expiresAt = expiresAt;
 
         this.status = status;
+
+        this.completedAt = completedAt;
 
         this.participants = (participants ?? []).map((entry) => (
             entry instanceof PaymentParticipant
@@ -142,6 +145,12 @@ export class PaymentSession {
 
         this.status = PAYMENT_SESSION_STATUS.COMPLETED;
 
+        if (this.completedAt == null) {
+
+            this.completedAt = Date.now();
+
+        }
+
     }
 
     markFailed() {
@@ -168,6 +177,7 @@ export class PaymentSession {
             gameId: this.gameId,
             createdAt: this.createdAt,
             expiresAt: this.expiresAt,
+            completedAt: this.completedAt,
             status: this.status,
             participants: Object.freeze(
                 this.participants.map((participant) => participant.toSnapshot())

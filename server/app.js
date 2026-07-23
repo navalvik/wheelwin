@@ -81,6 +81,7 @@ import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "./gameplay/GameContractManager.js";
+import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
 import { TonGameContractAdapter } from "./payment/TonGameContractAdapter.js";
 import {
@@ -175,6 +176,8 @@ class WheelWinApplication {
         this._paymentSessionManager = null;
 
         this._gameContractManager = null;
+
+        this._gameStartAuthorization = null;
 
         this._blockchainMonitor = null;
 
@@ -774,6 +777,28 @@ class WheelWinApplication {
 
         this._logger.startupLine("GameContractManager");
 
+        this._gameStartAuthorization = new GameStartAuthorization({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            roomManager: this._managers.roomManager,
+            playerManager: this._managers.playerManager,
+            gameManager: this._managers.gameManager,
+            paymentSessionManager: this._paymentSessionManager,
+            gameContractManager: this._gameContractManager,
+            configurationEngine: this._engines.configurationEngine,
+            physicsEngine: this._engines.physicsEngine,
+            gameClockEngine: this._engines.gameClockEngine,
+            gameplayContextResolver: this._gameplayContextResolver,
+            recoveryEngine: this._recoveryEngine,
+            auditLedger: this._entryPaymentAuditLedger,
+            roomConfig: this._roomConfig,
+            devMode: this._productionConfig.isDevelopment
+        });
+
+        this._gameStartAuthorization.initialize();
+
+        this._logger.startupLine("GameStartAuthorization");
+
         this._socketGateway = new SocketGateway({
             logger: this._logger,
             socketConfig,
@@ -797,6 +822,7 @@ class WheelWinApplication {
             resultSessionLifecycle: this._resultSessionLifecycle,
             paymentSessionManager: this._paymentSessionManager,
             gameContractManager: this._gameContractManager,
+            gameStartAuthorization: this._gameStartAuthorization,
             sessionWalletStore: this._sessionWalletStore,
             isDevelopment: this._productionConfig.isDevelopment
         });
@@ -988,6 +1014,16 @@ class WheelWinApplication {
             if (this._gameContractManager) {
 
                 this._gameContractManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("gameStartAuthorization", () => {
+
+            if (this._gameStartAuthorization) {
+
+                this._gameStartAuthorization.shutdown();
 
             }
 

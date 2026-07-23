@@ -51,6 +51,9 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     // P6.5 — deployment results for clients.
     GAME_CONTRACT_DEPLOYED: "GAME_CONTRACT_DEPLOYED",
     GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
+    // P6.7 — authoritative start gate before OPEN_PAGE5.
+    GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
+    GAME_INITIALIZING: "GAME_INITIALIZING",
     // R1.3D — sole authoritative signal for clients to open Page5.
     OPEN_PAGE5: "OPEN_PAGE5",
     // P5.3 — authoritative signal for clients to open Page6 after RESULT.

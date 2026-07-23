@@ -386,6 +386,24 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleGameStartAuthorized = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED,
+                payload
+            });
+
+        };
+
+        this._handleGameInitializing = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.GAME_INITIALIZING,
+                payload
+            });
+
+        };
+
         this._handleOpenPage5 = (payload) => {
 
             this._handleIncoming({
@@ -514,6 +532,16 @@ export class SocketSyncLayer {
         );
 
         this._socket.on(
+            INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED,
+            this._handleGameStartAuthorized
+        );
+
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.GAME_INITIALIZING,
+            this._handleGameInitializing
+        );
+
+        this._socket.on(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
             this._handleOpenPage5
         );
@@ -638,6 +666,16 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
             this._handleGameContractDeployFailed
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED,
+            this._handleGameStartAuthorized
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.GAME_INITIALIZING,
+            this._handleGameInitializing
         );
 
         this._socket.off(

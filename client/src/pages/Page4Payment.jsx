@@ -36,7 +36,7 @@ import "../styles/page4payment.css";
 export default function Page4Payment({ onNavigate }) {
 
     // P6.2 — wallet connection; P6.3 — authoritative Payment Session after READY.
-    // OPEN_PAGE5 remains server-owned for a later stage.
+    // P6.7 — Page4 stays open until server OPEN_PAGE5 (never local navigation).
     const authoritative = useAuthoritativeSession();
 
     const { t } = useLanguage();
