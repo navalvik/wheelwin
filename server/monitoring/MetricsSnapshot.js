@@ -46,6 +46,8 @@ export class MetricsSnapshot {
 
         this.failure = Object.freeze({ ...(input.failure ?? {}) });
 
+        this.deployment = Object.freeze({ ...(input.deployment ?? {}) });
+
         this.system = Object.freeze({ ...(input.system ?? {}) });
 
         this.gauges = Object.freeze({ ...(input.gauges ?? {}) });
@@ -74,6 +76,7 @@ export class MetricsSnapshot {
             recovery: this.recovery,
             developer: this.developer,
             failure: this.failure,
+            deployment: this.deployment,
             system: this.system
         });
 

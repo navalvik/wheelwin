@@ -42,8 +42,10 @@ import { RandomService } from "./services/RandomService.js";
 import { TimerService } from "./services/TimerService.js";
 import { TonService } from "./services/TonService.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
+import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
+import { DeploymentManager } from "./deployment/DeploymentManager.js";
 
 import { CONNECTION_STATE } from "./models/ConnectionState.js";
 import { PLAYER_STATE } from "./models/PlayerState.js";
@@ -210,6 +212,8 @@ class WheelWinApplication {
         this._monitoringManager = null;
 
         this._failurePolicyManager = null;
+
+        this._deploymentManager = null;
 
         this._httpStats = {
             requests: 0,
@@ -1104,6 +1108,9 @@ class WheelWinApplication {
         // R7.0E — observational monitoring (after providers exist).
         this._startMonitoring();
 
+        // R7.0G — deployment health / readiness / liveness probes.
+        this._startDeploymentHealth();
+
         await this._listen();
 
         const startupDurationMs = performance.now() - this._startupStartedAt;
@@ -1116,9 +1123,23 @@ class WheelWinApplication {
 
         this._lifecycleManager.markRunning();
 
+        this._deploymentManager?.getHealthManager?.()?.refresh?.();
+
         const healthSnapshot = this._healthService.getHealthSnapshot();
 
         this._healthService.logStartupSummary(healthSnapshot);
+
+        LoggingManager.getInstance().write({
+            level: LOG_LEVELS.INFO,
+            service: "wheelwin-deployment-health",
+            message: "Startup complete",
+            fields: {
+                profile: this._deploymentManager?.getProfile?.()?.name ?? null,
+                durationMs: Number(startupDurationMs.toFixed(3)),
+                startup: healthSnapshot.probes?.startup?.ok === true,
+                ready: healthSnapshot.ready === true
+            }
+        });
 
         this._logger.info("");
         this._logger.info("Server Ready");
@@ -1565,6 +1586,14 @@ class WheelWinApplication {
 
         }
 
+        if (this._deploymentManager) {
+
+            this._deploymentManager.shutdown();
+
+            this._deploymentManager = null;
+
+        }
+
         if (this._prometheusServer) {
 
             try {
@@ -1616,6 +1645,11 @@ class WheelWinApplication {
                 consoleGateway: this._consoleGateway,
                 loggingManager: LoggingManager.getInstance(),
                 failurePolicy: this._failurePolicyManager,
+                deploymentHealth: {
+                    getSafeStatus: () => this._deploymentManager
+                        ?.getHealthManager?.()
+                        ?.getSafeStatus?.() ?? null
+                },
                 httpStats: () => ({ ...this._httpStats }),
                 lifecycleState: () => this._lifecycleManager?.getState?.() ?? null,
                 environment: () => this._serverConfig?.nodeEnv ?? null,
@@ -1641,6 +1675,69 @@ class WheelWinApplication {
             this._startPrometheusSidecar(monitoringConfig);
 
         }
+
+    }
+
+    /**
+     * R7.0G — Deployment health / readiness / liveness probe subsystem.
+     */
+    _startDeploymentHealth() {
+
+        const deploymentConfig = this._productionConfig.deployment ?? {
+            profile: this._runtimeConfig?.profile ?? "development",
+            healthEnabled: true,
+            readinessEnabled: true,
+            livenessEnabled: true,
+            startupEnabled: true
+        };
+
+        this._deploymentManager = DeploymentManager.getInstance();
+
+        this._deploymentManager.initialize({
+            deployment: deploymentConfig,
+            providers: {
+                lifecycleState: () => this._lifecycleManager?.getState?.() ?? null,
+                lifecycleInitialized: () => this._lifecycleManager != null,
+                configurationLoaded: () => this._runtimeConfig != null,
+                loggingActive: () => LoggingManager.getInstance().isInitialized(),
+                monitoringInitialized: () => this._monitoringManager != null,
+                monitoringActive: () => this._monitoringManager?.isRunning?.() === true,
+                monitoringRequired: () =>
+                    this._productionConfig?.monitoring?.enabled !== false,
+                failurePolicyInitialized: () => this._failurePolicyManager != null,
+                httpListening: () => this._httpServer?.listening === true,
+                socketListening: () => this._httpServer?.listening === true
+                    && this._socketGateway?.getIO?.() != null,
+                eventLoopDelayMs: () => {
+                    const snap = this._monitoringManager?.getSnapshot?.();
+                    return snap?.runtime?.eventLoopDelayMs ?? null;
+                },
+                activeGames: () =>
+                    this._managers?.gameManager?.getGames?.()?.length ?? 0,
+                activeRooms: () =>
+                    this._managers?.roomManager?.getRooms?.()?.length ?? 0,
+                memory: () => process.memoryUsage()
+            }
+        });
+
+        const healthManager = this._deploymentManager.getHealthManager();
+
+        this._healthService.setHealthManager(healthManager);
+
+        this._logger.startupLine(
+            deploymentConfig.healthEnabled === false
+                ? "DeploymentManager (disabled)"
+                : `DeploymentManager (${deploymentConfig.profile})`
+        );
+
+        LoggingManager.getInstance().write({
+            level: LOG_LEVELS.INFO,
+            service: "wheelwin-deployment-health",
+            message: "Deployment profile",
+            fields: {
+                profile: this._deploymentManager.getProfile()?.name ?? null
+            }
+        });
 
     }
 
@@ -2724,6 +2821,8 @@ class WheelWinApplication {
 
             const snapshot = this._healthService.getHealthSnapshot();
 
+            this._applyProbeCacheHeaders(res);
+
             // R7.0B — Not Ready during DRAINING / STOPPED / startup failure path.
             if (snapshot.ready === false || snapshot.status === "not_ready") {
 
@@ -2734,6 +2833,82 @@ class WheelWinApplication {
             }
 
             res.json(snapshot);
+
+        });
+
+        // R7.0G — Kubernetes-style probes (cached, lightweight JSON).
+        app.get("/ready", (req, res) => {
+
+            const healthManager = this._deploymentManager?.getHealthManager?.()
+                ?? null;
+
+            this._applyProbeCacheHeaders(res);
+
+            if (!healthManager) {
+
+                res.status(503).json({
+                    ready: false,
+                    status: "not_ready",
+                    reason: "deployment_health_unavailable"
+                });
+
+                return;
+
+            }
+
+            const body = healthManager.getReadinessResponse();
+
+            res.status(body.ready ? 200 : 503).json(body);
+
+        });
+
+        app.get("/live", (req, res) => {
+
+            const healthManager = this._deploymentManager?.getHealthManager?.()
+                ?? null;
+
+            this._applyProbeCacheHeaders(res);
+
+            if (!healthManager) {
+
+                res.status(200).json({
+                    live: true,
+                    status: "ok",
+                    reason: "alive_fallback"
+                });
+
+                return;
+
+            }
+
+            const body = healthManager.getLivenessResponse();
+
+            res.status(body.live ? 200 : 503).json(body);
+
+        });
+
+        app.get("/startup", (req, res) => {
+
+            const healthManager = this._deploymentManager?.getHealthManager?.()
+                ?? null;
+
+            this._applyProbeCacheHeaders(res);
+
+            if (!healthManager) {
+
+                res.status(503).json({
+                    startup: false,
+                    status: "starting",
+                    reason: "deployment_health_unavailable"
+                });
+
+                return;
+
+            }
+
+            const body = healthManager.getStartupResponse();
+
+            res.status(body.startup ? 200 : 503).json(body);
 
         });
 
@@ -3041,6 +3216,17 @@ class WheelWinApplication {
             });
 
         });
+
+    }
+
+    _applyProbeCacheHeaders(res) {
+
+        const cacheControl = this._deploymentManager?.getCacheControl?.()
+            ?? "no-store";
+
+        res.set("Cache-Control", cacheControl);
+
+        res.set("Content-Type", "application/json; charset=utf-8");
 
     }
 

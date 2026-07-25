@@ -364,6 +364,55 @@ function resolveFailurePolicyConfig(env) {
 
 }
 
+function resolveDeploymentConfig(env, profile) {
+
+    const parseFlag = (key, fallback = true) => {
+
+        const parsed = parseBooleanStrict(env[key]);
+
+        if (!isMissing(env[key]) && parsed.ok !== true) {
+
+            throw new Error(`${key} must be true or false`);
+
+        }
+
+        return isMissing(env[key]) ? fallback : parsed.value === true;
+
+    };
+
+    const deploymentProfileRaw = isMissing(env.DEPLOYMENT_PROFILE)
+        ? profile
+        : String(env.DEPLOYMENT_PROFILE).trim().toLowerCase();
+
+    if (!["development", "staging", "production"].includes(deploymentProfileRaw)) {
+
+        throw new Error(
+            "DEPLOYMENT_PROFILE must be development, staging, or production"
+        );
+
+    }
+
+    const probeRefresh = isMissing(env.PROBE_REFRESH_INTERVAL_MS)
+        ? null
+        : resolvePositiveInt(env, "PROBE_REFRESH_INTERVAL_MS", 1000);
+
+    if (probeRefresh != null && probeRefresh < 50) {
+
+        throw new Error("PROBE_REFRESH_INTERVAL_MS must be >= 50");
+
+    }
+
+    return {
+        profile: deploymentProfileRaw,
+        healthEnabled: parseFlag("HEALTH_ENABLED", true),
+        readinessEnabled: parseFlag("READINESS_ENABLED", true),
+        livenessEnabled: parseFlag("LIVENESS_ENABLED", true),
+        startupEnabled: parseFlag("STARTUP_PROBE_ENABLED", true),
+        probeRefreshIntervalMs: probeRefresh
+    };
+
+}
+
 export function loadProductionConfig(env = process.env, serverConfig = null) {
 
     const nodeEnv = serverConfig?.nodeEnv || env.NODE_ENV || "development";
@@ -379,6 +428,8 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
     const monitoring = resolveMonitoringConfig(env, profile);
 
     const failurePolicy = resolveFailurePolicyConfig(env);
+
+    const deployment = resolveDeploymentConfig(env, profile);
 
     const rawTimeout = env.GRACEFUL_SHUTDOWN_TIMEOUT_MS;
 
@@ -408,6 +459,7 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         logging,
         monitoring,
         failurePolicy,
+        deployment,
         metricsEnabled: development || env.METRICS_ENABLED === "true",
         runStartupDemonstrations: development
             && env.STARTUP_DEMONSTRATIONS !== "false",

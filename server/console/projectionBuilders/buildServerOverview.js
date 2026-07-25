@@ -91,6 +91,14 @@ export function buildServerOverview({
         })(),
         failurePolicy: health?.failurePolicy
             ? Object.freeze({ ...health.failurePolicy })
+            : null,
+        deployment: health?.deployment
+            ? Object.freeze({ ...health.deployment })
+            : (health?.configuration?.deployment
+                ? Object.freeze({ ...health.configuration.deployment })
+                : null),
+        probes: health?.probes
+            ? Object.freeze({ ...health.probes })
             : null
     });
 

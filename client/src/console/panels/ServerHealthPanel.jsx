@@ -288,6 +288,72 @@ export default function ServerHealthPanel() {
                     }
                 />
 
+                <StatCard
+                    label="Startup"
+                    value={server.probes?.startup?.ok === true
+                        ? "OK"
+                        : server.probes?.startup?.ok === false
+                            ? "PENDING"
+                            : (server.deployment?.startup === true ? "OK" : "—")}
+                />
+
+                <StatCard
+                    label="Liveness"
+                    value={server.probes?.liveness?.ok === true
+                        || server.deployment?.live === true
+                        ? "LIVE"
+                        : server.probes?.liveness?.ok === false
+                            || server.deployment?.live === false
+                            ? "DEAD"
+                            : "—"}
+                />
+
+                <StatCard
+                    label="Readiness"
+                    value={server.probes?.readiness?.ok === true
+                        || server.deployment?.ready === true
+                        ? "READY"
+                        : server.ready === false
+                            ? "NOT READY"
+                            : "—"}
+                />
+
+                <StatCard
+                    label="Deployment Profile"
+                    value={server.deployment?.profile
+                        ?? server.configuration?.deployment?.profile
+                        ?? server.configuration?.profile
+                        ?? "—"}
+                />
+
+                <StatCard
+                    label="HTTP Status"
+                    value={server.deployment?.http === true
+                        || server.probes?.health?.details?.components?.http === true
+                        ? "LISTENING"
+                        : server.deployment?.http === false
+                            ? "DOWN"
+                            : "—"}
+                />
+
+                <StatCard
+                    label="Socket Status"
+                    value={server.deployment?.socket === true
+                        || server.probes?.health?.details?.components?.socket === true
+                        ? "UP"
+                        : server.deployment?.socket === false
+                            ? "DOWN"
+                            : "—"}
+                />
+
+                <StatCard
+                    label="Overall Health"
+                    value={server.deployment?.overall
+                        ?? server.probes?.health?.overall
+                        ?? server.status
+                        ?? "—"}
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">

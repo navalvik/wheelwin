@@ -27,6 +27,9 @@ export class HealthService {
         /** @type {object|null} R7.0F failure policy status */
         this._failurePolicyStatus = null;
 
+        /** @type {import("../deployment/HealthManager.js").HealthManager|null} */
+        this._healthManager = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -104,6 +107,15 @@ export class HealthService {
 
     }
 
+    /**
+     * R7.0G — Delegate probe coordination to HealthManager.
+     */
+    setHealthManager(healthManager) {
+
+        this._healthManager = healthManager ?? null;
+
+    }
+
     registerComponents(components) {
 
         this._componentRegistry = components;
@@ -139,10 +151,16 @@ export class HealthService {
 
         const lifecycle = this._lifecycleState;
 
-        const ready = lifecycle != null
-            ? lifecycle === "RUNNING"
-            : !this._shuttingDown
-                && Object.values(components).every((ok) => ok === true);
+        const deployment = this._healthManager?.getSafeStatus?.() ?? null;
+
+        const probeReady = deployment?.ready;
+
+        const ready = probeReady != null
+            ? probeReady === true
+            : lifecycle != null
+                ? lifecycle === "RUNNING"
+                : !this._shuttingDown
+                    && Object.values(components).every((ok) => ok === true);
 
         const componentsHealthy = Object.values(components)
             .every((ok) => ok === true);
@@ -154,15 +172,20 @@ export class HealthService {
             // R7.0B — operators / LB treat this as Not Ready.
             status = "not_ready";
 
-        } else if (!componentsHealthy) {
+        } else if (!componentsHealthy
+            || (deployment?.overall && deployment.overall !== "ok")) {
 
-            status = "degraded";
+            status = deployment?.overall === "unhealthy"
+                ? "not_ready"
+                : "degraded";
 
         } else {
 
             status = "ok";
 
         }
+
+        const probeCache = this._healthManager?.getCachedSnapshot?.() ?? null;
 
         return {
             status,
@@ -177,7 +200,17 @@ export class HealthService {
             configuration: this._safeConfiguration,
             logger: this._loggerStatus,
             monitoring: this._resolveMonitoringStatus(),
-            failurePolicy: this._failurePolicyStatus
+            failurePolicy: this._failurePolicyStatus,
+            // R7.0G — additive deployment probe summary
+            deployment,
+            probes: probeCache
+                ? Object.freeze({
+                    startup: probeCache.startup,
+                    liveness: probeCache.liveness,
+                    readiness: probeCache.readiness,
+                    health: probeCache.health
+                })
+                : null
         };
 
     }
@@ -221,6 +254,9 @@ export class HealthService {
         this._logger.info(
             `Startup complete | env=${snapshot.environment} | `
                 + `duration=${snapshot.startupDurationMs}ms`
+                + (snapshot.deployment?.profile
+                    ? ` | profile=${snapshot.deployment.profile}`
+                    : "")
         );
 
     }

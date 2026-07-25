@@ -158,6 +158,16 @@ export class RuntimeConfiguration {
                     this.production.failurePolicy?.backoffStrategy ?? null,
                 circuitBreakerEnabled:
                     this.production.failurePolicy?.circuitBreakerEnabled === true
+            }),
+            deployment: Object.freeze({
+                profile: this.production.deployment?.profile
+                    ?? this.profile
+                    ?? null,
+                healthEnabled: this.production.deployment?.healthEnabled !== false,
+                readinessEnabled:
+                    this.production.deployment?.readinessEnabled !== false,
+                livenessEnabled:
+                    this.production.deployment?.livenessEnabled !== false
             })
         });
 

@@ -340,6 +340,42 @@ export function validateEnvironment(collector, env) {
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.HEALTH_ENABLED,
+        env.HEALTH_ENABLED
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.READINESS_ENABLED,
+        env.READINESS_ENABLED
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.LIVENESS_ENABLED,
+        env.LIVENESS_ENABLED
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.STARTUP_PROBE_ENABLED,
+        env.STARTUP_PROBE_ENABLED
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.PROBE_REFRESH_INTERVAL_MS,
+        env.PROBE_REFRESH_INTERVAL_MS
+    );
+
+    validateEnumField(
+        collector,
+        ENVIRONMENT_SCHEMA.DEPLOYMENT_PROFILE,
+        env.DEPLOYMENT_PROFILE
+    );
+
+    validateBooleanField(
+        collector,
         ENVIRONMENT_SCHEMA.STARTUP_DEMONSTRATIONS,
         env.STARTUP_DEMONSTRATIONS
     );

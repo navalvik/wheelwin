@@ -296,6 +296,50 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Failure Policy",
         suggestedFix: "Set FAILURE_HISTORY_LIMIT to an integer >= 1."
     }),
+    HEALTH_ENABLED: Object.freeze({
+        key: "HEALTH_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Deployment",
+        suggestedFix: "Set HEALTH_ENABLED to true or false."
+    }),
+    READINESS_ENABLED: Object.freeze({
+        key: "READINESS_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Deployment",
+        suggestedFix: "Set READINESS_ENABLED to true or false."
+    }),
+    LIVENESS_ENABLED: Object.freeze({
+        key: "LIVENESS_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Deployment",
+        suggestedFix: "Set LIVENESS_ENABLED to true or false."
+    }),
+    STARTUP_PROBE_ENABLED: Object.freeze({
+        key: "STARTUP_PROBE_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Deployment",
+        suggestedFix: "Set STARTUP_PROBE_ENABLED to true or false."
+    }),
+    PROBE_REFRESH_INTERVAL_MS: Object.freeze({
+        key: "PROBE_REFRESH_INTERVAL_MS",
+        type: "integer",
+        required: false,
+        min: 50,
+        category: "Deployment",
+        suggestedFix: "Set PROBE_REFRESH_INTERVAL_MS to an integer >= 50."
+    }),
+    DEPLOYMENT_PROFILE: Object.freeze({
+        key: "DEPLOYMENT_PROFILE",
+        type: "enum",
+        required: false,
+        allowed: Object.freeze(["development", "staging", "production"]),
+        category: "Deployment",
+        suggestedFix: "Set DEPLOYMENT_PROFILE to development, staging, or production."
+    }),
     STARTUP_DEMONSTRATIONS: Object.freeze({
         key: "STARTUP_DEMONSTRATIONS",
         type: "boolean",
@@ -377,5 +421,6 @@ export const CONFIGURATION_CATEGORIES = Object.freeze([
     "Recovery",
     "Simulation",
     "Metrics",
-    "Failure Policy"
+    "Failure Policy",
+    "Deployment"
 ]);

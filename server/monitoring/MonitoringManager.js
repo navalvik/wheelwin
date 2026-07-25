@@ -13,6 +13,7 @@ import { RecoveryMetricsCollector } from "./RecoveryMetricsCollector.js";
 import { DeveloperMetricsCollector } from "./DeveloperMetricsCollector.js";
 import { SystemMetricsCollector } from "./SystemMetricsCollector.js";
 import { FailureMetricsCollector } from "./FailureMetricsCollector.js";
+import { DeploymentMetricsCollector } from "./DeploymentMetricsCollector.js";
 import { JsonMetricsExporter } from "./exporters/JsonMetricsExporter.js";
 import { PrometheusExporter } from "./exporters/PrometheusExporter.js";
 import { HealthMetricsProvider } from "./health/HealthMetricsProvider.js";
@@ -142,6 +143,9 @@ export class MonitoringManager {
                 intervalMs: intervals.systemMs ?? 5000
             }),
             new FailureMetricsCollector({
+                intervalMs: intervals.systemMs ?? 5000
+            }),
+            new DeploymentMetricsCollector({
                 intervalMs: intervals.systemMs ?? 5000
             })
         ];
@@ -395,6 +399,25 @@ export class MonitoringManager {
                 retryCount: counters["failure.retry_count"] ?? 0,
                 retrySuccess: counters["failure.retry_success"] ?? 0,
                 retryFailure: counters["failure.retry_failure"] ?? 0
+            },
+            deployment: {
+                healthEnabled: gauges["deployment.health_enabled"] === 1,
+                startupOk: gauges["deployment.startup_ok"] === 1,
+                liveOk: gauges["deployment.live_ok"] === 1,
+                readyOk: gauges["deployment.ready_ok"] === 1,
+                probeLatencyMs: gauges["deployment.probe_latency_ms"] ?? 0,
+                probeFailures: gauges["deployment.probe_failures"] ?? 0,
+                readinessTransitions:
+                    counters["deployment.readiness_transitions"] ?? 0,
+                healthTransitions:
+                    counters["deployment.health_transitions"] ?? 0,
+                profile: gauges["deployment.profile_production"] === 1
+                    ? "production"
+                    : gauges["deployment.profile_staging"] === 1
+                        ? "staging"
+                        : gauges["deployment.profile_development"] === 1
+                            ? "development"
+                            : null
             },
             system: {
                 openSockets: gauges["system.open_sockets"] ?? 0,
