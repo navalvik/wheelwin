@@ -33,6 +33,9 @@ export class HealthService {
         /** @type {object|null} R8.0B release metadata (no filesystem paths) */
         this._releaseStatus = null;
 
+        /** @type {object|null} R8.0C certification status */
+        this._certificationStatus = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -126,6 +129,17 @@ export class HealthService {
 
         this._releaseStatus = releaseStatus
             ? Object.freeze({ ...releaseStatus })
+            : null;
+
+    }
+
+    /**
+     * R8.0C — Attach sanitized certification status.
+     */
+    setCertificationStatus(certificationStatus) {
+
+        this._certificationStatus = certificationStatus
+            ? Object.freeze({ ...certificationStatus })
             : null;
 
     }
@@ -225,7 +239,8 @@ export class HealthService {
                     health: probeCache.health
                 })
                 : null,
-            release: this._releaseStatus
+            release: this._releaseStatus,
+            certification: this._certificationStatus
         };
 
     }

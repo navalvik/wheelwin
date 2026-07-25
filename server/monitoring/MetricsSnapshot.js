@@ -50,6 +50,8 @@ export class MetricsSnapshot {
 
         this.release = Object.freeze({ ...(input.release ?? {}) });
 
+        this.certification = Object.freeze({ ...(input.certification ?? {}) });
+
         this.system = Object.freeze({ ...(input.system ?? {}) });
 
         this.gauges = Object.freeze({ ...(input.gauges ?? {}) });
@@ -80,6 +82,7 @@ export class MetricsSnapshot {
             failure: this.failure,
             deployment: this.deployment,
             release: this.release,
+            certification: this.certification,
             system: this.system
         });
 

@@ -47,6 +47,7 @@ import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
 import { DeploymentManager } from "./deployment/DeploymentManager.js";
 import { ReleaseManager } from "./release/ReleaseManager.js";
+import { ReleaseCertificationManager } from "./certification/ReleaseCertificationManager.js";
 
 import { CONNECTION_STATE } from "./models/ConnectionState.js";
 import { PLAYER_STATE } from "./models/PlayerState.js";
@@ -218,6 +219,8 @@ class WheelWinApplication {
 
         this._releaseManager = null;
 
+        this._certificationManager = null;
+
         this._httpStats = {
             requests: 0,
             errors: 0,
@@ -344,6 +347,41 @@ class WheelWinApplication {
 
         this._logger.startupLine(
             `ReleaseManager (${releaseConfig.channel ?? "development"})`
+        );
+
+        // R8.0C — RC certification status (certify via CLI against release package).
+        this._certificationManager = ReleaseCertificationManager.getInstance();
+
+        this._certificationManager.initialize({
+            productionConfig: this._productionConfig,
+            runtimeConfig: this._runtimeConfig,
+            tonConfig: this._runtimeConfig.ton,
+            safeConfiguration: this._runtimeConfig.toSafeSummary(),
+            profile: this._runtimeConfig.profile,
+            providers: {
+                logging: () => LoggingManager.getInstance().getSafeStatus(),
+                monitoring: () => this._monitoringManager?.getHealthStatus?.()
+                    ?? null,
+                monitoringSnapshot: () => this._monitoringManager?.getSnapshot?.()
+                    ?? null,
+                failurePolicy: () => this._failurePolicyManager?.getSafeStatus?.()
+                    ?? null,
+                deploymentHealth: () => this._deploymentManager
+                    ?.getHealthManager?.()
+                    ?.getSafeStatus?.() ?? null,
+                healthSnapshot: () => this._healthService.getHealthSnapshot(),
+                developerConsole: () => ({
+                    enabled: this._developerAuthService?.isEnabled?.() === true
+                })
+            }
+        });
+
+        this._healthService.setCertificationStatus(
+            this._certificationManager.getSafeStatus()
+        );
+
+        this._logger.startupLine(
+            `ReleaseCertificationManager (${this._certificationManager.getStatus()})`
         );
 
         // R7.0B — process lifecycle (RUNNING → DRAINING → STOPPED).
@@ -1627,6 +1665,12 @@ class WheelWinApplication {
 
         }
 
+        if (this._certificationManager) {
+
+            this._certificationManager = null;
+
+        }
+
         if (this._prometheusServer) {
 
             try {
@@ -1684,6 +1728,7 @@ class WheelWinApplication {
                         ?.getSafeStatus?.() ?? null
                 },
                 releaseManager: this._releaseManager,
+                certificationManager: this._certificationManager,
                 httpStats: () => ({ ...this._httpStats }),
                 lifecycleState: () => this._lifecycleManager?.getState?.() ?? null,
                 environment: () => this._serverConfig?.nodeEnv ?? null,
@@ -1865,6 +1910,14 @@ class WheelWinApplication {
 
             this._healthService.setReleaseStatus(
                 this._releaseManager.getSafeStatus()
+            );
+
+        }
+
+        if (this._certificationManager) {
+
+            this._healthService.setCertificationStatus(
+                this._certificationManager.getSafeStatus()
             );
 
         }

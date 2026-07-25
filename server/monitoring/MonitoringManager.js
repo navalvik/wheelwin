@@ -15,6 +15,7 @@ import { SystemMetricsCollector } from "./SystemMetricsCollector.js";
 import { FailureMetricsCollector } from "./FailureMetricsCollector.js";
 import { DeploymentMetricsCollector } from "./DeploymentMetricsCollector.js";
 import { ReleaseMetricsCollector } from "./ReleaseMetricsCollector.js";
+import { CertificationMetricsCollector } from "./CertificationMetricsCollector.js";
 import { JsonMetricsExporter } from "./exporters/JsonMetricsExporter.js";
 import { PrometheusExporter } from "./exporters/PrometheusExporter.js";
 import { HealthMetricsProvider } from "./health/HealthMetricsProvider.js";
@@ -150,6 +151,9 @@ export class MonitoringManager {
                 intervalMs: intervals.systemMs ?? 5000
             }),
             new ReleaseMetricsCollector({
+                intervalMs: intervals.systemMs ?? 5000
+            }),
+            new CertificationMetricsCollector({
                 intervalMs: intervals.systemMs ?? 5000
             })
         ];
@@ -439,6 +443,22 @@ export class MonitoringManager {
                                 : gauges["release.channel_development"] === 1
                                     ? "development"
                                     : null
+            },
+            certification: {
+                available: gauges["certification.available"] === 1,
+                betaReady: gauges["certification.beta_ready"] === 1,
+                warnings: gauges["certification.warnings"] ?? 0,
+                failures: gauges["certification.failures"] ?? 0,
+                durationMs: gauges["certification.duration_ms"] ?? 0,
+                status: gauges["certification.status_passed"] === 1
+                    ? "PASSED"
+                    : gauges["certification.status_passed_with_warnings"] === 1
+                        ? "PASSED_WITH_WARNINGS"
+                        : gauges["certification.status_failed"] === 1
+                            ? "FAILED"
+                            : gauges["certification.status_running"] === 1
+                                ? "RUNNING"
+                                : "NOT_CERTIFIED"
             },
             system: {
                 openSockets: gauges["system.open_sockets"] ?? 0,

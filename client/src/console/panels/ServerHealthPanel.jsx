@@ -399,6 +399,40 @@ export default function ServerHealthPanel() {
                     value={server.release?.status ?? "—"}
                 />
 
+                <StatCard
+                    label="Certification Status"
+                    value={server.certification?.status ?? "—"}
+                    hint={server.certification?.betaReady
+                        ? "Beta ready"
+                        : undefined}
+                />
+
+                <StatCard
+                    label="Certification Time"
+                    value={server.certification?.certifiedAt
+                        ? String(server.certification.certifiedAt).slice(0, 19)
+                        : "—"}
+                />
+
+                <StatCard
+                    label="Cert Fingerprint"
+                    value={server.certification?.fingerprint
+                        && server.certification.fingerprint !== "unknown"
+                        ? String(server.certification.fingerprint).slice(0, 12)
+                        : (server.release?.fingerprint
+                            && server.release.fingerprint !== "unbuilt"
+                            ? String(server.release.fingerprint).slice(0, 12)
+                            : "—")}
+                />
+
+                <StatCard
+                    label="Cert Warnings"
+                    value={server.certification?.warnings ?? "—"}
+                    hint={server.certification?.failures != null
+                        ? `Failures ${server.certification.failures}`
+                        : undefined}
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">

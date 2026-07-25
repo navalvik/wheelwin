@@ -102,6 +102,9 @@ export function buildServerOverview({
             : null,
         release: health?.release
             ? Object.freeze({ ...health.release })
+            : null,
+        certification: health?.certification
+            ? Object.freeze({ ...health.certification })
             : null
     });
 

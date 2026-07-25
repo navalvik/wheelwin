@@ -4,3 +4,7 @@ config/owner.json
 
 # R8.0B — generated release packages (build via npm run release:build)
 /release/
+
+# R8.0C — generated certification outputs (via npm run release:certify)
+docs/release/Release-Certification-Report.md
+docs/release/ReleaseCertificate.json
