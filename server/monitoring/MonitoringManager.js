@@ -12,6 +12,7 @@ import { PaymentMetricsCollector } from "./PaymentMetricsCollector.js";
 import { RecoveryMetricsCollector } from "./RecoveryMetricsCollector.js";
 import { DeveloperMetricsCollector } from "./DeveloperMetricsCollector.js";
 import { SystemMetricsCollector } from "./SystemMetricsCollector.js";
+import { FailureMetricsCollector } from "./FailureMetricsCollector.js";
 import { JsonMetricsExporter } from "./exporters/JsonMetricsExporter.js";
 import { PrometheusExporter } from "./exporters/PrometheusExporter.js";
 import { HealthMetricsProvider } from "./health/HealthMetricsProvider.js";
@@ -138,6 +139,9 @@ export class MonitoringManager {
                 intervalMs: intervals.systemMs ?? 5000
             }),
             new SystemMetricsCollector({
+                intervalMs: intervals.systemMs ?? 5000
+            }),
+            new FailureMetricsCollector({
                 intervalMs: intervals.systemMs ?? 5000
             })
         ];
@@ -378,6 +382,19 @@ export class MonitoringManager {
                     gauges["developer.audit_events_buffered"] ?? 0,
                 logEventsGenerated:
                     counters["developer.log_events_generated"] ?? 0
+            },
+            failure: {
+                policyEnabled: gauges["failure.policy_enabled"] === 1,
+                retryQueueSize: gauges["failure.retry_queue_size"] ?? 0,
+                escalationCount: gauges["failure.escalation_count"] ?? 0,
+                recoverableFailures:
+                    gauges["failure.recoverable_failures"] ?? 0,
+                fatalFailures: gauges["failure.fatal_failures"] ?? 0,
+                circuitsOpen: gauges["failure.circuits_open"] ?? 0,
+                circuitsTotal: gauges["failure.circuits_total"] ?? 0,
+                retryCount: counters["failure.retry_count"] ?? 0,
+                retrySuccess: counters["failure.retry_success"] ?? 0,
+                retryFailure: counters["failure.retry_failure"] ?? 0
             },
             system: {
                 openSockets: gauges["system.open_sockets"] ?? 0,

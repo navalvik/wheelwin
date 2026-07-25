@@ -150,6 +150,14 @@ export class RuntimeConfiguration {
                 monitoringEnabled: this.production.monitoring?.enabled === true,
                 prometheusEnabled:
                     this.production.monitoring?.prometheusEnabled === true
+            }),
+            failurePolicy: Object.freeze({
+                enabled: this.production.failurePolicy?.enabled === true,
+                maxAttempts: this.production.failurePolicy?.maxAttempts ?? null,
+                backoffStrategy:
+                    this.production.failurePolicy?.backoffStrategy ?? null,
+                circuitBreakerEnabled:
+                    this.production.failurePolicy?.circuitBreakerEnabled === true
             })
         });
 

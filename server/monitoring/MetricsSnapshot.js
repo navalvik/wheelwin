@@ -16,6 +16,7 @@ export class MetricsSnapshot {
      *   payments: object,
      *   recovery: object,
      *   developer: object,
+     *   failure?: object,
      *   system: object,
      *   gauges: object,
      *   counters: object
@@ -42,6 +43,8 @@ export class MetricsSnapshot {
         this.recovery = Object.freeze({ ...(input.recovery ?? {}) });
 
         this.developer = Object.freeze({ ...(input.developer ?? {}) });
+
+        this.failure = Object.freeze({ ...(input.failure ?? {}) });
 
         this.system = Object.freeze({ ...(input.system ?? {}) });
 
@@ -70,6 +73,7 @@ export class MetricsSnapshot {
             payments: this.payments,
             recovery: this.recovery,
             developer: this.developer,
+            failure: this.failure,
             system: this.system
         });
 

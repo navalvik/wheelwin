@@ -227,6 +227,67 @@ export default function ServerHealthPanel() {
                     value={metrics?.monitoring?.recovery?.queueSize ?? "—"}
                 />
 
+                <StatCard
+                    label="Failure Policy"
+                    value={server.failurePolicy?.enabled === false
+                        ? "OFF"
+                        : (server.failurePolicy?.enabled ? "ON" : "—")}
+                    hint={server.failurePolicy?.retryQueueSize != null
+                        ? `Queue ${server.failurePolicy.retryQueueSize}`
+                        : undefined}
+                />
+
+                <StatCard
+                    label="Retry Queue"
+                    value={server.failurePolicy?.retryQueueSize ?? "—"}
+                />
+
+                <StatCard
+                    label="Circuit Breakers"
+                    value={Array.isArray(server.failurePolicy?.circuitBreakers)
+                        ? server.failurePolicy.circuitBreakers
+                            .filter((c) => c.state === "OPEN").length
+                        : "—"}
+                    hint={Array.isArray(server.failurePolicy?.circuitBreakers)
+                        ? `${server.failurePolicy.circuitBreakers.length} total`
+                        : undefined}
+                />
+
+                <StatCard
+                    label="Recoverable Failures"
+                    value={server.failurePolicy?.recoverableFailures ?? "—"}
+                />
+
+                <StatCard
+                    label="Fatal Failures"
+                    value={server.failurePolicy?.fatalFailures ?? "—"}
+                />
+
+                <StatCard
+                    label="Escalations"
+                    value={server.failurePolicy?.escalationCount ?? "—"}
+                />
+
+                <StatCard
+                    label="Retry Statistics"
+                    value={server.failurePolicy?.retryCount ?? "—"}
+                    hint={
+                        server.failurePolicy?.retrySuccess != null
+                            ? `ok ${server.failurePolicy.retrySuccess} / fail ${server.failurePolicy.retryFailure ?? 0}`
+                            : undefined
+                    }
+                />
+
+                <StatCard
+                    label="Circuit Recovery"
+                    value={
+                        Array.isArray(server.failurePolicy?.circuitBreakers)
+                            ? server.failurePolicy.circuitBreakers
+                                .reduce((sum, c) => sum + (c.recoveryCount ?? 0), 0)
+                            : "—"
+                    }
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">

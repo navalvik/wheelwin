@@ -1,6 +1,7 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
+import { FailurePolicyManager } from "../failure/FailurePolicyManager.js";
 
 /**
  * P6.6 — Immutable audit ledger for entry-payment blockchain events.
@@ -439,6 +440,25 @@ export class BlockchainMonitor {
                 `BlockchainMonitor poll failed | roomId=${roomId} | `
                     + `${error?.message ?? error}`
             );
+
+            try {
+
+                const policy = FailurePolicyManager.getInstance();
+
+                if (policy.isEnabled()) {
+
+                    policy.decide({
+                        component: "blockchain",
+                        operation: "poll_room",
+                        error,
+                        fields: { roomId }
+                    });
+
+                }
+
+            } catch {
+                // Failure policy is observational for poll errors.
+            }
 
             return;
 

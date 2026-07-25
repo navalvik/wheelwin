@@ -280,6 +280,66 @@ export function validateEnvironment(collector, env) {
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.FAILURE_POLICY_ENABLED,
+        env.FAILURE_POLICY_ENABLED
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.RETRY_MAX_ATTEMPTS,
+        env.RETRY_MAX_ATTEMPTS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.RETRY_INITIAL_DELAY_MS,
+        env.RETRY_INITIAL_DELAY_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.RETRY_MAX_DELAY_MS,
+        env.RETRY_MAX_DELAY_MS
+    );
+
+    validateEnumField(
+        collector,
+        ENVIRONMENT_SCHEMA.BACKOFF_STRATEGY,
+        env.BACKOFF_STRATEGY
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.CIRCUIT_BREAKER_ENABLED,
+        env.CIRCUIT_BREAKER_ENABLED
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.CIRCUIT_FAILURE_THRESHOLD,
+        env.CIRCUIT_FAILURE_THRESHOLD
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.CIRCUIT_RECOVERY_TIMEOUT_MS,
+        env.CIRCUIT_RECOVERY_TIMEOUT_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.CIRCUIT_SUCCESS_THRESHOLD,
+        env.CIRCUIT_SUCCESS_THRESHOLD
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.FAILURE_HISTORY_LIMIT,
+        env.FAILURE_HISTORY_LIMIT
+    );
+
+    validateBooleanField(
+        collector,
         ENVIRONMENT_SCHEMA.STARTUP_DEMONSTRATIONS,
         env.STARTUP_DEMONSTRATIONS
     );

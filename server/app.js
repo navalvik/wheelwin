@@ -43,6 +43,7 @@ import { TimerService } from "./services/TimerService.js";
 import { TonService } from "./services/TonService.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
+import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
 
 import { CONNECTION_STATE } from "./models/ConnectionState.js";
 import { PLAYER_STATE } from "./models/PlayerState.js";
@@ -208,6 +209,8 @@ class WheelWinApplication {
 
         this._monitoringManager = null;
 
+        this._failurePolicyManager = null;
+
         this._httpStats = {
             requests: 0,
             errors: 0,
@@ -274,6 +277,43 @@ class WheelWinApplication {
         );
 
         this._healthService.setLoggerStatus(loggingManager.getSafeStatus());
+
+        // R7.0F — centralized failure recovery policies (operational only).
+        this._failurePolicyManager = FailurePolicyManager.getInstance();
+
+        const failurePolicyConfig = this._productionConfig.failurePolicy ?? {};
+
+        this._failurePolicyManager.initialize({
+            ...failurePolicyConfig,
+            onShutdownRequest: () => {
+
+                setImmediate(() => {
+
+                    if (this._isShuttingDown) {
+
+                        return;
+
+                    }
+
+                    this.shutdown({ reason: "failure_policy_fatal" })
+                        .catch(() => {
+                            // lifecycle already logging
+                        });
+
+                });
+
+            }
+        });
+
+        this._healthService.setFailurePolicyStatus(
+            this._failurePolicyManager.getSafeStatus()
+        );
+
+        this._logger.startupLine(
+            failurePolicyConfig.enabled === false
+                ? "FailurePolicyManager (disabled)"
+                : "FailurePolicyManager"
+        );
 
         // R7.0B — process lifecycle (RUNNING → DRAINING → STOPPED).
         this._lifecycleManager = new ApplicationLifecycleManager({
@@ -1513,6 +1553,16 @@ class WheelWinApplication {
 
             this._monitoringManager.shutdown();
 
+            this._monitoringManager = null;
+
+        }
+
+        if (this._failurePolicyManager) {
+
+            this._failurePolicyManager.shutdown();
+
+            this._failurePolicyManager = null;
+
         }
 
         if (this._prometheusServer) {
@@ -1565,6 +1615,7 @@ class WheelWinApplication {
                 socketGateway: this._socketGateway,
                 consoleGateway: this._consoleGateway,
                 loggingManager: LoggingManager.getInstance(),
+                failurePolicy: this._failurePolicyManager,
                 httpStats: () => ({ ...this._httpStats }),
                 lifecycleState: () => this._lifecycleManager?.getState?.() ?? null,
                 environment: () => this._serverConfig?.nodeEnv ?? null,
@@ -1667,6 +1718,14 @@ class WheelWinApplication {
 
             this._healthService.setMonitoringStatus(
                 this._monitoringManager.getHealthStatus()
+            );
+
+        }
+
+        if (this._failurePolicyManager) {
+
+            this._healthService.setFailurePolicyStatus(
+                this._failurePolicyManager.getSafeStatus()
             );
 
         }

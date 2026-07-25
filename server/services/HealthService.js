@@ -24,6 +24,9 @@ export class HealthService {
         /** @type {object|null} R7.0E monitoring status */
         this._monitoringStatus = null;
 
+        /** @type {object|null} R7.0F failure policy status */
+        this._failurePolicyStatus = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -86,6 +89,17 @@ export class HealthService {
 
         this._monitoringStatus = monitoringStatus
             ? Object.freeze({ ...monitoringStatus })
+            : null;
+
+    }
+
+    /**
+     * R7.0F — Attach sanitized failure policy status (no stacks / secrets).
+     */
+    setFailurePolicyStatus(failurePolicyStatus) {
+
+        this._failurePolicyStatus = failurePolicyStatus
+            ? Object.freeze({ ...failurePolicyStatus })
             : null;
 
     }
@@ -162,7 +176,8 @@ export class HealthService {
             runtime: this._resolveRuntime(),
             configuration: this._safeConfiguration,
             logger: this._loggerStatus,
-            monitoring: this._resolveMonitoringStatus()
+            monitoring: this._resolveMonitoringStatus(),
+            failurePolicy: this._failurePolicyStatus
         };
 
     }

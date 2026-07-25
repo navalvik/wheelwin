@@ -88,7 +88,10 @@ export function buildServerOverview({
                 ...(full ?? {})
             });
 
-        })()
+        })(),
+        failurePolicy: health?.failurePolicy
+            ? Object.freeze({ ...health.failurePolicy })
+            : null
     });
 
 }

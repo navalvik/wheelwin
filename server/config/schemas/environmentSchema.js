@@ -212,6 +212,90 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Metrics",
         suggestedFix: "Set METRICS_ENABLED to true or false."
     }),
+    FAILURE_POLICY_ENABLED: Object.freeze({
+        key: "FAILURE_POLICY_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Failure Policy",
+        suggestedFix: "Set FAILURE_POLICY_ENABLED to true or false."
+    }),
+    RETRY_MAX_ATTEMPTS: Object.freeze({
+        key: "RETRY_MAX_ATTEMPTS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Failure Policy",
+        suggestedFix: "Set RETRY_MAX_ATTEMPTS to an integer >= 1."
+    }),
+    RETRY_INITIAL_DELAY_MS: Object.freeze({
+        key: "RETRY_INITIAL_DELAY_MS",
+        type: "integer",
+        required: false,
+        min: 0,
+        category: "Failure Policy",
+        suggestedFix: "Set RETRY_INITIAL_DELAY_MS to an integer >= 0."
+    }),
+    RETRY_MAX_DELAY_MS: Object.freeze({
+        key: "RETRY_MAX_DELAY_MS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Failure Policy",
+        suggestedFix: "Set RETRY_MAX_DELAY_MS to an integer >= 1."
+    }),
+    BACKOFF_STRATEGY: Object.freeze({
+        key: "BACKOFF_STRATEGY",
+        type: "enum",
+        required: false,
+        allowed: Object.freeze([
+            "fixed",
+            "linear",
+            "exponential",
+            "exponential_jitter"
+        ]),
+        category: "Failure Policy",
+        suggestedFix:
+            "Set BACKOFF_STRATEGY to fixed, linear, exponential, or exponential_jitter."
+    }),
+    CIRCUIT_BREAKER_ENABLED: Object.freeze({
+        key: "CIRCUIT_BREAKER_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Failure Policy",
+        suggestedFix: "Set CIRCUIT_BREAKER_ENABLED to true or false."
+    }),
+    CIRCUIT_FAILURE_THRESHOLD: Object.freeze({
+        key: "CIRCUIT_FAILURE_THRESHOLD",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Failure Policy",
+        suggestedFix: "Set CIRCUIT_FAILURE_THRESHOLD to an integer >= 1."
+    }),
+    CIRCUIT_RECOVERY_TIMEOUT_MS: Object.freeze({
+        key: "CIRCUIT_RECOVERY_TIMEOUT_MS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Failure Policy",
+        suggestedFix: "Set CIRCUIT_RECOVERY_TIMEOUT_MS to an integer >= 1."
+    }),
+    CIRCUIT_SUCCESS_THRESHOLD: Object.freeze({
+        key: "CIRCUIT_SUCCESS_THRESHOLD",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Failure Policy",
+        suggestedFix: "Set CIRCUIT_SUCCESS_THRESHOLD to an integer >= 1."
+    }),
+    FAILURE_HISTORY_LIMIT: Object.freeze({
+        key: "FAILURE_HISTORY_LIMIT",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Failure Policy",
+        suggestedFix: "Set FAILURE_HISTORY_LIMIT to an integer >= 1."
+    }),
     STARTUP_DEMONSTRATIONS: Object.freeze({
         key: "STARTUP_DEMONSTRATIONS",
         type: "boolean",
@@ -292,5 +376,6 @@ export const CONFIGURATION_CATEGORIES = Object.freeze([
     "Payments",
     "Recovery",
     "Simulation",
-    "Metrics"
+    "Metrics",
+    "Failure Policy"
 ]);

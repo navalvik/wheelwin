@@ -255,6 +255,115 @@ function resolveMonitoringConfig(env, profile) {
 
 }
 
+const BACKOFF_STRATEGIES = new Set([
+    "fixed",
+    "linear",
+    "exponential",
+    "exponential_jitter"
+]);
+
+function resolveNonNegativeInt(env, key, fallback) {
+
+    if (isMissing(env[key])) {
+
+        return fallback;
+
+    }
+
+    const parsed = parseIntegerStrict(env[key]);
+
+    if (!parsed.ok || parsed.value < 0) {
+
+        throw new Error(`${key} must be a non-negative integer`);
+
+    }
+
+    return parsed.value;
+
+}
+
+function resolveFailurePolicyConfig(env) {
+
+    const enabledParse = parseBooleanStrict(env.FAILURE_POLICY_ENABLED);
+
+    if (!isMissing(env.FAILURE_POLICY_ENABLED) && enabledParse.ok !== true) {
+
+        throw new Error("FAILURE_POLICY_ENABLED must be true or false");
+
+    }
+
+    const enabled = isMissing(env.FAILURE_POLICY_ENABLED)
+        ? true
+        : enabledParse.value === true;
+
+    const circuitEnabledParse = parseBooleanStrict(env.CIRCUIT_BREAKER_ENABLED);
+
+    if (!isMissing(env.CIRCUIT_BREAKER_ENABLED)
+        && circuitEnabledParse.ok !== true) {
+
+        throw new Error("CIRCUIT_BREAKER_ENABLED must be true or false");
+
+    }
+
+    const circuitBreakerEnabled = isMissing(env.CIRCUIT_BREAKER_ENABLED)
+        ? true
+        : circuitEnabledParse.value === true;
+
+    const backoffRaw = isMissing(env.BACKOFF_STRATEGY)
+        ? "exponential_jitter"
+        : String(env.BACKOFF_STRATEGY).trim().toLowerCase();
+
+    if (!BACKOFF_STRATEGIES.has(backoffRaw)) {
+
+        throw new Error(
+            "BACKOFF_STRATEGY must be fixed, linear, exponential, or exponential_jitter"
+        );
+
+    }
+
+    const initialDelayMs = resolveNonNegativeInt(
+        env,
+        "RETRY_INITIAL_DELAY_MS",
+        200
+    );
+
+    const maxDelayMs = resolvePositiveInt(env, "RETRY_MAX_DELAY_MS", 30_000);
+
+    if (maxDelayMs < initialDelayMs) {
+
+        throw new Error(
+            "RETRY_MAX_DELAY_MS must be greater than or equal to RETRY_INITIAL_DELAY_MS"
+        );
+
+    }
+
+    return {
+        enabled,
+        maxAttempts: resolvePositiveInt(env, "RETRY_MAX_ATTEMPTS", 3),
+        initialDelayMs,
+        maxDelayMs,
+        backoffStrategy: backoffRaw,
+        circuitBreakerEnabled,
+        circuitFailureThreshold: resolvePositiveInt(
+            env,
+            "CIRCUIT_FAILURE_THRESHOLD",
+            5
+        ),
+        circuitRecoveryTimeoutMs: resolvePositiveInt(
+            env,
+            "CIRCUIT_RECOVERY_TIMEOUT_MS",
+            30_000
+        ),
+        circuitSuccessThreshold: resolvePositiveInt(
+            env,
+            "CIRCUIT_SUCCESS_THRESHOLD",
+            2
+        ),
+        historyLimit: resolvePositiveInt(env, "FAILURE_HISTORY_LIMIT", 100)
+    };
+
+}
+
 export function loadProductionConfig(env = process.env, serverConfig = null) {
 
     const nodeEnv = serverConfig?.nodeEnv || env.NODE_ENV || "development";
@@ -268,6 +377,8 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
     const logging = resolveLoggingConfig(env, profile, defaultLogLevel);
 
     const monitoring = resolveMonitoringConfig(env, profile);
+
+    const failurePolicy = resolveFailurePolicyConfig(env);
 
     const rawTimeout = env.GRACEFUL_SHUTDOWN_TIMEOUT_MS;
 
@@ -296,6 +407,7 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         logLevel: logging.level,
         logging,
         monitoring,
+        failurePolicy,
         metricsEnabled: development || env.METRICS_ENABLED === "true",
         runStartupDemonstrations: development
             && env.STARTUP_DEMONSTRATIONS !== "false",
