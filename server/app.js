@@ -95,6 +95,10 @@ import { SessionWalletStore } from "./session/SessionWalletStore.js";
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
 import { DeveloperConsoleGateway } from "./console/DeveloperConsoleGateway.js";
+import { loadDeveloperAuthConfig } from "./console/auth/developerAuthConfig.js";
+import { DeveloperAuthService } from "./console/auth/DeveloperAuthService.js";
+import { createDeveloperAuthMiddleware } from "./console/auth/developerAuthMiddleware.js";
+import { registerDeveloperAuthRoutes } from "./console/auth/registerDeveloperAuthRoutes.js";
 
 class WheelWinApplication {
     constructor() {
@@ -190,6 +194,8 @@ class WheelWinApplication {
         this._consoleProjectionService = null;
 
         this._consoleGateway = null;
+
+        this._developerAuthService = null;
 
         this._blockchainMonitor = null;
 
@@ -964,16 +970,38 @@ class WheelWinApplication {
             gameplayContextResolver: this._gameplayContextResolver
         });
 
+        // R6.1 — Secure Developer Access (independent of gameplay auth).
+        const developerAuthConfig = loadDeveloperAuthConfig(
+            process.env,
+            this._productionConfig
+        );
+
+        this._developerAuthService = new DeveloperAuthService({
+            config: developerAuthConfig,
+            logger: this._logger
+        });
+
+        registerDeveloperAuthRoutes(
+            this._expressApp,
+            this._developerAuthService
+        );
+
         registerDeveloperConsoleRoutes(
             this._expressApp,
-            this._consoleProjectionService
+            this._consoleProjectionService,
+            {
+                authMiddleware: createDeveloperAuthMiddleware(
+                    this._developerAuthService
+                )
+            }
         );
 
         this._consoleGateway = new DeveloperConsoleGateway({
             logger: this._logger,
             io: this._socketGateway.getIO(),
             projectionService: this._consoleProjectionService,
-            eventBus: this._eventBus
+            eventBus: this._eventBus,
+            authService: this._developerAuthService
         });
 
         this._consoleGateway.initialize();
@@ -981,6 +1009,12 @@ class WheelWinApplication {
         this._logger.startupLine("DeveloperConsoleProjectionService");
 
         this._logger.startupLine("DeveloperConsoleGateway");
+
+        this._logger.startupLine(
+            this._developerAuthService.isEnabled()
+                ? "DeveloperAuthService (enabled)"
+                : "DeveloperAuthService (disabled)"
+        );
 
         await this._listen();
 
@@ -1115,6 +1149,16 @@ class WheelWinApplication {
             if (this._contractSettlementManager) {
 
                 this._contractSettlementManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("developerAuthService", () => {
+
+            if (this._developerAuthService) {
+
+                this._developerAuthService.shutdown();
 
             }
 
@@ -2338,6 +2382,9 @@ class WheelWinApplication {
         app.use(cors({
             origin: this._serverConfig.clientOrigin
         }));
+
+        // R6.1 — JSON body for Developer Auth login/refresh/logout only.
+        app.use(express.json({ limit: "32kb" }));
 
         app.get("/", (req, res) => {
 

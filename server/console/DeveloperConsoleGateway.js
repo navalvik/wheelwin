@@ -6,6 +6,7 @@ import {
     CONSOLE_UPDATE_POLICY,
     buildConsoleEnvelope
 } from "./consoleProtocol.js";
+import { createDeveloperSocketAuthMiddleware } from "./auth/developerAuthMiddleware.js";
 
 /**
  * R6.0D — Live Gateway for the WheelWin Developer Console.
@@ -25,7 +26,8 @@ export class DeveloperConsoleGateway {
         logger,
         io,
         projectionService,
-        eventBus = null
+        eventBus = null,
+        authService = null
     }) {
 
         this._logger = logger;
@@ -35,6 +37,8 @@ export class DeveloperConsoleGateway {
         this._projectionService = projectionService;
 
         this._eventBus = eventBus;
+
+        this._authService = authService;
 
         this._nsp = null;
 
@@ -77,6 +81,14 @@ export class DeveloperConsoleGateway {
         }
 
         this._nsp = this._io.of(CONSOLE_NAMESPACE);
+
+        if (this._authService?.isEnabled?.()) {
+
+            this._nsp.use(
+                createDeveloperSocketAuthMiddleware(this._authService)
+            );
+
+        }
 
         this._connectionHandler = (socket) => {
 
@@ -199,7 +211,16 @@ export class DeveloperConsoleGateway {
                 namespace: CONSOLE_NAMESPACE,
                 socketId: client.socket.id,
                 updatePolicy: CONSOLE_UPDATE_POLICY,
-                authentication: "none"
+                authentication: this._authService?.isEnabled?.()
+                    ? "bearer"
+                    : "none",
+                developer: client.socket.data?.developer
+                    ? Object.freeze({
+                        username: client.socket.data.developer.username,
+                        role: client.socket.data.developer.role,
+                        environment: client.socket.data.developer.environment
+                    })
+                    : null
             })
         );
 

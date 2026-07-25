@@ -1,12 +1,22 @@
 /**
- * R6.0C — Read-only Developer Console HTTP routes.
- * Independent of /debug/*. No authentication in this stage (R6.1).
+ * R6.0C / R6.1 — Read-only Developer Console HTTP routes.
+ * Independent of /debug/*. Projection routes require developer auth when enabled.
  */
-export function registerDeveloperConsoleRoutes(app, projectionService) {
+export function registerDeveloperConsoleRoutes(
+    app,
+    projectionService,
+    { authMiddleware = null } = {}
+) {
 
     if (!app || !projectionService) {
 
         return;
+
+    }
+
+    if (typeof authMiddleware === "function") {
+
+        app.use("/console", authMiddleware);
 
     }
 

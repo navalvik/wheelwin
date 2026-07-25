@@ -21,12 +21,15 @@ export class ConsoleStreamLayer {
 
     constructor({
         url = CONSOLE_SOCKET_URL,
-        onStateChange = null
+        onStateChange = null,
+        accessToken = null
     } = {}) {
 
         this._onStateChange = onStateChange;
 
         this._state = createConsoleStoreState();
+
+        this._accessToken = accessToken || null;
 
         this._socket = io(url, {
             autoConnect: false,
@@ -34,12 +37,43 @@ export class ConsoleStreamLayer {
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
-            transports: ["websocket", "polling"]
+            transports: ["websocket", "polling"],
+            auth: this._accessToken
+                ? { token: this._accessToken }
+                : {}
         });
 
         this._bound = false;
 
         this._disposed = false;
+
+    }
+
+    setAccessToken(accessToken) {
+
+        const next = accessToken || null;
+
+        if (this._accessToken === next) {
+
+            return;
+
+        }
+
+        this._accessToken = next;
+
+        this._socket.auth = next ? { token: next } : {};
+
+        if (this._socket.connected) {
+
+            this.disconnect();
+
+        }
+
+        if (next) {
+
+            this.connect();
+
+        }
 
     }
 

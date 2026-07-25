@@ -3,18 +3,21 @@ import { useEffect } from "react";
 import { Link } from "react-router-dom";
 
 import ConsoleLayout from "./ConsoleLayout";
-import ConsoleLoginPlaceholder from "./ConsoleLoginPlaceholder";
+import DeveloperLoginPanel from "./DeveloperLoginPanel";
 import ConsoleReadOnlyBadge from "./ConsoleReadOnlyBadge";
 import ConsoleConnectionStatus from "./ConsoleConnectionStatus";
+import { useDeveloperAuth } from "./DeveloperAuthProvider";
 
 /**
- * R6.0B / R6.0D — Developer Console chrome (header, badge, stream status, login slot).
+ * R6.0E / R6.1 — Developer Console chrome with secure session controls.
  */
 export default function DeveloperConsoleShell({
     activeSectionId,
     onSelectSection,
     children
 }) {
+
+    const { session, environment, requiresLogin } = useDeveloperAuth();
 
     useEffect(() => {
 
@@ -55,7 +58,33 @@ export default function DeveloperConsoleShell({
 
                         <ConsoleReadOnlyBadge />
 
-                        <ConsoleConnectionStatus />
+                        {!requiresLogin && <ConsoleConnectionStatus />}
+
+                        {!requiresLogin && session && (
+
+                            <div className="devConsole__sessionChip" role="status">
+
+                                <span>
+
+                                    {session.username}
+
+                                </span>
+
+                                <span>
+
+                                    {session.role}
+
+                                </span>
+
+                                <span>
+
+                                    {environment}
+
+                                </span>
+
+                            </div>
+
+                        )}
 
                     </div>
 
@@ -63,7 +92,7 @@ export default function DeveloperConsoleShell({
 
                 <div className="devConsole__headerActions">
 
-                    <ConsoleLoginPlaceholder />
+                    <DeveloperLoginPanel />
 
                     <Link className="devConsole__backLink" to="/">
 

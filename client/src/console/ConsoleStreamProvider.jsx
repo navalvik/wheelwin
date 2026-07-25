@@ -13,10 +13,14 @@ import { CONSOLE_STORE_INITIAL_STATE } from "./consoleStore";
 const ConsoleStreamContext = createContext(null);
 
 /**
- * R6.0D — Provides live Developer Console projections from `/console`.
- * Mount only inside the Developer Console tree (not gameplay).
+ * R6.0D / R6.1 — Live projections from `/console`.
+ * Connects only when autoConnect is true (after developer auth when required).
  */
-export function ConsoleStreamProvider({ children, autoConnect = true }) {
+export function ConsoleStreamProvider({
+    children,
+    autoConnect = true,
+    accessToken = null
+}) {
 
     const layerRef = useRef(null);
 
@@ -47,6 +51,7 @@ export function ConsoleStreamProvider({ children, autoConnect = true }) {
     useEffect(() => {
 
         const layer = new ConsoleStreamLayer({
+            accessToken,
             onStateChange: (nextState) => {
 
                 stateRef.current = nextState;
@@ -79,8 +84,9 @@ export function ConsoleStreamProvider({ children, autoConnect = true }) {
             notifyListeners();
 
         };
-
-    }, [autoConnect, notifyListeners]);
+        // Recreate transport when auth token identity changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [autoConnect, accessToken, notifyListeners]);
 
     const setFocus = useCallback((focus) => {
 

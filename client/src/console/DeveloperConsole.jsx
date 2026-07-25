@@ -5,6 +5,10 @@ import {
     ConsoleStreamProvider,
     useConsoleFocus
 } from "./ConsoleStreamProvider";
+import {
+    DeveloperAuthProvider,
+    useDeveloperAuth
+} from "./DeveloperAuthProvider";
 import { getConsoleSection } from "./consoleSections";
 import {
     readRememberedSectionId,
@@ -71,9 +75,38 @@ function renderSection(sectionId) {
 
 }
 
-/**
- * R6.0E — Console body: persistent nav + operational panels.
- */
+function ConsoleLockedPanel() {
+
+    return (
+
+        <section className="devConsole__panel" aria-label="Authentication required">
+
+            <header className="devConsole__panelHeader">
+
+                <h2 className="devConsole__panelTitle">
+
+                    Secure Developer Access
+
+                </h2>
+
+            </header>
+
+            <div className="devConsole__panelBody devConsole__panelBody--ops">
+
+                <p className="devConsole__placeholder">
+
+                    Sign in with your Developer credentials to open the
+                    operations console. Gameplay sockets are not used here.
+                </p>
+
+            </div>
+
+        </section>
+
+    );
+
+}
+
 function DeveloperConsoleBody() {
 
     const [activeSectionId, setActiveSectionId] = useState(
@@ -81,6 +114,8 @@ function DeveloperConsoleBody() {
     );
 
     const { setFocus } = useConsoleFocus();
+
+    const { requiresLogin } = useDeveloperAuth();
 
     const onSelectSection = useCallback((sectionId) => {
 
@@ -90,7 +125,6 @@ function DeveloperConsoleBody() {
 
         rememberSectionId(next);
 
-        // Clear focus when leaving detail-capable sections.
         if (next !== "rooms" && next !== "games") {
 
             setFocus({ roomId: null, gameId: null });
@@ -112,7 +146,9 @@ function DeveloperConsoleBody() {
             onSelectSection={onSelectSection}
         >
 
-            {renderSection(activeSectionId)}
+            {requiresLogin
+                ? <ConsoleLockedPanel />
+                : renderSection(activeSectionId)}
 
         </DeveloperConsoleShell>
 
@@ -120,18 +156,47 @@ function DeveloperConsoleBody() {
 
 }
 
+function DeveloperConsoleStreamGate({ children }) {
+
+    const { requiresLogin, accessToken, status, authEnabled } = useDeveloperAuth();
+
+    const ready = status === "authenticated"
+        || status === "open"
+        || (!authEnabled && status !== "loading");
+
+    const autoConnect = ready && !requiresLogin;
+
+    return (
+
+        <ConsoleStreamProvider
+            autoConnect={autoConnect}
+            accessToken={authEnabled ? accessToken : null}
+        >
+
+            {children}
+
+        </ConsoleStreamProvider>
+
+    );
+
+}
+
 /**
- * WheelWin Developer Console root.
+ * WheelWin Developer Console root (R6.1 secured).
  */
 export default function DeveloperConsole() {
 
     return (
 
-        <ConsoleStreamProvider>
+        <DeveloperAuthProvider>
 
-            <DeveloperConsoleBody />
+            <DeveloperConsoleStreamGate>
 
-        </ConsoleStreamProvider>
+                <DeveloperConsoleBody />
+
+            </DeveloperConsoleStreamGate>
+
+        </DeveloperAuthProvider>
 
     );
 
