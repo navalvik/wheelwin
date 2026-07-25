@@ -94,6 +94,7 @@ import { SessionWalletStore } from "./session/SessionWalletStore.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
+import { DeveloperConsoleGateway } from "./console/DeveloperConsoleGateway.js";
 
 class WheelWinApplication {
     constructor() {
@@ -187,6 +188,8 @@ class WheelWinApplication {
         this._contractSettlementManager = null;
 
         this._consoleProjectionService = null;
+
+        this._consoleGateway = null;
 
         this._blockchainMonitor = null;
 
@@ -966,7 +969,18 @@ class WheelWinApplication {
             this._consoleProjectionService
         );
 
+        this._consoleGateway = new DeveloperConsoleGateway({
+            logger: this._logger,
+            io: this._socketGateway.getIO(),
+            projectionService: this._consoleProjectionService,
+            eventBus: this._eventBus
+        });
+
+        this._consoleGateway.initialize();
+
         this._logger.startupLine("DeveloperConsoleProjectionService");
+
+        this._logger.startupLine("DeveloperConsoleGateway");
 
         await this._listen();
 
@@ -1101,6 +1115,16 @@ class WheelWinApplication {
             if (this._contractSettlementManager) {
 
                 this._contractSettlementManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("consoleGateway", () => {
+
+            if (this._consoleGateway) {
+
+                this._consoleGateway.shutdown();
 
             }
 

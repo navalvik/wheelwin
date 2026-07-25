@@ -108,6 +108,126 @@ body:has(.devConsole) {
     line-height: 1.45;
 }
 
+.devConsole__secondaryPanel {
+
+    margin-top: 16px;
+}
+
+.devConsole__statusRow {
+
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+
+    gap: 16px 24px;
+}
+
+.devConsole__connection {
+
+    display: inline-flex;
+    align-items: center;
+
+    gap: 8px;
+
+    padding: 4px 10px;
+
+    border-radius: 4px;
+
+    border: 1px solid var(--console-border);
+
+    background: #f8fafc;
+
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+}
+
+.devConsole__connectionDot {
+
+    width: 8px;
+    height: 8px;
+
+    border-radius: 50%;
+
+    background: #8a96a8;
+}
+
+.devConsole__connection--connected .devConsole__connectionDot {
+
+    background: #1a9f5c;
+}
+
+.devConsole__connection--reconnecting .devConsole__connectionDot {
+
+    background: #d4a017;
+}
+
+.devConsole__connection--disconnected .devConsole__connectionDot {
+
+    background: #b23b3b;
+}
+
+.devConsole__connectionLabel {
+
+    color: var(--console-ink);
+}
+
+.devConsole__connectionMeta {
+
+    color: var(--console-muted);
+
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.devConsole__liveTag {
+
+    padding: 3px 8px;
+
+    border-radius: 4px;
+
+    background: #e5f7ed;
+
+    color: #1a9f5c;
+
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.devConsole__projectionPreview {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 12px;
+}
+
+.devConsole__projectionJson {
+
+    margin: 0;
+
+    max-height: 28rem;
+
+    overflow: auto;
+
+    padding: 12px 14px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    background: #f7fafc;
+
+    color: var(--console-ink);
+
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
 .devConsole__readOnly {
 
     display: flex;
@@ -347,6 +467,604 @@ body:has(.devConsole) {
     line-height: 1.5;
 }
 
+.devConsole__panelBody--ops {
+
+    padding: 16px 18px 22px;
+}
+
+.devConsole__panelHeaderText {
+
+    min-width: 0;
+}
+
+.devConsole__panelSubtitle {
+
+    margin: 4px 0 0;
+
+    color: var(--console-muted);
+
+    font-size: 0.82rem;
+}
+
+.devConsole__panelActions {
+
+    display: flex;
+    align-items: center;
+
+    gap: 8px;
+}
+
+.devConsole__sectionTitle {
+
+    margin: 22px 0 10px;
+
+    font-size: 0.95rem;
+    font-weight: 800;
+}
+
+.devConsole__statGrid {
+
+    display: grid;
+
+    grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+
+    gap: 10px;
+}
+
+.devConsole__statCard {
+
+    padding: 12px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    background: #f8fafc;
+}
+
+.devConsole__statCard--green {
+
+    border-color: #9fd7b8;
+    background: #f0faf4;
+}
+
+.devConsole__statCard--yellow {
+
+    border-color: #e6d08a;
+    background: #fffaf0;
+}
+
+.devConsole__statLabel {
+
+    color: var(--console-muted);
+
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.devConsole__statValue {
+
+    margin-top: 6px;
+
+    font-size: 1.15rem;
+    font-weight: 800;
+}
+
+.devConsole__statHint {
+
+    margin-top: 4px;
+
+    color: var(--console-muted);
+
+    font-size: 0.75rem;
+}
+
+.devConsole__subsystemGrid {
+
+    display: grid;
+
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+
+    gap: 10px;
+}
+
+.devConsole__subsystemCard {
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 8px;
+
+    padding: 10px 12px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+}
+
+.devConsole__subsystemTone {
+
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+
+    color: var(--console-muted);
+}
+
+.devConsole__statusDot {
+
+    display: inline-flex;
+    align-items: center;
+
+    gap: 6px;
+}
+
+.devConsole__statusDot::before {
+
+    content: "";
+
+    width: 8px;
+    height: 8px;
+
+    border-radius: 50%;
+
+    background: #8a96a8;
+}
+
+.devConsole__statusDot--green::before {
+
+    background: #1a9f5c;
+}
+
+.devConsole__statusDot--yellow::before {
+
+    background: #d4a017;
+}
+
+.devConsole__statusDot--red::before {
+
+    background: #b23b3b;
+}
+
+.devConsole__statusBadge {
+
+    display: inline-flex;
+    align-items: center;
+
+    gap: 8px;
+
+    padding: 4px 8px;
+
+    border-radius: 4px;
+
+    background: #eef2f6;
+
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+.devConsole__statusBadge--green {
+
+    background: #e5f7ed;
+    color: #146b3d;
+}
+
+.devConsole__statusBadge--yellow {
+
+    background: #fff4d6;
+    color: #8a6a00;
+}
+
+.devConsole__statusBadge--red {
+
+    background: #fde8e8;
+    color: #8f1f1f;
+}
+
+.devConsole__toolbar {
+
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+
+    gap: 10px;
+
+    margin-bottom: 14px;
+}
+
+.devConsole__search input,
+.devConsole__filter select {
+
+    box-sizing: border-box;
+
+    min-height: 2rem;
+
+    padding: 6px 10px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    background: #fff;
+
+    color: var(--console-ink);
+
+    font: inherit;
+    font-size: 0.85rem;
+}
+
+.devConsole__search input {
+
+    min-width: min(100%, 16rem);
+}
+
+.devConsole__toolbarFilters {
+
+    display: flex;
+    flex-wrap: wrap;
+
+    gap: 10px;
+}
+
+.devConsole__filter {
+
+    display: inline-flex;
+    align-items: center;
+
+    gap: 6px;
+
+    color: var(--console-muted);
+
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.devConsole__cardGrid {
+
+    display: grid;
+
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+
+    gap: 10px;
+}
+
+.devConsole__roomCard {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 10px;
+
+    margin: 0;
+    padding: 12px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 8px;
+
+    background: #fff;
+
+    color: inherit;
+
+    font: inherit;
+    text-align: left;
+
+    cursor: pointer;
+}
+
+.devConsole__roomCard:hover {
+
+    border-color: #9bb8d9;
+    background: #f7fbff;
+}
+
+.devConsole__roomCardTop {
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 8px;
+}
+
+.devConsole__roomCardMeta {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 4px;
+
+    color: var(--console-muted);
+
+    font-size: 0.8rem;
+}
+
+.devConsole__pill {
+
+    padding: 2px 7px;
+
+    border-radius: 999px;
+
+    background: #eef2f6;
+
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
+.devConsole__tableWrap {
+
+    overflow: auto;
+}
+
+.devConsole__table {
+
+    width: 100%;
+
+    border-collapse: collapse;
+
+    font-size: 0.82rem;
+}
+
+.devConsole__table th,
+.devConsole__table td {
+
+    padding: 8px 10px;
+
+    border-bottom: 1px solid var(--console-border);
+
+    text-align: left;
+    vertical-align: top;
+}
+
+.devConsole__table th {
+
+    color: var(--console-muted);
+
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+
+    background: #f7fafc;
+}
+
+.devConsole__table tr[onclick],
+.devConsole__table tbody tr {
+
+    cursor: default;
+}
+
+.devConsole__kv {
+
+    margin: 0;
+
+    display: grid;
+
+    gap: 6px;
+}
+
+.devConsole__kvRow {
+
+    display: grid;
+
+    grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr);
+
+    gap: 10px;
+
+    padding: 6px 0;
+
+    border-bottom: 1px solid #e8eef5;
+}
+
+.devConsole__kv dt {
+
+    margin: 0;
+
+    color: var(--console-muted);
+
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.devConsole__kv dd {
+
+    margin: 0;
+
+    font-size: 0.88rem;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.devConsole__split {
+
+    display: grid;
+
+    grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr);
+
+    gap: 14px;
+}
+
+.devConsole__splitList {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 6px;
+
+    max-height: 28rem;
+
+    overflow: auto;
+}
+
+.devConsole__listItem {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 2px;
+
+    margin: 0;
+    padding: 8px 10px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    background: #fff;
+
+    color: inherit;
+
+    font: inherit;
+    text-align: left;
+
+    cursor: pointer;
+}
+
+.devConsole__listItem--active,
+.devConsole__listItem:hover {
+
+    border-color: #9bb8d9;
+    background: #f0f7ff;
+}
+
+.devConsole__listItem span {
+
+    color: var(--console-muted);
+
+    font-size: 0.75rem;
+}
+
+.devConsole__miniCards {
+
+    display: grid;
+
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+
+    gap: 8px;
+}
+
+.devConsole__miniCard {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 4px;
+
+    padding: 10px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    font-size: 0.8rem;
+}
+
+.devConsole__empty {
+
+    padding: 18px 4px;
+}
+
+.devConsole__emptyTitle {
+
+    margin: 0 0 6px;
+
+    font-weight: 800;
+}
+
+.devConsole__emptyDetail {
+
+    margin: 0;
+
+    color: var(--console-muted);
+
+    font-size: 0.9rem;
+}
+
+.devConsole__textButton {
+
+    margin: 0;
+    padding: 6px 10px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    background: #fff;
+
+    color: var(--console-accent);
+
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+.devConsole__footnote {
+
+    margin: 14px 0 0;
+
+    color: var(--console-muted);
+
+    font-size: 0.78rem;
+}
+
+.devConsole__logLevel {
+
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+.devConsole__logLevel--error {
+
+    color: #b23b3b;
+}
+
+.devConsole__logLevel--warn {
+
+    color: #a67c00;
+}
+
+.devConsole__logLevel--info {
+
+    color: #1c73d0;
+}
+
+.devConsole__detailStack {
+
+    display: flex;
+    flex-direction: column;
+}
+
+.devConsole__stack {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 16px;
+}
+
+.devConsole__srOnly {
+
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+
+    margin: -1px;
+    padding: 0;
+
+    overflow: hidden;
+
+    clip: rect(0, 0, 0, 0);
+
+    border: 0;
+}
+
 @media (max-width: 800px) {
 
     .devConsole__layout {
@@ -373,6 +1091,17 @@ body:has(.devConsole) {
     .devConsole__headerActions {
 
         align-items: flex-start;
+    }
+
+    .devConsole__split {
+
+        grid-template-columns: 1fr;
+    }
+
+    .devConsole__kvRow {
+
+        grid-template-columns: 1fr;
+        gap: 2px;
     }
 
 }

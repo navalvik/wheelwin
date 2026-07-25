@@ -5,9 +5,10 @@ import { Link } from "react-router-dom";
 import ConsoleLayout from "./ConsoleLayout";
 import ConsoleLoginPlaceholder from "./ConsoleLoginPlaceholder";
 import ConsoleReadOnlyBadge from "./ConsoleReadOnlyBadge";
+import ConsoleConnectionStatus from "./ConsoleConnectionStatus";
 
 /**
- * R6.0B — Developer Console chrome (header, badge, login slot, layout).
+ * R6.0B / R6.0D — Developer Console chrome (header, badge, stream status, login slot).
  */
 export default function DeveloperConsoleShell({
     activeSectionId,
@@ -50,7 +51,13 @@ export default function DeveloperConsoleShell({
 
                     </p>
 
-                    <ConsoleReadOnlyBadge />
+                    <div className="devConsole__statusRow">
+
+                        <ConsoleReadOnlyBadge />
+
+                        <ConsoleConnectionStatus />
+
+                    </div>
 
                 </div>
 

@@ -1,5 +1,5 @@
 /**
- * R6.0B — Developer Console section ids (navigation only; no data yet).
+ * R6.0B / R6.0E — Developer Console navigation sections.
  */
 export const CONSOLE_SECTIONS = Object.freeze([
     Object.freeze({ id: "server-health", label: "Server Health" }),
@@ -12,7 +12,7 @@ export const CONSOLE_SECTIONS = Object.freeze([
     Object.freeze({ id: "event-bus", label: "Event Bus" }),
     Object.freeze({ id: "metrics", label: "Metrics" }),
     Object.freeze({ id: "timeline", label: "Timeline" }),
-    Object.freeze({ id: "logs", label: "Logs" }),
+    Object.freeze({ id: "logs", label: "Developer Log" }),
     Object.freeze({ id: "settings", label: "Settings", reserved: true })
 ]);
 

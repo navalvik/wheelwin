@@ -6,19 +6,19 @@ Useful resources for WheelWin players.
 
 ## Telegram Community
 
-Coming soon...
+https://web.telegram.org/a/#-2073943496281
 
 ---
 
 ## Telegram News
 
-Coming soon...
+https://t.me/wheelwingame
 
 ---
 
 ## YouTube
 
-Coming soon...
+https://www.youtube.com/@WheelWin-Game
 
 ---
 
@@ -58,14 +58,6 @@ Release notifications
 Official Telegram
 
 (your Telegram link here)
-
-YouTube Channel
-
-Watch gameplay videos, tutorials and development updates.
-
-Official YouTube
-
-(your YouTube link here)
 
 GitHub Repository
 
