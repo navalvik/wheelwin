@@ -99,6 +99,9 @@ export function buildServerOverview({
                 : null),
         probes: health?.probes
             ? Object.freeze({ ...health.probes })
+            : null,
+        release: health?.release
+            ? Object.freeze({ ...health.release })
             : null
     });
 

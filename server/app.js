@@ -46,6 +46,7 @@ import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
 import { DeploymentManager } from "./deployment/DeploymentManager.js";
+import { ReleaseManager } from "./release/ReleaseManager.js";
 
 import { CONNECTION_STATE } from "./models/ConnectionState.js";
 import { PLAYER_STATE } from "./models/PlayerState.js";
@@ -215,6 +216,8 @@ class WheelWinApplication {
 
         this._deploymentManager = null;
 
+        this._releaseManager = null;
+
         this._httpStats = {
             requests: 0,
             errors: 0,
@@ -317,6 +320,30 @@ class WheelWinApplication {
             failurePolicyConfig.enabled === false
                 ? "FailurePolicyManager (disabled)"
                 : "FailurePolicyManager"
+        );
+
+        // R8.0B — release metadata for health / console (build via CLI).
+        this._releaseManager = ReleaseManager.getInstance();
+
+        const releaseConfig = this._productionConfig.release ?? {};
+
+        this._releaseManager.initialize({
+            channel: releaseConfig.channel,
+            outputDirectory: releaseConfig.outputDirectory,
+            signingEnabled: releaseConfig.signingEnabled,
+            generateChecksums: releaseConfig.generateChecksums,
+            includeDocs: releaseConfig.includeDocs,
+            includeReports: releaseConfig.includeReports,
+            version: this._runtimeConfig.version,
+            profile: this._runtimeConfig.profile
+        });
+
+        this._healthService.setReleaseStatus(
+            this._releaseManager.getSafeStatus()
+        );
+
+        this._logger.startupLine(
+            `ReleaseManager (${releaseConfig.channel ?? "development"})`
         );
 
         // R7.0B — process lifecycle (RUNNING → DRAINING → STOPPED).
@@ -1594,6 +1621,12 @@ class WheelWinApplication {
 
         }
 
+        if (this._releaseManager) {
+
+            this._releaseManager = null;
+
+        }
+
         if (this._prometheusServer) {
 
             try {
@@ -1650,6 +1683,7 @@ class WheelWinApplication {
                         ?.getHealthManager?.()
                         ?.getSafeStatus?.() ?? null
                 },
+                releaseManager: this._releaseManager,
                 httpStats: () => ({ ...this._httpStats }),
                 lifecycleState: () => this._lifecycleManager?.getState?.() ?? null,
                 environment: () => this._serverConfig?.nodeEnv ?? null,
@@ -1823,6 +1857,14 @@ class WheelWinApplication {
 
             this._healthService.setFailurePolicyStatus(
                 this._failurePolicyManager.getSafeStatus()
+            );
+
+        }
+
+        if (this._releaseManager) {
+
+            this._healthService.setReleaseStatus(
+                this._releaseManager.getSafeStatus()
             );
 
         }

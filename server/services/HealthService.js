@@ -30,6 +30,9 @@ export class HealthService {
         /** @type {import("../deployment/HealthManager.js").HealthManager|null} */
         this._healthManager = null;
 
+        /** @type {object|null} R8.0B release metadata (no filesystem paths) */
+        this._releaseStatus = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -113,6 +116,17 @@ export class HealthService {
     setHealthManager(healthManager) {
 
         this._healthManager = healthManager ?? null;
+
+    }
+
+    /**
+     * R8.0B — Attach sanitized release metadata (no absolute paths).
+     */
+    setReleaseStatus(releaseStatus) {
+
+        this._releaseStatus = releaseStatus
+            ? Object.freeze({ ...releaseStatus })
+            : null;
 
     }
 
@@ -210,7 +224,8 @@ export class HealthService {
                     readiness: probeCache.readiness,
                     health: probeCache.health
                 })
-                : null
+                : null,
+            release: this._releaseStatus
         };
 
     }

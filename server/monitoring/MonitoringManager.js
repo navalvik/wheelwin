@@ -14,6 +14,7 @@ import { DeveloperMetricsCollector } from "./DeveloperMetricsCollector.js";
 import { SystemMetricsCollector } from "./SystemMetricsCollector.js";
 import { FailureMetricsCollector } from "./FailureMetricsCollector.js";
 import { DeploymentMetricsCollector } from "./DeploymentMetricsCollector.js";
+import { ReleaseMetricsCollector } from "./ReleaseMetricsCollector.js";
 import { JsonMetricsExporter } from "./exporters/JsonMetricsExporter.js";
 import { PrometheusExporter } from "./exporters/PrometheusExporter.js";
 import { HealthMetricsProvider } from "./health/HealthMetricsProvider.js";
@@ -146,6 +147,9 @@ export class MonitoringManager {
                 intervalMs: intervals.systemMs ?? 5000
             }),
             new DeploymentMetricsCollector({
+                intervalMs: intervals.systemMs ?? 5000
+            }),
+            new ReleaseMetricsCollector({
                 intervalMs: intervals.systemMs ?? 5000
             })
         ];
@@ -418,6 +422,23 @@ export class MonitoringManager {
                         : gauges["deployment.profile_development"] === 1
                             ? "development"
                             : null
+            },
+            release: {
+                initialized: gauges["release.initialized"] === 1,
+                verified: gauges["release.verified"] === 1,
+                hasFingerprint: gauges["release.has_fingerprint"] === 1,
+                buildTimestampMs: gauges["release.build_timestamp_ms"] ?? null,
+                channel: gauges["release.channel_production"] === 1
+                    ? "production"
+                    : gauges["release.channel_beta"] === 1
+                        ? "beta"
+                        : gauges["release.channel_rc"] === 1
+                            ? "rc"
+                            : gauges["release.channel_internal"] === 1
+                                ? "internal"
+                                : gauges["release.channel_development"] === 1
+                                    ? "development"
+                                    : null
             },
             system: {
                 openSockets: gauges["system.open_sockets"] ?? 0,

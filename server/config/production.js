@@ -413,6 +413,63 @@ function resolveDeploymentConfig(env, profile) {
 
 }
 
+function resolveReleaseConfig(env) {
+
+    const parseFlag = (key, fallback = true) => {
+
+        const parsed = parseBooleanStrict(env[key]);
+
+        if (!isMissing(env[key]) && parsed.ok !== true) {
+
+            throw new Error(`${key} must be true or false`);
+
+        }
+
+        return isMissing(env[key]) ? fallback : parsed.value === true;
+
+    };
+
+    const channelRaw = isMissing(env.RELEASE_CHANNEL)
+        ? "development"
+        : String(env.RELEASE_CHANNEL).trim().toLowerCase();
+
+    const allowedChannels = [
+        "development",
+        "internal",
+        "rc",
+        "beta",
+        "production"
+    ];
+
+    if (!allowedChannels.includes(channelRaw)) {
+
+        throw new Error(
+            "RELEASE_CHANNEL must be development, internal, rc, beta, or production"
+        );
+
+    }
+
+    const outputDirectory = isMissing(env.RELEASE_OUTPUT_DIRECTORY)
+        ? "release"
+        : String(env.RELEASE_OUTPUT_DIRECTORY).trim();
+
+    if (!outputDirectory) {
+
+        throw new Error("RELEASE_OUTPUT_DIRECTORY must not be empty");
+
+    }
+
+    return {
+        channel: channelRaw,
+        outputDirectory,
+        signingEnabled: parseFlag("RELEASE_SIGNING_ENABLED", false),
+        generateChecksums: parseFlag("RELEASE_GENERATE_CHECKSUMS", true),
+        includeDocs: parseFlag("RELEASE_INCLUDE_DOCS", true),
+        includeReports: parseFlag("RELEASE_INCLUDE_REPORTS", true)
+    };
+
+}
+
 export function loadProductionConfig(env = process.env, serverConfig = null) {
 
     const nodeEnv = serverConfig?.nodeEnv || env.NODE_ENV || "development";
@@ -430,6 +487,8 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
     const failurePolicy = resolveFailurePolicyConfig(env);
 
     const deployment = resolveDeploymentConfig(env, profile);
+
+    const release = resolveReleaseConfig(env);
 
     const rawTimeout = env.GRACEFUL_SHUTDOWN_TIMEOUT_MS;
 
@@ -460,6 +519,7 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         monitoring,
         failurePolicy,
         deployment,
+        release,
         metricsEnabled: development || env.METRICS_ENABLED === "true",
         runStartupDemonstrations: development
             && env.STARTUP_DEMONSTRATIONS !== "false",

@@ -1,2 +1,6 @@
+#
 # P6.8A — owner production wallet (created manually after deployment).
 config/owner.json
+
+# R8.0B — generated release packages (build via npm run release:build)
+/release/

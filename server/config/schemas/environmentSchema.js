@@ -340,6 +340,56 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Deployment",
         suggestedFix: "Set DEPLOYMENT_PROFILE to development, staging, or production."
     }),
+    RELEASE_CHANNEL: Object.freeze({
+        key: "RELEASE_CHANNEL",
+        type: "enum",
+        required: false,
+        allowed: Object.freeze([
+            "development",
+            "internal",
+            "rc",
+            "beta",
+            "production"
+        ]),
+        category: "Release",
+        suggestedFix:
+            "Set RELEASE_CHANNEL to development, internal, rc, beta, or production."
+    }),
+    RELEASE_OUTPUT_DIRECTORY: Object.freeze({
+        key: "RELEASE_OUTPUT_DIRECTORY",
+        type: "string",
+        required: false,
+        category: "Release",
+        suggestedFix: "Set RELEASE_OUTPUT_DIRECTORY to a relative or absolute path."
+    }),
+    RELEASE_SIGNING_ENABLED: Object.freeze({
+        key: "RELEASE_SIGNING_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Release",
+        suggestedFix: "Set RELEASE_SIGNING_ENABLED to true or false."
+    }),
+    RELEASE_GENERATE_CHECKSUMS: Object.freeze({
+        key: "RELEASE_GENERATE_CHECKSUMS",
+        type: "boolean",
+        required: false,
+        category: "Release",
+        suggestedFix: "Set RELEASE_GENERATE_CHECKSUMS to true or false."
+    }),
+    RELEASE_INCLUDE_DOCS: Object.freeze({
+        key: "RELEASE_INCLUDE_DOCS",
+        type: "boolean",
+        required: false,
+        category: "Release",
+        suggestedFix: "Set RELEASE_INCLUDE_DOCS to true or false."
+    }),
+    RELEASE_INCLUDE_REPORTS: Object.freeze({
+        key: "RELEASE_INCLUDE_REPORTS",
+        type: "boolean",
+        required: false,
+        category: "Release",
+        suggestedFix: "Set RELEASE_INCLUDE_REPORTS to true or false."
+    }),
     STARTUP_DEMONSTRATIONS: Object.freeze({
         key: "STARTUP_DEMONSTRATIONS",
         type: "boolean",
@@ -422,5 +472,6 @@ export const CONFIGURATION_CATEGORIES = Object.freeze([
     "Simulation",
     "Metrics",
     "Failure Policy",
-    "Deployment"
+    "Deployment",
+    "Release"
 ]);

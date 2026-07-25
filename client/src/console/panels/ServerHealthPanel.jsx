@@ -354,6 +354,51 @@ export default function ServerHealthPanel() {
                         ?? "—"}
                 />
 
+                <StatCard
+                    label="Current Version"
+                    value={server.release?.version
+                        ?? server.version
+                        ?? "—"}
+                />
+
+                <StatCard
+                    label="Release Channel"
+                    value={server.release?.channel
+                        ?? server.configuration?.release?.channel
+                        ?? "—"}
+                />
+
+                <StatCard
+                    label="Build Timestamp"
+                    value={server.release?.builtAt
+                        ? String(server.release.builtAt).slice(0, 19)
+                        : "—"}
+                />
+
+                <StatCard
+                    label="Commit"
+                    value={server.release?.commit
+                        ? String(server.release.commit).slice(0, 12)
+                        : "—"}
+                />
+
+                <StatCard
+                    label="Build Fingerprint"
+                    value={server.release?.fingerprint
+                        && server.release.fingerprint !== "unbuilt"
+                        ? String(server.release.fingerprint).slice(0, 12)
+                        : "—"}
+                    hint={server.release?.fingerprint
+                        && server.release.fingerprint !== "unbuilt"
+                        ? String(server.release.fingerprint).slice(0, 24)
+                        : undefined}
+                />
+
+                <StatCard
+                    label="Release Status"
+                    value={server.release?.status ?? "—"}
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">

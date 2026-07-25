@@ -374,6 +374,42 @@ export function validateEnvironment(collector, env) {
         env.DEPLOYMENT_PROFILE
     );
 
+    validateEnumField(
+        collector,
+        ENVIRONMENT_SCHEMA.RELEASE_CHANNEL,
+        env.RELEASE_CHANNEL
+    );
+
+    validateStringField(
+        collector,
+        ENVIRONMENT_SCHEMA.RELEASE_OUTPUT_DIRECTORY,
+        env.RELEASE_OUTPUT_DIRECTORY
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.RELEASE_SIGNING_ENABLED,
+        env.RELEASE_SIGNING_ENABLED
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.RELEASE_GENERATE_CHECKSUMS,
+        env.RELEASE_GENERATE_CHECKSUMS
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.RELEASE_INCLUDE_DOCS,
+        env.RELEASE_INCLUDE_DOCS
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.RELEASE_INCLUDE_REPORTS,
+        env.RELEASE_INCLUDE_REPORTS
+    );
+
     validateBooleanField(
         collector,
         ENVIRONMENT_SCHEMA.STARTUP_DEMONSTRATIONS,

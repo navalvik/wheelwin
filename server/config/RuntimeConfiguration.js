@@ -168,6 +168,13 @@ export class RuntimeConfiguration {
                     this.production.deployment?.readinessEnabled !== false,
                 livenessEnabled:
                     this.production.deployment?.livenessEnabled !== false
+            }),
+            release: Object.freeze({
+                channel: this.production.release?.channel ?? "development",
+                generateChecksums:
+                    this.production.release?.generateChecksums !== false,
+                includeDocs: this.production.release?.includeDocs !== false,
+                signingEnabled: this.production.release?.signingEnabled === true
             })
         });
 
