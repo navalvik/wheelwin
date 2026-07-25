@@ -24,6 +24,9 @@ export class RoomManager {
 
         this._setupSessionLifecycle = null;
 
+        /** @type {{ isAcceptingNewWork: () => boolean } | null} R7.0B */
+        this._lifecycleGate = null;
+
         this._initialized = false;
 
     }
@@ -35,6 +38,15 @@ export class RoomManager {
     attachSetupSessionLifecycle(setupSessionLifecycle) {
 
         this._setupSessionLifecycle = setupSessionLifecycle;
+
+    }
+
+    /**
+     * R7.0B — Drain gate: reject createRoom while not RUNNING.
+     */
+    attachLifecycleGate(lifecycleGate) {
+
+        this._lifecycleGate = lifecycleGate;
 
     }
 
@@ -84,6 +96,17 @@ export class RoomManager {
     }
 
     createRoom({ maxPlayers } = {}) {
+
+        if (this._lifecycleGate
+            && this._lifecycleGate.isAcceptingNewWork() !== true) {
+
+            this._logger.warn(
+                "Room creation rejected: server is not accepting new work (drain)"
+            );
+
+            return null;
+
+        }
 
         if (this.isAtCapacity()) {
 

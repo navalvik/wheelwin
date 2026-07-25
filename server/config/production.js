@@ -1,3 +1,7 @@
+import {
+    DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MS
+} from "../lifecycle/ApplicationLifecycleStates.js";
+
 export const LOG_LEVELS = Object.freeze({
     ERROR: "error",
     WARN: "warn",
@@ -31,6 +35,26 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         ? requestedLevel
         : defaultLogLevel;
 
+    const rawTimeout = env.GRACEFUL_SHUTDOWN_TIMEOUT_MS;
+
+    let gracefulShutdownTimeoutMs = DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MS;
+
+    if (rawTimeout !== undefined && rawTimeout !== "") {
+
+        const parsed = Number(rawTimeout);
+
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+
+            throw new Error(
+                "GRACEFUL_SHUTDOWN_TIMEOUT_MS must be a positive number"
+            );
+
+        }
+
+        gracefulShutdownTimeoutMs = parsed;
+
+    }
+
     return {
         nodeEnv,
         isDevelopment: development,
@@ -44,7 +68,9 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         // active game), so logging every tick floods stdout and can stall the
         // event loop when the output consumer drains slowly — which starves the
         // Socket.IO lobby pipeline. Off by default; enable only when debugging.
-        debugSimulationLoop: env.DEBUG_SIMULATION_LOOP === "true"
+        debugSimulationLoop: env.DEBUG_SIMULATION_LOOP === "true",
+        // R7.0B — max wait for in-flight work before forced teardown.
+        gracefulShutdownTimeoutMs
     };
 
 }

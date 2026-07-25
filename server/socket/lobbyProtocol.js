@@ -76,6 +76,7 @@ export const LOBBY_ERROR_CODES = Object.freeze({
     INVALID_ROOM_ID: "INVALID_ROOM_ID",
     PLAYER_ALREADY_CONNECTED: "PLAYER_ALREADY_CONNECTED",
     ROOM_CREATION_LIMIT: "ROOM_CREATION_LIMIT",
+    SERVER_DRAINING: "SERVER_DRAINING",
     INVALID_SECRET_MATRIX: "INVALID_SECRET_MATRIX",
     SECRET_MATRIX_MISMATCH: "SECRET_MATRIX_MISMATCH",
     INVALID_WALLET: "INVALID_WALLET",
@@ -95,6 +96,8 @@ export const LOBBY_ERROR_MESSAGES = Object.freeze({
         "You are already connected to a room.",
     [LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT]:
         "The server is not accepting new rooms right now. Please try again later.",
+    [LOBBY_ERROR_CODES.SERVER_DRAINING]:
+        "The server is shutting down and is not accepting new rooms.",
     [LOBBY_ERROR_CODES.INVALID_SECRET_MATRIX]:
         "Enter a complete Secret Matrix using A–Z and 0–9 only.",
     [LOBBY_ERROR_CODES.SECRET_MATRIX_MISMATCH]:

@@ -139,6 +139,15 @@ export class ContractSettlementManager {
 
     }
 
+    /**
+     * R7.0B — Active settlement record count for drain wait.
+     */
+    getActiveSettlementCount() {
+
+        return this._byGameId.size;
+
+    }
+
     getReconnectSnapshot(gameId) {
 
         const record = this._byGameId.get(gameId);

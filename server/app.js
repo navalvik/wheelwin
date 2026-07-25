@@ -99,6 +99,8 @@ import { loadDeveloperAuthConfig } from "./console/auth/developerAuthConfig.js";
 import { DeveloperAuthService } from "./console/auth/DeveloperAuthService.js";
 import { createDeveloperAuthMiddleware } from "./console/auth/developerAuthMiddleware.js";
 import { registerDeveloperAuthRoutes } from "./console/auth/registerDeveloperAuthRoutes.js";
+import { ApplicationLifecycleManager } from "./lifecycle/ApplicationLifecycleManager.js";
+import { APPLICATION_LIFECYCLE } from "./lifecycle/ApplicationLifecycleStates.js";
 
 class WheelWinApplication {
     constructor() {
@@ -205,6 +207,8 @@ class WheelWinApplication {
 
         this._tonConfig = null;
 
+        this._lifecycleManager = null;
+
         this._isShuttingDown = false;
 
     }
@@ -232,6 +236,18 @@ class WheelWinApplication {
             logger: this._logger,
             productionConfig: this._productionConfig
         });
+
+        // R7.0B — process lifecycle (RUNNING → DRAINING → STOPPED).
+        this._lifecycleManager = new ApplicationLifecycleManager({
+            logger: this._logger,
+            metricsService: this._metricsService,
+            healthService: this._healthService,
+            gracefulShutdownTimeoutMs:
+                this._productionConfig.gracefulShutdownTimeoutMs,
+            activityProvider: () => this._collectDrainActivity()
+        });
+
+        this._healthService.setLifecycleState(APPLICATION_LIFECYCLE.STARTING);
 
         this._logger.info("WheelWin Server");
         this._logger.info("");
@@ -340,6 +356,10 @@ class WheelWinApplication {
         this._managers.roomManager.attachSetupSessionLifecycle(
             this._setupSessionLifecycle
         );
+
+        this._managers.roomManager.attachLifecycleGate(this._lifecycleManager);
+
+        this._setupSessionLifecycle.attachLifecycleGate(this._lifecycleManager);
 
         this._logger.startupLine("SetupSessionLifecycle");
 
@@ -869,7 +889,8 @@ class WheelWinApplication {
             gameStartAuthorization: this._gameStartAuthorization,
             contractSettlementManager: this._contractSettlementManager,
             sessionWalletStore: this._sessionWalletStore,
-            isDevelopment: this._productionConfig.isDevelopment
+            isDevelopment: this._productionConfig.isDevelopment,
+            lifecycleManager: this._lifecycleManager
         });
 
         this._roomLobbyBridge.initialize();
@@ -967,6 +988,7 @@ class WheelWinApplication {
             socketGateway: this._socketGateway,
             metricsService: this._metricsService,
             healthService: this._healthService,
+            lifecycleManager: this._lifecycleManager,
             gameplayContextResolver: this._gameplayContextResolver
         });
 
@@ -1026,6 +1048,8 @@ class WheelWinApplication {
             Number(startupDurationMs.toFixed(3))
         );
 
+        this._lifecycleManager.markRunning();
+
         const healthSnapshot = this._healthService.getHealthSnapshot();
 
         this._healthService.logStartupSummary(healthSnapshot);
@@ -1044,7 +1068,14 @@ class WheelWinApplication {
 
     }
 
-    async shutdown() {
+    /**
+     * R7.0B — Graceful shutdown: RUNNING → DRAINING → teardown → STOPPED.
+     * Drain rejects new rooms/setup while allowing in-flight work to finish.
+     * SERVER_SHUTDOWN is emitted only after the drain wait (or timeout).
+     *
+     * @param {{ reason?: string }} [options]
+     */
+    async shutdown({ reason = "application_shutdown" } = {}) {
 
         if (this._isShuttingDown) {
 
@@ -1054,25 +1085,41 @@ class WheelWinApplication {
 
         this._isShuttingDown = true;
 
-        this._healthService.markShuttingDown();
-
         this._logger.info("");
         this._logger.info("Stopping WheelWin Server...");
         this._logger.info("");
 
+        const drainResult = await this._lifecycleManager.beginDrain({ reason });
+
+        if (drainResult.forced) {
+
+            this._logger.warn(
+                `Forced shutdown after drain timeout | durationMs=${drainResult.durationMs}`
+            );
+
+        } else {
+
+            this._logger.info(
+                `Drain complete | durationMs=${drainResult.durationMs}`
+            );
+
+        }
+
+        // Tear down authoritative components only after drain. Console stayed
+        // available throughout DRAINING via HTTP + /console gateway.
         if (this._eventBus) {
 
             this._eventBus.emit({
                 source: EVENT_SOURCES.APPLICATION,
                 type: EVENT_TYPES.SERVER_SHUTDOWN,
                 payload: {
-                    reason: "application_shutdown"
+                    reason,
+                    forced: drainResult.forced === true,
+                    drainDurationMs: drainResult.durationMs
                 }
             });
 
         }
-
-        await this._safeShutdownStep("httpServer", () => this._closeHttpServer());
 
         this._safeShutdownStep("roomLobbyBridge", () => {
 
@@ -1406,6 +1453,8 @@ class WheelWinApplication {
 
         });
 
+        await this._safeShutdownStep("httpServer", () => this._closeHttpServer());
+
         this._safeShutdownStep("eventBus", () => {
 
             this._shutdownEventBus();
@@ -1418,9 +1467,42 @@ class WheelWinApplication {
 
         });
 
+        this._lifecycleManager.markStopped({ forced: drainResult.forced });
+
         this._logger.info("");
-        this._logger.info("Shutdown complete.");
+        this._logger.info(
+            `Shutdown complete. | durationMs=${drainResult.durationMs} | forced=${drainResult.forced}`
+        );
         this._logger.info("");
+
+    }
+
+    /**
+     * R7.0B — In-flight work counts for drain wait (read-only).
+     */
+    _collectDrainActivity() {
+
+        return {
+            setupSessions:
+                this._setupSessionLifecycle?.getActiveSessionCount?.() ?? 0,
+            activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
+            paymentSessions:
+                this._paymentSessionManager?.getActiveSessionCount?.() ?? 0,
+            pendingPayments:
+                this._engines?.paymentEngine?.getActivePaymentCount?.() ?? 0,
+            settlements:
+                this._contractSettlementManager?.getActiveSettlementCount?.()
+                    ?? 0,
+            pendingTeardowns:
+                this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
+            activeSimulations:
+                this._engines?.physicsEngine?.getActiveSimulationCount?.() ?? 0,
+            recoverySessions:
+                this._recoveryEngine?.listActiveRecoveryGameIds?.()?.length
+                    ?? 0,
+            resultSessions:
+                this._resultSessionLifecycle?.getActiveSessionCount?.() ?? 0
+        };
 
     }
 
@@ -1429,6 +1511,8 @@ class WheelWinApplication {
      * Read-only: it never mutates state and is safe to call on every /health hit.
      */
     _collectRuntime() {
+
+        const drain = this._lifecycleManager?.getSnapshot?.() ?? null;
 
         return {
             activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
@@ -1444,7 +1528,10 @@ class WheelWinApplication {
             pendingPayments:
                 this._engines?.paymentEngine?.getActivePaymentCount?.() ?? 0,
             pendingAudits:
-                this._auditEngine?.getActiveAuditCount?.() ?? 0
+                this._auditEngine?.getActiveAuditCount?.() ?? 0,
+            lifecycle: drain?.state ?? null,
+            ready: drain?.ready ?? null,
+            drainActivity: drain?.activity ?? null
         };
 
     }
@@ -2394,7 +2481,18 @@ class WheelWinApplication {
 
         app.get("/health", (req, res) => {
 
-            res.json(this._healthService.getHealthSnapshot());
+            const snapshot = this._healthService.getHealthSnapshot();
+
+            // R7.0B — Not Ready during DRAINING / STOPPED / startup failure path.
+            if (snapshot.ready === false || snapshot.status === "not_ready") {
+
+                res.status(503).json(snapshot);
+
+                return;
+
+            }
+
+            res.json(snapshot);
 
         });
 
@@ -2720,7 +2818,7 @@ class WheelWinApplication {
 
             try {
 
-                await this.shutdown();
+                await this.shutdown({ reason: signal });
 
                 process.exit(0);
 

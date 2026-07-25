@@ -45,6 +45,18 @@ export class SetupSessionLifecycle {
 
         this._initialized = false;
 
+        /** @type {{ isAcceptingNewWork: () => boolean } | null} R7.0B */
+        this._lifecycleGate = null;
+
+    }
+
+    /**
+     * R7.0B — Drain gate for new setup sessions.
+     */
+    attachLifecycleGate(lifecycleGate) {
+
+        this._lifecycleGate = lifecycleGate;
+
     }
 
     initialize() {
@@ -105,6 +117,17 @@ export class SetupSessionLifecycle {
     createForRoom(room) {
 
         this._assertInitialized();
+
+        if (this._lifecycleGate
+            && this._lifecycleGate.isAcceptingNewWork() !== true) {
+
+            this._logger.warn(
+                "Setup Session creation rejected: server is draining"
+            );
+
+            return null;
+
+        }
 
         const roomId = room?.roomId;
 
@@ -453,6 +476,15 @@ export class SetupSessionLifecycle {
                 remainingTime: session.remainingTime()
             }))
         };
+
+    }
+
+    /**
+     * R7.0B — Active setup session count for drain wait.
+     */
+    getActiveSessionCount() {
+
+        return this._sessions.size;
 
     }
 

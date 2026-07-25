@@ -61,7 +61,8 @@ export class RoomLobbyBridge {
         sessionWalletStore = null,
         telegramWalletAdapter = null,
         entryPaymentDelays = null,
-        isDevelopment = false
+        isDevelopment = false,
+        lifecycleManager = null
     }) {
 
         this._logger = logger;
@@ -85,6 +86,9 @@ export class RoomLobbyBridge {
         this._gameStartAuthorization = gameStartAuthorization;
 
         this._contractSettlementManager = contractSettlementManager;
+
+        // R7.0B — drain awareness for lobby create-room.
+        this._lifecycleManager = lifecycleManager;
 
         // R1.3D — DEBUG_START_GAME is development-only.
         this._isDevelopment = isDevelopment === true;
@@ -648,6 +652,18 @@ export class RoomLobbyBridge {
 
         }
 
+        if (this._lifecycleManager
+            && this._lifecycleManager.isAcceptingNewWork() !== true) {
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.SERVER_DRAINING
+            );
+
+            return;
+
+        }
+
         if (this._roomManager.isAtCapacity()) {
 
             this._emitRoomError(
@@ -663,11 +679,16 @@ export class RoomLobbyBridge {
 
         if (!room) {
 
+            const draining = this._lifecycleManager
+                && this._lifecycleManager.isAcceptingNewWork() !== true;
+
             this._emitRoomError(
                 socketId,
-                this._roomManager.isAtCapacity()
-                    ? LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT
-                    : LOBBY_ERROR_CODES.UNKNOWN_ERROR
+                draining
+                    ? LOBBY_ERROR_CODES.SERVER_DRAINING
+                    : this._roomManager.isAtCapacity()
+                        ? LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT
+                        : LOBBY_ERROR_CODES.UNKNOWN_ERROR
             );
 
             return;

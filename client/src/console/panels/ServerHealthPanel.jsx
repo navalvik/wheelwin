@@ -63,25 +63,47 @@ export default function ServerHealthPanel() {
 
     }
 
+    const lifecycleLabel = server.lifecycle
+        ?? (server.shuttingDown ? "DRAINING" : "RUNNING");
+
+    const lifecycleTone = lifecycleLabel === "RUNNING"
+        ? "green"
+        : lifecycleLabel === "DRAINING"
+            ? "yellow"
+            : "red";
+
+    const readinessLabel = server.ready === false || lifecycleLabel === "DRAINING"
+        ? "NOT READY"
+        : health.overall === "green"
+            ? "HEALTHY"
+            : health.overall === "yellow"
+                ? "DEGRADED"
+                : "UNHEALTHY";
+
     return (
 
         <PanelShell
             title="Server Health"
             subtitle="Authoritative operational snapshot"
             actions={(
-                <StatusBadge tone={health.overall}>
+                <>
+                    <StatusBadge tone={lifecycleTone}>
 
-                    {health.overall === "green"
-                        ? "HEALTHY"
-                        : health.overall === "yellow"
-                            ? "DEGRADED"
-                            : "UNHEALTHY"}
+                        {lifecycleLabel}
 
-                </StatusBadge>
+                    </StatusBadge>
+                    <StatusBadge tone={health.overall}>
+
+                        {readinessLabel}
+
+                    </StatusBadge>
+                </>
             )}
         >
 
             <StatGrid>
+
+                <StatCard label="Lifecycle" value={lifecycleLabel} />
 
                 <StatCard label="Version" value={server.version} />
 

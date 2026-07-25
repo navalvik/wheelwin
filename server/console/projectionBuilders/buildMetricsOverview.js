@@ -48,6 +48,8 @@ export function buildMetricsOverview({
             activeSockets: socketGateway?.getConnectedSocketCount?.() ?? 0,
             activeSimulations: simulationLoop?.getActiveGameCount?.() ?? 0,
             healthStatus: health?.status ?? null,
+            ready: health?.ready ?? null,
+            lifecycle: health?.lifecycle ?? null,
             uptimeMs: health?.uptimeMs ?? null
         })
     });

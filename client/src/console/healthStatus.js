@@ -48,14 +48,34 @@ export function deriveSubsystemHealth({
     logs
 }) {
 
-    const healthStatus = metrics?.runtime?.healthStatus ?? null;
-    const overall = healthStatus === "ok"
-        ? HEALTH_TONE.GREEN
-        : healthStatus === "degraded"
-            ? HEALTH_TONE.YELLOW
-            : connected
-                ? HEALTH_TONE.YELLOW
-                : HEALTH_TONE.RED;
+    const healthStatus = metrics?.runtime?.healthStatus
+        ?? (server?.ready === false ? "not_ready" : null)
+        ?? null;
+    const lifecycle = server?.lifecycle ?? null;
+
+    let overall;
+
+    if (lifecycle === "DRAINING" || healthStatus === "not_ready") {
+
+        overall = HEALTH_TONE.YELLOW;
+
+    } else if (lifecycle === "STOPPED") {
+
+        overall = HEALTH_TONE.RED;
+
+    } else if (healthStatus === "ok" || lifecycle === "RUNNING") {
+
+        overall = HEALTH_TONE.GREEN;
+
+    } else if (healthStatus === "degraded") {
+
+        overall = HEALTH_TONE.YELLOW;
+
+    } else {
+
+        overall = connected ? HEALTH_TONE.YELLOW : HEALTH_TONE.RED;
+
+    }
 
     const socket = toneFromBoolean(connected === true);
 

@@ -12,6 +12,9 @@ export class HealthService {
 
         this._shuttingDown = false;
 
+        /** @type {string|null} R7.0B lifecycle mirror */
+        this._lifecycleState = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -27,6 +30,21 @@ export class HealthService {
     markShuttingDown() {
 
         this._shuttingDown = true;
+
+    }
+
+    /**
+     * R7.0B — Mirror ApplicationLifecycleManager state for /health + console.
+     */
+    setLifecycleState(state) {
+
+        this._lifecycleState = state ?? null;
+
+        if (state === "DRAINING" || state === "STOPPED") {
+
+            this._shuttingDown = true;
+
+        }
 
     }
 
@@ -63,11 +81,37 @@ export class HealthService {
             )
             : {};
 
-        const healthy = !this._shuttingDown
-            && Object.values(components).every((ready) => ready === true);
+        const lifecycle = this._lifecycleState;
+
+        const ready = lifecycle != null
+            ? lifecycle === "RUNNING"
+            : !this._shuttingDown
+                && Object.values(components).every((ok) => ok === true);
+
+        const componentsHealthy = Object.values(components)
+            .every((ok) => ok === true);
+
+        let status;
+
+        if (!ready || this._shuttingDown) {
+
+            // R7.0B — operators / LB treat this as Not Ready.
+            status = "not_ready";
+
+        } else if (!componentsHealthy) {
+
+            status = "degraded";
+
+        } else {
+
+            status = "ok";
+
+        }
 
         return {
-            status: healthy ? "ok" : "degraded",
+            status,
+            ready,
+            lifecycle: lifecycle ?? (this._shuttingDown ? "DRAINING" : null),
             environment: this._productionConfig.nodeEnv,
             uptimeMs,
             startupDurationMs: this._startupDurationMs,

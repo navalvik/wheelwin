@@ -47,6 +47,7 @@ export class DeveloperConsoleProjectionService {
         socketGateway = null,
         metricsService = null,
         healthService = null,
+        lifecycleManager = null,
         gameplayContextResolver = null,
         version = packageJson.version,
         startedAt = Date.now()
@@ -71,6 +72,7 @@ export class DeveloperConsoleProjectionService {
         this._socketGateway = socketGateway;
         this._metricsService = metricsService;
         this._healthService = healthService;
+        this._lifecycleManager = lifecycleManager;
         this._gameplayContextResolver = gameplayContextResolver;
         this._version = version;
         this._startedAt = startedAt;
@@ -83,6 +85,7 @@ export class DeveloperConsoleProjectionService {
             version: this._version,
             startedAt: this._startedAt,
             healthService: this._healthService,
+            lifecycleManager: this._lifecycleManager,
             roomManager: this._roomManager,
             gameManager: this._gameManager,
             playerManager: this._playerManager,

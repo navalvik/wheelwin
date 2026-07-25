@@ -184,6 +184,15 @@ export class PaymentSessionManager {
 
     }
 
+    /**
+     * R7.0B — Active payment session count for drain wait.
+     */
+    getActiveSessionCount() {
+
+        return this._sessionsByRoom.size;
+
+    }
+
     getSessionByGameId(gameId) {
 
         if (!gameId) {
