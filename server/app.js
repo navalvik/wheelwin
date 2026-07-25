@@ -92,6 +92,9 @@ import {
 } from "./payment/BlockchainMonitor.js";
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 
+import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
+import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
+
 class WheelWinApplication {
     constructor() {
 
@@ -182,6 +185,8 @@ class WheelWinApplication {
         this._gameStartAuthorization = null;
 
         this._contractSettlementManager = null;
+
+        this._consoleProjectionService = null;
 
         this._blockchainMonitor = null;
 
@@ -931,6 +936,37 @@ class WheelWinApplication {
 
         // C4.5 — expose live runtime counts through the existing HealthService.
         this._healthService.registerRuntimeProvider(() => this._collectRuntime());
+
+        // R6.0C — Developer Console read-only projection layer (/console/*).
+        this._consoleProjectionService = new DeveloperConsoleProjectionService({
+            roomManager: this._managers.roomManager,
+            gameManager: this._managers.gameManager,
+            playerManager: this._managers.playerManager,
+            setupSessionLifecycle: this._setupSessionLifecycle,
+            paymentSessionManager: this._paymentSessionManager,
+            gameContractManager: this._gameContractManager,
+            contractSettlementManager: this._contractSettlementManager,
+            gameStartAuthorization: this._gameStartAuthorization,
+            resultSessionLifecycle: this._resultSessionLifecycle,
+            recoveryEngine: this._recoveryEngine,
+            recoverySnapshotCache: this._recoverySnapshotCache,
+            simulationLoop: this._simulationLoop,
+            physicsEngine: this._engines.physicsEngine,
+            gameStateEngine: this._engines.gameStateEngine,
+            gameClockEngine: this._engines.gameClockEngine,
+            winnerEngine: this._engines.winnerEngine,
+            socketGateway: this._socketGateway,
+            metricsService: this._metricsService,
+            healthService: this._healthService,
+            gameplayContextResolver: this._gameplayContextResolver
+        });
+
+        registerDeveloperConsoleRoutes(
+            this._expressApp,
+            this._consoleProjectionService
+        );
+
+        this._logger.startupLine("DeveloperConsoleProjectionService");
 
         await this._listen();
 

@@ -164,6 +164,15 @@ export class GameContractManager {
 
     }
 
+    /**
+     * R6.0C — Read-only room ids with game contracts (projection layer).
+     */
+    listContractRoomIds() {
+
+        return [...this._contractsByRoom.keys()];
+
+    }
+
     getContractByGameId(gameId) {
 
         if (!gameId) {

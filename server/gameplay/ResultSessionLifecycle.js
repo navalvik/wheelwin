@@ -146,6 +146,15 @@ export class ResultSessionLifecycle {
 
     }
 
+    /**
+     * R6.0C — Read-only active result-session count for projections.
+     */
+    getActiveSessionCount() {
+
+        return this._sessions.size;
+
+    }
+
     getDurationMs() {
 
         return this._durationMs;

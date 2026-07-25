@@ -26,8 +26,8 @@ import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 const DEFAULT_CURRENT_PAGE = APP_PAGES.WELCOME;
 
 /**
- * No-op navigation for non-gameplay mounts (e.g. /debug).
- * RecoveryExperience may call this; it must never throw.
+ * No-op navigation for non-gameplay mounts that still use this stack.
+ * The Developer Console (/debug) does not mount GameEngineProviders.
  */
 function noopNavigate() {}
 
@@ -44,7 +44,8 @@ function isGameFlowPage(page) {
 }
 
 /**
- * Resolve gameplay-only props with safe defaults for non-gameplay routes.
+ * Resolve gameplay-only props with safe defaults for non-gameplay mounts
+ * of this stack (not the Developer Console route).
  * Warn in development when a GameFlow-looking mount is missing a required prop.
  */
 function resolveGameplayProps({ currentPage, onNavigate }) {
@@ -142,12 +143,15 @@ function GameEngineProviderStack({
 /**
  * Single reusable provider stack for gameplay and developer pages.
  *
- * Gameplay-only props (safe defaults for /debug and future Admin/Test):
+ * Gameplay-only props (safe defaults for non-gameplay mounts of this stack):
  * - onNavigate  → noopNavigate  (no page machine outside GameFlow)
  * - currentPage → APP_PAGES.WELCOME (non-gameplay recovery sentinel)
  *
  * gameId / roomId are not provider props; they live on AuthoritativeSession
  * and are filled by the server over the socket.
+ *
+ * Note: the WheelWin Developer Console (/debug) uses a separate tree and
+ * does not mount GameEngineProviders.
  */
 export function GameEngineProviders({
     children,
@@ -181,8 +185,8 @@ export function GameEngineProviders({
 
                                         {/*
                                             GameSession / GameResult sit here so
-                                            RecoveryExperience (and /debug) always
-                                            have them — one stack, no route forks.
+                                            RecoveryExperience always has them —
+                                            one gameplay stack, no route forks.
                                         */}
                                         <GameSessionProvider
                                             currentPage={resolved.currentPage}

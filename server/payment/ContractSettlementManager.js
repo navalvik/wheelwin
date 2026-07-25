@@ -127,6 +127,18 @@ export class ContractSettlementManager {
 
     }
 
+    /**
+     * R6.0C — Read-only settlement summaries for Developer Console.
+     * Uses getReconnectSnapshot (ownerWallet never included).
+     */
+    listSettlementSnapshots() {
+
+        return [...this._byGameId.keys()]
+            .map((gameId) => this.getReconnectSnapshot(gameId))
+            .filter(Boolean);
+
+    }
+
     getReconnectSnapshot(gameId) {
 
         const record = this._byGameId.get(gameId);

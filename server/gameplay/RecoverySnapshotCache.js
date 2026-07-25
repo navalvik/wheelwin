@@ -136,6 +136,22 @@ export class RecoverySnapshotCache {
 
     }
 
+    /**
+     * R6.0C — Read-only cache summaries for Developer Console projections.
+     * Does not include snapshot bodies or payment payloads.
+     */
+    listCachedSummaries() {
+
+        return [...this._cache.entries()].map(([gameId, entry]) => Object.freeze({
+            gameId,
+            capturedAt: entry.capturedAt ?? null,
+            paymentStatus: entry.paymentStatus ?? null,
+            auditStatus: entry.auditStatus ?? null,
+            hasSnapshot: entry.snapshot != null
+        }));
+
+    }
+
     forget(gameId) {
 
         this._cache.delete(gameId);

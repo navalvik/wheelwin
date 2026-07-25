@@ -175,6 +175,15 @@ export class PaymentSessionManager {
 
     }
 
+    /**
+     * R6.0C — Read-only room ids with payment sessions (projection layer).
+     */
+    listSessionRoomIds() {
+
+        return [...this._sessionsByRoom.keys()];
+
+    }
+
     getSessionByGameId(gameId) {
 
         if (!gameId) {

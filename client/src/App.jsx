@@ -18,7 +18,7 @@ import { PlayerIdentityProvider } from "./context/PlayerIdentityContext";
 import { GameEngineProviders } from "./providers/GameEngineProviders";
 import RecoveryOverlay from "./components/RecoveryOverlay";
 import {
-    DEV_DASHBOARD_ENABLED,
+    DEV_CONSOLE_ENABLED,
     DEV_MODE,
     DEV_PAGE_SEQUENCE
 } from "./config/devMode";
@@ -26,8 +26,8 @@ import { APP_PAGES } from "./game/sessionRecovery/recoveryFlow";
 import socket from "./socket/socket";
 import { LOBBY_OUTGOING_EVENTS } from "./socket/socketEvents";
 
-const PageDeveloperDashboard = DEV_DASHBOARD_ENABLED
-    ? lazy(() => import("./pages/PageDeveloperDashboard.jsx"))
+const PageDeveloperConsole = DEV_CONSOLE_ENABLED
+    ? lazy(() => import("./pages/PageDeveloperConsole.jsx"))
     : null;
 
 function GameFlow() {
@@ -239,9 +239,9 @@ function GameFlow() {
 
                     GameSession / GameResult / RecoveryExperience are
                     owned by GameEngineProviders (single stack for
-                    gameplay and /debug). Pass currentPage + onNavigate
-                    so Recovery can navigate; omit them only on
-                    non-gameplay mounts.
+                    gameplay). Pass currentPage + onNavigate so Recovery
+                    can navigate. The Developer Console (/debug) uses its
+                    own tree and does not mount this stack.
                 */}
                 <GameEngineProviders
                     currentPage={currentPage}
@@ -275,14 +275,14 @@ export default function App() {
 
             <Routes>
 
-                {DEV_DASHBOARD_ENABLED && PageDeveloperDashboard && (
+                {DEV_CONSOLE_ENABLED && PageDeveloperConsole && (
 
                     <Route
                         path="/debug"
                         element={(
                             <Suspense fallback={null}>
 
-                                <PageDeveloperDashboard />
+                                <PageDeveloperConsole />
 
                             </Suspense>
                         )}

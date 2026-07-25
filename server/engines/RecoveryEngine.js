@@ -236,6 +236,16 @@ export class RecoveryEngine {
 
     }
 
+    /**
+     * R6.0C — Read-only enumeration for Developer Console projections.
+     * Does not build or mutate snapshots.
+     */
+    listActiveRecoveryGameIds() {
+
+        return [...this._snapshots.keys()];
+
+    }
+
     removeRecoverySnapshot(gameId) {
 
         if (!this._snapshots.has(gameId)) {

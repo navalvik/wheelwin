@@ -1,0 +1,378 @@
+/* ==========================================================
+   WHEELWIN DEVELOPER CONSOLE — R6.0B foundation (ops UI)
+========================================================== */
+
+/*
+   Game pages lock the document to 100vh (global.css).
+   When the console is mounted, restore normal document scrolling.
+*/
+
+html:has(.devConsole),
+body:has(.devConsole) {
+
+    height: auto;
+
+    min-height: 100%;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+#root:has(.devConsole) {
+
+    height: auto;
+
+    min-height: 100vh;
+
+    overflow: visible;
+}
+
+.devConsole {
+
+    --console-accent: #1c73d0;
+    --console-ink: #152033;
+    --console-muted: #5a6a7e;
+    --console-surface: #f2f6fb;
+    --console-panel: #ffffff;
+    --console-border: #d5dee9;
+
+    min-height: 100vh;
+
+    height: auto;
+
+    padding: clamp(16px, 2vw, 28px);
+
+    box-sizing: border-box;
+
+    background: var(--console-surface);
+
+    color: var(--console-ink);
+
+    overflow: visible;
+    overflow-x: hidden;
+
+    font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+.devConsole__header {
+
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+
+    gap: 20px;
+
+    margin-bottom: 24px;
+
+    padding-bottom: 16px;
+
+    border-bottom: 3px solid var(--console-accent);
+}
+
+.devConsole__headerPrimary {
+
+    flex: 1 1 20rem;
+
+    min-width: 0;
+}
+
+.devConsole__headerActions {
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+
+    gap: 12px;
+}
+
+.devConsole__title {
+
+    margin: 0 0 8px;
+
+    font-size: clamp(1.4rem, 2.5vw, 2rem);
+    font-weight: 800;
+
+    color: var(--console-accent);
+}
+
+.devConsole__subtitle {
+
+    margin: 0 0 14px;
+
+    max-width: 40rem;
+
+    color: var(--console-muted);
+
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+
+.devConsole__readOnly {
+
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+
+    gap: 10px 14px;
+}
+
+.devConsole__readOnlyBadge {
+
+    display: inline-block;
+
+    padding: 4px 10px;
+
+    border-radius: 4px;
+
+    background: #12324f;
+
+    color: #f4f8fc;
+
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+}
+
+.devConsole__readOnlyText {
+
+    margin: 0;
+
+    color: var(--console-muted);
+
+    font-size: 0.85rem;
+}
+
+.devConsole__loginPlaceholder {
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+
+    gap: 2px;
+
+    padding: 8px 12px;
+
+    border: 1px dashed var(--console-border);
+
+    border-radius: 6px;
+
+    background: #f8fafc;
+
+    opacity: 0.85;
+}
+
+.devConsole__loginLabel {
+
+    font-size: 0.8rem;
+    font-weight: 700;
+
+    color: var(--console-ink);
+}
+
+.devConsole__loginHint {
+
+    font-size: 0.72rem;
+
+    color: var(--console-muted);
+}
+
+.devConsole__backLink {
+
+    color: var(--console-accent);
+
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.devConsole__backLink:hover {
+
+    text-decoration: underline;
+}
+
+.devConsole__layout {
+
+    display: grid;
+
+    grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+
+    gap: 20px;
+
+    align-items: start;
+}
+
+.devConsole__sidebar {
+
+    position: sticky;
+
+    top: 12px;
+
+    padding: 12px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 8px;
+
+    background: var(--console-panel);
+}
+
+.devConsole__navList {
+
+    margin: 0;
+    padding: 0;
+
+    list-style: none;
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 4px;
+}
+
+.devConsole__navButton {
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    width: 100%;
+
+    margin: 0;
+    padding: 8px 10px;
+
+    border: 0;
+    border-radius: 6px;
+
+    background: transparent;
+
+    color: var(--console-ink);
+
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: left;
+
+    cursor: pointer;
+}
+
+.devConsole__navButton:hover {
+
+    background: #e8f1fb;
+}
+
+.devConsole__navButton--active {
+
+    background: #d9ebff;
+
+    color: var(--console-accent);
+}
+
+.devConsole__navReserved {
+
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+
+    color: var(--console-muted);
+}
+
+.devConsole__main {
+
+    min-width: 0;
+}
+
+.devConsole__panel {
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 8px;
+
+    background: var(--console-panel);
+
+    overflow: hidden;
+}
+
+.devConsole__panelHeader {
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 12px;
+
+    padding: 14px 18px;
+
+    border-bottom: 1px solid var(--console-border);
+
+    background: #f7fafc;
+}
+
+.devConsole__panelTitle {
+
+    margin: 0;
+
+    font-size: 1.1rem;
+    font-weight: 800;
+}
+
+.devConsole__reservedTag {
+
+    padding: 3px 8px;
+
+    border-radius: 4px;
+
+    background: #eef2f6;
+
+    color: var(--console-muted);
+
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.devConsole__panelBody {
+
+    padding: 28px 18px;
+}
+
+.devConsole__placeholder {
+
+    margin: 0;
+
+    color: var(--console-muted);
+
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+@media (max-width: 800px) {
+
+    .devConsole__layout {
+
+        grid-template-columns: 1fr;
+    }
+
+    .devConsole__sidebar {
+
+        position: static;
+    }
+
+    .devConsole__navList {
+
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    .devConsole__navButton {
+
+        width: auto;
+    }
+
+    .devConsole__headerActions {
+
+        align-items: flex-start;
+    }
+
+}
