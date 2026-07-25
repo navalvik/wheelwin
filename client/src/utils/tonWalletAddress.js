@@ -1,27 +1,32 @@
-import { Address } from "@ton/core";
-
 /**
- * Convert a TON Connect account address to the EQ session-wallet form.
+ * Normalize a TON Connect account address for the session-wallet report.
+ *
+ * Browser-safe: no @ton/core / Buffer. Server canonicalizes authoritatively.
  */
 export function toSessionWalletAddress(rawAddress) {
 
-    if (typeof rawAddress !== "string" || !rawAddress.trim()) {
+    if (typeof rawAddress !== "string") {
 
         return null;
 
     }
 
-    try {
+    const trimmed = rawAddress.trim();
 
-        return Address.parse(rawAddress.trim()).toString({
-            bounceable: true,
-            urlSafe: true
-        });
+    if (!trimmed) {
 
-    } catch {
-
-        return rawAddress.trim();
+        return null;
 
     }
+
+    // EQ bounceable form already matches session wallets — pass through.
+    if (trimmed.startsWith("EQ") && trimmed.length >= 48) {
+
+        return trimmed;
+
+    }
+
+    // Other forms (UQ / raw): send as-is; server owns Address.parse.
+    return trimmed;
 
 }

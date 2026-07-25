@@ -13,8 +13,6 @@ import Page6Result from "./pages/Page6Result";
 import OpenPage5Navigator from "./components/OpenPage5Navigator";
 
 import { DevNavigationContext } from "./context/DevNavigationContext";
-import { GameSessionProvider } from "./context/GameSessionContext";
-import { GameResultProvider } from "./context/GameResultContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { PlayerIdentityProvider } from "./context/PlayerIdentityContext";
 import { GameEngineProviders } from "./providers/GameEngineProviders";
@@ -229,52 +227,39 @@ function GameFlow() {
 
         <PlayerIdentityProvider key={sessionGeneration}>
 
-            <GameSessionProvider
-                currentPage={currentPage}
-                onNavigate={navigate}
-            >
+            <DevNavigationContext.Provider value={devNavigation}>
 
-                <GameResultProvider
+                {/*
+                    Authoritative gameplay subscriptions live here,
+                    at the flow root, so they are bound before
+                    gameplay begins and survive every page
+                    transition. They must not depend on Page5
+                    mounting or the first GAME_STATE packets are
+                    lost during navigation.
+
+                    GameSession / GameResult / RecoveryExperience are
+                    owned by GameEngineProviders (single stack for
+                    gameplay and /debug). Pass currentPage + onNavigate
+                    so Recovery can navigate; omit them only on
+                    non-gameplay mounts.
+                */}
+                <GameEngineProviders
                     currentPage={currentPage}
                     onNavigate={navigate}
                 >
 
-                    <DevNavigationContext.Provider value={devNavigation}>
+                    <OpenPage5Navigator
+                        onNavigate={navigate}
+                        onSessionFinished={resetToWelcome}
+                    />
 
-                        {/*
-                            Authoritative gameplay subscriptions live here,
-                            at the flow root, so they are bound before
-                            gameplay begins and survive every page
-                            transition. They must not depend on Page5
-                            mounting or the first GAME_STATE packets are
-                            lost during navigation.
+                    {renderPage()}
 
-                            RecoveryExperienceProvider is nested inside
-                            GameEngineProviders (after AuthoritativeSession,
-                            before SessionRecovery) so useAuthoritativeSession
-                            and useRecoveryExperience both resolve correctly.
-                        */}
-                        <GameEngineProviders
-                            currentPage={currentPage}
-                            onNavigate={navigate}
-                        >
+                    <RecoveryOverlay />
 
-                            <OpenPage5Navigator
-                                onNavigate={navigate}
-                                onSessionFinished={resetToWelcome}
-                            />
+                </GameEngineProviders>
 
-                            {renderPage()}
-
-                            <RecoveryOverlay />
-
-                        </GameEngineProviders>
-
-                    </DevNavigationContext.Provider>
-
-                </GameResultProvider>
-
-            </GameSessionProvider>
+            </DevNavigationContext.Provider>
 
         </PlayerIdentityProvider>
 
