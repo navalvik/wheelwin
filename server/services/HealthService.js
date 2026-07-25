@@ -15,6 +15,9 @@ export class HealthService {
         /** @type {string|null} R7.0B lifecycle mirror */
         this._lifecycleState = null;
 
+        /** @type {object|null} R7.0C safe configuration summary */
+        this._safeConfiguration = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -45,6 +48,17 @@ export class HealthService {
             this._shuttingDown = true;
 
         }
+
+    }
+
+    /**
+     * R7.0C — Attach redacted configuration summary (never secrets).
+     */
+    setSafeConfiguration(safeConfiguration) {
+
+        this._safeConfiguration = safeConfiguration
+            ? Object.freeze({ ...safeConfiguration })
+            : null;
 
     }
 
@@ -117,7 +131,8 @@ export class HealthService {
             startupDurationMs: this._startupDurationMs,
             shuttingDown: this._shuttingDown,
             components,
-            runtime: this._resolveRuntime()
+            runtime: this._resolveRuntime(),
+            configuration: this._safeConfiguration
         };
 
     }

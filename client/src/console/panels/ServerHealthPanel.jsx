@@ -105,6 +105,16 @@ export default function ServerHealthPanel() {
 
                 <StatCard label="Lifecycle" value={lifecycleLabel} />
 
+                <StatCard
+                    label="Profile"
+                    value={server.configuration?.profile ?? "—"}
+                />
+
+                <StatCard
+                    label="Environment"
+                    value={server.configuration?.environment ?? "—"}
+                />
+
                 <StatCard label="Version" value={server.version} />
 
                 <StatCard

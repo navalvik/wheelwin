@@ -64,7 +64,10 @@ export function buildServerOverview({
             heapUsed: memory.heapUsed,
             external: memory.external,
             arrayBuffers: memory.arrayBuffers ?? 0
-        })
+        }),
+        configuration: health?.configuration
+            ? Object.freeze({ ...health.configuration })
+            : null
     });
 
 }

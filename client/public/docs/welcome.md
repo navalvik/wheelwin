@@ -10,6 +10,8 @@ Every game is controlled by Smart Contract.
 
 Every player has equal chances.
 
+18+ only
+
 ---
 
 ## Supported Platforms

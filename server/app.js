@@ -5,13 +5,8 @@ import express from "express";
 import http from "http";
 
 import { GameCatalog } from "./catalog/GameCatalog.js";
-import { loadEventBusConfig } from "./config/events.js";
-import { loadRoomConfig } from "./config/rooms.js";
-import { loadServerConfig } from "./config/server.js";
-import { loadSocketConfig } from "./config/socket.js";
-import { loadTonConfig } from "./config/ton.js";
-import { loadProductionConfig } from "./config/production.js";
-import { OwnerConfiguration } from "./config/OwnerConfiguration.js";
+import { ConfigurationManager } from "./config/ConfigurationManager.js";
+import { ConfigurationError } from "./config/ConfigurationError.js";
 import {
     validateEngineDependencies,
     validateStartupConfiguration
@@ -61,8 +56,7 @@ import { SimulationLoop } from "./simulation/SimulationLoop.js";
 import { GameplayPhaseLifecycle } from "./gameplay/GameplayPhaseLifecycle.js";
 import { validateGameplayPhaseSequence } from "./gameplay/GameplayPhaseSequence.js";
 import {
-    buildGameplayPhaseTimers,
-    loadGameplayPhaseConfig
+    buildGameplayPhaseTimers
 } from "./config/gameplayPhases.js";
 import { GameClockBroadcaster } from "./gameplay/GameClockBroadcaster.js";
 import { ReadyPhaseBroadcaster } from "./gameplay/ReadyPhaseBroadcaster.js";
@@ -95,7 +89,6 @@ import { SessionWalletStore } from "./session/SessionWalletStore.js";
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
 import { DeveloperConsoleGateway } from "./console/DeveloperConsoleGateway.js";
-import { loadDeveloperAuthConfig } from "./console/auth/developerAuthConfig.js";
 import { DeveloperAuthService } from "./console/auth/DeveloperAuthService.js";
 import { createDeveloperAuthMiddleware } from "./console/auth/developerAuthMiddleware.js";
 import { registerDeveloperAuthRoutes } from "./console/auth/registerDeveloperAuthRoutes.js";
@@ -106,6 +99,8 @@ class WheelWinApplication {
     constructor() {
 
         this._logger = null;
+
+        this._runtimeConfig = null;
 
         this._serverConfig = null;
 
@@ -217,12 +212,20 @@ class WheelWinApplication {
 
         this._startupStartedAt = performance.now();
 
-        this._serverConfig = loadServerConfig();
+        // R7.0C — fail-fast immutable configuration before RUNNING.
+        this._runtimeConfig = ConfigurationManager.load();
 
-        this._productionConfig = loadProductionConfig(
-            process.env,
-            this._serverConfig
-        );
+        this._serverConfig = this._runtimeConfig.server;
+
+        this._productionConfig = this._runtimeConfig.production;
+
+        this._tonConfig = this._runtimeConfig.ton;
+
+        this._roomConfig = this._runtimeConfig.rooms;
+
+        this._eventBusConfig = this._runtimeConfig.eventBus;
+
+        this._gameplayPhaseConfig = this._runtimeConfig.gameplayPhases;
 
         this._logger = new LoggerService({
             logLevel: this._productionConfig.logLevel
@@ -236,6 +239,10 @@ class WheelWinApplication {
             logger: this._logger,
             productionConfig: this._productionConfig
         });
+
+        this._healthService.setSafeConfiguration(
+            this._runtimeConfig.toSafeSummary()
+        );
 
         // R7.0B — process lifecycle (RUNNING → DRAINING → STOPPED).
         this._lifecycleManager = new ApplicationLifecycleManager({
@@ -254,31 +261,21 @@ class WheelWinApplication {
         this._logger.info("Initializing...");
         this._logger.info("");
 
-        // P6.8A — owner wallet from external untracked config (fatal if missing).
-        OwnerConfiguration.load();
+        ConfigurationManager.logStartupSummary(this._logger, this._runtimeConfig);
+
+        this._logger.startupLine("ConfigurationManager");
 
         this._logger.startupLine("OwnerConfiguration");
 
-        const socketConfig = loadSocketConfig(this._serverConfig);
-
-        const tonConfig = loadTonConfig();
-
-        this._tonConfig = tonConfig;
-
-        this._eventBusConfig = loadEventBusConfig(
-            process.env,
-            this._serverConfig
-        );
-
-        this._roomConfig = loadRoomConfig();
+        const socketConfig = this._runtimeConfig.socket;
 
         validateStartupConfiguration({
             serverConfig: this._serverConfig,
-            tonConfig,
+            tonConfig: this._tonConfig,
             roomConfig: this._roomConfig
         });
 
-        this._services = this._createServices(tonConfig);
+        this._services = this._createServices(this._tonConfig);
 
         this._initializeServices();
 
@@ -290,8 +287,6 @@ class WheelWinApplication {
 
         this._gameCatalog.initialize();
 
-        this._gameplayPhaseConfig = loadGameplayPhaseConfig();
-
         this._gameCatalog.configurePhaseTimers(
             buildGameplayPhaseTimers(this._gameplayPhaseConfig)
         );
@@ -300,7 +295,7 @@ class WheelWinApplication {
 
         validateStartupConfiguration({
             serverConfig: this._serverConfig,
-            tonConfig,
+            tonConfig: this._tonConfig,
             roomConfig: this._roomConfig,
             gameCatalog: this._gameCatalog
         });
@@ -992,14 +987,9 @@ class WheelWinApplication {
             gameplayContextResolver: this._gameplayContextResolver
         });
 
-        // R6.1 — Secure Developer Access (independent of gameplay auth).
-        const developerAuthConfig = loadDeveloperAuthConfig(
-            process.env,
-            this._productionConfig
-        );
-
+        // R6.1 / R7.0C — Secure Developer Access from immutable runtime config.
         this._developerAuthService = new DeveloperAuthService({
-            config: developerAuthConfig,
+            config: this._runtimeConfig.developer,
             logger: this._logger
         });
 
@@ -2856,7 +2846,11 @@ application.start().catch((error) => {
 
     logger.initialize();
 
-    if (error instanceof LifecycleError) {
+    if (error instanceof ConfigurationError) {
+
+        logger.error(error.message);
+
+    } else if (error instanceof LifecycleError) {
 
         logger.error(error.message);
 

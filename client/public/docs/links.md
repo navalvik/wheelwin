@@ -1,106 +1,131 @@
-# Useful Links
+# Official WheelWin Links
 
-Useful resources for WheelWin players.
+Welcome to the official WheelWin resources.
+
+Here you can find our community, development updates, documentation, and official project channels.
 
 ---
 
-## Telegram Community
+## 🌐 Official Website
+
+The official WheelWin website will become the central source for:
+
+- Project information
+- Game guides
+- Documentation
+- News
+- Downloads
+
+**Coming Soon**
+
+---
+
+## 💬 Telegram Community
+
+Join the WheelWin community to:
+
+- Discuss new features
+- Ask questions
+- Report bugs
+- Suggest improvements
+- Communicate with other players
 
 https://web.telegram.org/a/#-2073943496281
 
 ---
 
-## Telegram News
+## 📢 Telegram News
+
+Follow our official news channel for:
+
+- Release announcements
+- Development updates
+- Maintenance notifications
+- New feature previews
+- Community news
 
 https://t.me/wheelwingame
 
 ---
 
-## YouTube
+## 🎥 YouTube
+
+Watch official videos including:
+
+- Gameplay demonstrations
+- Tutorials
+- Development updates
+- Feature presentations
 
 https://www.youtube.com/@WheelWin-Game
 
 ---
 
-## TON Blockchain
+## 💻 GitHub
+
+WheelWin is an open development project.
+
+Visit our GitHub repository to:
+
+- Follow development progress
+- Browse the source code
+- View releases
+- Report issues
+- Track future improvements
+
+https://github.com/navalvik/wheelwin
+
+---
+
+## 📚 Documentation
+
+Project documentation includes:
+
+- Game Rules
+- FAQ
+- Privacy Policy
+- Terms of Service
+- Changelog
+- Technical Documentation
+
+---
+
+## ⚡ TON Blockchain
+
+WheelWin is built on the TON ecosystem.
+
+Learn more about TON:
 
 https://ton.org
 
 ---
 
-## Telegram Wallet
+## 👛 Telegram Wallet
+
+WheelWin uses Telegram Wallet for blockchain payments.
 
 https://wallet.ton.org
 
+---
 
-OFFICIAL LINKS
+# Development Status
 
-Welcome to the official WheelWin resources.
+WheelWin is currently under active development.
 
-Use the links below to stay connected with the project, receive updates, and learn more about the game.
+New features, optimizations, stability improvements, and production updates are released regularly.
 
-Official Website
+---
 
-Visit the official WheelWin website for the latest information about the project.
+# Need Help?
 
-Coming Soon
+If you need assistance, the fastest way to get support is through our official Telegram Community.
 
-Telegram Channel
+https://web.telegram.org/a/#-2073943496281
 
-Follow our Telegram channel for:
+---
 
-News
-Announcements
-Community updates
-Technical information
-Release notifications
+# Stay Connected
 
-Official Telegram
+Thank you for supporting WheelWin.
 
-(your Telegram link here)
-
-GitHub Repository
-
-The WheelWin source code is publicly available on GitHub.
-
-You can follow development progress, view releases and report issues.
-
-GitHub
-
-https://github.com/navalvik/wheelwin
-
-Documentation
-
-Project documentation includes:
-
-Game Rules
-FAQ
-Privacy Policy
-Terms of Service
-Changelog
-Technical documentation
-Community
-
-Join the WheelWin community to:
-
-discuss new features;
-report bugs;
-suggest improvements;
-follow development progress.
-Support
-
-If you need assistance, please contact us through our official communication channels.
-
-The fastest way to receive support is via our Telegram community.
-
-Development Status
-
-WheelWin is under active development.
-
-New features, optimizations and improvements are released regularly.
-
-Stay Connected
-
-Thank you for supporting WheelWin!
-
-Follow our official channels and stay up to date with every new release.
+Follow our official channels to stay informed about every new release, feature, and development milestone.

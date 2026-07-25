@@ -115,4 +115,10 @@ assert(
 
 lifecycle.markStopped();
 
+setupSessionLifecycle.shutdown();
+
+roomManager.shutdown();
+
+eventBus.shutdown();
+
 console.log("drainGate.test.js: OK");
