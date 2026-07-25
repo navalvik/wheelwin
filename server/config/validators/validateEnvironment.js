@@ -186,6 +186,92 @@ export function validateEnvironment(collector, env) {
 
     validateEnumField(collector, ENVIRONMENT_SCHEMA.LOG_LEVEL, env.LOG_LEVEL);
 
+    validateEnumField(collector, ENVIRONMENT_SCHEMA.LOG_FORMAT, env.LOG_FORMAT);
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.LOG_ENABLE_CONSOLE,
+        env.LOG_ENABLE_CONSOLE
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.LOG_ENABLE_FILE,
+        env.LOG_ENABLE_FILE
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.LOG_MAX_FILE_SIZE_MB,
+        env.LOG_MAX_FILE_SIZE_MB
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.LOG_MAX_FILES,
+        env.LOG_MAX_FILES
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.LOG_MAX_AGE_DAYS,
+        env.LOG_MAX_AGE_DAYS
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.MONITORING_ENABLED,
+        env.MONITORING_ENABLED
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.METRICS_COLLECTION_INTERVAL_MS,
+        env.METRICS_COLLECTION_INTERVAL_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.RUNTIME_COLLECTION_INTERVAL_MS,
+        env.RUNTIME_COLLECTION_INTERVAL_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.SIMULATION_COLLECTION_INTERVAL_MS,
+        env.SIMULATION_COLLECTION_INTERVAL_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.PAYMENT_COLLECTION_INTERVAL_MS,
+        env.PAYMENT_COLLECTION_INTERVAL_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.RECOVERY_COLLECTION_INTERVAL_MS,
+        env.RECOVERY_COLLECTION_INTERVAL_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.SYSTEM_COLLECTION_INTERVAL_MS,
+        env.SYSTEM_COLLECTION_INTERVAL_MS
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.PROMETHEUS_ENABLED,
+        env.PROMETHEUS_ENABLED
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.PROMETHEUS_PORT,
+        env.PROMETHEUS_PORT
+    );
+
     validateBooleanField(
         collector,
         ENVIRONMENT_SCHEMA.METRICS_ENABLED,

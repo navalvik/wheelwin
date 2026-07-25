@@ -41,6 +41,8 @@ import { OperationalMetrics } from "./services/OperationalMetrics.js";
 import { RandomService } from "./services/RandomService.js";
 import { TimerService } from "./services/TimerService.js";
 import { TonService } from "./services/TonService.js";
+import { LoggingManager } from "./logging/LoggingManager.js";
+import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 
 import { CONNECTION_STATE } from "./models/ConnectionState.js";
 import { PLAYER_STATE } from "./models/PlayerState.js";
@@ -204,6 +206,16 @@ class WheelWinApplication {
 
         this._lifecycleManager = null;
 
+        this._monitoringManager = null;
+
+        this._httpStats = {
+            requests: 0,
+            errors: 0,
+            totalLatencyMs: 0
+        };
+
+        this._prometheusServer = null;
+
         this._isShuttingDown = false;
 
     }
@@ -227,8 +239,25 @@ class WheelWinApplication {
 
         this._gameplayPhaseConfig = this._runtimeConfig.gameplayPhases;
 
+        // R7.0D — centralized structured logging before other services.
+        const loggingManager = LoggingManager.getInstance();
+
+        loggingManager.initialize({
+            ...this._productionConfig.logging,
+            environment: this._serverConfig.nodeEnv,
+            profile: this._runtimeConfig.profile,
+            version: this._runtimeConfig.version
+        });
+
         this._logger = new LoggerService({
-            logLevel: this._productionConfig.logLevel
+            logLevel: this._productionConfig.logLevel,
+            loggingManager
+        });
+
+        this._logger.initialize();
+
+        loggingManager.audit("startup", {
+            lifecycleState: APPLICATION_LIFECYCLE.STARTING
         });
 
         this._metricsService = new MetricsService({
@@ -244,11 +273,14 @@ class WheelWinApplication {
             this._runtimeConfig.toSafeSummary()
         );
 
+        this._healthService.setLoggerStatus(loggingManager.getSafeStatus());
+
         // R7.0B — process lifecycle (RUNNING → DRAINING → STOPPED).
         this._lifecycleManager = new ApplicationLifecycleManager({
             logger: this._logger,
             metricsService: this._metricsService,
             healthService: this._healthService,
+            loggingManager,
             gracefulShutdownTimeoutMs:
                 this._productionConfig.gracefulShutdownTimeoutMs,
             activityProvider: () => this._collectDrainActivity()
@@ -256,10 +288,10 @@ class WheelWinApplication {
 
         this._healthService.setLifecycleState(APPLICATION_LIFECYCLE.STARTING);
 
+        loggingManager.setLifecycleState(APPLICATION_LIFECYCLE.STARTING);
+
         this._logger.info("WheelWin Server");
-        this._logger.info("");
         this._logger.info("Initializing...");
-        this._logger.info("");
 
         ConfigurationManager.logStartupSummary(this._logger, this._runtimeConfig);
 
@@ -1013,7 +1045,8 @@ class WheelWinApplication {
             io: this._socketGateway.getIO(),
             projectionService: this._consoleProjectionService,
             eventBus: this._eventBus,
-            authService: this._developerAuthService
+            authService: this._developerAuthService,
+            loggingManager: LoggingManager.getInstance()
         });
 
         this._consoleGateway.initialize();
@@ -1027,6 +1060,9 @@ class WheelWinApplication {
                 ? "DeveloperAuthService (enabled)"
                 : "DeveloperAuthService (disabled)"
         );
+
+        // R7.0E — observational monitoring (after providers exist).
+        this._startMonitoring();
 
         await this._listen();
 
@@ -1459,11 +1495,134 @@ class WheelWinApplication {
 
         this._lifecycleManager.markStopped({ forced: drainResult.forced });
 
-        this._logger.info("");
+        LoggingManager.getInstance().audit("shutdown complete", {
+            lifecycleState: "STOPPED",
+            forced: drainResult.forced === true,
+            durationMs: drainResult.durationMs
+        });
+
         this._logger.info(
             `Shutdown complete. | durationMs=${drainResult.durationMs} | forced=${drainResult.forced}`
         );
-        this._logger.info("");
+
+        LoggingManager.getInstance().flushSync();
+
+        LoggingManager.getInstance().shutdown();
+
+        if (this._monitoringManager) {
+
+            this._monitoringManager.shutdown();
+
+        }
+
+        if (this._prometheusServer) {
+
+            try {
+
+                this._prometheusServer.close();
+
+            } catch {
+
+                // ignore
+            }
+
+            this._prometheusServer = null;
+
+        }
+
+    }
+
+    /**
+     * R7.0E — Start observational monitoring collectors.
+     */
+    _startMonitoring() {
+
+        const monitoringConfig = this._productionConfig.monitoring ?? {
+            enabled: true,
+            intervals: {},
+            prometheusEnabled: false
+        };
+
+        this._monitoringManager = MonitoringManager.getInstance();
+
+        this._monitoringManager.initialize({
+            enabled: monitoringConfig.enabled !== false,
+            intervals: monitoringConfig.intervals ?? {},
+            prometheusEnabled: monitoringConfig.prometheusEnabled === true,
+            providers: {
+                roomManager: this._managers?.roomManager,
+                gameManager: this._managers?.gameManager,
+                playerManager: this._managers?.playerManager,
+                setupSessionLifecycle: this._setupSessionLifecycle,
+                resultSessionLifecycle: this._resultSessionLifecycle,
+                paymentSessionManager: this._paymentSessionManager,
+                paymentEngine: this._engines?.paymentEngine,
+                contractSettlementManager: this._contractSettlementManager,
+                recoveryEngine: this._recoveryEngine,
+                simulationLoop: this._simulationLoop,
+                physicsEngine: this._engines?.physicsEngine,
+                metricsService: this._metricsService,
+                socketGateway: this._socketGateway,
+                consoleGateway: this._consoleGateway,
+                loggingManager: LoggingManager.getInstance(),
+                httpStats: () => ({ ...this._httpStats }),
+                lifecycleState: () => this._lifecycleManager?.getState?.() ?? null,
+                environment: () => this._serverConfig?.nodeEnv ?? null,
+                profile: () => this._runtimeConfig?.profile ?? null,
+                version: () => this._runtimeConfig?.version ?? null
+            }
+        });
+
+        this._healthService.setMonitoringStatus(
+            this._monitoringManager.getHealthStatus()
+        );
+
+        this._logger.startupLine(
+            monitoringConfig.enabled === false
+                ? "MonitoringManager (disabled)"
+                : "MonitoringManager"
+        );
+
+        if (monitoringConfig.prometheusEnabled
+            && monitoringConfig.prometheusPort
+            && monitoringConfig.prometheusPort !== this._serverConfig.port) {
+
+            this._startPrometheusSidecar(monitoringConfig);
+
+        }
+
+    }
+
+    _startPrometheusSidecar(monitoringConfig) {
+
+        const sidecar = express();
+
+        sidecar.get(monitoringConfig.prometheusPath || "/metrics", (req, res) => {
+
+            if (!this._monitoringManager?.isPrometheusEnabled?.()) {
+
+                res.status(404).end();
+
+                return;
+
+            }
+
+            res.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+
+            res.send(this._monitoringManager.getPrometheusText());
+
+        });
+
+        this._prometheusServer = http.createServer(sidecar);
+
+        this._prometheusServer.listen(
+            monitoringConfig.prometheusPort,
+            this._serverConfig.host
+        );
+
+        this._logger.info(
+            `Prometheus sidecar listening | port=${monitoringConfig.prometheusPort} path=${monitoringConfig.prometheusPath}`
+        );
 
     }
 
@@ -1504,6 +1663,14 @@ class WheelWinApplication {
 
         const drain = this._lifecycleManager?.getSnapshot?.() ?? null;
 
+        if (this._monitoringManager) {
+
+            this._healthService.setMonitoringStatus(
+                this._monitoringManager.getHealthStatus()
+            );
+
+        }
+
         return {
             activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
             activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
@@ -1521,7 +1688,9 @@ class WheelWinApplication {
                 this._auditEngine?.getActiveAuditCount?.() ?? 0,
             lifecycle: drain?.state ?? null,
             ready: drain?.ready ?? null,
-            drainActivity: drain?.activity ?? null
+            drainActivity: drain?.activity ?? null,
+            monitoring: this._monitoringManager?.getSnapshot?.()?.toSafeSummary?.()
+                ?? null
         };
 
     }
@@ -2460,6 +2629,29 @@ class WheelWinApplication {
             origin: this._serverConfig.clientOrigin
         }));
 
+        // R7.0E — observational HTTP counters (never mutate gameplay).
+        app.use((req, res, next) => {
+
+            const startedAt = performance.now();
+
+            res.on("finish", () => {
+
+                this._httpStats.requests += 1;
+
+                this._httpStats.totalLatencyMs += performance.now() - startedAt;
+
+                if (res.statusCode >= 500) {
+
+                    this._httpStats.errors += 1;
+
+                }
+
+            });
+
+            next();
+
+        });
+
         // R6.1 — JSON body for Developer Auth login/refresh/logout only.
         app.use(express.json({ limit: "32kb" }));
 
@@ -2483,6 +2675,29 @@ class WheelWinApplication {
             }
 
             res.json(snapshot);
+
+        });
+
+        // R7.0E — Prometheus/OpenMetrics (read-only) on main app path.
+        const prometheusPath = this._productionConfig?.monitoring?.prometheusPath
+            || "/metrics";
+
+        app.get(prometheusPath, (req, res) => {
+
+            const monitoring = this._monitoringManager
+                || MonitoringManager.getInstance();
+
+            if (!monitoring.isPrometheusEnabled()) {
+
+                res.status(404).json({ error: "Prometheus metrics disabled" });
+
+                return;
+
+            }
+
+            res.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+
+            res.send(monitoring.getPrometheusText());
 
         });
 

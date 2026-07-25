@@ -27,6 +27,7 @@ export class ApplicationLifecycleManager {
         logger,
         metricsService = null,
         healthService = null,
+        loggingManager = null,
         gracefulShutdownTimeoutMs = DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MS,
         activityProvider = null,
         pollIntervalMs = DRAIN_POLL_INTERVAL_MS
@@ -37,6 +38,8 @@ export class ApplicationLifecycleManager {
         this._metricsService = metricsService;
 
         this._healthService = healthService;
+
+        this._loggingManager = loggingManager;
 
         this._gracefulShutdownTimeoutMs = Number.isFinite(gracefulShutdownTimeoutMs)
             && gracefulShutdownTimeoutMs > 0
@@ -386,8 +389,20 @@ export class ApplicationLifecycleManager {
 
         this._healthService?.setLifecycleState?.(nextState);
 
+        this._loggingManager?.setLifecycleState?.(nextState);
+
         this._logger.info(
-            `Lifecycle ${previous} → ${nextState} | reason=${reason}`
+            `Lifecycle ${previous} → ${nextState} | reason=${reason}`,
+            { lifecycleState: nextState, previousLifecycleState: previous }
+        );
+
+        this._loggingManager?.audit?.(
+            `lifecycle ${previous} → ${nextState}`,
+            {
+                lifecycleState: nextState,
+                previousLifecycleState: previous,
+                reason
+            }
         );
 
     }

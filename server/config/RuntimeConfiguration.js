@@ -110,7 +110,14 @@ export class RuntimeConfiguration {
                     this.production.gracefulShutdownTimeoutMs
             }),
             logging: Object.freeze({
-                logLevel: this.production.logLevel
+                logLevel: this.production.logLevel,
+                format: this.production.logging?.format ?? null,
+                consoleEnabled: this.production.logging?.enableConsole === true,
+                fileEnabled: this.production.logging?.enableFile === true,
+                rotationEnabled: this.production.logging?.enableFile === true,
+                maxFileSizeMb: this.production.logging?.maxFileSizeMb ?? null,
+                maxFiles: this.production.logging?.maxFiles ?? null,
+                maxAgeDays: this.production.logging?.maxAgeDays ?? null
             }),
             rooms: Object.freeze({
                 maxPlayers: this.rooms.maxPlayers,
@@ -139,7 +146,10 @@ export class RuntimeConfiguration {
                 ownerConfigured: this.owner.loaded === true
             }),
             metrics: Object.freeze({
-                enabled: this.production.metricsEnabled === true
+                enabled: this.production.metricsEnabled === true,
+                monitoringEnabled: this.production.monitoring?.enabled === true,
+                prometheusEnabled:
+                    this.production.monitoring?.prometheusEnabled === true
             })
         });
 

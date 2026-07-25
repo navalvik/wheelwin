@@ -67,7 +67,28 @@ export function buildServerOverview({
         }),
         configuration: health?.configuration
             ? Object.freeze({ ...health.configuration })
-            : null
+            : null,
+        logger: health?.logger
+            ? Object.freeze({ ...health.logger })
+            : null,
+        monitoring: (() => {
+
+            const full = health?.runtime?.monitoring ?? null;
+
+            const status = health?.monitoring ?? null;
+
+            if (!full && !status) {
+
+                return null;
+
+            }
+
+            return Object.freeze({
+                ...(status ?? {}),
+                ...(full ?? {})
+            });
+
+        })()
     });
 
 }

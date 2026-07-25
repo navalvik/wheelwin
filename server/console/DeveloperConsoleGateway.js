@@ -7,6 +7,7 @@ import {
     buildConsoleEnvelope
 } from "./consoleProtocol.js";
 import { createDeveloperSocketAuthMiddleware } from "./auth/developerAuthMiddleware.js";
+import { LoggingManager } from "../logging/LoggingManager.js";
 
 /**
  * R6.0D — Live Gateway for the WheelWin Developer Console.
@@ -27,7 +28,8 @@ export class DeveloperConsoleGateway {
         io,
         projectionService,
         eventBus = null,
-        authService = null
+        authService = null,
+        loggingManager = null
     }) {
 
         this._logger = logger;
@@ -40,6 +42,8 @@ export class DeveloperConsoleGateway {
 
         this._authService = authService;
 
+        this._loggingManager = loggingManager || LoggingManager.getInstance();
+
         this._nsp = null;
 
         this._clients = new Map();
@@ -51,6 +55,8 @@ export class DeveloperConsoleGateway {
         this._roomsPushTimer = null;
 
         this._logBuffer = [];
+
+        this._logUnsubscribe = null;
 
         this._initialized = false;
 
@@ -102,6 +108,8 @@ export class DeveloperConsoleGateway {
 
         this._subscribeEventBus();
 
+        this._subscribeLogging();
+
         this._initialized = true;
 
         this._appendLog("info", "DeveloperConsoleGateway ready on /console");
@@ -115,6 +123,14 @@ export class DeveloperConsoleGateway {
         if (!this._initialized) {
 
             return;
+
+        }
+
+        if (typeof this._logUnsubscribe === "function") {
+
+            this._logUnsubscribe();
+
+            this._logUnsubscribe = null;
 
         }
 
@@ -530,6 +546,75 @@ export class DeveloperConsoleGateway {
                 0,
                 this._logBuffer.length - CONSOLE_UPDATE_POLICY.LOG_BUFFER_SIZE
             );
+
+        }
+
+        this._forSubscribed((client) => {
+
+            this._emit(client.socket, CONSOLE_SERVER_EVENTS.LOG, entry);
+
+        });
+
+    }
+
+    /**
+     * R7.0D — Mirror LoggingManager application + audit records into CONSOLE_LOG
+     * (same protocol envelope: level, message, at).
+     */
+    _subscribeLogging() {
+
+        if (!this._loggingManager?.isInitialized?.()) {
+
+            return;
+
+        }
+
+        for (const record of this._loggingManager.getRecentRecords({ limit: 50 })) {
+
+            this._ingestLogRecord(record, false);
+
+        }
+
+        this._logUnsubscribe = this._loggingManager.subscribe((record) => {
+
+            this._ingestLogRecord(record, true);
+
+        });
+
+    }
+
+    _ingestLogRecord(record, broadcast) {
+
+        if (!record) {
+
+            return;
+
+        }
+
+        const channelTag = record.channel === "audit" ? "[AUDIT] " : "";
+
+        const message = `${channelTag}${record.message}`;
+
+        const entry = Object.freeze({
+            level: record.level,
+            message,
+            at: Date.parse(record.timestamp) || Date.now()
+        });
+
+        this._logBuffer.push(entry);
+
+        if (this._logBuffer.length > CONSOLE_UPDATE_POLICY.LOG_BUFFER_SIZE) {
+
+            this._logBuffer.splice(
+                0,
+                this._logBuffer.length - CONSOLE_UPDATE_POLICY.LOG_BUFFER_SIZE
+            );
+
+        }
+
+        if (!broadcast) {
+
+            return;
 
         }
 

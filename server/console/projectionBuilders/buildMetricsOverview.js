@@ -1,5 +1,5 @@
 /**
- * R6.0C — High-level operational metrics only.
+ * R6.0C / R7.0E — High-level operational metrics only.
  */
 export function buildMetricsOverview({
     metricsService,
@@ -19,8 +19,13 @@ export function buildMetricsOverview({
 
     const health = healthService?.getHealthSnapshot?.() ?? null;
 
+    const monitoring = health?.runtime?.monitoring
+        ?? health?.monitoring
+        ?? null;
+
     return Object.freeze({
-        enabled: metricsSnapshot.enabled === true,
+        enabled: metricsSnapshot.enabled === true
+            || monitoring?.enabled === true,
         counters: Object.freeze({ ...(metricsSnapshot.counters ?? {}) }),
         timings: Object.freeze(
             Object.fromEntries(
@@ -51,7 +56,10 @@ export function buildMetricsOverview({
             ready: health?.ready ?? null,
             lifecycle: health?.lifecycle ?? null,
             uptimeMs: health?.uptimeMs ?? null
-        })
+        }),
+        monitoring: monitoring
+            ? Object.freeze({ ...monitoring })
+            : null
     });
 
 }

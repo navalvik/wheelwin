@@ -1,11 +1,27 @@
 /**
- * R6.1 — Audit helpers for developer login/logout (LoggerService only).
+ * R6.1 / R7.0D — Audit helpers for developer auth (audit channel when available).
  * Never logs passwords or raw tokens.
  */
 
+import { LOG_LEVELS } from "../../logging/levels.js";
+import { LoggingManager } from "../../logging/LoggingManager.js";
+
 export function createDeveloperAuthAudit(logger) {
 
-    function line(level, message, fields = {}) {
+    function emit(level, message, fields = {}) {
+
+        const manager = LoggingManager.getInstance();
+
+        if (manager.isInitialized()) {
+
+            manager.audit(message, {
+                component: "DeveloperAuth",
+                ...fields
+            }, level);
+
+            return;
+
+        }
 
         const parts = ["[DeveloperAuth]", message];
 
@@ -23,7 +39,7 @@ export function createDeveloperAuthAudit(logger) {
 
         const text = parts.join(" | ");
 
-        if (level === "warn" && logger?.warn) {
+        if (level === LOG_LEVELS.WARN && logger?.warn) {
 
             logger.warn(text);
 
@@ -31,7 +47,7 @@ export function createDeveloperAuthAudit(logger) {
 
         }
 
-        if (level === "error" && logger?.error) {
+        if (level === LOG_LEVELS.ERROR && logger?.error) {
 
             logger.error(text);
 
@@ -46,37 +62,37 @@ export function createDeveloperAuthAudit(logger) {
     return {
         loginSuccess(fields) {
 
-            line("info", "login success", fields);
+            emit(LOG_LEVELS.INFO, "login success", fields);
 
         },
         loginFailed(fields) {
 
-            line("warn", "login failed", fields);
+            emit(LOG_LEVELS.WARN, "login failed", fields);
 
         },
         logout(fields) {
 
-            line("info", "logout", fields);
+            emit(LOG_LEVELS.INFO, "logout", fields);
 
         },
         refreshSuccess(fields) {
 
-            line("info", "session renewed", fields);
+            emit(LOG_LEVELS.INFO, "session renewed", fields);
 
         },
         refreshFailed(fields) {
 
-            line("warn", "refresh failed", fields);
+            emit(LOG_LEVELS.WARN, "refresh failed", fields);
 
         },
         unauthorized(fields) {
 
-            line("warn", "unauthorized", fields);
+            emit(LOG_LEVELS.WARN, "unauthorized", fields);
 
         },
         socketRejected(fields) {
 
-            line("warn", "socket rejected", fields);
+            emit(LOG_LEVELS.WARN, "socket rejected", fields);
 
         }
     };

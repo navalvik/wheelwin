@@ -1,16 +1,22 @@
-import { LOG_LEVELS } from "../config/production.js";
-import { EVENT_TYPES } from "../events/EventTypes.js";
+/**
+ * R7.0D — Application logger facade (compatible with pre-R7.0D call sites).
+ *
+ * Delegates to LoggingManager. Prefer LoggingManager / LoggerFactory for new code.
+ */
 
-const LEVEL_PRIORITY = Object.freeze({
-    [LOG_LEVELS.ERROR]: 0,
-    [LOG_LEVELS.WARN]: 1,
-    [LOG_LEVELS.INFO]: 2,
-    [LOG_LEVELS.DEBUG]: 3
-});
+import { EVENT_TYPES } from "../events/EventTypes.js";
+import { LoggingManager } from "../logging/LoggingManager.js";
+import { LOG_LEVELS } from "../logging/levels.js";
+
+export { LOG_LEVELS };
 
 export class LoggerService {
 
-    constructor({ logLevel = LOG_LEVELS.INFO } = {}) {
+    constructor({
+        logLevel = LOG_LEVELS.INFO,
+        loggingManager = null,
+        service = "wheelwin-server"
+    } = {}) {
 
         this._initialized = false;
 
@@ -18,11 +24,34 @@ export class LoggerService {
 
         this._testEventHandler = null;
 
-        this._minLevel = LEVEL_PRIORITY[logLevel] ?? LEVEL_PRIORITY[LOG_LEVELS.INFO];
+        this._manager = loggingManager || LoggingManager.getInstance();
+
+        this._service = service;
+
+        this._requestedLevel = logLevel;
+
+        this._bound = null;
 
     }
 
     initialize() {
+
+        if (!this._manager.isInitialized()) {
+
+            this._manager.initialize({
+                level: this._requestedLevel,
+                enableConsole: true,
+                enableFile: false,
+                format: "console"
+            });
+
+        } else {
+
+            this._manager.setMinimumLevel(this._requestedLevel);
+
+        }
+
+        this._bound = this._manager.getFactory().create(this._service);
 
         this._initialized = true;
 
@@ -71,55 +100,80 @@ export class LoggerService {
 
     setLogLevel(logLevel) {
 
-        this._minLevel = LEVEL_PRIORITY[logLevel] ?? this._minLevel;
+        this._requestedLevel = logLevel;
+
+        this._manager.setMinimumLevel(logLevel);
 
     }
 
-    debug(message) {
+    trace(message, fields) {
 
-        this._write(LOG_LEVELS.DEBUG, message, process.stdout);
-
-    }
-
-    info(message) {
-
-        this._write(LOG_LEVELS.INFO, message, process.stdout);
+        this._ensureBound().trace(message, fields);
 
     }
 
-    warn(message) {
+    debug(message, fields) {
 
-        this._write(LOG_LEVELS.WARN, message, process.stderr);
+        this._ensureBound().debug(message, fields);
 
     }
 
-    error(message, error = null) {
+    info(message, fields) {
 
-        this._write(LOG_LEVELS.ERROR, message, process.stderr);
+        this._ensureBound().info(message, fields);
 
-        if (error?.stack) {
+    }
 
-            process.stderr.write(`${error.stack}\n`);
+    warn(message, fields) {
 
-        }
+        this._ensureBound().warn(message, fields);
+
+    }
+
+    error(message, error = null, fields = null) {
+
+        this._ensureBound().error(message, error, fields);
+
+    }
+
+    fatal(message, error = null, fields = null) {
+
+        this._ensureBound().fatal(message, error, fields);
 
     }
 
     startupLine(label) {
 
-        process.stdout.write(`${label} OK\n`);
+        this._ensureBound().startupLine(label);
 
     }
 
-    _write(level, message, stream) {
+    child(fields) {
 
-        if ((LEVEL_PRIORITY[level] ?? LEVEL_PRIORITY[LOG_LEVELS.INFO]) > this._minLevel) {
+        return this._ensureBound().child(fields);
 
-            return;
+    }
+
+    _ensureBound() {
+
+        if (!this._bound) {
+
+            if (!this._manager.isInitialized()) {
+
+                this._manager.initialize({
+                    level: this._requestedLevel,
+                    enableConsole: true,
+                    enableFile: false,
+                    format: "console"
+                });
+
+            }
+
+            this._bound = this._manager.getFactory().create(this._service);
 
         }
 
-        stream.write(`${message}\n`);
+        return this._bound;
 
     }
 

@@ -63,9 +63,147 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         key: "LOG_LEVEL",
         type: "enum",
         required: false,
-        allowed: Object.freeze(["error", "warn", "info", "debug"]),
+        allowed: Object.freeze([
+            "fatal",
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+        ]),
         category: "Logging",
-        suggestedFix: "Set LOG_LEVEL to error, warn, info, or debug."
+        suggestedFix: "Set LOG_LEVEL to fatal, error, warn, info, debug, or trace."
+    }),
+    LOG_DIRECTORY: Object.freeze({
+        key: "LOG_DIRECTORY",
+        type: "string",
+        required: false,
+        category: "Logging",
+        suggestedFix: "Set LOG_DIRECTORY to a writable directory path (e.g. logs)."
+    }),
+    LOG_MAX_FILE_SIZE_MB: Object.freeze({
+        key: "LOG_MAX_FILE_SIZE_MB",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Logging",
+        suggestedFix: "Set LOG_MAX_FILE_SIZE_MB to a positive integer."
+    }),
+    LOG_MAX_FILES: Object.freeze({
+        key: "LOG_MAX_FILES",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Logging",
+        suggestedFix: "Set LOG_MAX_FILES to a positive integer."
+    }),
+    LOG_MAX_AGE_DAYS: Object.freeze({
+        key: "LOG_MAX_AGE_DAYS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Logging",
+        suggestedFix: "Set LOG_MAX_AGE_DAYS to a positive integer."
+    }),
+    LOG_FORMAT: Object.freeze({
+        key: "LOG_FORMAT",
+        type: "enum",
+        required: false,
+        allowed: Object.freeze(["json", "console"]),
+        category: "Logging",
+        suggestedFix: "Set LOG_FORMAT to json or console."
+    }),
+    LOG_ENABLE_CONSOLE: Object.freeze({
+        key: "LOG_ENABLE_CONSOLE",
+        type: "boolean",
+        required: false,
+        category: "Logging",
+        suggestedFix: "Set LOG_ENABLE_CONSOLE to true or false."
+    }),
+    LOG_ENABLE_FILE: Object.freeze({
+        key: "LOG_ENABLE_FILE",
+        type: "boolean",
+        required: false,
+        category: "Logging",
+        suggestedFix: "Set LOG_ENABLE_FILE to true or false."
+    }),
+    MONITORING_ENABLED: Object.freeze({
+        key: "MONITORING_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Metrics",
+        suggestedFix: "Set MONITORING_ENABLED to true or false."
+    }),
+    METRICS_COLLECTION_INTERVAL_MS: Object.freeze({
+        key: "METRICS_COLLECTION_INTERVAL_MS",
+        type: "integer",
+        required: false,
+        min: 50,
+        category: "Metrics",
+        suggestedFix: "Set METRICS_COLLECTION_INTERVAL_MS to an integer >= 50."
+    }),
+    RUNTIME_COLLECTION_INTERVAL_MS: Object.freeze({
+        key: "RUNTIME_COLLECTION_INTERVAL_MS",
+        type: "integer",
+        required: false,
+        min: 50,
+        category: "Metrics",
+        suggestedFix: "Set RUNTIME_COLLECTION_INTERVAL_MS to an integer >= 50."
+    }),
+    SIMULATION_COLLECTION_INTERVAL_MS: Object.freeze({
+        key: "SIMULATION_COLLECTION_INTERVAL_MS",
+        type: "integer",
+        required: false,
+        min: 50,
+        category: "Metrics",
+        suggestedFix: "Set SIMULATION_COLLECTION_INTERVAL_MS to an integer >= 50."
+    }),
+    PAYMENT_COLLECTION_INTERVAL_MS: Object.freeze({
+        key: "PAYMENT_COLLECTION_INTERVAL_MS",
+        type: "integer",
+        required: false,
+        min: 50,
+        category: "Metrics",
+        suggestedFix: "Set PAYMENT_COLLECTION_INTERVAL_MS to an integer >= 50."
+    }),
+    RECOVERY_COLLECTION_INTERVAL_MS: Object.freeze({
+        key: "RECOVERY_COLLECTION_INTERVAL_MS",
+        type: "integer",
+        required: false,
+        min: 50,
+        category: "Metrics",
+        suggestedFix: "Set RECOVERY_COLLECTION_INTERVAL_MS to an integer >= 50."
+    }),
+    SYSTEM_COLLECTION_INTERVAL_MS: Object.freeze({
+        key: "SYSTEM_COLLECTION_INTERVAL_MS",
+        type: "integer",
+        required: false,
+        min: 50,
+        category: "Metrics",
+        suggestedFix: "Set SYSTEM_COLLECTION_INTERVAL_MS to an integer >= 50."
+    }),
+    PROMETHEUS_ENABLED: Object.freeze({
+        key: "PROMETHEUS_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Metrics",
+        suggestedFix: "Set PROMETHEUS_ENABLED to true or false."
+    }),
+    PROMETHEUS_PORT: Object.freeze({
+        key: "PROMETHEUS_PORT",
+        type: "integer",
+        required: false,
+        min: 1,
+        max: 65535,
+        category: "Metrics",
+        suggestedFix: "Set PROMETHEUS_PORT to an integer between 1 and 65535."
+    }),
+    PROMETHEUS_PATH: Object.freeze({
+        key: "PROMETHEUS_PATH",
+        type: "string",
+        required: false,
+        category: "Metrics",
+        suggestedFix: "Set PROMETHEUS_PATH to a path starting with / (e.g. /metrics)."
     }),
     METRICS_ENABLED: Object.freeze({
         key: "METRICS_ENABLED",

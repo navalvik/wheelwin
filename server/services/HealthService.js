@@ -18,6 +18,12 @@ export class HealthService {
         /** @type {object|null} R7.0C safe configuration summary */
         this._safeConfiguration = null;
 
+        /** @type {object|null} R7.0D logger status (no filesystem paths) */
+        this._loggerStatus = null;
+
+        /** @type {object|null} R7.0E monitoring status */
+        this._monitoringStatus = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -58,6 +64,28 @@ export class HealthService {
 
         this._safeConfiguration = safeConfiguration
             ? Object.freeze({ ...safeConfiguration })
+            : null;
+
+    }
+
+    /**
+     * R7.0D — Attach sanitized logger / rotation status.
+     */
+    setLoggerStatus(loggerStatus) {
+
+        this._loggerStatus = loggerStatus
+            ? Object.freeze({ ...loggerStatus })
+            : null;
+
+    }
+
+    /**
+     * R7.0E — Attach sanitized monitoring status.
+     */
+    setMonitoringStatus(monitoringStatus) {
+
+        this._monitoringStatus = monitoringStatus
+            ? Object.freeze({ ...monitoringStatus })
             : null;
 
     }
@@ -132,8 +160,22 @@ export class HealthService {
             shuttingDown: this._shuttingDown,
             components,
             runtime: this._resolveRuntime(),
-            configuration: this._safeConfiguration
+            configuration: this._safeConfiguration,
+            logger: this._loggerStatus,
+            monitoring: this._resolveMonitoringStatus()
         };
+
+    }
+
+    _resolveMonitoringStatus() {
+
+        if (!this._monitoringStatus) {
+
+            return null;
+
+        }
+
+        return this._monitoringStatus;
 
     }
 

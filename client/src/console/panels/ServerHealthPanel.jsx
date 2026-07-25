@@ -156,6 +156,77 @@ export default function ServerHealthPanel() {
                     }
                 />
 
+                <StatCard
+                    label="Logger Status"
+                    value={server.logger?.status ?? "—"}
+                />
+
+                <StatCard
+                    label="Log Level"
+                    value={server.logger?.level
+                        ?? server.configuration?.logging?.logLevel
+                        ?? "—"}
+                />
+
+                <StatCard
+                    label="Rotation"
+                    value={server.logger?.rotationStatus ?? "—"}
+                    hint={server.logger?.activeLogFile
+                        ? `File ${server.logger.activeLogFile}`
+                        : undefined}
+                />
+
+                <StatCard
+                    label="Retention"
+                    value={server.logger?.retention?.maxFiles != null
+                        ? `${server.logger.retention.maxFiles} files`
+                        : "—"}
+                    hint={server.logger?.retention?.maxAgeDays != null
+                        ? `${server.logger.retention.maxAgeDays}d`
+                        : undefined}
+                />
+
+                <StatCard
+                    label="Monitoring"
+                    value={server.monitoring?.enabled === false
+                        ? "OFF"
+                        : (server.monitoring?.running ? "ON" : (metrics?.monitoring?.enabled ? "ON" : "—"))}
+                    hint={server.monitoring?.freshnessMs != null
+                        ? `Fresh ${server.monitoring.freshnessMs}ms`
+                        : undefined}
+                />
+
+                <StatCard
+                    label="CPU %"
+                    value={metrics?.monitoring?.runtime?.cpuPercent != null
+                        ? Number(metrics.monitoring.runtime.cpuPercent).toFixed(1)
+                        : "—"}
+                />
+
+                <StatCard
+                    label="Event Loop"
+                    value={metrics?.monitoring?.runtime?.eventLoopDelayMs != null
+                        ? `${Number(metrics.monitoring.runtime.eventLoopDelayMs).toFixed(2)}ms`
+                        : "—"}
+                />
+
+                <StatCard
+                    label="Tick Rate"
+                    value={metrics?.monitoring?.simulation?.tickRateHz != null
+                        ? `${Number(metrics.monitoring.simulation.tickRateHz).toFixed(1)} Hz`
+                        : "—"}
+                />
+
+                <StatCard
+                    label="Payments Pending"
+                    value={metrics?.monitoring?.payments?.pending ?? "—"}
+                />
+
+                <StatCard
+                    label="Recovery Queue"
+                    value={metrics?.monitoring?.recovery?.queueSize ?? "—"}
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">
