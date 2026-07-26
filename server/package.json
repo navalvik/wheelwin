@@ -10,7 +10,8 @@
     "validate:production": "node scripts/run-production-validation.js",
     "release:build": "node scripts/run-release-build.js",
     "release:certify": "node scripts/run-release-certification.js",
-    "beta:report": "node scripts/run-closed-beta-report.js"
+    "beta:report": "node scripts/run-closed-beta-report.js",
+    "launch:report": "node scripts/run-launch-readiness-report.js"
   },
   "dependencies": {
     "@ton/core": "^0.63.1",

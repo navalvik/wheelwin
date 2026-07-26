@@ -4,6 +4,7 @@
 export const CONSOLE_SECTIONS = Object.freeze([
     Object.freeze({ id: "server-health", label: "Server Health" }),
     Object.freeze({ id: "closed-beta", label: "Closed Beta" }),
+    Object.freeze({ id: "launch-readiness", label: "Launch Readiness" }),
     Object.freeze({ id: "rooms", label: "Rooms" }),
     Object.freeze({ id: "games", label: "Games" }),
     Object.freeze({ id: "players", label: "Players" }),

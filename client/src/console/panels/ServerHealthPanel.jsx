@@ -454,6 +454,27 @@ export default function ServerHealthPanel() {
                     hint={server.closedBeta?.readiness}
                 />
 
+                <StatCard
+                    label="Launch Decision"
+                    value={server.launch?.decision ?? "—"}
+                    hint={server.launch?.lifecycle}
+                />
+
+                <StatCard
+                    label="Launch Score"
+                    value={server.launch?.readinessScore ?? "—"}
+                />
+
+                <StatCard
+                    label="Launch Blockers"
+                    value={server.launch?.blockerSummary?.critical != null
+                        ? server.launch.blockerSummary.critical
+                        : "—"}
+                    hint={server.launch?.blockerSummary?.high != null
+                        ? `High ${server.launch.blockerSummary.high}`
+                        : undefined}
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">

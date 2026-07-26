@@ -182,6 +182,11 @@ export class RuntimeConfiguration {
                     this.production.closedBeta?.requireCertification !== false,
                 maxParticipants:
                     this.production.closedBeta?.maxParticipants ?? 500
+            }),
+            launch: Object.freeze({
+                enabled: this.production.launch?.enabled !== false,
+                requireMainnetForGa:
+                    this.production.launch?.requireMainnetForGa !== false
             })
         });
 

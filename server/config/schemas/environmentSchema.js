@@ -414,6 +414,20 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         suggestedFix:
             "Set CLOSED_BETA_MAX_PARTICIPANTS to a positive integer."
     }),
+    LAUNCH_READINESS_ENABLED: Object.freeze({
+        key: "LAUNCH_READINESS_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Launch",
+        suggestedFix: "Set LAUNCH_READINESS_ENABLED to true or false."
+    }),
+    LAUNCH_REQUIRE_MAINNET_FOR_GA: Object.freeze({
+        key: "LAUNCH_REQUIRE_MAINNET_FOR_GA",
+        type: "boolean",
+        required: false,
+        category: "Launch",
+        suggestedFix: "Set LAUNCH_REQUIRE_MAINNET_FOR_GA to true or false."
+    }),
     STARTUP_DEMONSTRATIONS: Object.freeze({
         key: "STARTUP_DEMONSTRATIONS",
         type: "boolean",

@@ -108,6 +108,9 @@ export function buildServerOverview({
             : null,
         closedBeta: health?.closedBeta
             ? Object.freeze({ ...health.closedBeta })
+            : null,
+        launch: health?.launch
+            ? Object.freeze({ ...health.launch })
             : null
     });
 

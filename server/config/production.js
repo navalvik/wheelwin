@@ -515,6 +515,29 @@ function resolveClosedBetaConfig(env) {
 
 }
 
+function resolveLaunchConfig(env) {
+
+    const parseFlag = (key, fallback) => {
+
+        const parsed = parseBooleanStrict(env[key]);
+
+        if (!isMissing(env[key]) && parsed.ok !== true) {
+
+            throw new Error(`${key} must be true or false`);
+
+        }
+
+        return isMissing(env[key]) ? fallback : parsed.value === true;
+
+    };
+
+    return {
+        enabled: parseFlag("LAUNCH_READINESS_ENABLED", true),
+        requireMainnetForGa: parseFlag("LAUNCH_REQUIRE_MAINNET_FOR_GA", true)
+    };
+
+}
+
 export function loadProductionConfig(env = process.env, serverConfig = null) {
 
     const nodeEnv = serverConfig?.nodeEnv || env.NODE_ENV || "development";
@@ -536,6 +559,8 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
     const release = resolveReleaseConfig(env);
 
     const closedBeta = resolveClosedBetaConfig(env);
+
+    const launch = resolveLaunchConfig(env);
 
     const rawTimeout = env.GRACEFUL_SHUTDOWN_TIMEOUT_MS;
 
@@ -568,6 +593,7 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         deployment,
         release,
         closedBeta,
+        launch,
         metricsEnabled: development || env.METRICS_ENABLED === "true",
         runStartupDemonstrations: development
             && env.STARTUP_DEMONSTRATIONS !== "false",

@@ -430,6 +430,18 @@ export function validateEnvironment(collector, env) {
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.LAUNCH_READINESS_ENABLED,
+        env.LAUNCH_READINESS_ENABLED
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.LAUNCH_REQUIRE_MAINNET_FOR_GA,
+        env.LAUNCH_REQUIRE_MAINNET_FOR_GA
+    );
+
+    validateBooleanField(
+        collector,
         ENVIRONMENT_SCHEMA.STARTUP_DEMONSTRATIONS,
         env.STARTUP_DEMONSTRATIONS
     );

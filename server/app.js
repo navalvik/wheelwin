@@ -49,6 +49,7 @@ import { DeploymentManager } from "./deployment/DeploymentManager.js";
 import { ReleaseManager } from "./release/ReleaseManager.js";
 import { ReleaseCertificationManager } from "./certification/ReleaseCertificationManager.js";
 import { ClosedBetaManager } from "./beta/ClosedBetaManager.js";
+import { LaunchReadinessManager } from "./launch/LaunchReadinessManager.js";
 
 import { CONNECTION_STATE } from "./models/ConnectionState.js";
 import { PLAYER_STATE } from "./models/PlayerState.js";
@@ -223,6 +224,8 @@ class WheelWinApplication {
         this._certificationManager = null;
 
         this._closedBetaManager = null;
+
+        this._launchReadinessManager = null;
 
         this._httpStats = {
             requests: 0,
@@ -420,6 +423,47 @@ class WheelWinApplication {
 
         this._logger.startupLine(
             `ClosedBetaManager (${this._closedBetaManager.getLifecycle()})`
+        );
+
+        // R8.0E — Open Beta / GA / Production launch gates (observational).
+        this._launchReadinessManager = LaunchReadinessManager.getInstance();
+
+        const launchConfig = this._productionConfig.launch ?? {};
+
+        this._launchReadinessManager.initialize({
+            config: {
+                enabled: launchConfig.enabled !== false,
+                requireMainnetForGa:
+                    launchConfig.requireMainnetForGa !== false
+            },
+            providers: {
+                closedBetaManager: this._closedBetaManager,
+                certificationManager: this._certificationManager,
+                releaseManager: this._releaseManager,
+                monitoringManager: this._monitoringManager,
+                healthSnapshot: () => this._healthService.getHealthSnapshot(),
+                deploymentHealth: () => this._deploymentManager
+                    ?.getHealthManager?.()
+                    ?.getSafeStatus?.() ?? null,
+                tonConfig: () => this._runtimeConfig?.ton ?? null,
+                safeConfiguration: () => this._runtimeConfig?.toSafeSummary?.()
+                    ?? null,
+                logging: () => LoggingManager.getInstance().getSafeStatus(),
+                failurePolicy: () => this._failurePolicyManager?.getSafeStatus?.()
+                    ?? null,
+                developerConsole: () => ({
+                    enabled: this._developerAuthService?.isEnabled?.() === true
+                }),
+                version: () => this._runtimeConfig?.version ?? null
+            }
+        });
+
+        this._healthService.setLaunchStatus(
+            this._launchReadinessManager.getSafeStatus()
+        );
+
+        this._logger.startupLine(
+            `LaunchReadinessManager (${this._launchReadinessManager.getLifecycle()})`
         );
 
         // R7.0B — process lifecycle (RUNNING → DRAINING → STOPPED).
@@ -1717,6 +1761,12 @@ class WheelWinApplication {
 
         }
 
+        if (this._launchReadinessManager) {
+
+            this._launchReadinessManager = null;
+
+        }
+
         if (this._prometheusServer) {
 
             try {
@@ -1776,6 +1826,7 @@ class WheelWinApplication {
                 releaseManager: this._releaseManager,
                 certificationManager: this._certificationManager,
                 closedBetaManager: this._closedBetaManager,
+                launchReadinessManager: this._launchReadinessManager,
                 httpStats: () => ({ ...this._httpStats }),
                 lifecycleState: () => this._lifecycleManager?.getState?.() ?? null,
                 environment: () => this._serverConfig?.nodeEnv ?? null,
@@ -1805,6 +1856,35 @@ class WheelWinApplication {
 
             this._healthService.setClosedBetaStatus(
                 this._closedBetaManager.getSafeStatus()
+            );
+
+        }
+
+        if (this._launchReadinessManager) {
+
+            this._launchReadinessManager.updateProviders({
+                closedBetaManager: this._closedBetaManager,
+                certificationManager: this._certificationManager,
+                releaseManager: this._releaseManager,
+                monitoringManager: this._monitoringManager,
+                healthSnapshot: () => this._healthService.getHealthSnapshot(),
+                deploymentHealth: () => this._deploymentManager
+                    ?.getHealthManager?.()
+                    ?.getSafeStatus?.() ?? null,
+                tonConfig: () => this._runtimeConfig?.ton ?? null,
+                safeConfiguration: () => this._runtimeConfig?.toSafeSummary?.()
+                    ?? null,
+                logging: () => LoggingManager.getInstance().getSafeStatus(),
+                failurePolicy: () => this._failurePolicyManager?.getSafeStatus?.()
+                    ?? null,
+                developerConsole: () => ({
+                    enabled: this._developerAuthService?.isEnabled?.() === true
+                }),
+                version: () => this._runtimeConfig?.version ?? null
+            });
+
+            this._healthService.setLaunchStatus(
+                this._launchReadinessManager.getSafeStatus()
             );
 
         }
@@ -1994,6 +2074,14 @@ class WheelWinApplication {
 
             this._healthService.setClosedBetaStatus(
                 this._closedBetaManager.getSafeStatus()
+            );
+
+        }
+
+        if (this._launchReadinessManager) {
+
+            this._healthService.setLaunchStatus(
+                this._launchReadinessManager.getSafeStatus()
             );
 
         }

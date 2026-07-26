@@ -17,6 +17,7 @@ import { DeploymentMetricsCollector } from "./DeploymentMetricsCollector.js";
 import { ReleaseMetricsCollector } from "./ReleaseMetricsCollector.js";
 import { CertificationMetricsCollector } from "./CertificationMetricsCollector.js";
 import { ClosedBetaMetricsCollector } from "./ClosedBetaMetricsCollector.js";
+import { LaunchReadinessMetricsCollector } from "./LaunchReadinessMetricsCollector.js";
 import { JsonMetricsExporter } from "./exporters/JsonMetricsExporter.js";
 import { PrometheusExporter } from "./exporters/PrometheusExporter.js";
 import { HealthMetricsProvider } from "./health/HealthMetricsProvider.js";
@@ -158,6 +159,9 @@ export class MonitoringManager {
                 intervalMs: intervals.systemMs ?? 5000
             }),
             new ClosedBetaMetricsCollector({
+                intervalMs: intervals.systemMs ?? 5000
+            }),
+            new LaunchReadinessMetricsCollector({
                 intervalMs: intervals.systemMs ?? 5000
             })
         ];
