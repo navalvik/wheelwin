@@ -246,6 +246,8 @@ class WheelWinApplication {
 
         this._isShuttingDown = false;
 
+        this._collectingRuntime = false;
+
     }
 
     async start() {
@@ -2298,101 +2300,148 @@ class WheelWinApplication {
      */
     _collectRuntime() {
 
-        const drain = this._lifecycleManager?.getSnapshot?.() ?? null;
+        // Re-entrancy guard: getHealthSnapshot() → runtime provider must not
+        // call getSafeStatus() paths that themselves request a health snapshot
+        // (launch / GA / ops / governance evaluate via healthSnapshot).
+        if (this._collectingRuntime) {
 
-        if (this._monitoringManager) {
+            const drain = this._lifecycleManager?.getSnapshot?.() ?? null;
 
-            this._healthService.setMonitoringStatus(
-                this._monitoringManager.getHealthStatus()
-            );
-
-        }
-
-        if (this._failurePolicyManager) {
-
-            this._healthService.setFailurePolicyStatus(
-                this._failurePolicyManager.getSafeStatus()
-            );
-
-        }
-
-        if (this._releaseManager) {
-
-            this._healthService.setReleaseStatus(
-                this._releaseManager.getSafeStatus()
-            );
-
-        }
-
-        if (this._certificationManager) {
-
-            this._healthService.setCertificationStatus(
-                this._certificationManager.getSafeStatus()
-            );
-
-        }
-
-        if (this._closedBetaManager) {
-
-            this._healthService.setClosedBetaStatus(
-                this._closedBetaManager.getSafeStatus()
-            );
+            return {
+                activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
+                activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
+                activeSimulations:
+                    this._engines?.physicsEngine?.getActiveSimulationCount?.()
+                        ?? 0,
+                activeTimers:
+                    this._engines?.gameClockEngine?.getActiveClockCount?.()
+                        ?? 0,
+                activeSockets:
+                    this._socketGateway?.getConnectedSocketCount?.() ?? 0,
+                pendingTeardowns:
+                    this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
+                pendingPayments:
+                    this._engines?.paymentEngine?.getActivePaymentCount?.()
+                        ?? 0,
+                pendingAudits:
+                    this._auditEngine?.getActiveAuditCount?.() ?? 0,
+                lifecycle: drain?.state ?? null,
+                ready: drain?.ready ?? null,
+                drainActivity: drain?.activity ?? null,
+                monitoring: this._monitoringManager?.getSnapshot?.()
+                    ?.toSafeSummary?.() ?? null
+            };
 
         }
 
-        if (this._launchReadinessManager) {
+        this._collectingRuntime = true;
 
-            this._healthService.setLaunchStatus(
-                this._launchReadinessManager.getSafeStatus()
-            );
+        try {
+
+            const drain = this._lifecycleManager?.getSnapshot?.() ?? null;
+
+            if (this._monitoringManager) {
+
+                this._healthService.setMonitoringStatus(
+                    this._monitoringManager.getHealthStatus()
+                );
+
+            }
+
+            if (this._failurePolicyManager) {
+
+                this._healthService.setFailurePolicyStatus(
+                    this._failurePolicyManager.getSafeStatus()
+                );
+
+            }
+
+            if (this._releaseManager) {
+
+                this._healthService.setReleaseStatus(
+                    this._releaseManager.getSafeStatus()
+                );
+
+            }
+
+            if (this._certificationManager) {
+
+                this._healthService.setCertificationStatus(
+                    this._certificationManager.getSafeStatus()
+                );
+
+            }
+
+            if (this._closedBetaManager) {
+
+                this._healthService.setClosedBetaStatus(
+                    this._closedBetaManager.getSafeStatus()
+                );
+
+            }
+
+            if (this._launchReadinessManager) {
+
+                this._healthService.setLaunchStatus(
+                    this._launchReadinessManager.getSafeStatus()
+                );
+
+            }
+
+            if (this._generalAvailabilityManager) {
+
+                this._healthService.setGaStatus(
+                    this._generalAvailabilityManager.getSafeStatus()
+                );
+
+            }
+
+            if (this._operationsManager) {
+
+                this._healthService.setOperationsStatus(
+                    this._operationsManager.getSafeStatus()
+                );
+
+            }
+
+            if (this._governanceManager) {
+
+                this._healthService.setGovernanceStatus(
+                    this._governanceManager.getSafeStatus()
+                );
+
+            }
+
+            return {
+                activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
+                activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
+                activeSimulations:
+                    this._engines?.physicsEngine?.getActiveSimulationCount?.()
+                        ?? 0,
+                activeTimers:
+                    this._engines?.gameClockEngine?.getActiveClockCount?.()
+                        ?? 0,
+                activeSockets:
+                    this._socketGateway?.getConnectedSocketCount?.() ?? 0,
+                pendingTeardowns:
+                    this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
+                pendingPayments:
+                    this._engines?.paymentEngine?.getActivePaymentCount?.()
+                        ?? 0,
+                pendingAudits:
+                    this._auditEngine?.getActiveAuditCount?.() ?? 0,
+                lifecycle: drain?.state ?? null,
+                ready: drain?.ready ?? null,
+                drainActivity: drain?.activity ?? null,
+                monitoring: this._monitoringManager?.getSnapshot?.()
+                    ?.toSafeSummary?.() ?? null
+            };
+
+        } finally {
+
+            this._collectingRuntime = false;
 
         }
-
-        if (this._generalAvailabilityManager) {
-
-            this._healthService.setGaStatus(
-                this._generalAvailabilityManager.getSafeStatus()
-            );
-
-        }
-
-        if (this._operationsManager) {
-
-            this._healthService.setOperationsStatus(
-                this._operationsManager.getSafeStatus()
-            );
-
-        }
-
-        if (this._governanceManager) {
-
-            this._healthService.setGovernanceStatus(
-                this._governanceManager.getSafeStatus()
-            );
-
-        }
-
-        return {
-            activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
-            activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
-            activeSimulations:
-                this._engines?.physicsEngine?.getActiveSimulationCount?.() ?? 0,
-            activeTimers:
-                this._engines?.gameClockEngine?.getActiveClockCount?.() ?? 0,
-            activeSockets:
-                this._socketGateway?.getConnectedSocketCount?.() ?? 0,
-            pendingTeardowns:
-                this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
-            pendingPayments:
-                this._engines?.paymentEngine?.getActivePaymentCount?.() ?? 0,
-            pendingAudits:
-                this._auditEngine?.getActiveAuditCount?.() ?? 0,
-            lifecycle: drain?.state ?? null,
-            ready: drain?.ready ?? null,
-            drainActivity: drain?.activity ?? null,
-            monitoring: this._monitoringManager?.getSnapshot?.()?.toSafeSummary?.()
-                ?? null
-        };
 
     }
 
@@ -3869,6 +3918,15 @@ application.start().catch((error) => {
 
         logger.error("Server startup failed", error);
 
+    }
+
+    try {
+
+        LoggingManager.getInstance().flushSync();
+
+    } catch {
+
+        // Best-effort: never mask the original startup failure.
     }
 
     process.exit(1);

@@ -543,7 +543,11 @@ export class SocketGateway {
 
         }
 
-        this._io = new Server(httpServer, this._socketConfig);
+        // Socket.IO mutates opts in place (e.g. connectionStateRecovery).
+        // Never pass RuntimeConfiguration.socket (deep-frozen) directly.
+        const socketOptions = structuredClone(this._socketConfig);
+
+        this._io = new Server(httpServer, socketOptions);
 
         this._io.on(SOCKET_EVENTS.CONNECTION, (socket) => {
 
