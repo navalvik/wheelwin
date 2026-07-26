@@ -538,6 +538,60 @@ function resolveLaunchConfig(env) {
 
 }
 
+function resolveGaReleaseConfig(env) {
+
+    const parseFlag = (key, fallback) => {
+
+        const parsed = parseBooleanStrict(env[key]);
+
+        if (!isMissing(env[key]) && parsed.ok !== true) {
+
+            throw new Error(`${key} must be true or false`);
+
+        }
+
+        return isMissing(env[key]) ? fallback : parsed.value === true;
+
+    };
+
+    const modeRaw = isMissing(env.GA_ROLLOUT_MODE)
+        ? "single"
+        : String(env.GA_ROLLOUT_MODE).trim().toLowerCase();
+
+    if (modeRaw !== "single" && modeRaw !== "staged") {
+
+        throw new Error("GA_ROLLOUT_MODE must be single or staged");
+
+    }
+
+    let postLaunchMonitoringHours = 72;
+
+    if (!isMissing(env.GA_POST_LAUNCH_MONITORING_HOURS)) {
+
+        const n = Number(env.GA_POST_LAUNCH_MONITORING_HOURS);
+
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
+
+            throw new Error(
+                "GA_POST_LAUNCH_MONITORING_HOURS must be a positive integer"
+            );
+
+        }
+
+        postLaunchMonitoringHours = n;
+
+    }
+
+    return {
+        enabled: parseFlag("GA_RELEASE_ENABLED", true),
+        rolloutMode: modeRaw,
+        verifyAfterRelease: parseFlag("GA_VERIFY_AFTER_RELEASE", true),
+        postLaunchMonitoringHours,
+        requireCertification: parseFlag("GA_REQUIRE_CERTIFICATION", true)
+    };
+
+}
+
 export function loadProductionConfig(env = process.env, serverConfig = null) {
 
     const nodeEnv = serverConfig?.nodeEnv || env.NODE_ENV || "development";
@@ -561,6 +615,8 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
     const closedBeta = resolveClosedBetaConfig(env);
 
     const launch = resolveLaunchConfig(env);
+
+    const ga = resolveGaReleaseConfig(env);
 
     const rawTimeout = env.GRACEFUL_SHUTDOWN_TIMEOUT_MS;
 
@@ -594,6 +650,7 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         release,
         closedBeta,
         launch,
+        ga,
         metricsEnabled: development || env.METRICS_ENABLED === "true",
         runStartupDemonstrations: development
             && env.STARTUP_DEMONSTRATIONS !== "false",

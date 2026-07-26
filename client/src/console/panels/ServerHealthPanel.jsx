@@ -475,6 +475,21 @@ export default function ServerHealthPanel() {
                         : undefined}
                 />
 
+                <StatCard
+                    label="GA Lifecycle"
+                    value={server.ga?.lifecycle ?? "—"}
+                />
+
+                <StatCard
+                    label="GA Verification"
+                    value={server.ga?.verificationStatus ?? "—"}
+                />
+
+                <StatCard
+                    label="GA Score"
+                    value={server.ga?.operationalScore ?? "—"}
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">

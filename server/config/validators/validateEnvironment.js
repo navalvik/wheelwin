@@ -442,6 +442,36 @@ export function validateEnvironment(collector, env) {
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.GA_RELEASE_ENABLED,
+        env.GA_RELEASE_ENABLED
+    );
+
+    validateEnumField(
+        collector,
+        ENVIRONMENT_SCHEMA.GA_ROLLOUT_MODE,
+        env.GA_ROLLOUT_MODE
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.GA_VERIFY_AFTER_RELEASE,
+        env.GA_VERIFY_AFTER_RELEASE
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.GA_POST_LAUNCH_MONITORING_HOURS,
+        env.GA_POST_LAUNCH_MONITORING_HOURS
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.GA_REQUIRE_CERTIFICATION,
+        env.GA_REQUIRE_CERTIFICATION
+    );
+
+    validateBooleanField(
+        collector,
         ENVIRONMENT_SCHEMA.STARTUP_DEMONSTRATIONS,
         env.STARTUP_DEMONSTRATIONS
     );

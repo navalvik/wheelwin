@@ -50,6 +50,7 @@ import { ReleaseManager } from "./release/ReleaseManager.js";
 import { ReleaseCertificationManager } from "./certification/ReleaseCertificationManager.js";
 import { ClosedBetaManager } from "./beta/ClosedBetaManager.js";
 import { LaunchReadinessManager } from "./launch/LaunchReadinessManager.js";
+import { GeneralAvailabilityManager } from "./ga/GeneralAvailabilityManager.js";
 
 import { CONNECTION_STATE } from "./models/ConnectionState.js";
 import { PLAYER_STATE } from "./models/PlayerState.js";
@@ -226,6 +227,8 @@ class WheelWinApplication {
         this._closedBetaManager = null;
 
         this._launchReadinessManager = null;
+
+        this._generalAvailabilityManager = null;
 
         this._httpStats = {
             requests: 0,
@@ -464,6 +467,52 @@ class WheelWinApplication {
 
         this._logger.startupLine(
             `LaunchReadinessManager (${this._launchReadinessManager.getLifecycle()})`
+        );
+
+        // R9.0A — General Availability release orchestration (observational).
+        this._generalAvailabilityManager =
+            GeneralAvailabilityManager.getInstance();
+
+        const gaConfig = this._productionConfig.ga ?? {};
+
+        this._generalAvailabilityManager.initialize({
+            config: {
+                enabled: gaConfig.enabled !== false,
+                rolloutMode: gaConfig.rolloutMode ?? "single",
+                verifyAfterRelease: gaConfig.verifyAfterRelease !== false,
+                postLaunchMonitoringHours:
+                    gaConfig.postLaunchMonitoringHours ?? 72,
+                requireCertification: gaConfig.requireCertification !== false
+            },
+            providers: {
+                closedBetaManager: this._closedBetaManager,
+                launchReadinessManager: this._launchReadinessManager,
+                certificationManager: this._certificationManager,
+                releaseManager: this._releaseManager,
+                monitoringManager: this._monitoringManager,
+                healthSnapshot: () => this._healthService.getHealthSnapshot(),
+                deploymentHealth: () => this._deploymentManager
+                    ?.getHealthManager?.()
+                    ?.getSafeStatus?.() ?? null,
+                tonConfig: () => this._runtimeConfig?.ton ?? null,
+                safeConfiguration: () => this._runtimeConfig?.toSafeSummary?.()
+                    ?? null,
+                logging: () => LoggingManager.getInstance().getSafeStatus(),
+                failurePolicy: () => this._failurePolicyManager?.getSafeStatus?.()
+                    ?? null,
+                developerConsole: () => ({
+                    enabled: this._developerAuthService?.isEnabled?.() === true
+                }),
+                version: () => this._runtimeConfig?.version ?? null
+            }
+        });
+
+        this._healthService.setGaStatus(
+            this._generalAvailabilityManager.getSafeStatus()
+        );
+
+        this._logger.startupLine(
+            `GeneralAvailabilityManager (${this._generalAvailabilityManager.getLifecycle()})`
         );
 
         // R7.0B — process lifecycle (RUNNING → DRAINING → STOPPED).
@@ -1767,6 +1816,12 @@ class WheelWinApplication {
 
         }
 
+        if (this._generalAvailabilityManager) {
+
+            this._generalAvailabilityManager = null;
+
+        }
+
         if (this._prometheusServer) {
 
             try {
@@ -1827,6 +1882,7 @@ class WheelWinApplication {
                 certificationManager: this._certificationManager,
                 closedBetaManager: this._closedBetaManager,
                 launchReadinessManager: this._launchReadinessManager,
+                generalAvailabilityManager: this._generalAvailabilityManager,
                 httpStats: () => ({ ...this._httpStats }),
                 lifecycleState: () => this._lifecycleManager?.getState?.() ?? null,
                 environment: () => this._serverConfig?.nodeEnv ?? null,
@@ -1885,6 +1941,36 @@ class WheelWinApplication {
 
             this._healthService.setLaunchStatus(
                 this._launchReadinessManager.getSafeStatus()
+            );
+
+        }
+
+        if (this._generalAvailabilityManager) {
+
+            this._generalAvailabilityManager.updateProviders({
+                closedBetaManager: this._closedBetaManager,
+                launchReadinessManager: this._launchReadinessManager,
+                certificationManager: this._certificationManager,
+                releaseManager: this._releaseManager,
+                monitoringManager: this._monitoringManager,
+                healthSnapshot: () => this._healthService.getHealthSnapshot(),
+                deploymentHealth: () => this._deploymentManager
+                    ?.getHealthManager?.()
+                    ?.getSafeStatus?.() ?? null,
+                tonConfig: () => this._runtimeConfig?.ton ?? null,
+                safeConfiguration: () => this._runtimeConfig?.toSafeSummary?.()
+                    ?? null,
+                logging: () => LoggingManager.getInstance().getSafeStatus(),
+                failurePolicy: () => this._failurePolicyManager?.getSafeStatus?.()
+                    ?? null,
+                developerConsole: () => ({
+                    enabled: this._developerAuthService?.isEnabled?.() === true
+                }),
+                version: () => this._runtimeConfig?.version ?? null
+            });
+
+            this._healthService.setGaStatus(
+                this._generalAvailabilityManager.getSafeStatus()
             );
 
         }
@@ -2082,6 +2168,14 @@ class WheelWinApplication {
 
             this._healthService.setLaunchStatus(
                 this._launchReadinessManager.getSafeStatus()
+            );
+
+        }
+
+        if (this._generalAvailabilityManager) {
+
+            this._healthService.setGaStatus(
+                this._generalAvailabilityManager.getSafeStatus()
             );
 
         }

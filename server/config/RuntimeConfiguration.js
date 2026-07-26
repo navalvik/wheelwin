@@ -187,6 +187,16 @@ export class RuntimeConfiguration {
                 enabled: this.production.launch?.enabled !== false,
                 requireMainnetForGa:
                     this.production.launch?.requireMainnetForGa !== false
+            }),
+            ga: Object.freeze({
+                enabled: this.production.ga?.enabled !== false,
+                rolloutMode: this.production.ga?.rolloutMode ?? "single",
+                verifyAfterRelease:
+                    this.production.ga?.verifyAfterRelease !== false,
+                postLaunchMonitoringHours:
+                    this.production.ga?.postLaunchMonitoringHours ?? 72,
+                requireCertification:
+                    this.production.ga?.requireCertification !== false
             })
         });
 

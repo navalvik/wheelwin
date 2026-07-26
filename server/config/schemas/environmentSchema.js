@@ -428,6 +428,44 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Launch",
         suggestedFix: "Set LAUNCH_REQUIRE_MAINNET_FOR_GA to true or false."
     }),
+    GA_RELEASE_ENABLED: Object.freeze({
+        key: "GA_RELEASE_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "GA",
+        suggestedFix: "Set GA_RELEASE_ENABLED to true or false."
+    }),
+    GA_ROLLOUT_MODE: Object.freeze({
+        key: "GA_ROLLOUT_MODE",
+        type: "enum",
+        required: false,
+        allowed: Object.freeze(["single", "staged"]),
+        category: "GA",
+        suggestedFix: "Set GA_ROLLOUT_MODE to single or staged."
+    }),
+    GA_VERIFY_AFTER_RELEASE: Object.freeze({
+        key: "GA_VERIFY_AFTER_RELEASE",
+        type: "boolean",
+        required: false,
+        category: "GA",
+        suggestedFix: "Set GA_VERIFY_AFTER_RELEASE to true or false."
+    }),
+    GA_POST_LAUNCH_MONITORING_HOURS: Object.freeze({
+        key: "GA_POST_LAUNCH_MONITORING_HOURS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "GA",
+        suggestedFix:
+            "Set GA_POST_LAUNCH_MONITORING_HOURS to a positive integer."
+    }),
+    GA_REQUIRE_CERTIFICATION: Object.freeze({
+        key: "GA_REQUIRE_CERTIFICATION",
+        type: "boolean",
+        required: false,
+        category: "GA",
+        suggestedFix: "Set GA_REQUIRE_CERTIFICATION to true or false."
+    }),
     STARTUP_DEMONSTRATIONS: Object.freeze({
         key: "STARTUP_DEMONSTRATIONS",
         type: "boolean",

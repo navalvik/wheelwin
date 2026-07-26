@@ -42,6 +42,9 @@ export class HealthService {
         /** @type {object|null} R8.0E launch readiness status */
         this._launchStatus = null;
 
+        /** @type {object|null} R9.0A GA status */
+        this._gaStatus = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -172,6 +175,17 @@ export class HealthService {
 
     }
 
+    /**
+     * R9.0A — Attach sanitized GA orchestration status.
+     */
+    setGaStatus(gaStatus) {
+
+        this._gaStatus = gaStatus
+            ? Object.freeze({ ...gaStatus })
+            : null;
+
+    }
+
     registerComponents(components) {
 
         this._componentRegistry = components;
@@ -270,7 +284,8 @@ export class HealthService {
             release: this._releaseStatus,
             certification: this._certificationStatus,
             closedBeta: this._closedBetaStatus,
-            launch: this._launchStatus
+            launch: this._launchStatus,
+            ga: this._gaStatus
         };
 
     }
