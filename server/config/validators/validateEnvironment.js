@@ -522,6 +522,42 @@ export function validateEnvironment(collector, env) {
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.GOVERNANCE_ENABLED,
+        env.GOVERNANCE_ENABLED
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.AUDIT_INTERVAL_DAYS,
+        env.AUDIT_INTERVAL_DAYS
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.COMPLIANCE_REQUIRED,
+        env.COMPLIANCE_REQUIRED
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.RISK_REVIEW_INTERVAL_DAYS,
+        env.RISK_REVIEW_INTERVAL_DAYS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.EVIDENCE_RETENTION_DAYS,
+        env.EVIDENCE_RETENTION_DAYS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.PLATFORM_REVIEW_INTERVAL_DAYS,
+        env.PLATFORM_REVIEW_INTERVAL_DAYS
+    );
+
+    validateBooleanField(
+        collector,
         ENVIRONMENT_SCHEMA.STARTUP_DEMONSTRATIONS,
         env.STARTUP_DEMONSTRATIONS
     );

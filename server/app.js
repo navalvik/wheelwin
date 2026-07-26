@@ -52,6 +52,7 @@ import { ClosedBetaManager } from "./beta/ClosedBetaManager.js";
 import { LaunchReadinessManager } from "./launch/LaunchReadinessManager.js";
 import { GeneralAvailabilityManager } from "./ga/GeneralAvailabilityManager.js";
 import { OperationsManager } from "./operations/OperationsManager.js";
+import { GovernanceManager } from "./governance/GovernanceManager.js";
 
 import { CONNECTION_STATE } from "./models/ConnectionState.js";
 import { PLAYER_STATE } from "./models/PlayerState.js";
@@ -232,6 +233,8 @@ class WheelWinApplication {
         this._generalAvailabilityManager = null;
 
         this._operationsManager = null;
+
+        this._governanceManager = null;
 
         this._httpStats = {
             requests: 0,
@@ -558,6 +561,62 @@ class WheelWinApplication {
 
         this._logger.startupLine(
             `OperationsManager (${this._operationsManager.getLifecycle()})`
+        );
+
+        // R9.0C — Long-term platform governance (observational audit only).
+        this._governanceManager = GovernanceManager.getInstance();
+
+        const governanceConfig = this._productionConfig.governance ?? {};
+
+        this._governanceManager.initialize({
+            config: {
+                enabled: governanceConfig.enabled !== false,
+                auditIntervalDays:
+                    governanceConfig.auditIntervalDays ?? 30,
+                complianceRequired:
+                    governanceConfig.complianceRequired !== false,
+                riskReviewIntervalDays:
+                    governanceConfig.riskReviewIntervalDays ?? 30,
+                evidenceRetentionDays:
+                    governanceConfig.evidenceRetentionDays ?? 365,
+                platformReviewIntervalDays:
+                    governanceConfig.platformReviewIntervalDays ?? 90
+            },
+            providers: {
+                metricsService: this._metricsService,
+                monitoringManager: this._monitoringManager,
+                healthSnapshot: () => this._healthService.getHealthSnapshot(),
+                deploymentHealth: () => this._deploymentManager
+                    ?.getHealthManager?.()
+                    ?.getSafeStatus?.() ?? null,
+                operationsManager: this._operationsManager,
+                closedBetaManager: this._closedBetaManager,
+                generalAvailabilityManager: this._generalAvailabilityManager,
+                releaseManager: this._releaseManager,
+                certificationManager: this._certificationManager,
+                failurePolicy: () => this._failurePolicyManager
+                    ?.getSafeStatus?.() ?? null,
+                safeConfiguration: () => this._runtimeConfig
+                    ?.toSafeSummary?.() ?? null,
+                developerConsole: () => ({
+                    enabled: this._developerAuthService?.isEnabled?.() === true
+                }),
+                tonConfig: () => this._runtimeConfig?.ton
+                    ? {
+                        network: this._runtimeConfig.ton.network ?? null,
+                        deployMode: this._runtimeConfig.ton.deployMode ?? null
+                    }
+                    : null,
+                version: () => this._runtimeConfig?.version ?? null
+            }
+        });
+
+        this._healthService.setGovernanceStatus(
+            this._governanceManager.getSafeStatus()
+        );
+
+        this._logger.startupLine(
+            `GovernanceManager (${this._governanceManager.getLifecycle()})`
         );
 
         // R7.0B — process lifecycle (RUNNING → DRAINING → STOPPED).
@@ -1873,6 +1932,12 @@ class WheelWinApplication {
 
         }
 
+        if (this._governanceManager) {
+
+            this._governanceManager = null;
+
+        }
+
         if (this._prometheusServer) {
 
             try {
@@ -1935,6 +2000,7 @@ class WheelWinApplication {
                 launchReadinessManager: this._launchReadinessManager,
                 generalAvailabilityManager: this._generalAvailabilityManager,
                 operationsManager: this._operationsManager,
+                governanceManager: this._governanceManager,
                 httpStats: () => ({ ...this._httpStats }),
                 lifecycleState: () => this._lifecycleManager?.getState?.() ?? null,
                 environment: () => this._serverConfig?.nodeEnv ?? null,
@@ -2045,6 +2111,42 @@ class WheelWinApplication {
 
             this._healthService.setOperationsStatus(
                 this._operationsManager.getSafeStatus()
+            );
+
+        }
+
+        if (this._governanceManager) {
+
+            this._governanceManager.updateProviders({
+                metricsService: this._metricsService,
+                monitoringManager: this._monitoringManager,
+                healthSnapshot: () => this._healthService.getHealthSnapshot(),
+                deploymentHealth: () => this._deploymentManager
+                    ?.getHealthManager?.()
+                    ?.getSafeStatus?.() ?? null,
+                operationsManager: this._operationsManager,
+                closedBetaManager: this._closedBetaManager,
+                generalAvailabilityManager: this._generalAvailabilityManager,
+                releaseManager: this._releaseManager,
+                certificationManager: this._certificationManager,
+                failurePolicy: () => this._failurePolicyManager
+                    ?.getSafeStatus?.() ?? null,
+                safeConfiguration: () => this._runtimeConfig
+                    ?.toSafeSummary?.() ?? null,
+                developerConsole: () => ({
+                    enabled: this._developerAuthService?.isEnabled?.() === true
+                }),
+                tonConfig: () => this._runtimeConfig?.ton
+                    ? {
+                        network: this._runtimeConfig.ton.network ?? null,
+                        deployMode: this._runtimeConfig.ton.deployMode ?? null
+                    }
+                    : null,
+                version: () => this._runtimeConfig?.version ?? null
+            });
+
+            this._healthService.setGovernanceStatus(
+                this._governanceManager.getSafeStatus()
             );
 
         }
@@ -2258,6 +2360,14 @@ class WheelWinApplication {
 
             this._healthService.setOperationsStatus(
                 this._operationsManager.getSafeStatus()
+            );
+
+        }
+
+        if (this._governanceManager) {
+
+            this._healthService.setGovernanceStatus(
+                this._governanceManager.getSafeStatus()
             );
 
         }

@@ -513,6 +513,54 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         suggestedFix:
             "Set VERSION_SUPPORT_WINDOW_DAYS to a positive integer."
     }),
+    GOVERNANCE_ENABLED: Object.freeze({
+        key: "GOVERNANCE_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Governance",
+        suggestedFix: "Set GOVERNANCE_ENABLED to true or false."
+    }),
+    AUDIT_INTERVAL_DAYS: Object.freeze({
+        key: "AUDIT_INTERVAL_DAYS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Governance",
+        suggestedFix: "Set AUDIT_INTERVAL_DAYS to a positive integer."
+    }),
+    COMPLIANCE_REQUIRED: Object.freeze({
+        key: "COMPLIANCE_REQUIRED",
+        type: "boolean",
+        required: false,
+        category: "Governance",
+        suggestedFix: "Set COMPLIANCE_REQUIRED to true or false."
+    }),
+    RISK_REVIEW_INTERVAL_DAYS: Object.freeze({
+        key: "RISK_REVIEW_INTERVAL_DAYS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Governance",
+        suggestedFix:
+            "Set RISK_REVIEW_INTERVAL_DAYS to a positive integer."
+    }),
+    EVIDENCE_RETENTION_DAYS: Object.freeze({
+        key: "EVIDENCE_RETENTION_DAYS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Governance",
+        suggestedFix: "Set EVIDENCE_RETENTION_DAYS to a positive integer."
+    }),
+    PLATFORM_REVIEW_INTERVAL_DAYS: Object.freeze({
+        key: "PLATFORM_REVIEW_INTERVAL_DAYS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Governance",
+        suggestedFix:
+            "Set PLATFORM_REVIEW_INTERVAL_DAYS to a positive integer."
+    }),
     STARTUP_DEMONSTRATIONS: Object.freeze({
         key: "STARTUP_DEMONSTRATIONS",
         type: "boolean",

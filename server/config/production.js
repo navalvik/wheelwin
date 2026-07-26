@@ -665,6 +665,62 @@ function resolveOperationsReleaseConfig(env) {
 
 }
 
+function resolveGovernanceReleaseConfig(env) {
+
+    const parseFlag = (key, fallback) => {
+
+        const parsed = parseBooleanStrict(env[key]);
+
+        if (!isMissing(env[key]) && parsed.ok !== true) {
+
+            throw new Error(`${key} must be true or false`);
+
+        }
+
+        return isMissing(env[key]) ? fallback : parsed.value === true;
+
+    };
+
+    const parsePositiveInt = (key, fallback) => {
+
+        if (isMissing(env[key])) {
+
+            return fallback;
+
+        }
+
+        const n = Number(env[key]);
+
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
+
+            throw new Error(`${key} must be a positive integer`);
+
+        }
+
+        return n;
+
+    };
+
+    return {
+        enabled: parseFlag("GOVERNANCE_ENABLED", true),
+        auditIntervalDays: parsePositiveInt("AUDIT_INTERVAL_DAYS", 30),
+        complianceRequired: parseFlag("COMPLIANCE_REQUIRED", true),
+        riskReviewIntervalDays: parsePositiveInt(
+            "RISK_REVIEW_INTERVAL_DAYS",
+            30
+        ),
+        evidenceRetentionDays: parsePositiveInt(
+            "EVIDENCE_RETENTION_DAYS",
+            365
+        ),
+        platformReviewIntervalDays: parsePositiveInt(
+            "PLATFORM_REVIEW_INTERVAL_DAYS",
+            90
+        )
+    };
+
+}
+
 export function loadProductionConfig(env = process.env, serverConfig = null) {
 
     const nodeEnv = serverConfig?.nodeEnv || env.NODE_ENV || "development";
@@ -692,6 +748,8 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
     const ga = resolveGaReleaseConfig(env);
 
     const operations = resolveOperationsReleaseConfig(env);
+
+    const governance = resolveGovernanceReleaseConfig(env);
 
     const rawTimeout = env.GRACEFUL_SHUTDOWN_TIMEOUT_MS;
 
@@ -727,6 +785,7 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         launch,
         ga,
         operations,
+        governance,
         metricsEnabled: development || env.METRICS_ENABLED === "true",
         runStartupDemonstrations: development
             && env.STARTUP_DEMONSTRATIONS !== "false",

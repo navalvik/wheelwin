@@ -211,6 +211,20 @@ export class RuntimeConfiguration {
                         ?.maintenanceDefaultDurationMinutes ?? 60,
                 versionSupportWindowDays:
                     this.production.operations?.versionSupportWindowDays ?? 90
+            }),
+            governance: Object.freeze({
+                enabled: this.production.governance?.enabled !== false,
+                auditIntervalDays:
+                    this.production.governance?.auditIntervalDays ?? 30,
+                complianceRequired:
+                    this.production.governance?.complianceRequired !== false,
+                riskReviewIntervalDays:
+                    this.production.governance?.riskReviewIntervalDays ?? 30,
+                evidenceRetentionDays:
+                    this.production.governance?.evidenceRetentionDays ?? 365,
+                platformReviewIntervalDays:
+                    this.production.governance?.platformReviewIntervalDays
+                        ?? 90
             })
         });
 

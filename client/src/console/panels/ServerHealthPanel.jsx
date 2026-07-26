@@ -505,6 +505,21 @@ export default function ServerHealthPanel() {
                     value={server.operations?.currentVersion ?? "—"}
                 />
 
+                <StatCard
+                    label="Governance State"
+                    value={server.governance?.lifecycle ?? "—"}
+                />
+
+                <StatCard
+                    label="Governance Score"
+                    value={server.governance?.governanceScore ?? "—"}
+                />
+
+                <StatCard
+                    label="Compliance Score"
+                    value={server.governance?.complianceScore ?? "—"}
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">

@@ -13,7 +13,8 @@
     "beta:report": "node scripts/run-closed-beta-report.js",
     "launch:report": "node scripts/run-launch-readiness-report.js",
     "ga:report": "node scripts/run-ga-release-report.js",
-    "operations:report": "node scripts/run-operations-report.js"
+    "operations:report": "node scripts/run-operations-report.js",
+    "governance:report": "node scripts/run-governance-report.js"
   },
   "dependencies": {
     "@ton/core": "^0.63.1",

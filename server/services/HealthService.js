@@ -48,6 +48,9 @@ export class HealthService {
         /** @type {object|null} R9.0B operations status */
         this._operationsStatus = null;
 
+        /** @type {object|null} R9.0C governance status */
+        this._governanceStatus = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -200,6 +203,17 @@ export class HealthService {
 
     }
 
+    /**
+     * R9.0C — Attach sanitized governance status.
+     */
+    setGovernanceStatus(governanceStatus) {
+
+        this._governanceStatus = governanceStatus
+            ? Object.freeze({ ...governanceStatus })
+            : null;
+
+    }
+
     registerComponents(components) {
 
         this._componentRegistry = components;
@@ -300,7 +314,8 @@ export class HealthService {
             closedBeta: this._closedBetaStatus,
             launch: this._launchStatus,
             ga: this._gaStatus,
-            operations: this._operationsStatus
+            operations: this._operationsStatus,
+            governance: this._governanceStatus
         };
 
     }
