@@ -24,7 +24,10 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         type: "string",
         required: true,
         category: "Server",
-        suggestedFix: "Set CLIENT_ORIGIN to the frontend origin (e.g. http://localhost:5173)."
+        suggestedFix:
+            "Set CLIENT_ORIGIN to the frontend origin, or comma-separated "
+            + "origins for LAN (e.g. http://localhost:5173,"
+            + "http://192.168.0.104:5173)."
     }),
     NODE_ENV: Object.freeze({
         key: "NODE_ENV",

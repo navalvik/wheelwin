@@ -976,8 +976,14 @@ export class SocketGateway {
 
             }
 
+            const claim = {
+                playerId: message?.payload?.playerId ?? null,
+                roomId: message?.payload?.roomId ?? null
+            };
+
             const reconnected = this._roomLobbyBridge.reconnectGameplaySession(
-                socket.id
+                socket.id,
+                claim
             );
 
             if (!reconnected.ok) {
@@ -1007,10 +1013,10 @@ export class SocketGateway {
 
         const roomId = context.roomId;
 
-        if (!gameId) {
+        if (!gameId || context.setupActive) {
 
-            // C5.6C — Setup Session reconnect already delivered SETUP_SESSION_SYNC.
-            // RecoveryEngine remains gameplay-only and must not be invoked.
+            // C5.6C / R6.1 — Setup Session reconnect already delivered
+            // SETUP_SESSION_SYNC. RecoveryEngine remains gameplay-only.
             if (context.setupActive) {
 
                 this._logRecoveryStep(

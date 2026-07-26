@@ -32,7 +32,9 @@ export function validateEnvironmentVariables({
 
     }
 
-    if (!serverConfig.clientOrigin) {
+    if (!serverConfig.clientOrigin
+        || (Array.isArray(serverConfig.clientOrigin)
+            && serverConfig.clientOrigin.length === 0)) {
 
         errors.push("CLIENT_ORIGIN is required");
 

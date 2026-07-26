@@ -578,13 +578,9 @@ function activateGame(stack, gameId, playerIds) {
             "soft disconnect must preserve player during gameplay"
         );
 
-        assert(
-            stack.roomLobbyBridge.transferRecoveryOwnership("socket-a", "socket-b"),
-            "recovery ownership must transfer for a new socket"
-        );
-
         const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
-            "socket-b"
+            "socket-b",
+            { playerId, roomId: room.roomId }
         );
 
         assert(reconnected.ok, "gameplay reconnect should succeed");
@@ -641,13 +637,24 @@ function activateGame(stack, gameId, playerIds) {
             "an unbound socket must not recover another player's session"
         );
 
+        const forgedClaim = stack.roomLobbyBridge.reconnectGameplaySession(
+            "attacker-socket",
+            { playerId: "forged-player", roomId: room.roomId }
+        );
+
+        assert(
+            !forgedClaim.ok,
+            "a forged playerId claim must not invent recovery ownership"
+        );
+
         const legitimate = stack.roomLobbyBridge.reconnectGameplaySession(
-            "victim-socket"
+            "socket-new",
+            { playerId, roomId: room.roomId }
         );
 
         assert(
             legitimate.ok,
-            "the legitimate disconnected socket must still recover"
+            "the legitimate playerId claim must recover on a new socket"
         );
 
         console.log("  scenario 4 (RC-1 forged recovery rejected) passed");

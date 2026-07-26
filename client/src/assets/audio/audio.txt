@@ -1,0 +1,29 @@
+spin_loop.ogg     < непрерывный звук вращения
+brake.ogg         < начало торможения
+stop.ogg          < окончательная остановка
+self_test.ogg     < тестовая прокрутка при SELF_TEST
+
+
+
+client/
+L-- src/
+    L-- assets/
+        L-- audio/
+            +-- wheel/
+            ¦   +-- spin_loop.ogg
+            ¦   +-- brake.ogg
+            ¦   +-- stop.ogg
+            ¦   L-- self_test.ogg
+            ¦
+            +-- ui/
+            ¦   +-- button_click.ogg
+            ¦   +-- countdown.ogg
+            ¦   L-- notification.ogg
+            ¦
+            +-- payment/
+            ¦   +-- payment_ok.ogg
+            ¦   L-- payment_failed.ogg
+            ¦
+            L-- result/
+                +-- winner.ogg
+                L-- loser.ogg

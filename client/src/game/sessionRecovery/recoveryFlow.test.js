@@ -5,6 +5,7 @@ import {
     hasGameplayIdentity,
     isGameplayPage,
     isPreGamePage,
+    isSetupRecoveryPage,
     resolveGameplayRecoveryPage
 } from "./recoveryFlow.js";
 
@@ -31,6 +32,18 @@ function assert(condition, message) {
     assert(isPreGamePage(APP_PAGES.PAYMENT), "page 6 is pre-game");
 
     assert(!isPreGamePage(APP_PAGES.GAMEPLAY), "page 7 is not pre-game");
+
+    assert(isSetupRecoveryPage(APP_PAGES.LOBBY), "lobby is setup-recoverable");
+
+    assert(
+        isSetupRecoveryPage(APP_PAGES.PLAYER_SETUP),
+        "prep pages are setup-recoverable"
+    );
+
+    assert(
+        !isSetupRecoveryPage(APP_PAGES.GAMEPLAY),
+        "gameplay is not setup-recoverable"
+    );
 
     assert(
         canRecoverPreGame({

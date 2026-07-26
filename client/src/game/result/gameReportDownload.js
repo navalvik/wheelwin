@@ -2,6 +2,9 @@
  * R6.4 — Deterministic TXT rendering of an authoritative Game Report.
  * Kept for server parity / tests; Page6 downloads use the native HTTP endpoint.
  */
+
+import { resolveBackendUrl } from "../../config/backendUrl.js";
+
 export function formatGameReportAsText(report) {
 
     if (!report) {
@@ -150,7 +153,7 @@ function formatMoney(amount, currency) {
 
 }
 
-const SERVER_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3001";
+const SERVER_URL = resolveBackendUrl();
 
 /**
  * R6.5B — Native browser download of an already-generated Game Report.

@@ -3,6 +3,8 @@
  * Namespace `/console` only — never the gameplay socket.
  */
 
+import { resolveBackendUrl } from "../config/backendUrl.js";
+
 export const CONSOLE_NAMESPACE = "/console";
 
 export const CONSOLE_CLIENT_EVENTS = Object.freeze({
@@ -33,5 +35,4 @@ export const CONSOLE_CONNECTION_STATES = Object.freeze({
 });
 
 export const CONSOLE_SOCKET_URL =
-    (import.meta.env.VITE_SOCKET_URL || "http://localhost:3001")
-    + CONSOLE_NAMESPACE;
+    resolveBackendUrl() + CONSOLE_NAMESPACE;

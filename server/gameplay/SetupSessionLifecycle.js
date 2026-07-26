@@ -185,6 +185,25 @@ export class SetupSessionLifecycle {
 
     }
 
+    /**
+     * R6.1 — True while the Setup Session wall-clock window still owns the
+     * room (ACTIVE lobby or COMPLETED prep). Soft disconnect / reclaim apply.
+     */
+    isRecoverable(roomId) {
+
+        const session = this._sessions.get(roomId);
+
+        if (!session) {
+
+            return false;
+
+        }
+
+        return session.state === SETUP_SESSION_STATUS.ACTIVE
+            || session.state === SETUP_SESSION_STATUS.COMPLETED;
+
+    }
+
     buildSyncPayload(roomId, now = Date.now()) {
 
         const session = this._sessions.get(roomId);

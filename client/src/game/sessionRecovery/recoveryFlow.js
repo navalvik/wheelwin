@@ -27,6 +27,12 @@ const PRE_GAME_PAGES = Object.freeze([
     APP_PAGES.PAYMENT
 ]);
 
+/** R6.1 — Pages that may reclaim an active Setup Session seat. */
+const SETUP_RECOVERY_PAGES = Object.freeze([
+    APP_PAGES.LOBBY,
+    ...PRE_GAME_PAGES
+]);
+
 const GAMEPLAY_PAGES = Object.freeze([
     APP_PAGES.GAMEPLAY,
     APP_PAGES.RESULT
@@ -43,6 +49,13 @@ const ACTIVE_GAMEPLAY_STATES = Object.freeze([
 export function isPreGamePage(page) {
 
     return PRE_GAME_PAGES.includes(page);
+
+}
+
+/** R6.1 — Lobby + prep pages while Setup Session owns the room. */
+export function isSetupRecoveryPage(page) {
+
+    return SETUP_RECOVERY_PAGES.includes(page);
 
 }
 

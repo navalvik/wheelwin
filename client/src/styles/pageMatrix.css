@@ -213,62 +213,99 @@
 }
 
 /* ==========================================================
-   DESKTOP — match Page2PlayerSetup visual scale
+   DESKTOP — fit GameLayout contentArea without zoom/overflow
+   (tablet 601–991px and mobile ≤600px unchanged above)
 ========================================================== */
 
 @media (min-width: 992px) {
 
     .pageMatrix {
 
-        justify-content: flex-start;
+        --pm-gap: clamp(8px, 1.2vh, 14px);
+        --pm-pad: clamp(8px, 1.2vh, 14px);
+        --pm-font-sm: clamp(13px, 1.55vh, 16px);
+        --pm-matrix-cell: clamp(52px, min(8vh, 8.5vw), 88px);
 
-        padding: 12px 24px;
+        justify-content: center;
+
+        padding: var(--pm-pad) clamp(16px, 2vw, 24px);
+
+        min-height: 0;
     }
 
     .matrixPanel {
 
-        width: min(82%, 773px);
+        width: min(100%, 680px);
 
-        max-width: none;
+        max-width: 680px;
+
+        max-height: 100%;
+
+        min-height: 0;
 
         height: auto;
 
         margin: 0 auto;
 
-        gap: clamp(16px, 2.1vh, 25px);
+        gap: var(--pm-gap);
 
         padding:
-            clamp(14px, 1.4vh, 20px)
-            clamp(18px, 1.9vw, 30px)
-            clamp(17px, 1.4vh, 22px);
+            clamp(12px, 1.4vh, 18px)
+            clamp(16px, 2vw, 28px);
+
+        overflow: hidden;
     }
 
     .matrixTitle {
 
-        font-size: clamp(30px, 3.8vh, 43px);
+        font-size: clamp(22px, 2.6vh, 32px);
+
+        line-height: 1.2;
+
+        flex-shrink: 0;
     }
 
     .matrixInstruction {
 
-        max-width: min(860px, 92%);
+        max-width: 100%;
 
-        font-size: clamp(19px, 2.1vh, 25px);
+        font-size: var(--pm-font-sm);
 
-        line-height: 1.5;
+        line-height: 1.4;
+
+        flex-shrink: 0;
     }
 
     .matrixSection {
 
-        gap: clamp(56px, 7vw, 140px);
+        gap: clamp(16px, 2.5vw, 40px);
 
-        padding-top: clamp(10px, 1.2vh, 18px);
+        padding-top: clamp(2px, 0.6vh, 10px);
+
+        width: 100%;
+
+        max-width: 100%;
+
+        min-width: 0;
+
+        min-height: 0;
+
+        flex: 1 1 auto;
+
+        align-self: stretch;
     }
 
     .matrix {
 
-        --matrix-cell-size: clamp(88px, 11vh, 128px);
+        --matrix-cell-size: var(--pm-matrix-cell);
 
-        gap: clamp(14px, 1.5vh, 20px);
+        gap: clamp(8px, 1vh, 12px);
+
+        flex-shrink: 1;
+
+        min-width: 0;
+
+        min-height: 0;
     }
 
     .matrixCell {
@@ -277,22 +314,67 @@
 
         border-radius: 12px;
 
-        font-size: clamp(41px, 5.4vh, 61px);
+        font-size: clamp(22px, 3vh, 40px);
     }
 
     .matrixText {
 
-        max-width: min(380px, 30%);
+        flex: 1 1 auto;
 
-        font-size: clamp(19px, 2.1vh, 25px);
+        max-width: min(260px, 38%);
 
-        line-height: 1.45;
+        min-width: 0;
+
+        font-size: var(--pm-font-sm);
+
+        line-height: 1.4;
     }
+
+}
+
+/* Short desktop viewports (e.g. 1366×768 content band) */
+
+@media (min-width: 992px) and (max-height: 820px) {
+
+    .pageMatrix {
+
+        --pm-gap: clamp(6px, 1vh, 10px);
+        --pm-pad: clamp(6px, 1vh, 10px);
+        --pm-font-sm: clamp(12px, 1.45vh, 14px);
+        --pm-matrix-cell: clamp(44px, 7.2vh, 68px);
+    }
+
+    .matrixTitle {
+
+        font-size: clamp(20px, 2.4vh, 26px);
+    }
+
+    .matrixCell {
+
+        font-size: clamp(20px, 2.8vh, 32px);
+
+        border-radius: 10px;
+    }
+
+    .matrixSection {
+
+        gap: clamp(12px, 2vw, 28px);
+
+        padding-top: 0;
+    }
+
 }
 
 @media (max-width: 600px) {
 
     .pageMatrix {
+
+        /* Content band is shorter once InfoBar fits in 100svh; keep the
+           matrix usable without relying on page-level scroll. */
+        --pm-gap: clamp(4px, 0.6vh, 8px);
+        --pm-pad: clamp(6px, 0.8vh, 10px);
+        --pm-font-sm: clamp(11px, 1.3vh, 13px);
+        --pm-matrix-cell: clamp(36px, 5.5vh, 56px);
 
         justify-content: flex-start;
 
@@ -302,5 +384,14 @@
     .matrixPanel {
 
         border-radius: 12px;
+
+        max-height: 100%;
+
+        min-height: 0;
+    }
+
+    .matrixCell {
+
+        font-size: clamp(16px, 2.4vh, 22px);
     }
 }

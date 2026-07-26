@@ -82,6 +82,7 @@ function buildRebindStack() {
         playerManager,
         roomManager,
         gameplayContextResolver,
+        setupSessionLifecycle,
         roomLobbyBridge,
         shutdown() {
 
@@ -459,16 +460,9 @@ function tryGameplayInput(stack, socketId, playerId) {
 
         stack.roomLobbyBridge._handleSocketDisconnected("socket-old");
 
-        assert(
-            stack.roomLobbyBridge.transferRecoveryOwnership(
-                "socket-old",
-                "socket-refresh"
-            ),
-            "refresh must transfer server-owned recovery identity"
-        );
-
         const refreshed = stack.roomLobbyBridge.reconnectGameplaySession(
-            "socket-refresh"
+            "socket-refresh",
+            { playerId, roomId: room.roomId }
         );
 
         assert(refreshed.ok, "refresh reconnect must succeed");
@@ -517,29 +511,35 @@ function tryGameplayInput(stack, socketId, playerId) {
 
         stack.roomLobbyBridge._attachSocketToRoom("socket-setup-a", room.roomId);
 
-        stack.roomLobbyBridge._startedRooms.add(room.roomId);
-
-        stack.eventBus.emit({
-            source: "test",
-            type: EVENT_TYPES.SETUP_SESSION_STARTED,
-            payload: { roomId: room.roomId }
-        });
+        // Soft protect begins at Setup Session (createRoom attaches lifecycle).
+        assert(
+            stack.setupSessionLifecycle.isRecoverable(room.roomId),
+            "setup session must be recoverable after room create"
+        );
 
         stack.roomLobbyBridge._handleSocketDisconnected("socket-setup-a");
 
         assert(
-            stack.roomLobbyBridge.transferRecoveryOwnership(
-                "socket-setup-a",
-                "socket-setup-b"
-            ),
-            "setup reconnect must transfer recovery ownership"
+            stack.playerManager.hasPlayer(playerId),
+            "setup soft disconnect must preserve player"
+        );
+
+        assert(
+            stack.roomManager.getRoom(room.roomId),
+            "setup soft disconnect must preserve room"
         );
 
         const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
-            "socket-setup-b"
+            "socket-setup-b",
+            { playerId, roomId: room.roomId }
         );
 
         assert(reconnected.ok, "setup reconnect must succeed");
+
+        assert(
+            reconnected.setupActive === true,
+            "setup reconnect must report setupActive"
+        );
 
         assert(
             stack.roomLobbyBridge._playerToSocket.get(playerId) === "socket-setup-b",

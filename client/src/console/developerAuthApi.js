@@ -3,11 +3,13 @@
  * Completely independent of gameplay sockets / player identity.
  */
 
+import { resolveBackendUrl } from "../config/backendUrl.js";
+
 const STORAGE_KEY = "wheelwin.developerAuth.session";
 
 export function getConsoleApiBase() {
 
-    return import.meta.env.VITE_SOCKET_URL || "http://localhost:3001";
+    return resolveBackendUrl();
 
 }
 

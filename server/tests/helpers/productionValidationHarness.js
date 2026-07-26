@@ -418,7 +418,7 @@ export async function buildProductionStack() {
     }
 
     // Real gameplay reconnect: identity is resolved server-side from stashed
-    // socket ownership. A new socket id (page refresh) transfers that stash.
+    // player ownership. A new socket id presents a playerId claim only.
     function reconnect(playerId, roomId, socketId) {
 
         const previousSocketId = disconnectedSockets.get(playerId)
@@ -428,21 +428,10 @@ export async function buildProductionStack() {
             ?? previousSocketId
             ?? `reconnect-${playerId}-${Date.now()}`;
 
-        if (socketId && previousSocketId && socketId !== previousSocketId) {
-
-            const transferred = roomLobbyBridge.transferRecoveryOwnership(
-                previousSocketId,
-                socketId
-            );
-
-            assert(
-                transferred,
-                `reconnect: no recovery ownership to transfer for ${playerId}`
-            );
-
-        }
-
-        return roomLobbyBridge.reconnectGameplaySession(targetSocketId);
+        return roomLobbyBridge.reconnectGameplaySession(
+            targetSocketId,
+            { playerId, roomId }
+        );
 
     }
 

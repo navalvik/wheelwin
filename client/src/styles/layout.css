@@ -134,6 +134,36 @@
     overflow:hidden;
 }
 
+/* Mobile: 100vh exceeds the visible viewport (browser chrome), so the
+   InfoBar grid row sits below the fold while body overflow:hidden
+   prevents scrolling to it. Use the small viewport height so Banner,
+   Header, content, and InfoBar all remain on-screen. Desktop/tablet
+   keep height:100vh above. */
+@media (max-width: 600px) {
+
+    .gameLayout,
+    .gameLayout--withInfoBar {
+
+        height: 100vh; /* fallback */
+
+        height: 100svh;
+
+        max-height: 100svh;
+    }
+
+    .gameLayout--withInfoBar {
+
+        /* Keep InfoBar as a non-shrinking row; content absorbs squeeze. */
+        grid-template-rows: 15% 10% minmax(0, 1fr) min-content;
+    }
+
+    .infoBar {
+
+        flex-shrink: 0;
+    }
+
+}
+
 .welcomePanel{
 
     height:100%;

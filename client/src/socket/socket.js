@@ -1,6 +1,8 @@
 import { io } from "socket.io-client";
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3001";
+import { resolveBackendUrl } from "../config/backendUrl.js";
+
+const SOCKET_URL = resolveBackendUrl();
 
 const socket = io(SOCKET_URL, {
 

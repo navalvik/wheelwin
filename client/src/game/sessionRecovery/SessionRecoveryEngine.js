@@ -201,10 +201,14 @@ export class SessionRecoveryEngine {
 
         this._setConnectionState(RECOVERY_CONNECTION_STATES.RESYNCHRONIZING);
 
+        const identity = this._getPlayerIdentity?.() ?? {};
+
         this._sendMessage?.(
             RECOVERY_SOCKET_EVENTS.SESSION_RECOVERY_REQUEST,
             {
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                playerId: identity.playerId ?? null,
+                roomId: identity.roomId ?? null
             }
         );
 

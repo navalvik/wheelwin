@@ -16,13 +16,16 @@ import {
     canRecoverPreGame,
     hasGameplayIdentity,
     isGameplayPage,
-    isPreGamePage,
+    isSetupRecoveryPage,
     resolveGameplayRecoveryPage
 } from "../game/sessionRecovery/recoveryFlow";
 
 import { RECOVERY_SOCKET_EVENTS } from "../game/sessionRecovery/sessionRecoveryEvents";
 
-import { SOCKET_MESSAGE_CHANNEL } from "../socket/socketEvents";
+import {
+    INCOMING_SOCKET_EVENTS,
+    SOCKET_MESSAGE_CHANNEL
+} from "../socket/socketEvents";
 
 import socket from "../socket/socket";
 
@@ -32,7 +35,11 @@ import { useAuthoritativeSession } from "./AuthoritativeSessionContext";
 
 import { useGameSession } from "./GameSessionContext";
 
-import { usePlayerIdentity } from "./PlayerIdentityContext";
+import {
+    readStoredRecoveryPage,
+    usePlayerIdentity,
+    writeStoredRecoveryPage
+} from "./PlayerIdentityContext";
 
 const RecoveryExperienceContext = createContext(null);
 
@@ -98,7 +105,11 @@ export function RecoveryExperienceProvider({
 
     }, [clearOverlayTimer]);
 
-    const requestGameplayRecovery = useCallback(() => {
+    /**
+     * R6.1 — Authoritative recovery for Setup Session and gameplay.
+     * Sends a playerId/roomId claim used only as a server stash lookup key.
+     */
+    const requestSessionRecovery = useCallback(() => {
 
         const identity = getIdentity();
 
@@ -117,15 +128,49 @@ export function RecoveryExperienceProvider({
         socket.emit(SOCKET_MESSAGE_CHANNEL, {
             type: RECOVERY_SOCKET_EVENTS.SESSION_RECOVERY_REQUEST,
             payload: {
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                playerId: identity.playerId,
+                roomId: identity.roomId
             }
         });
 
     }, [getIdentity]);
 
+    const handleSetupRecoveryComplete = useCallback(() => {
+
+        if (!recoveryInFlightRef.current) {
+
+            return;
+
+        }
+
+        recoveryInFlightRef.current = false;
+
+        const restoredPage = readStoredRecoveryPage();
+
+        if (
+            restoredPage
+            && isSetupRecoveryPage(restoredPage)
+            && restoredPage !== currentPage
+        ) {
+
+            onNavigate(restoredPage);
+
+        }
+
+        setStatus(RECOVERY_UI_STATUS.COMPLETE);
+
+        devLog(`Setup Session restored on page ${restoredPage ?? currentPage}`);
+
+        scheduleOverlayHide();
+
+    }, [currentPage, onNavigate, scheduleOverlayHide]);
+
     const handlePreGameReconnect = useCallback(() => {
 
         if (!canRecoverPreGame(session, authoritative.setup)) {
+
+            recoveryInFlightRef.current = false;
 
             devLog("Setup timer expired — returning to welcome");
 
@@ -143,11 +188,8 @@ export function RecoveryExperienceProvider({
 
         }
 
-        setStatus(RECOVERY_UI_STATUS.COMPLETE);
-
-        devLog(`Pre-game restored on page ${currentPage}`);
-
-        scheduleOverlayHide();
+        // R6.1 — Real server rebind; do not restore UI alone.
+        requestSessionRecovery();
 
     }, [
         session,
@@ -155,8 +197,8 @@ export function RecoveryExperienceProvider({
         destroySession,
         clearIdentity,
         onNavigate,
-        currentPage,
-        scheduleOverlayHide
+        scheduleOverlayHide,
+        requestSessionRecovery
     ]);
 
     const handleGameplaySnapshot = useCallback((payload) => {
@@ -214,15 +256,40 @@ export function RecoveryExperienceProvider({
         scheduleOverlayHide
     ]);
 
-    const handleRecoveryFailed = useCallback(() => {
+    const handleRecoveryFailed = useCallback((payload) => {
 
         recoveryInFlightRef.current = false;
 
         setStatus(RECOVERY_UI_STATUS.FAILED);
 
-        devLog("Recovery failed");
+        devLog(`Recovery failed: ${payload?.reason ?? "unknown"}`);
 
-    }, []);
+        if (
+            isSetupRecoveryPage(currentPage)
+            || currentPage === APP_PAGES.WELCOME
+        ) {
+
+            destroySession();
+
+            clearIdentity();
+
+            if (currentPage !== APP_PAGES.WELCOME) {
+
+                onNavigate(APP_PAGES.WELCOME);
+
+            }
+
+            scheduleOverlayHide();
+
+        }
+
+    }, [
+        currentPage,
+        destroySession,
+        clearIdentity,
+        onNavigate,
+        scheduleOverlayHide
+    ]);
 
     const returnToLobby = useCallback(() => {
 
@@ -250,6 +317,75 @@ export function RecoveryExperienceProvider({
 
     }, []);
 
+    // Persist page so a refresh can return to the same Setup Session surface.
+    useEffect(() => {
+
+        if (isSetupRecoveryPage(currentPage) || isGameplayPage(currentPage)) {
+
+            writeStoredRecoveryPage(currentPage);
+
+        }
+
+    }, [currentPage]);
+
+    // Scenario C — browser refresh: identity restored from sessionStorage;
+    // request authoritative reclaim once the socket is connected.
+    useEffect(() => {
+
+        const identity = getIdentity();
+
+        if (!hasGameplayIdentity(identity)) {
+
+            return;
+
+        }
+
+        if (currentPage !== APP_PAGES.WELCOME) {
+
+            return;
+
+        }
+
+        const storedPage = readStoredRecoveryPage();
+
+        if (!storedPage || !isSetupRecoveryPage(storedPage)) {
+
+            return;
+
+        }
+
+        function tryBootRecovery() {
+
+            if (!socket.connected || recoveryInFlightRef.current) {
+
+                return;
+
+            }
+
+            hadDisconnectRef.current = true;
+
+            setStatus(RECOVERY_UI_STATUS.RECONNECTING);
+
+            requestSessionRecovery();
+
+        }
+
+        if (socket.connected) {
+
+            tryBootRecovery();
+
+        }
+
+        socket.on("connect", tryBootRecovery);
+
+        return () => {
+
+            socket.off("connect", tryBootRecovery);
+
+        };
+
+    }, [currentPage, getIdentity, requestSessionRecovery]);
+
     useEffect(() => {
 
         function onConnect() {
@@ -262,7 +398,7 @@ export function RecoveryExperienceProvider({
 
             devLog("Reconnect detected");
 
-            if (isPreGamePage(currentPage)) {
+            if (isSetupRecoveryPage(currentPage)) {
 
                 handlePreGameReconnect();
 
@@ -274,7 +410,7 @@ export function RecoveryExperienceProvider({
 
             if (isGameplayPage(currentPage)) {
 
-                requestGameplayRecovery();
+                requestSessionRecovery();
 
                 hadDisconnectRef.current = false;
 
@@ -284,7 +420,7 @@ export function RecoveryExperienceProvider({
 
         function onDisconnect() {
 
-            if (!isPreGamePage(currentPage) && !isGameplayPage(currentPage)) {
+            if (!isSetupRecoveryPage(currentPage) && !isGameplayPage(currentPage)) {
 
                 return;
 
@@ -294,7 +430,7 @@ export function RecoveryExperienceProvider({
 
             setStatus(RECOVERY_UI_STATUS.RECONNECTING);
 
-            devLog("Reconnect detected");
+            devLog("Disconnect detected");
 
         }
 
@@ -322,11 +458,23 @@ export function RecoveryExperienceProvider({
 
         }
 
+        function onSetupSessionSync() {
+
+            if (isSetupRecoveryPage(currentPage)) {
+
+                handleSetupRecoveryComplete();
+
+            }
+
+        }
+
         socket.on("connect", onConnect);
 
         socket.on("disconnect", onDisconnect);
 
         socket.on(SOCKET_MESSAGE_CHANNEL, onGameMessage);
+
+        socket.on(INCOMING_SOCKET_EVENTS.SETUP_SESSION_SYNC, onSetupSessionSync);
 
         return () => {
 
@@ -336,6 +484,11 @@ export function RecoveryExperienceProvider({
 
             socket.off(SOCKET_MESSAGE_CHANNEL, onGameMessage);
 
+            socket.off(
+                INCOMING_SOCKET_EVENTS.SETUP_SESSION_SYNC,
+                onSetupSessionSync
+            );
+
             clearOverlayTimer();
 
         };
@@ -343,9 +496,10 @@ export function RecoveryExperienceProvider({
     }, [
         currentPage,
         handlePreGameReconnect,
-        requestGameplayRecovery,
+        requestSessionRecovery,
         handleGameplaySnapshot,
         handleRecoveryFailed,
+        handleSetupRecoveryComplete,
         clearOverlayTimer
     ]);
 

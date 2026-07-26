@@ -125,8 +125,12 @@ export class RoomLobbyBridge {
 
         this._roomCreators = new Map();
 
-        // Server-owned recovery identity keyed by socket id (stashed on soft disconnect).
+        // Server-owned recovery identity keyed by socket id (CSR / same-id path).
         this._recoveryOwnershipBySocket = new Map();
+
+        // R6.1 — Server-owned recovery identity keyed by persistent playerId.
+        // New socket.id reclaim uses this map; client claim is only a lookup key.
+        this._recoveryOwnershipByPlayer = new Map();
 
         // Rooms whose Game Session has started (post Setup Session completion).
         this._startedRooms = new Set();
@@ -576,6 +580,10 @@ export class RoomLobbyBridge {
 
         this._roomCreators.clear();
 
+        this._recoveryOwnershipBySocket.clear();
+
+        this._recoveryOwnershipByPlayer.clear();
+
         this._startedRooms.clear();
 
         this._finishingResultSessions.clear();
@@ -968,9 +976,16 @@ export class RoomLobbyBridge {
 
     /**
      * Resolve the server-owned recovery identity for a reconnecting socket.
-     * Never reads client-supplied playerId or roomId.
+     *
+     * Lookup order:
+     * 1. Active socket binding
+     * 2. Soft-disconnect stash keyed by socket.id (CSR / same-id)
+     * 3. Soft-disconnect stash keyed by persistent playerId (claim)
+     *
+     * A client claim may only select a pre-existing server stash. It never
+     * invents identity, room membership, or ownership.
      */
-    resolveRecoveryIdentity(socketId) {
+    resolveRecoveryIdentity(socketId, claim = null) {
 
         if (!socketId) {
 
@@ -989,34 +1004,75 @@ export class RoomLobbyBridge {
 
         }
 
-        const stashed = this._recoveryOwnershipBySocket.get(socketId);
+        const stashedBySocket = this._recoveryOwnershipBySocket.get(socketId);
 
-        if (!stashed) {
+        if (stashedBySocket) {
+
+            if (!this._isRecoverableIdentity(
+                stashedBySocket.playerId,
+                stashedBySocket.roomId
+            )) {
+
+                this._clearRecoveryOwnershipForPlayer(stashedBySocket.playerId);
+
+                return null;
+
+            }
+
+            return stashedBySocket;
+
+        }
+
+        const claimedPlayerId = claim?.playerId ?? null;
+
+        if (!claimedPlayerId) {
 
             return null;
 
         }
 
-        if (!this._isRecoverableIdentity(stashed.playerId, stashed.roomId)) {
+        const stashedByPlayer = this._recoveryOwnershipByPlayer.get(
+            claimedPlayerId
+        );
 
-            this._recoveryOwnershipBySocket.delete(socketId);
+        if (!stashedByPlayer) {
 
             return null;
 
         }
 
-        return stashed;
+        if (claim.roomId && claim.roomId !== stashedByPlayer.roomId) {
+
+            return null;
+
+        }
+
+        if (!this._isRecoverableIdentity(
+            claimedPlayerId,
+            stashedByPlayer.roomId
+        )) {
+
+            this._clearRecoveryOwnershipForPlayer(claimedPlayerId);
+
+            return null;
+
+        }
+
+        return {
+            playerId: claimedPlayerId,
+            roomId: stashedByPlayer.roomId
+        };
 
     }
 
     /**
      * Rebind a socket for Setup Session or Game Session recovery.
-     * Identity is resolved exclusively from server-owned socket ownership.
+     * Identity is resolved exclusively from server-owned recovery ownership.
      * Setup reconnect never restarts the timer / session.
      */
-    reconnectSession(socketId) {
+    reconnectSession(socketId, claim = null) {
 
-        const identity = this.resolveRecoveryIdentity(socketId);
+        const identity = this.resolveRecoveryIdentity(socketId, claim);
 
         if (!identity) {
 
@@ -1065,7 +1121,13 @@ export class RoomLobbyBridge {
             ?? runtime?.gameId
             ?? null;
 
-        const setupActive = this._setupSessionLifecycle?.isActive(roomId) === true;
+        const setupRecoverable = this._setupSessionLifecycle
+            ?.isRecoverable(roomId) === true;
+
+        // Setup-only recovery while prep pages run. After ENTRY_PAYMENT_COMPLETED
+        // (Page5), fall through to RecoveryEngine even if the Setup Timer remains.
+        const setupActive = setupRecoverable
+            && !this._entryPaymentCompletedByRoom.has(roomId);
 
         const syncPayload = this._setupSessionLifecycle?.buildSyncPayload(roomId);
 
@@ -1266,7 +1328,7 @@ export class RoomLobbyBridge {
 
         }
 
-        this._clearRecoveryOwnership(socketId);
+        this._clearRecoveryOwnershipForPlayer(playerId);
 
         this._logger.info(
             `Lobby recovery reconnect | roomId=${roomId} | playerId=${playerId}`
@@ -1282,15 +1344,16 @@ export class RoomLobbyBridge {
 
     }
 
-    reconnectGameplaySession(socketId) {
+    reconnectGameplaySession(socketId, claim = null) {
 
-        return this.reconnectSession(socketId);
+        return this.reconnectSession(socketId, claim);
 
     }
 
     /**
      * Moves stashed recovery ownership to a new socket id.
-     * Used only by integration tests that simulate a page refresh with a new socket.
+     * Used by integration tests that simulate a page refresh with a new socket.
+     * Production reclaim uses playerId claim via resolveRecoveryIdentity.
      */
     transferRecoveryOwnership(fromSocketId, toSocketId) {
 
@@ -1305,6 +1368,17 @@ export class RoomLobbyBridge {
         this._recoveryOwnershipBySocket.delete(fromSocketId);
 
         this._recoveryOwnershipBySocket.set(toSocketId, identity);
+
+        const byPlayer = this._recoveryOwnershipByPlayer.get(identity.playerId);
+
+        if (byPlayer) {
+
+            this._recoveryOwnershipByPlayer.set(identity.playerId, {
+                roomId: identity.roomId,
+                socketId: toSocketId
+            });
+
+        }
 
         return true;
 
@@ -3721,14 +3795,25 @@ export class RoomLobbyBridge {
     }
 
     /**
-     * Soft disconnect / reconnect while Game Session has started (post Setup
-     * Session completion). Waiting lobby membership still uses hard leave so
-     * creator disconnect can close an unfilled room.
+     * Soft disconnect / reconnect while a Setup Session owns the room
+     * (from SETUP_SESSION_STARTED through COMPLETED until EXPIRED) or while
+     * Game Session has started (post Setup Session completion).
+     *
+     * Waiting lobby membership before Setup Session exists still uses hard
+     * leave so creator disconnect can close an unfilled room — but Setup
+     * Session is created atomically with the room, so protection begins
+     * immediately at SETUP_SESSION_STARTED.
      *
      * Setup Session SYNC is delivered on reconnectSession when the session is
-     * still ACTIVE (e.g. capacity lock race); RecoveryEngine stays gameplay-only.
+     * still recoverable; RecoveryEngine stays gameplay-only.
      */
     _isProtectedSession(roomId) {
+
+        if (this._setupSessionLifecycle?.isRecoverable(roomId) === true) {
+
+            return true;
+
+        }
 
         return this._startedRooms.has(roomId);
 
@@ -3786,6 +3871,11 @@ export class RoomLobbyBridge {
             roomId
         });
 
+        this._recoveryOwnershipByPlayer.set(playerId, {
+            roomId,
+            socketId
+        });
+
     }
 
     _clearRecoveryOwnership(socketId) {
@@ -3796,7 +3886,23 @@ export class RoomLobbyBridge {
 
         }
 
+        const stashed = this._recoveryOwnershipBySocket.get(socketId);
+
         this._recoveryOwnershipBySocket.delete(socketId);
+
+        if (stashed?.playerId) {
+
+            const byPlayer = this._recoveryOwnershipByPlayer.get(
+                stashed.playerId
+            );
+
+            if (byPlayer?.socketId === socketId) {
+
+                this._recoveryOwnershipByPlayer.delete(stashed.playerId);
+
+            }
+
+        }
 
     }
 
@@ -3807,6 +3913,8 @@ export class RoomLobbyBridge {
             return;
 
         }
+
+        this._recoveryOwnershipByPlayer.delete(playerId);
 
         for (const [socketId, identity] of this._recoveryOwnershipBySocket.entries()) {
 

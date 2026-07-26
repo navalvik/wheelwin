@@ -16,13 +16,30 @@ export function loadServerConfig(env = process.env) {
 
     }
 
-    const clientOrigin = env.CLIENT_ORIGIN;
+    const clientOriginRaw = env.CLIENT_ORIGIN;
 
-    if (!clientOrigin) {
+    if (!clientOriginRaw) {
 
         throw new Error("CLIENT_ORIGIN environment variable is required");
 
     }
+
+    // Comma-separated origins for localhost + LAN Vite clients.
+    const clientOrigins = String(clientOriginRaw)
+        .split(",")
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+
+    if (clientOrigins.length === 0) {
+
+        throw new Error("CLIENT_ORIGIN environment variable is required");
+
+    }
+
+    // Single string when one origin (backward compatible); array for many.
+    const clientOrigin = clientOrigins.length === 1
+        ? clientOrigins[0]
+        : Object.freeze([...clientOrigins]);
 
     return {
         port,
