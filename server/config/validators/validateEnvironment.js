@@ -412,6 +412,24 @@ export function validateEnvironment(collector, env) {
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.CLOSED_BETA_ENABLED,
+        env.CLOSED_BETA_ENABLED
+    );
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.CLOSED_BETA_REQUIRE_CERTIFICATION,
+        env.CLOSED_BETA_REQUIRE_CERTIFICATION
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.CLOSED_BETA_MAX_PARTICIPANTS,
+        env.CLOSED_BETA_MAX_PARTICIPANTS
+    );
+
+    validateBooleanField(
+        collector,
         ENVIRONMENT_SCHEMA.STARTUP_DEMONSTRATIONS,
         env.STARTUP_DEMONSTRATIONS
     );

@@ -390,6 +390,30 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Release",
         suggestedFix: "Set RELEASE_INCLUDE_REPORTS to true or false."
     }),
+    CLOSED_BETA_ENABLED: Object.freeze({
+        key: "CLOSED_BETA_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "ClosedBeta",
+        suggestedFix: "Set CLOSED_BETA_ENABLED to true or false."
+    }),
+    CLOSED_BETA_REQUIRE_CERTIFICATION: Object.freeze({
+        key: "CLOSED_BETA_REQUIRE_CERTIFICATION",
+        type: "boolean",
+        required: false,
+        category: "ClosedBeta",
+        suggestedFix:
+            "Set CLOSED_BETA_REQUIRE_CERTIFICATION to true or false."
+    }),
+    CLOSED_BETA_MAX_PARTICIPANTS: Object.freeze({
+        key: "CLOSED_BETA_MAX_PARTICIPANTS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "ClosedBeta",
+        suggestedFix:
+            "Set CLOSED_BETA_MAX_PARTICIPANTS to a positive integer."
+    }),
     STARTUP_DEMONSTRATIONS: Object.freeze({
         key: "STARTUP_DEMONSTRATIONS",
         type: "boolean",

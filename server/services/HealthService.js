@@ -36,6 +36,9 @@ export class HealthService {
         /** @type {object|null} R8.0C certification status */
         this._certificationStatus = null;
 
+        /** @type {object|null} R8.0D closed beta status */
+        this._closedBetaStatus = null;
+
         this._componentRegistry = null;
 
         this._runtimeProvider = null;
@@ -144,6 +147,17 @@ export class HealthService {
 
     }
 
+    /**
+     * R8.0D — Attach sanitized Closed Beta operational status (no PII).
+     */
+    setClosedBetaStatus(closedBetaStatus) {
+
+        this._closedBetaStatus = closedBetaStatus
+            ? Object.freeze({ ...closedBetaStatus })
+            : null;
+
+    }
+
     registerComponents(components) {
 
         this._componentRegistry = components;
@@ -240,7 +254,8 @@ export class HealthService {
                 })
                 : null,
             release: this._releaseStatus,
-            certification: this._certificationStatus
+            certification: this._certificationStatus,
+            closedBeta: this._closedBetaStatus
         };
 
     }

@@ -470,6 +470,51 @@ function resolveReleaseConfig(env) {
 
 }
 
+function resolveClosedBetaConfig(env) {
+
+    const parseFlag = (key, fallback) => {
+
+        const parsed = parseBooleanStrict(env[key]);
+
+        if (!isMissing(env[key]) && parsed.ok !== true) {
+
+            throw new Error(`${key} must be true or false`);
+
+        }
+
+        return isMissing(env[key]) ? fallback : parsed.value === true;
+
+    };
+
+    let maxParticipants = 500;
+
+    if (!isMissing(env.CLOSED_BETA_MAX_PARTICIPANTS)) {
+
+        const n = Number(env.CLOSED_BETA_MAX_PARTICIPANTS);
+
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
+
+            throw new Error(
+                "CLOSED_BETA_MAX_PARTICIPANTS must be a positive integer"
+            );
+
+        }
+
+        maxParticipants = n;
+
+    }
+
+    return {
+        enabled: parseFlag("CLOSED_BETA_ENABLED", true),
+        requireCertification: parseFlag(
+            "CLOSED_BETA_REQUIRE_CERTIFICATION",
+            true
+        ),
+        maxParticipants
+    };
+
+}
+
 export function loadProductionConfig(env = process.env, serverConfig = null) {
 
     const nodeEnv = serverConfig?.nodeEnv || env.NODE_ENV || "development";
@@ -489,6 +534,8 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
     const deployment = resolveDeploymentConfig(env, profile);
 
     const release = resolveReleaseConfig(env);
+
+    const closedBeta = resolveClosedBetaConfig(env);
 
     const rawTimeout = env.GRACEFUL_SHUTDOWN_TIMEOUT_MS;
 
@@ -520,6 +567,7 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         failurePolicy,
         deployment,
         release,
+        closedBeta,
         metricsEnabled: development || env.METRICS_ENABLED === "true",
         runStartupDemonstrations: development
             && env.STARTUP_DEMONSTRATIONS !== "false",

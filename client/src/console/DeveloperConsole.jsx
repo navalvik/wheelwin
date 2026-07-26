@@ -16,6 +16,7 @@ import {
 } from "./sectionMemory";
 
 import ServerHealthPanel from "./panels/ServerHealthPanel";
+import ClosedBetaPanel from "./panels/ClosedBetaPanel";
 import RoomsExplorerPanel from "./panels/RoomsExplorerPanel";
 import GameDetailPanel from "./panels/GameDetailPanel";
 import PlayersInspectorPanel from "./panels/PlayersInspectorPanel";
@@ -34,6 +35,9 @@ function renderSection(sectionId) {
 
         case "server-health":
             return <ServerHealthPanel />;
+
+        case "closed-beta":
+            return <ClosedBetaPanel />;
 
         case "rooms":
             return <RoomsExplorerPanel />;

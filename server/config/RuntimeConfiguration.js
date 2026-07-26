@@ -175,6 +175,13 @@ export class RuntimeConfiguration {
                     this.production.release?.generateChecksums !== false,
                 includeDocs: this.production.release?.includeDocs !== false,
                 signingEnabled: this.production.release?.signingEnabled === true
+            }),
+            closedBeta: Object.freeze({
+                enabled: this.production.closedBeta?.enabled !== false,
+                requireCertification:
+                    this.production.closedBeta?.requireCertification !== false,
+                maxParticipants:
+                    this.production.closedBeta?.maxParticipants ?? 500
             })
         });
 

@@ -433,6 +433,27 @@ export default function ServerHealthPanel() {
                         : undefined}
                 />
 
+                <StatCard
+                    label="Closed Beta"
+                    value={server.closedBeta?.lifecycle ?? "—"}
+                    hint={server.closedBeta?.readiness
+                        ? `Readiness ${server.closedBeta.readiness}`
+                        : undefined}
+                />
+
+                <StatCard
+                    label="Beta Participants"
+                    value={server.closedBeta?.participantCount ?? "—"}
+                />
+
+                <StatCard
+                    label="Beta Readiness"
+                    value={server.closedBeta?.readinessScore != null
+                        ? `${server.closedBeta.readinessScore}`
+                        : "—"}
+                    hint={server.closedBeta?.readiness}
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">
