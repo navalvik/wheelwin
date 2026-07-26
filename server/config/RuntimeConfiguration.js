@@ -197,6 +197,20 @@ export class RuntimeConfiguration {
                     this.production.ga?.postLaunchMonitoringHours ?? 72,
                 requireCertification:
                     this.production.ga?.requireCertification !== false
+            }),
+            operations: Object.freeze({
+                enabled: this.production.operations?.enabled !== false,
+                slaAvailabilityTarget:
+                    this.production.operations?.slaAvailabilityTarget ?? 0.995,
+                slaLatencyTargetMs:
+                    this.production.operations?.slaLatencyTargetMs ?? 250,
+                slaRecoveryTarget:
+                    this.production.operations?.slaRecoveryTarget ?? 0.95,
+                maintenanceDefaultDurationMinutes:
+                    this.production.operations
+                        ?.maintenanceDefaultDurationMinutes ?? 60,
+                versionSupportWindowDays:
+                    this.production.operations?.versionSupportWindowDays ?? 90
             })
         });
 

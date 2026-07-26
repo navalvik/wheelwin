@@ -472,6 +472,56 @@ export function validateEnvironment(collector, env) {
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.OPERATIONS_ENABLED,
+        env.OPERATIONS_ENABLED
+    );
+
+    // Float SLA targets — accept numeric strings
+    for (const [schema, raw] of [
+        [ENVIRONMENT_SCHEMA.SLA_AVAILABILITY_TARGET, env.SLA_AVAILABILITY_TARGET],
+        [ENVIRONMENT_SCHEMA.SLA_RECOVERY_TARGET, env.SLA_RECOVERY_TARGET]
+    ]) {
+
+        if (!isMissing(raw)) {
+
+            const n = Number(raw);
+
+            if (!Number.isFinite(n) || n < 0 || n > 1) {
+
+                collector.add({
+                    key: schema.key,
+                    reason: "Invalid ratio (expected 0..1)",
+                    expectedType: "number",
+                    received: raw,
+                    suggestedFix: schema.suggestedFix
+                });
+
+            }
+
+        }
+
+    }
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.SLA_LATENCY_TARGET_MS,
+        env.SLA_LATENCY_TARGET_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.MAINTENANCE_DEFAULT_DURATION_MINUTES,
+        env.MAINTENANCE_DEFAULT_DURATION_MINUTES
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.VERSION_SUPPORT_WINDOW_DAYS,
+        env.VERSION_SUPPORT_WINDOW_DAYS
+    );
+
+    validateBooleanField(
+        collector,
         ENVIRONMENT_SCHEMA.STARTUP_DEMONSTRATIONS,
         env.STARTUP_DEMONSTRATIONS
     );

@@ -490,6 +490,21 @@ export default function ServerHealthPanel() {
                     value={server.ga?.operationalScore ?? "—"}
                 />
 
+                <StatCard
+                    label="Ops Lifecycle"
+                    value={server.operations?.lifecycle ?? "—"}
+                />
+
+                <StatCard
+                    label="Ops Score"
+                    value={server.operations?.operationalScore ?? "—"}
+                />
+
+                <StatCard
+                    label="Ops Version"
+                    value={server.operations?.currentVersion ?? "—"}
+                />
+
             </StatGrid>
 
             <h3 className="devConsole__sectionTitle">

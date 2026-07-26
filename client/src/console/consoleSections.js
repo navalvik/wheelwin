@@ -6,6 +6,7 @@ export const CONSOLE_SECTIONS = Object.freeze([
     Object.freeze({ id: "closed-beta", label: "Closed Beta" }),
     Object.freeze({ id: "launch-readiness", label: "Launch Readiness" }),
     Object.freeze({ id: "general-availability", label: "General Availability" }),
+    Object.freeze({ id: "post-launch-operations", label: "Post-Launch Ops" }),
     Object.freeze({ id: "rooms", label: "Rooms" }),
     Object.freeze({ id: "games", label: "Games" }),
     Object.freeze({ id: "players", label: "Players" }),

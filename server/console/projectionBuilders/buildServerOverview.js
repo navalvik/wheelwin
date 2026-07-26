@@ -114,6 +114,9 @@ export function buildServerOverview({
             : null,
         ga: health?.ga
             ? Object.freeze({ ...health.ga })
+            : null,
+        operations: health?.operations
+            ? Object.freeze({ ...health.operations })
             : null
     });
 

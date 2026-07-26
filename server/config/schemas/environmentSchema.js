@@ -466,6 +466,53 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "GA",
         suggestedFix: "Set GA_REQUIRE_CERTIFICATION to true or false."
     }),
+    OPERATIONS_ENABLED: Object.freeze({
+        key: "OPERATIONS_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Operations",
+        suggestedFix: "Set OPERATIONS_ENABLED to true or false."
+    }),
+    SLA_AVAILABILITY_TARGET: Object.freeze({
+        key: "SLA_AVAILABILITY_TARGET",
+        type: "number",
+        required: false,
+        category: "Operations",
+        suggestedFix: "Set SLA_AVAILABILITY_TARGET to a ratio between 0 and 1."
+    }),
+    SLA_LATENCY_TARGET_MS: Object.freeze({
+        key: "SLA_LATENCY_TARGET_MS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Operations",
+        suggestedFix: "Set SLA_LATENCY_TARGET_MS to a positive integer."
+    }),
+    SLA_RECOVERY_TARGET: Object.freeze({
+        key: "SLA_RECOVERY_TARGET",
+        type: "number",
+        required: false,
+        category: "Operations",
+        suggestedFix: "Set SLA_RECOVERY_TARGET to a ratio between 0 and 1."
+    }),
+    MAINTENANCE_DEFAULT_DURATION_MINUTES: Object.freeze({
+        key: "MAINTENANCE_DEFAULT_DURATION_MINUTES",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Operations",
+        suggestedFix:
+            "Set MAINTENANCE_DEFAULT_DURATION_MINUTES to a positive integer."
+    }),
+    VERSION_SUPPORT_WINDOW_DAYS: Object.freeze({
+        key: "VERSION_SUPPORT_WINDOW_DAYS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Operations",
+        suggestedFix:
+            "Set VERSION_SUPPORT_WINDOW_DAYS to a positive integer."
+    }),
     STARTUP_DEMONSTRATIONS: Object.freeze({
         key: "STARTUP_DEMONSTRATIONS",
         type: "boolean",

@@ -592,6 +592,79 @@ function resolveGaReleaseConfig(env) {
 
 }
 
+function resolveOperationsReleaseConfig(env) {
+
+    const parseFlag = (key, fallback) => {
+
+        const parsed = parseBooleanStrict(env[key]);
+
+        if (!isMissing(env[key]) && parsed.ok !== true) {
+
+            throw new Error(`${key} must be true or false`);
+
+        }
+
+        return isMissing(env[key]) ? fallback : parsed.value === true;
+
+    };
+
+    const parseRatio = (key, fallback) => {
+
+        if (isMissing(env[key])) {
+
+            return fallback;
+
+        }
+
+        const n = Number(env[key]);
+
+        if (!Number.isFinite(n) || n < 0 || n > 1) {
+
+            throw new Error(`${key} must be a number between 0 and 1`);
+
+        }
+
+        return n;
+
+    };
+
+    const parsePositiveInt = (key, fallback) => {
+
+        if (isMissing(env[key])) {
+
+            return fallback;
+
+        }
+
+        const n = Number(env[key]);
+
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
+
+            throw new Error(`${key} must be a positive integer`);
+
+        }
+
+        return n;
+
+    };
+
+    return {
+        enabled: parseFlag("OPERATIONS_ENABLED", true),
+        slaAvailabilityTarget: parseRatio("SLA_AVAILABILITY_TARGET", 0.995),
+        slaLatencyTargetMs: parsePositiveInt("SLA_LATENCY_TARGET_MS", 250),
+        slaRecoveryTarget: parseRatio("SLA_RECOVERY_TARGET", 0.95),
+        maintenanceDefaultDurationMinutes: parsePositiveInt(
+            "MAINTENANCE_DEFAULT_DURATION_MINUTES",
+            60
+        ),
+        versionSupportWindowDays: parsePositiveInt(
+            "VERSION_SUPPORT_WINDOW_DAYS",
+            90
+        )
+    };
+
+}
+
 export function loadProductionConfig(env = process.env, serverConfig = null) {
 
     const nodeEnv = serverConfig?.nodeEnv || env.NODE_ENV || "development";
@@ -617,6 +690,8 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
     const launch = resolveLaunchConfig(env);
 
     const ga = resolveGaReleaseConfig(env);
+
+    const operations = resolveOperationsReleaseConfig(env);
 
     const rawTimeout = env.GRACEFUL_SHUTDOWN_TIMEOUT_MS;
 
@@ -651,6 +726,7 @@ export function loadProductionConfig(env = process.env, serverConfig = null) {
         closedBeta,
         launch,
         ga,
+        operations,
         metricsEnabled: development || env.METRICS_ENABLED === "true",
         runStartupDemonstrations: development
             && env.STARTUP_DEMONSTRATIONS !== "false",

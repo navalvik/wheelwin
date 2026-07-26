@@ -19,6 +19,7 @@ import ServerHealthPanel from "./panels/ServerHealthPanel";
 import ClosedBetaPanel from "./panels/ClosedBetaPanel";
 import LaunchReadinessPanel from "./panels/LaunchReadinessPanel";
 import GeneralAvailabilityPanel from "./panels/GeneralAvailabilityPanel";
+import PostLaunchOperationsPanel from "./panels/PostLaunchOperationsPanel";
 import RoomsExplorerPanel from "./panels/RoomsExplorerPanel";
 import GameDetailPanel from "./panels/GameDetailPanel";
 import PlayersInspectorPanel from "./panels/PlayersInspectorPanel";
@@ -46,6 +47,9 @@ function renderSection(sectionId) {
 
         case "general-availability":
             return <GeneralAvailabilityPanel />;
+
+        case "post-launch-operations":
+            return <PostLaunchOperationsPanel />;
 
         case "rooms":
             return <RoomsExplorerPanel />;
