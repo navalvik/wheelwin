@@ -55,6 +55,18 @@ function devLog(message) {
 
 }
 
+/** R6.2A — INFO recovery-trace only; does not affect behaviour. */
+function recoveryTrace(stage, { roomId = null, playerId = null } = {}) {
+
+    console.info(
+        `[R6.2A Recovery] ${stage}`
+        + ` | roomId=${roomId ?? "null"}`
+        + ` | playerId=${playerId ?? "null"}`
+        + ` | socket.id=${socket.id ?? "null"}`
+    );
+
+}
+
 export function RecoveryExperienceProvider({
     children,
     currentPage,
@@ -134,6 +146,8 @@ export function RecoveryExperienceProvider({
             }
         });
 
+        recoveryTrace("SESSION_RECOVERY_REQUEST sent", identity);
+
     }, [getIdentity]);
 
     const handleSetupRecoveryComplete = useCallback(() => {
@@ -160,11 +174,13 @@ export function RecoveryExperienceProvider({
 
         setStatus(RECOVERY_UI_STATUS.COMPLETE);
 
+        recoveryTrace("overlay COMPLETE", getIdentity());
+
         devLog(`Setup Session restored on page ${restoredPage ?? currentPage}`);
 
         scheduleOverlayHide();
 
-    }, [currentPage, onNavigate, scheduleOverlayHide]);
+    }, [currentPage, onNavigate, scheduleOverlayHide, getIdentity]);
 
     const handlePreGameReconnect = useCallback(() => {
 
@@ -182,6 +198,8 @@ export function RecoveryExperienceProvider({
 
             setStatus(RECOVERY_UI_STATUS.FAILED);
 
+            recoveryTrace("overlay FAILED", getIdentity());
+
             scheduleOverlayHide();
 
             return;
@@ -198,7 +216,8 @@ export function RecoveryExperienceProvider({
         clearIdentity,
         onNavigate,
         scheduleOverlayHide,
-        requestSessionRecovery
+        requestSessionRecovery,
+        getIdentity
     ]);
 
     const handleGameplaySnapshot = useCallback((payload) => {
@@ -214,6 +233,8 @@ export function RecoveryExperienceProvider({
         if (!targetPage) {
 
             setStatus(RECOVERY_UI_STATUS.FAILED);
+
+            recoveryTrace("overlay FAILED", getIdentity());
 
             scheduleOverlayHide();
 
@@ -245,6 +266,8 @@ export function RecoveryExperienceProvider({
 
         setStatus(RECOVERY_UI_STATUS.COMPLETE);
 
+        recoveryTrace("overlay COMPLETE", getIdentity());
+
         devLog("Recovery complete");
 
         scheduleOverlayHide();
@@ -253,7 +276,8 @@ export function RecoveryExperienceProvider({
         applyRecoverySnapshot,
         currentPage,
         onNavigate,
-        scheduleOverlayHide
+        scheduleOverlayHide,
+        getIdentity
     ]);
 
     const handleRecoveryFailed = useCallback((payload) => {
@@ -261,6 +285,16 @@ export function RecoveryExperienceProvider({
         recoveryInFlightRef.current = false;
 
         setStatus(RECOVERY_UI_STATUS.FAILED);
+
+        recoveryTrace("SESSION_RECOVERY_FAILED received", {
+            roomId: payload?.roomId ?? getIdentity().roomId,
+            playerId: payload?.playerId ?? getIdentity().playerId
+        });
+
+        recoveryTrace("overlay FAILED", {
+            roomId: payload?.roomId ?? getIdentity().roomId,
+            playerId: payload?.playerId ?? getIdentity().playerId
+        });
 
         devLog(`Recovery failed: ${payload?.reason ?? "unknown"}`);
 
@@ -288,7 +322,8 @@ export function RecoveryExperienceProvider({
         destroySession,
         clearIdentity,
         onNavigate,
-        scheduleOverlayHide
+        scheduleOverlayHide,
+        getIdentity
     ]);
 
     const returnToLobby = useCallback(() => {
@@ -396,6 +431,8 @@ export function RecoveryExperienceProvider({
 
             }
 
+            recoveryTrace("reconnect", getIdentity());
+
             devLog("Reconnect detected");
 
             if (isSetupRecoveryPage(currentPage)) {
@@ -430,6 +467,8 @@ export function RecoveryExperienceProvider({
 
             setStatus(RECOVERY_UI_STATUS.RECONNECTING);
 
+            recoveryTrace("disconnect", getIdentity());
+
             devLog("Disconnect detected");
 
         }
@@ -458,7 +497,12 @@ export function RecoveryExperienceProvider({
 
         }
 
-        function onSetupSessionSync() {
+        function onSetupSessionSync(payload) {
+
+            recoveryTrace("SETUP_SESSION_SYNC received", {
+                roomId: payload?.roomId ?? getIdentity().roomId,
+                playerId: getIdentity().playerId
+            });
 
             if (isSetupRecoveryPage(currentPage)) {
 
@@ -500,7 +544,8 @@ export function RecoveryExperienceProvider({
         handleGameplaySnapshot,
         handleRecoveryFailed,
         handleSetupRecoveryComplete,
-        clearOverlayTimer
+        clearOverlayTimer,
+        getIdentity
     ]);
 
     const value = useMemo(() => ({

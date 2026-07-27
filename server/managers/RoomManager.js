@@ -401,6 +401,13 @@ export class RoomManager {
             ? ROOM_STATUS.FULL
             : ROOM_STATUS.WAITING_FOR_PLAYERS;
 
+        this._emit(EVENT_TYPES.ROOM_UNLOCKED, {
+            roomId: room.roomId,
+            status: room.status,
+            maxPlayers: room.maxPlayers,
+            playerCount: room.players.length
+        });
+
         return true;
 
     }

@@ -1228,6 +1228,35 @@ body:has(.devConsole) {
     flex-direction: column;
 }
 
+.devConsole__detailActions {
+
+    margin: 0 0 12px;
+}
+
+.devConsole__button {
+
+    margin: 0;
+    padding: 8px 12px;
+
+    border: 0;
+    border-radius: 4px;
+
+    background: var(--console-accent);
+
+    color: #fff;
+
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+.devConsole__button:hover {
+
+    filter: brightness(1.05);
+}
+
 .devConsole__stack {
 
     display: flex;

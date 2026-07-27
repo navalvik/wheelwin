@@ -956,6 +956,13 @@ export class RoomLobbyBridge {
             this._unregisterSocket(socketId);
 
             this._logger.info(
+                `[R6.2A Recovery] soft disconnect`
+                + ` | roomId=${context.roomId}`
+                + ` | playerId=${context.playerId}`
+                + ` | socket.id=${socketId}`
+            );
+
+            this._logger.info(
                 `Lobby soft disconnect | roomId=${context.roomId} | playerId=${context.playerId}`
             );
 
@@ -997,6 +1004,14 @@ export class RoomLobbyBridge {
 
         if (activeContext) {
 
+            this._logger.info(
+                `[R6.2A Recovery] stash lookup`
+                + ` | roomId=${activeContext.roomId}`
+                + ` | playerId=${activeContext.playerId}`
+                + ` | socket.id=${socketId}`
+                + ` | source=active context`
+            );
+
             return {
                 playerId: activeContext.playerId,
                 roomId: activeContext.roomId
@@ -1013,11 +1028,29 @@ export class RoomLobbyBridge {
                 stashedBySocket.roomId
             )) {
 
+                this._logger.info(
+                    `[R6.2A Recovery] stash lookup`
+                    + ` | roomId=${stashedBySocket.roomId}`
+                    + ` | playerId=${stashedBySocket.playerId}`
+                    + ` | socket.id=${socketId}`
+                    + ` | source=socket stash`
+                    + ` | result=not recoverable`
+                );
+
                 this._clearRecoveryOwnershipForPlayer(stashedBySocket.playerId);
 
                 return null;
 
             }
+
+            this._logger.info(
+                `[R6.2A Recovery] stash lookup`
+                + ` | roomId=${stashedBySocket.roomId}`
+                + ` | playerId=${stashedBySocket.playerId}`
+                + ` | socket.id=${socketId}`
+                + ` | source=socket stash`
+                + ` | result=hit`
+            );
 
             return stashedBySocket;
 
@@ -1026,6 +1059,15 @@ export class RoomLobbyBridge {
         const claimedPlayerId = claim?.playerId ?? null;
 
         if (!claimedPlayerId) {
+
+            this._logger.info(
+                `[R6.2A Recovery] stash lookup`
+                + ` | roomId=${claim?.roomId ?? "null"}`
+                + ` | playerId=null`
+                + ` | socket.id=${socketId}`
+                + ` | source=player claim`
+                + ` | result=miss (no claim)`
+            );
 
             return null;
 
@@ -1037,11 +1079,29 @@ export class RoomLobbyBridge {
 
         if (!stashedByPlayer) {
 
+            this._logger.info(
+                `[R6.2A Recovery] stash lookup`
+                + ` | roomId=${claim?.roomId ?? "null"}`
+                + ` | playerId=${claimedPlayerId}`
+                + ` | socket.id=${socketId}`
+                + ` | source=player claim`
+                + ` | result=miss`
+            );
+
             return null;
 
         }
 
         if (claim.roomId && claim.roomId !== stashedByPlayer.roomId) {
+
+            this._logger.info(
+                `[R6.2A Recovery] stash lookup`
+                + ` | roomId=${claim.roomId}`
+                + ` | playerId=${claimedPlayerId}`
+                + ` | socket.id=${socketId}`
+                + ` | source=player claim`
+                + ` | result=room mismatch`
+            );
 
             return null;
 
@@ -1052,11 +1112,29 @@ export class RoomLobbyBridge {
             stashedByPlayer.roomId
         )) {
 
+            this._logger.info(
+                `[R6.2A Recovery] stash lookup`
+                + ` | roomId=${stashedByPlayer.roomId}`
+                + ` | playerId=${claimedPlayerId}`
+                + ` | socket.id=${socketId}`
+                + ` | source=player claim`
+                + ` | result=not recoverable`
+            );
+
             this._clearRecoveryOwnershipForPlayer(claimedPlayerId);
 
             return null;
 
         }
+
+        this._logger.info(
+            `[R6.2A Recovery] stash lookup`
+            + ` | roomId=${stashedByPlayer.roomId}`
+            + ` | playerId=${claimedPlayerId}`
+            + ` | socket.id=${socketId}`
+            + ` | source=player claim`
+            + ` | result=hit`
+        );
 
         return {
             playerId: claimedPlayerId,
@@ -1076,6 +1154,14 @@ export class RoomLobbyBridge {
 
         if (!identity) {
 
+            this._logger.info(
+                `[R6.2A Recovery] reclaim failure`
+                + ` | roomId=${claim?.roomId ?? "null"}`
+                + ` | playerId=${claim?.playerId ?? "null"}`
+                + ` | socket.id=${socketId ?? "null"}`
+                + ` | reason=Recovery identity is not authorized for this socket`
+            );
+
             return {
                 ok: false,
                 reason: "Recovery identity is not authorized for this socket"
@@ -1089,6 +1175,14 @@ export class RoomLobbyBridge {
 
         if (!room) {
 
+            this._logger.info(
+                `[R6.2A Recovery] reclaim failure`
+                + ` | roomId=${roomId}`
+                + ` | playerId=${playerId}`
+                + ` | socket.id=${socketId}`
+                + ` | reason=Room session is not active`
+            );
+
             return {
                 ok: false,
                 reason: "Room session is not active"
@@ -1097,6 +1191,14 @@ export class RoomLobbyBridge {
         }
 
         if (!this._isRecoverableIdentity(playerId, roomId)) {
+
+            this._logger.info(
+                `[R6.2A Recovery] reclaim failure`
+                + ` | roomId=${roomId}`
+                + ` | playerId=${playerId}`
+                + ` | socket.id=${socketId}`
+                + ` | reason=Player session is not recoverable`
+            );
 
             return {
                 ok: false,
@@ -1113,6 +1215,13 @@ export class RoomLobbyBridge {
         );
 
         this._attachSocketToRoom(socketId, roomId);
+
+        this._logger.info(
+            `[R6.2A Recovery] socket rebound`
+            + ` | roomId=${roomId}`
+            + ` | playerId=${playerId}`
+            + ` | socket.id=${socketId}`
+        );
 
         const runtime = this._playerManager.getRuntime(playerId);
 
@@ -1137,6 +1246,13 @@ export class RoomLobbyBridge {
                 socketId,
                 LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC,
                 syncPayload
+            );
+
+            this._logger.info(
+                `[R6.2A Recovery] SETUP_SESSION_SYNC emitted`
+                + ` | roomId=${roomId}`
+                + ` | playerId=${playerId}`
+                + ` | socket.id=${socketId}`
             );
 
             this._eventBus.emit({
@@ -1329,6 +1445,13 @@ export class RoomLobbyBridge {
         }
 
         this._clearRecoveryOwnershipForPlayer(playerId);
+
+        this._logger.info(
+            `[R6.2A Recovery] reclaim success`
+            + ` | roomId=${roomId}`
+            + ` | playerId=${playerId}`
+            + ` | socket.id=${socketId}`
+        );
 
         this._logger.info(
             `Lobby recovery reconnect | roomId=${roomId} | playerId=${playerId}`

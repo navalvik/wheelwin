@@ -42,6 +42,7 @@ import { RandomService } from "./services/RandomService.js";
 import { TimerService } from "./services/TimerService.js";
 import { TonService } from "./services/TonService.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
+import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -189,6 +190,8 @@ class WheelWinApplication {
         this._gameplayLifecycle = null;
 
         this._setupSessionLifecycle = null;
+
+        this._gameDiagnosticLogManager = null;
 
         this._resultSessionLifecycle = null;
 
@@ -735,6 +738,22 @@ class WheelWinApplication {
         this._setupSessionLifecycle.attachLifecycleGate(this._lifecycleManager);
 
         this._logger.startupLine("SetupSessionLifecycle");
+
+        // R6.2B — DEV-only per-room diagnostic files under logs/games/.
+        this._gameDiagnosticLogManager = GameDiagnosticLogManager.getInstance();
+
+        this._gameDiagnosticLogManager.initialize({
+            enabled: this._productionConfig.isDevelopment === true,
+            eventBus: this._eventBus,
+            loggingManager: LoggingManager.getInstance(),
+            playerManager: this._managers.playerManager
+        });
+
+        if (this._gameDiagnosticLogManager.isEnabled()) {
+
+            this._logger.startupLine("GameDiagnosticLogManager");
+
+        }
 
         this._services.timerService.registerSetupSessionLifecycle(
             this._setupSessionLifecycle
@@ -1382,7 +1401,8 @@ class WheelWinApplication {
             {
                 authMiddleware: createDeveloperAuthMiddleware(
                     this._developerAuthService
-                )
+                ),
+                gameDiagnosticLogManager: this._gameDiagnosticLogManager
             }
         );
 
@@ -1525,6 +1545,16 @@ class WheelWinApplication {
             if (this._setupSessionLifecycle) {
 
                 this._setupSessionLifecycle.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("gameDiagnosticLogManager", () => {
+
+            if (this._gameDiagnosticLogManager) {
+
+                this._gameDiagnosticLogManager.shutdown();
 
             }
 

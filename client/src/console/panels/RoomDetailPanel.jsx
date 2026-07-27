@@ -1,4 +1,6 @@
 import { formatPage, formatDurationMs, shortId } from "../formatters";
+import { useDeveloperAuth } from "../DeveloperAuthProvider";
+import { downloadRoomDiagnosticLog } from "../roomDiagnosticDownload";
 import { KeyValueList } from "./shared/DataTable";
 import EmptyState from "./shared/EmptyState";
 
@@ -6,6 +8,8 @@ import EmptyState from "./shared/EmptyState";
  * R6.0E — Read-only room detail (embedded in Rooms Explorer).
  */
 export default function RoomDetailPanel({ room, game = null }) {
+
+    const { accessToken, authEnabled } = useDeveloperAuth();
 
     if (!room?.room) {
 
@@ -24,9 +28,32 @@ export default function RoomDetailPanel({ room, game = null }) {
         contract, timers, linkedGame, currentPage, currentState,
         gameStart } = room;
 
+    function onDownloadDiagnostic() {
+
+        downloadRoomDiagnosticLog(
+            roomMeta.roomId,
+            authEnabled ? accessToken : null
+        );
+
+    }
+
     return (
 
         <div className="devConsole__detailStack">
+
+            <div className="devConsole__detailActions">
+
+                <button
+                    type="button"
+                    className="devConsole__button"
+                    onClick={onDownloadDiagnostic}
+                >
+
+                    Download Current Room Diagnostic Log
+
+                </button>
+
+            </div>
 
             <KeyValueList
                 entries={[

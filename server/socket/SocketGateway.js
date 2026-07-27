@@ -662,7 +662,14 @@ export class SocketGateway {
 
     _handleConnection(socket) {
 
-        this._logger.info(`Client connected | socketId=${socket.id}`);
+        const bound = this._gameplayContextResolver?.resolve(socket.id);
+
+        this._logger.info(
+            `[R6.2A Recovery] socket connected`
+            + ` | roomId=${bound?.ok ? bound.roomId : "null"}`
+            + ` | playerId=${bound?.ok ? bound.playerId : "null"}`
+            + ` | socket.id=${socket.id}`
+        );
 
         socket.on(LOBBY_CLIENT_EVENTS.CREATE_ROOM, () => {
 
@@ -941,7 +948,26 @@ export class SocketGateway {
 
     _handleRecoveryRequest(socket, message) {
 
+        const claimPlayerId = message?.payload?.playerId ?? null;
+
+        const claimRoomId = message?.payload?.roomId ?? null;
+
+        this._logger.info(
+            `[R6.2A Recovery] SESSION_RECOVERY_REQUEST received`
+            + ` | roomId=${claimRoomId ?? "null"}`
+            + ` | playerId=${claimPlayerId ?? "null"}`
+            + ` | socket.id=${socket?.id ?? "null"}`
+        );
+
         if (!socket?.connected) {
+
+            this._logger.info(
+                `[R6.2A Recovery] reclaim failure`
+                + ` | roomId=${claimRoomId ?? "null"}`
+                + ` | playerId=${claimPlayerId ?? "null"}`
+                + ` | socket.id=${socket?.id ?? "null"}`
+                + ` | reason=disconnected socket`
+            );
 
             this._logRecoveryDrop("disconnected socket");
 
@@ -952,7 +978,9 @@ export class SocketGateway {
         if (!this._recoveryEngine) {
 
             this._sendRecoveryFailed(socket, {
-                reason: "Recovery is not configured"
+                reason: "Recovery is not configured",
+                playerId: claimPlayerId,
+                roomId: claimRoomId
             });
 
             return;
@@ -963,13 +991,24 @@ export class SocketGateway {
 
         let context = this._gameplayContextResolver?.resolve(socket.id);
 
+        this._logger.info(
+            `[R6.2A Recovery] player lookup`
+            + ` | roomId=${context?.ok ? context.roomId : claimRoomId ?? "null"}`
+            + ` | playerId=${context?.ok ? context.playerId : claimPlayerId ?? "null"}`
+            + ` | socket.id=${socket.id}`
+            + ` | bound=${context?.ok === true}`
+            + ` | reason=${context?.ok ? "active binding" : (context?.reason ?? "unbound")}`
+        );
+
         if (!context?.ok) {
 
             if (!this._roomLobbyBridge) {
 
                 this._sendRecoveryFailed(socket, {
                     reason: context?.reason
-                        ?? "Socket is not bound to a player session"
+                        ?? "Socket is not bound to a player session",
+                    playerId: claimPlayerId,
+                    roomId: claimRoomId
                 });
 
                 return;
@@ -977,8 +1016,8 @@ export class SocketGateway {
             }
 
             const claim = {
-                playerId: message?.payload?.playerId ?? null,
-                roomId: message?.payload?.roomId ?? null
+                playerId: claimPlayerId,
+                roomId: claimRoomId
             };
 
             const reconnected = this._roomLobbyBridge.reconnectGameplaySession(
@@ -990,12 +1029,21 @@ export class SocketGateway {
 
                 this._sendRecoveryFailed(socket, {
                     reason: reconnected.reason,
-                    gameId: reconnected.gameId ?? null
+                    gameId: reconnected.gameId ?? null,
+                    playerId: claimPlayerId,
+                    roomId: claimRoomId
                 });
 
                 return;
 
             }
+
+            this._logger.info(
+                `[R6.2A Recovery] reclaim success`
+                + ` | roomId=${reconnected.roomId ?? "null"}`
+                + ` | playerId=${reconnected.playerId ?? "null"}`
+                + ` | socket.id=${socket.id}`
+            );
 
             context = {
                 ok: true,
@@ -1029,7 +1077,8 @@ export class SocketGateway {
 
             this._sendRecoveryFailed(socket, {
                 reason: "No active gameplay session for recovery",
-                playerId
+                playerId,
+                roomId
             });
 
             return;
@@ -1080,7 +1129,8 @@ export class SocketGateway {
             this._sendRecoveryFailed(socket, {
                 reason: "Recovery snapshot is unavailable",
                 gameId,
-                playerId
+                playerId,
+                roomId
             });
 
             return;
@@ -1108,7 +1158,20 @@ export class SocketGateway {
 
     }
 
-    _sendRecoveryFailed(socket, { reason, gameId = null, playerId = null }) {
+    _sendRecoveryFailed(socket, {
+        reason,
+        gameId = null,
+        playerId = null,
+        roomId = null
+    }) {
+
+        this._logger.info(
+            `[R6.2A Recovery] reclaim failure`
+            + ` | roomId=${roomId ?? "null"}`
+            + ` | playerId=${playerId ?? "null"}`
+            + ` | socket.id=${socket?.id ?? "null"}`
+            + ` | reason=${reason ?? "unknown"}`
+        );
 
         const { channel, message } = buildRecoveryFailedMessage({
             reason,

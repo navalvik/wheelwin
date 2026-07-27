@@ -53,6 +53,7 @@ export const EVENT_TYPES = Object.freeze({
     ROOM_CREATED: "ROOM_CREATED",
     ROOM_FULL: "ROOM_FULL",
     ROOM_LOCKED: "ROOM_LOCKED",
+    ROOM_UNLOCKED: "ROOM_UNLOCKED",
     ROOM_DESTROYED: "ROOM_DESTROYED",
 
     // C5.6C — Setup Session (prep before Game Session). COMPLETED is internal
