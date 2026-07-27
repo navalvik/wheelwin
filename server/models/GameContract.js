@@ -16,7 +16,27 @@ export const GAME_CONTRACT_STATUS = Object.freeze({
     SETTLEMENT_PENDING: "SETTLEMENT_PENDING",
     SETTLEMENT_CONFIRMED: "SETTLEMENT_CONFIRMED",
     SETTLEMENT_COMPLETED: "SETTLEMENT_COMPLETED",
-    SETTLEMENT_FAILED: "SETTLEMENT_FAILED"
+    SETTLEMENT_FAILED: "SETTLEMENT_FAILED",
+    // T2.4 — terminal archive after completion or failure.
+    ARCHIVED: "ARCHIVED"
+});
+
+/**
+ * T2.4 conceptual domain aliases mapped onto GAME_CONTRACT_STATUS.
+ * Existing statuses remain authoritative for settlement / start gate.
+ */
+export const GAME_CONTRACT_DOMAIN_STATE = Object.freeze({
+    CREATED: GAME_CONTRACT_STATUS.CREATED,
+    DEPLOYING: GAME_CONTRACT_STATUS.DEPLOYING,
+    DEPLOYED: GAME_CONTRACT_STATUS.DEPLOYED,
+    WAITING_PAYMENTS: GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS,
+    PAYMENTS_COMPLETED: GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE,
+    ACTIVE: GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE,
+    WINNER_PENDING: GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING,
+    SETTLEMENT_PENDING: GAME_CONTRACT_STATUS.SETTLEMENT_PENDING,
+    COMPLETED: GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED,
+    FAILED: GAME_CONTRACT_STATUS.DEPLOY_FAILED,
+    ARCHIVED: GAME_CONTRACT_STATUS.ARCHIVED
 });
 
 const GAME_CONTRACT_TRANSITIONS = Object.freeze({
@@ -63,16 +83,24 @@ const GAME_CONTRACT_TRANSITIONS = Object.freeze({
     [GAME_CONTRACT_STATUS.SETTLEMENT_CONFIRMED]: Object.freeze([
         GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED
     ]),
-    [GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED]: Object.freeze([]),
-    [GAME_CONTRACT_STATUS.SETTLEMENT_FAILED]: Object.freeze([]),
-    [GAME_CONTRACT_STATUS.DEPLOY_FAILED]: Object.freeze([])
+    [GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED]: Object.freeze([
+        GAME_CONTRACT_STATUS.ARCHIVED
+    ]),
+    [GAME_CONTRACT_STATUS.SETTLEMENT_FAILED]: Object.freeze([
+        GAME_CONTRACT_STATUS.ARCHIVED
+    ]),
+    [GAME_CONTRACT_STATUS.DEPLOY_FAILED]: Object.freeze([
+        GAME_CONTRACT_STATUS.ARCHIVED
+    ]),
+    [GAME_CONTRACT_STATUS.ARCHIVED]: Object.freeze([])
 });
 
 /**
- * P6.4/P6.5 — Authoritative Game Smart Contract metadata.
+ * P6.4/P6.5/T2.4 — Authoritative Game Smart Contract metadata.
  *
  * One contract per game. Snapshot is immutable after create.
  * P6.5 adds stub deployment + contractAddress (no live chain required).
+ * T2.4 adds network, correlation, archive, and persistence metadata.
  */
 export class GameContract {
 
@@ -83,12 +111,20 @@ export class GameContract {
         status = GAME_CONTRACT_STATUS.NOT_CREATED,
         snapshot = null,
         createdAt = null,
+        updatedAt = null,
         contractAddress = null,
         deploymentStatus = null,
         deployedAt = null,
         deploymentTxId = null,
         deployError = null,
-        paymentsCompletedAt = null
+        paymentsCompletedAt = null,
+        tonNetwork = null,
+        correlationId = null,
+        snapshotHash = null,
+        version = 1,
+        gameStartedAt = null,
+        archivedAt = null,
+        failureReason = null
     }) {
 
         this.contractId = contractId;
@@ -103,6 +139,8 @@ export class GameContract {
 
         this.createdAt = createdAt;
 
+        this.updatedAt = updatedAt ?? createdAt;
+
         this.contractAddress = contractAddress;
 
         this.deploymentStatus = deploymentStatus;
@@ -114,6 +152,20 @@ export class GameContract {
         this.deployError = deployError;
 
         this.paymentsCompletedAt = paymentsCompletedAt;
+
+        this.tonNetwork = tonNetwork;
+
+        this.correlationId = correlationId;
+
+        this.snapshotHash = snapshotHash;
+
+        this.version = version ?? 1;
+
+        this.gameStartedAt = gameStartedAt;
+
+        this.archivedAt = archivedAt;
+
+        this.failureReason = failureReason;
 
     }
 
@@ -135,12 +187,14 @@ export class GameContract {
 
         this.status = nextStatus;
 
+        this.updatedAt = Date.now();
+
         if (
             nextStatus === GAME_CONTRACT_STATUS.CREATED
             && this.createdAt == null
         ) {
 
-            this.createdAt = Date.now();
+            this.createdAt = this.updatedAt;
 
         }
 
@@ -149,6 +203,8 @@ export class GameContract {
             this.deploymentStatus = "DEPLOYING";
 
             this.deployError = null;
+
+            this.failureReason = null;
 
         }
 
@@ -169,7 +225,13 @@ export class GameContract {
             && this.paymentsCompletedAt == null
         ) {
 
-            this.paymentsCompletedAt = Date.now();
+            this.paymentsCompletedAt = this.updatedAt;
+
+        }
+
+        if (nextStatus === GAME_CONTRACT_STATUS.ARCHIVED && this.archivedAt == null) {
+
+            this.archivedAt = this.updatedAt;
 
         }
 
@@ -193,6 +255,10 @@ export class GameContract {
 
         this.deployError = null;
 
+        this.failureReason = null;
+
+        this.updatedAt = Date.now();
+
     }
 
     applyDeploymentFailure(reason = "deploy_failed") {
@@ -200,6 +266,10 @@ export class GameContract {
         this.deploymentStatus = "DEPLOY_FAILED";
 
         this.deployError = reason;
+
+        this.failureReason = reason;
+
+        this.updatedAt = Date.now();
 
     }
 
@@ -215,11 +285,19 @@ export class GameContract {
             roomId: this.roomId,
             status: this.status,
             createdAt: this.createdAt,
+            updatedAt: this.updatedAt,
             contractAddress: this.contractAddress,
             deploymentStatus: this.deploymentStatus,
             deployedAt: this.deployedAt,
             paymentsCompletedAt: this.paymentsCompletedAt,
-            deployError: this.deployError
+            deployError: this.deployError,
+            tonNetwork: this.tonNetwork,
+            correlationId: this.correlationId,
+            snapshotHash: this.snapshotHash,
+            version: this.version,
+            gameStartedAt: this.gameStartedAt,
+            archivedAt: this.archivedAt,
+            failureReason: this.failureReason
         });
 
     }
@@ -232,13 +310,46 @@ export class GameContract {
             roomId: this.roomId,
             status: this.status,
             createdAt: this.createdAt,
+            updatedAt: this.updatedAt,
             contractAddress: this.contractAddress,
             deploymentStatus: this.deploymentStatus,
             deployedAt: this.deployedAt,
             deploymentTxId: this.deploymentTxId,
             paymentsCompletedAt: this.paymentsCompletedAt,
             deployError: this.deployError,
+            tonNetwork: this.tonNetwork,
+            correlationId: this.correlationId,
+            snapshotHash: this.snapshotHash,
+            version: this.version,
+            gameStartedAt: this.gameStartedAt,
+            archivedAt: this.archivedAt,
+            failureReason: this.failureReason,
             snapshot: this.snapshot
+        });
+
+    }
+
+    /**
+     * Developer dashboard / monitoring projection.
+     */
+    toDashboardSnapshot() {
+
+        return Object.freeze({
+            contractId: this.contractId,
+            gameId: this.gameId,
+            roomId: this.roomId,
+            address: this.contractAddress,
+            network: this.tonNetwork,
+            state: this.status,
+            createdAt: this.createdAt,
+            updatedAt: this.updatedAt,
+            deploymentStatus: this.deploymentStatus,
+            deploymentTxId: this.deploymentTxId,
+            failureReason: this.failureReason ?? this.deployError,
+            snapshotHash: this.snapshotHash,
+            version: this.version,
+            correlationId: this.correlationId,
+            archivedAt: this.archivedAt
         });
 
     }

@@ -9,6 +9,15 @@ import {
 import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 import { buildGameContractSnapshot } from "../payment/buildGameContractSnapshot.js";
 import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
+import { hashGameContractSnapshot } from "../payment/ton/buildGameEscrowStateInit.js";
+import {
+    ContractAlreadyExistsError,
+    ContractNotFoundError,
+    ContractOperationInProgressError,
+    ContractRecoveryError,
+    InvalidContractStateTransitionError,
+    PersistenceFailureError
+} from "./GameContractManagerErrors.js";
 
 const REQUESTED_OR_BEYOND = new Set([
     PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED,
@@ -18,11 +27,28 @@ const REQUESTED_OR_BEYOND = new Set([
     PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
 ]);
 
+const ARCHIVEABLE_STATUSES = new Set([
+    GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED,
+    GAME_CONTRACT_STATUS.SETTLEMENT_FAILED,
+    GAME_CONTRACT_STATUS.DEPLOY_FAILED
+]);
+
+const FAILABLE_FROM = new Set([
+    GAME_CONTRACT_STATUS.DEPLOYING,
+    GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING,
+    GAME_CONTRACT_STATUS.SETTLEMENT_SUBMITTED,
+    GAME_CONTRACT_STATUS.SETTLEMENT_PENDING,
+    GAME_CONTRACT_STATUS.SETTLEMENT_CONFIRMED,
+    GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE,
+    GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS,
+    GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN
+]);
+
 /**
- * P6.4/P6.5 — Authoritative Game Smart Contract lifecycle.
+ * P6.4/P6.5/T2.4 — Authoritative Game Smart Contract lifecycle.
  *
- * Creates immutable snapshot, deploys escrow (stub adapter), then signals
- * PaymentSessionManager to issue per-player payment requests.
+ * Owns contract domain lifecycle, persistence coordination, and adapter calls.
+ * Never imports @ton/* SDK. Never talks to TON directly.
  */
 export class GameContractManager {
 
@@ -35,6 +61,8 @@ export class GameContractManager {
         configurationEngine = null,
         paymentRules = null,
         deployAdapter = null,
+        financialPersistence = null,
+        tonNetwork = null,
         creatingDelayMs = 0,
         deployDelayMs = 0,
         devMode = false
@@ -60,6 +88,10 @@ export class GameContractManager {
                 deployDelayMs
             });
 
+        this._financialPersistence = financialPersistence;
+
+        this._tonNetwork = tonNetwork ?? null;
+
         this._creatingDelayMs = Number.isFinite(creatingDelayMs)
             && creatingDelayMs >= 0
             ? creatingDelayMs
@@ -71,7 +103,11 @@ export class GameContractManager {
 
         this._roomByGameId = new Map();
 
+        this._contractsById = new Map();
+
         this._creatingTimers = new Map();
+
+        this._operationLocks = new Map();
 
         this._handlers = [];
 
@@ -158,9 +194,19 @@ export class GameContractManager {
 
     }
 
+    // -------------------------------------------------------------------------
+    // Lookups
+    // -------------------------------------------------------------------------
+
     getContract(roomId) {
 
         return this._contractsByRoom.get(roomId) ?? null;
+
+    }
+
+    getContractById(contractId) {
+
+        return this._contractsById.get(contractId) ?? null;
 
     }
 
@@ -170,6 +216,12 @@ export class GameContractManager {
     listContractRoomIds() {
 
         return [...this._contractsByRoom.keys()];
+
+    }
+
+    listContracts() {
+
+        return [...this._contractsByRoom.values()];
 
     }
 
@@ -187,6 +239,14 @@ export class GameContractManager {
 
     }
 
+    getDashboardSnapshot(roomId) {
+
+        const contract = this.getContract(roomId);
+
+        return contract?.toDashboardSnapshot?.() ?? null;
+
+    }
+
     /**
      * P6.8B — public client update emit for settlement state transitions.
      */
@@ -198,17 +258,74 @@ export class GameContractManager {
 
         }
 
+        this._touchUpdated(contract);
+
+        this._persistContract(contract);
+
         this._emitClientUpdate(contract);
+
+        this._emitDomainLifecycle(
+            EVENT_TYPES.CONTRACT_STATE_CHANGED,
+            contract
+        );
 
     }
 
-    createContractRequest(roomId, { gameId = null } = {}) {
+    // -------------------------------------------------------------------------
+    // T2.4 Public API
+    // -------------------------------------------------------------------------
+
+    /**
+     * Create contract domain record + immutable snapshot.
+     * Throws on duplicate (T2.4). Payment flow uses createContractRequest (idempotent).
+     */
+    createContract(roomId, options = {}) {
 
         this._assertInitialized();
 
-        if (!roomId || this._contractsByRoom.has(roomId)) {
+        if (!roomId) {
 
-            return this._contractsByRoom.get(roomId) ?? null;
+            throw new ContractNotFoundError(roomId);
+
+        }
+
+        if (this._contractsByRoom.has(roomId)) {
+
+            throw new ContractAlreadyExistsError(roomId, options.gameId ?? null);
+
+        }
+
+        if (options.gameId && this._roomByGameId.has(options.gameId)) {
+
+            throw new ContractAlreadyExistsError(roomId, options.gameId);
+
+        }
+
+        const contract = this.createContractRequest(roomId, options);
+
+        if (!contract) {
+
+            throw new ContractNotFoundError(roomId);
+
+        }
+
+        return contract;
+
+    }
+
+    createContractRequest(roomId, { gameId = null, correlationId = null } = {}) {
+
+        this._assertInitialized();
+
+        if (!roomId) {
+
+            return null;
+
+        }
+
+        if (this._contractsByRoom.has(roomId)) {
+
+            return this._contractsByRoom.get(roomId);
 
         }
 
@@ -266,21 +383,41 @@ export class GameContractManager {
 
         }
 
+        const now = Date.now();
+
         const contract = new GameContract({
             contractId: `contract_${randomUUID()}`,
             gameId: resolvedGameId,
             roomId,
             status: GAME_CONTRACT_STATUS.NOT_CREATED,
-            snapshot
+            snapshot,
+            createdAt: null,
+            updatedAt: now,
+            tonNetwork: this._resolveTonNetwork(),
+            correlationId: correlationId ?? randomUUID(),
+            snapshotHash: hashGameContractSnapshot(snapshot).toString("hex"),
+            version: 1
         });
 
-        this._contractsByRoom.set(roomId, contract);
+        this._indexContract(contract);
 
-        this._roomByGameId.set(resolvedGameId, roomId);
+        if (!contract.transitionTo(GAME_CONTRACT_STATUS.CREATING)) {
 
-        contract.transitionTo(GAME_CONTRACT_STATUS.CREATING);
+            throw new InvalidContractStateTransitionError(
+                contract.contractId,
+                GAME_CONTRACT_STATUS.NOT_CREATED,
+                GAME_CONTRACT_STATUS.CREATING
+            );
+
+        }
+
+        this._persistContract(contract, { create: true });
+
+        this._persistSnapshot(contract);
 
         this._emitClientUpdate(contract);
+
+        this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_CREATED, contract);
 
         this._log(
             `CREATING | roomId=${roomId} | gameId=${resolvedGameId} | `
@@ -290,6 +427,122 @@ export class GameContractManager {
         this._scheduleCreated(contract);
 
         return contract;
+
+    }
+
+    /**
+     * Explicit deploy entry (also used after create pipeline reaches READY_FOR_BLOCKCHAIN).
+     */
+    async deployContract(roomId) {
+
+        this._assertInitialized();
+
+        const contract = this._requireContractByRoom(roomId);
+
+        return this._withLock(contract.contractId, "deploy", async () => {
+
+            if (contract.status === GAME_CONTRACT_STATUS.DEPLOYED
+                || contract.status === GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS
+                || contract.status === GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE) {
+
+                return contract;
+
+            }
+
+            if (contract.status === GAME_CONTRACT_STATUS.DEPLOYING) {
+
+                throw new ContractOperationInProgressError(
+                    contract.contractId,
+                    "deploy"
+                );
+
+            }
+
+            if (contract.status === GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN) {
+
+                await this._beginDeploy(roomId);
+
+                return this.getContract(roomId);
+
+            }
+
+            throw new InvalidContractStateTransitionError(
+                contract.contractId,
+                contract.status,
+                GAME_CONTRACT_STATUS.DEPLOYING
+            );
+
+        });
+
+    }
+
+    /**
+     * Load a contract from persistence into memory (recovery / ops).
+     */
+    loadContract(contractId) {
+
+        this._assertInitialized();
+
+        if (!contractId) {
+
+            throw new ContractNotFoundError(contractId);
+
+        }
+
+        const existing = this.getContractById(contractId);
+
+        if (existing) {
+
+            return existing;
+
+        }
+
+        if (!this._financialPersistence) {
+
+            throw new ContractNotFoundError(contractId);
+
+        }
+
+        try {
+
+            const record = this._financialPersistence.loadGameContract(contractId);
+
+            const contract = this._hydrateFromPersistenceRecord(record);
+
+            this._indexContract(contract);
+
+            return contract;
+
+        } catch (error) {
+
+            if (error?.code === "RECORD_NOT_FOUND") {
+
+                throw new ContractNotFoundError(contractId);
+
+            }
+
+            throw new PersistenceFailureError(
+                `Unable to load contract | contractId=${contractId}`,
+                { cause: error?.message ?? null }
+            );
+
+        }
+
+    }
+
+    updateContractState(roomId, nextStatus) {
+
+        this._assertInitialized();
+
+        const contract = this._requireContractByRoom(roomId);
+
+        return this._transitionContract(contract, nextStatus);
+
+    }
+
+    markPaymentsCompleted(roomId) {
+
+        return this.markPaymentsComplete(roomId);
 
     }
 
@@ -315,20 +568,22 @@ export class GameContractManager {
 
         }
 
-        if (!contract.transitionTo(GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE)) {
-
-            return contract;
-
-        }
-
-        this._emitClientUpdate(contract);
+        this._transitionContract(
+            contract,
+            GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE,
+            { throwOnInvalid: false }
+        );
 
         this._emit(EVENT_TYPES.GAME_CONTRACT_PAYMENTS_COMPLETE, {
             roomId,
             gameId: contract.gameId,
             contractId: contract.contractId,
-            paymentsCompletedAt: contract.paymentsCompletedAt
+            paymentsCompletedAt: contract.paymentsCompletedAt,
+            correlationId: contract.correlationId,
+            timestamp: Date.now()
         });
+
+        this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_READY, contract);
 
         this._log(
             `PAYMENTS_COMPLETE | roomId=${roomId} | `
@@ -336,6 +591,345 @@ export class GameContractManager {
         );
 
         return contract;
+
+    }
+
+    /**
+     * Mark gameplay started after payments. Does not mutate settlement gate status.
+     */
+    markGameStarted(roomId) {
+
+        const contract = this._requireContractByRoom(roomId);
+
+        if (contract.status !== GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE) {
+
+            throw new InvalidContractStateTransitionError(
+                contract.contractId,
+                contract.status,
+                "GAME_STARTED"
+            );
+
+        }
+
+        if (contract.gameStartedAt == null) {
+
+            contract.gameStartedAt = Date.now();
+
+            this._touchUpdated(contract);
+
+            this._persistContract(contract);
+
+            this._emitClientUpdate(contract);
+
+            this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_STATE_CHANGED, contract, {
+                gameStarted: true
+            });
+
+        }
+
+        return contract;
+
+    }
+
+    markWinnerPending(roomId) {
+
+        const contract = this._requireContractByRoom(roomId);
+
+        if (contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING) {
+
+            return contract;
+
+        }
+
+        return this._transitionContract(
+            contract,
+            GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING
+        );
+
+    }
+
+    markSettlementPending(roomId) {
+
+        const contract = this._requireContractByRoom(roomId);
+
+        if (contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_PENDING) {
+
+            return contract;
+
+        }
+
+        if (contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING) {
+
+            this._transitionContract(
+                contract,
+                GAME_CONTRACT_STATUS.SETTLEMENT_SUBMITTED
+            );
+
+        }
+
+        if (contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_SUBMITTED) {
+
+            return this._transitionContract(
+                contract,
+                GAME_CONTRACT_STATUS.SETTLEMENT_PENDING
+            );
+
+        }
+
+        throw new InvalidContractStateTransitionError(
+            contract.contractId,
+            contract.status,
+            GAME_CONTRACT_STATUS.SETTLEMENT_PENDING
+        );
+
+    }
+
+    completeContract(roomId) {
+
+        const contract = this._requireContractByRoom(roomId);
+
+        if (contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED) {
+
+            return contract;
+
+        }
+
+        if (contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_CONFIRMED) {
+
+            return this._transitionContract(
+                contract,
+                GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED
+            );
+
+        }
+
+        throw new InvalidContractStateTransitionError(
+            contract.contractId,
+            contract.status,
+            GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED
+        );
+
+    }
+
+    async archiveContract(roomId) {
+
+        this._assertInitialized();
+
+        const contract = this._requireContractByRoom(roomId);
+
+        return this._withLock(contract.contractId, "archive", async () => {
+
+            if (contract.status === GAME_CONTRACT_STATUS.ARCHIVED) {
+
+                return contract;
+
+            }
+
+            if (!ARCHIVEABLE_STATUSES.has(contract.status)) {
+
+                throw new InvalidContractStateTransitionError(
+                    contract.contractId,
+                    contract.status,
+                    GAME_CONTRACT_STATUS.ARCHIVED
+                );
+
+            }
+
+            this._transitionContract(contract, GAME_CONTRACT_STATUS.ARCHIVED);
+
+            if (this._financialPersistence) {
+
+                try {
+
+                    this._financialPersistence.archive(contract.contractId, {
+                        archiveReason: "game_complete",
+                        correlationId: contract.correlationId,
+                        roomId: contract.roomId,
+                        gameId: contract.gameId,
+                        tonNetwork: contract.tonNetwork
+                    });
+
+                } catch (error) {
+
+                    throw new PersistenceFailureError(
+                        `Unable to archive contract | contractId=${contract.contractId}`,
+                        { cause: error?.message ?? null }
+                    );
+
+                }
+
+            }
+
+            this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_ARCHIVED, contract);
+
+            this._log(
+                `ARCHIVED | roomId=${roomId} | contractId=${contract.contractId}`
+            );
+
+            return contract;
+
+        });
+
+    }
+
+    async failContract(roomId, reason = "contract_failed") {
+
+        const contract = this._requireContractByRoom(roomId);
+
+        if (
+            contract.status === GAME_CONTRACT_STATUS.DEPLOY_FAILED
+            || contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_FAILED
+            || contract.status === GAME_CONTRACT_STATUS.ARCHIVED
+        ) {
+
+            return contract;
+
+        }
+
+        return this._withLock(contract.contractId, "fail", async () => {
+
+            contract.failureReason = reason;
+
+            if (contract.status === GAME_CONTRACT_STATUS.DEPLOYING) {
+
+                contract.applyDeploymentFailure(reason);
+
+                this._transitionContract(
+                    contract,
+                    GAME_CONTRACT_STATUS.DEPLOY_FAILED,
+                    { throwOnInvalid: false }
+                );
+
+            } else if (contract.canTransitionTo(GAME_CONTRACT_STATUS.SETTLEMENT_FAILED)) {
+
+                this._transitionContract(
+                    contract,
+                    GAME_CONTRACT_STATUS.SETTLEMENT_FAILED
+                );
+
+            } else if (FAILABLE_FROM.has(contract.status)) {
+
+                contract.failureReason = reason;
+
+                this._touchUpdated(contract);
+
+                this._persistContract(contract);
+
+                this._emitClientUpdate(contract);
+
+            } else {
+
+                throw new InvalidContractStateTransitionError(
+                    contract.contractId,
+                    contract.status,
+                    "FAILED"
+                );
+
+            }
+
+            this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_FAILED, contract, {
+                reason
+            });
+
+            return contract;
+
+        });
+
+    }
+
+    /**
+     * Restore active contracts from TonFinancialPersistence after restart.
+     */
+    restoreContracts() {
+
+        this._assertInitialized();
+
+        if (!this._financialPersistence) {
+
+            return Object.freeze({
+                restored: 0,
+                incompleteDeployments: Object.freeze([]),
+                unfinishedTransitions: Object.freeze([])
+            });
+
+        }
+
+        try {
+
+            const active = this._financialPersistence.listActive("game_contract");
+
+            let restored = 0;
+
+            const incompleteDeployments = [];
+
+            const unfinishedTransitions = [];
+
+            for (const record of active) {
+
+                try {
+
+                    const contract = this._hydrateFromPersistenceRecord(record);
+
+                    if (this._contractsByRoom.has(contract.roomId)) {
+
+                        continue;
+
+                    }
+
+                    this._indexContract(contract);
+
+                    restored += 1;
+
+                    if (
+                        contract.status === GAME_CONTRACT_STATUS.DEPLOYING
+                        || contract.status === GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN
+                    ) {
+
+                        incompleteDeployments.push(contract.contractId);
+
+                    }
+
+                    if (
+                        contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_SUBMITTED
+                        || contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_PENDING
+                        || contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING
+                        || contract.status === GAME_CONTRACT_STATUS.CREATING
+                    ) {
+
+                        unfinishedTransitions.push(contract.contractId);
+
+                    }
+
+                } catch (error) {
+
+                    this._logger.error(
+                        `GameContract restore skipped | `
+                            + `id=${record?.recordId} | ${error?.message ?? error}`
+                    );
+
+                }
+
+            }
+
+            this._log(
+                `RESTORE | restored=${restored} | `
+                    + `incompleteDeploy=${incompleteDeployments.length}`
+            );
+
+            return Object.freeze({
+                restored,
+                incompleteDeployments: Object.freeze(incompleteDeployments),
+                unfinishedTransitions: Object.freeze(unfinishedTransitions)
+            });
+
+        } catch (error) {
+
+            throw new ContractRecoveryError(
+                "Unable to restore contracts from persistence",
+                { cause: error?.message ?? null }
+            );
+
+        }
 
     }
 
@@ -357,9 +951,21 @@ export class GameContractManager {
 
         }
 
+        if (contract?.contractId) {
+
+            this._contractsById.delete(contract.contractId);
+
+            this._operationLocks.delete(contract.contractId);
+
+        }
+
         this._contractsByRoom.delete(roomId);
 
     }
+
+    // -------------------------------------------------------------------------
+    // Event handlers
+    // -------------------------------------------------------------------------
 
     _handlePaymentSessionUpdated(payload) {
 
@@ -437,41 +1043,34 @@ export class GameContractManager {
 
             }
 
-            if (!current.transitionTo(GAME_CONTRACT_STATUS.CREATED)) {
-
-                return;
-
-            }
-
-            this._emitClientUpdate(current);
+            this._transitionContract(
+                current,
+                GAME_CONTRACT_STATUS.CREATED,
+                { throwOnInvalid: false }
+            );
 
             this._log(
                 `CREATED | roomId=${current.roomId} | `
                     + `contractId=${current.contractId}`
             );
 
-            if (!current.transitionTo(GAME_CONTRACT_STATUS.AWAITING_PAYMENTS)) {
+            this._transitionContract(
+                current,
+                GAME_CONTRACT_STATUS.AWAITING_PAYMENTS,
+                { throwOnInvalid: false }
+            );
 
-                return;
-
-            }
-
-            this._emitClientUpdate(current);
-
-            if (!current.transitionTo(GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN)) {
-
-                return;
-
-            }
-
-            this._emitClientUpdate(current);
+            this._transitionContract(
+                current,
+                GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN,
+                { throwOnInvalid: false }
+            );
 
             this._log(
                 `READY_FOR_BLOCKCHAIN | roomId=${current.roomId} | `
                     + `contractId=${current.contractId}`
             );
 
-            // P6.5 — deploy immediately once snapshot is ready.
             void this._beginDeploy(current.roomId);
 
         };
@@ -512,7 +1111,13 @@ export class GameContractManager {
 
         }
 
+        this._touchUpdated(contract);
+
+        this._persistContract(contract);
+
         this._emitClientUpdate(contract);
+
+        this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_DEPLOYING, contract);
 
         this._log(
             `DEPLOYING | roomId=${roomId} | contractId=${contract.contractId}`
@@ -556,10 +1161,16 @@ export class GameContractManager {
 
             current.transitionTo(GAME_CONTRACT_STATUS.DEPLOY_FAILED);
 
+            this._persistContract(current);
+
             this._emitClientUpdate(current);
 
             this._emit(EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED, {
                 ...current.toClientSnapshot(),
+                reason: current.deployError
+            });
+
+            this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_FAILED, current, {
                 reason: current.deployError
             });
 
@@ -577,11 +1188,21 @@ export class GameContractManager {
             deployedAt: result.deployedAt ?? Date.now()
         });
 
+        if (result.snapshotHash) {
+
+            current.snapshotHash = result.snapshotHash;
+
+        }
+
         current.transitionTo(GAME_CONTRACT_STATUS.DEPLOYED);
+
+        this._persistContract(current);
 
         this._emitClientUpdate(current);
 
         this._emit(EVENT_TYPES.GAME_CONTRACT_DEPLOYED, current.toClientSnapshot());
+
+        this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_DEPLOYED, current);
 
         this._log(
             `DEPLOYED | roomId=${roomId} | address=${current.contractAddress}`
@@ -593,6 +1214,8 @@ export class GameContractManager {
 
         }
 
+        this._persistContract(current);
+
         this._emitClientUpdate(current);
 
         this._emit(EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS, {
@@ -601,6 +1224,7 @@ export class GameContractManager {
             contractId: current.contractId,
             contractAddress: current.contractAddress,
             paymentDeadline: Date.now() + (5 * 60 * 1000),
+            correlationId: current.correlationId,
             participants: (current.snapshot?.players ?? []).map((player) => (
                 Object.freeze({
                     playerId: player.playerId,
@@ -614,6 +1238,283 @@ export class GameContractManager {
             `AWAITING_PLAYER_PAYMENTS | roomId=${roomId} | `
                 + `contractId=${current.contractId}`
         );
+
+    }
+
+    // -------------------------------------------------------------------------
+    // Persistence / hydration
+    // -------------------------------------------------------------------------
+
+    _persistContract(contract, { create = false } = {}) {
+
+        if (!this._financialPersistence || !contract) {
+
+            return;
+
+        }
+
+        const payload = {
+            contractId: contract.contractId,
+            gameId: contract.gameId,
+            roomId: contract.roomId,
+            status: contract.status,
+            contractAddress: contract.contractAddress,
+            deploymentStatus: contract.deploymentStatus,
+            deployedAt: contract.deployedAt,
+            deploymentTxId: contract.deploymentTxId,
+            deployError: contract.deployError,
+            paymentsCompletedAt: contract.paymentsCompletedAt,
+            tonNetwork: contract.tonNetwork,
+            snapshotHash: contract.snapshotHash,
+            version: contract.version,
+            gameStartedAt: contract.gameStartedAt,
+            archivedAt: contract.archivedAt,
+            failureReason: contract.failureReason,
+            snapshot: contract.snapshot
+        };
+
+        const metadata = {
+            status: contract.status,
+            roomId: contract.roomId,
+            gameId: contract.gameId,
+            contractId: contract.contractId,
+            tonNetwork: contract.tonNetwork,
+            correlationId: contract.correlationId,
+            createdAt: contract.createdAt,
+            updatedAt: contract.updatedAt ?? Date.now(),
+            version: contract.version
+        };
+
+        try {
+
+            if (create) {
+
+                this._financialPersistence.createGameContract(payload, metadata);
+
+                return;
+
+            }
+
+            try {
+
+                this._financialPersistence.updateGameContract(
+                    contract.contractId,
+                    payload,
+                    metadata
+                );
+
+            } catch (error) {
+
+                if (error?.code === "RECORD_NOT_FOUND") {
+
+                    this._financialPersistence.createGameContract(payload, metadata);
+
+                    return;
+
+                }
+
+                throw error;
+
+            }
+
+        } catch (error) {
+
+            this._logger.error(
+                `GameContract persistence failed | contractId=${contract.contractId} | `
+                    + `${error?.message ?? error}`
+            );
+
+            throw new PersistenceFailureError(
+                `Unable to persist contract | contractId=${contract.contractId}`,
+                { cause: error?.message ?? null }
+            );
+
+        }
+
+    }
+
+    _persistSnapshot(contract) {
+
+        if (!this._financialPersistence || !contract?.snapshotHash) {
+
+            return;
+
+        }
+
+        try {
+
+            this._financialPersistence.createSnapshotRecord(
+                {
+                    snapshotHash: contract.snapshotHash,
+                    gameId: contract.gameId,
+                    roomId: contract.roomId,
+                    contractId: contract.contractId,
+                    snapshot: contract.snapshot
+                },
+                {
+                    snapshotId: contract.snapshotHash,
+                    roomId: contract.roomId,
+                    gameId: contract.gameId,
+                    contractId: contract.contractId,
+                    tonNetwork: contract.tonNetwork,
+                    correlationId: contract.correlationId,
+                    status: "FROZEN"
+                }
+            );
+
+        } catch (error) {
+
+            if (error?.code === "DUPLICATE_RECORD") {
+
+                return;
+
+            }
+
+            this._logger.error(
+                `GameContract snapshot persist failed | `
+                    + `contractId=${contract.contractId} | ${error?.message ?? error}`
+            );
+
+        }
+
+    }
+
+    _hydrateFromPersistenceRecord(record) {
+
+        const payload = record?.payload ?? {};
+
+        return new GameContract({
+            contractId: payload.contractId ?? record.recordId,
+            gameId: payload.gameId ?? record.gameId,
+            roomId: payload.roomId ?? record.roomId,
+            status: payload.status ?? record.status,
+            snapshot: payload.snapshot ?? null,
+            createdAt: record.createdAt ?? payload.createdAt ?? null,
+            updatedAt: record.updatedAt ?? payload.updatedAt ?? null,
+            contractAddress: payload.contractAddress ?? null,
+            deploymentStatus: payload.deploymentStatus ?? null,
+            deployedAt: payload.deployedAt ?? null,
+            deploymentTxId: payload.deploymentTxId ?? null,
+            deployError: payload.deployError ?? null,
+            paymentsCompletedAt: payload.paymentsCompletedAt ?? null,
+            tonNetwork: payload.tonNetwork ?? record.tonNetwork ?? null,
+            correlationId: record.correlationId ?? payload.correlationId ?? null,
+            snapshotHash: payload.snapshotHash ?? null,
+            version: payload.version ?? record.version ?? 1,
+            gameStartedAt: payload.gameStartedAt ?? null,
+            archivedAt: payload.archivedAt ?? null,
+            failureReason: payload.failureReason ?? null
+        });
+
+    }
+
+    // -------------------------------------------------------------------------
+    // Internals
+    // -------------------------------------------------------------------------
+
+    _indexContract(contract) {
+
+        this._contractsByRoom.set(contract.roomId, contract);
+
+        this._roomByGameId.set(contract.gameId, contract.roomId);
+
+        this._contractsById.set(contract.contractId, contract);
+
+    }
+
+    _requireContractByRoom(roomId) {
+
+        const contract = this.getContract(roomId);
+
+        if (!contract) {
+
+            throw new ContractNotFoundError(roomId);
+
+        }
+
+        return contract;
+
+    }
+
+    _transitionContract(contract, nextStatus, { throwOnInvalid = true } = {}) {
+
+        const previous = contract.status;
+
+        if (previous === nextStatus) {
+
+            return contract;
+
+        }
+
+        if (!contract.transitionTo(nextStatus)) {
+
+            if (throwOnInvalid) {
+
+                throw new InvalidContractStateTransitionError(
+                    contract.contractId,
+                    previous,
+                    nextStatus
+                );
+
+            }
+
+            return contract;
+
+        }
+
+        this._persistContract(contract);
+
+        this._emitClientUpdate(contract);
+
+        this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_STATE_CHANGED, contract, {
+            previousStatus: previous
+        });
+
+        return contract;
+
+    }
+
+    _touchUpdated(contract) {
+
+        contract.updatedAt = Date.now();
+
+    }
+
+    _resolveTonNetwork() {
+
+        if (this._tonNetwork) {
+
+            return this._tonNetwork;
+
+        }
+
+        return this._deployAdapter?._tonConfig?.network
+            ?? this._deployAdapter?._tonService?.getActiveNetwork?.()
+            ?? null;
+
+    }
+
+    async _withLock(contractId, operation, fn) {
+
+        const existing = this._operationLocks.get(contractId);
+
+        if (existing) {
+
+            throw new ContractOperationInProgressError(contractId, existing);
+
+        }
+
+        this._operationLocks.set(contractId, operation);
+
+        try {
+
+            return await fn();
+
+        } finally {
+
+            this._operationLocks.delete(contractId);
+
+        }
 
     }
 
@@ -640,6 +1541,20 @@ export class GameContractManager {
 
     }
 
+    _emitDomainLifecycle(type, contract, extra = {}) {
+
+        this._emit(type, {
+            contractId: contract.contractId,
+            gameId: contract.gameId,
+            roomId: contract.roomId,
+            state: contract.status,
+            timestamp: Date.now(),
+            correlationId: contract.correlationId,
+            ...extra
+        });
+
+    }
+
     _reset() {
 
         for (const roomId of [...this._creatingTimers.keys()]) {
@@ -651,6 +1566,10 @@ export class GameContractManager {
         this._contractsByRoom.clear();
 
         this._roomByGameId.clear();
+
+        this._contractsById.clear();
+
+        this._operationLocks.clear();
 
     }
 
@@ -693,3 +1612,14 @@ export class GameContractManager {
     }
 
 }
+
+export {
+    ContractAlreadyExistsError,
+    ContractNotFoundError,
+    ContractOperationInProgressError,
+    ContractRecoveryError,
+    ContractStateMismatchError,
+    DeploymentFailedError,
+    InvalidContractStateTransitionError,
+    PersistenceFailureError
+} from "./GameContractManagerErrors.js";

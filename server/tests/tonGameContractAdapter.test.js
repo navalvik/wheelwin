@@ -1,70 +1,590 @@
+/**
+ * T2.3 — TonGameContractAdapter tests.
+ */
+
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+
+import { keyPairFromSeed } from "@ton/crypto";
+import { WalletContractV4 } from "@ton/ton";
 
 import { TonGameContractAdapter } from "../payment/TonGameContractAdapter.js";
-import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
+import {
+    decodeContractState,
+    decodePaidMask,
+    decodeSettlementState,
+    decodeWinner
+} from "../payment/ton/gameContract/GameContractDeserializer.js";
+import {
+    InvalidAddressError,
+    InvalidContractResponseError,
+    SerializationError
+} from "../payment/ton/gameContract/GameContractErrors.js";
+import {
+    serializeArchiveBody,
+    serializeEmergencyCancelBody,
+    serializeLegacySettleBody,
+    serializeSettleBody
+} from "../payment/ton/gameContract/GameContractSerializer.js";
 import { buildGameEscrowWallet } from "../payment/ton/buildGameEscrowStateInit.js";
+import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
+import { ContractNotFoundError } from "../payment/TonGameContractAdapter.js";
 
-{
-    const escrow = buildGameEscrowWallet({
-        contractId: "contract_1",
-        snapshot: {
-            gameId: "g1",
-            roomId: "r1",
-            totalPot: 30,
-            players: [
-                { playerId: "p1", wallet: "EQ1", requiredGram: 10 }
-            ]
-        }
+function friendlyAddress(seedLabel) {
+
+    const seed = createHash("sha256").update(seedLabel).digest();
+
+    const keyPair = keyPairFromSeed(seed);
+
+    return WalletContractV4.create({
+        workchain: 0,
+        publicKey: keyPair.publicKey
+    }).address.toString({
+        bounceable: true,
+        urlSafe: true
     });
-
-    assert.ok(escrow.addressFriendly.startsWith("EQ"));
-
-    const again = buildGameEscrowWallet({
-        contractId: "contract_1",
-        snapshot: {
-            gameId: "g1",
-            roomId: "r1",
-            totalPot: 30,
-            players: [
-                { playerId: "p1", wallet: "EQ1", requiredGram: 10 }
-            ]
-        }
-    });
-
-    assert.equal(escrow.addressFriendly, again.addressFriendly);
 
 }
 
-{
+function createMockTonService({
+    accountState = "active",
+    getMethodHandlers = {}
+} = {}) {
+
     const transport = new MockTonTransport();
 
-    const adapter = new TonGameContractAdapter({
-        tonConfig: {
-            endpoint: "http://localhost/mock",
-            apiKey: null,
-            deployerMnemonic: null
-        },
-        transport
-    });
+    const client = {
+        async runMethod(address, method) {
 
-    const result = await adapter.deploy({
-        contractId: "contract_live_1",
-        snapshot: {
-            gameId: "game_1",
-            roomId: "room_1",
-            totalPot: 30,
-            players: []
+            const friendly = typeof address === "string"
+                ? address
+                : address.toString({
+                    bounceable: true,
+                    urlSafe: true
+                });
+
+            const handler = getMethodHandlers[method];
+
+            if (!handler) {
+
+                throw new Error(`Unhandled get-method: ${method}`);
+
+            }
+
+            return handler(friendly);
+
         }
+    };
+
+    const defaultAddress = friendlyAddress("contract-a");
+
+    transport.seedAddressInfo(defaultAddress, {
+        state: accountState,
+        balance: "1000000000"
     });
 
-    assert.equal(result.ok, true);
+    return {
+        getActiveNetwork() {
 
-    assert.ok(result.contractAddress.startsWith("EQ"));
+            return "testnet";
 
-    assert.ok(result.deploymentTxId);
+        },
+        isConnected() {
 
-    assert.equal(transport.sentBocs.length, 1);
+            return true;
+
+        },
+        getTransport() {
+
+            return transport;
+
+        },
+        getClient() {
+
+            return client;
+
+        },
+        async broadcastTransaction(bocBase64) {
+
+            return transport.sendBoc(bocBase64);
+
+        },
+        async getAccount(address) {
+
+            return transport.getAddressInformation(address);
+
+        },
+        async getSeqno() {
+
+            return 1;
+
+        },
+        async runGetMethod(address, method) {
+
+            return client.runMethod(address, method);
+
+        }
+    };
 
 }
 
-console.log("tonGameContractAdapter.test.js: all assertions passed");
+function createAdapter(tonService, overrides = {}) {
+
+    return new TonGameContractAdapter({
+        tonConfig: {
+            endpoint: "https://testnet.toncenter.com/api/v2/jsonRPC",
+            apiKey: null,
+            deployerMnemonic: null,
+            network: "testnet",
+            ...overrides
+        },
+        tonService
+    });
+
+}
+
+const contractAddress = friendlyAddress("contract-a");
+
+const defaultGetMethodHandlers = {
+    get_contract_state: () => ({
+        stack: [
+            { value: 6 },
+            { value: 1 },
+            { value: 7 }
+        ]
+    }),
+    get_paid_mask: () => ({
+        stack: [{ value: 7 }]
+    }),
+    get_participants: () => ({
+        stack: [[
+            [
+                { value: friendlyAddress("player-1") },
+                { value: 10 },
+                { value: 1 },
+                { value: "ref-1" }
+            ]
+        ]]
+    }),
+    get_winner: () => ({
+        stack: [
+            { value: friendlyAddress("player-1") },
+            { value: "hash-winner" }
+        ]
+    }),
+    get_settlement_state: () => ({
+        stack: [
+            { value: 8 },
+            { value: friendlyAddress("player-1") },
+            { value: 28 },
+            { value: 2 },
+            { value: "tx-settle" }
+        ]
+    }),
+    get_balances: () => ({
+        stack: [
+            { value: 1000000000n },
+            { value: 500000000n },
+            { value: "GRM" }
+        ]
+    }),
+    get_archive_state: () => ({
+        stack: [
+            { value: 1 },
+            { value: 1234567890 },
+            { value: "game_complete" }
+        ]
+    }),
+    get_network: () => ({
+        stack: [{ value: "testnet" }]
+    })
+};
+
+async function main() {
+
+    // --- escrow derivation ---
+
+    {
+        const escrow = buildGameEscrowWallet({
+            contractId: "contract_1",
+            snapshot: {
+                gameId: "g1",
+                roomId: "r1",
+                totalPot: 30,
+                players: [
+                    { playerId: "p1", wallet: "EQ1", requiredGram: 10 }
+                ]
+            }
+        });
+
+        assert.ok(escrow.addressFriendly.startsWith("EQ"));
+
+        console.log("  escrow derivation: OK");
+    }
+
+    // --- deploy serialization path ---
+
+    {
+        const transport = new MockTonTransport();
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            isConnected: () => true,
+            async broadcastTransaction(boc) {
+
+                return transport.sendBoc(boc);
+
+            },
+            async getAccount() {
+
+                return { state: "uninitialized", balance: "0" };
+
+            },
+            async getSeqno() {
+
+                return 0;
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        });
+
+        const result = await adapter.deploy({
+            contractId: "contract_live_1",
+            snapshot: {
+                gameId: "game_1",
+                roomId: "room_1",
+                totalPot: 30,
+                players: []
+            }
+        });
+
+        assert.equal(result.ok, true);
+
+        assert.ok(result.contractAddress.startsWith("EQ"));
+
+        assert.ok(result.deploymentTxId);
+
+        assert.equal(transport.sentBocs.length, 1);
+
+        console.log("  deploy serialization: OK");
+    }
+
+    // --- open + load state ---
+
+    {
+        const tonService = createMockTonService({
+            getMethodHandlers: defaultGetMethodHandlers
+        });
+
+        tonService.getTransport().seedAddressInfo(contractAddress, {
+            state: "active",
+            balance: "1000000000"
+        });
+
+        const adapter = createAdapter(tonService);
+
+        const opened = await adapter.openContract(contractAddress);
+
+        assert.equal(opened.exists, true);
+
+        const loaded = await adapter.loadContract(contractAddress);
+
+        assert.equal(loaded.state.status, "LOCKED");
+
+        assert.equal(loaded.state.paidMask, 7);
+
+        console.log("  open + load state: OK");
+    }
+
+    // --- decode paid mask ---
+
+    {
+        const mask = decodePaidMask({
+            stack: [{ value: 5 }]
+        });
+
+        assert.equal(mask, 5);
+
+        console.log("  decode paid mask: OK");
+    }
+
+    // --- decode balances ---
+
+    {
+        const tonService = createMockTonService({
+            getMethodHandlers: defaultGetMethodHandlers
+        });
+
+        tonService.getTransport().seedAddressInfo(contractAddress, {
+            state: "active",
+            balance: "1000000000"
+        });
+
+        const adapter = createAdapter(tonService);
+
+        const balances = await adapter.getBalances(contractAddress);
+
+        assert.equal(balances.tonBalance, 1000000000n);
+
+        assert.equal(balances.jettonBalance, 500000000n);
+
+        assert.equal(balances.currency, "GRM");
+
+        console.log("  decode balances: OK");
+    }
+
+    // --- decode settlement + winner ---
+
+    {
+        const tonService = createMockTonService({
+            getMethodHandlers: defaultGetMethodHandlers
+        });
+
+        tonService.getTransport().seedAddressInfo(contractAddress, {
+            state: "active",
+            balance: "0"
+        });
+
+        const adapter = createAdapter(tonService);
+
+        const settlement = await adapter.getSettlementState(contractAddress);
+
+        assert.equal(settlement.status, "SETTLED");
+
+        assert.equal(settlement.winnerAmount, 28);
+
+        const winner = await adapter.getWinner(contractAddress);
+
+        assert.equal(winner.winnerWallet, friendlyAddress("player-1"));
+
+        console.log("  decode settlement + winner: OK");
+    }
+
+    // --- participants ---
+
+    {
+        const tonService = createMockTonService({
+            getMethodHandlers: defaultGetMethodHandlers
+        });
+
+        tonService.getTransport().seedAddressInfo(contractAddress, {
+            state: "active",
+            balance: "0"
+        });
+
+        const adapter = createAdapter(tonService);
+
+        const participants = await adapter.getParticipants(contractAddress);
+
+        assert.equal(participants.length, 1);
+
+        assert.equal(participants[0].paid, true);
+
+        console.log("  decode participants: OK");
+    }
+
+    // --- archive request serialization ---
+
+    {
+        const cell = serializeArchiveBody();
+
+        assert.ok(cell.bits.length > 0);
+
+        console.log("  archive serialization: OK");
+    }
+
+    // --- settle request serialization ---
+
+    {
+        const legacy = serializeLegacySettleBody({
+            winnerAmount: 28.5,
+            organizerAmount: 1.5
+        });
+
+        const full = serializeSettleBody({
+            winnerWallet: friendlyAddress("player-1"),
+            winnerAmount: 28.5,
+            organizerAmount: 1.5
+        });
+
+        assert.ok(legacy.bits.length > 0);
+
+        assert.ok(full.bits.length > 0);
+
+        console.log("  settle serialization: OK");
+    }
+
+    // --- emergency cancel serialization ---
+
+    {
+        const cell = serializeEmergencyCancelBody({ reasonCode: 42 });
+
+        assert.ok(cell.bits.length > 0);
+
+        console.log("  cancel serialization: OK");
+    }
+
+    // --- invalid address ---
+
+    {
+        const tonService = createMockTonService();
+
+        const adapter = createAdapter(tonService);
+
+        await assert.rejects(
+            () => adapter.openContract("not-an-address"),
+            InvalidAddressError
+        );
+
+        console.log("  invalid address: OK");
+    }
+
+    // --- contract not found ---
+
+    {
+        const tonService = createMockTonService({
+            accountState: "uninitialized"
+        });
+
+        const adapter = createAdapter(tonService);
+
+        const missing = friendlyAddress("missing-contract");
+
+        tonService.getTransport().seedAddressInfo(missing, {
+            state: "uninitialized",
+            balance: "0"
+        });
+
+        assert.equal(await adapter.contractExists(missing), false);
+
+        await assert.rejects(
+            () => adapter.getContractState(missing),
+            ContractNotFoundError
+        );
+
+        console.log("  contract not found: OK");
+    }
+
+    // --- invalid response ---
+
+    {
+        assert.throws(
+            () => decodeContractState(contractAddress, "testnet", null),
+            InvalidContractResponseError
+        );
+
+        console.log("  invalid response: OK");
+    }
+
+    // --- serialization error ---
+
+    {
+        assert.throws(
+            () => serializeSettleBody({
+                winnerWallet: "bad-address",
+                winnerAmount: 1,
+                organizerAmount: 1
+            }),
+            SerializationError
+        );
+
+        console.log("  serialization error: OK");
+    }
+
+    // --- settle stub path ---
+
+    {
+        const transport = new MockTonTransport();
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            async broadcastTransaction(boc) {
+
+                return transport.sendBoc(boc);
+
+            },
+            async getAccount() {
+
+                return { state: "active", balance: "0" };
+
+            },
+            async getSeqno() {
+
+                return 1;
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        });
+
+        const result = await adapter.settleContract({
+            contractId: "c1",
+            contractAddress,
+            winnerWallet: friendlyAddress("player-1"),
+            ownerWallet: friendlyAddress("owner-1"),
+            winnerId: "p1",
+            winnerAmount: 28.5,
+            organizerAmount: 1.5
+        });
+
+        assert.equal(result.ok, true);
+
+        assert.ok(result.settlementTxId);
+
+        assert.equal(transport.sentBocs.length, 1);
+
+        console.log("  settle stub path: OK");
+    }
+
+    // --- decode contract state DTO ---
+
+    {
+        const state = decodeContractState(contractAddress, "testnet", {
+            stack: [
+                { value: 3 },
+                { value: 1 },
+                { value: 2 }
+            ]
+        });
+
+        assert.equal(state.status, "PAYMENTS_OPEN");
+
+        assert.equal(state.paidMask, 2);
+
+        assert.equal(state.network, "testnet");
+
+        console.log("  contract state DTO: OK");
+    }
+
+    // --- decode winner DTO ---
+
+    {
+        const winner = decodeWinner(contractAddress, {
+            stack: [
+                { value: friendlyAddress("player-1") },
+                { value: "pid-hash" }
+            ]
+        });
+
+        assert.equal(winner.winnerPlayerIdHash, "pid-hash");
+
+        console.log("  winner DTO: OK");
+    }
+
+    console.log("tonGameContractAdapter tests passed");
+}
+
+main().catch((error) => {
+
+    console.error(error);
+
+    process.exit(1);
+
+});

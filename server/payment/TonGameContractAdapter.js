@@ -1,19 +1,52 @@
+/**
+ * T2.3 — Production TON Game Smart Contract adapter.
+ *
+ * Owns contract ABI encoding/decoding. Communicates only with TonService.
+ * Gameplay modules never import @ton/* except through this adapter boundary.
+ */
+
 import { beginCell, internal, toNano } from "@ton/core";
 import { mnemonicToPrivateKey } from "@ton/crypto";
-import { TonClient, WalletContractV4 } from "@ton/ton";
+import { WalletContractV4 } from "@ton/ton";
 
 import { buildGameEscrowWallet } from "./ton/buildGameEscrowStateInit.js";
+import {
+    assertNetworkCompatibility,
+    parseContractAddress
+} from "./ton/gameContract/GameContractAddress.js";
+import {
+    decodeArchiveState,
+    decodeBalances,
+    decodeContractState,
+    decodePaidMask,
+    decodeParticipants,
+    decodeSettlementState,
+    decodeWinner,
+    decodeNetwork
+} from "./ton/gameContract/GameContractDeserializer.js";
+import {
+    createDeployResultDTO,
+    createOperationResultDTO
+} from "./ton/gameContract/GameContractDtos.js";
+import {
+    ContractNotFoundError
+} from "./ton/gameContract/GameContractErrors.js";
+import { GAME_CONTRACT_GET_METHODS } from "./ton/gameContract/GameContractOpcodes.js";
+import {
+    serializeArchiveBody,
+    serializeDeployBocPlaceholder,
+    serializeEmergencyCancelBody,
+    serializeLegacySettleBody,
+    serializeSettleBocPlaceholder
+} from "./ton/gameContract/GameContractSerializer.js";
+import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
 
-/**
- * P6.6 — Production TON Game Smart Contract adapter.
- *
- * Owns all TON-specific deploy logic. Gameplay modules never import @ton/*.
- */
 export class TonGameContractAdapter {
 
     constructor({
         logger = null,
         tonConfig,
+        tonService = null,
         transport = null,
         tonClient = null
     }) {
@@ -22,23 +55,60 @@ export class TonGameContractAdapter {
 
         this._tonConfig = tonConfig;
 
-        this._transport = transport;
+        this._tonService = tonService;
 
-        this._tonClient = tonClient;
+        this._legacyTransport = transport;
+
+        this._legacyTonClient = tonClient;
+
+        this._legacyShim = null;
 
     }
 
-    /**
-     * Deploy (or finalize) one escrow wallet for the immutable snapshot.
-     */
+    // -------------------------------------------------------------------------
+    // Legacy API (GameContractManager / ContractSettlementManager)
+    // -------------------------------------------------------------------------
+
     async deploy({ contractId, snapshot }) {
+
+        const result = await this.deployContract({ contractId, snapshot });
+
+        return {
+            ok: result.ok,
+            contractAddress: result.contractAddress,
+            deploymentTxId: result.deploymentTxId,
+            deployedAt: result.deployedAt,
+            snapshotHash: result.snapshotHash,
+            reason: result.reason
+        };
+
+    }
+
+    async settleContract(settlementRequest) {
+
+        const result = await this.settle(settlementRequest);
+
+        return {
+            ok: result.ok,
+            settlementTxId: result.txId,
+            settledAt: result.completedAt,
+            reason: result.reason
+        };
+
+    }
+
+    // -------------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------------
+
+    async deployContract({ contractId, snapshot }) {
 
         if (!contractId || !snapshot) {
 
-            return {
+            return createDeployResultDTO({
                 ok: false,
                 reason: "invalid_deploy_request"
-            };
+            });
 
         }
 
@@ -52,13 +122,16 @@ export class TonGameContractAdapter {
 
             let deployedAt = Date.now();
 
-            if (this._tonConfig?.deployerMnemonic) {
+            if (this._canBroadcast()) {
 
                 const broadcast = await this._broadcastDeploy(escrow);
 
                 if (!broadcast.ok) {
 
-                    return broadcast;
+                    return createDeployResultDTO({
+                        ok: false,
+                        reason: broadcast.reason ?? "deploy_failed"
+                    });
 
                 }
 
@@ -68,216 +141,550 @@ export class TonGameContractAdapter {
 
             } else {
 
-                // Live adapter without deployer keys: still derives a real TON
-                // address from WalletContractV4 StateInit and registers via transport.
-                if (this._transport?.sendBoc) {
-
-                    await this._transport.sendBoc(
-                        Buffer.from(`deploy:${contractId}`).toString("base64")
-                    );
-
-                }
+                await this._service().broadcastTransaction(
+                    serializeDeployBocPlaceholder({ contractId })
+                );
 
                 deploymentTxId = `ton_addr_${escrow.snapshotHash.slice(0, 16)}`;
 
             }
 
-            this._logger?.info?.(
+            this._logInfo(
                 `TON GameContract deployed | contractId=${contractId} | `
                     + `address=${contractAddress}`
             );
 
-            return {
+            return createDeployResultDTO({
                 ok: true,
                 contractAddress,
                 deploymentTxId,
                 deployedAt,
                 snapshotHash: escrow.snapshotHash
-            };
+            });
 
         } catch (error) {
 
-            this._logger?.error?.(
+            this._logError(
                 `TON GameContract deploy failed | ${error?.message ?? error}`
             );
 
-            return {
+            return createDeployResultDTO({
                 ok: false,
                 reason: "deploy_failed"
-            };
+            });
 
         }
 
     }
 
-    /**
-     * P6.8B — Submit settlement (winner + organizer) via the escrow contract.
-     * No business logic — request amounts come from the frozen settlement request.
-     */
-    async settleContract(settlementRequest) {
+    async openContract(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const exists = await this.contractExists(address.friendly);
+
+        return Object.freeze({
+            address: address.friendly,
+            network: this._service().getActiveNetwork(),
+            exists
+        });
+
+    }
+
+    async loadContract(contractAddress) {
+
+        const opened = await this.openContract(contractAddress);
+
+        if (!opened.exists) {
+
+            throw new ContractNotFoundError(opened.address);
+
+        }
+
+        const state = await this.getContractState(opened.address);
+
+        return Object.freeze({
+            ...opened,
+            state
+        });
+
+    }
+
+    async contractExists(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const account = await this._service().getAccount(address.friendly);
+
+        return account?.state === "active";
+
+    }
+
+    async getContractState(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.CONTRACT_STATE
+        );
+
+        return decodeContractState(
+            address.friendly,
+            this._service().getActiveNetwork(),
+            stack
+        );
+
+    }
+
+    async getPaidMask(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.PAID_MASK
+        );
+
+        return decodePaidMask(stack);
+
+    }
+
+    async getParticipants(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.PARTICIPANTS
+        );
+
+        return decodeParticipants(stack);
+
+    }
+
+    async getWinner(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.WINNER
+        );
+
+        return decodeWinner(address.friendly, stack);
+
+    }
+
+    async getSettlementState(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.SETTLEMENT_STATE
+        );
+
+        return decodeSettlementState(address.friendly, stack);
+
+    }
+
+    async getBalances(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        try {
+
+            const stack = await this._runContractMethod(
+                address.friendly,
+                GAME_CONTRACT_GET_METHODS.BALANCES
+            );
+
+            return decodeBalances(address.friendly, stack);
+
+        } catch {
+
+            const account = await this._service().getAccount(address.friendly);
+
+            return decodeBalances(address.friendly, {
+                stack: [
+                    { value: BigInt(account?.balance ?? "0") },
+                    { value: 0n },
+                    { value: null }
+                ]
+            });
+
+        }
+
+    }
+
+    async getNetwork(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.NETWORK
+        );
+
+        return decodeNetwork(stack);
+
+    }
+
+    async getArchiveState(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.ARCHIVE_STATE
+        );
+
+        return decodeArchiveState(address.friendly, stack);
+
+    }
+
+    async settle(settlementRequest) {
 
         if (!settlementRequest?.contractId
             || !settlementRequest?.contractAddress
             || !settlementRequest?.winnerWallet
             || !settlementRequest?.ownerWallet) {
 
-            return {
+            return createOperationResultDTO({
                 ok: false,
                 reason: "invalid_settlement_request"
-            };
+            });
 
         }
 
         try {
 
-            if (this._tonConfig?.deployerMnemonic) {
+            if (this._canBroadcast()) {
 
                 const broadcast = await this._broadcastSettle(settlementRequest);
 
                 if (!broadcast.ok) {
 
-                    return broadcast;
+                    return createOperationResultDTO({
+                        ok: false,
+                        reason: broadcast.reason ?? "settle_failed"
+                    });
 
                 }
 
-                return {
+                return createOperationResultDTO({
                     ok: true,
-                    settlementTxId: broadcast.settlementTxId,
-                    settledAt: broadcast.settledAt ?? Date.now()
-                };
+                    txId: broadcast.settlementTxId,
+                    completedAt: broadcast.settledAt ?? Date.now()
+                });
 
             }
 
-            if (this._transport?.sendBoc) {
-
-                await this._transport.sendBoc(
-                    Buffer.from(
-                        `settle:${settlementRequest.contractId}:${settlementRequest.winnerId}`
-                    ).toString("base64")
-                );
-
-            }
+            await this._service().broadcastTransaction(
+                serializeSettleBocPlaceholder({
+                    contractId: settlementRequest.contractId,
+                    winnerId: settlementRequest.winnerId
+                })
+            );
 
             const settlementTxId = `ton_settle_${String(settlementRequest.contractId)
                 .replace(/[^a-zA-Z0-9]/g, "")
                 .slice(-16)}`;
 
-            this._logger?.info?.(
+            this._logInfo(
                 `TON GameContract settled | contractId=${settlementRequest.contractId}`
             );
 
-            return {
+            return createOperationResultDTO({
                 ok: true,
-                settlementTxId,
-                settledAt: Date.now()
-            };
+                txId: settlementTxId,
+                completedAt: Date.now()
+            });
 
         } catch (error) {
 
-            this._logger?.error?.(
+            this._logError(
                 `TON GameContract settle failed | ${error?.message ?? error}`
             );
 
-            return {
+            return createOperationResultDTO({
                 ok: false,
                 reason: "settle_failed"
-            };
+            });
 
         }
 
     }
 
-    async _broadcastSettle(settlementRequest) {
+    async archive({ contractAddress }) {
 
-        const client = this._tonClient ?? this._createTonClient();
+        if (!contractAddress) {
 
-        const keyPair = await mnemonicToPrivateKey(
-            this._tonConfig.deployerMnemonic.split(/\s+/).filter(Boolean)
-        );
+            return createOperationResultDTO({
+                ok: false,
+                reason: "invalid_archive_request"
+            });
 
-        const deployer = client.open(
-            WalletContractV4.create({
-                workchain: 0,
-                publicKey: keyPair.publicKey
-            })
-        );
+        }
 
-        const seqno = await deployer.getSeqno();
+        try {
 
-        // Authoritative settlement submit: deployer notifies escrow to split.
-        // Amounts are already frozen on the settlement request / snapshot.
-        await deployer.sendTransfer({
-            seqno,
-            secretKey: keyPair.secretKey,
-            messages: [
-                internal({
-                    to: settlementRequest.contractAddress,
-                    value: toNano("0.05"),
-                    body: beginCell()
-                        .storeUint(0x53544c, 24)
-                        .storeCoins(toNano(String(settlementRequest.winnerAmount)))
-                        .storeCoins(toNano(String(settlementRequest.organizerAmount)))
-                        .endCell(),
-                    bounce: true
-                })
-            ]
+            const address = this._parseAddress(contractAddress);
+
+            const txId = await this._sendOracleMessage({
+                to: address.friendly,
+                body: serializeArchiveBody(),
+                valueTon: "0.05"
+            });
+
+            return createOperationResultDTO({
+                ok: true,
+                txId,
+                completedAt: Date.now()
+            });
+
+        } catch (error) {
+
+            this._logError(
+                `TON GameContract archive failed | ${error?.message ?? error}`
+            );
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "archive_failed"
+            });
+
+        }
+
+    }
+
+    async cancel({ contractAddress, reasonCode = 0 }) {
+
+        if (!contractAddress) {
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "invalid_cancel_request"
+            });
+
+        }
+
+        try {
+
+            const address = this._parseAddress(contractAddress);
+
+            const txId = await this._sendOracleMessage({
+                to: address.friendly,
+                body: serializeEmergencyCancelBody({ reasonCode }),
+                valueTon: "0.05"
+            });
+
+            return createOperationResultDTO({
+                ok: true,
+                txId,
+                completedAt: Date.now()
+            });
+
+        } catch (error) {
+
+            this._logError(
+                `TON GameContract cancel failed | ${error?.message ?? error}`
+            );
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "cancel_failed"
+            });
+
+        }
+
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal
+    // -------------------------------------------------------------------------
+
+    _service() {
+
+        if (this._tonService) {
+
+            return this._tonService;
+
+        }
+
+        if (!this._legacyShim) {
+
+            this._legacyShim = createLegacyTonServiceShim({
+                transport: this._legacyTransport,
+                tonClient: this._legacyTonClient,
+                tonConfig: this._tonConfig
+            });
+
+        }
+
+        return this._legacyShim;
+
+    }
+
+    _parseAddress(contractAddress) {
+
+        const parsed = parseContractAddress(contractAddress, {
+            network: this._service().getActiveNetwork()
         });
 
-        return {
-            ok: true,
-            settlementTxId: `ton_settle_seq_${seqno}`,
-            settledAt: Date.now()
-        };
+        assertNetworkCompatibility(parsed, this._service().getActiveNetwork());
+
+        return parsed;
+
+    }
+
+    async _runContractMethod(address, method) {
+
+        if (!await this.contractExists(address)) {
+
+            throw new ContractNotFoundError(address);
+
+        }
+
+        return this._service().runGetMethod(address, method, []);
+
+    }
+
+    _canBroadcast() {
+
+        return Boolean(this._tonConfig?.deployerMnemonic);
 
     }
 
     async _broadcastDeploy(escrow) {
 
-        const client = this._tonClient ?? this._createTonClient();
-
-        const keyPair = await mnemonicToPrivateKey(
-            this._tonConfig.deployerMnemonic.split(/\s+/).filter(Boolean)
-        );
-
-        const deployer = client.open(
-            WalletContractV4.create({
-                workchain: 0,
-                publicKey: keyPair.publicKey
-            })
-        );
-
-        const seqno = await deployer.getSeqno();
-
-        // Fund + initialize escrow StateInit with a tiny TON attach.
-        await deployer.sendTransfer({
-            seqno,
-            secretKey: keyPair.secretKey,
-            messages: [
-                internal({
-                    to: escrow.address,
-                    value: toNano("0.05"),
-                    init: escrow.stateInit,
-                    body: beginCell().endCell(),
-                    bounce: false
-                })
-            ]
+        const txId = await this._sendOracleMessage({
+            to: escrow.address,
+            init: escrow.stateInit,
+            body: beginCell().endCell(),
+            valueTon: "0.05",
+            bounce: false
         });
 
         return {
             ok: true,
-            deploymentTxId: `ton_deploy_seq_${seqno}`,
+            deploymentTxId: txId,
             deployedAt: Date.now()
         };
 
     }
 
-    _createTonClient() {
+    async _broadcastSettle(settlementRequest) {
 
-        return new TonClient({
-            endpoint: this._tonConfig.endpoint,
-            apiKey: this._tonConfig.apiKey || undefined
+        const txId = await this._sendOracleMessage({
+            to: settlementRequest.contractAddress,
+            body: serializeLegacySettleBody({
+                winnerAmount: settlementRequest.winnerAmount,
+                organizerAmount: settlementRequest.organizerAmount
+            }),
+            valueTon: "0.05",
+            bounce: true
         });
+
+        return {
+            ok: true,
+            settlementTxId: txId,
+            settledAt: Date.now()
+        };
+
+    }
+
+    async _sendOracleMessage({
+        to,
+        body,
+        init = null,
+        valueTon = "0.05",
+        bounce = true
+    }) {
+
+        const keyPair = await mnemonicToPrivateKey(
+            this._tonConfig.deployerMnemonic.split(/\s+/).filter(Boolean)
+        );
+
+        const deployerWallet = WalletContractV4.create({
+            workchain: 0,
+            publicKey: keyPair.publicKey
+        });
+
+        const deployerAddress = deployerWallet.address.toString({
+            bounceable: true,
+            urlSafe: true
+        });
+
+        const seqno = await this._service().getSeqno(deployerAddress);
+
+        const destination = typeof to === "string"
+            ? to
+            : to.toString({ bounceable: true, urlSafe: true });
+
+        const transfer = deployerWallet.createTransfer({
+            seqno,
+            secretKey: keyPair.secretKey,
+            messages: [
+                internal({
+                    to: destination,
+                    value: toNano(valueTon),
+                    init: init ?? undefined,
+                    body,
+                    bounce
+                })
+            ]
+        });
+
+        await this._service().broadcastTransaction(
+            transfer.toBoc().toString("base64")
+        );
+
+        return `ton_oracle_seq_${seqno}`;
+
+    }
+
+    _logInfo(message) {
+
+        this._logger?.info?.(message);
+
+    }
+
+    _logError(message) {
+
+        this._logger?.error?.(message);
 
     }
 
 }
+
+export {
+    ContractAlreadyExistsError,
+    ContractNotFoundError,
+    ContractStateError,
+    DeserializationError,
+    GameContractAdapterError,
+    InvalidAddressError,
+    InvalidContractResponseError,
+    SerializationError,
+    UnsupportedContractVersionError
+} from "./ton/gameContract/GameContractErrors.js";
+
+export {
+    createArchiveDTO,
+    createBalanceDTO,
+    createContractStateDTO,
+    createDeployResultDTO,
+    createOperationResultDTO,
+    createParticipantDTO,
+    createSettlementDTO,
+    createWinnerDTO
+} from "./ton/gameContract/GameContractDtos.js";
+
+export {
+    GAME_CONTRACT_GET_METHODS,
+    GAME_CONTRACT_ON_CHAIN_STATUS,
+    GAME_CONTRACT_OPCODES,
+    GAME_CONTRACT_VERSION
+} from "./ton/gameContract/GameContractOpcodes.js";
