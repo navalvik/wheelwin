@@ -165,4 +165,75 @@ function buildAuthService(env) {
 
 }
 
+// R6.2A — missing secret must not unlock the console (no open access)
+{
+    const hash = hashAdminPassword("admin-pass-12345");
+
+    const config = loadDeveloperAuthConfig({
+        ADMIN_USERNAME: "admin",
+        ADMIN_PASSWORD_HASH: hash,
+        NODE_ENV: "development"
+    }, { nodeEnv: "development" });
+
+    assert.equal(config.administrator.configured, true);
+
+    assert.equal(config.configured, false);
+
+    assert.equal(config.openAccess, false);
+
+    assert.equal(config.enabled, false);
+
+    const logger = new LoggerService({ logLevel: "error" });
+
+    logger.initialize();
+
+    const service = new DeveloperAuthService({ config, logger });
+
+    try {
+
+        assert.equal(service.isEnabled(), false);
+
+        assert.equal(service.allowsOpenAccess(), false);
+
+        console.log("  R6.2A incomplete auth stays closed: OK");
+
+    } finally {
+
+        logger.shutdown();
+
+    }
+
+}
+
+// R6.2A — explicit disable is the only open-access path
+{
+    const config = loadDeveloperAuthConfig({
+        DEVELOPER_AUTH_ENABLED: "false",
+        NODE_ENV: "development"
+    }, { nodeEnv: "development" });
+
+    assert.equal(config.openAccess, true);
+
+    assert.equal(config.enabled, false);
+
+    const logger = new LoggerService({ logLevel: "error" });
+
+    logger.initialize();
+
+    const service = new DeveloperAuthService({ config, logger });
+
+    try {
+
+        assert.equal(service.allowsOpenAccess(), true);
+
+        console.log("  R6.2A explicit disable open access: OK");
+
+    } finally {
+
+        logger.shutdown();
+
+    }
+
+}
+
 console.log("developerAuth.test.js: all assertions passed");

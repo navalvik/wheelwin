@@ -35,6 +35,16 @@ export class DeveloperAuthService {
 
     }
 
+    /**
+     * R6.2A — True only when DEVELOPER_AUTH_ENABLED=false.
+     * Incomplete configuration must not unlock the console.
+     */
+    allowsOpenAccess() {
+
+        return this._config.openAccess === true;
+
+    }
+
     getEnvironment() {
 
         return this._config.appEnvironment;

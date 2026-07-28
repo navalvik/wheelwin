@@ -70,11 +70,26 @@ export function registerDeveloperAuthRoutes(app, authService) {
 
     app.get("/console/auth/session", (req, res) => {
 
-        if (!authService.isEnabled()) {
+        if (authService.allowsOpenAccess?.() === true) {
 
             res.json({
                 authenticated: false,
                 enabled: false,
+                openAccess: true,
+                environment: authService.getEnvironment()
+            });
+
+            return;
+
+        }
+
+        if (!authService.isEnabled()) {
+
+            res.status(503).json({
+                authenticated: false,
+                enabled: false,
+                openAccess: false,
+                error: "Developer authentication is not configured",
                 environment: authService.getEnvironment()
             });
 
@@ -113,8 +128,11 @@ export function registerDeveloperAuthRoutes(app, authService) {
 
     app.get("/console/auth/status", (req, res) => {
 
+        const openAccess = authService.allowsOpenAccess?.() === true;
+
         res.json({
             enabled: authService.isEnabled(),
+            openAccess,
             environment: authService.getEnvironment(),
             appEnvironment: authService.getEnvironment()
         });

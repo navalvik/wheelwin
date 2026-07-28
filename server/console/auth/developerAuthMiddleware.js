@@ -23,7 +23,8 @@ export function createDeveloperAuthMiddleware(authService) {
 
     return function developerAuthMiddleware(req, res, next) {
 
-        if (!authService?.isEnabled?.()) {
+        // R6.2A — fail open only when auth is explicitly disabled.
+        if (authService?.allowsOpenAccess?.() === true) {
 
             return next();
 
@@ -38,6 +39,15 @@ export function createDeveloperAuthMiddleware(authService) {
         if (relative.startsWith("/auth/")) {
 
             return next();
+
+        }
+
+        if (!authService?.isEnabled?.()) {
+
+            return res.status(503).json({
+                error: "Developer authentication is not configured",
+                message: "Set DEVELOPER_AUTH_SECRET and administrator credentials"
+            });
 
         }
 
@@ -108,9 +118,16 @@ export function createDeveloperSocketAuthMiddleware(authService) {
 
     return function developerSocketAuthMiddleware(socket, next) {
 
-        if (!authService?.isEnabled?.()) {
+        // R6.2A — fail open only when auth is explicitly disabled.
+        if (authService?.allowsOpenAccess?.() === true) {
 
             return next();
+
+        }
+
+        if (!authService?.isEnabled?.()) {
+
+            return next(new Error("Developer authentication is not configured"));
 
         }
 

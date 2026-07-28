@@ -128,6 +128,10 @@ export function loadDeveloperAuthConfig(env = process.env, productionConfig = nu
         ? false
         : (configured || env.DEVELOPER_AUTH_ENABLED === "true");
 
+    // R6.2A — Unauthenticated console access only when auth is explicitly
+    // disabled. Missing DEVELOPER_AUTH_SECRET must not unlock /debug.
+    const openAccess = explicitlyDisabled === true;
+
     const accessTokenTtlSeconds = Number.parseInt(
         env.DEVELOPER_AUTH_ACCESS_TTL_SECONDS
         || env.ADMIN_SESSION_TIMEOUT_SECONDS
@@ -147,6 +151,7 @@ export function loadDeveloperAuthConfig(env = process.env, productionConfig = nu
     return Object.freeze({
         enabled,
         configured,
+        openAccess,
         secret,
         username: administrator.username,
         passwordHashScrypt: administrator.passwordHashScrypt,

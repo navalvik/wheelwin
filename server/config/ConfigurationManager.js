@@ -80,7 +80,7 @@ export class ConfigurationManager {
         validateSecrets(collector, effectiveEnv, {
             nodeEnv,
             tonDeployMode,
-            developer: { enabled: false, configured: false }
+            developer: { enabled: false, configured: false, openAccess: false }
         });
 
         collector.throwIfAny();

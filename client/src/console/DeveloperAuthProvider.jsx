@@ -121,7 +121,7 @@ export function DeveloperAuthProvider({ children }) {
 
                 }
 
-                setAuthEnabled(authStatus?.enabled !== false);
+                setAuthEnabled(authStatus?.openAccess !== true);
 
                 if (authStatus?.environment) {
 
@@ -129,7 +129,9 @@ export function DeveloperAuthProvider({ children }) {
 
                 }
 
-                if (authStatus?.enabled === false) {
+                // R6.2A — unauthenticated dashboard only when server explicitly
+                // allows open access (DEVELOPER_AUTH_ENABLED=false).
+                if (authStatus?.openAccess === true) {
 
                     clearSession();
 
@@ -280,6 +282,7 @@ export function DeveloperAuthProvider({ children }) {
         isAdministrator: session?.role === "Administrator"
             || session?.role === "Operator",
         isViewer: session?.role === "Viewer",
+        // R6.2A — require login whenever open access is not active.
         requiresLogin: authEnabled && status !== "authenticated" && status !== "open",
         accessToken: session?.accessToken ?? null,
         login,

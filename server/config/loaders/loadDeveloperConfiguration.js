@@ -15,6 +15,7 @@ export function loadDeveloperConfiguration(env, productionConfig) {
     return Object.freeze({
         enabled: auth.enabled,
         configured: auth.configured,
+        openAccess: auth.openAccess === true,
         secret: auth.secret,
         username: auth.username,
         passwordHashScrypt: auth.passwordHashScrypt,

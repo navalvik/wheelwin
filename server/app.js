@@ -1485,9 +1485,11 @@ class WheelWinApplication {
         this._logger.startupLine("DeveloperConsoleGateway");
 
         this._logger.startupLine(
-            this._developerAuthService.isEnabled()
-                ? "DeveloperAuthService (enabled)"
-                : "DeveloperAuthService (disabled)"
+            this._developerAuthService.allowsOpenAccess()
+                ? "DeveloperAuthService (open access)"
+                : this._developerAuthService.isEnabled()
+                    ? "DeveloperAuthService (enabled)"
+                    : "DeveloperAuthService (login required; not fully configured)"
         );
 
         // R7.0E — observational monitoring (after providers exist).
