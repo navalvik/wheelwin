@@ -94,6 +94,38 @@
     background: rgba(0, 0, 0, 0.35);
 }
 
+.page5ResultOverlay--win {
+
+    background: rgba(0, 0, 0, 0.42);
+}
+
+.page5ResultOverlay--lost {
+
+    background: rgba(17, 24, 39, 0.55);
+}
+
+.page5ResultOverlay__trophy {
+
+    color: #ffffff;
+    font-size: 3rem;
+    line-height: 1;
+}
+
+.page5ResultOverlay__headline {
+
+    color: #ffffff;
+    font-size: 2rem;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-align: center;
+}
+
+.page5ResultOverlay__headline--lost {
+
+    color: #e5e7eb;
+    letter-spacing: 0.08em;
+}
+
 .page5ResultOverlay__label {
 
     color: #ffffff;

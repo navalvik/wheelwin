@@ -388,7 +388,7 @@ function createHarness({ shouldFail = false } = {}) {
 }
 
 {
-    // OPEN_PAGE6 waits for SETTLEMENT_COMPLETED when gate enabled.
+    // Optional P6.8B gate: OPEN_PAGE6 waits for SETTLEMENT_COMPLETED when enabled.
     const logger = createLogger();
 
     const eventBus = new EventBus({
@@ -406,7 +406,7 @@ function createHarness({ shouldFail = false } = {}) {
 
     });
 
-    const lifecycle = new GameplayPhaseLifecycle({
+    const gatedLifecycle = new GameplayPhaseLifecycle({
         logger,
         eventBus,
         gameStateEngine: {
@@ -433,7 +433,7 @@ function createHarness({ shouldFail = false } = {}) {
         devMode: false
     });
 
-    lifecycle.initialize();
+    gatedLifecycle.initialize();
 
     eventBus.emit({
         source: "test",
@@ -441,7 +441,7 @@ function createHarness({ shouldFail = false } = {}) {
         payload: { gameId: "game-1", phase: GAME_STATES.RESULT }
     });
 
-    assert.equal(openPage6.length, 0, "OPEN_PAGE6 must wait for settlement");
+    assert.equal(openPage6.length, 0, "OPEN_PAGE6 must wait for settlement when gated");
 
     eventBus.emit({
         source: "test",
@@ -449,11 +449,65 @@ function createHarness({ shouldFail = false } = {}) {
         payload: { gameId: "game-1" }
     });
 
-    assert.equal(openPage6.length, 1, "OPEN_PAGE6 after SETTLEMENT_COMPLETED");
+    assert.equal(openPage6.length, 1, "OPEN_PAGE6 after SETTLEMENT_COMPLETED when gated");
 
-    lifecycle.shutdown();
+    gatedLifecycle.shutdown();
 
-    console.log("  OPEN_PAGE6 settlement gate passed");
+    // R5.19 — production wiring disables the gate so RESULT_COMPLETED alone opens Page6.
+    openPage6.length = 0;
+
+    const ungatedLifecycle = new GameplayPhaseLifecycle({
+        logger,
+        eventBus,
+        gameStateEngine: {
+            getState() {
+
+                return GAME_STATES.RESULT;
+
+            },
+            transition() {
+
+                return { gameId: "game-2" };
+
+            }
+        },
+        gameClockEngine: {},
+        winnerEngine: {
+            getResult() {
+
+                return { winningPlayer: { playerId: "p1" } };
+
+            }
+        },
+        requireSettlementBeforePage6: false,
+        devMode: false
+    });
+
+    ungatedLifecycle.initialize();
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.RESULT_COMPLETED,
+        payload: { gameId: "game-2", phase: GAME_STATES.RESULT }
+    });
+
+    assert.equal(
+        openPage6.length,
+        1,
+        "R5.19 OPEN_PAGE6 after RESULT_COMPLETED when settlement gate disabled"
+    );
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.RESULT_COMPLETED,
+        payload: { gameId: "game-2", phase: GAME_STATES.RESULT }
+    });
+
+    assert.equal(openPage6.length, 1, "OPEN_PAGE6 remains exactly once");
+
+    ungatedLifecycle.shutdown();
+
+    console.log("  OPEN_PAGE6 settlement gate + R5.19 ungated path passed");
 
 }
 

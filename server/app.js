@@ -1242,7 +1242,11 @@ class WheelWinApplication {
 
         this._contractSettlementManager.initialize();
 
-        this._gameplayPhaseLifecycle.configureSettlementGate({ enabled: true });
+        // R5.19 — Page5 → Page6 must follow authoritative RESULT_COMPLETED →
+        // OPEN_PAGE6. Settlement continues independently and must not gate
+        // presentation navigation (SETTLEMENT_FAILED / hang left clients stuck
+        // on Page5 after the winner was already shown).
+        this._gameplayPhaseLifecycle.configureSettlementGate({ enabled: false });
 
         this._logger.startupLine("ContractSettlementManager");
 

@@ -1,14 +1,45 @@
-import { resolveWheelIcon } from "../game/WheelEngine/wheelUtils";
+import { useMemo } from "react";
 
+import { useAuthoritativeSession } from "../../context/AuthoritativeSessionContext";
 import { useGameResult } from "../../context/GameResultContext";
+import { usePlayerIdentity } from "../../context/PlayerIdentityContext";
+import {
+    isLocalPlayerWinner,
+    resolveAuthoritativeWinnerPlayerId,
+    resolvePersonalizedResultPresentation
+} from "../../game/result/personalizedResultPresentation";
+import { resolveLocalPlayerId } from "../../game/session";
 
 /**
- * P5.9 — Page5 RESULT presentation (authoritative winner only).
- * No animations that modify gameplay state. No client timers.
+ * R5.18 — Personalized RESULT overlay (local seat vs authoritative winner).
  */
 export default function Page5ResultOverlay() {
 
     const { result } = useGameResult();
+
+    const { identity } = usePlayerIdentity();
+
+    const authoritative = useAuthoritativeSession();
+
+    const localPlayerId = resolveLocalPlayerId(
+        identity.playerId ?? null,
+        authoritative.players,
+        {
+            verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted)
+        }
+    );
+
+    const winnerPlayerId = useMemo(
+        () => resolveAuthoritativeWinnerPlayerId({ result }),
+        [result]
+    );
+
+    const presentation = useMemo(
+        () => resolvePersonalizedResultPresentation(
+            isLocalPlayerWinner(localPlayerId, winnerPlayerId)
+        ),
+        [localPlayerId, winnerPlayerId]
+    );
 
     if (!result) {
 
@@ -16,34 +47,37 @@ export default function Page5ResultOverlay() {
 
     }
 
-    const winner = result.winner ?? null;
-
-    const sector = result.winningSector ?? null;
-
     return (
 
-        <div className="page5ResultOverlay" aria-live="polite">
+        <div
+            className={
+                presentation.variant === "win"
+                    ? "page5ResultOverlay page5ResultOverlay--win"
+                    : presentation.variant === "lost"
+                        ? "page5ResultOverlay page5ResultOverlay--lost"
+                        : "page5ResultOverlay"
+            }
+            aria-live="polite"
+        >
 
-            <div className="page5ResultOverlay__label">
-                WINNER
-            </div>
+            {presentation.trophy && (
+
+                <div className="page5ResultOverlay__trophy" aria-hidden="true">
+                    {presentation.trophy}
+                </div>
+
+            )}
 
             <div
-                className="page5ResultOverlay__swatch"
-                style={{
-                    backgroundColor: winner?.color ?? sector?.color ?? "#888888"
-                }}
-                aria-hidden="true"
-            />
+                className={
+                    presentation.variant === "lost"
+                        ? "page5ResultOverlay__headline page5ResultOverlay__headline--lost"
+                        : "page5ResultOverlay__headline"
+                }
+            >
 
-            <div className="page5ResultOverlay__icon">
-                {sector?.icon
-                    ? resolveWheelIcon(sector.icon)
-                    : "—"}
-            </div>
+                {presentation.headline}
 
-            <div className="page5ResultOverlay__meta">
-                Sector {Number.isFinite(sector?.index) ? sector.index : "—"}
             </div>
 
         </div>

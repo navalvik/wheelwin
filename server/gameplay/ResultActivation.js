@@ -2,12 +2,13 @@ import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 
 /**
- * P5.9 — RESULT activation.
+ * P5.9 / R5.19 — RESULT activation.
  *
  * WINNER_DETERMINED → beginResultPhase (GameClock) → RESULT_STARTED (4s)
  * → RESULT_COMPLETED → OPEN_PAGE6 (GameplayPhaseLifecycle).
  *
  * WinnerEngine never starts RESULT. Duration is owned by GameClockEngine only.
+ * Settlement runs in parallel and must not own Page6 navigation (R5.19).
  */
 export class ResultActivation {
 

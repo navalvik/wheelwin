@@ -9,13 +9,17 @@ import {
 } from "./GameplayPhaseSequence.js";
 
 /**
- * P5.3 — Single authoritative owner of Page5 gameplay phase lifecycle.
+ * P5.3 / R5.19 — Single authoritative owner of Page5 gameplay phase lifecycle.
  *
  * Server owns every phase entry and the transition to Page6. Clients render only.
  * Reacts to GameClockEngine scheduler events; never controls physics or inputs.
  *
- * P6.8B — when requireSettlementBeforePage6 is true, OPEN_PAGE6 waits for
- * SETTLEMENT_COMPLETED (in addition to RESULT_COMPLETED).
+ * Authoritative Page6 open path:
+ *   RESULT_COMPLETED → OPEN_PAGE6 (exactly once per gameId)
+ *
+ * P6.8B optional gate — when requireSettlementBeforePage6 is true, OPEN_PAGE6
+ * also waits for SETTLEMENT_COMPLETED. R5.19 keeps that gate disabled in
+ * production wiring so settlement success/failure cannot block Page6.
  */
 export class GameplayPhaseLifecycle {
 

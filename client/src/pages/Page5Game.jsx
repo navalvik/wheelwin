@@ -17,12 +17,17 @@ import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
 import { usePreGameReady } from "../context/PreGameReadyContext";
 import { resolveLocalPlayerId } from "../game/session";
+import {
+    isLocalPlayerWinner,
+    resolveAuthoritativeWinnerPlayerId,
+    resolvePersonalizedResultPresentation
+} from "../game/result/personalizedResultPresentation";
 
 import "../styles/page5game.css";
 
 function resolvePage5HeaderMessage(result, localPlayerId) {
 
-    if (!result?.winner?.id || localPlayerId == null || localPlayerId === "") {
+    if (!result) {
 
         return {
             message: "YOU MUST WIN",
@@ -31,18 +36,33 @@ function resolvePage5HeaderMessage(result, localPlayerId) {
 
     }
 
-    if (String(result.winner.id) === String(localPlayerId)) {
+    const winnerPlayerId = resolveAuthoritativeWinnerPlayerId({ result });
+
+    const presentation = resolvePersonalizedResultPresentation(
+        isLocalPlayerWinner(localPlayerId, winnerPlayerId)
+    );
+
+    if (presentation.variant === "win") {
 
         return {
-            message: "WIN",
+            message: "YOU WIN",
             messageClassName: "headerMessage--win"
         };
 
     }
 
+    if (presentation.variant === "lost") {
+
+        return {
+            message: "YOU LOST",
+            messageClassName: "headerMessage--lost"
+        };
+
+    }
+
     return {
-        message: "LOST",
-        messageClassName: "headerMessage--lost"
+        message: "YOU MUST WIN",
+        messageClassName: ""
     };
 
 }

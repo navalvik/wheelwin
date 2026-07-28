@@ -22,6 +22,11 @@ import {
 } from "../game/result/gameReportDownload";
 
 import { resolveLocalPlayerId } from "../game/session";
+import {
+    isLocalPlayerWinner,
+    resolveAuthoritativeWinnerPlayerId,
+    resolvePersonalizedResultPresentation
+} from "../game/result/personalizedResultPresentation";
 
 import "../styles/page6result.css";
 
@@ -124,44 +129,19 @@ function resolveWinningSwatchColor(winningSector, wheelConfiguration) {
 }
 
 /**
- * Present the authoritative WIN/LOST outcome for the local seat.
- * Does not decide the winner — only compares server winnerId to local id.
- */
-function resolveLocalOutcome({ localPlayerId, winnerId }) {
-
-    if (
-        localPlayerId == null
-        || localPlayerId === ""
-        || winnerId == null
-        || winnerId === ""
-    ) {
-
-        return null;
-
-    }
-
-    return String(localPlayerId) === String(winnerId)
-        ? "WIN"
-        : "LOST";
-
-}
-
-/**
  * Presentation-only payout line from server payment + winner id.
  */
-function resolveYouReceived({ payment, localPlayerId, winnerId }) {
+function resolveYouReceived({ payment, localPlayerId, winnerPlayerId }) {
 
-    if (winnerId == null || winnerId === "") {
+    if (winnerPlayerId == null || winnerPlayerId === "") {
 
         return null;
 
     }
 
-    const isLocalWinner = localPlayerId != null
-        && localPlayerId !== ""
-        && String(localPlayerId) === String(winnerId);
+    const isWinner = isLocalPlayerWinner(localPlayerId, winnerPlayerId) === true;
 
-    if (!isLocalWinner) {
+    if (!isWinner) {
 
         return "0.00 GRM";
 
@@ -230,7 +210,7 @@ export default function Page6Result({ onFinish }) {
 
         if (DEV_MODE && result) {
 
-            console.debug("[GameResult] Rendering Winner");
+            console.debug("[GameResult] Rendering personalized outcome");
 
         }
 
@@ -242,51 +222,27 @@ export default function Page6Result({ onFinish }) {
 
     const gameReport = audit?.gameReport ?? null;
 
-    const winnerId = payment?.winnerId
-        ?? gameReport?.winningPlayer?.playerId
-        ?? winner?.id
-        ?? null;
+    const winnerPlayerId = resolveAuthoritativeWinnerPlayerId({
+        result,
+        payment,
+        gameReport
+    });
 
-    const localReportPlayer = useMemo(
-        () => resolvePlayerFromReport(gameReport, localPlayerId),
-        [gameReport, localPlayerId]
+    const personalizedResult = useMemo(
+        () => resolvePersonalizedResultPresentation(
+            isLocalPlayerWinner(localPlayerId, winnerPlayerId)
+        ),
+        [localPlayerId, winnerPlayerId]
     );
 
-    const authoritativeLocal = localPlayerId
-        ? authoritative.players?.[localPlayerId]
-        : null;
-
-    const localNickname = localReportPlayer?.nickname
-        ?? authoritativeLocal?.nickname
-        ?? null;
-
-    const localIcon = localReportPlayer?.icon
-        ?? authoritativeLocal?.icon
-        ?? null;
-
-    const winnerNickname = gameReport?.winningPlayer?.nickname
-        ?? resolvePlayerFromReport(gameReport, winnerId)?.nickname
-        ?? (winnerId && authoritative.players?.[winnerId]?.nickname)
-        ?? null;
-
-    const winnerIcon = gameReport?.winningIcon
-        ?? gameReport?.winningPlayer?.icon
-        ?? winner?.icon
-        ?? null;
+    const youReceived = useMemo(
+        () => resolveYouReceived({ payment, localPlayerId, winnerPlayerId }),
+        [payment, localPlayerId, winnerPlayerId]
+    );
 
     const winningSwatchColor = useMemo(
         () => resolveWinningSwatchColor(winningSector, wheelConfiguration),
         [winningSector, wheelConfiguration]
-    );
-
-    const localOutcome = useMemo(
-        () => resolveLocalOutcome({ localPlayerId, winnerId }),
-        [localPlayerId, winnerId]
-    );
-
-    const youReceived = useMemo(
-        () => resolveYouReceived({ payment, localPlayerId, winnerId }),
-        [payment, localPlayerId, winnerId]
     );
 
     const winnerPayoutDisplay = useMemo(() => {
@@ -356,55 +312,29 @@ export default function Page6Result({ onFinish }) {
 
                             <section className="page6__summary" aria-label="Game summary">
 
-                                <div className="page6__localPlayer">
+                                <div
+                                    className={
+                                        personalizedResult.variant === "win"
+                                            ? "page6__personalOutcome page6__personalOutcome--win"
+                                            : personalizedResult.variant === "lost"
+                                                ? "page6__personalOutcome page6__personalOutcome--lost"
+                                                : "page6__personalOutcome"
+                                    }
+                                >
 
-                                    <div className="page6__localIcon">
-                                        {formatIcon(localIcon)}
-                                    </div>
-
-                                    <div className="page6__localBody">
-
-                                        <div className="page6__label">Player</div>
-
-                                        <div className="page6__localName">
-                                            {formatValue(localNickname)}
-                                        </div>
-
-                                    </div>
-
-                                    {localOutcome && (
+                                    {personalizedResult.trophy && (
 
                                         <div
-                                            className={
-                                                localOutcome === "WIN"
-                                                    ? "page6__outcome page6__outcome--win"
-                                                    : "page6__outcome page6__outcome--lost"
-                                            }
+                                            className="page6__personalTrophy"
+                                            aria-hidden="true"
                                         >
-                                            {localOutcome}
+                                            {personalizedResult.trophy}
                                         </div>
 
                                     )}
 
-                                </div>
-
-                                <div
-                                    className="page6__winnerCard"
-                                    style={{ borderColor: winningSwatchColor }}
-                                >
-
-                                    <div className="page6__winnerIcon">
-                                        {formatIcon(winnerIcon)}
-                                    </div>
-
-                                    <div className="page6__winnerBody">
-
-                                        <div className="page6__label">Winner</div>
-
-                                        <div className="page6__winnerName">
-                                            {formatValue(winnerNickname ?? winnerId)}
-                                        </div>
-
+                                    <div className="page6__personalHeadline">
+                                        {personalizedResult.headline}
                                     </div>
 
                                 </div>
