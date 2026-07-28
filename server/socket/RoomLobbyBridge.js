@@ -695,8 +695,8 @@ export class RoomLobbyBridge {
                 draining
                     ? LOBBY_ERROR_CODES.SERVER_DRAINING
                     : this._roomManager.isAtCapacity()
-                        ? LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT
-                        : LOBBY_ERROR_CODES.UNKNOWN_ERROR
+                    ? LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT
+                    : LOBBY_ERROR_CODES.UNKNOWN_ERROR
             );
 
             return;
@@ -1039,9 +1039,9 @@ export class RoomLobbyBridge {
 
                 this._clearRecoveryOwnershipForPlayer(stashedBySocket.playerId);
 
-                return null;
+            return null;
 
-            }
+        }
 
             this._logger.info(
                 `[R6.2A Recovery] stash lookup`

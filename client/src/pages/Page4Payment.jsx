@@ -479,7 +479,7 @@ export default function Page4Payment({ onNavigate }) {
                             ) : paymentSession?.status === "FAILED"
                                 || gameContract?.status === "DEPLOY_FAILED" ? (
 
-                                <div className="smartContractStatus">
+                    <div className="smartContractStatus">
 
                                     {gameContract?.status === "DEPLOY_FAILED"
                                         ? "Deployment failed"
@@ -554,7 +554,7 @@ export default function Page4Payment({ onNavigate }) {
 
                             )}
 
-                        </div>
+                    </div>
 
                     )}
 

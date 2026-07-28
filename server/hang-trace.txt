@@ -1,0 +1,10 @@
+1785063269184:import app.js
+1785063271339:SocketGateway.initialize enter
+1785063271371:SocketGateway.initialize exit
+1785063271378:ConsoleGateway.initialize enter
+1785063271383:ConsoleGateway.initialize exit
+1785063271387:MonitoringManager.initialize enter
+1785063271393:MonitoringManager.initialize exit
+1785063770932:DeploymentManager.initialize enter
+1785063770942:DeploymentManager.initialize exit
+1785063770969:app.js import returned (start promise scheduled)

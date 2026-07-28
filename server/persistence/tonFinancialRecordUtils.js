@@ -69,7 +69,9 @@ export function resolveRecordId(recordType, payload, metadata = {}) {
                 ?? null;
 
         case TON_FINANCIAL_RECORD_TYPES.WALLET_SESSION:
-            return metadata.roomId
+            return metadata.walletSessionId
+                ?? payload?.walletSessionId
+                ?? metadata.roomId
                 ?? payload?.roomId
                 ?? null;
 
