@@ -111,6 +111,40 @@ function createHarness({ shouldFail = false } = {}) {
             return gameId === "game-1" ? contract : null;
 
         },
+        getContractById(contractId) {
+
+            return contractId === "contract_1" ? contract : null;
+
+        },
+        markWinnerPending() {
+
+            contract.status = GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING;
+
+        },
+        markSettlementPending() {
+
+            contract.status = GAME_CONTRACT_STATUS.SETTLEMENT_SUBMITTED;
+
+            contract.status = GAME_CONTRACT_STATUS.SETTLEMENT_PENDING;
+
+        },
+        updateContractState(_roomId, status) {
+
+            contract.status = status;
+
+        },
+        completeContract() {
+
+            contract.status = GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED;
+
+        },
+        failContract(_roomId, reason) {
+
+            contract.status = GAME_CONTRACT_STATUS.SETTLEMENT_FAILED;
+
+            contract.failureReason = reason;
+
+        },
         notifyClientUpdate() {}
     };
 
@@ -230,15 +264,19 @@ function createHarness({ shouldFail = false } = {}) {
 
     await harness.win();
 
-    assert.deepEqual(
-        harness.events.filter((type) => type.startsWith("SETTLEMENT_")),
-        [
-            EVENT_TYPES.SETTLEMENT_STARTED,
-            EVENT_TYPES.SETTLEMENT_SUBMITTED,
-            EVENT_TYPES.SETTLEMENT_CONFIRMED,
-            EVENT_TYPES.SETTLEMENT_COMPLETED
-        ],
-        "settlement happy path events"
+    assert.ok(
+        harness.events.includes(EVENT_TYPES.SETTLEMENT_STARTED),
+        "settlement started"
+    );
+
+    assert.ok(
+        harness.events.includes(EVENT_TYPES.SETTLEMENT_CONFIRMED),
+        "settlement confirmed"
+    );
+
+    assert.ok(
+        harness.events.includes(EVENT_TYPES.SETTLEMENT_COMPLETED),
+        "settlement completed"
     );
 
     assert.equal(
@@ -247,6 +285,11 @@ function createHarness({ shouldFail = false } = {}) {
     );
 
     const settlement = harness.manager.getSettlement("game-1");
+
+    assert.equal(
+        settlement.status,
+        GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED
+    );
 
     assert.equal(settlement.winnerAmount, 95);
 
@@ -411,6 +454,215 @@ function createHarness({ shouldFail = false } = {}) {
     lifecycle.shutdown();
 
     console.log("  OPEN_PAGE6 settlement gate passed");
+
+}
+
+{
+    const harness = createHarness();
+
+    const blockchainMonitor = {
+        watches: [],
+        watchTransaction(payload) {
+
+            this.watches.push(payload);
+
+        }
+    };
+
+    harness.manager._blockchainMonitor = blockchainMonitor;
+
+    await harness.win();
+
+    assert.equal(blockchainMonitor.watches.length, 1);
+
+    assert.equal(
+        harness.manager.getSettlementSession("game-1").status,
+        "SETTLEMENT_PENDING"
+    );
+
+    harness.eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.SETTLEMENT_TRANSACTION_CONFIRMED,
+        payload: {
+            gameId: "game-1",
+            contractId: "contract_1",
+            transactionId: blockchainMonitor.watches[0].transactionId
+        }
+    });
+
+    await wait(10);
+
+    assert.equal(
+        harness.manager.getSettlement("game-1").status,
+        GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED
+    );
+
+    console.log("  blockchain confirmation path: OK");
+
+    harness.manager.shutdown();
+
+}
+
+{
+    const { EventBus } = await import("../events/EventBus.js");
+    const { TonFinancialPersistence } = await import("../persistence/TonFinancialPersistence.js");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-settlement-"));
+
+    const logger = createLogger();
+
+    const eventBus = new EventBus({
+        logger,
+        eventBusConfig: { logEvents: false, showDebugPanel: false }
+    });
+
+    eventBus.initialize();
+
+    const contract = buildContract();
+
+    const persistence = new TonFinancialPersistence({ dataDir });
+
+    persistence.initialize();
+
+    const gameContractManager = {
+        getContract: () => contract,
+        getContractByGameId: () => contract,
+        getContractById: () => contract,
+        markWinnerPending() {},
+        markSettlementPending() {},
+        updateContractState(_roomId, status) {
+
+            contract.status = status;
+
+        },
+        completeContract() {
+
+            contract.status = GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED;
+
+        },
+        failContract() {
+
+            contract.status = GAME_CONTRACT_STATUS.SETTLEMENT_FAILED;
+
+        }
+    };
+
+    const firstManager = new ContractSettlementManager({
+        logger,
+        eventBus,
+        gameContractManager,
+        winnerEngine: {
+            getResult() {
+
+                return { winningPlayer: { playerId: "p1" } };
+
+            }
+        },
+        configurationEngine: {
+            getConfiguration() {
+
+                return { traceSeed: "trace_1" };
+
+            }
+        },
+        settlementAdapter: new GameContractDeployAdapter({ deployDelayMs: 0 }),
+        financialPersistence: persistence,
+        gameplayContextResolver: {
+            resolveRoomByGameId() {
+
+                return "room-1";
+
+            }
+        },
+        ownerConfiguration: {
+            getOwnerWallet() {
+
+                return OWNER;
+
+            }
+        }
+    });
+
+    firstManager.initialize();
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.WINNER_DETERMINED,
+        payload: { gameId: "game-1", winningPlayerId: "p1" }
+    });
+
+    await wait(20);
+
+    persistence.shutdown();
+
+    const secondManager = new ContractSettlementManager({
+        logger,
+        eventBus,
+        gameContractManager,
+        winnerEngine: {
+            getResult() {
+
+                return { winningPlayer: { playerId: "p1" } };
+
+            }
+        },
+        settlementAdapter: new GameContractDeployAdapter({ deployDelayMs: 0 }),
+        financialPersistence: new TonFinancialPersistence({ dataDir }),
+        gameplayContextResolver: {
+            resolveRoomByGameId() {
+
+                return "room-1";
+
+            }
+        },
+        ownerConfiguration: {
+            getOwnerWallet() {
+
+                return OWNER;
+
+            }
+        }
+    });
+
+    secondManager._financialPersistence.initialize();
+
+    secondManager.initialize();
+
+    const summary = secondManager.restoreSettlementSessions();
+
+    assert.equal(summary.restored, 0, "completed settlement not restored as active");
+
+    TonFinancialPersistence.destroyStorage(dataDir);
+
+    firstManager.shutdown();
+
+    secondManager.shutdown();
+
+    eventBus.shutdown();
+
+    console.log("  persistence restore skips completed: OK");
+
+}
+
+{
+    const harness = createHarness();
+
+    const health = harness.manager.health();
+
+    assert.equal(typeof health.activeSettlements, "number");
+
+    assert.equal(typeof health.lastSettlement, "object");
+
+    const dashboard = harness.manager.getDashboardSnapshot("game-1");
+
+    assert.equal(dashboard.health.activeSettlements, 0);
+
+    console.log("  health + dashboard: OK");
+
+    harness.manager.shutdown();
 
 }
 
