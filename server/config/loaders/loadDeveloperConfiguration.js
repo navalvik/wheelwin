@@ -17,12 +17,17 @@ export function loadDeveloperConfiguration(env, productionConfig) {
         configured: auth.configured,
         secret: auth.secret,
         username: auth.username,
-        passwordHash: auth.passwordHash,
+        passwordHashScrypt: auth.passwordHashScrypt,
+        passwordHashLegacy: auth.passwordHashLegacy,
+        usesPlainPasswordFallback: auth.usesPlainPasswordFallback,
+        administrator: auth.administrator,
+        viewer: auth.viewer,
         defaultRole: auth.defaultRole,
         accessTokenTtlSeconds: auth.accessTokenTtlSeconds,
         refreshTokenTtlSeconds: auth.refreshTokenTtlSeconds,
-        environment: auth.environment,
-        nodeEnv: auth.nodeEnv
+        appEnvironment: auth.appEnvironment,
+        nodeEnv: auth.nodeEnv,
+        nodeEnvironmentLabel: auth.nodeEnvironmentLabel
     });
 
 }

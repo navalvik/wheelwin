@@ -8,3 +8,6 @@ config/owner.json
 # R8.0C — generated certification outputs (via npm run release:certify)
 docs/release/Release-Certification-Report.md
 docs/release/ReleaseCertificate.json
+
+# R6.1 — persisted application environment state (admin dashboard)
+server/runtime/

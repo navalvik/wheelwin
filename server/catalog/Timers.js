@@ -28,7 +28,7 @@ export const TIMERS = Object.freeze({
     }),
     [TIMER_PHASES.SPEED]: Object.freeze({
         phase: TIMER_PHASES.SPEED,
-        durationMs: 6000
+        durationMs: 8000
     }),
     [TIMER_PHASES.BRAKE]: Object.freeze({
         phase: TIMER_PHASES.BRAKE,

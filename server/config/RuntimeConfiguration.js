@@ -134,7 +134,8 @@ export class RuntimeConfiguration {
             developerConsole: Object.freeze({
                 authEnabled: this.developer.enabled === true,
                 authConfigured: this.developer.configured === true,
-                environmentLabel: this.developer.environment,
+                appEnvironment: this.developer.appEnvironment,
+                nodeEnvironmentLabel: this.developer.nodeEnvironmentLabel,
                 accessTokenTtlSeconds: this.developer.accessTokenTtlSeconds,
                 refreshTokenTtlSeconds: this.developer.refreshTokenTtlSeconds
             }),

@@ -32,6 +32,9 @@ import MetricsPanel from "./panels/MetricsPanel";
 import TimelinePanel from "./panels/TimelinePanel";
 import DeveloperLogPanel from "./panels/DeveloperLogPanel";
 import SettingsPanel from "./panels/SettingsPanel";
+import SystemInformationPanel from "./panels/SystemInformationPanel";
+import BlockchainStatusPanel from "./panels/BlockchainStatusPanel";
+import MaintenancePanel from "./panels/MaintenancePanel";
 
 function renderSection(sectionId) {
 
@@ -39,6 +42,12 @@ function renderSection(sectionId) {
 
         case "server-health":
             return <ServerHealthPanel />;
+
+        case "system-info":
+            return <SystemInformationPanel />;
+
+        case "blockchain-status":
+            return <BlockchainStatusPanel />;
 
         case "closed-beta":
             return <ClosedBetaPanel />;
@@ -87,6 +96,9 @@ function renderSection(sectionId) {
 
         case "settings":
             return <SettingsPanel />;
+
+        case "maintenance":
+            return <MaintenancePanel />;
 
         default:
             return <ServerHealthPanel />;

@@ -1,5 +1,5 @@
 /**
- * R6.1 — Express middleware for Developer Console REST protection.
+ * R6.2 — Express middleware helpers for Developer Console authorization.
  */
 
 function extractBearerToken(req) {
@@ -25,14 +25,12 @@ export function createDeveloperAuthMiddleware(authService) {
 
         if (!authService?.isEnabled?.()) {
 
-            // Auth disabled: leave console open (local escape hatch).
             return next();
 
         }
 
         const path = req.path || "";
 
-        // Mounted at /console — path is relative to mount or absolute.
         const relative = path.startsWith("/console")
             ? path.slice("/console".length)
             : path;
@@ -64,6 +62,43 @@ export function createDeveloperAuthMiddleware(authService) {
         req.developer = claims;
 
         return next();
+
+    };
+
+}
+
+/**
+ * Requires an authenticated Administrator session.
+ */
+export function createAdministratorAuthMiddleware(authService) {
+
+    const requireAuth = createDeveloperAuthMiddleware(authService);
+
+    return function administratorAuthMiddleware(req, res, next) {
+
+        requireAuth(req, res, () => {
+
+            if (!authService?.isAdministrator?.(req.developer)) {
+
+                authService.auditPermissionDenied?.({
+                    path: req.originalUrl || req.url,
+                    username: req.developer?.username ?? null,
+                    role: req.developer?.role ?? null,
+                    sessionId: req.developer?.sessionId ?? null,
+                    ip: req.ip,
+                    action: "administrator_required"
+                });
+
+                return res.status(403).json({
+                    error: "Forbidden",
+                    message: "Administrator role required"
+                });
+
+            }
+
+            return next();
+
+        });
 
     };
 

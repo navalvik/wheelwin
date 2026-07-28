@@ -545,7 +545,23 @@ export class SocketGateway {
 
         // Socket.IO mutates opts in place (e.g. connectionStateRecovery).
         // Never pass RuntimeConfiguration.socket (deep-frozen) directly.
-        const socketOptions = structuredClone(this._socketConfig);
+        const corsOrigin = this._socketConfig.cors?.origin;
+
+        const socketOptions = structuredClone({
+            ...this._socketConfig,
+            cors: {
+                ...this._socketConfig.cors,
+                origin: typeof corsOrigin === "function"
+                    ? ["http://cors-placeholder.invalid"]
+                    : corsOrigin
+            }
+        });
+
+        if (typeof corsOrigin === "function") {
+
+            socketOptions.cors.origin = corsOrigin;
+
+        }
 
         this._io = new Server(httpServer, socketOptions);
 
@@ -952,11 +968,21 @@ export class SocketGateway {
 
         const claimRoomId = message?.payload?.roomId ?? null;
 
+        const recoveryToken = message?.payload?.recoveryToken
+            ?? message?.payload?.token
+            ?? null;
+
+        const ownershipDebug = this._roomLobbyBridge?.getRecoveryOwnershipDebug?.(
+            claimPlayerId
+        ) ?? null;
+
         this._logger.info(
             `[R6.2A Recovery] SESSION_RECOVERY_REQUEST received`
             + ` | roomId=${claimRoomId ?? "null"}`
             + ` | playerId=${claimPlayerId ?? "null"}`
             + ` | socket.id=${socket?.id ?? "null"}`
+            + ` | previousSocket.id=${ownershipDebug?.previousSocketId ?? "null"}`
+            + ` | recoveryToken=${recoveryToken ?? "null"}`
         );
 
         if (!socket?.connected) {
@@ -1019,6 +1045,32 @@ export class SocketGateway {
                 playerId: claimPlayerId,
                 roomId: claimRoomId
             };
+
+            const stalePrep = this._roomLobbyBridge.prepareRecoveryAuthorization?.(
+                claimPlayerId,
+                socket.id,
+                (boundSocketId) => {
+
+                    const liveSocket = this._io?.sockets?.sockets?.get(
+                        boundSocketId
+                    );
+
+                    return liveSocket?.connected === true;
+
+                }
+            );
+
+            if (stalePrep?.released) {
+
+                this._logger.info(
+                    `[R6.2A Recovery] stale socket released before authorization`
+                    + ` | roomId=${claimRoomId ?? "null"}`
+                    + ` | playerId=${claimPlayerId ?? "null"}`
+                    + ` | socket.id=${socket.id}`
+                    + ` | previousSocket.id=${stalePrep.boundSocketId ?? "null"}`
+                );
+
+            }
 
             const reconnected = this._roomLobbyBridge.reconnectGameplaySession(
                 socket.id,
@@ -1176,7 +1228,8 @@ export class SocketGateway {
         const { channel, message } = buildRecoveryFailedMessage({
             reason,
             gameId,
-            playerId
+            playerId,
+            roomId
         });
 
         socket.emit(channel, message);

@@ -6,6 +6,7 @@ import ConsoleLayout from "./ConsoleLayout";
 import DeveloperLoginPanel from "./DeveloperLoginPanel";
 import ConsoleReadOnlyBadge from "./ConsoleReadOnlyBadge";
 import ConsoleConnectionStatus from "./ConsoleConnectionStatus";
+import EnvironmentBanner from "./EnvironmentBanner";
 import { useDeveloperAuth } from "./DeveloperAuthProvider";
 
 /**
@@ -36,6 +37,8 @@ export default function DeveloperConsoleShell({
     return (
 
         <div className="devConsole">
+
+            <EnvironmentBanner />
 
             <header className="devConsole__header">
 

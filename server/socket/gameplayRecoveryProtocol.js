@@ -289,7 +289,12 @@ export function buildRecoverySnapshotMessage(payload) {
 
 }
 
-export function buildRecoveryFailedMessage({ reason, gameId = null, playerId = null }) {
+export function buildRecoveryFailedMessage({
+    reason,
+    gameId = null,
+    playerId = null,
+    roomId = null
+}) {
 
     return {
         channel: GAME_MESSAGE_CHANNEL,
@@ -298,6 +303,8 @@ export function buildRecoveryFailedMessage({ reason, gameId = null, playerId = n
             payload: {
                 gameId,
                 playerId,
+                roomId,
+                reason: reason ?? "Session recovery failed",
                 message: reason ?? "Session recovery failed",
                 timestamp: Date.now()
             }

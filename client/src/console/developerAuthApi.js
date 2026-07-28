@@ -76,7 +76,163 @@ export async function fetchDeveloperAuthStatus() {
         headers: { Accept: "application/json" }
     });
 
-    return parseJson(response);
+    const body = await parseJson(response);
+
+    if (body?.appEnvironment && !body?.environment) {
+
+        return {
+            ...body,
+            environment: body.appEnvironment
+        };
+
+    }
+
+    return body;
+
+}
+
+export async function fetchEnvironmentSummary(accessToken) {
+
+    const response = await fetch(`${getConsoleApiBase()}/console/environment/summary`, {
+        method: "GET",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`
+        }
+    });
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load environment summary");
+
+    }
+
+    return body;
+
+}
+
+export async function fetchEnvironmentStatus(accessToken) {
+
+    const response = await fetch(`${getConsoleApiBase()}/console/environment`, {
+        method: "GET",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`
+        }
+    });
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load environment status");
+
+    }
+
+    return body;
+
+}
+
+export async function switchAppEnvironment({
+    accessToken,
+    targetEnvironment,
+    password,
+    confirmationPhrase,
+    finalConfirmationPhrase
+}) {
+
+    const response = await fetch(`${getConsoleApiBase()}/console/environment/switch`, {
+        method: "POST",
+        headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+            targetEnvironment,
+            password,
+            confirmationPhrase,
+            finalConfirmationPhrase
+        })
+    });
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Environment switch failed");
+
+    }
+
+    return body;
+
+}
+
+export async function fetchSystemInformation(accessToken) {
+
+    const response = await fetch(`${getConsoleApiBase()}/console/system`, {
+        method: "GET",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`
+        }
+    });
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load system information");
+
+    }
+
+    return body;
+
+}
+
+export async function fetchBlockchainStatus(accessToken) {
+
+    const response = await fetch(`${getConsoleApiBase()}/console/blockchain`, {
+        method: "GET",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`
+        }
+    });
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load blockchain status");
+
+    }
+
+    return body;
+
+}
+
+export async function fetchMaintenanceStatus(accessToken) {
+
+    const response = await fetch(`${getConsoleApiBase()}/console/maintenance`, {
+        method: "GET",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`
+        }
+    });
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load maintenance status");
+
+    }
+
+    return body;
 
 }
 
@@ -159,6 +315,7 @@ export function toClientSession(serverSession) {
         refreshExpiresAt: serverSession.refreshExpiresAt,
         username: serverSession.user?.username,
         role: serverSession.user?.role,
+        sessionId: serverSession.user?.sessionId ?? serverSession.sessionId ?? null,
         environment: serverSession.user?.environment,
         readOnly: serverSession.user?.readOnly !== false
     };

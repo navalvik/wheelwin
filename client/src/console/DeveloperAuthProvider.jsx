@@ -277,6 +277,9 @@ export function DeveloperAuthProvider({ children }) {
         status,
         error,
         isAuthenticated: status === "authenticated" || status === "open",
+        isAdministrator: session?.role === "Administrator"
+            || session?.role === "Operator",
+        isViewer: session?.role === "Viewer",
         requiresLogin: authEnabled && status !== "authenticated" && status !== "open",
         accessToken: session?.accessToken ?? null,
         login,

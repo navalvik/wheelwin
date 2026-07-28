@@ -145,4 +145,16 @@ export function registerDeveloperConsoleRoutes(
 
     });
 
+    app.get("/console/system", (req, res) => {
+
+        res.json(projectionService.buildSystemInformation());
+
+    });
+
+    app.get("/console/blockchain", (req, res) => {
+
+        res.json(projectionService.buildBlockchainStatus());
+
+    });
+
 }

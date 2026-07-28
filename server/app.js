@@ -106,6 +106,10 @@ import { DeveloperConsoleGateway } from "./console/DeveloperConsoleGateway.js";
 import { DeveloperAuthService } from "./console/auth/DeveloperAuthService.js";
 import { createDeveloperAuthMiddleware } from "./console/auth/developerAuthMiddleware.js";
 import { registerDeveloperAuthRoutes } from "./console/auth/registerDeveloperAuthRoutes.js";
+import { AppEnvironmentService } from "./console/environment/AppEnvironmentService.js";
+import { registerEnvironmentControlRoutes } from "./console/environment/registerEnvironmentControlRoutes.js";
+import { MaintenanceService } from "./console/maintenance/MaintenanceService.js";
+import { registerMaintenanceRoutes } from "./console/maintenance/registerMaintenanceRoutes.js";
 import { ApplicationLifecycleManager } from "./lifecycle/ApplicationLifecycleManager.js";
 import { APPLICATION_LIFECYCLE } from "./lifecycle/ApplicationLifecycleStates.js";
 
@@ -127,6 +131,8 @@ class WheelWinApplication {
         this._operationalMetrics = null;
 
         this._startupStartedAt = 0;
+
+        this._serverStartedAt = 0;
 
         this._httpServer = null;
 
@@ -259,6 +265,10 @@ class WheelWinApplication {
     async start() {
 
         this._startupStartedAt = performance.now();
+
+        this._serverStartedAt = Date.now();
+
+        process.env.SERVER_STARTED_AT = String(this._serverStartedAt);
 
         // R7.0C — fail-fast immutable configuration before RUNNING.
         this._runtimeConfig = ConfigurationManager.load();
@@ -1405,7 +1415,13 @@ class WheelWinApplication {
             metricsService: this._metricsService,
             healthService: this._healthService,
             lifecycleManager: this._lifecycleManager,
-            gameplayContextResolver: this._gameplayContextResolver
+            gameplayContextResolver: this._gameplayContextResolver,
+            runtimeConfig: this._runtimeConfig,
+            tonService: this._services?.tonService ?? null,
+            blockchainMonitor: this._blockchainMonitor,
+            walletManager: null,
+            tonFinancialRecovery: this._tonFinancialRecovery,
+            startedAt: this._serverStartedAt
         });
 
         // R6.1 / R7.0C — Secure Developer Access from immutable runtime config.
@@ -1418,6 +1434,25 @@ class WheelWinApplication {
             this._expressApp,
             this._developerAuthService
         );
+
+        this._appEnvironmentService = new AppEnvironmentService({
+            developerConfig: this._runtimeConfig.developer,
+            logger: this._logger
+        });
+
+        registerEnvironmentControlRoutes(this._expressApp, {
+            authService: this._developerAuthService,
+            environmentService: this._appEnvironmentService
+        });
+
+        this._maintenanceService = new MaintenanceService({
+            logger: this._logger
+        });
+
+        registerMaintenanceRoutes(this._expressApp, {
+            authService: this._developerAuthService,
+            maintenanceService: this._maintenanceService
+        });
 
         registerDeveloperConsoleRoutes(
             this._expressApp,
@@ -3429,8 +3464,20 @@ class WheelWinApplication {
 
         const app = express();
 
+        const trustProxy = process.env.TRUST_PROXY;
+
+        if (trustProxy === "true") {
+
+            app.set("trust proxy", 1);
+
+        } else if (trustProxy && Number(trustProxy) > 0) {
+
+            app.set("trust proxy", Number(trustProxy));
+
+        }
+
         app.use(cors({
-            origin: this._serverConfig.clientOrigin
+            origin: this._serverConfig.corsOrigin
         }));
 
         // R7.0E — observational HTTP counters (never mutate gameplay).

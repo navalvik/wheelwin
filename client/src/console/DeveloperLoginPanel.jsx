@@ -71,7 +71,7 @@ export default function DeveloperLoginPanel() {
 
                 <div className="devConsole__loginFormTitle">
 
-                    Developer Login
+                    Administrator Login
 
                 </div>
 

@@ -1,15 +1,19 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { canAccessDeveloperConsole } from "./developerRoles.js";
-import { passwordsMatch } from "./developerAuthConfig.js";
+import {
+    canAccessDeveloperConsole,
+    canPerformAdministratorActions,
+    DEVELOPER_ROLES
+} from "./developerRoles.js";
+import {
+    resolveLoginIdentity,
+    verifyAdministratorPassword
+} from "./developerAuthConfig.js";
 import { createDeveloperAuthAudit } from "./developerAuthAudit.js";
 import { signHs256Jwt, verifyHs256Jwt } from "./jwtTokens.js";
 
 /**
- * R6.1 — Developer Authentication service.
- *
- * Completely independent of Players / Rooms / Games / Wallets / Contracts.
- * Issues access JWTs + refresh tokens. Never mutates gameplay.
+ * R6.1 / R6.2 — Developer Authentication service.
  */
 export class DeveloperAuthService {
 
@@ -21,7 +25,6 @@ export class DeveloperAuthService {
 
         this._audit = createDeveloperAuthAudit(logger);
 
-        // refreshTokenHash → { username, role, expiresAt, createdAt }
         this._refreshSessions = new Map();
 
     }
@@ -34,7 +37,19 @@ export class DeveloperAuthService {
 
     getEnvironment() {
 
-        return this._config.environment;
+        return this._config.appEnvironment;
+
+    }
+
+    verifyAdministratorPassword(password) {
+
+        return verifyAdministratorPassword(password, this._config);
+
+    }
+
+    isAdministrator(claims) {
+
+        return canPerformAdministratorActions(claims?.role);
 
     }
 
@@ -58,20 +73,13 @@ export class DeveloperAuthService {
 
         }
 
-        const normalizedUser = String(username || "").trim();
+        const identity = resolveLoginIdentity(username, password, this._config);
 
-        const passwordOk = normalizedUser === this._config.username
-            && passwordsMatch(
-                String(password || ""),
-                this._config.passwordHash,
-                this._config.secret
-            );
-
-        if (!passwordOk) {
+        if (!identity) {
 
             this._audit.loginFailed({
                 reason: "invalid_credentials",
-                username: normalizedUser || "(empty)",
+                username: String(username || "").trim() || "(empty)",
                 ip: clientIp
             });
 
@@ -83,7 +91,7 @@ export class DeveloperAuthService {
 
         }
 
-        const role = this._config.defaultRole;
+        const { username: normalizedUser, role } = identity;
 
         if (!canAccessDeveloperConsole(role)) {
 
@@ -110,6 +118,7 @@ export class DeveloperAuthService {
         this._audit.loginSuccess({
             username: normalizedUser,
             role,
+            sessionId: session.sessionId,
             ip: clientIp,
             expiresAt: session.expiresAt
         });
@@ -147,17 +156,18 @@ export class DeveloperAuthService {
 
         }
 
-        // Rotate refresh token.
         this._refreshSessions.delete(this._hashToken(refreshToken));
 
         const session = this._issueSession({
             username: record.username,
-            role: record.role
+            role: record.role,
+            sessionId: record.sessionId
         });
 
         this._audit.refreshSuccess({
             username: record.username,
             role: record.role,
+            sessionId: session.sessionId,
             ip: clientIp,
             expiresAt: session.expiresAt
         });
@@ -166,9 +176,17 @@ export class DeveloperAuthService {
 
     }
 
-    logout({ refreshToken = null, accessToken = null, clientIp = null } = {}) {
+    logout({
+        refreshToken = null,
+        accessToken = null,
+        clientIp = null
+    } = {}) {
 
         let username = null;
+
+        let role = null;
+
+        let sessionId = null;
 
         if (refreshToken) {
 
@@ -177,6 +195,10 @@ export class DeveloperAuthService {
             const record = this._refreshSessions.get(hash);
 
             username = record?.username ?? null;
+
+            role = record?.role ?? null;
+
+            sessionId = record?.sessionId ?? null;
 
             this._refreshSessions.delete(hash);
 
@@ -188,10 +210,16 @@ export class DeveloperAuthService {
 
             username = payload?.username ?? null;
 
+            role = payload?.role ?? null;
+
+            sessionId = payload?.sessionId ?? null;
+
         }
 
         this._audit.logout({
             username: username ?? "unknown",
+            role,
+            sessionId,
             ip: clientIp
         });
 
@@ -199,9 +227,6 @@ export class DeveloperAuthService {
 
     }
 
-    /**
-     * Verify bearer access token. Returns claims or null.
-     */
     verifyAccessToken(token) {
 
         if (!this.isEnabled()) {
@@ -227,9 +252,10 @@ export class DeveloperAuthService {
         return {
             username: payload.sub,
             role: payload.role,
-            environment: payload.env ?? this._config.environment,
+            sessionId: payload.sid ?? null,
+            environment: payload.env ?? this._config.appEnvironment,
             expiresAt: payload.exp * 1000,
-            readOnly: payload.readOnly !== false
+            readOnly: payload.readOnly === true
         };
 
     }
@@ -247,6 +273,7 @@ export class DeveloperAuthService {
         return Object.freeze({
             username: claims.username,
             role: claims.role,
+            sessionId: claims.sessionId,
             environment: claims.environment,
             expiresAt: claims.expiresAt,
             readOnly: claims.readOnly === true
@@ -266,21 +293,27 @@ export class DeveloperAuthService {
 
     }
 
-    shutdown() {
+    auditPermissionDenied(fields) {
 
-        this._refreshSessions.clear();
+        this._audit.permissionDenied(fields);
 
     }
 
-    _issueSession({ username, role }) {
+    _issueSession({ username, role, sessionId = null }) {
+
+        const resolvedSessionId = sessionId || randomBytes(16).toString("hex");
+
+        const readOnly = role === DEVELOPER_ROLES.VIEWER
+            || role === DEVELOPER_ROLES.DEVELOPER;
 
         const accessToken = signHs256Jwt(
             {
                 typ: "access",
                 sub: username,
                 role,
-                env: this._config.environment,
-                readOnly: true,
+                sid: resolvedSessionId,
+                env: this._config.appEnvironment,
+                readOnly,
                 scope: "developer-console"
             },
             this._config.secret,
@@ -295,6 +328,7 @@ export class DeveloperAuthService {
         this._refreshSessions.set(this._hashToken(refreshToken), {
             username,
             role,
+            sessionId: resolvedSessionId,
             expiresAt: refreshExpiresAt,
             createdAt: Date.now()
         });
@@ -305,13 +339,15 @@ export class DeveloperAuthService {
             accessToken,
             refreshToken,
             tokenType: "Bearer",
+            sessionId: resolvedSessionId,
             expiresAt: accessClaims.exp * 1000,
             refreshExpiresAt,
             user: Object.freeze({
                 username,
                 role,
-                environment: this._config.environment,
-                readOnly: true
+                sessionId: resolvedSessionId,
+                environment: this._config.appEnvironment,
+                readOnly
             })
         });
 
@@ -350,6 +386,12 @@ export class DeveloperAuthService {
     _hashToken(token) {
 
         return createHash("sha256").update(token).digest("hex");
+
+    }
+
+    shutdown() {
+
+        this._refreshSessions.clear();
 
     }
 

@@ -12,6 +12,18 @@ function requiresHardenedAuth(nodeEnv) {
 
 }
 
+function resolveAdminUsername(env) {
+
+    return env.ADMIN_USERNAME || env.DEVELOPER_AUTH_USERNAME;
+
+}
+
+function resolveAdminPasswordHash(env) {
+
+    return env.ADMIN_PASSWORD_HASH || env.DEVELOPER_AUTH_PASSWORD_HASH;
+
+}
+
 /**
  * @param {import("../ConfigurationError.js").ConfigurationIssueCollector} collector
  * @param {NodeJS.ProcessEnv} env
@@ -45,9 +57,11 @@ export function validateSecrets(collector, env, context) {
 
     const secret = env.DEVELOPER_AUTH_SECRET;
 
-    const username = env.DEVELOPER_AUTH_USERNAME;
+    const username = resolveAdminUsername(env);
 
-    const password = env.DEVELOPER_AUTH_PASSWORD;
+    const passwordHash = resolveAdminPasswordHash(env);
+
+    const plainPassword = env.DEVELOPER_AUTH_PASSWORD || env.ADMIN_PASSWORD;
 
     if (hardened) {
 
@@ -99,44 +113,35 @@ export function validateSecrets(collector, env, context) {
         if (isMissing(username)) {
 
             collector.add({
-                key: DEVELOPER_SCHEMA.DEVELOPER_AUTH_USERNAME.key,
-                reason: "Missing developer username",
+                key: DEVELOPER_SCHEMA.ADMIN_USERNAME.key,
+                reason: "Missing administrator username",
                 expectedType: "string",
                 received: username,
-                suggestedFix: DEVELOPER_SCHEMA.DEVELOPER_AUTH_USERNAME.suggestedFix
+                suggestedFix: DEVELOPER_SCHEMA.ADMIN_USERNAME.suggestedFix
             });
 
         }
 
-        if (isMissing(password)) {
+        if (isMissing(passwordHash)) {
 
             collector.add({
-                key: DEVELOPER_SCHEMA.DEVELOPER_AUTH_PASSWORD.key,
-                reason: "Missing developer password",
-                expectedType: "secret",
-                received: password,
-                suggestedFix: DEVELOPER_SCHEMA.DEVELOPER_AUTH_PASSWORD.suggestedFix
+                key: DEVELOPER_SCHEMA.ADMIN_PASSWORD_HASH.key,
+                reason: "Missing administrator password hash",
+                expectedType: "scrypt hash",
+                received: passwordHash,
+                suggestedFix: DEVELOPER_SCHEMA.ADMIN_PASSWORD_HASH.suggestedFix
             });
 
-        } else if (String(password).length
-            < DEVELOPER_SCHEMA.DEVELOPER_AUTH_PASSWORD.minLength) {
+        }
+
+        if (!isMissing(plainPassword)) {
 
             collector.add({
                 key: DEVELOPER_SCHEMA.DEVELOPER_AUTH_PASSWORD.key,
-                reason: "Developer password too short",
-                expectedType: `secret(minLength=${DEVELOPER_SCHEMA.DEVELOPER_AUTH_PASSWORD.minLength})`,
-                received: password,
-                suggestedFix: DEVELOPER_SCHEMA.DEVELOPER_AUTH_PASSWORD.suggestedFix
-            });
-
-        } else if (isInsecureSecretDefault(password)) {
-
-            collector.add({
-                key: DEVELOPER_SCHEMA.DEVELOPER_AUTH_PASSWORD.key,
-                reason: "Insecure default developer password is not allowed",
-                expectedType: "non-default secret",
-                received: password,
-                suggestedFix: "Replace the example DEVELOPER_AUTH_PASSWORD with a strong password."
+                reason: "Plain-text administrator password is not allowed in this profile",
+                expectedType: "ADMIN_PASSWORD_HASH",
+                received: "<plain-password>",
+                suggestedFix: "Remove DEVELOPER_AUTH_PASSWORD and set ADMIN_PASSWORD_HASH."
             });
 
         }
@@ -144,14 +149,14 @@ export function validateSecrets(collector, env, context) {
     } else if (env.DEVELOPER_AUTH_ENABLED === "true") {
 
         // Development with auth explicitly enabled still needs credentials.
-        if (isMissing(secret) || isMissing(username) || isMissing(password)) {
+        if (isMissing(secret) || isMissing(username) || (isMissing(passwordHash) && isMissing(plainPassword))) {
 
             collector.add({
-                key: "DEVELOPER_AUTH_*",
+                key: "ADMIN_*",
                 reason: "Developer auth enabled but credentials are incomplete",
-                expectedType: "secret+username+password",
+                expectedType: "secret+username+password-hash-or-dev-password",
                 received: "<incomplete>",
-                suggestedFix: "Provide DEVELOPER_AUTH_SECRET, USERNAME, and PASSWORD."
+                suggestedFix: "Provide DEVELOPER_AUTH_SECRET, ADMIN_USERNAME, and ADMIN_PASSWORD_HASH (or DEVELOPER_AUTH_PASSWORD for local dev)."
             });
 
         }
@@ -160,6 +165,7 @@ export function validateSecrets(collector, env, context) {
 
     for (const schema of [
         DEVELOPER_SCHEMA.DEVELOPER_AUTH_ACCESS_TTL_SECONDS,
+        DEVELOPER_SCHEMA.ADMIN_SESSION_TIMEOUT_SECONDS,
         DEVELOPER_SCHEMA.DEVELOPER_AUTH_REFRESH_TTL_SECONDS
     ]) {
 

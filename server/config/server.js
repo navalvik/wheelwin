@@ -1,3 +1,5 @@
+import { createCorsOriginValidator } from "./corsOrigin.js";
+
 export function loadServerConfig(env = process.env) {
 
     const port = Number(env.PORT);
@@ -24,7 +26,8 @@ export function loadServerConfig(env = process.env) {
 
     }
 
-    // Comma-separated origins for localhost + LAN Vite clients.
+    // Comma-separated explicit origins. In development, localhost / 127.0.0.1 /
+    // private LAN IPs (192.168.x.x, 10.x.x.x, 172.16–31.x.x) are also allowed.
     const clientOrigins = String(clientOriginRaw)
         .split(",")
         .map((part) => part.trim())
@@ -37,6 +40,8 @@ export function loadServerConfig(env = process.env) {
     }
 
     // Single string when one origin (backward compatible); array for many.
+    const nodeEnv = env.NODE_ENV || "development";
+
     const clientOrigin = clientOrigins.length === 1
         ? clientOrigins[0]
         : Object.freeze([...clientOrigins]);
@@ -45,7 +50,8 @@ export function loadServerConfig(env = process.env) {
         port,
         host,
         clientOrigin,
-        nodeEnv: env.NODE_ENV || "development"
+        nodeEnv,
+        corsOrigin: createCorsOriginValidator(clientOrigin, nodeEnv)
     };
 
 }

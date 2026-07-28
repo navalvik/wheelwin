@@ -312,4 +312,62 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
 }
 
+// Scenario F — reclaim when disconnect event was missed (stale binding).
+{
+
+    const stack = buildStack();
+
+    try {
+
+        const room = stack.roomManager.createRoom();
+
+        const player = stack.playerManager.createPlayer({ nickname: "Stale" });
+
+        const playerId = player.identity.playerId;
+
+        const roomId = room.roomId;
+
+        stack.roomManager.addPlayer(roomId, playerId);
+
+        stack.playerManager.updateRuntime(playerId, { roomId });
+
+        bindPlayer(stack, { socketId: "socket-stale", playerId, roomId });
+
+        const withoutPrep = stack.roomLobbyBridge.reconnectGameplaySession(
+            "socket-new",
+            { playerId, roomId }
+        );
+
+        assert(!withoutPrep.ok, "reclaim without stale prep must fail");
+
+        const prep = stack.roomLobbyBridge.prepareRecoveryAuthorization(
+            playerId,
+            "socket-new",
+            () => false
+        );
+
+        assert(prep?.released === true, "stale socket must be released");
+
+        const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
+            "socket-new",
+            { playerId, roomId }
+        );
+
+        assert(reconnected.ok, "reclaim after stale prep must succeed");
+
+        assert(
+            stack.roomLobbyBridge._playerToSocket.get(playerId) === "socket-new",
+            "socket binding must update to the new socket"
+        );
+
+        console.log("  scenario F (missed disconnect / stale binding) passed");
+
+    } finally {
+
+        stack.shutdown();
+
+    }
+
+}
+
 console.log("setupSession.reconnect.test.js: all assertions passed");

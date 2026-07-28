@@ -181,8 +181,8 @@ function assertFails(env, ownerBody, keyFragment) {
         {
             NODE_ENV: "production",
             DEVELOPER_AUTH_ENABLED: "true",
-            DEVELOPER_AUTH_USERNAME: "ops",
-            DEVELOPER_AUTH_PASSWORD: "strong-password-here",
+            ADMIN_USERNAME: "ops",
+            ADMIN_PASSWORD_HASH: "scrypt:invalid:invalid",
             DEVELOPER_AUTH_SECRET: ""
         },
         undefined,
@@ -198,7 +198,8 @@ function assertFails(env, ownerBody, keyFragment) {
         {
             NODE_ENV: "production",
             DEVELOPER_AUTH_ENABLED: "true",
-            DEVELOPER_AUTH_USERNAME: "developer",
+            ADMIN_USERNAME: "developer",
+            ADMIN_PASSWORD_HASH: "scrypt:invalid:invalid",
             DEVELOPER_AUTH_PASSWORD: "developer",
             DEVELOPER_AUTH_SECRET: "change-me-developer-console-secret"
         },

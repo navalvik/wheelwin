@@ -2,7 +2,7 @@ export function loadSocketConfig(serverConfig) {
 
     return {
         cors: {
-            origin: serverConfig.clientOrigin,
+            origin: serverConfig.corsOrigin,
             methods: ["GET", "POST"]
         },
         transports: ["websocket", "polling"],

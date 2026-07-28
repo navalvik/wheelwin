@@ -3,6 +3,8 @@
  */
 export const CONSOLE_SECTIONS = Object.freeze([
     Object.freeze({ id: "server-health", label: "Server Health" }),
+    Object.freeze({ id: "system-info", label: "System Information" }),
+    Object.freeze({ id: "blockchain-status", label: "Blockchain Status" }),
     Object.freeze({ id: "closed-beta", label: "Closed Beta" }),
     Object.freeze({ id: "launch-readiness", label: "Launch Readiness" }),
     Object.freeze({ id: "general-availability", label: "General Availability" }),
@@ -18,7 +20,8 @@ export const CONSOLE_SECTIONS = Object.freeze([
     Object.freeze({ id: "metrics", label: "Metrics" }),
     Object.freeze({ id: "timeline", label: "Timeline" }),
     Object.freeze({ id: "logs", label: "Developer Log" }),
-    Object.freeze({ id: "settings", label: "Settings", reserved: true })
+    Object.freeze({ id: "settings", label: "Settings" }),
+    Object.freeze({ id: "maintenance", label: "Maintenance", reserved: true })
 ]);
 
 export const DEFAULT_CONSOLE_SECTION_ID = CONSOLE_SECTIONS[0].id;

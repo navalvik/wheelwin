@@ -16,6 +16,7 @@ import { validateEnvironment } from "./validators/validateEnvironment.js";
 import { validateSecrets } from "./validators/validateSecrets.js";
 import { validateConfiguration } from "./validators/validateConfiguration.js";
 import { DEFAULT_OWNER_CONFIG_PATH } from "./OwnerConfiguration.js";
+import { applyEnvironmentStateToEnv } from "../console/environment/environmentStateStore.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -64,9 +65,11 @@ export class ConfigurationManager {
 
         const collector = new ConfigurationIssueCollector();
 
-        validateEnvironment(collector, env);
+        const effectiveEnv = applyEnvironmentStateToEnv(env);
 
-        const nodeEnv = env.NODE_ENV || "development";
+        validateEnvironment(collector, effectiveEnv);
+
+        const nodeEnv = effectiveEnv.NODE_ENV || "development";
 
         const tonDeployMode = String(env.TON_DEPLOY_MODE || "stub")
             .trim()
@@ -74,7 +77,7 @@ export class ConfigurationManager {
             ? "live"
             : "stub";
 
-        validateSecrets(collector, env, {
+        validateSecrets(collector, effectiveEnv, {
             nodeEnv,
             tonDeployMode,
             developer: { enabled: false, configured: false }
@@ -82,7 +85,7 @@ export class ConfigurationManager {
 
         collector.throwIfAny();
 
-        const environment = loadEnvironment(env);
+        const environment = loadEnvironment(effectiveEnv);
 
         const owner = loadOwnerConfiguration({
             configPath: ownerConfigPath,
@@ -90,11 +93,11 @@ export class ConfigurationManager {
         });
 
         const developer = loadDeveloperConfiguration(
-            env,
+            effectiveEnv,
             environment.production
         );
 
-        validateSecrets(collector, env, {
+        validateSecrets(collector, effectiveEnv, {
             nodeEnv: environment.server.nodeEnv,
             tonDeployMode: environment.ton.deployMode,
             developer

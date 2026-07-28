@@ -1322,3 +1322,281 @@ body:has(.devConsole) {
     }
 
 }
+
+/* R6.1 — Environment banner + settings */
+
+.devConsole__envBanner {
+
+    margin-bottom: 20px;
+
+    padding: 16px 20px;
+
+    text-align: center;
+
+    border: 2px solid var(--console-border);
+
+    border-radius: 8px;
+
+    background: var(--console-panel);
+}
+
+.devConsole__envBanner--development {
+
+    border-color: #c9a227;
+    background: #fff9e8;
+}
+
+.devConsole__envBanner--testnet {
+
+    border-color: #2f9d62;
+    background: #eefaf3;
+}
+
+.devConsole__envBanner--mainnet {
+
+    border-color: #c62828;
+    background: #fff1f1;
+}
+
+.devConsole__envBannerRule {
+
+    margin: 0;
+
+    color: var(--console-muted);
+
+    font-family: ui-monospace, monospace;
+
+    font-size: 0.85rem;
+}
+
+.devConsole__envBannerLabel {
+
+    margin: 8px 0 0;
+
+    font-size: 0.95rem;
+
+    font-weight: 600;
+}
+
+.devConsole__envBannerValue {
+
+    margin: 4px 0 8px;
+
+    font-size: 1.35rem;
+
+    font-weight: 700;
+
+    letter-spacing: 0.04em;
+}
+
+.devConsole__envSection {
+
+    margin-bottom: 28px;
+}
+
+.devConsole__envSectionTitle {
+
+    margin: 0 0 8px;
+
+    font-size: 1.05rem;
+}
+
+.devConsole__envCurrent {
+
+    margin: 0 0 8px;
+
+    font-size: 1.1rem;
+
+    font-weight: 600;
+}
+
+.devConsole__envHint {
+
+    margin: 0 0 12px;
+
+    color: var(--console-muted);
+}
+
+.devConsole__envForm {
+
+    display: grid;
+
+    gap: 14px;
+
+    max-width: 28rem;
+}
+
+.devConsole__envField {
+
+    display: grid;
+
+    gap: 6px;
+}
+
+.devConsole__envField span {
+
+    font-weight: 600;
+}
+
+.devConsole__envField input,
+.devConsole__envField select {
+
+    padding: 10px 12px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    font: inherit;
+}
+
+.devConsole__envWarning {
+
+    margin: 0;
+
+    padding: 12px;
+
+    border-radius: 6px;
+
+    background: #fff1f1;
+
+    color: #8b1e1e;
+
+    font-weight: 600;
+}
+
+.devConsole__envError {
+
+    margin: 0;
+
+    color: #b42318;
+}
+
+.devConsole__envSuccess {
+
+    margin: 0;
+
+    color: #1f7a45;
+}
+
+.devConsole__envSubmit {
+
+    justify-self: start;
+
+    padding: 10px 16px;
+
+    border: 0;
+
+    border-radius: 6px;
+
+    background: var(--console-accent);
+
+    color: #fff;
+
+    font: inherit;
+
+    font-weight: 600;
+
+    cursor: pointer;
+}
+
+.devConsole__envBannerGrid {
+
+    display: grid;
+
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+
+    gap: 10px 18px;
+
+    margin: 12px auto 0;
+
+    max-width: 52rem;
+
+    text-align: left;
+}
+
+.devConsole__envBannerGrid dt {
+
+    margin: 0;
+
+    font-size: 0.8rem;
+
+    color: var(--console-muted);
+
+    font-weight: 600;
+}
+
+.devConsole__envBannerGrid dd {
+
+    margin: 2px 0 0;
+
+    font-weight: 600;
+}
+
+.devConsole__envBannerWarning {
+
+    margin: 8px 0 0;
+
+    font-weight: 700;
+
+    color: #8b1e1e;
+}
+
+.devConsole__envConfirmBox {
+
+    padding: 12px;
+
+    border: 1px dashed var(--console-border);
+
+    border-radius: 6px;
+
+    background: #fffdf8;
+}
+
+.devConsole__envConfirmBox p {
+
+    margin: 6px 0;
+}
+
+.devConsole__serviceStatusList {
+
+    display: grid;
+
+    gap: 10px;
+
+    margin-top: 16px;
+}
+
+.devConsole__serviceStatusRow {
+
+    display: flex;
+
+    justify-content: space-between;
+
+    gap: 12px;
+
+    padding: 10px 12px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    background: var(--console-panel);
+}
+
+.devConsole__statusTone--ok { color: #1f7a45; font-weight: 700; }
+
+.devConsole__statusTone--warn { color: #9a6700; font-weight: 700; }
+
+.devConsole__statusTone--info { color: #1c73d0; font-weight: 700; }
+
+.devConsole__statusTone--error { color: #b42318; font-weight: 700; }
+
+.devConsole__statusTone--muted { color: var(--console-muted); font-weight: 700; }
+
+.devConsole__envSubmit:disabled {
+
+    opacity: 0.55;
+
+    cursor: not-allowed;
+}

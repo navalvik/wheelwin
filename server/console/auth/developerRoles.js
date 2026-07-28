@@ -1,18 +1,25 @@
 /**
- * R6.1 — Developer Console roles (independent of gameplay).
+ * R6.1 / R6.2 — Developer Console roles (independent of gameplay).
  */
 
 export const DEVELOPER_ROLES = Object.freeze({
+    VIEWER: "Viewer",
+    ADMINISTRATOR: "Administrator",
+    // Legacy aliases retained for JWT compatibility.
     DEVELOPER: "Developer",
-    // Reserved for later stages — not granted by default login.
-    OPERATOR: "Operator",
-    ADMINISTRATOR: "Administrator"
+    OPERATOR: "Operator"
 });
 
 export const CONSOLE_READ_ROLES = Object.freeze([
+    DEVELOPER_ROLES.VIEWER,
+    DEVELOPER_ROLES.ADMINISTRATOR,
     DEVELOPER_ROLES.DEVELOPER,
-    DEVELOPER_ROLES.OPERATOR,
-    DEVELOPER_ROLES.ADMINISTRATOR
+    DEVELOPER_ROLES.OPERATOR
+]);
+
+export const ADMINISTRATOR_ROLES = Object.freeze([
+    DEVELOPER_ROLES.ADMINISTRATOR,
+    DEVELOPER_ROLES.OPERATOR
 ]);
 
 export function canAccessDeveloperConsole(role) {
@@ -21,13 +28,15 @@ export function canAccessDeveloperConsole(role) {
 
 }
 
-/**
- * Developer role is read-only console access.
- * No gameplay mutations, admin actions, room deletion,
- * settlement controls, or player management.
- */
 export function isReadOnlyConsoleRole(role) {
 
-    return role === DEVELOPER_ROLES.DEVELOPER;
+    return role === DEVELOPER_ROLES.VIEWER
+        || role === DEVELOPER_ROLES.DEVELOPER;
+
+}
+
+export function canPerformAdministratorActions(role) {
+
+    return ADMINISTRATOR_ROLES.includes(role);
 
 }

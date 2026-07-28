@@ -132,6 +132,8 @@ export class RoomLobbyBridge {
         // New socket.id reclaim uses this map; client claim is only a lookup key.
         this._recoveryOwnershipByPlayer = new Map();
 
+        this._lastRecoveryDenial = null;
+
         // Rooms whose Game Session has started (post Setup Session completion).
         this._startedRooms = new Set();
 
@@ -1088,6 +1090,18 @@ export class RoomLobbyBridge {
                 + ` | result=miss`
             );
 
+            const runtimeSeat = this._tryRuntimeSeatRecovery(
+                claimedPlayerId,
+                claim?.roomId ?? null,
+                socketId
+            );
+
+            if (runtimeSeat) {
+
+                return runtimeSeat;
+
+            }
+
             return null;
 
         }
@@ -1095,12 +1109,25 @@ export class RoomLobbyBridge {
         if (claim.roomId && claim.roomId !== stashedByPlayer.roomId) {
 
             this._logger.info(
-                `[R6.2A Recovery] stash lookup`
-                + ` | roomId=${claim.roomId}`
+                `[R6.2A Recovery] authorization`
+                + ` | check=claim_room_matches_stash`
+                + ` | result=fail`
+                + ` | claimRoomId=${claim.roomId}`
+                + ` | stashedRoomId=${stashedByPlayer.roomId}`
                 + ` | playerId=${claimedPlayerId}`
                 + ` | socket.id=${socketId}`
-                + ` | source=player claim`
-                + ` | result=room mismatch`
+                + ` | previousSocket.id=${stashedByPlayer.socketId ?? "null"}`
+            );
+
+            this._denyRecoveryIdentity(
+                "Recovery room claim does not match the server stash",
+                {
+                    claimRoomId: claim.roomId,
+                    stashedRoomId: stashedByPlayer.roomId,
+                    playerId: claimedPlayerId,
+                    socketId,
+                    previousSocketId: stashedByPlayer.socketId ?? null
+                }
             );
 
             return null;
@@ -1150,21 +1177,39 @@ export class RoomLobbyBridge {
      */
     reconnectSession(socketId, claim = null) {
 
+        this._lastRecoveryDenial = null;
+
+        const previousSocketId = claim?.playerId
+            ? this.getRecoveryOwnershipDebug(claim.playerId).previousSocketId
+            : null;
+
+        this._logger.info(
+            `[R6.2A Recovery] authorization begin`
+            + ` | roomId=${claim?.roomId ?? "null"}`
+            + ` | playerId=${claim?.playerId ?? "null"}`
+            + ` | socket.id=${socketId ?? "null"}`
+            + ` | previousSocket.id=${previousSocketId ?? "null"}`
+        );
+
         const identity = this.resolveRecoveryIdentity(socketId, claim);
 
         if (!identity) {
+
+            const reason = this._lastRecoveryDenial?.reason
+                ?? "Recovery identity is not authorized for this socket";
 
             this._logger.info(
                 `[R6.2A Recovery] reclaim failure`
                 + ` | roomId=${claim?.roomId ?? "null"}`
                 + ` | playerId=${claim?.playerId ?? "null"}`
                 + ` | socket.id=${socketId ?? "null"}`
-                + ` | reason=Recovery identity is not authorized for this socket`
+                + ` | previousSocket.id=${previousSocketId ?? "null"}`
+                + ` | reason=${reason}`
             );
 
             return {
                 ok: false,
-                reason: "Recovery identity is not authorized for this socket"
+                reason
             };
 
         }
@@ -1173,7 +1218,22 @@ export class RoomLobbyBridge {
 
         const room = this._roomManager.getRoom(roomId);
 
+        this._logger.info(
+            `[R6.2A Recovery] authorization`
+            + ` | check=room_exists`
+            + ` | result=${room ? "pass" : "fail"}`
+            + ` | roomId=${roomId}`
+            + ` | playerId=${playerId}`
+            + ` | socket.id=${socketId}`
+        );
+
         if (!room) {
+
+            this._denyRecoveryIdentity("Room session is not active", {
+                roomId,
+                playerId,
+                socketId
+            });
 
             this._logger.info(
                 `[R6.2A Recovery] reclaim failure`
@@ -1190,7 +1250,38 @@ export class RoomLobbyBridge {
 
         }
 
+        const playerExists = this._playerManager.hasPlayer(playerId);
+
+        const playerInRoom = room.players.includes(playerId);
+
+        this._logger.info(
+            `[R6.2A Recovery] authorization`
+            + ` | check=player_exists`
+            + ` | result=${playerExists ? "pass" : "fail"}`
+            + ` | roomId=${roomId}`
+            + ` | playerId=${playerId}`
+            + ` | socket.id=${socketId}`
+        );
+
+        this._logger.info(
+            `[R6.2A Recovery] authorization`
+            + ` | check=player_in_room`
+            + ` | result=${playerInRoom ? "pass" : "fail"}`
+            + ` | roomId=${roomId}`
+            + ` | playerId=${playerId}`
+            + ` | socket.id=${socketId}`
+        );
+
         if (!this._isRecoverableIdentity(playerId, roomId)) {
+
+            this._logger.info(
+                `[R6.2A Recovery] authorization`
+                + ` | check=session_protected_and_recoverable`
+                + ` | result=fail`
+                + ` | roomId=${roomId}`
+                + ` | playerId=${playerId}`
+                + ` | socket.id=${socketId}`
+            );
 
             this._logger.info(
                 `[R6.2A Recovery] reclaim failure`
@@ -1207,6 +1298,15 @@ export class RoomLobbyBridge {
 
         }
 
+        this._logger.info(
+            `[R6.2A Recovery] authorization`
+            + ` | check=session_protected_and_recoverable`
+            + ` | result=pass`
+            + ` | roomId=${roomId}`
+            + ` | playerId=${playerId}`
+            + ` | socket.id=${socketId}`
+        );
+
         this._registerSocketPlayer(socketId, playerId);
 
         this._playerManager.setConnectionState(
@@ -1215,6 +1315,16 @@ export class RoomLobbyBridge {
         );
 
         this._attachSocketToRoom(socketId, roomId);
+
+        this._logger.info(
+            `[R6.2A Recovery] authorization`
+            + ` | check=socket_rebound`
+            + ` | result=pass`
+            + ` | roomId=${roomId}`
+            + ` | playerId=${playerId}`
+            + ` | socket.id=${socketId}`
+            + ` | previousSocket.id=${previousSocketId ?? "null"}`
+        );
 
         this._logger.info(
             `[R6.2A Recovery] socket rebound`
@@ -1470,6 +1580,94 @@ export class RoomLobbyBridge {
     reconnectGameplaySession(socketId, claim = null) {
 
         return this.reconnectSession(socketId, claim);
+
+    }
+
+    /**
+     * Release a stale player→socket binding before recovery authorization when
+     * the reconnecting socket arrives before LOBBY_SOCKET_DISCONNECTED runs.
+     *
+     * @param {string} playerId
+     * @param {string} newSocketId
+     * @param {(socketId: string) => boolean} isSocketLive
+     * @returns {{ released: boolean, boundSocketId: string | null } | null}
+     */
+    prepareRecoveryAuthorization(playerId, newSocketId, isSocketLive) {
+
+        if (!playerId || !newSocketId || typeof isSocketLive !== "function") {
+
+            return null;
+
+        }
+
+        const boundSocket = this._playerToSocket.get(playerId);
+
+        if (!boundSocket || boundSocket === newSocketId) {
+
+            return null;
+
+        }
+
+        if (isSocketLive(boundSocket)) {
+
+            this._logger.info(
+                `[R6.2A Recovery] authorization`
+                + ` | check=prepare_stale_socket`
+                + ` | result=skip`
+                + ` | reason=bound_socket_still_live`
+                + ` | boundSocket.id=${boundSocket}`
+                + ` | playerId=${playerId}`
+                + ` | socket.id=${newSocketId}`
+            );
+
+            return {
+                released: false,
+                boundSocketId: boundSocket
+            };
+
+        }
+
+        this._logger.info(
+            `[R6.2A Recovery] authorization`
+            + ` | check=prepare_stale_socket`
+            + ` | result=pass`
+            + ` | action=soft_disconnect_stale_binding`
+            + ` | boundSocket.id=${boundSocket}`
+            + ` | playerId=${playerId}`
+            + ` | socket.id=${newSocketId}`
+        );
+
+        this._handleSocketDisconnected(boundSocket);
+
+        return {
+            released: true,
+            boundSocketId: boundSocket
+        };
+
+    }
+
+    /**
+     * Read-only recovery debug (previous socket id from soft-disconnect stash).
+     */
+    getRecoveryOwnershipDebug(playerId = null) {
+
+        if (!playerId) {
+
+            return Object.freeze({
+                previousSocketId: null,
+                stashedRoomId: null
+            });
+
+        }
+
+        const stashed = this._recoveryOwnershipByPlayer.get(playerId);
+
+        const boundSocket = this._playerToSocket.get(playerId) ?? null;
+
+        return Object.freeze({
+            previousSocketId: stashed?.socketId ?? boundSocket,
+            stashedRoomId: stashed?.roomId ?? null
+        });
 
     }
 
@@ -3978,6 +4176,219 @@ export class RoomLobbyBridge {
         }
 
         return this._playerManager.hasPlayer(playerId);
+
+    }
+
+    _denyRecoveryIdentity(reason, details = {}) {
+
+        this._lastRecoveryDenial = Object.freeze({
+            reason,
+            details: Object.freeze({ ...details }),
+            at: Date.now()
+        });
+
+    }
+
+    /**
+     * Fallback when soft-disconnect stash is missing but the server still
+     * holds the disconnected seat (Socket.IO state-recovery / race edge).
+     */
+    _tryRuntimeSeatRecovery(claimedPlayerId, claimRoomId, socketId) {
+
+        if (!claimedPlayerId || !socketId) {
+
+            return null;
+
+        }
+
+        if (!this._playerManager.hasPlayer(claimedPlayerId)) {
+
+            this._logger.info(
+                `[R6.2A Recovery] authorization`
+                + ` | check=runtime_seat_fallback`
+                + ` | result=fail`
+                + ` | reason=player_missing`
+                + ` | playerId=${claimedPlayerId}`
+                + ` | socket.id=${socketId}`
+            );
+
+            this._denyRecoveryIdentity(
+                "Recovery identity is not authorized for this socket",
+                { playerId: claimedPlayerId, socketId, cause: "player_missing" }
+            );
+
+            return null;
+
+        }
+
+        const runtime = this._playerManager.getRuntime(claimedPlayerId);
+
+        const roomId = runtime?.roomId ?? null;
+
+        if (!roomId) {
+
+            this._logger.info(
+                `[R6.2A Recovery] authorization`
+                + ` | check=runtime_seat_fallback`
+                + ` | result=fail`
+                + ` | reason=no_runtime_room`
+                + ` | playerId=${claimedPlayerId}`
+                + ` | socket.id=${socketId}`
+            );
+
+            this._denyRecoveryIdentity(
+                "Recovery identity is not authorized for this socket",
+                { playerId: claimedPlayerId, socketId, cause: "no_runtime_room" }
+            );
+
+            return null;
+
+        }
+
+        if (claimRoomId && claimRoomId !== roomId) {
+
+            this._logger.info(
+                `[R6.2A Recovery] authorization`
+                + ` | check=runtime_seat_fallback`
+                + ` | result=fail`
+                + ` | reason=claim_room_mismatch`
+                + ` | claimRoomId=${claimRoomId}`
+                + ` | runtimeRoomId=${roomId}`
+                + ` | playerId=${claimedPlayerId}`
+                + ` | socket.id=${socketId}`
+            );
+
+            this._denyRecoveryIdentity(
+                "Recovery room claim does not match the server session",
+                {
+                    playerId: claimedPlayerId,
+                    socketId,
+                    claimRoomId,
+                    runtimeRoomId: roomId
+                }
+            );
+
+            return null;
+
+        }
+
+        const boundSocket = this._playerToSocket.get(claimedPlayerId);
+
+        const connectionState = runtime?.connectionState ?? null;
+
+        if (boundSocket && boundSocket !== socketId) {
+
+            if (connectionState === CONNECTION_STATE.DISCONNECTED) {
+
+                this._logger.info(
+                    `[R6.2A Recovery] authorization`
+                    + ` | check=runtime_seat_fallback`
+                    + ` | result=pass`
+                    + ` | action=clear_stale_binding`
+                    + ` | boundSocket.id=${boundSocket}`
+                    + ` | playerId=${claimedPlayerId}`
+                    + ` | socket.id=${socketId}`
+                );
+
+                this._unregisterSocket(boundSocket);
+
+            } else {
+
+                this._logger.info(
+                    `[R6.2A Recovery] authorization`
+                    + ` | check=runtime_seat_fallback`
+                    + ` | result=fail`
+                    + ` | reason=player_bound_elsewhere`
+                    + ` | boundSocket.id=${boundSocket}`
+                    + ` | playerId=${claimedPlayerId}`
+                    + ` | socket.id=${socketId}`
+                );
+
+                this._denyRecoveryIdentity(
+                    "Recovery identity is not authorized for this socket",
+                    {
+                        playerId: claimedPlayerId,
+                        socketId,
+                        boundSocketId: boundSocket,
+                        cause: "player_bound_elsewhere"
+                    }
+                );
+
+                return null;
+
+            }
+
+        }
+
+        const seatAvailable = connectionState === CONNECTION_STATE.DISCONNECTED
+            || !boundSocket;
+
+        if (!seatAvailable) {
+
+            this._logger.info(
+                `[R6.2A Recovery] authorization`
+                + ` | check=runtime_seat_fallback`
+                + ` | result=fail`
+                + ` | reason=player_still_connected`
+                + ` | connectionState=${connectionState ?? "null"}`
+                + ` | playerId=${claimedPlayerId}`
+                + ` | socket.id=${socketId}`
+            );
+
+            this._denyRecoveryIdentity(
+                "Recovery identity is not authorized for this socket",
+                {
+                    playerId: claimedPlayerId,
+                    socketId,
+                    connectionState,
+                    cause: "player_still_connected"
+                }
+            );
+
+            return null;
+
+        }
+
+        if (!this._isRecoverableIdentity(claimedPlayerId, roomId)) {
+
+            this._logger.info(
+                `[R6.2A Recovery] authorization`
+                + ` | check=runtime_seat_fallback`
+                + ` | result=fail`
+                + ` | reason=session_not_recoverable`
+                + ` | roomId=${roomId}`
+                + ` | playerId=${claimedPlayerId}`
+                + ` | socket.id=${socketId}`
+            );
+
+            this._denyRecoveryIdentity(
+                "Player session is not recoverable",
+                { playerId: claimedPlayerId, roomId, socketId }
+            );
+
+            return null;
+
+        }
+
+        this._stashRecoveryOwnership(socketId, {
+            playerId: claimedPlayerId,
+            roomId
+        });
+
+        this._logger.info(
+            `[R6.2A Recovery] authorization`
+            + ` | check=runtime_seat_fallback`
+            + ` | result=pass`
+            + ` | roomId=${roomId}`
+            + ` | playerId=${claimedPlayerId}`
+            + ` | socket.id=${socketId}`
+            + ` | connectionState=${connectionState ?? "null"}`
+        );
+
+        return {
+            playerId: claimedPlayerId,
+            roomId
+        };
 
     }
 

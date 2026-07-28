@@ -9,6 +9,8 @@ import { buildPaymentsOverview } from "./projectionBuilders/buildPaymentsOvervie
 import { buildRecoveryOverview } from "./projectionBuilders/buildRecoveryOverview.js";
 import { buildSimulationOverview } from "./projectionBuilders/buildSimulationOverview.js";
 import { buildMetricsOverview } from "./projectionBuilders/buildMetricsOverview.js";
+import { buildSystemInformation } from "./projectionBuilders/buildSystemInformation.js";
+import { buildBlockchainStatus } from "./projectionBuilders/buildBlockchainStatus.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -49,6 +51,11 @@ export class DeveloperConsoleProjectionService {
         healthService = null,
         lifecycleManager = null,
         gameplayContextResolver = null,
+        runtimeConfig = null,
+        tonService = null,
+        blockchainMonitor = null,
+        walletManager = null,
+        tonFinancialRecovery = null,
         version = packageJson.version,
         startedAt = Date.now()
     }) {
@@ -74,6 +81,11 @@ export class DeveloperConsoleProjectionService {
         this._healthService = healthService;
         this._lifecycleManager = lifecycleManager;
         this._gameplayContextResolver = gameplayContextResolver;
+        this._runtimeConfig = runtimeConfig;
+        this._tonService = tonService;
+        this._blockchainMonitor = blockchainMonitor;
+        this._walletManager = walletManager;
+        this._tonFinancialRecovery = tonFinancialRecovery;
         this._version = version;
         this._startedAt = startedAt;
 
@@ -213,6 +225,32 @@ export class DeveloperConsoleProjectionService {
             playerManager: this._playerManager,
             socketGateway: this._socketGateway,
             simulationLoop: this._simulationLoop
+        });
+
+    }
+
+    buildSystemInformation() {
+
+        return buildSystemInformation({
+            version: this._version,
+            startedAt: this._startedAt,
+            runtimeConfig: this._runtimeConfig,
+            healthService: this._healthService
+        });
+
+    }
+
+    buildBlockchainStatus() {
+
+        return buildBlockchainStatus({
+            runtimeConfig: this._runtimeConfig,
+            tonService: this._tonService,
+            blockchainMonitor: this._blockchainMonitor,
+            walletManager: this._walletManager,
+            gameContractManager: this._gameContractManager,
+            paymentSessionManager: this._paymentSessionManager,
+            contractSettlementManager: this._contractSettlementManager,
+            tonFinancialRecovery: this._tonFinancialRecovery
         });
 
     }

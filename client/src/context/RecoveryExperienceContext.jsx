@@ -296,7 +296,7 @@ export function RecoveryExperienceProvider({
             playerId: payload?.playerId ?? getIdentity().playerId
         });
 
-        devLog(`Recovery failed: ${payload?.reason ?? "unknown"}`);
+        devLog(`Recovery failed: ${payload?.reason ?? payload?.message ?? "unknown"}`);
 
         if (
             isSetupRecoveryPage(currentPage)

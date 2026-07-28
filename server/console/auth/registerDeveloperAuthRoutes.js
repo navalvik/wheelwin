@@ -115,7 +115,8 @@ export function registerDeveloperAuthRoutes(app, authService) {
 
         res.json({
             enabled: authService.isEnabled(),
-            environment: authService.getEnvironment()
+            environment: authService.getEnvironment(),
+            appEnvironment: authService.getEnvironment()
         });
 
     });
