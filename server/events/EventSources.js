@@ -36,5 +36,6 @@ export const EVENT_SOURCES = Object.freeze({
     GAME_START_AUTHORIZATION: "GameStartAuthorization",
     CONTRACT_SETTLEMENT_MANAGER: "ContractSettlementManager",
     WALLET_MANAGER: "WalletManager",
+    TON_FINANCIAL_RECOVERY: "TonFinancialRecovery",
     OPERATIONAL_METRICS: "OperationalMetrics"
 });

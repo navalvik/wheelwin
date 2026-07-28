@@ -1,0 +1,27 @@
+/**
+ * T2.9 — TonFinancialRecovery coordinator states.
+ */
+
+export const FINANCIAL_RECOVERY_STATE = Object.freeze({
+    NOT_STARTED: "NOT_STARTED",
+    RECOVERING: "RECOVERING",
+    VALIDATING: "VALIDATING",
+    RESTORING_WALLETS: "RESTORING_WALLETS",
+    RESTORING_CONTRACTS: "RESTORING_CONTRACTS",
+    RESTORING_PAYMENTS: "RESTORING_PAYMENTS",
+    RESTORING_SETTLEMENTS: "RESTORING_SETTLEMENTS",
+    RESTORING_BLOCKCHAIN: "RESTORING_BLOCKCHAIN",
+    COMPLETED: "COMPLETED",
+    FAILED: "FAILED"
+});
+
+export const FINANCIAL_RECOVERY_PHASE = Object.freeze({
+    WALLETS: "wallets",
+    CONTRACTS: "contracts",
+    PAYMENTS: "payments",
+    SETTLEMENTS: "settlements",
+    BLOCKCHAIN: "blockchain",
+    WATCHES: "watches",
+    VALIDATION: "validation",
+    COMPLETE: "complete"
+});

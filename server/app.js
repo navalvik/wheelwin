@@ -98,6 +98,7 @@ import {
     EntryPaymentAuditLedger
 } from "./payment/BlockchainMonitor.js";
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
+import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
@@ -214,6 +215,8 @@ class WheelWinApplication {
         this._entryPaymentAuditLedger = null;
 
         this._sessionWalletStore = null;
+
+        this._tonFinancialRecovery = null;
 
         this._tonConfig = null;
 
@@ -1232,6 +1235,27 @@ class WheelWinApplication {
         this._gameplayPhaseLifecycle.configureSettlementGate({ enabled: true });
 
         this._logger.startupLine("ContractSettlementManager");
+
+        this._tonFinancialRecovery = new TonFinancialRecovery({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            sessionWalletStore: this._sessionWalletStore,
+            paymentSessionManager: this._paymentSessionManager,
+            gameContractManager: this._gameContractManager,
+            contractSettlementManager: this._contractSettlementManager,
+            blockchainMonitor: this._blockchainMonitor,
+            playerManager: this._managers.playerManager,
+            roomManager: this._managers.roomManager
+        });
+
+        this._tonFinancialRecovery.initialize();
+
+        await this._tonFinancialRecovery.recover({
+            trigger: "server_restart",
+            reason: "application_startup"
+        });
+
+        this._logger.startupLine("TonFinancialRecovery");
 
         this._gameStartAuthorization = new GameStartAuthorization({
             logger: this._logger,
