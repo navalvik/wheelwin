@@ -19,6 +19,7 @@ import { GameEngineProviders } from "./providers/GameEngineProviders";
 import RecoveryOverlay from "./components/RecoveryOverlay";
 import {
     DEV_CONSOLE_ENABLED,
+    DEBUG_JUMP_ENABLED,
     DEV_MODE,
     DEV_PAGE_SEQUENCE
 } from "./config/devMode";
@@ -70,6 +71,10 @@ function GameFlow() {
 
     }
 
+    /**
+     * Developer Stub — temporary page-sequence navigation (DEBUG_JUMP_ENABLED).
+     * Reserved for future debugging; not rendered when the flag is false.
+     */
     function jumpToNextPage() {
 
         setCurrentPage((prev) => {
@@ -102,7 +107,7 @@ function GameFlow() {
 
     }
 
-    const devNavigation = DEV_MODE
+    const devNavigation = DEV_MODE && DEBUG_JUMP_ENABLED
         ? { enabled: true, onJump: jumpToNextPage }
         : null;
 

@@ -9,6 +9,18 @@ export const DEV_CONSOLE_ENABLED = DEV_MODE;
  */
 export const DEV_DASHBOARD_ENABLED = DEV_CONSOLE_ENABLED;
 
+/**
+ * ------------------------------------------------------------
+ * Developer Stub
+ *
+ * Temporary navigation used during development.
+ * Disabled for production.
+ * Can be re-enabled by setting
+ * DEBUG_JUMP_ENABLED = true
+ * ------------------------------------------------------------
+ */
+export const DEBUG_JUMP_ENABLED = false;
+
 export const DEV_PAGE_SEQUENCE = [
     1, // Page1Welcome
     2, // RoomLobby

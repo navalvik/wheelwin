@@ -6,6 +6,7 @@ import InfoBar from "../components/InfoBar";
 
 import { DevNavigationContext } from "../context/DevNavigationContext";
 import { GameSessionContext } from "../context/GameSessionContext";
+import { DEBUG_JUMP_ENABLED } from "../config/devMode";
 
 export default function GameLayout({
 
@@ -25,7 +26,7 @@ export default function GameLayout({
 
     onNext,
 
-    /** When false, hides JUMP even in DEV_MODE (e.g. Page6 FINISH). */
+    /** When false, hides JUMP even when DEBUG_JUMP_ENABLED (e.g. Page6 FINISH). */
     showJumpButton,
 
     children
@@ -38,9 +39,9 @@ export default function GameLayout({
 
     const showInfoBar = gameSession?.showInfoBar ?? false;
 
-    const jumpVisible = showJumpButton === false
-        ? false
-        : Boolean(devNavigation?.enabled);
+    const jumpVisible = DEBUG_JUMP_ENABLED
+        && showJumpButton !== false
+        && Boolean(devNavigation?.enabled);
 
     return (
 

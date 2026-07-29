@@ -1,4 +1,5 @@
 import { useLanguage } from "../context/LanguageContext";
+import { DEBUG_JUMP_ENABLED } from "../config/devMode";
 
 export default function HeaderBar({
     message,
@@ -19,7 +20,7 @@ export default function HeaderBar({
 
     return (
 
-        <div className={`headerBar${showJumpButton ? " headerBar--dev" : ""}`}>
+        <div className={`headerBar${DEBUG_JUMP_ENABLED && showJumpButton ? " headerBar--dev" : ""}`}>
 
             <div className="left">
 
@@ -40,7 +41,7 @@ export default function HeaderBar({
 
             </div>
 
-            {showJumpButton && (
+            {DEBUG_JUMP_ENABLED && showJumpButton && (
 
                 <div className="jump">
 

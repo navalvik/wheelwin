@@ -6,6 +6,8 @@ import InfoPanel from "../components/InfoPanel";
 
 import DocumentManager from "../components/document/DocumentManager";
 
+import TestnetWarningOverlay from "../components/TestnetWarningOverlay";
+
 import { useLanguage } from "../context/LanguageContext";
 
 import { DOCUMENTS } from "../utils/documents";
@@ -25,6 +27,8 @@ export default function Page1Welcome({
 );
 
     return(
+
+        <>
 
          <GameLayout
 
@@ -53,6 +57,10 @@ export default function Page1Welcome({
             </InfoPanel>
 
         </GameLayout>
+
+        <TestnetWarningOverlay />
+
+        </>
 
     );
 
