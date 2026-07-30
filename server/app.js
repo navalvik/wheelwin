@@ -3482,9 +3482,7 @@ class WheelWinApplication {
 
         }
 
-        app.use(cors({
-            origin: this._serverConfig.corsOrigin
-        }));
+        app.use(cors(this._serverConfig.cors));
 
         // R7.0E — observational HTTP counters (never mutate gameplay).
         app.use((req, res, next) => {

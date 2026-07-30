@@ -1,9 +1,12 @@
 /**
  * Host-independent CORS origin validation.
  *
- * In development, allows localhost, 127.0.0.1, and private LAN IPs on any port
- * so Vite clients work at http://192.168.x.x:5173 without listing every IP.
- * Production/staging still require an explicit CLIENT_ORIGIN match.
+ * Explicit origins come from CLIENT_ORIGIN (comma-separated). Express and
+ * Socket.IO both use createCorsOriginValidator / loadServerConfig.cors — one list.
+ *
+ * In development, localhost, 127.0.0.1, and private LAN IPs on any port are also
+ * allowed so Vite clients work at http://192.168.x.x:5173 without listing every IP.
+ * Production/staging require an explicit CLIENT_ORIGIN match.
  */
 
 const LOCAL_ORIGIN_PATTERN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
@@ -80,7 +83,8 @@ export function createCorsOriginValidator(clientOrigin, nodeEnv = "development")
 
         }
 
-        callback(new Error(`CORS origin not allowed: ${origin}`));
+        // Deny without throwing — Express cors / Socket.IO expect (null, false).
+        callback(null, false);
 
     };
 

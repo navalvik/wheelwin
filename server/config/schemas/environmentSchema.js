@@ -25,9 +25,11 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         required: true,
         category: "Server",
         suggestedFix:
-            "Set CLIENT_ORIGIN to the frontend origin. In development, "
-            + "localhost, 127.0.0.1, and private LAN IPs are allowed "
-            + "automatically; list production domains explicitly."
+            "Set CLIENT_ORIGIN to a comma-separated list of frontend origins "
+            + "(e.g. http://localhost:5173,http://192.168.0.104:5173,"
+            + "https://wheelwin-nine.vercel.app). In development, localhost, "
+            + "127.0.0.1, and private LAN IPs are also allowed automatically; "
+            + "list production domains explicitly."
     }),
     NODE_ENV: Object.freeze({
         key: "NODE_ENV",

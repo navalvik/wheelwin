@@ -46,12 +46,21 @@ export function loadServerConfig(env = process.env) {
         ? clientOrigins[0]
         : Object.freeze([...clientOrigins]);
 
+    const corsOrigin = createCorsOriginValidator(clientOrigin, nodeEnv);
+
+    // Shared by Express (app.use(cors)) and Socket.IO — do not duplicate.
+    const cors = Object.freeze({
+        origin: corsOrigin,
+        methods: Object.freeze(["GET", "POST"])
+    });
+
     return {
         port,
         host,
         clientOrigin,
         nodeEnv,
-        corsOrigin: createCorsOriginValidator(clientOrigin, nodeEnv)
+        corsOrigin,
+        cors
     };
 
 }

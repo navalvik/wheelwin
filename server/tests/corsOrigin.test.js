@@ -67,6 +67,34 @@ assert.equal(
     true
 );
 
+// --- production multi-origin (local + LAN + Vercel) ---
+
+const PRODUCTION_ORIGINS = [
+    "http://localhost:5173",
+    "http://192.168.0.104:5173",
+    "https://wheelwin-nine.vercel.app"
+];
+
+for (const origin of PRODUCTION_ORIGINS) {
+
+    assert.equal(
+        await allows(PRODUCTION_ORIGINS, "production", origin),
+        true,
+        `production must allow ${origin}`
+    );
+
+}
+
+assert.equal(
+    await allows(
+        PRODUCTION_ORIGINS,
+        "production",
+        "https://other-frontend.example.com"
+    ),
+    false,
+    "unknown production origin must be denied"
+);
+
 // --- missing Origin (same-site tools) ---
 
 await new Promise((resolve, reject) => {
