@@ -20,10 +20,14 @@ export const OWNER_CONFIG_EXAMPLE_PATH = resolve(
     "../../config/owner.example.json"
 );
 
+/** Marker when owner wallet is loaded from OWNER_WALLET (not a filesystem path). */
+export const OWNER_WALLET_ENV_SOURCE = "env:OWNER_WALLET";
+
 /**
  * P6.8A — External owner wallet configuration.
  *
- * Loaded once at startup from an untracked file. Immutable thereafter.
+ * Loaded once at startup. Immutable thereafter.
+ * Priority: OWNER_WALLET env → config/owner.json.
  * No other module may read the configuration file directly.
  */
 export class OwnerConfiguration {
@@ -32,15 +36,46 @@ export class OwnerConfiguration {
 
     /**
      * Load, validate, and freeze owner configuration.
-     * Fatal if the file is missing or the wallet is invalid.
+     * Fatal if neither OWNER_WALLET nor owner.json provides a valid wallet.
+     *
+     * @param {{
+     *   configPath?: string,
+     *   env?: NodeJS.ProcessEnv
+     * }} [options]
      */
-    static load({ configPath = DEFAULT_OWNER_CONFIG_PATH } = {}) {
+    static load({
+        configPath = DEFAULT_OWNER_CONFIG_PATH,
+        env = process.env
+    } = {}) {
 
         if (OwnerConfiguration._frozen) {
 
             throw new Error(
                 "OwnerConfiguration is already loaded and immutable."
             );
+
+        }
+
+        const envWallet = String(env?.OWNER_WALLET || "").trim();
+
+        if (envWallet) {
+
+            const ownerWallet = canonicalizeTonWalletAddress(envWallet);
+
+            if (!ownerWallet) {
+
+                throw new Error(
+                    "Owner wallet configuration invalid: ownerWallet is not a valid TON address."
+                );
+
+            }
+
+            OwnerConfiguration._frozen = Object.freeze({
+                ownerWallet,
+                configPath: OWNER_WALLET_ENV_SOURCE
+            });
+
+            return OwnerConfiguration._frozen;
 
         }
 

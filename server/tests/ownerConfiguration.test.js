@@ -155,6 +155,80 @@ function withReset(run) {
     withReset(() => {
 
         const loaded = OwnerConfiguration.load({
+            env: { OWNER_WALLET: EXAMPLE_WALLET },
+            configPath: join(
+                mkdtempSync(join(tmpdir(), "ww-owner-env-skip-")),
+                "missing-owner.json"
+            )
+        });
+
+        assert.equal(loaded.ownerWallet, EXAMPLE_WALLET);
+
+        assert.equal(loaded.configPath, "env:OWNER_WALLET");
+
+        assert.equal(OwnerConfiguration.getOwnerWallet(), EXAMPLE_WALLET);
+
+    });
+
+    console.log("  OWNER_WALLET env loads without owner.json passed");
+
+}
+
+{
+    withReset(() => {
+
+        const dir = mkdtempSync(join(tmpdir(), "ww-owner-env-wins-"));
+
+        const path = writeOwnerFile(dir, {
+            ownerWallet: "EQFileWalletShouldBeIgnoredWhenEnvIsSetXXXX"
+        });
+
+        const loaded = OwnerConfiguration.load({
+            configPath: path,
+            env: { OWNER_WALLET: EXAMPLE_WALLET }
+        });
+
+        assert.equal(
+            loaded.ownerWallet,
+            EXAMPLE_WALLET,
+            "OWNER_WALLET must take priority over owner.json"
+        );
+
+        assert.equal(loaded.configPath, "env:OWNER_WALLET");
+
+    });
+
+    console.log("  OWNER_WALLET takes priority over owner.json passed");
+
+}
+
+{
+    withReset(() => {
+
+        assert.throws(
+            () => OwnerConfiguration.load({
+                env: { OWNER_WALLET: "not-a-wallet" },
+                configPath: join(
+                    mkdtempSync(join(tmpdir(), "ww-owner-env-bad-")),
+                    "missing-owner.json"
+                )
+            }),
+            /not a valid TON address/,
+            "invalid OWNER_WALLET must block load"
+        );
+
+        assert.equal(OwnerConfiguration.isLoaded(), false);
+
+    });
+
+    console.log("  invalid OWNER_WALLET rejected passed");
+
+}
+
+{
+    withReset(() => {
+
+        const loaded = OwnerConfiguration.load({
             configPath: OWNER_CONFIG_EXAMPLE_PATH
         });
 

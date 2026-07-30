@@ -89,6 +89,7 @@ export class ConfigurationManager {
 
         const owner = loadOwnerConfiguration({
             configPath: ownerConfigPath,
+            env: effectiveEnv,
             resetForTests
         });
 

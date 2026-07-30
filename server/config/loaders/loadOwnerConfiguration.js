@@ -1,5 +1,7 @@
 /**
  * R7.0C — Owner configuration loader (wraps OwnerConfiguration).
+ *
+ * Priority: OWNER_WALLET env → config/owner.json.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -14,17 +16,50 @@ import { OWNER_SCHEMA } from "../schemas/ownerSchema.js";
 /**
  * @param {{
  *   configPath?: string,
+ *   env?: NodeJS.ProcessEnv,
  *   resetForTests?: boolean
  * }} [options]
  */
 export function loadOwnerConfiguration({
     configPath = DEFAULT_OWNER_CONFIG_PATH,
+    env = process.env,
     resetForTests = false
 } = {}) {
 
     if (resetForTests) {
 
         OwnerConfiguration.resetForTests();
+
+    }
+
+    const envWallet = String(env?.OWNER_WALLET || "").trim();
+
+    if (envWallet) {
+
+        try {
+
+            const frozen = OwnerConfiguration.load({ configPath, env });
+
+            return Object.freeze({
+                configPath: frozen.configPath,
+                loaded: true,
+                // Wallet kept for runtime use; never included in safe summaries.
+                ownerWallet: frozen.ownerWallet
+            });
+
+        } catch (error) {
+
+            throw new ConfigurationError({
+                errors: [{
+                    key: OWNER_SCHEMA.ownerWallet.key,
+                    reason: error.message,
+                    expectedType: OWNER_SCHEMA.ownerWallet.type,
+                    received: "[redacted-or-invalid]",
+                    suggestedFix: "Set OWNER_WALLET to a valid TON address, or fix config/owner.json."
+                }]
+            });
+
+        }
 
     }
 
@@ -63,7 +98,7 @@ export function loadOwnerConfiguration({
 
     try {
 
-        const frozen = OwnerConfiguration.load({ configPath });
+        const frozen = OwnerConfiguration.load({ configPath, env });
 
         return Object.freeze({
             configPath: frozen.configPath,

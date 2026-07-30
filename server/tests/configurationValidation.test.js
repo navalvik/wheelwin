@@ -175,6 +175,30 @@ function assertFails(env, ownerBody, keyFragment) {
     console.log("  missing owner.json: OK");
 }
 
+// --- OWNER_WALLET env without owner.json ---
+{
+    ConfigurationManager.resetForTests();
+
+    OwnerConfiguration.resetForTests();
+
+    const runtime = ConfigurationManager.load({
+        env: baseEnv({ OWNER_WALLET: EXAMPLE_WALLET }),
+        ownerConfigPath: join(
+            mkdtempSync(join(tmpdir(), "ww-cfg-env-owner-")),
+            "missing-owner.json"
+        ),
+        resetForTests: true
+    });
+
+    assert.equal(runtime.owner.loaded, true);
+
+    assert.equal(runtime.owner.ownerWallet, EXAMPLE_WALLET);
+
+    assert.equal(runtime.owner.configPath, "env:OWNER_WALLET");
+
+    console.log("  OWNER_WALLET without owner.json: OK");
+}
+
 // --- Missing developer secret (production) ---
 {
     assertFails(
