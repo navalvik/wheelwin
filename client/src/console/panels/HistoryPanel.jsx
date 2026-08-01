@@ -40,13 +40,103 @@ function formatFinishTime(at) {
 
     try {
 
-        return new Date(at).toLocaleString();
+        const date = new Date(at);
+
+        if (Number.isNaN(date.getTime())) {
+
+            return "—";
+
+        }
+
+        const pad = (value) => String(value).padStart(2, "0");
+
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+            + ` ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 
     } catch {
 
         return String(at);
 
     }
+
+}
+
+function formatGameId(gameId) {
+
+    if (gameId == null || gameId === "") {
+
+        return "NO_GAME";
+
+    }
+
+    return String(gameId);
+
+}
+
+function lifecycleBadgeTone(result) {
+
+    const value = String(result ?? "");
+
+    if (value === "GAME_COMPLETED") {
+
+        return "ok";
+
+    }
+
+    if (value.includes("TIMEOUT") || value.includes("EXPIRED")) {
+
+        return "warn";
+
+    }
+
+    if (
+        value.includes("FAILED")
+        || value.includes("ABORT")
+        || value.includes("CANCELLED")
+        || value.includes("CANCELED")
+    ) {
+
+        return "error";
+
+    }
+
+    if (value === "ROOM_DESTROYED" || value === "UNKNOWN_FAILURE") {
+
+        return "muted";
+
+    }
+
+    return "info";
+
+}
+
+function isCompletedLifecycle(result) {
+
+    return String(result ?? "") === "GAME_COMPLETED";
+
+}
+
+function DownloadIcon() {
+
+    return (
+
+        <svg
+            className="devConsole__downloadIcon"
+            viewBox="0 0 16 16"
+            width="14"
+            height="14"
+            aria-hidden="true"
+            focusable="false"
+        >
+
+            <path
+                fill="currentColor"
+                d="M8 1a.75.75 0 0 1 .75.75v6.69l2.22-2.22a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 0 1 1.06-1.06l2.22 2.22V1.75A.75.75 0 0 1 8 1Zm-5 10.25a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H3Z"
+            />
+
+        </svg>
+
+    );
 
 }
 
@@ -197,6 +287,22 @@ export default function HistoryPanel() {
         };
 
     }, [selectedId, token]);
+
+    const records = list?.records ?? [];
+
+    const summary = useMemo(() => {
+
+        const completed = records.filter(
+            (row) => isCompletedLifecycle(row.lifecycleResult)
+        ).length;
+
+        return {
+            total: list?.total ?? records.length,
+            completed,
+            terminated: Math.max(0, records.length - completed)
+        };
+
+    }, [list, records]);
 
     async function onDownload(sessionId) {
 
@@ -433,17 +539,11 @@ export default function HistoryPanel() {
 
     }
 
-    const records = list?.records ?? [];
-
     return (
 
         <PanelShell
             title="History"
-            subtitle={
-                loading
-                    ? "Loading…"
-                    : `${records.length} of ${list?.total ?? 0} archived sessions`
-            }
+            subtitle="Session lifecycle journal"
             actions={(
                 <button
                     type="button"
@@ -456,6 +556,30 @@ export default function HistoryPanel() {
                 </button>
             )}
         >
+
+            <div className="devConsole__historySummary" aria-live="polite">
+
+                <strong>
+
+                    {loading
+                        ? "Loading…"
+                        : `${summary.total} archived session lifecycles`}
+
+                </strong>
+
+                {!loading && (
+
+                    <span>
+
+                        {summary.completed} completed
+                        {" · "}
+                        {summary.terminated} terminated
+
+                    </span>
+
+                )}
+
+            </div>
 
             <Toolbar
                 search={searchRoom}
@@ -568,7 +692,7 @@ export default function HistoryPanel() {
 
                 <div className="devConsole__tableWrap">
 
-                    <table className="devConsole__table">
+                    <table className="devConsole__table devConsole__table--history">
 
                         <thead>
 
@@ -578,10 +702,7 @@ export default function HistoryPanel() {
                                 <th>Room ID</th>
                                 <th>Game ID</th>
                                 <th>Lifecycle Result</th>
-                                <th>Final Stage</th>
-                                <th>Duration</th>
-                                <th>Players</th>
-                                <th>Download</th>
+                                <th className="devConsole__tableAction">Download</th>
 
                             </tr>
 
@@ -606,28 +727,52 @@ export default function HistoryPanel() {
                                         </button>
 
                                     </td>
-                                    <td>{shortId(row.roomId, 12)}</td>
-                                    <td>
-                                        {row.gameId
-                                            ? shortId(row.gameId, 10)
-                                            : "NO_GAME"}
-                                    </td>
-                                    <td>{row.lifecycleResult}</td>
-                                    <td>{row.finalStage}</td>
-                                    <td>
-                                        {formatDurationMs(row.durationMs)
-                                            ?? formatUptime(row.durationMs)}
-                                    </td>
-                                    <td>{row.playerCount ?? 0}</td>
-                                    <td>
+                                    <td className="devConsole__mono">
 
                                         <button
                                             type="button"
-                                            className="devConsole__button"
+                                            className="devConsole__textButton"
+                                            onClick={() => setSelectedId(row.sessionId)}
+                                            title={row.roomId}
+                                        >
+
+                                            {row.roomId}
+
+                                        </button>
+
+                                    </td>
+                                    <td className="devConsole__mono">
+
+                                        {formatGameId(row.gameId)}
+
+                                    </td>
+                                    <td>
+
+                                        <span
+                                            className={
+                                                "devConsole__lifecycleBadge "
+                                                + `devConsole__lifecycleBadge--${
+                                                    lifecycleBadgeTone(row.lifecycleResult)
+                                                }`
+                                            }
+                                        >
+
+                                            {row.lifecycleResult ?? "UNKNOWN_FAILURE"}
+
+                                        </span>
+
+                                    </td>
+                                    <td className="devConsole__tableAction">
+
+                                        <button
+                                            type="button"
+                                            className="devConsole__iconButton"
+                                            title="Download diagnostic archive"
+                                            aria-label={`Download archive for room ${row.roomId}`}
                                             onClick={() => onDownload(row.sessionId)}
                                         >
 
-                                            Download
+                                            <DownloadIcon />
 
                                         </button>
 

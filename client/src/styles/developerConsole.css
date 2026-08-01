@@ -1776,3 +1776,158 @@ body:has(.devConsole) {
 
     min-width: 140px;
 }
+
+.devConsole__historySummary {
+
+    display: flex;
+
+    flex-wrap: wrap;
+
+    align-items: baseline;
+
+    gap: 10px 16px;
+
+    margin: 0 0 14px;
+
+    padding: 10px 12px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    background: var(--console-panel);
+
+    font-size: 13px;
+
+    color: var(--console-muted);
+}
+
+.devConsole__historySummary strong {
+
+    color: inherit;
+
+    font-size: 14px;
+
+    color: var(--console-text, inherit);
+}
+
+.devConsole__table--history td,
+.devConsole__table--history th {
+
+    white-space: nowrap;
+
+    vertical-align: middle;
+}
+
+.devConsole__tableAction {
+
+    width: 56px;
+
+    text-align: center;
+}
+
+.devConsole__mono {
+
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    font-size: 12px;
+}
+
+.devConsole__iconButton {
+
+    display: inline-flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    width: 32px;
+
+    height: 32px;
+
+    padding: 0;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    background: var(--console-panel);
+
+    color: var(--console-text, inherit);
+
+    cursor: pointer;
+}
+
+.devConsole__iconButton:hover {
+
+    border-color: #1c73d0;
+
+    color: #1c73d0;
+}
+
+.devConsole__downloadIcon {
+
+    display: block;
+}
+
+.devConsole__lifecycleBadge {
+
+    display: inline-block;
+
+    padding: 2px 8px;
+
+    border-radius: 999px;
+
+    font-size: 11px;
+
+    font-weight: 700;
+
+    letter-spacing: 0.01em;
+
+    border: 1px solid transparent;
+}
+
+.devConsole__lifecycleBadge--ok {
+
+    color: #1f7a45;
+
+    background: #e8f7ee;
+
+    border-color: #b7e0c4;
+}
+
+.devConsole__lifecycleBadge--warn {
+
+    color: #9a6700;
+
+    background: #fff7e6;
+
+    border-color: #f0d9a8;
+}
+
+.devConsole__lifecycleBadge--error {
+
+    color: #b42318;
+
+    background: #fdecec;
+
+    border-color: #f0b6b0;
+}
+
+.devConsole__lifecycleBadge--info {
+
+    color: #1c73d0;
+
+    background: #eaf3ff;
+
+    border-color: #b7d4f5;
+}
+
+.devConsole__lifecycleBadge--muted {
+
+    color: var(--console-muted);
+
+    background: #f3f4f6;
+
+    border-color: var(--console-border);
+}
