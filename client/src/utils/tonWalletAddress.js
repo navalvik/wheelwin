@@ -1,8 +1,12 @@
 /**
  * Normalize a TON Connect account address for the session-wallet report.
  *
- * Browser-safe: no @ton/core / Buffer. Server canonicalizes authoritatively.
+ * R6.x — no prefix / length filtering. Official parser validates when available;
+ * otherwise pass trimmed string for authoritative server canonicalization.
  */
+
+import { parseTonWallet } from "./telegramWalletRules.js";
+
 export function toSessionWalletAddress(rawAddress) {
 
     if (typeof rawAddress !== "string") {
@@ -19,14 +23,17 @@ export function toSessionWalletAddress(rawAddress) {
 
     }
 
-    // EQ bounceable form already matches session wallets — pass through.
-    if (trimmed.startsWith("EQ") && trimmed.length >= 48) {
+    const parsed = parseTonWallet(trimmed);
 
-        return trimmed;
+    if (!parsed.valid) {
+
+        return null;
 
     }
 
-    // Other forms (UQ / raw): send as-is; server owns Address.parse.
-    return trimmed;
+    return parsed.address.toString({
+        bounceable: true,
+        urlSafe: true
+    });
 
 }

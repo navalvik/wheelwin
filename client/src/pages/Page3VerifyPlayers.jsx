@@ -144,7 +144,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
             setWalletError(
                 typeof payload?.message === "string" && payload.message
                     ? payload.message
-                    : "Enter a valid Telegram Wallet address starting with EQ."
+                    : "Invalid TON wallet address."
             );
 
         }
@@ -205,7 +205,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
         if (!isWalletValid) {
 
             setWalletError(
-                "Enter a valid Telegram Wallet address starting with EQ."
+                "Invalid TON wallet address."
             );
 
             return;
