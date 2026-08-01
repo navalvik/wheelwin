@@ -7,7 +7,8 @@ export function registerDeveloperConsoleRoutes(
     projectionService,
     {
         authMiddleware = null,
-        gameDiagnosticLogManager = null
+        gameDiagnosticLogManager = null,
+        sessionHistoryArchive = null
     } = {}
 ) {
 
@@ -154,6 +155,97 @@ export function registerDeveloperConsoleRoutes(
     app.get("/console/blockchain", (req, res) => {
 
         res.json(projectionService.buildBlockchainStatus());
+
+    });
+
+    /**
+     * R7.0 — Immutable session lifecycle history (read-only archive).
+     */
+    app.get("/console/history", (req, res) => {
+
+        if (!sessionHistoryArchive?.listRecords) {
+
+            res.status(503).json({ error: "Session history archive unavailable" });
+
+            return;
+
+        }
+
+        const query = req.query ?? {};
+
+        res.json(sessionHistoryArchive.listRecords({
+            roomId: query.roomId || null,
+            gameId: query.gameId || null,
+            lifecycleResult: query.lifecycleResult || null,
+            playerNickname: query.playerNickname || null,
+            walletAddress: query.walletAddress || null,
+            fromAt: query.fromAt ? Number(query.fromAt) : null,
+            toAt: query.toAt ? Number(query.toAt) : null,
+            sort: query.sort || "newest",
+            limit: query.limit ? Number(query.limit) : 200,
+            offset: query.offset ? Number(query.offset) : 0
+        }));
+
+    });
+
+    app.get("/console/history/:sessionId", (req, res) => {
+
+        if (!sessionHistoryArchive?.getRecord) {
+
+            res.status(503).json({ error: "Session history archive unavailable" });
+
+            return;
+
+        }
+
+        const record = sessionHistoryArchive.getRecord(req.params.sessionId);
+
+        if (!record) {
+
+            res.status(404).json({ error: "History record not found" });
+
+            return;
+
+        }
+
+        res.json(record);
+
+    });
+
+    app.get("/console/history/:sessionId/download", (req, res) => {
+
+        if (!sessionHistoryArchive?.getDownloadBuffer) {
+
+            res.status(503).json({ error: "Session history archive unavailable" });
+
+            return;
+
+        }
+
+        const download = sessionHistoryArchive.getDownloadBuffer(
+            req.params.sessionId
+        );
+
+        if (!download) {
+
+            res.status(404).json({ error: "History record not found" });
+
+            return;
+
+        }
+
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${download.filename}"`
+        );
+
+        res.setHeader("Content-Length", download.buffer.length);
+
+        res.setHeader("Cache-Control", "no-store");
+
+        res.end(download.buffer);
 
     });
 

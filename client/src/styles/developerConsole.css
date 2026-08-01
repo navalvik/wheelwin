@@ -1760,3 +1760,19 @@ body:has(.devConsole) {
 
     overflow-x: auto;
 }
+
+.devConsole__historyFilters {
+
+    display: flex;
+
+    flex-wrap: wrap;
+
+    gap: 12px;
+
+    margin: 0 0 14px;
+}
+
+.devConsole__historyFilters .devConsole__filter input {
+
+    min-width: 140px;
+}

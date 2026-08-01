@@ -11,3 +11,7 @@ docs/release/ReleaseCertificate.json
 
 # R6.1 — persisted application environment state (admin dashboard)
 server/runtime/
+
+# R7.0 — immutable session lifecycle archives
+/data/session-history/
+server/data/session-history/

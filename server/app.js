@@ -43,6 +43,7 @@ import { TimerService } from "./services/TimerService.js";
 import { TonService } from "./services/TonService.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
+import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -199,6 +200,8 @@ class WheelWinApplication {
         this._setupSessionLifecycle = null;
 
         this._gameDiagnosticLogManager = null;
+
+        this._sessionHistoryArchive = null;
 
         this._resultSessionLifecycle = null;
 
@@ -1429,6 +1432,21 @@ class WheelWinApplication {
             startedAt: this._serverStartedAt
         });
 
+        // R7.0 — Immutable session lifecycle history (observe-only archive).
+        this._sessionHistoryArchive = SessionHistoryArchiveManager.getInstance();
+
+        this._sessionHistoryArchive.initialize({
+            eventBus: this._eventBus,
+            projectionService: this._consoleProjectionService,
+            roomLobbyBridge: this._roomLobbyBridge,
+            playerManager: this._managers.playerManager,
+            loggingManager: LoggingManager.getInstance()
+        });
+
+        this._sessionHistoryArchive.rebuildIndexFromDisk();
+
+        this._logger.startupLine("SessionHistoryArchiveManager");
+
         // R6.1 / R7.0C — Secure Developer Access from immutable runtime config.
         this._developerAuthService = new DeveloperAuthService({
             config: this._runtimeConfig.developer,
@@ -1466,7 +1484,8 @@ class WheelWinApplication {
                 authMiddleware: createDeveloperAuthMiddleware(
                     this._developerAuthService
                 ),
-                gameDiagnosticLogManager: this._gameDiagnosticLogManager
+                gameDiagnosticLogManager: this._gameDiagnosticLogManager,
+                sessionHistoryArchive: this._sessionHistoryArchive
             }
         );
 
@@ -1611,6 +1630,16 @@ class WheelWinApplication {
             if (this._setupSessionLifecycle) {
 
                 this._setupSessionLifecycle.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("sessionHistoryArchive", () => {
+
+            if (this._sessionHistoryArchive) {
+
+                this._sessionHistoryArchive.shutdown();
 
             }
 

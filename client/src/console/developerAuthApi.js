@@ -214,6 +214,127 @@ export async function fetchBlockchainStatus(accessToken) {
 
 }
 
+function authHeaders(accessToken) {
+
+    const headers = { Accept: "application/json" };
+
+    if (accessToken) {
+
+        headers.Authorization = `Bearer ${accessToken}`;
+
+    }
+
+    return headers;
+
+}
+
+export async function fetchSessionHistory(accessToken, query = {}) {
+
+    const params = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(query)) {
+
+        if (value == null || value === "" || value === "all") {
+
+            continue;
+
+        }
+
+        params.set(key, String(value));
+
+    }
+
+    const suffix = params.toString() ? `?${params}` : "";
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/history${suffix}`,
+        {
+            method: "GET",
+            headers: authHeaders(accessToken)
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load session history");
+
+    }
+
+    return body;
+
+}
+
+export async function fetchSessionHistoryRecord(accessToken, sessionId) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/history/${encodeURIComponent(sessionId)}`,
+        {
+            method: "GET",
+            headers: authHeaders(accessToken)
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load history record");
+
+    }
+
+    return body;
+
+}
+
+export async function downloadSessionHistoryRecord(accessToken, sessionId) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/history/${encodeURIComponent(sessionId)}/download`,
+        {
+            method: "GET",
+            headers: authHeaders(accessToken)
+        }
+    );
+
+    if (!response.ok) {
+
+        let message = "Failed to download history record";
+
+        try {
+
+            const body = await response.json();
+
+            message = body?.error || message;
+
+        } catch {
+
+            // keep default
+        }
+
+        throw new Error(message);
+
+    }
+
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const match = /filename="([^"]+)"/.exec(disposition);
+    const filename = match?.[1] ?? `history_${sessionId}.json`;
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+
+    return filename;
+
+}
+
 export async function fetchMaintenanceStatus(accessToken) {
 
     const response = await fetch(`${getConsoleApiBase()}/console/maintenance`, {
