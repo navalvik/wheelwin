@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
 
-import { useConsoleProjection } from "../ConsoleStreamProvider";
+import {
+    useConsoleFocus,
+    useConsoleProjection
+} from "../ConsoleStreamProvider";
 import { formatClockTime } from "../formatters";
 import PanelShell from "./shared/PanelShell";
 import Toolbar, { FilterSelect } from "./shared/Toolbar";
@@ -9,11 +12,86 @@ import EmptyState from "./shared/EmptyState";
 
 const MAX_VISIBLE = 500;
 
+function matchesCategory(entry, category) {
+
+    if (category === "all") {
+
+        return true;
+
+    }
+
+    const haystack = [
+        entry.message,
+        entry.source,
+        entry.level,
+        entry.category,
+        entry.roomId,
+        entry.gameId,
+        entry.playerId
+    ]
+        .map((value) => String(value ?? "").toLowerCase())
+        .join(" ");
+
+    if (category === "room") {
+
+        return haystack.includes("room");
+
+    }
+
+    if (category === "game") {
+
+        return haystack.includes("game");
+
+    }
+
+    if (category === "player") {
+
+        return haystack.includes("player");
+
+    }
+
+    if (category === "tonconnect") {
+
+        return haystack.includes("wallet")
+            || haystack.includes("tonconnect")
+            || haystack.includes("ton connect")
+            || haystack.includes("r6.3")
+            || haystack.includes("connect");
+
+    }
+
+    if (category === "payment") {
+
+        return haystack.includes("payment")
+            || haystack.includes("settlement")
+            || haystack.includes("contract");
+
+    }
+
+    if (category === "socket") {
+
+        return haystack.includes("socket")
+            || haystack.includes("disconnect")
+            || haystack.includes("reconnect");
+
+    }
+
+    return true;
+
+}
+
 export default function DeveloperLogPanel() {
 
     const logs = useConsoleProjection("logs") ?? [];
+    const roomDetail = useConsoleProjection("room");
+    const { focus } = useConsoleFocus();
+
     const [search, setSearch] = useState("");
     const [severity, setSeverity] = useState("all");
+    const [category, setCategory] = useState("all");
+    const [scopeRoom, setScopeRoom] = useState(false);
+
+    const focusedRoomId = focus.roomId ?? roomDetail?.room?.roomId ?? null;
 
     const filtered = useMemo(() => {
 
@@ -31,6 +109,30 @@ export default function DeveloperLogPanel() {
 
                 }
 
+                if (!matchesCategory(entry, category)) {
+
+                    return false;
+
+                }
+
+                if (scopeRoom && focusedRoomId) {
+
+                    const roomHaystack = [
+                        entry.message,
+                        entry.source,
+                        entry.roomId
+                    ]
+                        .map((value) => String(value ?? ""))
+                        .join(" ");
+
+                    if (!roomHaystack.includes(String(focusedRoomId))) {
+
+                        return false;
+
+                    }
+
+                }
+
                 if (!query) {
 
                     return true;
@@ -40,13 +142,16 @@ export default function DeveloperLogPanel() {
                 return [
                     entry.message,
                     entry.source,
-                    entry.level
+                    entry.level,
+                    entry.roomId,
+                    entry.gameId,
+                    entry.playerId
                 ].some((value) => String(value ?? "").toLowerCase().includes(query));
 
             })
             .slice(0, MAX_VISIBLE);
 
-    }, [logs, search, severity]);
+    }, [logs, search, severity, category, scopeRoom, focusedRoomId]);
 
     return (
 
@@ -58,7 +163,7 @@ export default function DeveloperLogPanel() {
             <Toolbar
                 search={search}
                 onSearchChange={setSearch}
-                searchPlaceholder="Search message or source…"
+                searchPlaceholder="Search message, source, room, game, player…"
             >
 
                 <FilterSelect
@@ -73,7 +178,42 @@ export default function DeveloperLogPanel() {
                     ]}
                 />
 
+                <FilterSelect
+                    label="Category"
+                    value={category}
+                    onChange={setCategory}
+                    options={[
+                        { value: "all", label: "All" },
+                        { value: "room", label: "Room" },
+                        { value: "game", label: "Game" },
+                        { value: "player", label: "Player" },
+                        { value: "tonconnect", label: "TonConnect" },
+                        { value: "payment", label: "Payment" },
+                        { value: "socket", label: "Socket" }
+                    ]}
+                />
+
             </Toolbar>
+
+            <label className="devConsole__filterToggle">
+
+                <input
+                    type="checkbox"
+                    checked={scopeRoom}
+                    disabled={!focusedRoomId}
+                    onChange={(event) => setScopeRoom(event.target.checked)}
+                />
+
+                <span>
+
+                    Limit to focused room
+                    {focusedRoomId
+                        ? ` (${String(focusedRoomId).slice(0, 12)}…)`
+                        : " (select a room first)"}
+
+                </span>
+
+            </label>
 
             {filtered.length === 0 ? (
 

@@ -25,6 +25,7 @@ import RoomsExplorerPanel from "./panels/RoomsExplorerPanel";
 import GameDetailPanel from "./panels/GameDetailPanel";
 import PlayersInspectorPanel from "./panels/PlayersInspectorPanel";
 import PaymentsPanel from "./panels/PaymentsPanel";
+import TonConnectDiagnosticsPanel from "./panels/TonConnectDiagnosticsPanel";
 import RecoveryPanel from "./panels/RecoveryPanel";
 import SimulationPanel from "./panels/SimulationPanel";
 import EventBusPanel from "./panels/EventBusPanel";
@@ -75,6 +76,9 @@ function renderSection(sectionId) {
 
         case "payments":
             return <PaymentsPanel />;
+
+        case "tonconnect":
+            return <TonConnectDiagnosticsPanel />;
 
         case "recovery":
             return <RecoveryPanel />;
@@ -157,7 +161,7 @@ function DeveloperConsoleBody() {
 
         rememberSectionId(next);
 
-        if (next !== "rooms" && next !== "games") {
+        if (next !== "rooms" && next !== "games" && next !== "tonconnect") {
 
             setFocus({ roomId: null, gameId: null });
 

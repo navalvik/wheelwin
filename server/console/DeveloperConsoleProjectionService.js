@@ -56,6 +56,7 @@ export class DeveloperConsoleProjectionService {
         blockchainMonitor = null,
         walletManager = null,
         tonFinancialRecovery = null,
+        roomLobbyBridge = null,
         version = packageJson.version,
         startedAt = Date.now()
     }) {
@@ -86,6 +87,7 @@ export class DeveloperConsoleProjectionService {
         this._blockchainMonitor = blockchainMonitor;
         this._walletManager = walletManager;
         this._tonFinancialRecovery = tonFinancialRecovery;
+        this._roomLobbyBridge = roomLobbyBridge;
         this._version = version;
         this._startedAt = startedAt;
 
@@ -140,7 +142,8 @@ export class DeveloperConsoleProjectionService {
             gameStateEngine: this._gameStateEngine,
             gameClockEngine: this._gameClockEngine,
             resultSessionLifecycle: this._resultSessionLifecycle,
-            gameplayContextResolver: this._gameplayContextResolver
+            gameplayContextResolver: this._gameplayContextResolver,
+            roomLobbyBridge: this._roomLobbyBridge
         });
 
     }

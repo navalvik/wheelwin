@@ -105,7 +105,8 @@ export function buildRoomDetail(roomId, {
     gameStateEngine,
     gameClockEngine,
     resultSessionLifecycle,
-    gameplayContextResolver = null
+    gameplayContextResolver = null,
+    roomLobbyBridge = null
 }) {
 
     const room = roomManager?.getRoom?.(roomId);
@@ -178,6 +179,10 @@ export function buildRoomDetail(roomId, {
         gameStatus: game?.status ?? null
     });
 
+    const tonConnect = typeof roomLobbyBridge?.getTonConnectDiagnostics === "function"
+        ? roomLobbyBridge.getTonConnectDiagnostics(roomId)
+        : null;
+
     return Object.freeze({
         room: Object.freeze({
             roomId: room.roomId,
@@ -200,6 +205,7 @@ export function buildRoomDetail(roomId, {
         gameStart,
         currentState: gameState,
         currentPage,
+        tonConnect,
         timers: Object.freeze({
             setupRemainingMs: typeof setupSession?.remainingTime === "function"
                 ? setupSession.remainingTime()

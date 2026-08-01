@@ -167,6 +167,12 @@ export class RoomLobbyBridge {
         // P6.2 — Telegram Wallet connection session (Page4). One per room.
         this._walletConnectionByRoom = new Map();
 
+        // R6.8 — Read-only TonConnect diagnostic timeline (roomId → events[]).
+        this._tonConnectEventsByRoom = new Map();
+
+        // R6.8 — Per-player diagnostic timestamps (roomId → Map(playerId → meta)).
+        this._tonConnectPlayerMetaByRoom = new Map();
+
         // Secret Matrix submissions keyed by roomId → Map(playerId → cells).
         this._secretMatrixByRoom = new Map();
 
@@ -619,6 +625,10 @@ export class RoomLobbyBridge {
         this._entryPaymentCompletedByRoom.clear();
 
         this._walletConnectionByRoom.clear();
+
+        this._tonConnectEventsByRoom.clear();
+
+        this._tonConnectPlayerMetaByRoom.clear();
 
         this._secretMatrixByRoom.clear();
 
@@ -2897,6 +2907,15 @@ export class RoomLobbyBridge {
 
         this._walletConnectionByRoom.set(roomId, session);
 
+        this._tonConnectEventsByRoom.set(roomId, []);
+
+        this._tonConnectPlayerMetaByRoom.set(roomId, new Map());
+
+        this._recordTonConnectEvent(roomId, {
+            type: "WALLET_CONNECTION_SESSION_CREATED",
+            playerId: null
+        });
+
         this._broadcastWalletConnectionSession(roomId);
 
         this._logger.info(
@@ -3046,6 +3065,16 @@ export class RoomLobbyBridge {
             playerId
         });
 
+        this._touchTonConnectPlayerMeta(roomId, playerId, {
+            lastStatusChangeAt: Date.now(),
+            lastEvent: "WALLET_CONNECT_STARTED"
+        });
+
+        this._recordTonConnectEvent(roomId, {
+            type: "WALLET_CONNECT_STARTED",
+            playerId
+        });
+
         this._broadcastWalletConnectionSession(roomId);
 
     }
@@ -3120,6 +3149,18 @@ export class RoomLobbyBridge {
 
             session.setAddressMismatch(playerId, null);
 
+            this._touchTonConnectPlayerMeta(roomId, playerId, {
+                lastStatusChangeAt: Date.now(),
+                lastReportAt: Date.now(),
+                lastEvent: "REPORT_INVALID_WALLET"
+            });
+
+            this._recordTonConnectEvent(roomId, {
+                type: "REPORT_RECEIVED",
+                playerId,
+                detail: "invalid_wallet"
+            });
+
             this._broadcastWalletConnectionSession(roomId);
 
             return;
@@ -3135,6 +3176,17 @@ export class RoomLobbyBridge {
             );
 
             session.setAddressMismatch(playerId, connectedWallet);
+
+            this._touchTonConnectPlayerMeta(roomId, playerId, {
+                lastStatusChangeAt: Date.now(),
+                lastReportAt: Date.now(),
+                lastEvent: "ADDRESS_MISMATCH"
+            });
+
+            this._recordTonConnectEvent(roomId, {
+                type: "ADDRESS_MISMATCH",
+                playerId
+            });
 
             this._broadcastWalletConnectionSession(roomId);
 
@@ -3155,6 +3207,22 @@ export class RoomLobbyBridge {
 
         session.setConnected(playerId, connectedWallet);
 
+        this._touchTonConnectPlayerMeta(roomId, playerId, {
+            lastStatusChangeAt: Date.now(),
+            lastReportAt: Date.now(),
+            lastEvent: "CONNECTED"
+        });
+
+        this._recordTonConnectEvent(roomId, {
+            type: "REPORT_RECEIVED",
+            playerId
+        });
+
+        this._recordTonConnectEvent(roomId, {
+            type: "CONNECTED",
+            playerId
+        });
+
         // R6.3 TEMP DEBUG — remove after runtime trace
         console.log("[R6.3 TRACE] after setConnected", {
             session: session.toSnapshot(),
@@ -3172,6 +3240,11 @@ export class RoomLobbyBridge {
             // R6.3 TEMP DEBUG — remove after runtime trace
             console.log("[R6.3 TRACE] PAYMENT_CONNECTION_READY EMITTED", {
                 roomId
+            });
+
+            this._recordTonConnectEvent(roomId, {
+                type: "PAYMENT_READY",
+                playerId: null
             });
 
             this._deliverPaymentConnectionReady(roomId);
@@ -3220,7 +3293,231 @@ export class RoomLobbyBridge {
 
         }
 
+        this._touchTonConnectPlayerMeta(roomId, playerId, {
+            lastStatusChangeAt: Date.now(),
+            lastEvent: "WALLET_DISCONNECT_REPORT"
+        });
+
+        this._recordTonConnectEvent(roomId, {
+            type: "DISCONNECTED",
+            playerId
+        });
+
         this._broadcastWalletConnectionSession(roomId);
+
+    }
+
+    /**
+     * R6.8 — Read-only TonConnect diagnostics for Developer Console.
+     * Does not mutate gameplay state.
+     */
+    getTonConnectDiagnostics(roomId) {
+
+        if (!roomId) {
+
+            return null;
+
+        }
+
+        const session = this._walletConnectionByRoom.get(roomId) ?? null;
+        const events = this._tonConnectEventsByRoom.get(roomId) ?? [];
+        const metaByPlayer = this._tonConnectPlayerMetaByRoom.get(roomId)
+            ?? new Map();
+        const paymentSession = this._paymentSessionManager?.getSession?.(roomId)
+            ?? null;
+
+        const seats = session
+            ? session.players.map((seat) => {
+
+                const meta = metaByPlayer.get(String(seat.playerId)) ?? {};
+                const socketId = this._playerToSocket.get(seat.playerId)
+                    ?? null;
+                const player = this._playerManager.getPlayer?.(seat.playerId);
+                const displayStatus = seat.status === "WAITING"
+                    && meta.lastEvent === "WALLET_DISCONNECT_REPORT"
+                    ? "DISCONNECTED"
+                    : seat.status;
+
+                return Object.freeze({
+                    playerId: seat.playerId,
+                    nickname: player?.identity?.nickname ?? null,
+                    socketId,
+                    status: seat.status,
+                    displayStatus,
+                    sessionWallet: seat.sessionWallet ?? null,
+                    connectedWallet: seat.connectedWallet ?? null,
+                    walletProvider: null,
+                    walletName: null,
+                    walletAddress: seat.connectedWallet
+                        ?? seat.sessionWallet
+                        ?? null,
+                    walletChain: null,
+                    walletNetwork: null,
+                    walletPublicKey: null,
+                    lastTonConnectEvent: meta.lastEvent ?? null,
+                    lastStatusChangeAt: meta.lastStatusChangeAt ?? null,
+                    lastReportAt: meta.lastReportAt ?? null
+                });
+
+            })
+            : [];
+
+        const statuses = seats.map((seat) => seat.status);
+        const anyConnecting = statuses.includes("CONNECTING");
+        const anyConnected = statuses.includes("CONNECTED");
+        const allConnected = session?.paymentConnectionReady === true
+            || (
+                statuses.length > 0
+                && statuses.every((status) => status === "CONNECTED")
+            );
+        const anyMismatch = statuses.includes("ADDRESS_MISMATCH");
+
+        let handshakeStage = "IDLE";
+        let handshakeOwner = "WalletConnectionSession";
+
+        if (!session) {
+
+            handshakeStage = "NO_SESSION";
+            handshakeOwner = "RoomLobbyBridge";
+
+        } else if (allConnected && session.paymentConnectionReady) {
+
+            handshakeStage = "PAYMENT_READY";
+            handshakeOwner = "Payment Session";
+
+        } else if (allConnected) {
+
+            handshakeStage = "CONNECTED";
+            handshakeOwner = "WalletConnectionSession";
+
+        } else if (anyMismatch) {
+
+            handshakeStage = "ADDRESS_MISMATCH";
+            handshakeOwner = "WalletConnectionSession";
+
+        } else if (anyConnecting) {
+
+            handshakeStage = "WAITING_FOR_CONNECTEVENT";
+            handshakeOwner = "TonConnect SDK / Bridge";
+
+        } else if (anyConnected) {
+
+            handshakeStage = "PARTIAL_CONNECTED";
+            handshakeOwner = "WalletConnectionSession";
+
+        } else {
+
+            handshakeStage = "WAITING";
+            handshakeOwner = "TonConnect SDK";
+
+        }
+
+        const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+
+        return Object.freeze({
+            roomId,
+            hasWalletConnectionSession: Boolean(session),
+            paymentConnectionReady: session?.paymentConnectionReady === true,
+            paymentSessionActive: Boolean(paymentSession),
+            paymentSessionStatus: paymentSession?.status ?? null,
+            createdAt: session?.createdAt ?? null,
+            handshakeStage,
+            handshakeOwner,
+            ownership: Object.freeze({
+                tonConnectSdk: anyConnecting,
+                bridge: anyConnecting,
+                socket: seats.some((seat) => seat.socketId != null),
+                roomLobbyBridge: Boolean(session),
+                walletConnectionSession: Boolean(session),
+                paymentSession: Boolean(paymentSession)
+            }),
+            bridge: Object.freeze({
+                type: "http",
+                provider: "wallet-registry",
+                transport: "SSE",
+                note: "Client SDK fields (chain/provider/appName) are not "
+                    + "reported to the server; bridge activity inferred from "
+                    + "WALLET_CONNECT_* lobby events.",
+                connectedPlayers: statuses.filter(
+                    (status) => status === "CONNECTED"
+                ).length,
+                waitingPlayers: statuses.filter(
+                    (status) => status === "WAITING"
+                    || status === "CONNECTING"
+                ).length,
+                disconnectedPlayers: seats.filter(
+                    (seat) => seat.displayStatus === "DISCONNECTED"
+                ).length,
+                lastBridgeActivityAt: lastEvent?.at ?? null,
+                sessionState: allConnected
+                    ? "Connected"
+                    : anyConnecting
+                        ? "Waiting"
+                        : session
+                            ? "Disconnected"
+                            : "None"
+            }),
+            players: Object.freeze(seats),
+            events: Object.freeze(events.map((event) => Object.freeze({
+                ...event
+            })))
+        });
+
+    }
+
+    _recordTonConnectEvent(roomId, { type, playerId = null, detail = null }) {
+
+        if (!roomId || !type) {
+
+            return;
+
+        }
+
+        const list = this._tonConnectEventsByRoom.get(roomId) ?? [];
+
+        list.push(Object.freeze({
+            at: Date.now(),
+            type,
+            playerId,
+            detail
+        }));
+
+        const MAX_EVENTS = 50;
+
+        if (list.length > MAX_EVENTS) {
+
+            list.splice(0, list.length - MAX_EVENTS);
+
+        }
+
+        this._tonConnectEventsByRoom.set(roomId, list);
+
+    }
+
+    _touchTonConnectPlayerMeta(roomId, playerId, patch) {
+
+        if (!roomId || !playerId || !patch) {
+
+            return;
+
+        }
+
+        let byPlayer = this._tonConnectPlayerMetaByRoom.get(roomId);
+
+        if (!byPlayer) {
+
+            byPlayer = new Map();
+            this._tonConnectPlayerMetaByRoom.set(roomId, byPlayer);
+
+        }
+
+        const key = String(playerId);
+        const previous = byPlayer.get(key) ?? {};
+
+        byPlayer.set(key, {
+            ...previous,
+            ...patch
+        });
 
     }
 
@@ -3869,6 +4166,10 @@ export class RoomLobbyBridge {
         this._entryPaymentCompletedByRoom.delete(roomId);
 
         this._walletConnectionByRoom.delete(roomId);
+
+        this._tonConnectEventsByRoom.delete(roomId);
+
+        this._tonConnectPlayerMetaByRoom.delete(roomId);
 
         this._paymentSessionManager?.destroySession(roomId);
 

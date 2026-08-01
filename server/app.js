@@ -1425,6 +1425,7 @@ class WheelWinApplication {
             blockchainMonitor: this._blockchainMonitor,
             walletManager: null,
             tonFinancialRecovery: this._tonFinancialRecovery,
+            roomLobbyBridge: this._roomLobbyBridge,
             startedAt: this._serverStartedAt
         });
 
