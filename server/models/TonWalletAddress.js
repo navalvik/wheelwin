@@ -54,6 +54,17 @@ export function sessionWalletsMatch(sessionWallet, connectedWallet) {
 
     const right = canonicalizeTonWalletAddress(connectedWallet);
 
+    const result = Boolean(left && right && left === right);
+
+    // R6.3 TEMP DEBUG — remove after runtime trace
+    console.log("[R6.3 TRACE] sessionWalletsMatch", {
+        LEFT: sessionWallet,
+        RIGHT: connectedWallet,
+        "canonical LEFT": left,
+        "canonical RIGHT": right,
+        RESULT: result
+    });
+
     if (!left || !right) {
 
         return false;

@@ -2983,9 +2983,18 @@ export class RoomLobbyBridge {
 
     _handleWalletConnectStarted(socketId) {
 
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log("[R6.3 TRACE] _handleWalletConnectStarted", { socketId });
+
         const context = this._getSocketContext(socketId);
 
         if (!context) {
+
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=no socket context",
+                { socketId }
+            );
 
             return;
 
@@ -2995,6 +3004,12 @@ export class RoomLobbyBridge {
 
         if (!this._paymentStageReadyByRoom.has(roomId)) {
 
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=not payment stage",
+                { roomId, playerId }
+            );
+
             return;
 
         }
@@ -3003,15 +3018,33 @@ export class RoomLobbyBridge {
 
         if (!session) {
 
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=no session",
+                { roomId, playerId }
+            );
+
             return;
 
         }
 
         if (!session.setConnecting(playerId)) {
 
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=setConnecting failed",
+                { roomId, playerId }
+            );
+
             return;
 
         }
+
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log("[R6.3 TRACE] setConnecting OK → broadcasting", {
+            roomId,
+            playerId
+        });
 
         this._broadcastWalletConnectionSession(roomId);
 
@@ -3023,6 +3056,12 @@ export class RoomLobbyBridge {
 
         if (!context) {
 
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=no socket context",
+                { socketId, rawConnectedWallet }
+            );
+
             return;
 
         }
@@ -3031,6 +3070,12 @@ export class RoomLobbyBridge {
 
         if (!this._paymentStageReadyByRoom.has(roomId)) {
 
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=not payment stage",
+                { roomId, playerId, rawConnectedWallet }
+            );
+
             return;
 
         }
@@ -3038,6 +3083,12 @@ export class RoomLobbyBridge {
         const session = this._walletConnectionByRoom.get(roomId);
 
         if (!session) {
+
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=no session",
+                { roomId, playerId, rawConnectedWallet }
+            );
 
             return;
 
@@ -3050,7 +3101,22 @@ export class RoomLobbyBridge {
 
         const connectedWallet = canonicalizeTonWalletAddress(rawConnectedWallet);
 
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log("[R6.3 TRACE] _handleWalletConnectReport", {
+            roomId,
+            playerId,
+            sessionWallet,
+            rawConnectedWallet,
+            canonicalConnectedWallet: connectedWallet
+        });
+
         if (!connectedWallet) {
+
+            // R6.3 TRACE — canonicalize failed; existing mismatch path
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=connectedWallet == null after canonicalize",
+                { roomId, playerId, rawConnectedWallet }
+            );
 
             session.setAddressMismatch(playerId, null);
 
@@ -3061,6 +3127,12 @@ export class RoomLobbyBridge {
         }
 
         if (!sessionWalletsMatch(sessionWallet, connectedWallet)) {
+
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=sessionWalletsMatch == false",
+                { roomId, playerId, sessionWallet, connectedWallet }
+            );
 
             session.setAddressMismatch(playerId, connectedWallet);
 
@@ -3074,13 +3146,49 @@ export class RoomLobbyBridge {
 
         }
 
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log("[R6.3 TRACE] SETTING CONNECTED", {
+            roomId,
+            playerId,
+            connectedWallet
+        });
+
         session.setConnected(playerId, connectedWallet);
+
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log("[R6.3 TRACE] after setConnected", {
+            session: session.toSnapshot(),
+            allPlayerStatuses: session.players.map((p) => ({
+                playerId: p.playerId,
+                status: p.status
+            })),
+            paymentConnectionReady: session.paymentConnectionReady
+        });
 
         this._broadcastWalletConnectionSession(roomId);
 
         if (session.paymentConnectionReady) {
 
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log("[R6.3 TRACE] PAYMENT_CONNECTION_READY EMITTED", {
+                roomId
+            });
+
             this._deliverPaymentConnectionReady(roomId);
+
+        } else {
+
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=paymentConnectionReady == false (not all CONNECTED)",
+                {
+                    roomId,
+                    allPlayerStatuses: session.players.map((p) => ({
+                        playerId: p.playerId,
+                        status: p.status
+                    }))
+                }
+            );
 
         }
 

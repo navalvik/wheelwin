@@ -124,9 +124,28 @@ export default function Page4Payment({ onNavigate }) {
 
     const reportConnectedWallet = useCallback((rawAddress) => {
 
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log("======== REPORT CONNECTED WALLET ========", {
+            rawAddress,
+            timestamp: Date.now()
+        });
+
         const connectedWallet = toSessionWalletAddress(rawAddress);
 
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log("[R6.3 TRACE] toSessionWalletAddress result", {
+            connectedWallet
+        });
+
         if (!connectedWallet) {
+
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] REPORT ABORTED because connectedWallet == null"
+            );
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=connectedWallet == null"
+            );
 
             setLocalError(
                 "Connected wallet does not match the wallet entered during VERIFY."
@@ -136,17 +155,44 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-        socket.emit(LOBBY_OUTGOING_EVENTS.WALLET_CONNECT_REPORT, {
+        const reportPayload = {
             roomId: authoritative.roomId ?? null,
             playerId: localPlayerId,
             connectedWallet
-        });
+        };
+
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log(
+            "[R6.3 TRACE] emitting WALLET_CONNECT_REPORT payload",
+            reportPayload
+        );
+
+        socket.emit(LOBBY_OUTGOING_EVENTS.WALLET_CONNECT_REPORT, reportPayload);
 
     }, [authoritative.roomId, localPlayerId]);
 
     useEffect(() => {
 
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log("======== TON WALLET UPDATE ========", {
+            tonWallet,
+            account: tonWallet?.account ?? null,
+            address: tonWallet?.account?.address ?? null,
+            network: tonWallet?.account?.chain ?? null,
+            walletApp: tonWallet?.device?.appName
+                ?? tonWallet?.device?.appVersion
+                ?? tonWallet?.name
+                ?? null,
+            device: tonWallet?.device ?? null,
+            timestamp: Date.now()
+        });
+
         if (!tonWallet?.account?.address) {
+
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=no tonWallet.account.address"
+            );
 
             return;
 
@@ -188,6 +234,12 @@ export default function Page4Payment({ onNavigate }) {
 
                 if (localWalletStatus === WALLET_CONNECTION_STATUS.CONNECTING) {
 
+                    // R6.3 TEMP DEBUG — remove after runtime trace
+                    console.log(
+                        "[R6.3 TRACE] modal closed without wallet → WALLET_DISCONNECT_REPORT",
+                        { localWalletStatus }
+                    );
+
                     socket.emit(LOBBY_OUTGOING_EVENTS.WALLET_DISCONNECT_REPORT);
 
                 }
@@ -206,7 +258,28 @@ export default function Page4Payment({ onNavigate }) {
 
     async function handleConnectWallet() {
 
+        // R6.3 TEMP DEBUG — remove after runtime trace
+        console.log("======== CONNECT BUTTON ========", {
+            timestamp: Date.now(),
+            roomId: authoritative.roomId ?? null,
+            playerId: localPlayerId,
+            canConnect,
+            currentStatus: localWalletStatus,
+            paymentPhase: inPaymentPhase,
+            callingOpenModal: true
+        });
+
         if (!canConnect) {
+
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=canConnect == false",
+                {
+                    localWalletStatus,
+                    inPaymentPhase,
+                    connecting
+                }
+            );
 
             return;
 
@@ -222,7 +295,18 @@ export default function Page4Payment({ onNavigate }) {
 
             await tonConnectUI.openModal();
 
-        } catch {
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log("[R6.3 TRACE] openModal returned");
+
+        } catch (error) {
+
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log("[R6.3 TRACE] openModal exception thrown", {
+                error: error?.message ?? String(error)
+            });
+            console.log(
+                "[R6.3 TRACE] EARLY RETURN | reason=openModal exception"
+            );
 
             setConnecting(false);
 

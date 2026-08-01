@@ -751,6 +751,11 @@ export class SocketGateway {
 
         socket.on(LOBBY_CLIENT_EVENTS.WALLET_CONNECT_STARTED, () => {
 
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log("[R6.3 TRACE] WALLET_CONNECT_STARTED RECEIVED", {
+                socketId: socket.id
+            });
+
             this._emitLobbyRequest(
                 EVENT_TYPES.LOBBY_WALLET_CONNECT_STARTED_REQUEST,
                 { socketId: socket.id }
@@ -759,6 +764,12 @@ export class SocketGateway {
         });
 
         socket.on(LOBBY_CLIENT_EVENTS.WALLET_CONNECT_REPORT, (payload) => {
+
+            // R6.3 TEMP DEBUG — remove after runtime trace
+            console.log("[R6.3 TRACE] REPORT RECEIVED", {
+                socketId: socket.id,
+                payload
+            });
 
             this._emitLobbyRequest(
                 EVENT_TYPES.LOBBY_WALLET_CONNECT_REPORT_REQUEST,
