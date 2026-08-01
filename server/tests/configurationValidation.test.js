@@ -11,7 +11,7 @@ import { ConfigurationManager } from "../config/ConfigurationManager.js";
 import { ConfigurationError } from "../config/ConfigurationError.js";
 import { OwnerConfiguration } from "../config/OwnerConfiguration.js";
 
-const EXAMPLE_WALLET = "EQOwnerConfigExampleWalletDoNotUseInProductionXX";
+const EXAMPLE_WALLET = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
 
 function writeOwner(dir, body = { ownerWallet: EXAMPLE_WALLET }) {
 

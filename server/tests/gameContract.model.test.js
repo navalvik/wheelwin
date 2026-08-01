@@ -134,14 +134,14 @@ import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.
             }
         },
         configuration: { stake: 10, players: [], sectors: [] },
-        ownerWallet: "EQOwnerConfigExampleWalletDoNotUseInProductionXX"
+        ownerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
     });
 
     assert.equal(snapshot.totalPot, 45);
 
     assert.equal(
         snapshot.ownerWallet,
-        "EQOwnerConfigExampleWalletDoNotUseInProductionXX"
+        "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
     );
 
     assert.equal(

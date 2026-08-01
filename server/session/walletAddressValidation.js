@@ -26,7 +26,7 @@ export function validateWalletAddress(rawAddress, { network = null } = {}) {
 
     } catch {
 
-        throw new WalletValidationError("Invalid TON wallet address format", {
+        throw new WalletValidationError("Invalid TON wallet address.", {
             field: "walletAddress",
             reason: "invalid_format",
             value: rawAddress
@@ -52,16 +52,6 @@ export function validateWalletAddress(rawAddress, { network = null } = {}) {
             field: "walletAddress",
             reason: "canonicalization_failed",
             value: rawAddress
-        });
-
-    }
-
-    if (!friendly.startsWith("EQ") && !friendly.startsWith("UQ")) {
-
-        throw new WalletValidationError("Wallet address must be bounceable EQ/UQ form", {
-            field: "walletAddress",
-            reason: "invalid_bounceable_form",
-            value: friendly
         });
 
     }

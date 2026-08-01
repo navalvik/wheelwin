@@ -1,3 +1,7 @@
+/**
+ * R6.x — canonicalizeTonWalletAddress uses official TON parser only.
+ */
+
 import assert from "node:assert/strict";
 
 import { Address } from "@ton/core";
@@ -12,6 +16,10 @@ import {
     WalletConnectionSession
 } from "../models/WalletConnectionSession.js";
 
+const ZERO = Address.parse(
+    "0:0000000000000000000000000000000000000000000000000000000000000000"
+);
+
 const raw = "0:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
 
 const friendly = Address.parse(raw).toString({
@@ -19,12 +27,38 @@ const friendly = Address.parse(raw).toString({
     urlSafe: true
 });
 
+const uq = ZERO.toString({ bounceable: false, urlSafe: true, testOnly: false });
+
+const kq = ZERO.toString({ bounceable: true, urlSafe: true, testOnly: true });
+
+const zq = ZERO.toString({ bounceable: false, urlSafe: true, testOnly: true });
+
+const eq = ZERO.toString({ bounceable: true, urlSafe: true, testOnly: false });
+
 assert.equal(canonicalizeTonWalletAddress(friendly), friendly);
+
+assert.equal(canonicalizeTonWalletAddress(uq), eq);
+
+assert.equal(canonicalizeTonWalletAddress(kq), eq);
+
+assert.equal(canonicalizeTonWalletAddress(zq), eq);
+
+assert.equal(canonicalizeTonWalletAddress("EQ123"), null);
+
+assert.equal(canonicalizeTonWalletAddress("ABCDEF"), null);
+
+assert.equal(canonicalizeTonWalletAddress(""), null);
 
 assert.equal(
     sessionWalletsMatch(friendly, raw),
     true,
     "raw and EQ forms of the same address must match"
+);
+
+assert.equal(
+    sessionWalletsMatch(uq, eq),
+    true,
+    "UQ and EQ forms of the same address must match"
 );
 
 assert.equal(
@@ -62,7 +96,7 @@ assert.equal(session.players[1].status, WALLET_CONNECTION_STATUS.WAITING);
 
 assert.equal(session.paymentConnectionReady, false);
 
-session.setAddressMismatch("p2", "EQaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+session.setAddressMismatch("p2", eq);
 
 assert.equal(
     session.players[1].status,

@@ -103,7 +103,7 @@ export const LOBBY_ERROR_MESSAGES = Object.freeze({
     [LOBBY_ERROR_CODES.SECRET_MATRIX_MISMATCH]:
         "Secret Matrix codes do not match. Try again.",
     [LOBBY_ERROR_CODES.INVALID_WALLET]:
-        "Enter a valid Telegram Wallet address starting with EQ.",
+        "Invalid TON wallet address.",
     [LOBBY_ERROR_CODES.UNKNOWN_ERROR]:
         "Something went wrong. Please try again."
 });

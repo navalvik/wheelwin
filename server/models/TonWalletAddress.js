@@ -1,10 +1,8 @@
 import { Address } from "@ton/core";
 
-import { normalizeTelegramWallet } from "./TelegramWalletRules.js";
-
 /**
- * P6.2 — Compare a TON Connect address to a session wallet (EQ form).
- * Server-authoritative; does not trust client equality claims.
+ * P6.2 / R6.x — Compare a TON Connect address to a session wallet.
+ * Server-authoritative; official @ton/core parser only (no prefix / length gates).
  */
 export function canonicalizeTonWalletAddress(rawWallet) {
 
@@ -22,24 +20,29 @@ export function canonicalizeTonWalletAddress(rawWallet) {
 
     }
 
-    const telegramForm = normalizeTelegramWallet(trimmed);
-
-    if (telegramForm) {
-
-        return telegramForm;
-
-    }
-
     try {
 
-        return Address.parse(trimmed).toString({
+        const parsed = Address.parseFriendly(trimmed);
+
+        return parsed.address.toString({
             bounceable: true,
             urlSafe: true
         });
 
     } catch {
 
-        return null;
+        try {
+
+            return Address.parse(trimmed).toString({
+                bounceable: true,
+                urlSafe: true
+            });
+
+        } catch {
+
+            return null;
+
+        }
 
     }
 

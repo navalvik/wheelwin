@@ -37,12 +37,6 @@ export function parseContractAddress(raw, { network = null } = {}) {
         urlSafe: true
     });
 
-    if (!friendly.startsWith("EQ") && !friendly.startsWith("UQ")) {
-
-        throw new InvalidAddressError(raw, "invalid_bounceable_form");
-
-    }
-
     return Object.freeze({
         raw: raw.trim(),
         friendly,

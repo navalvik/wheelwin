@@ -14,8 +14,8 @@ import { OwnerConfiguration } from "../config/OwnerConfiguration.js";
 import { GameplayPhaseLifecycle } from "../gameplay/GameplayPhaseLifecycle.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 
-const OWNER = "EQOwnerConfigExampleWalletDoNotUseInProductionXX";
-const WINNER_WALLET = "EQWinnerWalletForSettlementTestsXXXXXXXXXXXXXX";
+const OWNER = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
+const WINNER_WALLET = "EQAREREREREREREREREREREREREREREREREREREREREREeYT";
 
 function createLogger() {
 
@@ -251,7 +251,7 @@ function createHarness({ shouldFail = false } = {}) {
 {
     assert.equal(
         maskWalletAddress(OWNER),
-        "EQOw...onXX",
+        "EQAA...AM9c",
         "owner wallet must be masked in logs"
     );
 

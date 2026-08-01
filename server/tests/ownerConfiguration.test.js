@@ -9,7 +9,7 @@ import {
     OwnerConfiguration
 } from "../config/OwnerConfiguration.js";
 
-const EXAMPLE_WALLET = "EQOwnerConfigExampleWalletDoNotUseInProductionXX";
+const EXAMPLE_WALLET = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
 
 /** config/ directory; repo root is one level up. */
 const CONFIG_DIR = dirname(OWNER_CONFIG_EXAMPLE_PATH);
