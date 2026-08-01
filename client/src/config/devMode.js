@@ -1,7 +1,12 @@
 export const DEV_MODE = import.meta.env.DEV;
 
-/** R6.0B — Developer Console availability (Vite development builds). */
-export const DEV_CONSOLE_ENABLED = DEV_MODE;
+/**
+ * R6.0B / R7.1 — Developer Console route availability.
+ * Enabled in Vite DEV builds, and in production only when
+ * VITE_DEV_CONSOLE_ENABLED=true (auth still required).
+ */
+export const DEV_CONSOLE_ENABLED = DEV_MODE
+    || import.meta.env.VITE_DEV_CONSOLE_ENABLED === "true";
 
 /**
  * Temporary alias for DEV_CONSOLE_ENABLED.
