@@ -256,6 +256,87 @@ export default function Page4Payment({ onNavigate }) {
 
     }, [tonConnectUI, localWalletStatus]);
 
+    // R6.7B TEMP DEBUG — observe SDK status only; remove after handshake probe
+    useEffect(() => {
+
+        if (!tonConnectUI?.onStatusChange) {
+
+            return;
+
+        }
+
+        const unsubscribe = tonConnectUI.onStatusChange(
+            (wallet) => {
+
+                console.log("================================================");
+                console.log("[R6.7B] TonConnect onStatusChange");
+                console.log("================================================");
+
+                if (!wallet) {
+
+                    console.log("timestamp:", Date.now());
+                    console.log("wallet: null");
+                    console.log(
+                        "reason: disconnected or ConnectEvent not received"
+                    );
+                    console.log("================================================");
+
+                    return;
+
+                }
+
+                console.log("timestamp:", Date.now());
+                console.log("wallet:", wallet);
+                console.log("provider:", wallet.provider ?? null);
+                console.log("connected:", tonConnectUI.connected === true);
+                console.log(
+                    "account.address:",
+                    wallet.account?.address ?? null
+                );
+                console.log(
+                    "account.chain:",
+                    wallet.account?.chain ?? null
+                );
+                console.log(
+                    "publicKey:",
+                    wallet.account?.publicKey ?? null
+                );
+                console.log(
+                    "walletStateInit:",
+                    wallet.account?.walletStateInit ?? null
+                );
+                console.log(
+                    "device.platform:",
+                    wallet.device?.platform ?? null
+                );
+                console.log(
+                    "device.appName:",
+                    wallet.device?.appName ?? null
+                );
+                console.log(
+                    "device.appVersion:",
+                    wallet.device?.appVersion ?? null
+                );
+                console.log("================================================");
+
+            },
+            (error) => {
+
+                console.log("[R6.7B] TonConnect ERROR");
+                console.log("error", error);
+                console.log("stack", error?.stack ?? null);
+
+            }
+        );
+
+        return () => {
+
+            unsubscribe?.();
+
+        };
+
+    }, [tonConnectUI]);
+
     async function handleConnectWallet() {
 
         // R6.3 TEMP DEBUG — remove after runtime trace
