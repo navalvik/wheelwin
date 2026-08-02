@@ -242,6 +242,8 @@
 
     min-width: 0;
 
+    width: 100%;
+
     height: 36px;
 
     padding: 0 10px;
@@ -267,11 +269,23 @@
     cursor: text;
 }
 
-.page4__desktopConnectionCopy {
+.page4__desktopConnectionActions {
 
-    flex: 0 0 auto;
+    display: flex;
 
-    min-width: 72px;
+    align-items: stretch;
+
+    gap: 8px;
+
+    width: 100%;
+}
+
+.page4__desktopConnectionCopy,
+.page4__desktopConnectionOpen {
+
+    flex: 1 1 0;
+
+    min-width: 0;
 
     height: 36px;
 
@@ -292,7 +306,8 @@
     cursor: pointer;
 }
 
-.page4__desktopConnectionCopy:hover {
+.page4__desktopConnectionCopy:hover,
+.page4__desktopConnectionOpen:hover {
 
     background: #eef5fc;
 }
@@ -344,7 +359,13 @@
         flex-direction: column;
     }
 
-    .page4__desktopConnectionCopy {
+    .page4__desktopConnectionActions {
+
+        flex-direction: column;
+    }
+
+    .page4__desktopConnectionCopy,
+    .page4__desktopConnectionOpen {
 
         width: 100%;
     }

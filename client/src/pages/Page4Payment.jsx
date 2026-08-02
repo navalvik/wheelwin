@@ -447,6 +447,62 @@ export default function Page4Payment({ onNavigate }) {
 
     }
 
+    // R6.11A — Open SDK Universal Link for desktop/browser wallet launch.
+    // Approach (mirrors @tonconnect/ui openLinkBlank): window.open with
+    // noopener,noreferrer on the exact SDK-generated string — works for
+    // https:// universal links. If open is blocked or the scheme is custom
+    // (e.g. tc://), fall back to an ephemeral <a target="_blank"> click so
+    // the OS/browser can hand off without hardcoding any wallet domain.
+    function handleOpenTonConnectLink() {
+
+        const link = tonConnectUniversalLink;
+
+        if (!link) {
+
+            return;
+
+        }
+
+        try {
+
+            const opened = window.open(link, "_blank", "noopener,noreferrer");
+
+            if (opened) {
+
+                return;
+
+            }
+
+        } catch {
+
+            // Fall through to anchor handoff.
+        }
+
+        try {
+
+            const anchor = document.createElement("a");
+
+            anchor.href = link;
+
+            anchor.target = "_blank";
+
+            anchor.rel = "noopener noreferrer";
+
+            anchor.style.display = "none";
+
+            document.body.appendChild(anchor);
+
+            anchor.click();
+
+            document.body.removeChild(anchor);
+
+        } catch {
+
+            // Presentation-only: never throw into Page4 / QR flow.
+        }
+
+    }
+
     async function handleConnectWallet() {
 
         // R6.3 TEMP DEBUG — remove after runtime trace
@@ -856,7 +912,7 @@ export default function Page4Payment({ onNavigate }) {
                                         htmlFor="page4-tonconnect-link"
                                     >
 
-                                        TonConnect Link
+                                        Universal Link
 
                                     </label>
 
@@ -873,6 +929,10 @@ export default function Page4Payment({ onNavigate }) {
                                             }}
                                         />
 
+                                    </div>
+
+                                    <div className="page4__desktopConnectionActions">
+
                                         <button
                                             type="button"
                                             className="page4__desktopConnectionCopy"
@@ -882,6 +942,16 @@ export default function Page4Payment({ onNavigate }) {
                                             {tonConnectLinkCopied
                                                 ? "Copied"
                                                 : "Copy"}
+
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            className="page4__desktopConnectionOpen"
+                                            onClick={handleOpenTonConnectLink}
+                                        >
+
+                                            Open Wallet
 
                                         </button>
 
