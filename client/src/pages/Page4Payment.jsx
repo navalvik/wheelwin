@@ -53,6 +53,13 @@ export default function Page4Payment({ onNavigate }) {
 
     const [confirmingPayment, setConfirmingPayment] = useState(false);
 
+    // R6.11A — Desktop Connection convenience (presentation only)
+    const [tonConnectModalOpen, setTonConnectModalOpen] = useState(false);
+
+    const [tonConnectUniversalLink, setTonConnectUniversalLink] = useState("");
+
+    const [tonConnectLinkCopied, setTonConnectLinkCopied] = useState(false);
+
     const walletConnection = authoritative.walletConnection;
 
     const paymentSession = authoritative.paymentSession;
@@ -228,6 +235,18 @@ export default function Page4Payment({ onNavigate }) {
 
         const unsubscribe = tonConnectUI.onModalStateChange((state) => {
 
+            const isOpen = state?.status === "opened";
+
+            setTonConnectModalOpen(isOpen);
+
+            if (!isOpen) {
+
+                setTonConnectUniversalLink("");
+
+                setTonConnectLinkCopied(false);
+
+            }
+
             if (state?.status === "closed" && !tonConnectUI.wallet) {
 
                 setConnecting(false);
@@ -255,6 +274,45 @@ export default function Page4Payment({ onNavigate }) {
         };
 
     }, [tonConnectUI, localWalletStatus]);
+
+    // R6.11A — Capture SDK Universal Link from the same connector.connect()
+    // return value that @tonconnect/ui feeds into the QR (sourceUrl).
+    // Observation only: does not call connect, invent links, or alter handshake.
+    useEffect(() => {
+
+        const connector = tonConnectUI?.connector;
+
+        if (!connector || typeof connector.connect !== "function") {
+
+            return;
+
+        }
+
+        const originalConnect = connector.connect.bind(connector);
+
+        connector.connect = (...args) => {
+
+            const result = originalConnect(...args);
+
+            if (typeof result === "string" && result.length > 0) {
+
+                setTonConnectUniversalLink(result);
+
+                setTonConnectLinkCopied(false);
+
+            }
+
+            return result;
+
+        };
+
+        return () => {
+
+            connector.connect = originalConnect;
+
+        };
+
+    }, [tonConnectUI]);
 
     // R6.7B TEMP DEBUG — observe SDK status only; remove after handshake probe
     useEffect(() => {
@@ -336,6 +394,58 @@ export default function Page4Payment({ onNavigate }) {
         };
 
     }, [tonConnectUI]);
+
+    async function handleCopyTonConnectLink() {
+
+        if (!tonConnectUniversalLink) {
+
+            return;
+
+        }
+
+        try {
+
+            if (navigator.clipboard?.writeText) {
+
+                await navigator.clipboard.writeText(tonConnectUniversalLink);
+
+            } else {
+
+                const textArea = document.createElement("textarea");
+
+                textArea.value = tonConnectUniversalLink;
+
+                textArea.setAttribute("readonly", "");
+
+                textArea.style.position = "fixed";
+
+                textArea.style.left = "-9999px";
+
+                document.body.appendChild(textArea);
+
+                textArea.select();
+
+                document.execCommand("copy");
+
+                document.body.removeChild(textArea);
+
+            }
+
+            setTonConnectLinkCopied(true);
+
+            window.setTimeout(() => {
+
+                setTonConnectLinkCopied(false);
+
+            }, 1500);
+
+        } catch {
+
+            setTonConnectLinkCopied(false);
+
+        }
+
+    }
 
     async function handleConnectWallet() {
 
@@ -716,6 +826,68 @@ export default function Page4Payment({ onNavigate }) {
                                     DISCONNECT
 
                                 </button>
+
+                            )}
+
+                            {/*
+                              R6.11A — Desktop Connection block lives on Page4
+                              (not inside @tonconnect/ui modal): the QR modal is
+                              third-party and cannot be extended without editing
+                              node_modules. Link is the exact string returned by
+                              tonConnectUI.connector.connect() — same value the
+                              UI modal stores as universalLink for QR sourceUrl.
+                            */}
+                            {tonConnectModalOpen
+                                && tonConnectUniversalLink && (
+
+                                <div
+                                    className="page4__desktopConnection"
+                                    aria-label="Desktop connection"
+                                >
+
+                                    <div className="page4__desktopConnectionTitle">
+
+                                        Desktop connection
+
+                                    </div>
+
+                                    <label
+                                        className="page4__desktopConnectionLabel"
+                                        htmlFor="page4-tonconnect-link"
+                                    >
+
+                                        TonConnect Link
+
+                                    </label>
+
+                                    <div className="page4__desktopConnectionRow">
+
+                                        <input
+                                            id="page4-tonconnect-link"
+                                            className="page4__desktopConnectionInput"
+                                            type="text"
+                                            readOnly
+                                            value={tonConnectUniversalLink}
+                                            onFocus={(event) => {
+                                                event.target.select();
+                                            }}
+                                        />
+
+                                        <button
+                                            type="button"
+                                            className="page4__desktopConnectionCopy"
+                                            onClick={handleCopyTonConnectLink}
+                                        >
+
+                                            {tonConnectLinkCopied
+                                                ? "Copied"
+                                                : "Copy"}
+
+                                        </button>
+
+                                    </div>
+
+                                </div>
 
                             )}
 

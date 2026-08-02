@@ -175,6 +175,128 @@
     border: 2px solid #94a3b8;
 }
 
+/* R6.11A — secondary Desktop Connection convenience (Page4 overlay) */
+.page4__desktopConnection {
+
+    width: min(480px, 100%);
+
+    margin-top: 4px;
+
+    padding: 12px 14px;
+
+    box-sizing: border-box;
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 8px;
+
+    background: #f7fbff;
+
+    border: 1px dashed #b7cce0;
+
+    border-radius: 12px;
+}
+
+.page4__desktopConnectionTitle {
+
+    font-size: 13px;
+
+    font-weight: 700;
+
+    letter-spacing: 0.02em;
+
+    color: #5a7a96;
+
+    text-align: left;
+}
+
+.page4__desktopConnectionLabel {
+
+    font-size: 12px;
+
+    font-weight: 600;
+
+    color: #7a93a8;
+
+    text-align: left;
+}
+
+.page4__desktopConnectionRow {
+
+    display: flex;
+
+    align-items: stretch;
+
+    gap: 8px;
+
+    width: 100%;
+
+    min-width: 0;
+}
+
+.page4__desktopConnectionInput {
+
+    flex: 1 1 auto;
+
+    min-width: 0;
+
+    height: 36px;
+
+    padding: 0 10px;
+
+    box-sizing: border-box;
+
+    font-size: 12px;
+
+    font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+
+    color: #334155;
+
+    background: #ffffff;
+
+    border: 1px solid #c5d6e8;
+
+    border-radius: 8px;
+
+    overflow-x: auto;
+
+    white-space: nowrap;
+
+    cursor: text;
+}
+
+.page4__desktopConnectionCopy {
+
+    flex: 0 0 auto;
+
+    min-width: 72px;
+
+    height: 36px;
+
+    padding: 0 12px;
+
+    font-size: 12px;
+
+    font-weight: 700;
+
+    color: #1c73d0;
+
+    background: #ffffff;
+
+    border: 1px solid #1c73d0;
+
+    border-radius: 8px;
+
+    cursor: pointer;
+}
+
+.page4__desktopConnectionCopy:hover {
+
+    background: #eef5fc;
+}
+
 @media (min-width: 601px) {
 
     .paymentPanel {
@@ -208,5 +330,22 @@
         font-size: 13px;
 
         padding: 10px 12px;
+    }
+
+    .page4__desktopConnection {
+
+        width: 100%;
+
+        padding: 10px;
+    }
+
+    .page4__desktopConnectionRow {
+
+        flex-direction: column;
+    }
+
+    .page4__desktopConnectionCopy {
+
+        width: 100%;
     }
 }
