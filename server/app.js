@@ -2432,23 +2432,23 @@ class WheelWinApplication {
 
             const drain = this._lifecycleManager?.getSnapshot?.() ?? null;
 
-            return {
-                activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
-                activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
-                activeSimulations:
+        return {
+            activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
+            activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
+            activeSimulations:
                     this._engines?.physicsEngine?.getActiveSimulationCount?.()
                         ?? 0,
-                activeTimers:
+            activeTimers:
                     this._engines?.gameClockEngine?.getActiveClockCount?.()
                         ?? 0,
-                activeSockets:
-                    this._socketGateway?.getConnectedSocketCount?.() ?? 0,
-                pendingTeardowns:
-                    this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
-                pendingPayments:
+            activeSockets:
+                this._socketGateway?.getConnectedSocketCount?.() ?? 0,
+            pendingTeardowns:
+                this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
+            pendingPayments:
                     this._engines?.paymentEngine?.getActivePaymentCount?.()
                         ?? 0,
-                pendingAudits:
+            pendingAudits:
                     this._auditEngine?.getActiveAuditCount?.() ?? 0,
                 lifecycle: drain?.state ?? null,
                 ready: drain?.ready ?? null,

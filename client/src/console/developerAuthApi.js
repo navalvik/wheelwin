@@ -288,11 +288,7 @@ export async function fetchSessionHistoryRecord(accessToken, sessionId) {
 
 }
 
-export async function downloadSessionHistoryRecord(
-    accessToken,
-    sessionId,
-    filenameOverride = null
-) {
+export async function downloadSessionHistoryRecord(accessToken, sessionId) {
 
     const response = await fetch(
         `${getConsoleApiBase()}/console/history/${encodeURIComponent(sessionId)}/download`,
@@ -323,9 +319,7 @@ export async function downloadSessionHistoryRecord(
 
     const disposition = response.headers.get("Content-Disposition") ?? "";
     const match = /filename="([^"]+)"/.exec(disposition);
-    const filename = filenameOverride
-        || match?.[1]
-        || `history_${sessionId}.json`;
+    const filename = match?.[1] ?? `history_${sessionId}.json`;
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
