@@ -15,18 +15,23 @@ import { KeyValueList } from "./shared/DataTable";
 const LIFECYCLE_OPTIONS = [
     { value: "all", label: "All results" },
     { value: "GAME_COMPLETED", label: "GAME_COMPLETED" },
+    { value: "GAME_CANCELLED", label: "GAME_CANCELLED" },
     { value: "SETUP_EXPIRED", label: "SETUP_EXPIRED" },
+    { value: "VERIFY_CANCELLED", label: "VERIFY_CANCELLED" },
     { value: "VERIFY_ABORTED", label: "VERIFY_ABORTED" },
     { value: "VERIFY_TIMEOUT", label: "VERIFY_TIMEOUT" },
     { value: "PAYMENT_TIMEOUT", label: "PAYMENT_TIMEOUT" },
     { value: "PAYMENT_FAILED", label: "PAYMENT_FAILED" },
+    { value: "WALLET_CONNECT_TIMEOUT", label: "WALLET_CONNECT_TIMEOUT" },
     { value: "TONCONNECT_TIMEOUT", label: "TONCONNECT_TIMEOUT" },
     { value: "TONCONNECT_FAILED", label: "TONCONNECT_FAILED" },
     { value: "ROOM_DESTROYED", label: "ROOM_DESTROYED" },
     { value: "RECOVERY_FAILED", label: "RECOVERY_FAILED" },
+    { value: "SERVER_ERROR", label: "SERVER_ERROR" },
     { value: "SERVER_ABORT", label: "SERVER_ABORT" },
     { value: "CLIENT_ABORT", label: "CLIENT_ABORT" },
     { value: "ADMIN_ABORT", label: "ADMIN_ABORT" },
+    { value: "UNKNOWN", label: "UNKNOWN" },
     { value: "UNKNOWN_FAILURE", label: "UNKNOWN_FAILURE" }
 ];
 
@@ -36,6 +41,12 @@ const SORT_OPTIONS = [
     { value: "duration", label: "Duration" },
     { value: "result", label: "Lifecycle Result" }
 ];
+
+function pad(value, size = 2) {
+
+    return String(value).padStart(size, "0");
+
+}
 
 function formatFinishTime(at) {
 
@@ -54,8 +65,6 @@ function formatFinishTime(at) {
             return "—";
 
         }
-
-        const pad = (value) => String(value).padStart(2, "0");
 
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
             + ` ${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -80,13 +89,53 @@ function formatGameId(gameId) {
 
 }
 
+function safeFilenameSegment(value) {
+
+    return String(value ?? "unknown").replace(/[^\w.-]+/g, "_");
+
+}
+
+function formatDownloadTimestamp(at = Date.now()) {
+
+    const date = new Date(at);
+
+    if (Number.isNaN(date.getTime())) {
+
+        return formatDownloadTimestamp(Date.now());
+
+    }
+
+    return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}`
+        + `-${pad(date.getUTCDate())}`
+        + `_${pad(date.getUTCHours())}-${pad(date.getUTCMinutes())}`
+        + `-${pad(date.getUTCSeconds())}`;
+
+}
+
 /**
- * Map lifecycle result → badge tone. Presentation only — no gameplay logic.
- * Named tones cover the R7.2 palette; existing archive values map sensibly.
+ * Client-side download filename:
+ * YYYY-MM-DD_HH-mm-ss_ROOM_<RoomID>_GAME_<GameID|NO_GAME>_<LifecycleResult>.json
+ * (NO_GAME when no game id — matches existing archive naming)
+ */
+function buildDownloadFilename(row) {
+
+    const stamp = formatDownloadTimestamp(row?.finishedAt ?? Date.now());
+    const room = safeFilenameSegment(row?.roomId);
+    const game = row?.gameId != null && row.gameId !== ""
+        ? `GAME_${safeFilenameSegment(row.gameId)}`
+        : "NO_GAME";
+    const result = safeFilenameSegment(row?.lifecycleResult ?? "UNKNOWN");
+
+    return `${stamp}_ROOM_${room}_${game}_${result}.json`;
+
+}
+
+/**
+ * Badge tone mapping — visual only; no gameplay logic.
  */
 function lifecycleBadgeTone(result) {
 
-    const value = String(result ?? "UNKNOWN").toUpperCase();
+    const value = String(result ?? "UNKNOWN");
 
     if (value === "GAME_COMPLETED") {
 
@@ -96,10 +145,8 @@ function lifecycleBadgeTone(result) {
 
     if (
         value === "GAME_CANCELLED"
-        || value === "GAME_CANCELED"
         || value === "CLIENT_ABORT"
         || value === "ADMIN_ABORT"
-        || value === "ROOM_DESTROYED"
     ) {
 
         return "cancelled";
@@ -108,26 +155,23 @@ function lifecycleBadgeTone(result) {
 
     if (
         value === "VERIFY_CANCELLED"
-        || value === "VERIFY_CANCELED"
         || value === "VERIFY_ABORTED"
+        || value === "VERIFY_TIMEOUT"
     ) {
 
         return "verifyCancelled";
 
     }
 
-    if (
-        value === "SETUP_EXPIRED"
-        || value === "VERIFY_TIMEOUT"
-        || value === "PAYMENT_TIMEOUT"
-    ) {
+    if (value === "SETUP_EXPIRED") {
 
-        return "expired";
+        return "setupExpired";
 
     }
 
     if (
         value === "PAYMENT_FAILED"
+        || value === "PAYMENT_TIMEOUT"
         || value === "WALLET_CONNECT_TIMEOUT"
         || value === "TONCONNECT_TIMEOUT"
         || value === "TONCONNECT_FAILED"
@@ -177,44 +221,24 @@ function formatClock(at) {
 
 }
 
-function HistoryEmptyArchive() {
+function hasActiveAdvancedFilters({
+    searchGame,
+    nickname,
+    wallet,
+    lifecycleResult,
+    sort,
+    dateFrom,
+    dateTo
+}) {
 
-    return (
-
-        <div className="devConsole__empty devConsole__historyEmpty">
-
-            <p className="devConsole__emptyTitle">
-
-                No archived sessions.
-
-            </p>
-
-            <p className="devConsole__emptyDetail">
-
-                A session archive is automatically created whenever
-                a Room Lifecycle reaches a terminal state.
-
-            </p>
-
-            <p className="devConsole__historyEmptyExamplesLabel">
-
-                Examples:
-
-            </p>
-
-            <ul className="devConsole__historyEmptyExamples">
-
-                <li>GAME_COMPLETED</li>
-                <li>PAYMENT_FAILED</li>
-                <li>VERIFY_CANCELLED</li>
-                <li>SETUP_EXPIRED</li>
-                <li>WALLET_CONNECT_TIMEOUT</li>
-                <li>SERVER_ERROR</li>
-
-            </ul>
-
-        </div>
-
+    return Boolean(
+        searchGame.trim()
+        || nickname.trim()
+        || wallet.trim()
+        || dateFrom
+        || dateTo
+        || (lifecycleResult && lifecycleResult !== "all")
+        || (sort && sort !== "newest")
     );
 
 }
@@ -232,9 +256,9 @@ export default function HistoryPanel() {
     const [sort, setSort] = useState("newest");
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
+    const [advancedOpen, setAdvancedOpen] = useState(false);
 
     const [list, setList] = useState(null);
-    const [archiveSummary, setArchiveSummary] = useState(null);
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
     const [selectedId, setSelectedId] = useState(null);
@@ -274,47 +298,6 @@ export default function HistoryPanel() {
         dateTo
     ]);
 
-    const hasActiveFilters = Boolean(
-        searchRoom.trim()
-        || searchGame.trim()
-        || nickname.trim()
-        || wallet.trim()
-        || (lifecycleResult && lifecycleResult !== "all")
-        || dateFrom
-        || dateTo
-    );
-
-    const refreshArchiveSummary = useCallback(async () => {
-
-        try {
-
-            const next = await fetchSessionHistory(token, {
-                lifecycleResult: "all",
-                sort: "newest",
-                limit: 200,
-                offset: 0
-            });
-            const rows = next?.records ?? [];
-            const completed = rows.filter(
-                (row) => isCompletedLifecycle(row.lifecycleResult)
-            ).length;
-            const interrupted = rows.filter(
-                (row) => !isCompletedLifecycle(row.lifecycleResult)
-            ).length;
-
-            setArchiveSummary({
-                total: next?.total ?? rows.length,
-                completed,
-                interrupted
-            });
-
-        } catch {
-
-            // List refresh surfaces the error; keep last known summary.
-        }
-
-    }, [token]);
-
     const refresh = useCallback(async () => {
 
         setLoading(true);
@@ -344,12 +327,6 @@ export default function HistoryPanel() {
         refresh();
 
     }, [refresh]);
-
-    useEffect(() => {
-
-        refreshArchiveSummary();
-
-    }, [refreshArchiveSummary]);
 
     useEffect(() => {
 
@@ -397,35 +374,46 @@ export default function HistoryPanel() {
 
     const records = list?.records ?? [];
 
-    const summary = archiveSummary ?? {
-        total: list?.total ?? records.length,
-        completed: records.filter(
-            (row) => isCompletedLifecycle(row.lifecycleResult)
-        ).length,
-        interrupted: records.filter(
-            (row) => !isCompletedLifecycle(row.lifecycleResult)
-        ).length
-    };
+    const filtersActive = hasActiveAdvancedFilters({
+        searchGame,
+        nickname,
+        wallet,
+        lifecycleResult,
+        sort,
+        dateFrom,
+        dateTo
+    }) || Boolean(searchRoom.trim());
 
-    async function downloadRecord(sessionId) {
+    const summary = useMemo(() => {
+
+        const completed = records.filter(
+            (row) => isCompletedLifecycle(row.lifecycleResult)
+        ).length;
+        const archived = list?.total ?? records.length;
+
+        return {
+            archived,
+            completed,
+            interrupted: Math.max(0, records.length - completed)
+        };
+
+    }, [list, records]);
+
+    async function onDownload(row) {
 
         try {
 
-            await downloadSessionHistoryRecord(token, sessionId);
+            await downloadSessionHistoryRecord(
+                token,
+                row.sessionId,
+                buildDownloadFilename(row)
+            );
 
         } catch (err) {
 
             setError(err.message || "Download failed");
 
         }
-
-    }
-
-    function onRowDownload(event, sessionId) {
-
-        event.preventDefault();
-        event.stopPropagation();
-        downloadRecord(sessionId);
 
     }
 
@@ -443,7 +431,21 @@ export default function HistoryPanel() {
                             <button
                                 type="button"
                                 className="devConsole__button"
-                                onClick={() => downloadRecord(selectedId)}
+                                onClick={() => {
+
+                                    const row = records.find(
+                                        (item) => item.sessionId === selectedId
+                                    );
+
+                                    onDownload(row ?? {
+                                        sessionId: selectedId,
+                                        roomId: detail?.roomId,
+                                        gameId: detail?.gameId,
+                                        finishedAt: detail?.finishedAt,
+                                        lifecycleResult: detail?.lifecycleResult
+                                    });
+
+                                }}
                             >
 
                                 Download Log
@@ -650,24 +652,16 @@ export default function HistoryPanel() {
 
     }
 
-    const showEmptyArchive = !loading && records.length === 0 && !hasActiveFilters;
-    const showEmptyFilter = !loading && records.length === 0 && hasActiveFilters;
-
     return (
 
         <PanelShell
             title="History"
-            subtitle="Session lifecycle archive"
+            subtitle="Session Lifecycle Archive"
             actions={(
                 <button
                     type="button"
                     className="devConsole__textButton"
-                    onClick={() => {
-
-                        refresh();
-                        refreshArchiveSummary();
-
-                    }}
+                    onClick={refresh}
                 >
 
                     Refresh
@@ -681,56 +675,50 @@ export default function HistoryPanel() {
                 <div className="devConsole__historyStat">
 
                     <span className="devConsole__historyStatLabel">
-
                         Archived Sessions
-
                     </span>
 
-                    <span className="devConsole__historyStatValue">
+                    <strong className="devConsole__historyStatValue">
 
-                        {loading ? "…" : summary.total}
+                        {loading && !list ? "…" : summary.archived}
 
-                    </span>
+                    </strong>
 
                 </div>
 
                 <div className="devConsole__historyStat">
 
                     <span className="devConsole__historyStatLabel">
-
                         Completed
-
                     </span>
 
-                    <span className="devConsole__historyStatValue">
+                    <strong className="devConsole__historyStatValue">
 
-                        {loading ? "…" : summary.completed}
+                        {loading && !list ? "…" : summary.completed}
 
-                    </span>
+                    </strong>
 
                 </div>
 
                 <div className="devConsole__historyStat">
 
                     <span className="devConsole__historyStatLabel">
-
                         Interrupted
-
                     </span>
 
-                    <span className="devConsole__historyStatValue">
+                    <strong className="devConsole__historyStatValue">
 
-                        {loading ? "…" : summary.interrupted}
+                        {loading && !list ? "…" : summary.interrupted}
 
-                    </span>
+                    </strong>
 
                 </div>
 
             </div>
 
-            <div className="devConsole__historyBrowser">
+            <div className="devConsole__historyPrimaryFilter">
 
-                <label className="devConsole__filter devConsole__historyRoomFilter">
+                <label className="devConsole__filter">
 
                     <span>Room ID</span>
 
@@ -743,13 +731,36 @@ export default function HistoryPanel() {
 
                 </label>
 
-                <details className="devConsole__historyAdvanced">
+            </div>
 
-                    <summary>
+            <div className="devConsole__historyAdvanced">
 
-                        Advanced Filters
+                <button
+                    type="button"
+                    className="devConsole__historyAdvancedToggle"
+                    aria-expanded={advancedOpen}
+                    onClick={() => setAdvancedOpen((open) => !open)}
+                >
 
-                    </summary>
+                    <span
+                        className={
+                            "devConsole__historyAdvancedChevron"
+                            + (advancedOpen
+                                ? " devConsole__historyAdvancedChevron--open"
+                                : "")
+                        }
+                        aria-hidden="true"
+                    >
+
+                        ▼
+
+                    </span>
+
+                    Advanced Filters
+
+                </button>
+
+                {advancedOpen && (
 
                     <div className="devConsole__historyFilters">
 
@@ -832,7 +843,7 @@ export default function HistoryPanel() {
 
                     </div>
 
-                </details>
+                )}
 
             </div>
 
@@ -842,16 +853,46 @@ export default function HistoryPanel() {
 
             )}
 
-            {showEmptyArchive ? (
+            {records.length === 0 && !loading ? (
 
-                <HistoryEmptyArchive />
+                filtersActive ? (
 
-            ) : showEmptyFilter ? (
+                    <EmptyState
+                        title="No matching sessions."
+                        detail="Try clearing Room ID or Advanced Filters."
+                    />
 
-                <EmptyState
-                    title="No matching archived sessions"
-                    detail="Try clearing Advanced Filters or adjusting Room ID."
-                />
+                ) : (
+
+                    <div className="devConsole__historyEmpty">
+
+                        <p className="devConsole__emptyTitle">
+                            No archived sessions.
+                        </p>
+
+                        <p className="devConsole__emptyDetail">
+                            A session archive is automatically created whenever
+                            a Room Lifecycle reaches a terminal state.
+                        </p>
+
+                        <p className="devConsole__historyEmptyExamplesLabel">
+                            Examples:
+                        </p>
+
+                        <ul className="devConsole__historyEmptyExamples">
+
+                            <li>GAME_COMPLETED</li>
+                            <li>PAYMENT_FAILED</li>
+                            <li>VERIFY_CANCELLED</li>
+                            <li>SETUP_EXPIRED</li>
+                            <li>WALLET_CONNECT_TIMEOUT</li>
+                            <li>SERVER_ERROR</li>
+
+                        </ul>
+
+                    </div>
+
+                )
 
             ) : (
 
@@ -864,8 +905,8 @@ export default function HistoryPanel() {
                             <tr>
 
                                 <th>Finish Time</th>
-                                <th>Room ID</th>
-                                <th>Game ID</th>
+                                <th>Room</th>
+                                <th>Game</th>
                                 <th>Lifecycle Result</th>
                                 <th className="devConsole__tableAction">Download</th>
 
@@ -950,13 +991,22 @@ export default function HistoryPanel() {
                                             aria-label={
                                                 `Download archive for room ${row.roomId}`
                                             }
-                                            onClick={(event) => onRowDownload(
-                                                event,
-                                                row.sessionId
-                                            )}
+                                            onClick={(event) => {
+
+                                                event.stopPropagation();
+                                                onDownload(row);
+
+                                            }}
                                         >
 
-                                            <span aria-hidden="true">📥</span>
+                                            <span
+                                                className="devConsole__downloadEmoji"
+                                                aria-hidden="true"
+                                            >
+
+                                                📥
+
+                                            </span>
 
                                         </button>
 

@@ -1799,7 +1799,7 @@ body:has(.devConsole) {
 
     font-weight: 700;
 
-    letter-spacing: 0.02em;
+    letter-spacing: 0.03em;
 
     text-transform: uppercase;
 
@@ -1810,97 +1810,89 @@ body:has(.devConsole) {
 
     font-size: 18px;
 
-    font-weight: 700;
+    font-weight: 800;
 
-    color: var(--console-text, inherit);
+    color: var(--console-ink);
 
-    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
 }
 
-.devConsole__historyBrowser {
+.devConsole__historyPrimaryFilter {
+
+    margin: 0 0 8px;
+}
+
+.devConsole__historyPrimaryFilter .devConsole__filter {
 
     display: flex;
 
     flex-direction: column;
 
-    gap: 10px;
+    gap: 4px;
 
-    margin: 0 0 14px;
+    max-width: 28rem;
 }
 
-.devConsole__historyRoomFilter {
+.devConsole__historyPrimaryFilter .devConsole__filter input {
 
-    display: flex;
+    min-width: 0;
 
-    flex-wrap: wrap;
-
-    align-items: center;
-
-    gap: 8px;
-}
-
-.devConsole__historyRoomFilter input {
-
-    box-sizing: border-box;
-
-    min-width: min(100%, 18rem);
-
-    min-height: 2rem;
-
-    padding: 6px 10px;
-
-    border: 1px solid var(--console-border);
-
-    border-radius: 6px;
-
-    background: #fff;
-
-    color: var(--console-ink);
-
-    font: inherit;
-
-    font-size: 0.85rem;
+    width: 100%;
 }
 
 .devConsole__historyAdvanced {
 
-    border: 1px solid var(--console-border);
-
-    border-radius: 6px;
-
-    background: var(--console-panel);
+    margin: 0 0 14px;
 }
 
-.devConsole__historyAdvanced > summary {
+.devConsole__historyAdvancedToggle {
 
-    cursor: pointer;
+    display: inline-flex;
 
-    padding: 8px 12px;
+    align-items: center;
+
+    gap: 6px;
+
+    margin: 0 0 8px;
+
+    padding: 4px 2px;
+
+    border: 0;
+
+    background: transparent;
+
+    color: var(--console-accent);
+
+    font: inherit;
 
     font-size: 13px;
 
-    font-weight: 600;
+    font-weight: 700;
 
-    color: var(--console-muted);
-
-    list-style: none;
+    cursor: pointer;
 }
 
-.devConsole__historyAdvanced > summary::-webkit-details-marker {
+.devConsole__historyAdvancedToggle:hover {
 
-    display: none;
+    text-decoration: underline;
 }
 
-.devConsole__historyAdvanced > summary::before {
+.devConsole__historyAdvancedChevron {
 
-    content: "▼ ";
+    display: inline-block;
 
     font-size: 10px;
+
+    line-height: 1;
+
+    transform: rotate(-90deg);
+
+    transition: transform 0.12s ease;
 }
 
-.devConsole__historyAdvanced:not([open]) > summary::before {
+.devConsole__historyAdvancedChevron--open {
 
-    content: "▶ ";
+    transform: rotate(0deg);
 }
 
 .devConsole__historyFilters {
@@ -1911,40 +1903,31 @@ body:has(.devConsole) {
 
     gap: 12px;
 
-    padding: 0 12px 12px;
-}
+    margin: 0;
 
-.devConsole__historyFilters .devConsole__filter input {
-
-    box-sizing: border-box;
-
-    min-width: 140px;
-
-    min-height: 2rem;
-
-    padding: 6px 10px;
+    padding: 12px;
 
     border: 1px solid var(--console-border);
 
     border-radius: 6px;
 
-    background: #fff;
+    background: #f7fafc;
+}
 
-    color: var(--console-ink);
+.devConsole__historyFilters .devConsole__filter input,
+.devConsole__historyFilters .devConsole__filter select {
 
-    font: inherit;
-
-    font-size: 0.85rem;
+    min-width: 140px;
 }
 
 .devConsole__historyEmpty {
 
-    max-width: 28rem;
+    padding: 18px 4px;
 }
 
 .devConsole__historyEmptyExamplesLabel {
 
-    margin: 12px 0 4px;
+    margin: 14px 0 6px;
 
     font-size: 12px;
 
@@ -1957,21 +1940,20 @@ body:has(.devConsole) {
 
     margin: 0;
 
-    padding-left: 1.25rem;
+    padding: 0 0 0 1.1rem;
+
+    color: var(--console-ink);
 
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
     font-size: 12px;
 
-    color: var(--console-text, inherit);
-}
-
-.devConsole__historyEmptyExamples li {
-
-    margin: 2px 0;
+    line-height: 1.7;
 }
 
 .devConsole__historyLoadingCell {
+
+    padding: 18px 10px;
 
     color: var(--console-muted);
 
@@ -1986,19 +1968,19 @@ body:has(.devConsole) {
     vertical-align: middle;
 }
 
-.devConsole__historyRow {
+.devConsole__table--history tbody tr.devConsole__historyRow {
 
     cursor: pointer;
 }
 
-.devConsole__historyRow:hover {
+.devConsole__table--history tbody tr.devConsole__historyRow:hover {
 
-    background: rgba(28, 115, 208, 0.06);
+    background: #eef5fc;
 }
 
-.devConsole__historyRow:focus-visible {
+.devConsole__table--history tbody tr.devConsole__historyRow:focus-visible {
 
-    outline: 2px solid #1c73d0;
+    outline: 2px solid var(--console-accent);
 
     outline-offset: -2px;
 }
@@ -2054,6 +2036,13 @@ body:has(.devConsole) {
     display: block;
 }
 
+.devConsole__downloadEmoji {
+
+    font-size: 14px;
+
+    line-height: 1;
+}
+
 .devConsole__lifecycleBadge {
 
     display: inline-block;
@@ -2071,7 +2060,8 @@ body:has(.devConsole) {
     border: 1px solid transparent;
 }
 
-/* R7.2 lifecycle badge palette */
+/* Legacy tone aliases (kept for any residual class usage) */
+.devConsole__lifecycleBadge--ok,
 .devConsole__lifecycleBadge--completed {
 
     color: #1f7a45;
@@ -2081,6 +2071,7 @@ body:has(.devConsole) {
     border-color: #b7e0c4;
 }
 
+.devConsole__lifecycleBadge--info,
 .devConsole__lifecycleBadge--cancelled {
 
     color: #1c73d0;
@@ -2092,22 +2083,24 @@ body:has(.devConsole) {
 
 .devConsole__lifecycleBadge--verifyCancelled {
 
-    color: #c05600;
+    color: #c05612;
 
     background: #fff4e8;
 
-    border-color: #f0c49a;
+    border-color: #f0c9a0;
 }
 
-.devConsole__lifecycleBadge--expired {
+.devConsole__lifecycleBadge--warn,
+.devConsole__lifecycleBadge--setupExpired {
 
-    color: #9a6700;
+    color: #8a6d00;
 
-    background: #fff7e6;
+    background: #fff9db;
 
-    border-color: #f0d9a8;
+    border-color: #ecd978;
 }
 
+.devConsole__lifecycleBadge--error,
 .devConsole__lifecycleBadge--failed {
 
     color: #b42318;
@@ -2121,58 +2114,13 @@ body:has(.devConsole) {
 
     color: #7a1210;
 
-    background: #f5d6d4;
+    background: #f8d7d5;
 
     border-color: #d0908c;
 }
 
+.devConsole__lifecycleBadge--muted,
 .devConsole__lifecycleBadge--unknown {
-
-    color: var(--console-muted);
-
-    background: #f3f4f6;
-
-    border-color: var(--console-border);
-}
-
-/* Legacy tones kept for any remaining consumers */
-.devConsole__lifecycleBadge--ok {
-
-    color: #1f7a45;
-
-    background: #e8f7ee;
-
-    border-color: #b7e0c4;
-}
-
-.devConsole__lifecycleBadge--warn {
-
-    color: #9a6700;
-
-    background: #fff7e6;
-
-    border-color: #f0d9a8;
-}
-
-.devConsole__lifecycleBadge--error {
-
-    color: #b42318;
-
-    background: #fdecec;
-
-    border-color: #f0b6b0;
-}
-
-.devConsole__lifecycleBadge--info {
-
-    color: #1c73d0;
-
-    background: #eaf3ff;
-
-    border-color: #b7d4f5;
-}
-
-.devConsole__lifecycleBadge--muted {
 
     color: var(--console-muted);
 
