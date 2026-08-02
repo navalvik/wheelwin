@@ -8,27 +8,45 @@ import {
 } from "../developerAuthApi";
 import { formatDurationMs, formatUptime, shortId } from "../formatters";
 import PanelShell from "./shared/PanelShell";
-import Toolbar, { FilterSelect } from "./shared/Toolbar";
+import { FilterSelect } from "./shared/Toolbar";
 import EmptyState from "./shared/EmptyState";
 import { KeyValueList } from "./shared/DataTable";
 
 const LIFECYCLE_OPTIONS = [
     { value: "all", label: "All results" },
     { value: "GAME_COMPLETED", label: "GAME_COMPLETED" },
+    { value: "GAME_CANCELLED", label: "GAME_CANCELLED" },
     { value: "SETUP_EXPIRED", label: "SETUP_EXPIRED" },
+    { value: "VERIFY_CANCELLED", label: "VERIFY_CANCELLED" },
     { value: "VERIFY_ABORTED", label: "VERIFY_ABORTED" },
     { value: "VERIFY_TIMEOUT", label: "VERIFY_TIMEOUT" },
     { value: "PAYMENT_TIMEOUT", label: "PAYMENT_TIMEOUT" },
     { value: "PAYMENT_FAILED", label: "PAYMENT_FAILED" },
+    { value: "WALLET_CONNECT_TIMEOUT", label: "WALLET_CONNECT_TIMEOUT" },
     { value: "TONCONNECT_TIMEOUT", label: "TONCONNECT_TIMEOUT" },
     { value: "TONCONNECT_FAILED", label: "TONCONNECT_FAILED" },
     { value: "ROOM_DESTROYED", label: "ROOM_DESTROYED" },
     { value: "RECOVERY_FAILED", label: "RECOVERY_FAILED" },
+    { value: "SERVER_ERROR", label: "SERVER_ERROR" },
     { value: "SERVER_ABORT", label: "SERVER_ABORT" },
     { value: "CLIENT_ABORT", label: "CLIENT_ABORT" },
     { value: "ADMIN_ABORT", label: "ADMIN_ABORT" },
+    { value: "UNKNOWN", label: "UNKNOWN" },
     { value: "UNKNOWN_FAILURE", label: "UNKNOWN_FAILURE" }
 ];
+
+const SORT_OPTIONS = [
+    { value: "newest", label: "Newest first" },
+    { value: "oldest", label: "Oldest first" },
+    { value: "duration", label: "Duration" },
+    { value: "result", label: "Lifecycle Result" }
+];
+
+function pad(value, size = 2) {
+
+    return String(value).padStart(size, "0");
+
+}
 
 function formatFinishTime(at) {
 
@@ -47,8 +65,6 @@ function formatFinishTime(at) {
             return "—";
 
         }
-
-        const pad = (value) => String(value).padStart(2, "0");
 
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
             + ` ${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -73,70 +89,115 @@ function formatGameId(gameId) {
 
 }
 
-function lifecycleBadgeTone(result) {
+function safeFilenameSegment(value) {
 
-    const value = String(result ?? "");
+    return String(value ?? "unknown").replace(/[^\w.-]+/g, "_");
 
-    if (value === "GAME_COMPLETED") {
+}
 
-        return "ok";
+function formatDownloadTimestamp(at = Date.now()) {
+
+    const date = new Date(at);
+
+    if (Number.isNaN(date.getTime())) {
+
+        return formatDownloadTimestamp(Date.now());
 
     }
 
-    if (value.includes("TIMEOUT") || value.includes("EXPIRED")) {
+    return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}`
+        + `-${pad(date.getUTCDate())}`
+        + `_${pad(date.getUTCHours())}-${pad(date.getUTCMinutes())}`
+        + `-${pad(date.getUTCSeconds())}`;
 
-        return "warn";
+}
+
+/**
+ * Client-side download filename:
+ * YYYY-MM-DD_HH-mm-ss_ROOM_<RoomID>_GAME_<GameID|NO_GAME>_<LifecycleResult>.json
+ * (NO_GAME when no game id — matches existing archive naming)
+ */
+function buildDownloadFilename(row) {
+
+    const stamp = formatDownloadTimestamp(row?.finishedAt ?? Date.now());
+    const room = safeFilenameSegment(row?.roomId);
+    const game = row?.gameId != null && row.gameId !== ""
+        ? `GAME_${safeFilenameSegment(row.gameId)}`
+        : "NO_GAME";
+    const result = safeFilenameSegment(row?.lifecycleResult ?? "UNKNOWN");
+
+    return `${stamp}_ROOM_${room}_${game}_${result}.json`;
+
+}
+
+/**
+ * Badge tone mapping — visual only; no gameplay logic.
+ */
+function lifecycleBadgeTone(result) {
+
+    const value = String(result ?? "UNKNOWN");
+
+    if (value === "GAME_COMPLETED") {
+
+        return "completed";
 
     }
 
     if (
-        value.includes("FAILED")
-        || value.includes("ABORT")
-        || value.includes("CANCELLED")
-        || value.includes("CANCELED")
+        value === "GAME_CANCELLED"
+        || value === "CLIENT_ABORT"
+        || value === "ADMIN_ABORT"
     ) {
 
-        return "error";
+        return "cancelled";
 
     }
 
-    if (value === "ROOM_DESTROYED" || value === "UNKNOWN_FAILURE") {
+    if (
+        value === "VERIFY_CANCELLED"
+        || value === "VERIFY_ABORTED"
+        || value === "VERIFY_TIMEOUT"
+    ) {
 
-        return "muted";
+        return "verifyCancelled";
 
     }
 
-    return "info";
+    if (value === "SETUP_EXPIRED") {
+
+        return "setupExpired";
+
+    }
+
+    if (
+        value === "PAYMENT_FAILED"
+        || value === "PAYMENT_TIMEOUT"
+        || value === "WALLET_CONNECT_TIMEOUT"
+        || value === "TONCONNECT_TIMEOUT"
+        || value === "TONCONNECT_FAILED"
+    ) {
+
+        return "failed";
+
+    }
+
+    if (
+        value === "SERVER_ERROR"
+        || value === "SERVER_ABORT"
+        || value === "RECOVERY_FAILED"
+    ) {
+
+        return "serverError";
+
+    }
+
+    return "unknown";
 
 }
 
 function isCompletedLifecycle(result) {
 
     return String(result ?? "") === "GAME_COMPLETED";
-
-}
-
-function DownloadIcon() {
-
-    return (
-
-        <svg
-            className="devConsole__downloadIcon"
-            viewBox="0 0 16 16"
-            width="14"
-            height="14"
-            aria-hidden="true"
-            focusable="false"
-        >
-
-            <path
-                fill="currentColor"
-                d="M8 1a.75.75 0 0 1 .75.75v6.69l2.22-2.22a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 0 1 1.06-1.06l2.22 2.22V1.75A.75.75 0 0 1 8 1Zm-5 10.25a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H3Z"
-            />
-
-        </svg>
-
-    );
 
 }
 
@@ -160,6 +221,28 @@ function formatClock(at) {
 
 }
 
+function hasActiveAdvancedFilters({
+    searchGame,
+    nickname,
+    wallet,
+    lifecycleResult,
+    sort,
+    dateFrom,
+    dateTo
+}) {
+
+    return Boolean(
+        searchGame.trim()
+        || nickname.trim()
+        || wallet.trim()
+        || dateFrom
+        || dateTo
+        || (lifecycleResult && lifecycleResult !== "all")
+        || (sort && sort !== "newest")
+    );
+
+}
+
 export default function HistoryPanel() {
 
     const { accessToken, authEnabled } = useDeveloperAuth();
@@ -173,6 +256,7 @@ export default function HistoryPanel() {
     const [sort, setSort] = useState("newest");
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
+    const [advancedOpen, setAdvancedOpen] = useState(false);
 
     const [list, setList] = useState(null);
     const [error, setError] = useState("");
@@ -290,25 +374,40 @@ export default function HistoryPanel() {
 
     const records = list?.records ?? [];
 
+    const filtersActive = hasActiveAdvancedFilters({
+        searchGame,
+        nickname,
+        wallet,
+        lifecycleResult,
+        sort,
+        dateFrom,
+        dateTo
+    }) || Boolean(searchRoom.trim());
+
     const summary = useMemo(() => {
 
         const completed = records.filter(
             (row) => isCompletedLifecycle(row.lifecycleResult)
         ).length;
+        const archived = list?.total ?? records.length;
 
         return {
-            total: list?.total ?? records.length,
+            archived,
             completed,
-            terminated: Math.max(0, records.length - completed)
+            interrupted: Math.max(0, records.length - completed)
         };
 
     }, [list, records]);
 
-    async function onDownload(sessionId) {
+    async function onDownload(row) {
 
         try {
 
-            await downloadSessionHistoryRecord(token, sessionId);
+            await downloadSessionHistoryRecord(
+                token,
+                row.sessionId,
+                buildDownloadFilename(row)
+            );
 
         } catch (err) {
 
@@ -332,7 +431,21 @@ export default function HistoryPanel() {
                             <button
                                 type="button"
                                 className="devConsole__button"
-                                onClick={() => onDownload(selectedId)}
+                                onClick={() => {
+
+                                    const row = records.find(
+                                        (item) => item.sessionId === selectedId
+                                    );
+
+                                    onDownload(row ?? {
+                                        sessionId: selectedId,
+                                        roomId: detail?.roomId,
+                                        gameId: detail?.gameId,
+                                        finishedAt: detail?.finishedAt,
+                                        lifecycleResult: detail?.lifecycleResult
+                                    });
+
+                                }}
                             >
 
                                 Download Log
@@ -543,7 +656,7 @@ export default function HistoryPanel() {
 
         <PanelShell
             title="History"
-            subtitle="Session lifecycle journal"
+            subtitle="Session Lifecycle Archive"
             actions={(
                 <button
                     type="button"
@@ -559,119 +672,178 @@ export default function HistoryPanel() {
 
             <div className="devConsole__historySummary" aria-live="polite">
 
-                <strong>
+                <div className="devConsole__historyStat">
 
-                    {loading
-                        ? "Loading…"
-                        : `${summary.total} archived session lifecycles`}
-
-                </strong>
-
-                {!loading && (
-
-                    <span>
-
-                        {summary.completed} completed
-                        {" · "}
-                        {summary.terminated} terminated
-
+                    <span className="devConsole__historyStatLabel">
+                        Archived Sessions
                     </span>
 
-                )}
+                    <strong className="devConsole__historyStatValue">
+
+                        {loading && !list ? "…" : summary.archived}
+
+                    </strong>
+
+                </div>
+
+                <div className="devConsole__historyStat">
+
+                    <span className="devConsole__historyStatLabel">
+                        Completed
+                    </span>
+
+                    <strong className="devConsole__historyStatValue">
+
+                        {loading && !list ? "…" : summary.completed}
+
+                    </strong>
+
+                </div>
+
+                <div className="devConsole__historyStat">
+
+                    <span className="devConsole__historyStatLabel">
+                        Interrupted
+                    </span>
+
+                    <strong className="devConsole__historyStatValue">
+
+                        {loading && !list ? "…" : summary.interrupted}
+
+                    </strong>
+
+                </div>
 
             </div>
 
-            <Toolbar
-                search={searchRoom}
-                onSearchChange={setSearchRoom}
-                searchPlaceholder="Filter Room ID…"
-            >
-
-                <FilterSelect
-                    label="Result"
-                    value={lifecycleResult}
-                    onChange={setLifecycleResult}
-                    options={LIFECYCLE_OPTIONS}
-                />
-
-                <FilterSelect
-                    label="Sort"
-                    value={sort}
-                    onChange={setSort}
-                    options={[
-                        { value: "newest", label: "Newest first" },
-                        { value: "oldest", label: "Oldest first" },
-                        { value: "duration", label: "Duration" },
-                        { value: "result", label: "Lifecycle Result" }
-                    ]}
-                />
-
-            </Toolbar>
-
-            <div className="devConsole__historyFilters">
+            <div className="devConsole__historyPrimaryFilter">
 
                 <label className="devConsole__filter">
 
-                    <span>Game ID</span>
+                    <span>Room ID</span>
 
                     <input
-                        type="text"
-                        value={searchGame}
-                        onChange={(event) => setSearchGame(event.target.value)}
-                        placeholder="Game ID"
+                        type="search"
+                        value={searchRoom}
+                        onChange={(event) => setSearchRoom(event.target.value)}
+                        placeholder="Filter by Room ID…"
                     />
 
                 </label>
 
-                <label className="devConsole__filter">
+            </div>
 
-                    <span>Nickname</span>
+            <div className="devConsole__historyAdvanced">
 
-                    <input
-                        type="text"
-                        value={nickname}
-                        onChange={(event) => setNickname(event.target.value)}
-                        placeholder="Player nickname"
-                    />
+                <button
+                    type="button"
+                    className="devConsole__historyAdvancedToggle"
+                    aria-expanded={advancedOpen}
+                    onClick={() => setAdvancedOpen((open) => !open)}
+                >
 
-                </label>
+                    <span
+                        className={
+                            "devConsole__historyAdvancedChevron"
+                            + (advancedOpen
+                                ? " devConsole__historyAdvancedChevron--open"
+                                : "")
+                        }
+                        aria-hidden="true"
+                    >
 
-                <label className="devConsole__filter">
+                        ▼
 
-                    <span>Wallet</span>
+                    </span>
 
-                    <input
-                        type="text"
-                        value={wallet}
-                        onChange={(event) => setWallet(event.target.value)}
-                        placeholder="Wallet address"
-                    />
+                    Advanced Filters
 
-                </label>
+                </button>
 
-                <label className="devConsole__filter">
+                {advancedOpen && (
 
-                    <span>From</span>
+                    <div className="devConsole__historyFilters">
 
-                    <input
-                        type="date"
-                        value={dateFrom}
-                        onChange={(event) => setDateFrom(event.target.value)}
-                    />
+                        <label className="devConsole__filter">
 
-                </label>
+                            <span>Game ID</span>
 
-                <label className="devConsole__filter">
+                            <input
+                                type="text"
+                                value={searchGame}
+                                onChange={(event) => setSearchGame(event.target.value)}
+                                placeholder="Game ID"
+                            />
 
-                    <span>To</span>
+                        </label>
 
-                    <input
-                        type="date"
-                        value={dateTo}
-                        onChange={(event) => setDateTo(event.target.value)}
-                    />
+                        <label className="devConsole__filter">
 
-                </label>
+                            <span>Nickname</span>
+
+                            <input
+                                type="text"
+                                value={nickname}
+                                onChange={(event) => setNickname(event.target.value)}
+                                placeholder="Player nickname"
+                            />
+
+                        </label>
+
+                        <label className="devConsole__filter">
+
+                            <span>Wallet</span>
+
+                            <input
+                                type="text"
+                                value={wallet}
+                                onChange={(event) => setWallet(event.target.value)}
+                                placeholder="Wallet address"
+                            />
+
+                        </label>
+
+                        <label className="devConsole__filter">
+
+                            <span>Date From</span>
+
+                            <input
+                                type="date"
+                                value={dateFrom}
+                                onChange={(event) => setDateFrom(event.target.value)}
+                            />
+
+                        </label>
+
+                        <label className="devConsole__filter">
+
+                            <span>Date To</span>
+
+                            <input
+                                type="date"
+                                value={dateTo}
+                                onChange={(event) => setDateTo(event.target.value)}
+                            />
+
+                        </label>
+
+                        <FilterSelect
+                            label="Lifecycle Result"
+                            value={lifecycleResult}
+                            onChange={setLifecycleResult}
+                            options={LIFECYCLE_OPTIONS}
+                        />
+
+                        <FilterSelect
+                            label="Sort"
+                            value={sort}
+                            onChange={setSort}
+                            options={SORT_OPTIONS}
+                        />
+
+                    </div>
+
+                )}
 
             </div>
 
@@ -681,12 +853,46 @@ export default function HistoryPanel() {
 
             )}
 
-            {records.length === 0 ? (
+            {records.length === 0 && !loading ? (
 
-                <EmptyState
-                    title="No archived sessions"
-                    detail="History is written once when a Session Lifecycle reaches a terminal state."
-                />
+                filtersActive ? (
+
+                    <EmptyState
+                        title="No matching sessions."
+                        detail="Try clearing Room ID or Advanced Filters."
+                    />
+
+                ) : (
+
+                    <div className="devConsole__historyEmpty">
+
+                        <p className="devConsole__emptyTitle">
+                            No archived sessions.
+                        </p>
+
+                        <p className="devConsole__emptyDetail">
+                            A session archive is automatically created whenever
+                            a Room Lifecycle reaches a terminal state.
+                        </p>
+
+                        <p className="devConsole__historyEmptyExamplesLabel">
+                            Examples:
+                        </p>
+
+                        <ul className="devConsole__historyEmptyExamples">
+
+                            <li>GAME_COMPLETED</li>
+                            <li>PAYMENT_FAILED</li>
+                            <li>VERIFY_CANCELLED</li>
+                            <li>SETUP_EXPIRED</li>
+                            <li>WALLET_CONNECT_TIMEOUT</li>
+                            <li>SERVER_ERROR</li>
+
+                        </ul>
+
+                    </div>
+
+                )
 
             ) : (
 
@@ -710,35 +916,49 @@ export default function HistoryPanel() {
 
                         <tbody>
 
-                            {records.map((row) => (
+                            {loading && records.length === 0 ? (
 
-                                <tr key={row.sessionId}>
+                                <tr>
+
+                                    <td colSpan={5} className="devConsole__historyLoadingCell">
+
+                                        Loading archived sessions…
+
+                                    </td>
+
+                                </tr>
+
+                            ) : records.map((row) => (
+
+                                <tr
+                                    key={row.sessionId}
+                                    className="devConsole__historyRow"
+                                    onClick={() => setSelectedId(row.sessionId)}
+                                    onKeyDown={(event) => {
+
+                                        if (event.key === "Enter" || event.key === " ") {
+
+                                            event.preventDefault();
+                                            setSelectedId(row.sessionId);
+
+                                        }
+
+                                    }}
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-label={
+                                        `Open session details for room ${row.roomId}`
+                                    }
+                                >
 
                                     <td>
 
-                                        <button
-                                            type="button"
-                                            className="devConsole__textButton"
-                                            onClick={() => setSelectedId(row.sessionId)}
-                                        >
-
-                                            {formatFinishTime(row.finishedAt)}
-
-                                        </button>
+                                        {formatFinishTime(row.finishedAt)}
 
                                     </td>
-                                    <td className="devConsole__mono">
+                                    <td className="devConsole__mono" title={row.roomId}>
 
-                                        <button
-                                            type="button"
-                                            className="devConsole__textButton"
-                                            onClick={() => setSelectedId(row.sessionId)}
-                                            title={row.roomId}
-                                        >
-
-                                            {row.roomId}
-
-                                        </button>
+                                        {row.roomId}
 
                                     </td>
                                     <td className="devConsole__mono">
@@ -757,7 +977,7 @@ export default function HistoryPanel() {
                                             }
                                         >
 
-                                            {row.lifecycleResult ?? "UNKNOWN_FAILURE"}
+                                            {row.lifecycleResult ?? "UNKNOWN"}
 
                                         </span>
 
@@ -768,11 +988,25 @@ export default function HistoryPanel() {
                                             type="button"
                                             className="devConsole__iconButton"
                                             title="Download diagnostic archive"
-                                            aria-label={`Download archive for room ${row.roomId}`}
-                                            onClick={() => onDownload(row.sessionId)}
+                                            aria-label={
+                                                `Download archive for room ${row.roomId}`
+                                            }
+                                            onClick={(event) => {
+
+                                                event.stopPropagation();
+                                                onDownload(row);
+
+                                            }}
                                         >
 
-                                            <DownloadIcon />
+                                            <span
+                                                className="devConsole__downloadEmoji"
+                                                aria-hidden="true"
+                                            >
+
+                                                📥
+
+                                            </span>
 
                                         </button>
 
