@@ -1705,9 +1705,8 @@ export default function Page4Payment({ onNavigate }) {
         recordAutopsyFinding
     ]);
 
-    // R6.11A/B — Capture SDK Universal Link from the same connector.connect()
-    // return value that @tonconnect/ui feeds into the QR (sourceUrl).
-    // Observation only: does not call connect, invent links, or alter handshake.
+    // R6.16E — Observe connector.connect only; return exact originalConnect
+    // result identity (no Promise wrap). Universal-link capture stays sync.
     useEffect(() => {
 
         const connector = tonConnectUI?.connector;
@@ -1727,6 +1726,8 @@ export default function Page4Payment({ onNavigate }) {
         connector.connect = (...args) => {
 
             const walletSource = summarizeConnectWalletSource(args[0]);
+
+            console.log("TONCONNECT_NATIVE_CONNECT_START");
 
             console.log("[TonConnect TRACE] connector.connect BEFORE", {
                 argsCount: args.length,
@@ -1775,7 +1776,7 @@ export default function Page4Payment({ onNavigate }) {
                     "[TonConnect AUTOPSY] connector.connect sync throw | any prior result/response:"
                 );
 
-                console.log(result ?? null);
+                console.log(null);
 
                 const dumped = dumpTonConnectError(
                     "connector.connect sync throw",
@@ -1803,7 +1804,16 @@ export default function Page4Payment({ onNavigate }) {
 
             }
 
-            const handleResolved = (resolved) => {
+            console.log(
+                "TONCONNECT_NATIVE_CONNECT_RETURNED",
+                result === null
+                    ? "null"
+                    : Array.isArray(result)
+                        ? "array"
+                        : typeof result
+            );
+
+            const observeResolved = (resolved) => {
 
                 const returnType = resolved === null
                     ? "null"
@@ -1893,71 +1903,79 @@ export default function Page4Payment({ onNavigate }) {
 
                 }
 
-                return resolved;
-
             };
 
+            // OBSERVE ONLY — never return .then() chain (new Promise identity).
             if (result != null && typeof result.then === "function") {
 
                 console.log(
-                    "[TonConnect TRACE] connector.connect returned Promise"
+                    "[TonConnect TRACE] connector.connect returned Promise (observe only)"
                 );
 
-                return result.then(handleResolved).catch((error) => {
+                result.then(
+                    (resolved) => {
 
-                    console.log(
-                        "[TonConnect AUTOPSY] connector.connect promise reject | SDK response before throw (if any):"
-                    );
+                        observeResolved(resolved);
 
-                    console.log(result);
+                    },
+                    (error) => {
 
-                    try {
+                        console.log(
+                            "[TonConnect AUTOPSY] connector.connect promise reject | SDK response before throw (if any):"
+                        );
 
-                        console.dir(result, { depth: null });
+                        console.log(result);
 
-                    } catch {
+                        try {
 
-                        // diagnostics only
+                            console.dir(result, { depth: null });
+
+                        } catch {
+
+                            // diagnostics only
+                        }
+
+                        const dumped = dumpTonConnectError(
+                            "connector.connect promise reject",
+                            error,
+                            { walletSource }
+                        );
+
+                        recordAutopsyFinding({
+                            sdkError: error,
+                            walletError: error?.payload
+                                ?? error?.data
+                                ?? error?.response
+                                ?? error?.details
+                                ?? null,
+                            rawObject: error,
+                            stackTrace: error?.stack ?? null,
+                            origin: dumped.origin,
+                            failureStep: "CONNECTOR_CONNECT_PROMISE_REJECT"
+                        });
+
+                        pushHandshakeTrace("CONNECTOR_CONNECT_PROMISE_REJECT", {
+                            message: error?.message ?? String(error),
+                            name: error?.name ?? null,
+                            code: error?.code ?? error?.errorCode ?? null
+                        });
+
+                        dumpHandshakeSummary("connector_connect_promise_reject");
+
                     }
+                );
 
-                    const dumped = dumpTonConnectError(
-                        "connector.connect promise reject",
-                        error,
-                        { walletSource }
-                    );
-
-                    recordAutopsyFinding({
-                        sdkError: error,
-                        walletError: error?.payload
-                            ?? error?.data
-                            ?? error?.response
-                            ?? error?.details
-                            ?? null,
-                        rawObject: error,
-                        stackTrace: error?.stack ?? null,
-                        origin: dumped.origin,
-                        failureStep: "CONNECTOR_CONNECT_PROMISE_REJECT"
-                    });
-
-                    pushHandshakeTrace("CONNECTOR_CONNECT_PROMISE_REJECT", {
-                        message: error?.message ?? String(error),
-                        name: error?.name ?? null,
-                        code: error?.code ?? error?.errorCode ?? null
-                    });
-
-                    dumpHandshakeSummary("connector_connect_promise_reject");
-
-                    throw error;
-
-                });
+                return result;
 
             }
 
-            return handleResolved(result);
+            observeResolved(result);
+
+            return result;
 
         };
 
-        console.log("[TonConnect TRACE] connector.connect wrap installed");
+        console.log("[TonConnect TRACE] connector.connect wrap installed (R6.16E identity pass-through)");
 
         return () => {
 
@@ -2164,6 +2182,7 @@ export default function Page4Payment({ onNavigate }) {
 
                 runAutopsyGuardedCallback("onStatusChange wallet callback", () => {
 
+                    console.log("TONCONNECT_STATUS_CHANGE");
                     console.log("================================================");
                     console.log("[TonConnect] onStatusChange");
                     console.log("[TonConnect TRACE] onStatusChange wallet dump");
