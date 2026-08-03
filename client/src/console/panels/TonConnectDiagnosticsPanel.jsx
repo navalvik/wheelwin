@@ -7,6 +7,7 @@ import {
 import { shortId } from "../formatters";
 import {
     downloadTonConnectDiagnostics,
+    downloadTonConnectAutopsy,
     formatDiagnosticTime,
     shortenWallet
 } from "../tonConnectDiagnosticExport";
@@ -179,11 +180,30 @@ export default function TonConnectDiagnosticsPanel() {
 
     }
 
+    function onExportAutopsy() {
+
+        downloadTonConnectAutopsy();
+
+    }
+
     if (!roomsIndex) {
 
         return (
 
-            <PanelShell title="TonConnect Diagnostics">
+            <PanelShell
+                title="TonConnect Diagnostics"
+                actions={(
+                    <button
+                        type="button"
+                        className="devConsole__button"
+                        onClick={onExportAutopsy}
+                    >
+
+                        Export TonConnect Autopsy
+
+                    </button>
+                )}
+            >
 
                 <EmptyState title="Waiting for rooms index" />
 
@@ -200,6 +220,17 @@ export default function TonConnectDiagnosticsPanel() {
             <PanelShell
                 title="TonConnect Diagnostics"
                 subtitle={`${filteredRooms.length} of ${rooms.length} rooms · select one room`}
+                actions={(
+                    <button
+                        type="button"
+                        className="devConsole__button"
+                        onClick={onExportAutopsy}
+                    >
+
+                        Export TonConnect Autopsy
+
+                    </button>
+                )}
             >
 
                 <Toolbar
@@ -284,15 +315,26 @@ export default function TonConnectDiagnosticsPanel() {
                 title="TonConnect Diagnostics"
                 subtitle={`Focused ${shortId(selectedRoomId, 16)}`}
                 actions={(
-                    <button
-                        type="button"
-                        className="devConsole__textButton"
-                        onClick={() => setFocus({ roomId: null, gameId: null })}
-                    >
+                    <>
+                        <button
+                            type="button"
+                            className="devConsole__button"
+                            onClick={onExportAutopsy}
+                        >
 
-                        Back to rooms
+                            Export TonConnect Autopsy
 
-                    </button>
+                        </button>
+                        <button
+                            type="button"
+                            className="devConsole__textButton"
+                            onClick={() => setFocus({ roomId: null, gameId: null })}
+                        >
+
+                            Back to rooms
+
+                        </button>
+                    </>
                 )}
             >
 
@@ -316,6 +358,15 @@ export default function TonConnectDiagnosticsPanel() {
                 subtitle={`Room ${shortId(selectedRoomId, 16)} · read-only`}
                 actions={(
                     <>
+                        <button
+                            type="button"
+                            className="devConsole__button"
+                            onClick={onExportAutopsy}
+                        >
+
+                            Export TonConnect Autopsy
+
+                        </button>
                         <button
                             type="button"
                             className="devConsole__button"
