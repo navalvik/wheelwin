@@ -25,6 +25,8 @@ import {
 
 import { resolveLocalPlayerId } from "../game/session";
 
+import { buildTonConnectPaymentTransaction } from "../payment/buildTonConnectPaymentTransaction";
+
 import { toSessionWalletAddress } from "../utils/tonWalletAddress";
 
 import socket from "../socket/socket";
@@ -602,32 +604,84 @@ export default function Page4Payment({ onNavigate }) {
                 ?? gameContract?.contractAddress
                 ?? null;
 
-            // Prefer official Telegram Wallet confirmation when a wallet session
-            // is connected. Stub deploy addresses may be rejected by the wallet;
-            // in that case Page4 confirmation still reports the user action.
-            if (tonWallet && contractAddress && tonConnectUI?.sendTransaction) {
+            const requiredGram = localPaymentRequest?.requiredGram ?? null;
 
-                try {
+            const paymentReference = localPaymentRequest?.paymentReference
+                ?? null;
 
-                    await tonConnectUI.sendTransaction({
-                        validUntil: Math.floor(Date.now() / 1000) + 600,
-                        messages: [
-                            {
-                                address: contractAddress,
-                                amount: "1"
-                            }
-                        ]
-                    });
+            if (!tonWallet || !tonConnectUI?.sendTransaction) {
 
-                } catch {
+                console.warn(
+                    "[Page4Payment] TonConnect wallet not ready for payment",
+                    {
+                        hasWallet: Boolean(tonWallet),
+                        hasSendTransaction: Boolean(
+                            tonConnectUI?.sendTransaction
+                        )
+                    }
+                );
 
-                    // Wallet rejected/cancelled the chain payload — fall through
-                    // to explicit intent reporting from this CONFIRM action only
-                    // when the user still wants to proceed via Page4 stub path.
-                }
+                setLocalError("Telegram Wallet is not connected.");
+
+                return;
 
             }
 
+            let transaction;
+
+            try {
+
+                transaction = buildTonConnectPaymentTransaction({
+                    contractAddress,
+                    requiredGram,
+                    paymentReference
+                });
+
+            } catch (error) {
+
+                console.error(
+                    "[Page4Payment] Failed to build TonConnect transaction",
+                    error
+                );
+
+                setLocalError(
+                    error?.message
+                        || "Unable to prepare payment transaction."
+                );
+
+                return;
+
+            }
+
+            console.log("[Page4Payment] TonConnect sendTransaction", {
+                contractAddress,
+                requiredGram,
+                paymentReference,
+                amount: transaction.messages?.[0]?.amount ?? null,
+                validUntil: transaction.validUntil
+            });
+
+            try {
+
+                await tonConnectUI.sendTransaction(transaction);
+
+            } catch (error) {
+
+                console.error(
+                    "[Page4Payment] TonConnect sendTransaction rejected",
+                    error
+                );
+
+                setLocalError(
+                    error?.message
+                        || "Wallet rejected or cancelled the payment request."
+                );
+
+                return;
+
+            }
+
+            // Emit only after wallet returned a successful sendTransaction result.
             socket.emit(LOBBY_OUTGOING_EVENTS.PAYMENT_CONFIRM_INTENT);
 
         } finally {
