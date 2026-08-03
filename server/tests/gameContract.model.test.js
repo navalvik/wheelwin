@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 
+import { Address } from "@ton/core";
+
 import {
     GAME_CONTRACT_STATUS,
     GameContract
 } from "../models/GameContract.js";
 
 import { buildGameContractSnapshot } from "../payment/buildGameContractSnapshot.js";
-import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
+import {
+    buildStubContractAddress,
+    GameContractDeployAdapter
+} from "../payment/GameContractDeployAdapter.js";
 
 {
     const contract = new GameContract({
@@ -95,7 +100,41 @@ import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.
 
     assert.equal(result.ok, true);
 
+    const parsed = Address.parseFriendly(result.contractAddress);
+
+    assert.equal(parsed.isBounceable, true);
+
+    assert.equal(parsed.isTestOnly, false);
+
     assert.ok(result.contractAddress.startsWith("EQ"));
+
+    assert.equal(
+        result.contractAddress,
+        buildStubContractAddress("contract_abc123", { testOnly: false })
+    );
+
+    assert.throws(
+        () => Address.parseFriendly(`EQ${"a".repeat(46)}`),
+        "legacy fake EQ+suffix must fail CRC validation"
+    );
+
+    const testnetAdapter = new GameContractDeployAdapter({
+        deployDelayMs: 0,
+        network: "testnet"
+    });
+
+    const testnetResult = await testnetAdapter.deploy({
+        contractId: "contract_abc123",
+        snapshot: { gameId: "g1", totalPot: 10 }
+    });
+
+    assert.equal(testnetResult.ok, true);
+
+    const testnetParsed = Address.parseFriendly(testnetResult.contractAddress);
+
+    assert.equal(testnetParsed.isTestOnly, true);
+
+    assert.ok(testnetResult.contractAddress.startsWith("kQ"));
 
     const failAdapter = new GameContractDeployAdapter({ shouldFail: true });
 

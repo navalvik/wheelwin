@@ -1,17 +1,64 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+
+import { Address } from "@ton/core";
 
 /**
  * P6.5 — Stub Game Smart Contract deployer.
  *
  * Prepares an authoritative deployment result from the immutable snapshot.
  * No real TON chain interaction in this stage; swap for a live SDK later.
+ *
+ * Stub addresses are CRC-valid user-friendly forms (@ton/core) so TonConnect
+ * accepts them; they are not on-chain deployments.
  */
+
+/**
+ * Deterministic stub escrow address from contractId hash.
+ * @param {string} contractId
+ * @param {{ testOnly?: boolean }} [options]
+ * @returns {string} bounceable url-safe friendly address
+ */
+export function buildStubContractAddress(contractId, { testOnly = false } = {}) {
+
+    const hash = createHash("sha256")
+        .update(`wheelwin:stub-escrow:${String(contractId)}`)
+        .digest();
+
+    const address = new Address(0, hash);
+
+    const friendly = address.toString({
+        bounceable: true,
+        urlSafe: true,
+        testOnly: testOnly === true
+    });
+
+    // Reject before PaymentSession / TonConnect if encoding is invalid.
+    Address.parseFriendly(friendly);
+
+    return friendly;
+
+}
+
+function resolveTestOnly({ network = null, testOnly = null } = {}) {
+
+    if (testOnly === true || testOnly === false) {
+
+        return testOnly;
+
+    }
+
+    return String(network ?? "").trim().toLowerCase() === "testnet";
+
+}
+
 export class GameContractDeployAdapter {
 
     constructor({
         logger = null,
         deployDelayMs = 0,
-        shouldFail = false
+        shouldFail = false,
+        network = null,
+        testOnly = null
     } = {}) {
 
         this._logger = logger;
@@ -21,6 +68,8 @@ export class GameContractDeployAdapter {
             : 0;
 
         this._shouldFail = shouldFail === true;
+
+        this._testOnly = resolveTestOnly({ network, testOnly });
 
     }
 
@@ -68,11 +117,27 @@ export class GameContractDeployAdapter {
 
         }
 
-        // Deterministic-looking stub address for this game escrow.
-        const suffix = String(contractId).replace(/[^a-zA-Z0-9]/g, "").slice(-32)
-            .padEnd(32, "0");
+        let contractAddress;
 
-        const contractAddress = `EQ${suffix}`;
+        try {
+
+            contractAddress = buildStubContractAddress(contractId, {
+                testOnly: this._testOnly
+            });
+
+        } catch (error) {
+
+            this._logger?.error?.(
+                `GameContract deploy stub address invalid | contractId=${contractId} | `
+                    + `${error?.message ?? error}`
+            );
+
+            return {
+                ok: false,
+                reason: "invalid_stub_address"
+            };
+
+        }
 
         const result = {
             ok: true,

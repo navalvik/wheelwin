@@ -1203,7 +1203,8 @@ class WheelWinApplication {
         const deployAdapter = this._tonConfig.deployMode === "stub"
             ? new GameContractDeployAdapter({
                 logger: this._logger,
-                deployDelayMs: this._productionConfig.isDevelopment ? 40 : 0
+                deployDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
+                network: this._tonConfig.network
             })
             : new TonGameContractAdapter({
                 logger: this._logger,
