@@ -99,6 +99,15 @@ export function mapPaymentSessionRows(paymentSession, playersById = {}) {
 
 }
 
+const CONFIRMABLE_PAYMENT_SESSION_STATUSES = new Set([
+    // Legacy P6.3 wire value
+    "ACTIVE",
+    // T2.7 lifecycle values (ACTIVE aliases WAITING_FOR_PAYMENTS server-side)
+    "WAITING_FOR_PAYMENTS",
+    "PARTIALLY_PAID",
+    "RECOVERED"
+]);
+
 export function canConfirmLocalPayment(paymentSession, localPlayerId) {
 
     if (!localPlayerId || !hasPaymentSession(paymentSession)) {
@@ -107,7 +116,10 @@ export function canConfirmLocalPayment(paymentSession, localPlayerId) {
 
     }
 
-    if (paymentSession.status && paymentSession.status !== "ACTIVE") {
+    if (
+        paymentSession.status
+        && !CONFIRMABLE_PAYMENT_SESSION_STATUSES.has(paymentSession.status)
+    ) {
 
         return false;
 

@@ -241,11 +241,19 @@ async function main() {
 
         const created = [];
 
+        const updated = [];
+
         const requests = [];
 
         eventBus.subscribe(EVENT_TYPES.PAYMENT_SESSION_CREATED, (envelope) => {
 
             created.push(envelope.payload);
+
+        });
+
+        eventBus.subscribe(EVENT_TYPES.PAYMENT_SESSION_UPDATED, (envelope) => {
+
+            updated.push(envelope.payload);
 
         });
 
@@ -263,11 +271,27 @@ async function main() {
 
         assert.equal(created.length, 1);
 
+        // R6.15 — CREATED alone is thin; UPDATED carries participants so
+        // GameContractManager can start deploy before contract address exists.
+        assert.equal(updated.length, 1);
+
+        assert.equal(updated[0].participants?.length, 3);
+
+        assert.ok(
+            updated[0].participants.every(
+                (participant) => (
+                    participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
+                )
+            )
+        );
+
         assert.equal(requests.length, 0);
 
         const session = manager.getSession("room-1");
 
         assert.ok(session);
+
+        assert.equal(session.status, PAYMENT_SESSION_STATUS.WAITING_FOR_PAYMENTS);
 
         manager.issueDeployedPaymentRequests("room-1", {
             contractAddress: friendlyAddress("deployed"),

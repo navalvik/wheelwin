@@ -397,6 +397,14 @@ export class PaymentSessionManager {
                     paymentDeadline: deadline
                 });
 
+            } else {
+
+                // P6.3/P6.5 — seats are PAYMENT_REQUESTED without a contract yet.
+                // GameContractManager listens only to PAYMENT_SESSION_UPDATED and
+                // starts deploy from that snapshot; without this emit the lobby
+                // flow never leaves CREATED (chicken-egg with activation).
+                this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
             }
 
             this._log(
