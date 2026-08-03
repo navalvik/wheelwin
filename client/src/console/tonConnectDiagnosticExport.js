@@ -1,5 +1,5 @@
 /**
- * R6.8 / R6.11C — Client-side read-only export of TonConnect diagnostics
+ * R6.8 / R6.11C / R6.11E — Client-side read-only export of TonConnect diagnostics
  * for the currently selected room (no backend mutation).
  */
 
@@ -57,10 +57,12 @@ export function downloadTonConnectDiagnostics({
 
 }
 
-/** R6.11C — download window.__TONCONNECT_AUTOPSY__ (or placeholder). */
-export function downloadTonConnectAutopsy() {
+/**
+ * R6.11E — download server autopsy from room diagnostics (not window object).
+ */
+export function downloadTonConnectAutopsy(serverAutopsy = null, meta = {}) {
 
-    return downloadTonConnectAutopsyJson();
+    return downloadTonConnectAutopsyJson(serverAutopsy, meta);
 
 }
 

@@ -173,6 +173,9 @@ export class RoomLobbyBridge {
         // R6.8 — Per-player diagnostic timestamps (roomId → Map(playerId → meta)).
         this._tonConnectPlayerMetaByRoom = new Map();
 
+        // R6.11E — Forensic TonConnect autopsy snapshots (roomId → store).
+        this._tonConnectAutopsyByRoom = new Map();
+
         // Secret Matrix submissions keyed by roomId → Map(playerId → cells).
         this._secretMatrixByRoom = new Map();
 
@@ -285,6 +288,22 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleWalletDisconnectReport(envelope.payload.socketId);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_TONCONNECT_AUTOPSY_SNAPSHOT_REQUEST,
+            (envelope) => {
+
+                this._handleTonConnectAutopsySnapshot(
+                    envelope.payload.socketId,
+                    envelope.payload.payload,
+                    {
+                        roomId: envelope.payload.roomId ?? null,
+                        playerId: envelope.payload.playerId ?? null
+                    }
+                );
 
             }
         );
@@ -629,6 +648,8 @@ export class RoomLobbyBridge {
         this._tonConnectEventsByRoom.clear();
 
         this._tonConnectPlayerMetaByRoom.clear();
+
+        this._tonConnectAutopsyByRoom.clear();
 
         this._secretMatrixByRoom.clear();
 
@@ -2911,6 +2932,21 @@ export class RoomLobbyBridge {
 
         this._tonConnectPlayerMetaByRoom.set(roomId, new Map());
 
+        this._tonConnectAutopsyByRoom.set(roomId, {
+            latest: null,
+            byPlayer: new Map()
+        });
+
+        console.log("[TonConnect TRACE] handshake transition", {
+            old: null,
+            next: "WAITING",
+            stage: "WAITING",
+            roomId,
+            reason: "WALLET_CONNECTION_SESSION_CREATED",
+            playerCount: session.players.length,
+            timestamp: Date.now()
+        });
+
         this._recordTonConnectEvent(roomId, {
             type: "WALLET_CONNECTION_SESSION_CREATED",
             playerId: null
@@ -3002,18 +3038,23 @@ export class RoomLobbyBridge {
 
     _handleWalletConnectStarted(socketId) {
 
-        // R6.3 TEMP DEBUG — remove after runtime trace
-        console.log("[R6.3 TRACE] _handleWalletConnectStarted", { socketId });
+        console.log("[TonConnect TRACE] _handleWalletConnectStarted", {
+            event: "WALLET_CONNECT_STARTED",
+            socketId,
+            timestamp: Date.now()
+        });
 
         const context = this._getSocketContext(socketId);
 
         if (!context) {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=no socket context",
-                { socketId }
-            );
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: null,
+                requested: "CONNECTING",
+                reason: "no_socket_context",
+                socketId,
+                timestamp: Date.now()
+            });
 
             return;
 
@@ -3021,13 +3062,26 @@ export class RoomLobbyBridge {
 
         const { playerId, roomId } = context;
 
+        console.log("[TonConnect TRACE] incoming wallet handler context", {
+            event: "WALLET_CONNECT_STARTED",
+            socketId,
+            playerId,
+            roomId,
+            payload: null,
+            timestamp: Date.now()
+        });
+
         if (!this._paymentStageReadyByRoom.has(roomId)) {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=not payment stage",
-                { roomId, playerId }
-            );
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: null,
+                requested: "CONNECTING",
+                reason: "not_payment_stage",
+                roomId,
+                playerId,
+                socketId,
+                timestamp: Date.now()
+            });
 
             return;
 
@@ -3037,32 +3091,53 @@ export class RoomLobbyBridge {
 
         if (!session) {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=no session",
-                { roomId, playerId }
-            );
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: null,
+                requested: "CONNECTING",
+                reason: "no_wallet_connection_session",
+                roomId,
+                playerId,
+                socketId,
+                timestamp: Date.now()
+            });
 
             return;
 
         }
+
+        const seat = session.findPlayer(playerId);
+
+        const oldStatus = seat?.status ?? null;
 
         if (!session.setConnecting(playerId)) {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=setConnecting failed",
-                { roomId, playerId }
-            );
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: oldStatus,
+                requested: "CONNECTING",
+                reason: !seat
+                    ? "no_seat"
+                    : session.paymentConnectionReady
+                        ? "payment_connection_already_ready"
+                        : "setConnecting_failed",
+                roomId,
+                playerId,
+                socketId,
+                paymentConnectionReady: session.paymentConnectionReady,
+                timestamp: Date.now()
+            });
 
             return;
 
         }
 
-        // R6.3 TEMP DEBUG — remove after runtime trace
-        console.log("[R6.3 TRACE] setConnecting OK → broadcasting", {
+        console.log("[TonConnect TRACE] handshake transition", {
+            old: oldStatus,
+            next: "CONNECTING",
+            stage: "CONNECTING",
             roomId,
-            playerId
+            playerId,
+            socketId,
+            timestamp: Date.now()
         });
 
         this._touchTonConnectPlayerMeta(roomId, playerId, {
@@ -3085,11 +3160,14 @@ export class RoomLobbyBridge {
 
         if (!context) {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=no socket context",
-                { socketId, rawConnectedWallet }
-            );
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: null,
+                requested: "CONNECTED",
+                reason: "no_socket_context",
+                socketId,
+                payload: { connectedWallet: rawConnectedWallet },
+                timestamp: Date.now()
+            });
 
             return;
 
@@ -3097,13 +3175,26 @@ export class RoomLobbyBridge {
 
         const { playerId, roomId } = context;
 
+        console.log("[TonConnect TRACE] incoming wallet handler context", {
+            event: "WALLET_CONNECT_REPORT",
+            socketId,
+            playerId,
+            roomId,
+            payload: { connectedWallet: rawConnectedWallet },
+            timestamp: Date.now()
+        });
+
         if (!this._paymentStageReadyByRoom.has(roomId)) {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=not payment stage",
-                { roomId, playerId, rawConnectedWallet }
-            );
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: null,
+                requested: "CONNECTED",
+                reason: "not_payment_stage",
+                roomId,
+                playerId,
+                socketId,
+                timestamp: Date.now()
+            });
 
             return;
 
@@ -3113,15 +3204,23 @@ export class RoomLobbyBridge {
 
         if (!session) {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=no session",
-                { roomId, playerId, rawConnectedWallet }
-            );
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: null,
+                requested: "CONNECTED",
+                reason: "no_wallet_connection_session",
+                roomId,
+                playerId,
+                socketId,
+                timestamp: Date.now()
+            });
 
             return;
 
         }
+
+        const seat = session.findPlayer(playerId);
+
+        const oldStatus = seat?.status ?? null;
 
         const sessionWallet = this._sessionWalletStore.getWallet(
             roomId,
@@ -3130,22 +3229,29 @@ export class RoomLobbyBridge {
 
         const connectedWallet = canonicalizeTonWalletAddress(rawConnectedWallet);
 
-        // R6.3 TEMP DEBUG — remove after runtime trace
-        console.log("[R6.3 TRACE] _handleWalletConnectReport", {
+        console.log("[TonConnect TRACE] _handleWalletConnectReport", {
             roomId,
             playerId,
+            socketId,
+            oldStatus,
             sessionWallet,
             rawConnectedWallet,
-            canonicalConnectedWallet: connectedWallet
+            canonicalConnectedWallet: connectedWallet,
+            timestamp: Date.now()
         });
 
         if (!connectedWallet) {
 
-            // R6.3 TRACE — canonicalize failed; existing mismatch path
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=connectedWallet == null after canonicalize",
-                { roomId, playerId, rawConnectedWallet }
-            );
+            console.log("[TonConnect TRACE] handshake transition", {
+                old: oldStatus,
+                next: "ADDRESS_MISMATCH",
+                stage: "ADDRESS_MISMATCH",
+                reason: "connectedWallet_null_after_canonicalize",
+                roomId,
+                playerId,
+                socketId,
+                timestamp: Date.now()
+            });
 
             session.setAddressMismatch(playerId, null);
 
@@ -3169,11 +3275,18 @@ export class RoomLobbyBridge {
 
         if (!sessionWalletsMatch(sessionWallet, connectedWallet)) {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=sessionWalletsMatch == false",
-                { roomId, playerId, sessionWallet, connectedWallet }
-            );
+            console.log("[TonConnect TRACE] handshake transition", {
+                old: oldStatus,
+                next: "ADDRESS_MISMATCH",
+                stage: "ADDRESS_MISMATCH",
+                reason: "session_wallet_mismatch",
+                roomId,
+                playerId,
+                socketId,
+                sessionWallet,
+                connectedWallet,
+                timestamp: Date.now()
+            });
 
             session.setAddressMismatch(playerId, connectedWallet);
 
@@ -3198,11 +3311,15 @@ export class RoomLobbyBridge {
 
         }
 
-        // R6.3 TEMP DEBUG — remove after runtime trace
-        console.log("[R6.3 TRACE] SETTING CONNECTED", {
+        console.log("[TonConnect TRACE] handshake transition", {
+            old: oldStatus,
+            next: "CONNECTED",
+            stage: "CONNECTED",
             roomId,
             playerId,
-            connectedWallet
+            socketId,
+            connectedWallet,
+            timestamp: Date.now()
         });
 
         session.setConnected(playerId, connectedWallet);
@@ -3223,23 +3340,28 @@ export class RoomLobbyBridge {
             playerId
         });
 
-        // R6.3 TEMP DEBUG — remove after runtime trace
-        console.log("[R6.3 TRACE] after setConnected", {
+        console.log("[TonConnect TRACE] after setConnected", {
             session: session.toSnapshot(),
             allPlayerStatuses: session.players.map((p) => ({
                 playerId: p.playerId,
                 status: p.status
             })),
-            paymentConnectionReady: session.paymentConnectionReady
+            paymentConnectionReady: session.paymentConnectionReady,
+            timestamp: Date.now()
         });
 
         this._broadcastWalletConnectionSession(roomId);
 
         if (session.paymentConnectionReady) {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log("[R6.3 TRACE] PAYMENT_CONNECTION_READY EMITTED", {
-                roomId
+            console.log("[TonConnect TRACE] handshake transition", {
+                old: "CONNECTED",
+                next: "PAYMENT_READY",
+                stage: "PAYMENT_READY",
+                roomId,
+                playerId,
+                socketId,
+                timestamp: Date.now()
             });
 
             this._recordTonConnectEvent(roomId, {
@@ -3251,17 +3373,16 @@ export class RoomLobbyBridge {
 
         } else {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log(
-                "[R6.3 TRACE] EARLY RETURN | reason=paymentConnectionReady == false (not all CONNECTED)",
-                {
-                    roomId,
-                    allPlayerStatuses: session.players.map((p) => ({
-                        playerId: p.playerId,
-                        status: p.status
-                    }))
-                }
-            );
+            console.log("[TonConnect TRACE] PAYMENT_READY not reached", {
+                reason: "not_all_players_CONNECTED",
+                roomId,
+                playerId,
+                allPlayerStatuses: session.players.map((p) => ({
+                    playerId: p.playerId,
+                    status: p.status
+                })),
+                timestamp: Date.now()
+            });
 
         }
 
@@ -3273,25 +3394,77 @@ export class RoomLobbyBridge {
 
         if (!context) {
 
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: null,
+                requested: "WAITING",
+                reason: "no_socket_context",
+                socketId,
+                timestamp: Date.now()
+            });
+
             return;
 
         }
 
         const { playerId, roomId } = context;
 
+        console.log("[TonConnect TRACE] incoming wallet handler context", {
+            event: "WALLET_DISCONNECT_REPORT",
+            socketId,
+            playerId,
+            roomId,
+            payload: null,
+            timestamp: Date.now()
+        });
+
         const session = this._walletConnectionByRoom.get(roomId);
 
         if (!session) {
 
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: null,
+                requested: "WAITING",
+                reason: "no_wallet_connection_session",
+                roomId,
+                playerId,
+                socketId,
+                timestamp: Date.now()
+            });
+
             return;
 
         }
+
+        const seat = session.findPlayer(playerId);
+
+        const oldStatus = seat?.status ?? null;
 
         if (!session.setWaiting(playerId)) {
 
+            console.log("[TonConnect TRACE] handshake transition REJECTED", {
+                old: oldStatus,
+                requested: "WAITING",
+                reason: !seat ? "no_seat" : "setWaiting_failed",
+                roomId,
+                playerId,
+                socketId,
+                timestamp: Date.now()
+            });
+
             return;
 
         }
+
+        console.log("[TonConnect TRACE] handshake transition", {
+            old: oldStatus,
+            next: "WAITING",
+            stage: "WAITING",
+            reason: "DISCONNECTED",
+            roomId,
+            playerId,
+            socketId,
+            timestamp: Date.now()
+        });
 
         this._touchTonConnectPlayerMeta(roomId, playerId, {
             lastStatusChangeAt: Date.now(),
@@ -3460,7 +3633,189 @@ export class RoomLobbyBridge {
             players: Object.freeze(seats),
             events: Object.freeze(events.map((event) => Object.freeze({
                 ...event
-            })))
+            }))),
+            autopsy: this._projectTonConnectAutopsy(roomId)
+        });
+
+    }
+
+    /**
+     * R6.11E — Project latest forensic autopsy into tonConnect diagnostics.
+     */
+    _projectTonConnectAutopsy(roomId) {
+
+        const store = this._tonConnectAutopsyByRoom.get(roomId);
+
+        if (!store?.latest) {
+
+            return null;
+
+        }
+
+        const latest = store.latest;
+        const byPlayer = {};
+
+        if (store.byPlayer instanceof Map) {
+
+            for (const [playerId, entry] of store.byPlayer.entries()) {
+
+                byPlayer[playerId] = Object.freeze({
+                    ...(entry.autopsy ?? {}),
+                    roomId: entry.roomId ?? roomId,
+                    playerId: entry.playerId ?? playerId,
+                    sessionId: entry.sessionId ?? null,
+                    attemptId: entry.attemptId ?? null,
+                    startedAt: entry.startedAt ?? null,
+                    capturedAt: entry.capturedAt ?? null,
+                    receivedAt: entry.receivedAt ?? null,
+                    flushReason: entry.flushReason ?? null
+                });
+
+            }
+
+        }
+
+        return Object.freeze({
+            ...latest.autopsy,
+            roomId: latest.roomId ?? roomId,
+            playerId: latest.playerId ?? null,
+            sessionId: latest.sessionId ?? null,
+            attemptId: latest.attemptId ?? null,
+            startedAt: latest.startedAt ?? null,
+            capturedAt: latest.capturedAt ?? null,
+            receivedAt: latest.receivedAt ?? null,
+            flushReason: latest.flushReason ?? null,
+            byPlayer: Object.freeze(byPlayer)
+        });
+
+    }
+
+    /**
+     * R6.11E — Ingest forensic autopsy snapshot (socket or HTTP beacon).
+     * Does not mutate wallet handshake / payment state.
+     */
+    ingestTonConnectAutopsySnapshot(rawPayload = {}, hints = {}) {
+
+        const payload = rawPayload && typeof rawPayload === "object"
+            ? rawPayload
+            : {};
+
+        const autopsyIn = payload.autopsy && typeof payload.autopsy === "object"
+            ? payload.autopsy
+            : payload;
+
+        const roomId = hints.roomId
+            ?? payload.roomId
+            ?? null;
+
+        if (!roomId) {
+
+            return false;
+
+        }
+
+        const playerId = hints.playerId
+            ?? payload.playerId
+            ?? null;
+
+        const playerKey = playerId != null ? String(playerId) : "_unknown";
+
+        const normalizedAutopsy = Object.freeze({
+            lastSuccessfulStep: autopsyIn.lastSuccessfulStep ?? null,
+            failureStep: autopsyIn.failureStep ?? null,
+            timeline: Object.freeze(
+                Array.isArray(autopsyIn.timeline)
+                    ? autopsyIn.timeline.slice(-120)
+                    : []
+            ),
+            sdkErrors: Object.freeze(
+                Array.isArray(autopsyIn.sdkErrors)
+                    ? autopsyIn.sdkErrors.slice(-40)
+                    : []
+            ),
+            walletEvents: Object.freeze(
+                Array.isArray(autopsyIn.walletEvents)
+                    ? autopsyIn.walletEvents.slice(-40)
+                    : []
+            ),
+            browserErrors: Object.freeze(
+                Array.isArray(autopsyIn.browserErrors)
+                    ? autopsyIn.browserErrors.slice(-40)
+                    : []
+            ),
+            rawObjects: Object.freeze(
+                Array.isArray(autopsyIn.rawObjects)
+                    ? autopsyIn.rawObjects.slice(-40)
+                    : []
+            )
+        });
+
+        const entry = Object.freeze({
+            roomId: String(roomId),
+            playerId: playerId != null ? String(playerId) : null,
+            sessionId: payload.sessionId ?? null,
+            attemptId: payload.attemptId ?? null,
+            startedAt: payload.startedAt ?? null,
+            capturedAt: payload.capturedAt ?? null,
+            flushReason: payload.flushReason ?? null,
+            receivedAt: new Date().toISOString(),
+            autopsy: normalizedAutopsy
+        });
+
+        let store = this._tonConnectAutopsyByRoom.get(roomId);
+
+        if (!store) {
+
+            store = {
+                latest: null,
+                byPlayer: new Map()
+            };
+            this._tonConnectAutopsyByRoom.set(roomId, store);
+
+        }
+
+        store.byPlayer.set(playerKey, entry);
+        store.latest = entry;
+
+        this._recordTonConnectEvent(roomId, {
+            type: "TONCONNECT_AUTOPSY_SNAPSHOT",
+            playerId: entry.playerId,
+            detail: Object.freeze({
+                sessionId: entry.sessionId,
+                failureStep: normalizedAutopsy.failureStep,
+                lastSuccessfulStep: normalizedAutopsy.lastSuccessfulStep,
+                timelineCount: normalizedAutopsy.timeline.length,
+                flushReason: entry.flushReason
+            })
+        });
+
+        return true;
+
+    }
+
+    _handleTonConnectAutopsySnapshot(socketId, payload, hints = {}) {
+
+        const context = this._getSocketContext(socketId);
+
+        const roomId = context?.roomId
+            ?? hints.roomId
+            ?? payload?.roomId
+            ?? null;
+
+        const playerId = context?.playerId
+            ?? hints.playerId
+            ?? payload?.playerId
+            ?? null;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this.ingestTonConnectAutopsySnapshot(payload, {
+            roomId,
+            playerId
         });
 
     }
@@ -3531,15 +3886,36 @@ export class RoomLobbyBridge {
 
         }
 
+        const snapshot = session.toSnapshot();
+
+        console.log("[TonConnect TRACE] broadcast WALLET_CONNECTION_SESSION_UPDATED", {
+            roomId,
+            paymentConnectionReady: snapshot.paymentConnectionReady,
+            players: snapshot.players.map((p) => ({
+                playerId: p.playerId,
+                status: p.status
+            })),
+            timestamp: Date.now()
+        });
+
         this._deliverToRoom(
             roomId,
             LOBBY_SERVER_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
-            session.toSnapshot()
+            snapshot
         );
 
     }
 
     _deliverPaymentConnectionReady(roomId) {
+
+        console.log("[TonConnect TRACE] handshake transition", {
+            old: "CONNECTED",
+            next: "PAYMENT_READY",
+            stage: "PAYMENT_READY",
+            reason: "deliver_PAYMENT_CONNECTION_READY",
+            roomId,
+            timestamp: Date.now()
+        });
 
         this._eventBus.emit({
             source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
@@ -4170,6 +4546,8 @@ export class RoomLobbyBridge {
         this._tonConnectEventsByRoom.delete(roomId);
 
         this._tonConnectPlayerMetaByRoom.delete(roomId);
+
+        this._tonConnectAutopsyByRoom.delete(roomId);
 
         this._paymentSessionManager?.destroySession(roomId);
 

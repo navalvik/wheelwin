@@ -1,12 +1,30 @@
 /**
- * R6.11C — TonConnect client forensic capture store.
+ * R6.11C / R6.11E — TonConnect client forensic capture store.
  *
  * Diagnostics only. Persists handshake timeline / errors / wallet events into
- * `window.__TONCONNECT_AUTOPSY__` for Developer Console export.
- * Does not alter TonConnect flow, server logic, or game state.
+ * `window.__TONCONNECT_AUTOPSY__` and debounced snapshots to the server room
+ * diagnostic (`tonConnect.autopsy`) via TONCONNECT_AUTOPSY_SNAPSHOT.
+ * Does not alter TonConnect flow, server game logic, or payment state.
  */
 
 const AUTOPSY_KEY = "__TONCONNECT_AUTOPSY__";
+
+/** R6.11E — debounce forensic socket / beacon snapshots. */
+const AUTOPSY_SNAPSHOT_DEBOUNCE_MS = 200;
+
+const AUTOPSY_SNAPSHOT_EVENT = "TONCONNECT_AUTOPSY_SNAPSHOT";
+
+const AUTOPSY_BEACON_PATH = "/api/diagnostics/tonconnect-autopsy";
+
+/** @type {{ emit: Function|null, getMeta: Function|null, beaconUrl: string|null, unloadInstalled: boolean }} */
+const autopsyTransport = {
+    emit: null,
+    getMeta: null,
+    beaconUrl: null,
+    unloadInstalled: false
+};
+
+let autopsySnapshotTimer = null;
 
 const ERROR_PROPERTY_CANDIDATES = Object.freeze([
     "name",
@@ -576,6 +594,8 @@ export function beginTonConnectAutopsySession(meta = {}) {
 
     }
 
+    scheduleAutopsySnapshotPersist();
+
     return next;
 
 }
@@ -628,6 +648,8 @@ export function pushAutopsyTimeline({
 
     }
 
+    scheduleAutopsySnapshotPersist();
+
     return entry;
 
 }
@@ -677,6 +699,8 @@ export function pushAutopsyWalletEvent({
 
     store.walletEvents.push(entry);
 
+    scheduleAutopsySnapshotPersist();
+
     return entry;
 
 }
@@ -716,6 +740,8 @@ export function pushAutopsyBrowserError({
 
     store.browserErrors.push(entry);
 
+    scheduleAutopsySnapshotPersist();
+
     return entry;
 
 }
@@ -752,6 +778,8 @@ export function pushAutopsyRawObject({ kind = "raw", label = null, value = null 
 
     }
 
+    scheduleAutopsySnapshotPersist();
+
     return entry;
 
 }
@@ -765,6 +793,8 @@ export function setAutopsyFailureStep(step) {
         store.failureStep = step;
 
     }
+
+    scheduleAutopsySnapshotPersist();
 
     return store;
 
@@ -800,9 +830,240 @@ export function syncAutopsyFromReport(report = {}) {
             }
         });
 
+    } else {
+
+        scheduleAutopsySnapshotPersist();
+
     }
 
     return store;
+
+}
+
+function sliceTail(list, max) {
+
+    if (!Array.isArray(list)) {
+
+        return [];
+
+    }
+
+    if (list.length <= max) {
+
+        return list;
+
+    }
+
+    return list.slice(list.length - max);
+
+}
+
+/**
+ * Build forensic payload for server room diagnostics (R6.11E).
+ */
+export function buildAutopsyPersistPayload() {
+
+    const store = getTonConnectAutopsy();
+
+    if (!store) {
+
+        return null;
+
+    }
+
+    const meta = typeof autopsyTransport.getMeta === "function"
+        ? (autopsyTransport.getMeta() ?? {})
+        : {};
+
+    return {
+        roomId: meta.roomId ?? store.roomId ?? null,
+        playerId: meta.playerId ?? store.playerId ?? null,
+        sessionId: store.sessionId ?? null,
+        attemptId: store.attemptId ?? null,
+        startedAt: store.startedAt ?? null,
+        capturedAt: new Date().toISOString(),
+        autopsy: {
+            lastSuccessfulStep: store.lastSuccessfulStep ?? null,
+            failureStep: store.failureStep ?? null,
+            timeline: sliceTail(store.timeline, 120),
+            sdkErrors: sliceTail(store.sdkErrors, 40),
+            walletEvents: sliceTail(store.walletEvents, 40),
+            browserErrors: sliceTail(store.browserErrors, 40),
+            rawObjects: sliceTail(store.rawObjects, 40)
+        }
+    };
+
+}
+
+function emitAutopsySnapshotViaSocket(payload) {
+
+    if (typeof autopsyTransport.emit !== "function" || !payload) {
+
+        return false;
+
+    }
+
+    try {
+
+        autopsyTransport.emit(AUTOPSY_SNAPSHOT_EVENT, payload);
+
+        return true;
+
+    } catch {
+
+        return false;
+
+    }
+
+}
+
+function emitAutopsySnapshotViaBeacon(payload) {
+
+    if (!payload || typeof navigator === "undefined") {
+
+        return false;
+
+    }
+
+    if (typeof navigator.sendBeacon !== "function") {
+
+        return false;
+
+    }
+
+    const url = autopsyTransport.beaconUrl;
+
+    if (!url) {
+
+        return false;
+
+    }
+
+    try {
+
+        const body = safeJsonStringifyForAutopsy(payload);
+        // text/plain avoids CORS preflight so sendBeacon works cross-origin.
+        const blob = new Blob([body], { type: "text/plain;charset=UTF-8" });
+
+        return navigator.sendBeacon(url, blob) === true;
+
+    } catch {
+
+        return false;
+
+    }
+
+}
+
+/**
+ * Debounced persist of window autopsy → server room diagnostics.
+ */
+export function scheduleAutopsySnapshotPersist() {
+
+    if (typeof window === "undefined") {
+
+        return;
+
+    }
+
+    if (autopsySnapshotTimer != null) {
+
+        clearTimeout(autopsySnapshotTimer);
+
+    }
+
+    autopsySnapshotTimer = setTimeout(() => {
+
+        autopsySnapshotTimer = null;
+
+        const payload = buildAutopsyPersistPayload();
+
+        if (!payload?.roomId) {
+
+            return;
+
+        }
+
+        emitAutopsySnapshotViaSocket(payload);
+
+    }, AUTOPSY_SNAPSHOT_DEBOUNCE_MS);
+
+}
+
+/**
+ * Immediate flush (pagehide / beforeunload). Prefer sendBeacon, else sync emit.
+ */
+export function flushAutopsySnapshotPersist(reason = "unload") {
+
+    if (autopsySnapshotTimer != null) {
+
+        clearTimeout(autopsySnapshotTimer);
+        autopsySnapshotTimer = null;
+
+    }
+
+    const payload = buildAutopsyPersistPayload();
+
+    if (!payload?.roomId) {
+
+        return false;
+
+    }
+
+    payload.flushReason = reason;
+
+    if (emitAutopsySnapshotViaBeacon(payload)) {
+
+        return true;
+
+    }
+
+    return emitAutopsySnapshotViaSocket(payload);
+
+}
+
+function onAutopsyUnloadFlush() {
+
+    flushAutopsySnapshotPersist("pagehide_beforeunload");
+
+}
+
+/**
+ * Wire socket emit + optional HTTP beacon URL for forensic snapshots.
+ * Call from Page4 when room/player context is known.
+ */
+export function configureAutopsySnapshotTransport({
+    emit = null,
+    getMeta = null,
+    beaconUrl = null
+} = {}) {
+
+    autopsyTransport.emit = typeof emit === "function" ? emit : null;
+    autopsyTransport.getMeta = typeof getMeta === "function" ? getMeta : null;
+    autopsyTransport.beaconUrl = typeof beaconUrl === "string" && beaconUrl
+        ? beaconUrl
+        : null;
+
+    if (typeof window !== "undefined" && !autopsyTransport.unloadInstalled) {
+
+        autopsyTransport.unloadInstalled = true;
+
+        window.addEventListener("pagehide", onAutopsyUnloadFlush);
+        window.addEventListener("beforeunload", onAutopsyUnloadFlush);
+
+    }
+
+}
+
+export function getAutopsySnapshotEventName() {
+
+    return AUTOPSY_SNAPSHOT_EVENT;
+
+}
+
+export function getAutopsyBeaconPath() {
+
+    return AUTOPSY_BEACON_PATH;
 
 }
 
@@ -834,7 +1095,11 @@ export function getTonConnectAutopsyOrPlaceholder() {
 
 }
 
-export function downloadTonConnectAutopsyJson() {
+/**
+ * R6.11E — download server-persisted autopsy from room diagnostics.
+ * Falls back to a placeholder when the room has no autopsy yet.
+ */
+export function downloadTonConnectAutopsyJson(serverAutopsy = null, meta = {}) {
 
     if (typeof document === "undefined") {
 
@@ -842,16 +1107,39 @@ export function downloadTonConnectAutopsyJson() {
 
     }
 
-    const payload = getTonConnectAutopsyOrPlaceholder();
+    const hasServer = serverAutopsy != null
+        && typeof serverAutopsy === "object";
+
+    const payload = hasServer
+        ? serverAutopsy
+        : {
+            lastSuccessfulStep: null,
+            failureStep: null,
+            timeline: [],
+            sdkErrors: [],
+            walletEvents: [],
+            browserErrors: [],
+            rawObjects: [],
+            note: "No server TonConnect autopsy for this room yet. "
+                + "Connect a wallet on Page4 so TONCONNECT_AUTOPSY_SNAPSHOT "
+                + "can persist into room diagnostics."
+        };
+
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const session = payload.sessionId
         ? String(payload.sessionId).slice(0, 24)
-        : "none";
-    const filename = `tonconnect_autopsy_${session}_${stamp}.json`;
+        : (payload.playerId ? String(payload.playerId).slice(0, 12) : "none");
+    const room = meta.roomId
+        ? String(meta.roomId).slice(0, 16)
+        : (payload.roomId ? String(payload.roomId).slice(0, 16) : "room");
+    const filename = `tonconnect_autopsy_${room}_${session}_${stamp}.json`;
 
     const envelope = {
         exportedAt: new Date().toISOString(),
-        source: "window.__TONCONNECT_AUTOPSY__",
+        source: hasServer
+            ? "roomDiagnostics.tonConnect.autopsy"
+            : "roomDiagnostics.tonConnect.autopsy (empty)",
+        roomId: meta.roomId ?? payload.roomId ?? null,
         autopsy: payload
     };
 
@@ -876,6 +1164,9 @@ export function downloadTonConnectAutopsyJson() {
 
 export {
     AUTOPSY_KEY,
+    AUTOPSY_SNAPSHOT_DEBOUNCE_MS,
+    AUTOPSY_SNAPSHOT_EVENT,
+    AUTOPSY_BEACON_PATH,
     ERROR_PROPERTY_CANDIDATES,
     FAILURE_STEPS
 };

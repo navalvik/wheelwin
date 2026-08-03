@@ -30,8 +30,10 @@ import { buildTonConnectPaymentTransaction } from "../payment/buildTonConnectPay
 import {
     beginTonConnectAutopsySession,
     classifyTonConnectErrorOrigin,
+    configureAutopsySnapshotTransport,
     ensureTonConnectAutopsy,
     ERROR_PROPERTY_CANDIDATES as TONCONNECT_ERROR_PROPERTY_CANDIDATES,
+    getAutopsyBeaconPath,
     isTonConnectFailureStep,
     pushAutopsyBrowserError,
     pushAutopsyRawObject,
@@ -47,6 +49,8 @@ import { toSessionWalletAddress } from "../utils/tonWalletAddress";
 import socket from "../socket/socket";
 
 import { LOBBY_OUTGOING_EVENTS } from "../socket/socketEvents";
+
+import { resolveBackendUrl } from "../config/backendUrl.js";
 
 import "../styles/page4payment.css";
 
@@ -784,6 +788,35 @@ export default function Page4Payment({ onNavigate }) {
         () => getLocalPaymentRequest(paymentSession, localPlayerId),
         [paymentSession, localPlayerId]
     );
+
+    // R6.11E — wire forensic autopsy snapshots to server room diagnostics
+    useEffect(() => {
+
+        const backendUrl = resolveBackendUrl();
+        const beaconPath = getAutopsyBeaconPath();
+
+        configureAutopsySnapshotTransport({
+            emit: (event, payload) => {
+
+                if (payload === undefined) {
+
+                    socket.emit(event);
+
+                } else {
+
+                    socket.emit(event, payload);
+
+                }
+
+            },
+            getMeta: () => ({
+                roomId: authoritative.roomId ?? null,
+                playerId: localPlayerId
+            }),
+            beaconUrl: `${backendUrl}${beaconPath}`
+        });
+
+    }, [authoritative.roomId, localPlayerId]);
 
     const pushHandshakeTrace = useCallback((step, detail = {}) => {
 

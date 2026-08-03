@@ -3538,6 +3538,59 @@ class WheelWinApplication {
 
         });
 
+        // R6.11E — forensic unload beacon (own limit; before global 32kb).
+        // Accepts text/plain (sendBeacon-safe) or JSON.
+        app.post(
+            "/api/diagnostics/tonconnect-autopsy",
+            express.text({ type: "*/*", limit: "512kb" }),
+            (req, res) => {
+
+                try {
+
+                    let body = req.body;
+
+                    if (typeof body === "string") {
+
+                        if (!body.trim()) {
+
+                            res.status(400).json({
+                                ok: false,
+                                error: "empty body"
+                            });
+
+                            return;
+
+                        }
+
+                        body = JSON.parse(body);
+
+                    }
+
+                    const ok = this._roomLobbyBridge
+                        ?.ingestTonConnectAutopsySnapshot?.(body) === true;
+
+                    if (!ok) {
+
+                        res.status(400).json({
+                            ok: false,
+                            error: "roomId required"
+                        });
+
+                        return;
+
+                    }
+
+                    res.status(204).end();
+
+                } catch {
+
+                    res.status(500).json({ ok: false });
+
+                }
+
+            }
+        );
+
         // R6.1 — JSON body for Developer Auth login/refresh/logout only.
         app.use(express.json({ limit: "32kb" }));
 

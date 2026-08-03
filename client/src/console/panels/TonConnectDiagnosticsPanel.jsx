@@ -75,6 +75,7 @@ function filterEvents(events, filter, sinceAt) {
                 || type.includes("REPORT")
                 || type.includes("MISMATCH")
                 || type.includes("DISCONNECT")
+                || type.includes("AUTOPSY")
                 || type === "PAYMENT_READY"
                 || type === "CONNECTED";
 
@@ -182,7 +183,9 @@ export default function TonConnectDiagnosticsPanel() {
 
     function onExportAutopsy() {
 
-        downloadTonConnectAutopsy();
+        downloadTonConnectAutopsy(tonConnect?.autopsy ?? null, {
+            roomId: selectedRoomId
+        });
 
     }
 

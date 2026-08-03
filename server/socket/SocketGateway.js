@@ -751,9 +751,15 @@ export class SocketGateway {
 
         socket.on(LOBBY_CLIENT_EVENTS.WALLET_CONNECT_STARTED, () => {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log("[R6.3 TRACE] WALLET_CONNECT_STARTED RECEIVED", {
-                socketId: socket.id
+            const bound = this._gameplayContextResolver?.resolve(socket.id);
+
+            console.log("[TonConnect TRACE] incoming socket event", {
+                event: LOBBY_CLIENT_EVENTS.WALLET_CONNECT_STARTED,
+                socketId: socket.id,
+                playerId: bound?.ok ? bound.playerId : null,
+                roomId: bound?.ok ? bound.roomId : null,
+                payload: null,
+                timestamp: Date.now()
             });
 
             this._emitLobbyRequest(
@@ -765,10 +771,15 @@ export class SocketGateway {
 
         socket.on(LOBBY_CLIENT_EVENTS.WALLET_CONNECT_REPORT, (payload) => {
 
-            // R6.3 TEMP DEBUG — remove after runtime trace
-            console.log("[R6.3 TRACE] REPORT RECEIVED", {
+            const bound = this._gameplayContextResolver?.resolve(socket.id);
+
+            console.log("[TonConnect TRACE] incoming socket event", {
+                event: LOBBY_CLIENT_EVENTS.WALLET_CONNECT_REPORT,
                 socketId: socket.id,
-                payload
+                playerId: bound?.ok ? bound.playerId : (payload?.playerId ?? null),
+                roomId: bound?.ok ? bound.roomId : (payload?.roomId ?? null),
+                payload,
+                timestamp: Date.now()
             });
 
             this._emitLobbyRequest(
@@ -783,9 +794,41 @@ export class SocketGateway {
 
         socket.on(LOBBY_CLIENT_EVENTS.WALLET_DISCONNECT_REPORT, () => {
 
+            const bound = this._gameplayContextResolver?.resolve(socket.id);
+
+            console.log("[TonConnect TRACE] incoming socket event", {
+                event: LOBBY_CLIENT_EVENTS.WALLET_DISCONNECT_REPORT,
+                socketId: socket.id,
+                playerId: bound?.ok ? bound.playerId : null,
+                roomId: bound?.ok ? bound.roomId : null,
+                payload: null,
+                timestamp: Date.now()
+            });
+
             this._emitLobbyRequest(
                 EVENT_TYPES.LOBBY_WALLET_DISCONNECT_REPORT_REQUEST,
                 { socketId: socket.id }
+            );
+
+        });
+
+        // R6.11E — forensic only; does not mutate wallet handshake / payment.
+        socket.on(LOBBY_CLIENT_EVENTS.TONCONNECT_AUTOPSY_SNAPSHOT, (payload) => {
+
+            const bound = this._gameplayContextResolver?.resolve(socket.id);
+
+            this._emitLobbyRequest(
+                EVENT_TYPES.LOBBY_TONCONNECT_AUTOPSY_SNAPSHOT_REQUEST,
+                {
+                    socketId: socket.id,
+                    roomId: bound?.ok
+                        ? bound.roomId
+                        : (payload?.roomId ?? null),
+                    playerId: bound?.ok
+                        ? bound.playerId
+                        : (payload?.playerId ?? null),
+                    payload: payload ?? null
+                }
             );
 
         });

@@ -13,6 +13,8 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     WALLET_CONNECT_STARTED: "WALLET_CONNECT_STARTED",
     WALLET_CONNECT_REPORT: "WALLET_CONNECT_REPORT",
     WALLET_DISCONNECT_REPORT: "WALLET_DISCONNECT_REPORT",
+    // R6.11E — forensic autopsy snapshot (does not affect handshake).
+    TONCONNECT_AUTOPSY_SNAPSHOT: "TONCONNECT_AUTOPSY_SNAPSHOT",
     // P6.3 — player confirms the authoritative payment request (no chain yet).
     PAYMENT_CONFIRM_INTENT: "PAYMENT_CONFIRM_INTENT",
     // P6.5 — player cancelled Telegram Wallet payment confirmation.
