@@ -43,7 +43,16 @@ import {
 
 const RecoveryExperienceContext = createContext(null);
 
+/** Soft dismiss after successful restore toast. */
 const OVERLAY_HIDE_MS = 2000;
+
+/**
+ * Hard cap for COMPLETE / RESTORING overlays. Guards against a cancelled
+ * soft-hide timer leaving the full-screen backdrop mounted forever.
+ * Must stay above OVERLAY_HIDE_MS. Must not apply to RECONNECTING (network
+ * may take longer) or FAILED (user must tap Return to Lobby on gameplay).
+ */
+const OVERLAY_MAX_VISIBLE_MS = 5000;
 
 function devLog(message) {
 
@@ -89,6 +98,8 @@ export function RecoveryExperienceProvider({
 
     const hadDisconnectRef = useRef(false);
 
+    // Timer ids live in refs so hide scheduling survives socket-effect
+    // re-subscriptions (unstable onNavigate / session updates after restore).
     const hideOverlayTimerRef = useRef(null);
 
     const clearOverlayTimer = useCallback(() => {
@@ -103,15 +114,23 @@ export function RecoveryExperienceProvider({
 
     }, []);
 
+    const hideOverlay = useCallback(() => {
+
+        clearOverlayTimer();
+
+        setStatus(RECOVERY_UI_STATUS.IDLE);
+
+    }, [clearOverlayTimer]);
+
     const scheduleOverlayHide = useCallback(() => {
 
         clearOverlayTimer();
 
         hideOverlayTimerRef.current = setTimeout(() => {
 
-            setStatus(RECOVERY_UI_STATUS.IDLE);
-
             hideOverlayTimerRef.current = null;
+
+            setStatus(RECOVERY_UI_STATUS.IDLE);
 
         }, OVERLAY_HIDE_MS);
 
@@ -334,13 +353,11 @@ export function RecoveryExperienceProvider({
 
         recoveryInFlightRef.current = false;
 
-        clearOverlayTimer();
-
-        setStatus(RECOVERY_UI_STATUS.IDLE);
+        hideOverlay();
 
         onNavigate(APP_PAGES.LOBBY);
 
-    }, [clearIdentity, clearOverlayTimer, onNavigate]);
+    }, [clearIdentity, hideOverlay, onNavigate]);
 
     const consumePendingGameplaySnapshot = useCallback(() => {
 
@@ -420,6 +437,47 @@ export function RecoveryExperienceProvider({
         };
 
     }, [currentPage, getIdentity, requestSessionRecovery]);
+
+    // Hard cap: COMPLETE / RESTORING must never block input longer than 5s
+    // even if the soft-hide timer was cancelled by an effect re-subscribe.
+    useEffect(() => {
+
+        if (
+            status !== RECOVERY_UI_STATUS.COMPLETE
+            && status !== RECOVERY_UI_STATUS.RESTORING
+        ) {
+
+            return;
+
+        }
+
+        const forceIdleTimer = setTimeout(() => {
+
+            clearOverlayTimer();
+
+            setStatus(RECOVERY_UI_STATUS.IDLE);
+
+            devLog("Recovery overlay force-cleared after max visible time");
+
+        }, OVERLAY_MAX_VISIBLE_MS);
+
+        return () => {
+
+            clearTimeout(forceIdleTimer);
+
+        };
+
+    }, [status, clearOverlayTimer]);
+
+    // Clear soft-hide timer only on provider unmount (sessionGeneration remount
+    // / leave GameFlow). Do NOT clear it in the socket-subscription effect —
+    // that effect re-runs when onNavigate / session / handlers change after
+    // restore and would cancel scheduleOverlayHide, leaving COMPLETE mounted.
+    useEffect(() => () => {
+
+        clearOverlayTimer();
+
+    }, [clearOverlayTimer]);
 
     useEffect(() => {
 
@@ -533,8 +591,6 @@ export function RecoveryExperienceProvider({
                 onSetupSessionSync
             );
 
-            clearOverlayTimer();
-
         };
 
     }, [
@@ -544,7 +600,6 @@ export function RecoveryExperienceProvider({
         handleGameplaySnapshot,
         handleRecoveryFailed,
         handleSetupRecoveryComplete,
-        clearOverlayTimer,
         getIdentity
     ]);
 
