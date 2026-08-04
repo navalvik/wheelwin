@@ -127,6 +127,63 @@ export function hasGameplayIdentity(identity) {
 
 }
 
+/**
+ * R6.17 — Only terminal server failures may wipe client session / go to Page1.
+ * Local timers and transient recovery gaps must never reset the client.
+ */
+export const TERMINAL_RECOVERY_FAILURE_CODES = Object.freeze([
+    "ROOM_NOT_FOUND",
+    "PLAYER_NOT_FOUND",
+    "SESSION_EXPIRED",
+    "RECOVERY_STASH_MISSING"
+]);
+
+const TERMINAL_RECOVERY_FAILURE_PATTERNS = Object.freeze([
+    /room[_ ]?(not found|session is not active)/i,
+    /player[_ ]?(not found|does not exist|session is not recoverable)/i,
+    /session[_ ]?expired/i,
+    /stash/i,
+    /claim does not match/i
+]);
+
+export function isTerminalRecoveryFailure(payload) {
+
+    const code = String(
+        payload?.code
+        ?? payload?.errorCode
+        ?? payload?.reasonCode
+        ?? ""
+    ).trim().toUpperCase();
+
+    if (code && TERMINAL_RECOVERY_FAILURE_CODES.includes(code)) {
+
+        return true;
+
+    }
+
+    const reason = String(
+        payload?.reason
+        ?? payload?.message
+        ?? ""
+    ).trim();
+
+    if (!reason) {
+
+        return false;
+
+    }
+
+    // Payment / lobby after setup: server may say no gameplay session — keep seat.
+    if (/no active gameplay session for recovery/i.test(reason)) {
+
+        return false;
+
+    }
+
+    return TERMINAL_RECOVERY_FAILURE_PATTERNS.some((pattern) => pattern.test(reason));
+
+}
+
 export function mapRecoveryStatusMessage(status) {
 
     switch (status) {

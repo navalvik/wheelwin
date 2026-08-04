@@ -13,10 +13,10 @@ import { DEV_MODE } from "../config/devMode";
 import {
     APP_PAGES,
     RECOVERY_UI_STATUS,
-    canRecoverPreGame,
     hasGameplayIdentity,
     isGameplayPage,
     isSetupRecoveryPage,
+    isTerminalRecoveryFailure,
     resolveGameplayRecoveryPage
 } from "../game/sessionRecovery/recoveryFlow";
 
@@ -30,8 +30,6 @@ import {
 import socket from "../socket/socket";
 
 import { useGameResultRecovery } from "./GameResultContext";
-
-import { useAuthoritativeSession } from "./AuthoritativeSessionContext";
 
 import { useGameSession } from "./GameSessionContext";
 
@@ -84,9 +82,7 @@ export function RecoveryExperienceProvider({
 
     const { applyRecoverySnapshot } = useGameResultRecovery();
 
-    const { session, destroySession } = useGameSession();
-
-    const authoritative = useAuthoritativeSession();
+    const { destroySession } = useGameSession();
 
     const { getIdentity, clearIdentity } = usePlayerIdentity();
 
@@ -201,44 +197,6 @@ export function RecoveryExperienceProvider({
 
     }, [currentPage, onNavigate, scheduleOverlayHide, getIdentity]);
 
-    const handlePreGameReconnect = useCallback(() => {
-
-        if (!canRecoverPreGame(session, authoritative.setup)) {
-
-            recoveryInFlightRef.current = false;
-
-            devLog("Setup timer expired — returning to welcome");
-
-            destroySession();
-
-            clearIdentity();
-
-            onNavigate(APP_PAGES.WELCOME);
-
-            setStatus(RECOVERY_UI_STATUS.FAILED);
-
-            recoveryTrace("overlay FAILED", getIdentity());
-
-            scheduleOverlayHide();
-
-            return;
-
-        }
-
-        // R6.1 — Real server rebind; do not restore UI alone.
-        requestSessionRecovery();
-
-    }, [
-        session,
-        authoritative.setup,
-        destroySession,
-        clearIdentity,
-        onNavigate,
-        scheduleOverlayHide,
-        requestSessionRecovery,
-        getIdentity
-    ]);
-
     const handleGameplaySnapshot = useCallback((payload) => {
 
         recoveryInFlightRef.current = false;
@@ -315,26 +273,31 @@ export function RecoveryExperienceProvider({
             playerId: payload?.playerId ?? getIdentity().playerId
         });
 
-        devLog(`Recovery failed: ${payload?.reason ?? payload?.message ?? "unknown"}`);
+        const reason = payload?.reason ?? payload?.message ?? "unknown";
 
-        if (
-            isSetupRecoveryPage(currentPage)
-            || currentPage === APP_PAGES.WELCOME
-        ) {
+        devLog(`Recovery failed: ${reason}`);
 
-            destroySession();
-
-            clearIdentity();
-
-            if (currentPage !== APP_PAGES.WELCOME) {
-
-                onNavigate(APP_PAGES.WELCOME);
-
-            }
+        // R6.17 — Client never decides room death. Only terminal server reasons
+        // may wipe session / identity / navigate to Page1.
+        if (!isTerminalRecoveryFailure(payload)) {
 
             scheduleOverlayHide();
 
+            return;
+
         }
+
+        destroySession();
+
+        clearIdentity();
+
+        if (currentPage !== APP_PAGES.WELCOME) {
+
+            onNavigate(APP_PAGES.WELCOME);
+
+        }
+
+        scheduleOverlayHide();
 
     }, [
         currentPage,
@@ -493,17 +456,12 @@ export function RecoveryExperienceProvider({
 
             devLog("Reconnect detected");
 
-            if (isSetupRecoveryPage(currentPage)) {
-
-                handlePreGameReconnect();
-
-                hadDisconnectRef.current = false;
-
-                return;
-
-            }
-
-            if (isGameplayPage(currentPage)) {
+            // R6.17 — Always ask the server first (setup, payment, gameplay).
+            // Local timers must never skip SESSION_RECOVERY_REQUEST.
+            if (
+                isSetupRecoveryPage(currentPage)
+                || isGameplayPage(currentPage)
+            ) {
 
                 requestSessionRecovery();
 
@@ -595,7 +553,6 @@ export function RecoveryExperienceProvider({
 
     }, [
         currentPage,
-        handlePreGameReconnect,
         requestSessionRecovery,
         handleGameplaySnapshot,
         handleRecoveryFailed,

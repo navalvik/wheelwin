@@ -6,6 +6,7 @@ import {
     isGameplayPage,
     isPreGamePage,
     isSetupRecoveryPage,
+    isTerminalRecoveryFailure,
     resolveGameplayRecoveryPage
 } from "./recoveryFlow.js";
 
@@ -76,6 +77,48 @@ function assert(condition, message) {
     );
 
     console.log("  pre-game: setup timer rules passed");
+
+}
+
+// ---------------------------------------------------------------------------
+// R6.17 — Terminal recovery failures (server-authoritative wipe only).
+// ---------------------------------------------------------------------------
+
+{
+
+    assert(
+        isTerminalRecoveryFailure({ code: "ROOM_NOT_FOUND" }),
+        "ROOM_NOT_FOUND code is terminal"
+    );
+
+    assert(
+        isTerminalRecoveryFailure({ reason: "Room session is not active" }),
+        "inactive room reason is terminal"
+    );
+
+    assert(
+        isTerminalRecoveryFailure({ reason: "Player session is not recoverable" }),
+        "unrecoverable player is terminal"
+    );
+
+    assert(
+        !isTerminalRecoveryFailure({
+            reason: "No active gameplay session for recovery"
+        }),
+        "missing gameplay session must not wipe payment/setup seat"
+    );
+
+    assert(
+        !isTerminalRecoveryFailure({ reason: "Recovery snapshot is unavailable" }),
+        "snapshot gap is not a terminal wipe"
+    );
+
+    assert(
+        !isTerminalRecoveryFailure({}),
+        "empty failure is not terminal"
+    );
+
+    console.log("  terminal recovery failure rules passed");
 
 }
 
