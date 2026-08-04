@@ -7,6 +7,8 @@ export const SETUP_SESSION_STATUS = Object.freeze({
     CREATED: "CREATED",
     ACTIVE: "ACTIVE",
     COMPLETED: "COMPLETED",
+    // R6.38 — Ownership handed to payment; timer cleared; no destroy authority.
+    ARCHIVED: "ARCHIVED",
     EXPIRED: "EXPIRED",
     ABORTED: "ABORTED"
 });

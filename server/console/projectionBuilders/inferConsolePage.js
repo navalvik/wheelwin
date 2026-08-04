@@ -61,7 +61,8 @@ export function inferConsolePage({
     if (setupSession
         && setupSession.state !== "EXPIRED"
         && setupSession.state !== "ABORTED"
-        && setupSession.state !== "COMPLETED") {
+        && setupSession.state !== "COMPLETED"
+        && setupSession.state !== "ARCHIVED") {
 
         if (setupSession.roomFull === true) {
 

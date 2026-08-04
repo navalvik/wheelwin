@@ -2884,11 +2884,27 @@ export class RoomLobbyBridge {
 
         this._paymentStageReadyByRoom.add(roomId);
 
+        // R6.38 — Setup permanently relinquishes timer + destroy authority.
+        // Payment lifecycle is the sole room owner from this boundary onward.
+        const archivedSetup = this._setupSessionLifecycle
+            ?.archiveForPayment?.(roomId)
+            ?? null;
+
         this._deliverToRoom(
             roomId,
             LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
             { roomId }
         );
+
+        if (archivedSetup) {
+
+            this._deliverToRoom(
+                roomId,
+                LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC,
+                archivedSetup
+            );
+
+        }
 
         this._logger.info(`Payment stage ready | roomId=${roomId}`);
 
@@ -4903,9 +4919,10 @@ export class RoomLobbyBridge {
     }
 
     /**
-     * Soft disconnect / reconnect while a Setup Session owns the room
-     * (from SETUP_SESSION_STARTED through COMPLETED until EXPIRED) or while
-     * Game Session has started (post Setup Session completion).
+     * Soft disconnect / reconnect while a Setup Session is recoverable
+     * (ACTIVE / COMPLETED / ARCHIVED) or while Game Session has started
+     * (_startedRooms). R6.38 — ARCHIVED keeps reclaim/SYNC but Setup no longer
+     * owns room destroy after PAYMENT_STAGE_READY.
      *
      * Waiting lobby membership before Setup Session exists still uses hard
      * leave so creator disconnect can close an unfilled room — but Setup

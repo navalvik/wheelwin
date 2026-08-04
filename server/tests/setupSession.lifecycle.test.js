@@ -168,6 +168,89 @@ const lifecycle = harness.setupSessionLifecycle;
 }
 
 {
+    // R6.38 — PAYMENT_STAGE_READY archives Setup; old timer must not destroy room.
+    const expired = [];
+
+    eventBus.subscribe(EVENT_TYPES.SETUP_SESSION_EXPIRED, (envelope) => {
+
+        expired.push(envelope.payload);
+
+    });
+
+    const room = roomManager.createRoom();
+
+    const roomId = room.roomId;
+
+    for (const playerId of ["a1", "a2", "a3"]) {
+
+        playerManager.createPlayer({ playerId });
+
+        roomManager.addPlayer(roomId, playerId);
+
+    }
+
+    assert(
+        lifecycle.getSession(roomId)?.state === "COMPLETED",
+        "room full yields COMPLETED before payment handoff"
+    );
+
+    const archivedSnapshot = lifecycle.archiveForPayment(roomId);
+
+    assert(archivedSnapshot, "archiveForPayment returns snapshot");
+
+    assert(
+        archivedSnapshot.state === "ARCHIVED",
+        "handoff state is ARCHIVED"
+    );
+
+    assert(
+        lifecycle.getSession(roomId)?.state === "ARCHIVED",
+        "session remains ARCHIVED in registry"
+    );
+
+    assert(
+        lifecycle.isRecoverable(roomId) === true,
+        "ARCHIVED remains recoverable for payment reconnect"
+    );
+
+    assert(
+        lifecycle.buildSyncPayload(roomId)?.expiresAt === archivedSnapshot.expiresAt,
+        "ARCHIVED still SYNCs immutable expiresAt for InfoBar"
+    );
+
+    assert(
+        lifecycle.archiveForPayment(roomId)?.state === "ARCHIVED",
+        "archiveForPayment is idempotent"
+    );
+
+    await wait(120);
+
+    assert(
+        !expired.some((payload) => payload.roomId === roomId),
+        "ARCHIVED must never emit SETUP_SESSION_EXPIRED"
+    );
+
+    assert(
+        roomManager.hasRoom(roomId),
+        "archived Setup must not destroy room after former setup timeout"
+    );
+
+    assert(
+        lifecycle.getSession(roomId)?.state === "ARCHIVED",
+        "ARCHIVED survives former setup deadline"
+    );
+
+    roomManager.destroyRoom(roomId);
+
+    assert(
+        lifecycle.getSession(roomId) == null,
+        "ROOM_DESTROYED removes ARCHIVED session"
+    );
+
+    console.log("  R6.38 payment handoff archives Setup without destroy passed");
+}
+
+{
     const expired = [];
 
     eventBus.subscribe(EVENT_TYPES.SETUP_SESSION_EXPIRED, (envelope) => {

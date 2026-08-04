@@ -100,6 +100,38 @@ export class SetupSession {
 
         this.state = SETUP_SESSION_STATUS.COMPLETED;
 
+        // Not frozen yet — prep window may later archive (R6.38 handoff) or
+        // expire via SetupSessionLifecycle synthetic EXPIRED snapshot.
+
+    }
+
+    /**
+     * R6.38 — Permanent ownership handoff at PAYMENT_STAGE_READY.
+     * Clears destroy authority; keeps immutable expiresAt for InfoBar/SYNC.
+     */
+    archive() {
+
+        if (this.state === SETUP_SESSION_STATUS.ARCHIVED) {
+
+            return;
+
+        }
+
+        if (
+            this.state !== SETUP_SESSION_STATUS.COMPLETED
+            && this.state !== SETUP_SESSION_STATUS.ACTIVE
+        ) {
+
+            throw new Error(
+                `SetupSession cannot archive from ${this.state} (${this.setupSessionId})`
+            );
+
+        }
+
+        this._assertMutable();
+
+        this.state = SETUP_SESSION_STATUS.ARCHIVED;
+
         this._freeze();
 
     }

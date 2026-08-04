@@ -186,8 +186,9 @@ export class SetupSessionLifecycle {
     }
 
     /**
-     * R6.1 — True while the Setup Session wall-clock window still owns the
-     * room (ACTIVE lobby or COMPLETED prep). Soft disconnect / reclaim apply.
+     * R6.1 / R6.38 — Soft disconnect / reclaim while Setup Session exists:
+     * ACTIVE lobby, COMPLETED prep, or ARCHIVED (payment owns destroy; SYNC
+     * still exposes immutable expiresAt for InfoBar).
      */
     isRecoverable(roomId) {
 
@@ -200,7 +201,8 @@ export class SetupSessionLifecycle {
         }
 
         return session.state === SETUP_SESSION_STATUS.ACTIVE
-            || session.state === SETUP_SESSION_STATUS.COMPLETED;
+            || session.state === SETUP_SESSION_STATUS.COMPLETED
+            || session.state === SETUP_SESSION_STATUS.ARCHIVED;
 
     }
 
@@ -214,16 +216,73 @@ export class SetupSessionLifecycle {
 
         }
 
-        // ACTIVE waiting lobby + COMPLETED prep window both expose expiresAt so
-        // InfoBar can derive remaining time without owning a local timer.
+        // ACTIVE / COMPLETED / ARCHIVED expose expiresAt so InfoBar can derive
+        // remaining time without owning a local timer (RC-FIX-006 + R6.38).
         if (session.state !== SETUP_SESSION_STATUS.ACTIVE
-            && session.state !== SETUP_SESSION_STATUS.COMPLETED) {
+            && session.state !== SETUP_SESSION_STATUS.COMPLETED
+            && session.state !== SETUP_SESSION_STATUS.ARCHIVED) {
 
             return null;
 
         }
 
         return session.toSnapshot(now);
+
+    }
+
+    /**
+     * R6.38 — Ownership transfer at PAYMENT_STAGE_READY.
+     * Destroys Setup timer permanently; archives session (no destroy authority).
+     * Payment lifecycle becomes the sole room-lifetime owner afterwards.
+     *
+     * @returns {object | null} archived sync snapshot, or null if no handoff
+     */
+    archiveForPayment(roomId) {
+
+        this._assertInitialized();
+
+        if (!roomId) {
+
+            return null;
+
+        }
+
+        const session = this._sessions.get(roomId);
+
+        if (!session) {
+
+            return null;
+
+        }
+
+        if (session.state === SETUP_SESSION_STATUS.ARCHIVED) {
+
+            this._clearExpiry(roomId);
+
+            return session.toSnapshot();
+
+        }
+
+        if (
+            session.state !== SETUP_SESSION_STATUS.COMPLETED
+            && session.state !== SETUP_SESSION_STATUS.ACTIVE
+        ) {
+
+            return null;
+
+        }
+
+        this._clearExpiry(roomId);
+
+        session.archive();
+
+        const snapshot = session.toSnapshot();
+
+        this._log(
+            `ARCHIVED | roomId=${roomId} | setupSessionId=${session.setupSessionId}`
+        );
+
+        return snapshot;
 
     }
 
@@ -365,7 +424,8 @@ export class SetupSessionLifecycle {
 
         }
 
-        // ACTIVE lobby timeout and COMPLETED prep-window timeout both expire.
+        // R6.38 — ARCHIVED never expires / never destroys the room.
+        // ACTIVE lobby + COMPLETED prep (pre-PAYMENT) may still expire.
         if (session.state !== SETUP_SESSION_STATUS.ACTIVE
             && session.state !== SETUP_SESSION_STATUS.COMPLETED) {
 
