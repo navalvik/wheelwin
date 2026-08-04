@@ -333,34 +333,28 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
         bindPlayer(stack, { socketId: "socket-stale", playerId, roomId });
 
+        // R7.5A — reclaim while old binding still present must atomically commit.
         const withoutPrep = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-new",
             { playerId, roomId }
         );
 
-        assert(!withoutPrep.ok, "reclaim without stale prep must fail");
-
-        const prep = stack.roomLobbyBridge.prepareRecoveryAuthorization(
-            playerId,
-            "socket-new",
-            () => false
+        assert(
+            withoutPrep.ok,
+            "reclaim with live-old binding must succeed via atomic commit"
         );
-
-        assert(prep?.released === true, "stale socket must be released");
-
-        const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
-            "socket-new",
-            { playerId, roomId }
-        );
-
-        assert(reconnected.ok, "reclaim after stale prep must succeed");
 
         assert(
             stack.roomLobbyBridge._playerToSocket.get(playerId) === "socket-new",
             "socket binding must update to the new socket"
         );
 
-        console.log("  scenario F (missed disconnect / stale binding) passed");
+        assert(
+            !stack.roomLobbyBridge._socketToPlayer.has("socket-stale"),
+            "old socket must be retired after commit"
+        );
+
+        console.log("  scenario F (missed disconnect / live transfer) passed");
 
     } finally {
 

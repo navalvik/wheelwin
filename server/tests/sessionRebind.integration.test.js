@@ -592,7 +592,10 @@ function tryGameplayInput(stack, socketId, playerId) {
 
         stack.roomLobbyBridge._registerSocketPlayer("socket-stale", playerId);
 
-        const reconnected = stack.roomLobbyBridge.reconnectGameplaySession("socket-a");
+        const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
+            "socket-a",
+            { playerId, roomId: room.roomId }
+        );
 
         assert(reconnected.ok, "authorized reconnect must succeed");
 

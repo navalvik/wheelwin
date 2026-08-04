@@ -9,6 +9,10 @@ import {
     normalizeSecretMatrix,
     secretMatricesMatch
 } from "../models/SecretMatrixRules.js";
+import {
+    SECRET_MATRIX_STATUS,
+    SECRET_MATRIX_STATUS_REASONS
+} from "../models/SecretMatrixStatus.js";
 import { normalizeTelegramWallet } from "../models/TelegramWalletRules.js";
 import {
     ENTRY_SMART_CONTRACT_STATUS,
@@ -132,6 +136,12 @@ export class RoomLobbyBridge {
         // New socket.id reclaim uses this map; client claim is only a lookup key.
         this._recoveryOwnershipByPlayer = new Map();
 
+        // R7.5A — sockets that requested reclaim but are not yet authoritative.
+        this._pendingSockets = new Map();
+
+        // R7.5A — retired sockets after atomic commit (late packets logged/rejected).
+        this._obsoleteSockets = new Map();
+
         this._lastRecoveryDenial = null;
 
         // Rooms whose Game Session has started (post Setup Session completion).
@@ -178,6 +188,12 @@ export class RoomLobbyBridge {
 
         // Secret Matrix submissions keyed by roomId → Map(playerId → cells).
         this._secretMatrixByRoom = new Map();
+
+        // R7.7A — monotonic revision per room for SECRET_MATRIX_STATUS.
+        this._secretMatrixRevisionByRoom = new Map();
+
+        // R7.7A — rooms that reached MATCH_ACCEPTED (until barrier clear).
+        this._secretMatrixAcceptedByRoom = new Set();
 
         this._handlers = [];
 
@@ -611,6 +627,10 @@ export class RoomLobbyBridge {
 
         this._recoveryOwnershipByPlayer.clear();
 
+        this._pendingSockets.clear();
+
+        this._obsoleteSockets.clear();
+
         this._startedRooms.clear();
 
         this._finishingResultSessions.clear();
@@ -652,6 +672,10 @@ export class RoomLobbyBridge {
         this._tonConnectAutopsyByRoom.clear();
 
         this._secretMatrixByRoom.clear();
+
+        this._secretMatrixRevisionByRoom.clear();
+
+        this._secretMatrixAcceptedByRoom.clear();
 
         this._initialized = false;
 
@@ -976,6 +1000,8 @@ export class RoomLobbyBridge {
 
         if (this._isProtectedSession(context.roomId)) {
 
+            // R7.5A — soft disconnect keeps authoritative ownership until commit.
+            // Never _unregisterSocket here (that created the zero-owner gap).
             this._stashRecoveryOwnership(socketId, {
                 playerId: context.playerId,
                 roomId: context.roomId
@@ -986,7 +1012,8 @@ export class RoomLobbyBridge {
                 CONNECTION_STATE.DISCONNECTED
             );
 
-            this._unregisterSocket(socketId);
+            // Stop broadcasts on the dead transport; maps stay authoritative.
+            this._deliverSocketLeaveRoom(socketId);
 
             this._logger.info(
                 `[R6.2A Recovery] soft disconnect`
@@ -1338,7 +1365,41 @@ export class RoomLobbyBridge {
             + ` | socket.id=${socketId}`
         );
 
-        this._registerSocketPlayer(socketId, playerId);
+        const oldSocketId = this._playerToSocket.get(playerId) ?? null;
+
+        this._markPendingSocket(socketId, playerId, roomId);
+
+        const committed = this._commitSocketAuthority({
+            playerId,
+            roomId,
+            oldSocketId: oldSocketId === socketId ? null : oldSocketId,
+            newSocketId: socketId
+        });
+
+        if (!committed.ok) {
+
+            this._clearPendingSocket(socketId);
+
+            this._logger.info(
+                `[R6.2A Recovery] reclaim failure`
+                + ` | roomId=${roomId}`
+                + ` | playerId=${playerId}`
+                + ` | socket.id=${socketId}`
+                + ` | reason=${committed.reason}`
+            );
+
+            return {
+                ok: false,
+                reason: committed.reason
+            };
+
+        }
+
+        if (committed.oldSocketId) {
+
+            this._requestForceDisconnect(committed.oldSocketId);
+
+        }
 
         this._playerManager.setConnectionState(
             playerId,
@@ -1403,6 +1464,12 @@ export class RoomLobbyBridge {
             });
 
         }
+
+        // R7.7A — restore Matrix submission status by playerId after commit.
+        this._deliverSecretMatrixStatus(roomId, playerId, {
+            reason: SECRET_MATRIX_STATUS_REASONS.RESTORED,
+            logRestore: true
+        });
 
         // Re-deliver authoritative stage barriers so reconnect preserves
         // continueToPayment progress and does not strand the client on Verify.
@@ -1639,12 +1706,19 @@ export class RoomLobbyBridge {
 
         }
 
+        const runtime = this._playerManager.getRuntime(playerId);
+
+        const roomId = runtime?.roomId ?? null;
+
         if (isSocketLive(boundSocket)) {
+
+            // R7.5A — do not deny; mark pending and let reconnectSession commit.
+            this._markPendingSocket(newSocketId, playerId, roomId);
 
             this._logger.info(
                 `[R6.2A Recovery] authorization`
                 + ` | check=prepare_stale_socket`
-                + ` | result=skip`
+                + ` | result=transfer`
                 + ` | reason=bound_socket_still_live`
                 + ` | boundSocket.id=${boundSocket}`
                 + ` | playerId=${playerId}`
@@ -1653,7 +1727,8 @@ export class RoomLobbyBridge {
 
             return {
                 released: false,
-                boundSocketId: boundSocket
+                boundSocketId: boundSocket,
+                transfer: true
             };
 
         }
@@ -1670,9 +1745,12 @@ export class RoomLobbyBridge {
 
         this._handleSocketDisconnected(boundSocket);
 
+        this._markPendingSocket(newSocketId, playerId, roomId);
+
         return {
             released: true,
-            boundSocketId: boundSocket
+            boundSocketId: boundSocket,
+            transfer: true
         };
 
     }
@@ -2255,11 +2333,12 @@ export class RoomLobbyBridge {
 
     _handleUpdatePlayerProfile(socketId, rawProfile) {
 
-        const context = this._getSocketContext(socketId);
+        const context = this._assertAuthoritativeMutation(
+            socketId,
+            "updatePlayerProfile"
+        );
 
         if (!context) {
-
-            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
 
             return;
 
@@ -2565,11 +2644,19 @@ export class RoomLobbyBridge {
 
     _handleSubmitSecretMatrix(socketId, rawMatrix) {
 
+        if (!this._isAuthoritativeSocket(socketId)) {
+
+            this._emitUnauthorizedMatrixStatus(socketId);
+
+            return;
+
+        }
+
         const context = this._getSocketContext(socketId);
 
         if (!context) {
 
-            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+            this._emitUnauthorizedMatrixStatus(socketId);
 
             return;
 
@@ -2603,6 +2690,20 @@ export class RoomLobbyBridge {
                 }
             );
 
+            this._deliverSecretMatrixStatus(roomId, playerId, {
+                reason: SECRET_MATRIX_STATUS_REASONS.INVALID_SECRET_MATRIX
+            });
+
+            return;
+
+        }
+
+        if (this._secretMatrixAcceptedByRoom.has(roomId)) {
+
+            this._deliverSecretMatrixStatus(roomId, playerId, {
+                reason: SECRET_MATRIX_STATUS_REASONS.MATCH_ACCEPTED
+            });
+
             return;
 
         }
@@ -2625,6 +2726,11 @@ export class RoomLobbyBridge {
         );
 
         if (submissions.size < room.players.length) {
+
+            this._broadcastSecretMatrixStatus(
+                roomId,
+                SECRET_MATRIX_STATUS_REASONS.SUBMITTED
+            );
 
             return;
 
@@ -2654,11 +2760,24 @@ export class RoomLobbyBridge {
                 `Secret Matrix mismatch | roomId=${roomId}`
             );
 
+            this._broadcastSecretMatrixStatus(
+                roomId,
+                SECRET_MATRIX_STATUS_REASONS.SECRET_MATRIX_MISMATCH,
+                { forceStatus: SECRET_MATRIX_STATUS.MATCH_REJECTED }
+            );
+
+            this._broadcastSecretMatrixStatus(
+                roomId,
+                SECRET_MATRIX_STATUS_REASONS.SECRET_MATRIX_MISMATCH
+            );
+
             return;
 
         }
 
         this._secretMatrixByRoom.delete(roomId);
+
+        this._secretMatrixAcceptedByRoom.add(roomId);
 
         this._deliverToRoom(
             roomId,
@@ -2668,15 +2787,300 @@ export class RoomLobbyBridge {
 
         this._logger.info(`Secret Matrix accepted | roomId=${roomId}`);
 
+        this._broadcastSecretMatrixStatus(
+            roomId,
+            SECRET_MATRIX_STATUS_REASONS.MATCH_ACCEPTED,
+            { forceStatus: SECRET_MATRIX_STATUS.MATCH_ACCEPTED }
+        );
+
+    }
+
+    /**
+     * R7.7A — Authoritative Matrix status for one player (keyed by playerId).
+     */
+    getSecretMatrixStatus(roomId, playerId) {
+
+        const room = roomId ? this._roomManager.getRoom(roomId) : null;
+
+        const requiredPlayers = room?.players?.length ?? 0;
+
+        const submissions = this._secretMatrixByRoom.get(roomId);
+
+        const submittedCount = submissions?.size ?? 0;
+
+        const selfSubmitted = Boolean(
+            playerId && submissions?.has(playerId)
+        );
+
+        const revision = this._secretMatrixRevisionByRoom.get(roomId) ?? 0;
+
+        let status = SECRET_MATRIX_STATUS.NOT_SUBMITTED;
+
+        if (this._secretMatrixAcceptedByRoom.has(roomId)) {
+
+            status = SECRET_MATRIX_STATUS.MATCH_ACCEPTED;
+
+        } else if (selfSubmitted) {
+
+            status = SECRET_MATRIX_STATUS.SUBMITTED;
+
+        }
+
+        return {
+            roomId: roomId ?? null,
+            playerId: playerId ?? null,
+            status,
+            submittedCount,
+            requiredPlayers,
+            selfSubmitted,
+            reason: null,
+            revision
+        };
+
+    }
+
+    _bumpSecretMatrixRevision(roomId) {
+
+        if (!roomId) {
+
+            return 0;
+
+        }
+
+        const next = (this._secretMatrixRevisionByRoom.get(roomId) ?? 0) + 1;
+
+        this._secretMatrixRevisionByRoom.set(roomId, next);
+
+        return next;
+
+    }
+
+    _isAuthoritativeSocket(socketId) {
+
+        if (!socketId) {
+
+            return false;
+
+        }
+
+        if (this._obsoleteSockets.has(socketId)) {
+
+            return false;
+
+        }
+
+        if (this._pendingSockets.has(socketId)) {
+
+            return false;
+
+        }
+
+        return Boolean(this._getSocketContext(socketId));
+
+    }
+
+    _emitUnauthorizedMatrixStatus(socketId) {
+
+        const pending = this._pendingSockets.get(socketId);
+
+        const obsolete = this._obsoleteSockets.get(socketId);
+
+        const meta = pending ?? obsolete ?? null;
+
+        const context = this._getSocketContext(socketId);
+
+        const playerId = meta?.playerId
+            ?? context?.playerId
+            ?? null;
+
+        const roomId = meta?.roomId
+            ?? context?.roomId
+            ?? null;
+
+        this._logger.info(
+            `SOCKET_PENDING_PACKET`
+            + ` | socketId=${socketId}`
+            + ` | playerId=${playerId ?? "null"}`
+            + ` | roomId=${roomId ?? "null"}`
+            + ` | event=submitSecretMatrix`
+            + ` | reason=SOCKET_NOT_AUTHORIZED`
+        );
+
+        if (obsolete) {
+
+            this._logger.info(
+                `SOCKET_OBSOLETE_PACKET`
+                + ` | socketId=${socketId}`
+                + ` | playerId=${playerId ?? "null"}`
+                + ` | roomId=${roomId ?? "null"}`
+                + ` | event=submitSecretMatrix`
+                + ` | reason=obsolete_socket`
+            );
+
+        }
+
+        if (roomId && playerId) {
+
+            this._deliverSecretMatrixStatus(roomId, playerId, {
+                reason: SECRET_MATRIX_STATUS_REASONS.SOCKET_NOT_AUTHORIZED,
+                forceStatus: SECRET_MATRIX_STATUS.NOT_SUBMITTED,
+                socketId
+            });
+
+            return;
+
+        }
+
+        const revision = roomId
+            ? this._bumpSecretMatrixRevision(roomId)
+            : 0;
+
+        this._deliverToSocket(
+            socketId,
+            LOBBY_SERVER_EVENTS.SECRET_MATRIX_STATUS,
+            {
+                roomId,
+                playerId,
+                status: SECRET_MATRIX_STATUS.NOT_SUBMITTED,
+                submittedCount: 0,
+                requiredPlayers: 0,
+                selfSubmitted: false,
+                reason: SECRET_MATRIX_STATUS_REASONS.SOCKET_NOT_AUTHORIZED,
+                revision
+            }
+        );
+
+    }
+
+    _deliverSecretMatrixStatus(
+        roomId,
+        playerId,
+        {
+            reason = null,
+            forceStatus = null,
+            socketId = null,
+            logRestore = false,
+            bumpRevision = true
+        } = {}
+    ) {
+
+        if (!roomId || !playerId) {
+
+            return null;
+
+        }
+
+        if (bumpRevision) {
+
+            this._bumpSecretMatrixRevision(roomId);
+
+        }
+
+        const payload = this.getSecretMatrixStatus(roomId, playerId);
+
+        if (forceStatus) {
+
+            payload.status = forceStatus;
+
+            if (forceStatus === SECRET_MATRIX_STATUS.NOT_SUBMITTED) {
+
+                payload.selfSubmitted = false;
+
+            }
+
+            if (forceStatus === SECRET_MATRIX_STATUS.MATCH_ACCEPTED) {
+
+                payload.selfSubmitted = true;
+
+            }
+
+            if (forceStatus === SECRET_MATRIX_STATUS.MATCH_REJECTED) {
+
+                payload.selfSubmitted = false;
+
+            }
+
+        }
+
+        if (reason) {
+
+            payload.reason = reason;
+
+        }
+
+        const targetSocketId = socketId
+            ?? this._playerToSocket.get(playerId)
+            ?? null;
+
+        if (!targetSocketId) {
+
+            return payload;
+
+        }
+
+        this._logger.info(
+            `SECRET_MATRIX_STATUS_CHANGED`
+            + ` | roomId=${roomId}`
+            + ` | playerId=${playerId}`
+            + ` | status=${payload.status}`
+            + ` | revision=${payload.revision}`
+            + ` | reason=${payload.reason ?? "null"}`
+        );
+
+        if (logRestore) {
+
+            this._logger.info(
+                `SECRET_MATRIX_STATUS_RESTORED`
+                + ` | roomId=${roomId}`
+                + ` | playerId=${playerId}`
+                + ` | status=${payload.status}`
+                + ` | revision=${payload.revision}`
+            );
+
+        }
+
+        this._deliverToSocket(
+            targetSocketId,
+            LOBBY_SERVER_EVENTS.SECRET_MATRIX_STATUS,
+            payload
+        );
+
+        return payload;
+
+    }
+
+    _broadcastSecretMatrixStatus(roomId, reason = null, options = {}) {
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            return;
+
+        }
+
+        this._bumpSecretMatrixRevision(roomId);
+
+        for (const playerId of room.players) {
+
+            this._deliverSecretMatrixStatus(roomId, playerId, {
+                reason,
+                forceStatus: options.forceStatus ?? null,
+                bumpRevision: false
+            });
+
+        }
+
     }
 
     _handleConfirmVerify(socketId) {
 
-        const context = this._getSocketContext(socketId);
+        const context = this._assertAuthoritativeMutation(
+            socketId,
+            "confirmVerify"
+        );
 
         if (!context) {
-
-            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
 
             return;
 
@@ -2738,11 +3142,12 @@ export class RoomLobbyBridge {
 
     _handleVerifyNextRequest(socketId, rawWalletAddress) {
 
-        const context = this._getSocketContext(socketId);
+        const context = this._assertAuthoritativeMutation(
+            socketId,
+            "VERIFY_NEXT_REQUEST"
+        );
 
         if (!context) {
-
-            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
 
             return;
 
@@ -4651,6 +5056,10 @@ export class RoomLobbyBridge {
 
         this._secretMatrixByRoom.delete(roomId);
 
+        this._secretMatrixRevisionByRoom.delete(roomId);
+
+        this._secretMatrixAcceptedByRoom.delete(roomId);
+
         // P6.1 — destroy session wallets with the finished setup / result session.
         this._sessionWalletStore.clearRoom(roomId);
 
@@ -4785,6 +5194,272 @@ export class RoomLobbyBridge {
 
     }
 
+    /**
+     * R7.5A — Gate mutating lobby commands to the single authoritative socket.
+     * @returns {object|null} socket context when allowed; null when rejected.
+     */
+    _assertAuthoritativeMutation(socketId, eventName) {
+
+        if (this._obsoleteSockets.has(socketId)) {
+
+            const meta = this._obsoleteSockets.get(socketId);
+
+            this._logger.info(
+                `SOCKET_OBSOLETE_PACKET`
+                + ` | socketId=${socketId}`
+                + ` | playerId=${meta?.playerId ?? "null"}`
+                + ` | roomId=${meta?.roomId ?? "null"}`
+                + ` | event=${eventName}`
+                + ` | reason=obsolete_socket`
+            );
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return null;
+
+        }
+
+        if (this._pendingSockets.has(socketId)) {
+
+            const meta = this._pendingSockets.get(socketId);
+
+            this._logger.info(
+                `SOCKET_PENDING_PACKET`
+                + ` | socketId=${socketId}`
+                + ` | playerId=${meta?.playerId ?? "null"}`
+                + ` | roomId=${meta?.roomId ?? "null"}`
+                + ` | event=${eventName}`
+                + ` | reason=pending_not_authoritative`
+            );
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return null;
+
+        }
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context) {
+
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+
+            return null;
+
+        }
+
+        return context;
+
+    }
+
+    _markPendingSocket(socketId, playerId, roomId) {
+
+        if (!socketId) {
+
+            return;
+
+        }
+
+        this._pendingSockets.set(socketId, {
+            playerId: playerId ?? null,
+            roomId: roomId ?? null
+        });
+
+        this._obsoleteSockets.delete(socketId);
+
+    }
+
+    _clearPendingSocket(socketId) {
+
+        if (!socketId) {
+
+            return;
+
+        }
+
+        this._pendingSockets.delete(socketId);
+
+    }
+
+    /**
+     * R7.5A — Atomic authoritative socket ownership transfer.
+     * Synchronous only: no await, emit side-effects beyond map ops before return
+     * except force-disconnect delivery after maps are committed.
+     */
+    _commitSocketAuthority({
+        playerId,
+        roomId,
+        oldSocketId = null,
+        newSocketId
+    }) {
+
+        this._logger.info(
+            `SOCKET_COMMIT_BEGIN`
+            + ` | roomId=${roomId ?? "null"}`
+            + ` | playerId=${playerId ?? "null"}`
+            + ` | oldSocketId=${oldSocketId ?? "null"}`
+            + ` | newSocketId=${newSocketId ?? "null"}`
+        );
+
+        if (!playerId || !newSocketId) {
+
+            this._logger.info(
+                `SOCKET_COMMIT_VALIDATE`
+                + ` | success=false`
+                + ` | reason=missing_player_or_socket`
+            );
+
+            this._logger.info(
+                `SOCKET_COMMIT_ROLLBACK`
+                + ` | reason=missing_player_or_socket`
+                + ` | currentOwner=${this._playerToSocket.get(playerId) ?? "null"}`
+            );
+
+            return {
+                ok: false,
+                reason: "Socket ownership commit requires playerId and newSocketId"
+            };
+
+        }
+
+        if (!this._playerManager.hasPlayer(playerId)) {
+
+            this._logger.info(
+                `SOCKET_COMMIT_VALIDATE`
+                + ` | success=false`
+                + ` | reason=player_missing`
+            );
+
+            this._logger.info(
+                `SOCKET_COMMIT_ROLLBACK`
+                + ` | reason=player_missing`
+                + ` | currentOwner=${this._playerToSocket.get(playerId) ?? "null"}`
+            );
+
+            return { ok: false, reason: "Player does not exist" };
+
+        }
+
+        if (roomId && !this._roomManager.getRoom(roomId)) {
+
+            this._logger.info(
+                `SOCKET_COMMIT_VALIDATE`
+                + ` | success=false`
+                + ` | reason=room_missing`
+            );
+
+            this._logger.info(
+                `SOCKET_COMMIT_ROLLBACK`
+                + ` | reason=room_missing`
+                + ` | currentOwner=${this._playerToSocket.get(playerId) ?? "null"}`
+            );
+
+            return { ok: false, reason: "Room session is not active" };
+
+        }
+
+        this._logger.info(
+            `SOCKET_COMMIT_VALIDATE`
+            + ` | success=true`
+            + ` | reason=ok`
+        );
+
+        const previousOwner = this._playerToSocket.get(playerId) ?? null;
+
+        const resolvedOld = oldSocketId
+            ?? (
+                previousOwner && previousOwner !== newSocketId
+                    ? previousOwner
+                    : null
+            );
+
+        // Retire old socket mapping without clearing player ownership first.
+        if (resolvedOld && resolvedOld !== newSocketId) {
+
+            if (this._socketToPlayer.get(resolvedOld) === playerId) {
+
+                this._socketToPlayer.delete(resolvedOld);
+
+            }
+
+            this._gameplayContextResolver?.unbindSocket(resolvedOld);
+
+            this._deliverSocketLeaveRoom(resolvedOld);
+
+            this._obsoleteSockets.set(resolvedOld, {
+                playerId,
+                roomId: roomId ?? null
+            });
+
+            this._pendingSockets.delete(resolvedOld);
+
+        }
+
+        const existingPlayerForSocket = this._socketToPlayer.get(newSocketId);
+
+        if (existingPlayerForSocket && existingPlayerForSocket !== playerId) {
+
+            this._socketToPlayer.delete(newSocketId);
+
+            if (this._playerToSocket.get(existingPlayerForSocket) === newSocketId) {
+
+                this._playerToSocket.delete(existingPlayerForSocket);
+
+            }
+
+            this._gameplayContextResolver?.unbindSocket(newSocketId);
+
+        }
+
+        this._socketToPlayer.set(newSocketId, playerId);
+
+        this._playerToSocket.set(playerId, newSocketId);
+
+        this._pendingSockets.delete(newSocketId);
+
+        this._obsoleteSockets.delete(newSocketId);
+
+        this._clearRecoveryOwnershipForPlayer(playerId);
+
+        this._logger.info(
+            `SOCKET_COMMIT_SUCCESS`
+            + ` | roomId=${roomId ?? "null"}`
+            + ` | playerId=${playerId}`
+            + ` | oldSocketId=${resolvedOld ?? "null"}`
+            + ` | newSocketId=${newSocketId}`
+        );
+
+        return {
+            ok: true,
+            oldSocketId: resolvedOld,
+            newSocketId
+        };
+
+    }
+
+    _requestForceDisconnect(socketId) {
+
+        if (!socketId) {
+
+            return;
+
+        }
+
+        this._eventBus.emit({
+            source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+            type: EVENT_TYPES.LOBBY_SOCKET_DELIVERY,
+            payload: {
+                target: "disconnect",
+                socketId
+            }
+        });
+
+    }
+
+    /**
+     * Initial bind (create/join) or transfer via commit when replacing.
+     * Must never leave a recoverable player with zero owners mid-call.
+     */
     _registerSocketPlayer(socketId, playerId) {
 
         if (!socketId || !playerId) {
@@ -4797,7 +5472,17 @@ export class RoomLobbyBridge {
 
         if (existingSocketForPlayer && existingSocketForPlayer !== socketId) {
 
-            this._unregisterSocket(existingSocketForPlayer);
+            const roomId = this._playerManager.getRuntime(playerId)?.roomId
+                ?? null;
+
+            this._commitSocketAuthority({
+                playerId,
+                roomId,
+                oldSocketId: existingSocketForPlayer,
+                newSocketId: socketId
+            });
+
+            return;
 
         }
 
@@ -4805,7 +5490,15 @@ export class RoomLobbyBridge {
 
         if (existingPlayerForSocket && existingPlayerForSocket !== playerId) {
 
-            this._unregisterSocket(socketId);
+            if (this._playerToSocket.get(existingPlayerForSocket) === socketId) {
+
+                this._playerToSocket.delete(existingPlayerForSocket);
+
+            }
+
+            this._socketToPlayer.delete(socketId);
+
+            this._gameplayContextResolver?.unbindSocket(socketId);
 
         }
 
@@ -5082,74 +5775,19 @@ export class RoomLobbyBridge {
 
         if (boundSocket && boundSocket !== socketId) {
 
-            if (connectionState === CONNECTION_STATE.DISCONNECTED) {
-
-                this._logger.info(
-                    `[R6.2A Recovery] authorization`
-                    + ` | check=runtime_seat_fallback`
-                    + ` | result=pass`
-                    + ` | action=clear_stale_binding`
-                    + ` | boundSocket.id=${boundSocket}`
-                    + ` | playerId=${claimedPlayerId}`
-                    + ` | socket.id=${socketId}`
-                );
-
-                this._unregisterSocket(boundSocket);
-
-            } else {
-
-                this._logger.info(
-                    `[R6.2A Recovery] authorization`
-                    + ` | check=runtime_seat_fallback`
-                    + ` | result=fail`
-                    + ` | reason=player_bound_elsewhere`
-                    + ` | boundSocket.id=${boundSocket}`
-                    + ` | playerId=${claimedPlayerId}`
-                    + ` | socket.id=${socketId}`
-                );
-
-                this._denyRecoveryIdentity(
-                    "Recovery identity is not authorized for this socket",
-                    {
-                        playerId: claimedPlayerId,
-                        socketId,
-                        boundSocketId: boundSocket,
-                        cause: "player_bound_elsewhere"
-                    }
-                );
-
-                return null;
-
-            }
-
-        }
-
-        const seatAvailable = connectionState === CONNECTION_STATE.DISCONNECTED
-            || !boundSocket;
-
-        if (!seatAvailable) {
-
+            // R7.5A — allow atomic transfer; do not unregister (avoids zero-owner gap).
             this._logger.info(
                 `[R6.2A Recovery] authorization`
                 + ` | check=runtime_seat_fallback`
-                + ` | result=fail`
-                + ` | reason=player_still_connected`
+                + ` | result=pass`
+                + ` | action=transfer_allowed`
+                + ` | boundSocket.id=${boundSocket}`
                 + ` | connectionState=${connectionState ?? "null"}`
                 + ` | playerId=${claimedPlayerId}`
                 + ` | socket.id=${socketId}`
             );
 
-            this._denyRecoveryIdentity(
-                "Recovery identity is not authorized for this socket",
-                {
-                    playerId: claimedPlayerId,
-                    socketId,
-                    connectionState,
-                    cause: "player_still_connected"
-                }
-            );
-
-            return null;
+            this._markPendingSocket(socketId, claimedPlayerId, roomId);
 
         }
 

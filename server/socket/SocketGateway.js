@@ -1931,6 +1931,22 @@ export class SocketGateway {
 
         }
 
+        if (delivery.target === "disconnect") {
+
+            const socket = this._io.sockets.sockets.get(delivery.socketId);
+
+            if (socket) {
+
+                socket.disconnect(true);
+
+            }
+
+            this._socketRooms.delete(delivery.socketId);
+
+            return;
+
+        }
+
         if (delivery.target === "socket") {
 
             const socket = this._io.sockets.sockets.get(delivery.socketId);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
@@ -11,6 +11,13 @@ import {
     sanitizeSecretMatrixCell
 } from "../utils/secretMatrixRules";
 
+import {
+    SECRET_MATRIX_STATUS,
+    SECRET_MATRIX_STATUS_REASONS,
+    canSubmitMatrixStatus,
+    createEmptyMatrixStatus
+} from "../utils/secretMatrixStatus";
+
 import "../styles/pageMatrix.css";
 
 export default function PageMatrix({ onNavigate }) {
@@ -21,9 +28,11 @@ export default function PageMatrix({ onNavigate }) {
         Array(9).fill("")
     );
 
-    const [waitingForMatch, setWaitingForMatch] = useState(false);
+    const [matrixStatus, setMatrixStatus] = useState(createEmptyMatrixStatus);
 
     const [errorMessage, setErrorMessage] = useState("");
+
+    const revisionRef = useRef(0);
 
     function handleMatrixChange(index, rawValue) {
 
@@ -48,11 +57,101 @@ export default function PageMatrix({ onNavigate }) {
         [secretMatrix]
     );
 
+    const canSubmit = canSubmitMatrixStatus(matrixStatus.status);
+
+    const isWaiting = matrixStatus.status === SECRET_MATRIX_STATUS.SUBMITTED
+        || matrixStatus.status === SECRET_MATRIX_STATUS.MATCH_ACCEPTED;
+
     useEffect(() => {
 
-        function handleAccepted() {
+        function applyStatus(payload) {
 
-            setWaitingForMatch(false);
+            const revision = Number(payload?.revision ?? 0);
+
+            if (revision > 0 && revision <= revisionRef.current) {
+
+                return;
+
+            }
+
+            if (revision > 0) {
+
+                revisionRef.current = revision;
+
+            }
+
+            const nextStatus = {
+                status: payload?.status
+                    ?? SECRET_MATRIX_STATUS.NOT_SUBMITTED,
+                submittedCount: Number(payload?.submittedCount ?? 0),
+                requiredPlayers: Number(payload?.requiredPlayers ?? 0),
+                selfSubmitted: payload?.selfSubmitted === true,
+                reason: payload?.reason ?? null,
+                revision
+            };
+
+            setMatrixStatus(nextStatus);
+
+            if (typeof console !== "undefined") {
+
+                console.info(
+                    "[SECRET_MATRIX_STATUS_RECEIVED]",
+                    nextStatus
+                );
+
+            }
+
+            if (nextStatus.status === SECRET_MATRIX_STATUS.MATCH_ACCEPTED) {
+
+                setErrorMessage("");
+
+                onNavigate(5);
+
+                return;
+
+            }
+
+            if (
+                nextStatus.reason
+                    === SECRET_MATRIX_STATUS_REASONS.SOCKET_NOT_AUTHORIZED
+            ) {
+
+                setErrorMessage(
+                    "Connection restored. Press NEXT again to submit."
+                );
+
+                return;
+
+            }
+
+            if (
+                nextStatus.status === SECRET_MATRIX_STATUS.MATCH_REJECTED
+                || nextStatus.reason
+                    === SECRET_MATRIX_STATUS_REASONS.SECRET_MATRIX_MISMATCH
+            ) {
+
+                setErrorMessage(
+                    "Secret Matrix codes do not match. Try again."
+                );
+
+                return;
+
+            }
+
+            if (
+                nextStatus.reason
+                    === SECRET_MATRIX_STATUS_REASONS.INVALID_SECRET_MATRIX
+            ) {
+
+                setErrorMessage(
+                    "Enter a complete Secret Matrix using A–Z and 0–9 only."
+                );
+
+            }
+
+        }
+
+        function handleAccepted() {
 
             setErrorMessage("");
 
@@ -62,8 +161,6 @@ export default function PageMatrix({ onNavigate }) {
 
         function handleRejected(payload) {
 
-            setWaitingForMatch(false);
-
             setErrorMessage(
                 payload?.message
                     ?? "Secret Matrix was rejected. Try again."
@@ -71,11 +168,15 @@ export default function PageMatrix({ onNavigate }) {
 
         }
 
+        socket.on("SECRET_MATRIX_STATUS", applyStatus);
+
         socket.on("SECRET_MATRIX_ACCEPTED", handleAccepted);
 
         socket.on("SECRET_MATRIX_REJECTED", handleRejected);
 
         return () => {
+
+            socket.off("SECRET_MATRIX_STATUS", applyStatus);
 
             socket.off("SECRET_MATRIX_ACCEPTED", handleAccepted);
 
@@ -87,13 +188,11 @@ export default function PageMatrix({ onNavigate }) {
 
     function handleSubmit() {
 
-        if (!isMatrixValid || waitingForMatch) {
+        if (!isMatrixValid || !canSubmit) {
 
             return;
 
         }
-
-        setWaitingForMatch(true);
 
         setErrorMessage("");
 
@@ -101,17 +200,21 @@ export default function PageMatrix({ onNavigate }) {
 
     }
 
+    const waitingLabel = matrixStatus.requiredPlayers > 0
+        ? `Waiting for players… ${matrixStatus.submittedCount}/${matrixStatus.requiredPlayers}`
+        : "Waiting for all players to submit the same code…";
+
     return (
 
         <GameLayout
 
             message={t("page.matrix.title")}
 
-            backEnabled={!waitingForMatch}
+            backEnabled={canSubmit}
 
             onBack={() => onNavigate(3)}
 
-            nextEnabled={isMatrixValid && !waitingForMatch}
+            nextEnabled={isMatrixValid && canSubmit}
 
             onNext={handleSubmit}
         >
@@ -150,7 +253,7 @@ export default function PageMatrix({ onNavigate }) {
                                     spellCheck={false}
                                     maxLength={1}
                                     value={value}
-                                    disabled={waitingForMatch}
+                                    disabled={isWaiting}
                                     onChange={(e) =>
                                         handleMatrixChange(index, e.target.value)
                                     }
@@ -178,11 +281,11 @@ export default function PageMatrix({ onNavigate }) {
 
                     </div>
 
-                    {waitingForMatch && (
+                    {isWaiting && (
 
                         <p className="matrixInstruction" aria-live="polite">
 
-                            Waiting for all players to submit the same code…
+                            {waitingLabel}
 
                         </p>
 

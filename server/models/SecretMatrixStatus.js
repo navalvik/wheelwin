@@ -1,0 +1,19 @@
+/**
+ * R7.7A — Server-authoritative Secret Matrix submission lifecycle.
+ * Stored and keyed by playerId (never socketId).
+ */
+export const SECRET_MATRIX_STATUS = Object.freeze({
+    NOT_SUBMITTED: "NOT_SUBMITTED",
+    SUBMITTED: "SUBMITTED",
+    MATCH_ACCEPTED: "MATCH_ACCEPTED",
+    MATCH_REJECTED: "MATCH_REJECTED"
+});
+
+export const SECRET_MATRIX_STATUS_REASONS = Object.freeze({
+    SOCKET_NOT_AUTHORIZED: "SOCKET_NOT_AUTHORIZED",
+    INVALID_SECRET_MATRIX: "INVALID_SECRET_MATRIX",
+    SECRET_MATRIX_MISMATCH: "SECRET_MATRIX_MISMATCH",
+    SUBMITTED: "SUBMITTED",
+    MATCH_ACCEPTED: "MATCH_ACCEPTED",
+    RESTORED: "RESTORED"
+});
