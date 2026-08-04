@@ -578,6 +578,258 @@ async function main() {
         console.log("  winner DTO: OK");
     }
 
+    // --- R6.34 live escrow activation success ---
+
+    {
+        const TEST_MNEMONIC = [
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "art"
+        ].join(" ");
+
+        let accountCalls = 0;
+
+        const transport = new MockTonTransport();
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            isConnected: () => true,
+            async broadcastTransaction(boc) {
+
+                return transport.sendBoc(boc);
+
+            },
+            async getAccount() {
+
+                accountCalls += 1;
+
+                return {
+                    state: accountCalls >= 2 ? "active" : "uninitialized",
+                    balance: "0"
+                };
+
+            },
+            async getSeqno() {
+
+                return 0;
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        }, {
+            deployerMnemonic: TEST_MNEMONIC,
+            pollIntervalMs: 200,
+            escrowActivationTimeoutMs: 3000
+        });
+
+        const result = await adapter.deploy({
+            contractId: "contract_activation_ok",
+            snapshot: {
+                gameId: "game_act",
+                roomId: "room_act",
+                totalPot: 30,
+                players: []
+            }
+        });
+
+        assert.equal(result.ok, true);
+
+        assert.ok(result.contractAddress.startsWith("EQ"));
+
+        assert.ok(accountCalls >= 2);
+
+        assert.ok(transport.sentBocs.length >= 1);
+
+        console.log("  live escrow activation success: OK");
+    }
+
+    // --- R6.34 activation timeout ---
+
+    {
+        const TEST_MNEMONIC = [
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "art"
+        ].join(" ");
+
+        let accountCalls = 0;
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            isConnected: () => true,
+            async broadcastTransaction() {
+
+                return { ok: true };
+
+            },
+            async getAccount() {
+
+                accountCalls += 1;
+
+                return { state: "uninitialized", balance: "0" };
+
+            },
+            async getSeqno() {
+
+                return 0;
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        }, {
+            deployerMnemonic: TEST_MNEMONIC,
+            pollIntervalMs: 200,
+            escrowActivationTimeoutMs: 400
+        });
+
+        const result = await adapter.deploy({
+            contractId: "contract_activation_timeout",
+            snapshot: {
+                gameId: "game_timeout",
+                roomId: "room_timeout",
+                totalPot: 30,
+                players: []
+            }
+        });
+
+        assert.equal(result.ok, false);
+
+        assert.equal(result.reason, "escrow_activation_timeout");
+
+        assert.ok(accountCalls >= 1);
+
+        console.log("  live escrow activation timeout: OK");
+    }
+
+    // --- R6.34 RPC temporary failure then active ---
+
+    {
+        const TEST_MNEMONIC = [
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "art"
+        ].join(" ");
+
+        let accountCalls = 0;
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            isConnected: () => true,
+            async broadcastTransaction() {
+
+                return { ok: true };
+
+            },
+            async getAccount() {
+
+                accountCalls += 1;
+
+                if (accountCalls < 3) {
+
+                    throw new Error("temporary RPC failure");
+
+                }
+
+                return { state: "active", balance: "50000000" };
+
+            },
+            async getSeqno() {
+
+                return 0;
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        }, {
+            deployerMnemonic: TEST_MNEMONIC,
+            pollIntervalMs: 200,
+            escrowActivationTimeoutMs: 3000
+        });
+
+        const result = await adapter.deploy({
+            contractId: "contract_activation_retry",
+            snapshot: {
+                gameId: "game_retry",
+                roomId: "room_retry",
+                totalPot: 30,
+                players: []
+            }
+        });
+
+        assert.equal(result.ok, true);
+
+        assert.ok(accountCalls >= 3);
+
+        console.log("  live escrow activation RPC retry: OK");
+    }
+
+    // --- R6.34 no-mnemonic path skips activation polling ---
+
+    {
+        let accountCalls = 0;
+
+        const transport = new MockTonTransport();
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            isConnected: () => true,
+            async broadcastTransaction(boc) {
+
+                return transport.sendBoc(boc);
+
+            },
+            async getAccount() {
+
+                accountCalls += 1;
+
+                return { state: "uninitialized", balance: "0" };
+
+            },
+            async getSeqno() {
+
+                return 0;
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        }, {
+            deployerMnemonic: null,
+            pollIntervalMs: 200,
+            escrowActivationTimeoutMs: 400
+        });
+
+        const result = await adapter.deploy({
+            contractId: "contract_no_mnemonic",
+            snapshot: {
+                gameId: "game_nm",
+                roomId: "room_nm",
+                totalPot: 30,
+                players: []
+            }
+        });
+
+        assert.equal(result.ok, true);
+
+        assert.equal(accountCalls, 0);
+
+        console.log("  no-mnemonic deploy skips activation poll: OK");
+    }
+
     console.log("tonGameContractAdapter tests passed");
 }
 

@@ -41,6 +41,18 @@ import {
 } from "./ton/gameContract/GameContractSerializer.js";
 import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
 
+const DEFAULT_ESCROW_ACTIVATION_TIMEOUT_MS = 60_000;
+
+function sleep(ms) {
+
+    return new Promise((resolve) => {
+
+        setTimeout(resolve, ms);
+
+    });
+
+}
+
 export class TonGameContractAdapter {
 
     constructor({
@@ -138,6 +150,20 @@ export class TonGameContractAdapter {
                 deploymentTxId = broadcast.deploymentTxId;
 
                 deployedAt = broadcast.deployedAt ?? deployedAt;
+
+                // Live only: broadcast accepted ≠ escrow active. Gate payments.
+                const activation = await this._waitUntilEscrowActive(
+                    contractAddress
+                );
+
+                if (!activation.ok) {
+
+                    return createDeployResultDTO({
+                        ok: false,
+                        reason: activation.reason ?? "escrow_activation_failed"
+                    });
+
+                }
 
             } else {
 
@@ -554,6 +580,89 @@ export class TonGameContractAdapter {
     _canBroadcast() {
 
         return Boolean(this._tonConfig?.deployerMnemonic);
+
+    }
+
+    /**
+     * Poll until escrow account is active on-chain (live broadcast path only).
+     * Transient RPC errors are retried until timeout.
+     */
+    async _waitUntilEscrowActive(contractAddress) {
+
+        const expected = String(contractAddress ?? "").trim();
+
+        if (!expected) {
+
+            return {
+                ok: false,
+                reason: "escrow_activation_missing_address"
+            };
+
+        }
+
+        const pollIntervalMs = Number(this._tonConfig?.pollIntervalMs);
+
+        const interval = Number.isFinite(pollIntervalMs) && pollIntervalMs >= 200
+            ? pollIntervalMs
+            : 2000;
+
+        const configuredTimeout = Number(
+            this._tonConfig?.escrowActivationTimeoutMs
+        );
+
+        const timeoutMs = Number.isFinite(configuredTimeout)
+            && configuredTimeout >= 200
+            ? configuredTimeout
+            : DEFAULT_ESCROW_ACTIVATION_TIMEOUT_MS;
+
+        const deadline = Date.now() + timeoutMs;
+
+        while (Date.now() < deadline) {
+
+            try {
+
+                const active = await this.contractExists(expected);
+
+                if (active === true) {
+
+                    this._logInfo(
+                        `TON escrow active | address=${expected}`
+                    );
+
+                    return { ok: true };
+
+                }
+
+            } catch (error) {
+
+                this._logError(
+                    `TON escrow activation poll error | address=${expected} | `
+                        + `${error?.message ?? error}`
+                );
+
+            }
+
+            const remaining = deadline - Date.now();
+
+            if (remaining <= 0) {
+
+                break;
+
+            }
+
+            await sleep(Math.min(interval, remaining));
+
+        }
+
+        this._logError(
+            `TON escrow activation timeout | address=${expected} | `
+                + `timeoutMs=${timeoutMs}`
+        );
+
+        return {
+            ok: false,
+            reason: "escrow_activation_timeout"
+        };
 
     }
 

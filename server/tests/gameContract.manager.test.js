@@ -253,6 +253,114 @@ async function main() {
         console.log("  deployment failure: OK");
     }
 
+    // --- R6.34 activation failure → DEPLOY_FAILED, no READY_FOR_PAYMENTS ---
+
+    {
+        OwnerConfiguration.resetForTests();
+
+        OwnerConfiguration.load({ configPath: OWNER_CONFIG_EXAMPLE_PATH });
+
+        const logger = createLogger();
+
+        const eventBus = new EventBus({
+            logger,
+            eventBusConfig: { logEvents: false, showDebugPanel: false }
+        });
+
+        eventBus.initialize();
+
+        const readyForPayments = [];
+
+        const failed = [];
+
+        eventBus.subscribe(EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS, (envelope) => {
+
+            readyForPayments.push(envelope.payload);
+
+        });
+
+        eventBus.subscribe(EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED, (envelope) => {
+
+            failed.push(envelope.payload);
+
+        });
+
+        const identities = new Map([
+            ["p1", { nickname: "A", baseStake: 10, sectorCount: 1 }],
+            ["p2", { nickname: "B", baseStake: 10, sectorCount: 1 }],
+            ["p3", { nickname: "C", baseStake: 10, sectorCount: 1 }]
+        ]);
+
+        const manager = new GameContractManager({
+            logger,
+            eventBus,
+            playerManager: {
+                getIdentity(playerId) {
+
+                    return identities.get(playerId) ?? null;
+
+                }
+            },
+            roomManager: {
+                getRoom(roomId) {
+
+                    return roomId === "room-1"
+                        ? { players: ["p1", "p2", "p3"] }
+                        : null;
+
+                }
+            },
+            sessionWalletStore: {
+                getWallet() {
+
+                    return "EQwallet";
+
+                }
+            },
+            configurationEngine: {
+                getConfiguration() {
+
+                    return { stake: 10, players: [], sectors: [] };
+
+                }
+            },
+            deployAdapter: {
+                async deploy() {
+
+                    return {
+                        ok: false,
+                        reason: "escrow_activation_timeout"
+                    };
+
+                }
+            },
+            tonNetwork: "testnet",
+            creatingDelayMs: 0,
+            devMode: false
+        });
+
+        manager.initialize();
+
+        emitPaymentRequested(eventBus);
+
+        await wait(20);
+
+        assert.equal(failed.length, 1);
+
+        assert.equal(readyForPayments.length, 0);
+
+        assert.equal(
+            manager.getContract("room-1").status,
+            GAME_CONTRACT_STATUS.DEPLOY_FAILED
+        );
+
+        manager.shutdown();
+
+        eventBus.shutdown();
+
+        console.log("  escrow activation failure blocks payments: OK");
+    }
+
     // --- createContract + duplicate rejection ---
 
     {
