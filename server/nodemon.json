@@ -1,0 +1,11 @@
+{
+  "watch": ["."],
+  "ext": "js,mjs,cjs,json",
+  "ignore": [
+    "data/**",
+    "data/session-history/**",
+    "node_modules/**",
+    "coverage/**",
+    "logs/**"
+  ]
+}

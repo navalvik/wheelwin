@@ -1,3 +1,9 @@
+import { registerRoomDestroyContext } from "../diagnostics/RoomDestroyForensics.js";
+import {
+    logPaymentStageReady,
+    logPaymentTransitionGate
+} from "../diagnostics/PaymentTransitionForensics.js";
+import { registerSetupStoragePaymentReady } from "../diagnostics/SetupSessionStorageForensics.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { ICONS } from "../catalog/Icons.js";
@@ -336,8 +342,10 @@ export class RoomLobbyBridge {
         this._subscribe(
             EVENT_TYPES.LOBBY_SOCKET_DISCONNECTED,
             (envelope) => {
-
-                this._handleSocketDisconnected(envelope.payload.socketId);
+                this._handleSocketDisconnected(
+                    envelope.payload.socketId,
+                    envelope.payload.reason ?? null
+                );
 
             }
         );
@@ -764,6 +772,13 @@ export class RoomLobbyBridge {
 
         if (!player) {
 
+            registerRoomDestroyContext(room.roomId, {
+                reason: "create_player_failed",
+                caller: "RoomLobbyBridge._handleCreateRoom",
+                triggerEvent: "CREATE_ROOM_PLAYER_FAILED",
+                currentGameStage: "ROOM"
+            });
+
             this._roomManager.destroyRoom(room.roomId);
 
             this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
@@ -790,6 +805,13 @@ export class RoomLobbyBridge {
             this._cleanupPlayer(playerId);
 
             this._unregisterSocket(socketId);
+
+            registerRoomDestroyContext(room.roomId, {
+                reason: "add_player_failed",
+                caller: "RoomLobbyBridge._handleCreateRoom",
+                triggerEvent: "CREATE_ROOM_ADD_PLAYER_FAILED",
+                currentGameStage: "ROOM"
+            });
 
             this._roomManager.destroyRoom(room.roomId);
 
@@ -862,6 +884,17 @@ export class RoomLobbyBridge {
         }
 
         const room = this._roomManager.getRoom(roomId);
+
+        console.log("======================================================");
+        console.log("ROOM CLOSED FROM SOCKET (RoomLobbyBridge._closeRoom)");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: roomId,
+            Reason: reason ?? null,
+            RoomPlayerCount: room?.players.length ?? 0
+        });
+        console.trace("RoomLobbyBridge._closeRoom trace");
+        console.log("======================================================");
 
         if (!room) {
 
@@ -988,9 +1021,124 @@ export class RoomLobbyBridge {
 
     }
 
-    _handleSocketDisconnected(socketId) {
+    _handleSocketDisconnected(socketId, disconnectReason = null) {
 
         const context = this._getSocketContext(socketId);
+
+        const roomId = context?.roomId ?? null;
+        const playerId = context?.playerId ?? null;
+
+        const room = roomId ? this._roomManager.getRoom(roomId) ?? null : null;
+
+        const walletConnection = roomId
+            ? this._walletConnectionByRoom.get(roomId) ?? null
+            : null;
+
+        const paymentSession = roomId
+            ? this._paymentSessionManager?.getSession?.(roomId) ?? null
+            : null;
+
+        const contract = roomId
+            ? this._gameContractManager?.getContract?.(roomId) ?? null
+            : null;
+
+        const stage = roomId
+            ? (this._paymentStageReadyByRoom.has(roomId)
+                ? "PAYMENT"
+                : this._profilesRevealedByRoom.has(roomId)
+                    ? "VERIFY"
+                    : "SETUP")
+            : null;
+
+        const protectedSession = roomId
+            ? this._isProtectedSession(roomId)
+            : null;
+
+        const creatorId = roomId ? this._roomCreators.get(roomId) ?? null : null;
+
+        const socketCount = room
+            ? room.players
+                .filter((pid) => Boolean(this._playerToSocket.get(pid)))
+                .length
+            : 0;
+
+        const gameStarted = roomId ? this._startedRooms.has(roomId) : false;
+
+        const creatorLeftCandidate = (
+            Boolean(context)
+            && creatorId === playerId
+            && !gameStarted
+        );
+
+        const emptyRoomCandidate = (
+            Boolean(context)
+            && room
+            && room.players.length === 1
+            && room.status !== ROOM_STATUS.LOCKED
+        );
+
+        const willRemovePlayer = Boolean(
+            context
+            && protectedSession !== true
+            && !creatorLeftCandidate
+            && !gameStarted
+            && room
+            && room.status !== ROOM_STATUS.LOCKED
+        );
+
+        const willCloseRoom = Boolean(
+            context
+            && protectedSession !== true
+            && (creatorLeftCandidate || gameStarted || emptyRoomCandidate)
+        );
+
+        console.log("======================================================");
+        console.log("SOCKET DISCONNECT");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: roomId,
+            GameId: roomId
+                ? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId) ?? null
+                : null,
+            PlayerId: playerId ?? null,
+            IdentityId: (() => {
+                try {
+                    return playerId
+                        ? this._playerManager.getIdentity?.(playerId)?.identityId ?? null
+                        : null;
+                } catch {
+                    return null;
+                }
+            })(),
+            SocketId: socketId,
+            PreviousSocketId: playerId
+                ? this._playerToSocket.get(playerId) ?? null
+                : null,
+            ProtectedSession: protectedSession,
+            CurrentStage: stage,
+            WalletConnected: walletConnection?.paymentConnectionReady === true,
+            PaymentSession: paymentSession
+                ? {
+                    paymentSessionId: paymentSession.paymentSessionId ?? null,
+                    status: paymentSession.status ?? null
+                }
+                : null,
+            DeployState: contract
+                ? {
+                    contractId: contract.contractId ?? null,
+                    status: contract.status ?? null
+                }
+                : null,
+            Creator: creatorId,
+            RoomPlayerCount: room?.players.length ?? 0,
+            RoomSocketCount: socketCount,
+            DisconnectReason: disconnectReason ?? null,
+            WillRemovePlayer: willRemovePlayer,
+            WillCloseRoom: willCloseRoom,
+            WillDestroyRoom: willCloseRoom
+        });
+        console.trace("RoomLobbyBridge._handleSocketDisconnected trace");
+        console.log("======================================================");
 
         if (!context) {
 
@@ -999,6 +1147,15 @@ export class RoomLobbyBridge {
         }
 
         if (this._isProtectedSession(context.roomId)) {
+
+            this._logger.decisionTrace({
+                stage: "SOCKET_DISCONNECT",
+                decision: "IGNORE",
+                reason: "Protected Session",
+                caller: "RoomLobbyBridge._handleSocketDisconnected",
+                nextAction: "Continue Game",
+                roomId: context.roomId
+            });
 
             // R7.5A — soft disconnect keeps authoritative ownership until commit.
             // Never _unregisterSocket here (that created the zero-owner gap).
@@ -1029,6 +1186,15 @@ export class RoomLobbyBridge {
             return;
 
         }
+
+        this._logger.decisionTrace({
+            stage: "SOCKET_DISCONNECT",
+            decision: "REMOVE_PLAYER",
+            reason: "Unprotected Session",
+            caller: "RoomLobbyBridge._handleSocketDisconnected",
+            nextAction: "Remove player / possibly close room",
+            roomId: context.roomId
+        });
 
         this._removePlayerFromLobby(
             context.playerId,
@@ -2021,6 +2187,20 @@ export class RoomLobbyBridge {
 
         if (creatorId === playerId && !gameStarted) {
 
+            console.log("======================================================");
+            console.log("SOCKET BRANCH: creator_left");
+            console.log({
+                Timestamp: new Date().toISOString(),
+                RoomId: roomId,
+                PlayerId: playerId,
+                SocketId: socketId ?? null,
+                CreatorId: creatorId ?? null,
+                GameStarted: gameStarted,
+                DisconnectReason: reason ?? null
+            });
+            console.trace("RoomLobbyBridge._removePlayerFromLobby creator_left trace");
+            console.log("======================================================");
+
             this._closeRoom(roomId, "creator_left");
 
             return;
@@ -2031,6 +2211,19 @@ export class RoomLobbyBridge {
         // the single SESSION_FINISHED cleanup path (same as result-session timeout).
         // Soft disconnect never reaches here; recovery is untouched.
         if (gameStarted) {
+
+            console.log("======================================================");
+            console.log("SOCKET BRANCH: gameStarted (finishResultSession)");
+            console.log({
+                Timestamp: new Date().toISOString(),
+                RoomId: roomId,
+                PlayerId: playerId,
+                SocketId: socketId ?? null,
+                GameStarted: gameStarted,
+                DisconnectReason: reason ?? null
+            });
+            console.trace("RoomLobbyBridge._removePlayerFromLobby gameStarted trace");
+            console.log("======================================================");
 
             this._finishResultSession(roomId, "session_ended");
 
@@ -2087,6 +2280,28 @@ export class RoomLobbyBridge {
         const remainingRoom = this._roomManager.getRoom(roomId);
 
         if (!remainingRoom || remainingRoom.players.length === 0) {
+
+            console.log("======================================================");
+            console.log("SOCKET BRANCH: empty_room (destroyRoom)");
+            console.log({
+                Timestamp: new Date().toISOString(),
+                RoomId: roomId,
+                PlayerId: playerId,
+                SocketId: socketId ?? null,
+                RemainingPlayers: remainingRoom?.players.length ?? 0,
+                DisconnectReason: reason ?? null
+            });
+            console.trace("RoomLobbyBridge._removePlayerFromLobby empty_room trace");
+            console.log("======================================================");
+
+            registerRoomDestroyContext(roomId, {
+                reason: "empty_room",
+                caller: "RoomLobbyBridge._removePlayerFromLobby",
+                triggerEvent: "PLAYER_LEFT_EMPTY_ROOM",
+                currentGameStage: this._paymentStageReadyByRoom.has(roomId)
+                    ? "PAYMENT"
+                    : "SETUP"
+            });
 
             this._roomManager.destroyRoom(roomId);
 
@@ -2185,15 +2400,88 @@ export class RoomLobbyBridge {
 
         const room = this._roomManager.getRoom(roomId);
 
+        console.log("======================================================");
+        console.log("ROOM CLOSED FROM SOCKET (RoomLobbyBridge._closeRoom)");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: roomId,
+            Reason: reason ?? null,
+            CurrentStage: this._paymentStageReadyByRoom.has(roomId)
+                ? "PAYMENT"
+                : this._profilesRevealedByRoom.has(roomId)
+                    ? "VERIFY"
+                    : "SETUP",
+            RoomPlayerCount: room?.players.length ?? 0,
+            HasPaymentSession: Boolean(
+                this._paymentSessionManager?.getSession?.(roomId)
+            ),
+            HasContract: Boolean(
+                this._gameContractManager?.getContract?.(roomId)
+            )
+        });
+        console.trace("RoomLobbyBridge._closeRoom trace");
+        console.log("======================================================");
+
         if (!room) {
 
             return;
 
         }
 
+        this._logger.decisionTrace({
+            stage: "ROOM_CLOSE",
+            decision: "CLOSE",
+            reason: reason ?? "unspecified",
+            caller: "RoomLobbyBridge._closeRoom",
+            nextAction: "destroyRoom()",
+            roomId
+        });
+
         const playerIds = [...room.players];
 
         this._resultSessionLifecycle?.cancel(roomId);
+
+        const gameId = this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
+            ?? null;
+
+        const walletConnection = this._walletConnectionByRoom.get(roomId);
+
+        const paymentSession = this._paymentSessionManager?.getSession?.(roomId)
+            ?? null;
+
+        const setupSnapshot = this._setupSessionLifecycle?.buildSyncPayload?.(roomId)
+            ?? null;
+
+        registerRoomDestroyContext(roomId, {
+            reason: reason ?? "unspecified",
+            caller: "RoomLobbyBridge._closeRoom",
+            triggerEvent: reason ?? "ROOM_CLOSE",
+            gameId,
+            currentGameStage: this._paymentStageReadyByRoom.has(roomId)
+                ? "PAYMENT"
+                : this._profilesRevealedByRoom.has(roomId)
+                    ? "VERIFY"
+                    : "SETUP",
+            setupSession: setupSnapshot?.state ?? null,
+            walletConnectionSession: walletConnection
+                ? {
+                    paymentConnectionReady: walletConnection.paymentConnectionReady === true,
+                    players: walletConnection.players?.map((seat) => ({
+                        playerId: seat.playerId,
+                        status: seat.status
+                    })) ?? []
+                }
+                : null,
+            paymentSession: paymentSession
+                ? {
+                    paymentSessionId: paymentSession.paymentSessionId ?? null,
+                    status: paymentSession.status ?? null
+                }
+                : null,
+            socketCount: playerIds.filter(
+                (playerId) => Boolean(this._playerToSocket.get(playerId))
+            ).length
+        });
 
         this._roomManager.destroyRoom(roomId);
 
@@ -3287,13 +3575,76 @@ export class RoomLobbyBridge {
 
         }
 
+        const setupSession = this._setupSessionLifecycle?.getSession(roomId) ?? null;
+
+        const recoverable = this._setupSessionLifecycle?.isRecoverable(roomId) ?? false;
+
+        const room = this._roomManager.getRoom(roomId);
+
+        const continued = this._continueToPaymentByRoom.get(roomId);
+
+        const verifiedCount = continued?.size ?? 0;
+
+        const walletReady = room
+            ? room.players.every((playerId) => Boolean(
+                this._sessionWalletStore.getWallet(roomId, playerId)
+            ))
+            : false;
+
+        logPaymentTransitionGate({
+            roomId,
+            currentStage: this._profilesRevealedByRoom.has(roomId)
+                ? "VERIFY_COMPLETE"
+                : "PRE_VERIFY",
+            setupExists: Boolean(setupSession),
+            setupState: setupSession?.state ?? null,
+            recoverable,
+            archiveForPaymentResult: "pending",
+            roomExists: Boolean(room),
+            roomDestroying: room?.status === "DESTROYED",
+            verifiedPlayers: room
+                ? `${verifiedCount}/${room.players.length}`
+                : `${verifiedCount}/unknown`,
+            walletReady,
+            willEmitPaymentStageReady: true,
+            caller: "RoomLobbyBridge._broadcastPaymentStageReady"
+        });
+
         this._paymentStageReadyByRoom.add(roomId);
+
+        registerSetupStoragePaymentReady(roomId);
 
         // R6.38 — Setup permanently relinquishes timer + destroy authority.
         // Payment lifecycle is the sole room owner from this boundary onward.
         const archivedSetup = this._setupSessionLifecycle
             ?.archiveForPayment?.(roomId)
             ?? null;
+
+        const archiveResult = archivedSetup?.state
+            ?? (archivedSetup ? "snapshot" : "null");
+
+        this._logger.decisionTrace({
+            stage: "PAYMENT_STAGE_READY",
+            decision: archivedSetup ? "ALLOW" : "ALLOW_WITHOUT_ARCHIVE",
+            reason: archivedSetup
+                ? "Transition gate passed; Setup archived."
+                : `Transition gate passed; archiveForPayment returned ${archiveResult}.`,
+            caller: "RoomLobbyBridge._broadcastPaymentStageReady",
+            nextAction: "Wallet Connection",
+            roomId
+        });
+
+        logPaymentStageReady({
+            roomId,
+            archiveForPaymentResult: archiveResult,
+            setupState: this._setupSessionLifecycle?.getSession(roomId)?.state
+                ?? setupSession?.state
+                ?? null,
+            recoverable: this._setupSessionLifecycle?.isRecoverable(roomId) ?? false,
+            currentStage: "PAYMENT_STAGE_READY",
+            roomDestroying: this._roomManager.getRoom(roomId)?.status === "DESTROYED",
+            emissionTarget: "room"
+        });
 
         this._deliverToRoom(
             roomId,
@@ -3308,6 +3659,26 @@ export class RoomLobbyBridge {
                 LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC,
                 archivedSetup
             );
+
+            this._logger.decisionTrace({
+                stage: "SETUP_SESSION_SYNC",
+                decision: "EMIT",
+                reason: "Archived Setup snapshot delivered to room.",
+                caller: "RoomLobbyBridge._broadcastPaymentStageReady",
+                nextAction: "Wallet Connection",
+                roomId
+            });
+
+        } else {
+
+            this._logger.decisionTrace({
+                stage: "SETUP_SESSION_SYNC",
+                decision: "SKIP",
+                reason: "archiveForPayment returned null; SETUP_SESSION_SYNC not emitted.",
+                caller: "RoomLobbyBridge._broadcastPaymentStageReady",
+                nextAction: "Wallet Connection",
+                roomId
+            });
 
         }
 
@@ -4352,6 +4723,15 @@ export class RoomLobbyBridge {
 
         this._logger.info(`Payment connection ready | roomId=${roomId}`);
 
+        this._logger.decisionTrace({
+            stage: "PAYMENT_CONNECTION_READY",
+            decision: "ALLOW",
+            reason: "All wallets connected.",
+            caller: "RoomLobbyBridge._deliverPaymentConnectionReady",
+            nextAction: "Create PaymentSession",
+            roomId
+        });
+
     }
 
     _deliverPaymentSessionCreated(payload) {
@@ -5035,6 +5415,15 @@ export class RoomLobbyBridge {
         );
 
         this._logger.info(`Verify completed | roomId=${roomId}`);
+
+        this._logger.decisionTrace({
+            stage: "VERIFY_COMPLETE",
+            decision: "PASS",
+            reason: `All ${revealedPlayers.length} players verified.`,
+            caller: "RoomLobbyBridge._revealVerifyRoster",
+            nextAction: "await VERIFY_NEXT wallets → archiveForPayment()",
+            roomId
+        });
 
     }
 

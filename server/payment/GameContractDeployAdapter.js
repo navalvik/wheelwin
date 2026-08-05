@@ -2,6 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { Address } from "@ton/core";
 
+import {
+    markDeployStage,
+    printDeployBlock,
+    safeSerialize
+} from "../diagnostics/DeployPipelineForensics.js";
+
 /**
  * P6.5 — Stub Game Smart Contract deployer.
  *
@@ -85,16 +91,52 @@ export class GameContractDeployAdapter {
      */
     async deploy({ contractId, snapshot }) {
 
+        const stage = markDeployStage(
+            snapshot?.roomId ?? contractId,
+            "ADAPTER_STUB_DEPLOY_START"
+        );
+
+        printDeployBlock("ADAPTER DEPLOY START (GameContractDeployAdapter)", {
+            AdapterImplementation: "GameContractDeployAdapter (stub)",
+            Environment: process.env.NODE_ENV ?? "unknown",
+            DeployMode: "stub",
+            Network: this._testOnly ? "testnet (testOnly)" : "mainnet",
+            Railway: Boolean(process.env.RAILWAY_ENVIRONMENT),
+            Development: process.env.NODE_ENV !== "production",
+            Mock: false,
+            ContractId: contractId,
+            RoomId: snapshot?.roomId ?? null,
+            GameId: snapshot?.gameId ?? null,
+            DeployDelayMs: this._deployDelayMs,
+            ShouldFail: this._shouldFail,
+            DurationSincePreviousStageMs: stage.elapsedMs,
+            Timestamp: new Date(stage.now).toISOString()
+        });
+
         if (!contractId || !snapshot) {
 
-            return {
+            const result = {
                 ok: false,
                 reason: "invalid_deploy_request"
             };
 
+            printDeployBlock("ADAPTER DEPLOY RETURN (GameContractDeployAdapter)", {
+                Case: "B — ok:false",
+                ReturnedObject: safeSerialize(result),
+                Timestamp: new Date().toISOString()
+            });
+
+            return result;
+
         }
 
         if (this._deployDelayMs > 0) {
+
+            printDeployBlock("ADAPTER DEPLOY DELAY", {
+                Adapter: "GameContractDeployAdapter",
+                DeployDelayMs: this._deployDelayMs,
+                Timestamp: new Date().toISOString()
+            });
 
             await new Promise((resolve) => {
 
@@ -110,10 +152,18 @@ export class GameContractDeployAdapter {
                 `GameContract deploy stub failed | contractId=${contractId}`
             );
 
-            return {
+            const result = {
                 ok: false,
                 reason: "deploy_stub_failed"
             };
+
+            printDeployBlock("ADAPTER DEPLOY RETURN (GameContractDeployAdapter)", {
+                Case: "B — ok:false (shouldFail=true)",
+                ReturnedObject: safeSerialize(result),
+                Timestamp: new Date().toISOString()
+            });
+
+            return result;
 
         }
 
@@ -132,10 +182,25 @@ export class GameContractDeployAdapter {
                     + `${error?.message ?? error}`
             );
 
-            return {
+            printDeployBlock("ADAPTER DEPLOY EXCEPTION (GameContractDeployAdapter)", {
+                "Error.name": error?.name ?? "unknown",
+                "Error.message": error?.message ?? String(error),
+                "Error.stack": error?.stack ?? null,
+                Timestamp: new Date().toISOString()
+            });
+
+            const result = {
                 ok: false,
                 reason: "invalid_stub_address"
             };
+
+            printDeployBlock("ADAPTER DEPLOY RETURN (GameContractDeployAdapter)", {
+                Case: "B — ok:false (address build failed)",
+                ReturnedObject: safeSerialize(result),
+                Timestamp: new Date().toISOString()
+            });
+
+            return result;
 
         }
 
@@ -150,6 +215,13 @@ export class GameContractDeployAdapter {
             `GameContract deploy stub ok | contractId=${contractId} | `
                 + `address=${contractAddress}`
         );
+
+        printDeployBlock("ADAPTER DEPLOY RETURN (GameContractDeployAdapter)", {
+            Case: "A — ok:true",
+            ReturnedObject: safeSerialize(result),
+            ReturnedPromise: "resolved (not rejected)",
+            Timestamp: new Date().toISOString()
+        });
 
         return result;
 

@@ -113,6 +113,19 @@ export class BoundLogger {
 
     }
 
+    /**
+     * R7.20C — Architectural decision trace via LoggingManager.
+     */
+    decisionTrace(params) {
+
+        this._manager.decisionTrace({
+            ...params,
+            roomId: params?.roomId ?? this._baseFields.roomId ?? null,
+            gameId: params?.gameId ?? this._baseFields.gameId ?? null
+        });
+
+    }
+
     _write(level, message, fields = null, error = null) {
 
         this._manager.write({

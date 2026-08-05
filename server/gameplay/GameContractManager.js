@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 
+import {
+    markDeployStage,
+    nextDeployAttempt,
+    printDeployBlock,
+    safeSerialize
+} from "../diagnostics/DeployPipelineForensics.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import {
@@ -18,6 +24,15 @@ import {
     InvalidContractStateTransitionError,
     PersistenceFailureError
 } from "./GameContractManagerErrors.js";
+
+const R711B_EMIT_EVENTS = new Set([
+    EVENT_TYPES.GAME_CONTRACT_DEPLOYED,
+    EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
+    EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS,
+    EVENT_TYPES.CONTRACT_DEPLOYING,
+    EVENT_TYPES.CONTRACT_DEPLOYED,
+    EVENT_TYPES.CONTRACT_FAILED
+]);
 
 const REQUESTED_OR_BEYOND = new Set([
     PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED,
@@ -423,6 +438,17 @@ export class GameContractManager {
             `CREATING | roomId=${roomId} | gameId=${resolvedGameId} | `
                 + `contractId=${contract.contractId}`
         );
+
+        const stage = markDeployStage(roomId, "GAME_CONTRACT_CREATING");
+
+        printDeployBlock("GameContractManager.createContractRequest", {
+            RoomId: roomId,
+            GameId: resolvedGameId,
+            ContractId: contract.contractId,
+            Status: contract.status,
+            DurationSincePreviousStageMs: stage.elapsedMs,
+            Timestamp: new Date(stage.now).toISOString()
+        });
 
         this._scheduleCreated(contract);
 
@@ -1005,6 +1031,18 @@ export class GameContractManager {
 
         }
 
+        const stage = markDeployStage(roomId, "PAYMENT_SESSION_UPDATED_TRIGGER");
+
+        printDeployBlock("GameContractManager._handlePaymentSessionUpdated", {
+            RoomId: roomId,
+            GameId: gameId,
+            ParticipantCount: participants.length,
+            AllRequested: allRequested,
+            Action: "createContractRequest",
+            DurationSincePreviousStageMs: stage.elapsedMs,
+            Timestamp: new Date(stage.now).toISOString()
+        });
+
         this.createContractRequest(roomId, { gameId });
 
     }
@@ -1071,6 +1109,22 @@ export class GameContractManager {
                     + `contractId=${current.contractId}`
             );
 
+            const deployStage = markDeployStage(
+                current.roomId,
+                "READY_FOR_BLOCKCHAIN"
+            );
+
+            printDeployBlock("GameContractManager._scheduleCreated finish", {
+                RoomId: current.roomId,
+                GameId: current.gameId,
+                ContractId: current.contractId,
+                Status: current.status,
+                CreatingDelayMs: this._creatingDelayMs,
+                Action: "void _beginDeploy(current.roomId)",
+                DurationSincePreviousStageMs: deployStage.elapsedMs,
+                Timestamp: new Date(deployStage.now).toISOString()
+            });
+
             void this._beginDeploy(current.roomId);
 
         };
@@ -1095,11 +1149,25 @@ export class GameContractManager {
 
         if (!contract) {
 
+            printDeployBlock("BEGIN CONTRACT DEPLOY — ABORT", {
+                RoomId: roomId,
+                Reason: "contract_missing_from_registry",
+                Timestamp: new Date().toISOString()
+            });
+
             return;
 
         }
 
         if (contract.status !== GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN) {
+
+            printDeployBlock("BEGIN CONTRACT DEPLOY — ABORT", {
+                RoomId: roomId,
+                ContractId: contract.contractId,
+                CurrentState: contract.status,
+                Reason: "status_not_READY_FOR_BLOCKCHAIN",
+                Timestamp: new Date().toISOString()
+            });
 
             return;
 
@@ -1107,9 +1175,35 @@ export class GameContractManager {
 
         if (!contract.transitionTo(GAME_CONTRACT_STATUS.DEPLOYING)) {
 
+            printDeployBlock("BEGIN CONTRACT DEPLOY — ABORT", {
+                RoomId: roomId,
+                ContractId: contract.contractId,
+                CurrentState: contract.status,
+                Reason: "transition_to_DEPLOYING_failed",
+                Timestamp: new Date().toISOString()
+            });
+
             return;
 
         }
+
+        const attempt = nextDeployAttempt(roomId);
+        const stage = markDeployStage(roomId, "BEGIN_CONTRACT_DEPLOY");
+        const adapterName = this._deployAdapter?.constructor?.name
+            ?? typeof this._deployAdapter;
+
+        printDeployBlock("BEGIN CONTRACT DEPLOY", {
+            RoomId: roomId,
+            GameId: contract.gameId,
+            ContractId: contract.contractId,
+            CurrentState: contract.status,
+            PaymentSession: "see PaymentSessionManager logs",
+            DeployAdapter: adapterName,
+            DeployAttempt: attempt,
+            AsyncBranch: "_beginDeploy async (void from _scheduleCreated)",
+            DurationSincePreviousStageMs: stage.elapsedMs,
+            Timestamp: new Date(stage.now).toISOString()
+        });
 
         this._touchUpdated(contract);
 
@@ -1123,7 +1217,20 @@ export class GameContractManager {
             `DEPLOYING | roomId=${roomId} | contractId=${contract.contractId}`
         );
 
+        this._logger.decisionTrace({
+            stage: "BEGIN_DEPLOY",
+            decision: "START",
+            reason: "Contract READY_FOR_BLOCKCHAIN; starting deploy adapter.",
+            caller: "GameContractManager._beginDeploy",
+            nextAction: "Deploy Contract",
+            roomId,
+            gameId: contract.gameId ?? null
+        });
+
+        const adapterStartedAt = Date.now();
+
         let result;
+        let caughtException = null;
 
         try {
 
@@ -1134,6 +1241,21 @@ export class GameContractManager {
 
         } catch (error) {
 
+            caughtException = error;
+
+            printDeployBlock("DEPLOY EXCEPTION", {
+                "Error.name": error?.name ?? "unknown",
+                "Error.message": error?.message ?? String(error),
+                "Error.stack": error?.stack ?? null,
+                "Serialized error": safeSerialize(error),
+                RoomId: roomId,
+                GameId: contract.gameId,
+                ContractId: contract.contractId,
+                DeployAttempt: attempt,
+                ElapsedMs: Date.now() - adapterStartedAt,
+                Timestamp: new Date().toISOString()
+            });
+
             result = {
                 ok: false,
                 reason: error?.message ?? "deploy_exception"
@@ -1141,9 +1263,80 @@ export class GameContractManager {
 
         }
 
+        const resultStage = markDeployStage(roomId, "DEPLOY_RESULT");
+        const elapsedMs = Date.now() - adapterStartedAt;
+        const resultIsNull = result === null;
+        const resultIsUndefined = result === undefined;
+        const resultKeys = result !== null && typeof result === "object"
+            ? Object.keys(result)
+            : [];
+
+        printDeployBlock("DEPLOY RESULT", {
+            RoomId: roomId,
+            GameId: contract.gameId,
+            ContractId: contract.contractId,
+            DeployAttempt: attempt,
+            AsyncBranch: "_beginDeploy after await adapter.deploy()",
+            DurationSincePreviousStageMs: resultStage.elapsedMs,
+            "typeof result": typeof result,
+            "result === null": resultIsNull,
+            "result === undefined": resultIsUndefined,
+            result: safeSerialize(result),
+            "JSON.stringify(result)": safeSerialize(result),
+            "result.ok": resultIsNull || resultIsUndefined
+                ? "(missing — result is null/undefined)"
+                : result?.ok,
+            "result.contractAddress": resultIsNull || resultIsUndefined
+                ? "(missing — result is null/undefined)"
+                : result?.contractAddress,
+            "result.error": resultIsNull || resultIsUndefined
+                ? "(missing — result is null/undefined)"
+                : result?.error,
+            "result.reason": resultIsNull || resultIsUndefined
+                ? "(missing — result is null/undefined)"
+                : result?.reason,
+            "result.code": resultIsNull || resultIsUndefined
+                ? "(missing — result is null/undefined)"
+                : result?.code,
+            "result.message": resultIsNull || resultIsUndefined
+                ? "(missing — result is null/undefined)"
+                : result?.message,
+            availableKeys: resultKeys,
+            caughtException: Boolean(caughtException),
+            ElapsedMs: elapsedMs,
+            Timestamp: new Date(resultStage.now).toISOString()
+        });
+
+        this._logger.decisionTrace({
+            stage: "DEPLOY_RESULT",
+            decision: result?.ok && result?.contractAddress ? "SUCCESS" : "FAILED",
+            reason: result?.ok && result?.contractAddress
+                ? `Adapter Result ok; address=${result.contractAddress}`
+                : `Adapter Result failed; reason=${result?.reason ?? caughtException?.message ?? "deploy_failed"}`,
+            caller: "GameContractManager._beginDeploy",
+            nextAction: result?.ok && result?.contractAddress
+                ? "Ready For Payments"
+                : "GAME_CONTRACT_DEPLOY_FAILED",
+            roomId,
+            gameId: contract.gameId ?? null
+        });
+
         const current = this._contractsByRoom.get(roomId);
 
         if (!current || current.contractId !== contract.contractId) {
+
+            printDeployBlock("DEPLOY POST-ADAPTER — EARLY RETURN", {
+                RoomId: roomId,
+                Reason: !current
+                    ? "contract_missing_after_await (registry cleared — room likely destroyed during deploy)"
+                    : "contractId_mismatch_after_await",
+                ExpectedContractId: contract.contractId,
+                CurrentContractId: current?.contractId ?? null,
+                DeployAttempt: attempt,
+                WillEmitGAME_CONTRACT_DEPLOY_FAILED: false,
+                Note: "Silent return — no DEPLOY_FAILED / DEPLOYED emit",
+                Timestamp: new Date().toISOString()
+            });
 
             return;
 
@@ -1151,13 +1344,37 @@ export class GameContractManager {
 
         if (current.status !== GAME_CONTRACT_STATUS.DEPLOYING) {
 
+            printDeployBlock("DEPLOY POST-ADAPTER — EARLY RETURN", {
+                RoomId: roomId,
+                Reason: "status_no_longer_DEPLOYING",
+                CurrentState: current.status,
+                DeployAttempt: attempt,
+                WillEmitGAME_CONTRACT_DEPLOY_FAILED: false,
+                Note: "Silent return — no DEPLOY_FAILED / DEPLOYED emit",
+                Timestamp: new Date().toISOString()
+            });
+
             return;
 
         }
 
         if (!result?.ok || !result.contractAddress) {
 
-            current.applyDeploymentFailure(result?.reason ?? "deploy_failed");
+            const failReason = result?.reason ?? "deploy_failed";
+
+            printDeployBlock("MANAGER DECISION — DEPLOY FAILED", {
+                RoomId: roomId,
+                GameId: current.gameId,
+                ContractId: current.contractId,
+                Decision: "emit GAME_CONTRACT_DEPLOY_FAILED",
+                FailReason: failReason,
+                "result.ok": result?.ok,
+                "result.contractAddress": result?.contractAddress ?? null,
+                DeployAttempt: attempt,
+                Timestamp: new Date().toISOString()
+            });
+
+            current.applyDeploymentFailure(failReason);
 
             current.transitionTo(GAME_CONTRACT_STATUS.DEPLOY_FAILED);
 
@@ -1168,6 +1385,16 @@ export class GameContractManager {
             this._emit(EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED, {
                 ...current.toClientSnapshot(),
                 reason: current.deployError
+            });
+
+            this._logger.decisionTrace({
+                stage: "GAME_CONTRACT_DEPLOY_FAILED",
+                decision: "FAIL",
+                reason: current.deployError ?? failReason,
+                caller: "GameContractManager._beginDeploy",
+                nextAction: "PaymentSession failSession",
+                roomId,
+                gameId: current.gameId ?? null
             });
 
             this._emitDomainLifecycle(EVENT_TYPES.CONTRACT_FAILED, current, {
@@ -1181,6 +1408,16 @@ export class GameContractManager {
             return;
 
         }
+
+        printDeployBlock("MANAGER DECISION — DEPLOY SUCCESS", {
+            RoomId: roomId,
+            GameId: current.gameId,
+            ContractId: current.contractId,
+            Decision: "emit GAME_CONTRACT_DEPLOYED",
+            ContractAddress: result.contractAddress,
+            DeployAttempt: attempt,
+            Timestamp: new Date().toISOString()
+        });
 
         current.applyDeploymentSuccess({
             contractAddress: result.contractAddress,
@@ -1582,6 +1819,20 @@ export class GameContractManager {
     }
 
     _emit(type, payload) {
+
+        if (R711B_EMIT_EVENTS.has(type)) {
+
+            printDeployBlock("EVENT EMITTED", {
+                EventName: type,
+                Payload: payload,
+                Source: EVENT_SOURCES.GAME_CONTRACT_MANAGER,
+                RoomId: payload?.roomId ?? null,
+                GameId: payload?.gameId ?? null,
+                ContractId: payload?.contractId ?? null,
+                Timestamp: new Date().toISOString()
+            });
+
+        }
 
         this._eventBus.emit({
             source: EVENT_SOURCES.GAME_CONTRACT_MANAGER,

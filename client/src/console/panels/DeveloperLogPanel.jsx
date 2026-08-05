@@ -76,6 +76,14 @@ function matchesCategory(entry, category) {
 
     }
 
+    if (category === "decision") {
+
+        return haystack.includes("decision trace")
+            || haystack.includes("decision_trace")
+            || haystack.includes("decision");
+
+    }
+
     return true;
 
 }
@@ -184,6 +192,7 @@ export default function DeveloperLogPanel() {
                     onChange={setCategory}
                     options={[
                         { value: "all", label: "All" },
+                        { value: "decision", label: "Decision" },
                         { value: "room", label: "Room" },
                         { value: "game", label: "Game" },
                         { value: "player", label: "Player" },

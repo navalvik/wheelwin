@@ -55,9 +55,27 @@ export class SetupSession {
 
     activate() {
 
+        const prevState = this.state;
+
         this._assertMutable();
 
         this.state = SETUP_SESSION_STATUS.ACTIVE;
+
+        console.log("======================================================");
+        console.log("SETUP SESSION STATE");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: this.roomId,
+            SetupSessionId: this.setupSessionId,
+            CurrentState: this.state,
+            PreviousState: prevState,
+            Recoverable: this.state === SETUP_SESSION_STATUS.ACTIVE
+                || this.state === SETUP_SESSION_STATUS.COMPLETED
+                || this.state === SETUP_SESSION_STATUS.ARCHIVED,
+            Caller: "SetupSession.activate"
+        });
+        console.trace();
+        console.log("======================================================");
 
     }
 
@@ -96,9 +114,27 @@ export class SetupSession {
 
     complete() {
 
+        const prevState = this.state;
+
         this._assertMutable();
 
         this.state = SETUP_SESSION_STATUS.COMPLETED;
+
+        console.log("======================================================");
+        console.log("SETUP SESSION STATE");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: this.roomId,
+            SetupSessionId: this.setupSessionId,
+            CurrentState: this.state,
+            PreviousState: prevState,
+            Recoverable: this.state === SETUP_SESSION_STATUS.ACTIVE
+                || this.state === SETUP_SESSION_STATUS.COMPLETED
+                || this.state === SETUP_SESSION_STATUS.ARCHIVED,
+            Caller: "SetupSession.complete"
+        });
+        console.trace();
+        console.log("======================================================");
 
         // Not frozen yet — prep window may later archive (R6.38 handoff) or
         // expire via SetupSessionLifecycle synthetic EXPIRED snapshot.
@@ -130,17 +166,51 @@ export class SetupSession {
 
         this._assertMutable();
 
+        const prevState = this.state;
+
         this.state = SETUP_SESSION_STATUS.ARCHIVED;
 
         this._freeze();
+
+        console.log("======================================================");
+        console.log("SETUP SESSION STATE");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: this.roomId,
+            SetupSessionId: this.setupSessionId,
+            CurrentState: this.state,
+            PreviousState: prevState,
+            Recoverable: this.state === SETUP_SESSION_STATUS.ACTIVE
+                || this.state === SETUP_SESSION_STATUS.COMPLETED
+                || this.state === SETUP_SESSION_STATUS.ARCHIVED,
+            Caller: "SetupSession.archive"
+        });
+        console.trace();
+        console.log("======================================================");
 
     }
 
     expire() {
 
+        const prevState = this.state;
+
         this._assertMutable();
 
         this.state = SETUP_SESSION_STATUS.EXPIRED;
+
+        console.log("======================================================");
+        console.log("SETUP SESSION STATE");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: this.roomId,
+            SetupSessionId: this.setupSessionId,
+            CurrentState: this.state,
+            PreviousState: prevState,
+            Recoverable: false,
+            Caller: "SetupSession.expire"
+        });
+        console.trace();
+        console.log("======================================================");
 
         this._freeze();
 
@@ -154,9 +224,25 @@ export class SetupSession {
 
         }
 
+        const prevState = this.state;
+
         this.state = SETUP_SESSION_STATUS.ABORTED;
 
         this._freeze();
+
+        console.log("======================================================");
+        console.log("SETUP SESSION STATE");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: this.roomId,
+            SetupSessionId: this.setupSessionId,
+            CurrentState: this.state,
+            PreviousState: prevState,
+            Recoverable: false,
+            Caller: "SetupSession.abort"
+        });
+        console.trace();
+        console.log("======================================================");
 
     }
 

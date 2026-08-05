@@ -880,6 +880,16 @@ export class SocketGateway {
     }
 
     _handleDisconnect(socket, reason) {
+        // R7.17 — Socket Disconnect Forensics (temporary)
+        console.log("======================================================");
+        console.log("SOCKET DISCONNECT (SocketGateway._handleDisconnect)");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            SocketId: socket?.id ?? null,
+            DisconnectReason: reason ?? null
+        });
+        console.trace("SocketGateway._handleDisconnect trace");
+        console.log("======================================================");
 
         this._logger.info(
             `Client disconnected | socketId=${socket.id} | reason=${reason}`

@@ -598,7 +598,11 @@ export class DeveloperConsoleGateway {
         const entry = Object.freeze({
             level: record.level,
             message,
-            at: Date.parse(record.timestamp) || Date.now()
+            at: Date.parse(record.timestamp) || Date.now(),
+            source: record.service ?? "console",
+            category: record.category ?? null,
+            roomId: record.roomId ?? null,
+            gameId: record.gameId ?? null
         });
 
         this._logBuffer.push(entry);

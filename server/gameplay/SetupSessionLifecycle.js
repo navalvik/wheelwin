@@ -1,3 +1,12 @@
+import { registerRoomDestroyContext } from "../diagnostics/RoomDestroyForensics.js";
+import {
+    getSetupStorageStageContext,
+    logSetupStorageClear,
+    logSetupStorageDelete,
+    logSetupStorageMiss,
+    logSetupStorageMutation
+} from "../diagnostics/SetupSessionStorageForensics.js";
+import { logPaymentTransitionFailure } from "../diagnostics/PaymentTransitionForensics.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { SetupSession } from "../models/SetupSession.js";
@@ -56,6 +65,172 @@ export class SetupSessionLifecycle {
     attachLifecycleGate(lifecycleGate) {
 
         this._lifecycleGate = lifecycleGate;
+
+    }
+
+    _storageStageContext(roomId) {
+
+        const session = this._sessions.get(roomId);
+
+        return {
+            currentStage: session?.state ?? null,
+            ...getSetupStorageStageContext(roomId)
+        };
+
+    }
+
+    _isSessionRecoverable(session) {
+
+        return Boolean(session)
+            && (session.state === SETUP_SESSION_STATUS.ACTIVE
+                || session.state === SETUP_SESSION_STATUS.COMPLETED
+                || session.state === SETUP_SESSION_STATUS.ARCHIVED);
+
+    }
+
+    _sessionGet(roomId, caller, { logMiss = false } = {}) {
+
+        const mapSizeBefore = this._sessions.size;
+        const session = this._sessions.get(roomId) ?? null;
+        const stage = this._storageStageContext(roomId);
+
+        logSetupStorageMutation({
+            operation: "GET",
+            roomId,
+            currentState: session?.state ?? null,
+            recoverable: this._isSessionRecoverable(session),
+            caller,
+            mapSizeBefore,
+            mapSizeAfter: this._sessions.size,
+            currentStage: stage.currentStage,
+            paymentStage: stage.PaymentStage,
+            deployStage: stage.DeployStage
+        });
+
+        if (!session && logMiss) {
+
+            logSetupStorageMiss({
+                roomId,
+                caller,
+                currentStage: stage.currentStage,
+                paymentStage: stage.PaymentStage,
+                deployStage: stage.DeployStage,
+                mapSize: this._sessions.size,
+                existingKeys: [...this._sessions.keys()]
+            });
+
+        }
+
+        return session;
+
+    }
+
+    _sessionHas(roomId, caller) {
+
+        const mapSizeBefore = this._sessions.size;
+        const exists = this._sessions.has(roomId);
+        const session = exists ? this._sessions.get(roomId) : null;
+        const stage = this._storageStageContext(roomId);
+
+        logSetupStorageMutation({
+            operation: "HAS",
+            roomId,
+            currentState: session?.state ?? null,
+            recoverable: this._isSessionRecoverable(session),
+            caller,
+            mapSizeBefore,
+            mapSizeAfter: this._sessions.size,
+            currentStage: stage.currentStage,
+            paymentStage: stage.PaymentStage,
+            deployStage: stage.DeployStage
+        });
+
+        return exists;
+
+    }
+
+    _sessionSet(roomId, session, caller, reason) {
+
+        const mapSizeBefore = this._sessions.size;
+        const stage = this._storageStageContext(roomId);
+
+        this._sessions.set(roomId, session);
+
+        logSetupStorageMutation({
+            operation: "SET",
+            roomId,
+            currentState: session?.state ?? null,
+            recoverable: this._isSessionRecoverable(session),
+            caller,
+            reason,
+            mapSizeBefore,
+            mapSizeAfter: this._sessions.size,
+            currentStage: stage.currentStage,
+            paymentStage: stage.PaymentStage,
+            deployStage: stage.DeployStage
+        });
+
+    }
+
+    _sessionDelete(roomId, caller, reason) {
+
+        const mapSizeBefore = this._sessions.size;
+        const session = this._sessions.get(roomId) ?? null;
+        const stage = this._storageStageContext(roomId);
+        const recoverable = this._isSessionRecoverable(session);
+
+        this._sessions.delete(roomId);
+
+        logSetupStorageDelete({
+            roomId,
+            previousState: session?.state ?? null,
+            recoverable,
+            caller,
+            reason,
+            currentStage: stage.currentStage,
+            deployStage: stage.DeployStage,
+            mapSizeBefore,
+            mapSizeAfter: this._sessions.size
+        });
+
+        logSetupStorageMutation({
+            operation: "DELETE",
+            roomId,
+            currentState: session?.state ?? null,
+            recoverable,
+            caller,
+            reason,
+            mapSizeBefore,
+            mapSizeAfter: this._sessions.size,
+            currentStage: stage.currentStage,
+            paymentStage: stage.PaymentStage,
+            deployStage: stage.DeployStage
+        });
+
+    }
+
+    _sessionClear(caller, reason) {
+
+        const previousMapSize = this._sessions.size;
+
+        this._sessions.clear();
+
+        logSetupStorageClear({
+            caller,
+            reason,
+            currentStage: "shutdown",
+            deployStage: null,
+            previousMapSize
+        });
+
+        logSetupStorageMutation({
+            operation: "CLEAR",
+            roomId: null,
+            caller,
+            reason,
+            mapSizeBefore: previousMapSize,
+            mapSizeAfter: this._sessions.size
+        });
 
     }
 
@@ -141,7 +316,7 @@ export class SetupSessionLifecycle {
 
         }
 
-        if (this._sessions.has(roomId)) {
+        if (this._sessionHas(roomId, "SetupSessionLifecycle.createForRoom")) {
 
             this._logger.error(
                 `Setup Session creation failed: already exists (${roomId})`
@@ -161,7 +336,7 @@ export class SetupSessionLifecycle {
 
         session.activate();
 
-        this._sessions.set(roomId, session);
+        this._sessionSet(roomId, session, "SetupSessionLifecycle.createForRoom", "setup_created");
 
         this._scheduleExpiry(session);
 
@@ -175,13 +350,13 @@ export class SetupSessionLifecycle {
 
     getSession(roomId) {
 
-        return this._sessions.get(roomId) ?? null;
+        return this._sessionGet(roomId, "SetupSessionLifecycle.getSession") ?? null;
 
     }
 
     isActive(roomId) {
 
-        return this._sessions.get(roomId)?.isActive() === true;
+        return this._sessionGet(roomId, "SetupSessionLifecycle.isActive")?.isActive() === true;
 
     }
 
@@ -192,23 +367,32 @@ export class SetupSessionLifecycle {
      */
     isRecoverable(roomId) {
 
-        const session = this._sessions.get(roomId);
+        const session = this._sessionGet(roomId, "SetupSessionLifecycle.isRecoverable");
 
-        if (!session) {
+        const recoverable = this._isSessionRecoverable(session);
 
-            return false;
+        console.log("======================================================");
+        console.log("SETUP PROTECTION CHECK");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: roomId ?? null,
+            CurrentState: session?.state ?? null,
+            Recoverable: recoverable
+        });
+        console.trace("SetupSessionLifecycle.isRecoverable trace");
+        console.log("======================================================");
 
-        }
-
-        return session.state === SETUP_SESSION_STATUS.ACTIVE
-            || session.state === SETUP_SESSION_STATUS.COMPLETED
-            || session.state === SETUP_SESSION_STATUS.ARCHIVED;
+        return recoverable;
 
     }
 
     buildSyncPayload(roomId, now = Date.now()) {
 
-        const session = this._sessions.get(roomId);
+        const session = this._sessionGet(
+            roomId,
+            "SetupSessionLifecycle.buildSyncPayload",
+            { logMiss: true }
+        );
 
         if (!session) {
 
@@ -243,13 +427,75 @@ export class SetupSessionLifecycle {
 
         if (!roomId) {
 
+            console.log("======================================================");
+            console.log("ARCHIVE FOR PAYMENT");
+            console.log({
+                Timestamp: new Date().toISOString(),
+                RoomId: null,
+                Result: "null_roomId",
+                Caller: "SetupSessionLifecycle.archiveForPayment"
+            });
+            console.trace();
+            console.log("======================================================");
+
+            logPaymentTransitionFailure({
+                roomId: null,
+                reason: "null_roomId",
+                currentSetupState: null,
+                recoverable: false,
+                caller: "SetupSessionLifecycle.archiveForPayment",
+                willContinueTransition: true
+            });
+
+            this._logger.decisionTrace({
+                stage: "ARCHIVE_SETUP",
+                decision: "FAIL",
+                reason: "null_roomId",
+                caller: "SetupSessionLifecycle.archiveForPayment",
+                nextAction: "PAYMENT_STAGE_READY (caller continues)",
+                roomId: null
+            });
+
             return null;
 
         }
 
-        const session = this._sessions.get(roomId);
+        const session = this._sessionGet(
+            roomId,
+            "SetupSessionLifecycle.archiveForPayment",
+            { logMiss: true }
+        );
 
         if (!session) {
+
+            console.log("======================================================");
+            console.log("ARCHIVE FOR PAYMENT");
+            console.log({
+                Timestamp: new Date().toISOString(),
+                RoomId: roomId,
+                Result: "null_session",
+                Caller: "SetupSessionLifecycle.archiveForPayment"
+            });
+            console.trace();
+            console.log("======================================================");
+
+            logPaymentTransitionFailure({
+                roomId,
+                reason: "null_session",
+                currentSetupState: null,
+                recoverable: false,
+                caller: "SetupSessionLifecycle.archiveForPayment",
+                willContinueTransition: true
+            });
+
+            this._logger.decisionTrace({
+                stage: "ARCHIVE_SETUP",
+                decision: "FAIL",
+                reason: "null_session",
+                caller: "SetupSessionLifecycle.archiveForPayment",
+                nextAction: "PAYMENT_STAGE_READY (caller continues)",
+                roomId
+            });
 
             return null;
 
@@ -257,7 +503,28 @@ export class SetupSessionLifecycle {
 
         if (session.state === SETUP_SESSION_STATUS.ARCHIVED) {
 
+            console.log("======================================================");
+            console.log("ARCHIVE FOR PAYMENT");
+            console.log({
+                Timestamp: new Date().toISOString(),
+                RoomId: roomId,
+                SetupSessionId: session.setupSessionId,
+                PreState: session.state,
+                Result: "already_archived"
+            });
+            console.trace();
+            console.log("======================================================");
+
             this._clearExpiry(roomId);
+
+            this._logger.decisionTrace({
+                stage: "ARCHIVE_SETUP",
+                decision: "ARCHIVED",
+                reason: "Setup already archived (idempotent).",
+                caller: "SetupSessionLifecycle.archiveForPayment",
+                nextAction: "PAYMENT_STAGE_READY",
+                roomId
+            });
 
             return session.toSnapshot();
 
@@ -268,9 +535,51 @@ export class SetupSessionLifecycle {
             && session.state !== SETUP_SESSION_STATUS.ACTIVE
         ) {
 
+            console.log("======================================================");
+            console.log("ARCHIVE FOR PAYMENT");
+            console.log({
+                Timestamp: new Date().toISOString(),
+                RoomId: roomId,
+                SetupSessionId: session.setupSessionId,
+                PreState: session.state,
+                Result: "state_not_archiveable"
+            });
+            console.trace();
+            console.log("======================================================");
+
+            logPaymentTransitionFailure({
+                roomId,
+                reason: "state_not_archiveable",
+                currentSetupState: session.state,
+                recoverable: this._isSessionRecoverable(session),
+                caller: "SetupSessionLifecycle.archiveForPayment",
+                willContinueTransition: true
+            });
+
+            this._logger.decisionTrace({
+                stage: "ARCHIVE_SETUP",
+                decision: "FAIL",
+                reason: `state_not_archiveable (${session.state})`,
+                caller: "SetupSessionLifecycle.archiveForPayment",
+                nextAction: "PAYMENT_STAGE_READY (caller continues)",
+                roomId
+            });
+
             return null;
 
         }
+
+        console.log("======================================================");
+        console.log("ARCHIVE FOR PAYMENT");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: roomId,
+            SetupSessionId: session.setupSessionId,
+            PreState: session.state,
+            Result: "archiving_now"
+        });
+        console.trace();
+        console.log("======================================================");
 
         this._clearExpiry(roomId);
 
@@ -282,6 +591,15 @@ export class SetupSessionLifecycle {
             `ARCHIVED | roomId=${roomId} | setupSessionId=${session.setupSessionId}`
         );
 
+        this._logger.decisionTrace({
+            stage: "ARCHIVE_SETUP",
+            decision: "ARCHIVED",
+            reason: "Setup successfully archived.",
+            caller: "SetupSessionLifecycle.archiveForPayment",
+            nextAction: "PAYMENT_STAGE_READY",
+            roomId
+        });
+
         return snapshot;
 
     }
@@ -291,7 +609,11 @@ export class SetupSessionLifecycle {
      */
     abortForRoom(roomId) {
 
-        const session = this._sessions.get(roomId);
+        const session = this._sessionGet(
+            roomId,
+            "SetupSessionLifecycle.abortForRoom",
+            { logMiss: true }
+        );
 
         if (!session) {
 
@@ -309,7 +631,19 @@ export class SetupSessionLifecycle {
 
         }
 
-        this._sessions.delete(roomId);
+        console.log("======================================================");
+        console.log("SETUP SESSION DESTROYED");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: roomId,
+            StateBeforeRemoval: session.state,
+            Reason: "abort_for_room",
+            Caller: "SetupSessionLifecycle.abortForRoom"
+        });
+        console.trace();
+        console.log("======================================================");
+
+        this._sessionDelete(roomId, "SetupSessionLifecycle.abortForRoom", "abort_for_room");
 
         return true;
 
@@ -323,7 +657,7 @@ export class SetupSessionLifecycle {
 
         }
 
-        const session = this._sessions.get(roomId);
+        const session = this._sessionGet(roomId, "SetupSessionLifecycle._handleRoomFull");
 
         if (!session || !session.isActive()) {
 
@@ -416,7 +750,11 @@ export class SetupSessionLifecycle {
 
         this._expiryTimers.delete(roomId);
 
-        const session = this._sessions.get(roomId);
+        const session = this._sessionGet(
+            roomId,
+            "SetupSessionLifecycle._onExpiry",
+            { logMiss: true }
+        );
 
         if (!session) {
 
@@ -458,11 +796,31 @@ export class SetupSessionLifecycle {
 
         this._emit(EVENT_TYPES.SETUP_SESSION_EXPIRED, snapshot);
 
-        this._sessions.delete(roomId);
+        console.log("======================================================");
+        console.log("SETUP SESSION DESTROYED");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            RoomId: roomId,
+            StateBeforeRemoval: session.state,
+            Reason: "setup_expired",
+            Caller: "SetupSessionLifecycle._onExpiry"
+        });
+        console.trace();
+        console.log("======================================================");
+
+        this._sessionDelete(roomId, "SetupSessionLifecycle._onExpiry", "setup_expired");
 
         // RoomManager decides destruction. Bridge may already have closed the
         // room while handling EXPIRED (sync); destroy only if still present.
         if (this._roomManager.getRoom(roomId)) {
+
+            registerRoomDestroyContext(roomId, {
+                reason: "setup_expired",
+                caller: "SetupSessionLifecycle._onExpiry",
+                triggerEvent: EVENT_TYPES.SETUP_SESSION_EXPIRED,
+                currentGameStage: "SETUP",
+                setupSession: snapshot?.state ?? SETUP_SESSION_STATUS.EXPIRED
+            });
 
             this._roomManager.destroyRoom(roomId);
 
@@ -502,7 +860,17 @@ export class SetupSessionLifecycle {
 
         }
 
-        this._sessions.clear();
+        console.log("======================================================");
+        console.log("SETUP SESSION DESTROYED");
+        console.log({
+            Timestamp: new Date().toISOString(),
+            Reason: "reset_clear",
+            SessionsClearedCount: this._sessions.size ?? null
+        });
+        console.trace("SetupSessionLifecycle._reset trace");
+        console.log("======================================================");
+
+        this._sessionClear("SetupSessionLifecycle._reset", "reset_clear");
 
     }
 

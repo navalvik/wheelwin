@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+Accept-Ranges: bytes
+Access-Control-Allow-Origin: *
+Age: 0
+Cache-Control: public, max-age=0, must-revalidate
+Content-Disposition: inline; filename="favicon.svg"
+Content-Length: 9522
+Content-Type: image/svg+xml
+Date: Sun, 02 Aug 2026 13:19:18 GMT
+Etag: "7e840862161341271697daa99a40d76b"
+Last-Modified: Sun, 02 Aug 2026 13:19:18 GMT
+Server: Vercel
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Vercel-Cache: MISS
+X-Vercel-Id: arn1::57g4j-1785676757929-efff939911f4
+

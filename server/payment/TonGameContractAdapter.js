@@ -9,6 +9,11 @@ import { beginCell, internal, toNano } from "@ton/core";
 import { mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
+import {
+    markDeployStage,
+    printDeployBlock,
+    safeSerialize
+} from "../diagnostics/DeployPipelineForensics.js";
 import { buildGameEscrowWallet } from "./ton/buildGameEscrowStateInit.js";
 import {
     assertNetworkCompatibility,
@@ -83,9 +88,17 @@ export class TonGameContractAdapter {
 
     async deploy({ contractId, snapshot }) {
 
+        printDeployBlock("ADAPTER DEPLOY ENTRY (TonGameContractAdapter.deploy)", {
+            AdapterImplementation: "TonGameContractAdapter (live)",
+            ContractId: contractId,
+            RoomId: snapshot?.roomId ?? null,
+            GameId: snapshot?.gameId ?? null,
+            Timestamp: new Date().toISOString()
+        });
+
         const result = await this.deployContract({ contractId, snapshot });
 
-        return {
+        const mapped = {
             ok: result.ok,
             contractAddress: result.contractAddress,
             deploymentTxId: result.deploymentTxId,
@@ -93,6 +106,15 @@ export class TonGameContractAdapter {
             snapshotHash: result.snapshotHash,
             reason: result.reason
         };
+
+        printDeployBlock("ADAPTER DEPLOY RETURN (TonGameContractAdapter.deploy)", {
+            Case: mapped.ok ? "A — ok:true" : "B — ok:false",
+            ReturnedObject: safeSerialize(mapped),
+            ReturnedPromise: "resolved (not rejected)",
+            Timestamp: new Date().toISOString()
+        });
+
+        return mapped;
 
     }
 
@@ -115,12 +137,40 @@ export class TonGameContractAdapter {
 
     async deployContract({ contractId, snapshot }) {
 
+        const roomId = snapshot?.roomId ?? contractId;
+        const stage = markDeployStage(roomId, "ADAPTER_LIVE_DEPLOY_CONTRACT_START");
+
+        printDeployBlock("ADAPTER deployContract START (TonGameContractAdapter)", {
+            AdapterImplementation: "TonGameContractAdapter",
+            Environment: process.env.NODE_ENV ?? "unknown",
+            DeployMode: "live",
+            Network: this._tonConfig?.network ?? "unknown",
+            Railway: Boolean(process.env.RAILWAY_ENVIRONMENT),
+            Development: process.env.NODE_ENV !== "production",
+            CanBroadcast: this._canBroadcast(),
+            DeployerMnemonicConfigured: Boolean(this._tonConfig?.deployerMnemonic),
+            RpcEndpoint: this._tonConfig?.endpoint ?? null,
+            ContractId: contractId,
+            RoomId: snapshot?.roomId ?? null,
+            GameId: snapshot?.gameId ?? null,
+            DurationSincePreviousStageMs: stage.elapsedMs,
+            Timestamp: new Date(stage.now).toISOString()
+        });
+
         if (!contractId || !snapshot) {
 
-            return createDeployResultDTO({
+            const result = createDeployResultDTO({
                 ok: false,
                 reason: "invalid_deploy_request"
             });
+
+            printDeployBlock("ADAPTER deployContract RETURN", {
+                Case: "B — ok:false",
+                ReturnedObject: safeSerialize(result),
+                Timestamp: new Date().toISOString()
+            });
+
+            return result;
 
         }
 
@@ -136,14 +186,41 @@ export class TonGameContractAdapter {
 
             if (this._canBroadcast()) {
 
+                printDeployBlock("ADAPTER RPC — broadcastDeploy START", {
+                    ContractAddress: contractAddress,
+                    DeployerAddress: "(resolved at broadcast)",
+                    RpcEndpoint: this._tonConfig?.endpoint ?? null,
+                    RequestPayload: safeSerialize({
+                        contractId,
+                        to: contractAddress,
+                        valueTon: "0.05"
+                    }),
+                    Timestamp: new Date().toISOString()
+                });
+
                 const broadcast = await this._broadcastDeploy(escrow);
+
+                printDeployBlock("ADAPTER RPC — broadcastDeploy RESPONSE", {
+                    ResponsePayload: safeSerialize(broadcast),
+                    "broadcast.ok": broadcast?.ok,
+                    Timestamp: new Date().toISOString()
+                });
 
                 if (!broadcast.ok) {
 
-                    return createDeployResultDTO({
+                    const result = createDeployResultDTO({
                         ok: false,
                         reason: broadcast.reason ?? "deploy_failed"
                     });
+
+                    printDeployBlock("ADAPTER deployContract RETURN", {
+                        Case: "B — ok:false (broadcast failed)",
+                        FailReason: result.reason,
+                        ReturnedObject: safeSerialize(result),
+                        Timestamp: new Date().toISOString()
+                    });
+
+                    return result;
 
                 }
 
@@ -151,21 +228,49 @@ export class TonGameContractAdapter {
 
                 deployedAt = broadcast.deployedAt ?? deployedAt;
 
-                // Live only: broadcast accepted ≠ escrow active. Gate payments.
+                printDeployBlock("ADAPTER RPC — waitUntilEscrowActive START", {
+                    ContractAddress: contractAddress,
+                    PollIntervalMs: this._tonConfig?.pollIntervalMs ?? 2000,
+                    EscrowActivationTimeoutMs:
+                        this._tonConfig?.escrowActivationTimeoutMs ?? 60000,
+                    Timestamp: new Date().toISOString()
+                });
+
                 const activation = await this._waitUntilEscrowActive(
                     contractAddress
                 );
 
+                printDeployBlock("ADAPTER RPC — waitUntilEscrowActive RESPONSE", {
+                    ResponsePayload: safeSerialize(activation),
+                    "activation.ok": activation?.ok,
+                    Timestamp: new Date().toISOString()
+                });
+
                 if (!activation.ok) {
 
-                    return createDeployResultDTO({
+                    const result = createDeployResultDTO({
                         ok: false,
                         reason: activation.reason ?? "escrow_activation_failed"
                     });
 
+                    printDeployBlock("ADAPTER deployContract RETURN", {
+                        Case: "B — ok:false (activation failed)",
+                        FailReason: result.reason,
+                        ReturnedObject: safeSerialize(result),
+                        Timestamp: new Date().toISOString()
+                    });
+
+                    return result;
+
                 }
 
             } else {
+
+                printDeployBlock("ADAPTER RPC — no-broadcast placeholder path", {
+                    Reason: "deployerMnemonic not configured",
+                    RpcEndpoint: this._tonConfig?.endpoint ?? null,
+                    Timestamp: new Date().toISOString()
+                });
 
                 await this._service().broadcastTransaction(
                     serializeDeployBocPlaceholder({ contractId })
@@ -180,7 +285,7 @@ export class TonGameContractAdapter {
                     + `address=${contractAddress}`
             );
 
-            return createDeployResultDTO({
+            const result = createDeployResultDTO({
                 ok: true,
                 contractAddress,
                 deploymentTxId,
@@ -188,16 +293,42 @@ export class TonGameContractAdapter {
                 snapshotHash: escrow.snapshotHash
             });
 
+            printDeployBlock("ADAPTER deployContract RETURN", {
+                Case: "A — ok:true",
+                ReturnedObject: safeSerialize(result),
+                Timestamp: new Date().toISOString()
+            });
+
+            return result;
+
         } catch (error) {
 
             this._logError(
                 `TON GameContract deploy failed | ${error?.message ?? error}`
             );
 
-            return createDeployResultDTO({
+            printDeployBlock("ADAPTER DEPLOY EXCEPTION (TonGameContractAdapter)", {
+                "Error.name": error?.name ?? "unknown",
+                "Error.message": error?.message ?? String(error),
+                "Error.stack": error?.stack ?? null,
+                "Serialized error": safeSerialize(error),
+                ContractId: contractId,
+                RoomId: snapshot?.roomId ?? null,
+                Timestamp: new Date().toISOString()
+            });
+
+            const result = createDeployResultDTO({
                 ok: false,
                 reason: "deploy_failed"
             });
+
+            printDeployBlock("ADAPTER deployContract RETURN", {
+                Case: "B — ok:false (catch block)",
+                ReturnedObject: safeSerialize(result),
+                Timestamp: new Date().toISOString()
+            });
+
+            return result;
 
         }
 

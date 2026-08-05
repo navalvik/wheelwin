@@ -1,5 +1,6 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { consumeRoomDestroyContext, registerRoomDestroyContext } from "../diagnostics/RoomDestroyForensics.js";
 import { Room } from "../models/Room.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import { generateRoomId } from "./room/roomIdAlphabet.js";
@@ -75,6 +76,12 @@ export class RoomManager {
     shutdown() {
 
         for (const roomId of [...this._rooms.keys()]) {
+
+            registerRoomDestroyContext(roomId, {
+                reason: "server_shutdown",
+                caller: "RoomManager.shutdown",
+                triggerEvent: EVENT_TYPES.SERVER_SHUTDOWN
+            });
 
             this.destroyRoom(roomId);
 
@@ -432,6 +439,46 @@ export class RoomManager {
 
         }
 
+        const forensics = consumeRoomDestroyContext(roomId) ?? {};
+
+        const stack = new Error("RoomManager.destroyRoom stack capture").stack
+            ?? null;
+
+        console.log("======================================================");
+        console.log("ROOM DESTROY CALLED");
+        console.log("======================================================");
+        console.log("Timestamp:", new Date().toISOString());
+        console.log("RoomId:", roomId);
+        console.log("GameId:", forensics.gameId ?? "unknown");
+        console.log("Reason:", forensics.reason ?? "unspecified");
+        console.log("TriggerEvent:", forensics.triggerEvent ?? "unknown");
+        console.log("Caller:", forensics.caller ?? "unknown");
+        console.log("CurrentGameStage:", forensics.currentGameStage ?? "unknown");
+        console.log("SetupSession:", forensics.setupSession ?? "unknown");
+        console.log("WalletConnectionSession:", forensics.walletConnectionSession ?? "unknown");
+        console.log("PaymentSession:", forensics.paymentSession ?? "unknown");
+        console.log("PlayerCount:", room.players.length);
+        console.log("SocketCount:", forensics.socketCount ?? "unknown");
+        console.log("Stack:", stack);
+        console.trace("RoomManager.destroyRoom");
+        console.log("======================================================");
+
+        this._logger.info(
+            `ROOM_DESTROY_FORENSICS | roomId=${roomId} | reason=${forensics.reason ?? "unspecified"} | `
+                + `caller=${forensics.caller ?? "unknown"} | trigger=${forensics.triggerEvent ?? "unknown"} | `
+                + `players=${room.players.length}`
+        );
+
+        this._logger.decisionTrace({
+            stage: "ROOM_DESTROY",
+            decision: "DESTROY",
+            reason: forensics.reason ?? "unspecified",
+            caller: forensics.caller ?? "RoomManager.destroyRoom",
+            nextAction: "Cleanup",
+            roomId,
+            gameId: forensics.gameId ?? null
+        });
+
         room.status = ROOM_STATUS.DESTROYED;
 
         this._logger.info(`Room Destroyed: ${roomId}`);
@@ -516,6 +563,12 @@ export class RoomManager {
     _handleServerShutdown() {
 
         for (const roomId of [...this._rooms.keys()]) {
+
+            registerRoomDestroyContext(roomId, {
+                reason: "server_shutdown",
+                caller: "RoomManager.shutdown",
+                triggerEvent: EVENT_TYPES.SERVER_SHUTDOWN
+            });
 
             this.destroyRoom(roomId);
 

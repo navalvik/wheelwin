@@ -1,3 +1,11 @@
+const R711B_TRACED_EVENTS = new Set([
+    "GAME_CONTRACT_DEPLOY_FAILED",
+    "GAME_CONTRACT_DEPLOYED",
+    "PAYMENT_SESSION_FAILED",
+    "GAME_CONTRACT_READY_FOR_PAYMENTS",
+    "PAYMENT_CONNECTION_READY"
+]);
+
 export class EventDispatcher {
 
     constructor({ logger }) {
@@ -111,7 +119,30 @@ export class EventDispatcher {
 
         if (!handlers || handlers.length === 0) {
 
+            if (R711B_TRACED_EVENTS.has(envelope.type)) {
+
+                console.log("======================================================");
+                console.log("EVENT DISPATCH — NO SUBSCRIBERS");
+                console.log("======================================================");
+                console.log("EventName:", envelope.type);
+                console.log("Timestamp:", new Date(envelope.timestamp).toISOString());
+                console.log("======================================================");
+
+            }
+
             return 0;
+
+        }
+
+        if (R711B_TRACED_EVENTS.has(envelope.type)) {
+
+            console.log("======================================================");
+            console.log("EVENT DISPATCH START");
+            console.log("======================================================");
+            console.log("EventName:", envelope.type);
+            console.log("SubscriberCount:", handlers.length);
+            console.log("Timestamp:", new Date(envelope.timestamp).toISOString());
+            console.log("======================================================");
 
         }
 
@@ -126,11 +157,63 @@ export class EventDispatcher {
 
             const subscriberLabel = handler.name || `subscriber#${index + 1}`;
 
+            const subscriberStartedAt = Date.now();
+
+            if (R711B_TRACED_EVENTS.has(envelope.type)) {
+
+                console.log("======================================================");
+                console.log("SUBSCRIBER EXECUTING");
+                console.log("======================================================");
+                console.log("EventName:", envelope.type);
+                console.log("SubscriberName:", subscriberLabel);
+                console.log("ExecutionOrder:", index + 1);
+                console.log("Timestamp:", new Date(subscriberStartedAt).toISOString());
+                console.log("======================================================");
+
+            }
+
             try {
 
                 handler(envelope);
 
+                if (R711B_TRACED_EVENTS.has(envelope.type)) {
+
+                    console.log("======================================================");
+                    console.log("SUBSCRIBER COMPLETED");
+                    console.log("======================================================");
+                    console.log("EventName:", envelope.type);
+                    console.log("SubscriberName:", subscriberLabel);
+                    console.log("ExecutionOrder:", index + 1);
+                    console.log("ReturnedNormally:", true);
+                    console.log("DurationMs:", Date.now() - subscriberStartedAt);
+                    console.log("NextSubscriber:", snapshot[index + 1]?.name
+                        ?? (index + 1 < snapshot.length
+                            ? `subscriber#${index + 2}`
+                            : "(none)"));
+                    console.log("======================================================");
+
+                }
+
             } catch (error) {
+
+                if (R711B_TRACED_EVENTS.has(envelope.type)) {
+
+                    console.log("======================================================");
+                    console.log("SUBSCRIBER EXCEPTION");
+                    console.log("======================================================");
+                    console.log("EventName:", envelope.type);
+                    console.log("SubscriberName:", subscriberLabel);
+                    console.log("ExecutionOrder:", index + 1);
+                    console.log("Error.name:", error?.name ?? "unknown");
+                    console.log("Error.message:", error?.message ?? String(error));
+                    console.log("Error.stack:", error?.stack ?? null);
+                    console.log("NextSubscriber:", snapshot[index + 1]?.name
+                        ?? (index + 1 < snapshot.length
+                            ? `subscriber#${index + 2}`
+                            : "(none)"));
+                    console.log("======================================================");
+
+                }
 
                 this._logger.error(
                     [
@@ -145,6 +228,18 @@ export class EventDispatcher {
                 );
 
             }
+
+        }
+
+        if (R711B_TRACED_EVENTS.has(envelope.type)) {
+
+            console.log("======================================================");
+            console.log("EVENT DISPATCH COMPLETE");
+            console.log("======================================================");
+            console.log("EventName:", envelope.type);
+            console.log("SubscribersExecuted:", snapshot.length);
+            console.log("Timestamp:", new Date().toISOString());
+            console.log("======================================================");
 
         }
 

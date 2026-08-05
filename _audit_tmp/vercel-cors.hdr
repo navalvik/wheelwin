@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+Accept-Ranges: bytes
+Access-Control-Allow-Origin: *
+Age: 463
+Cache-Control: public, max-age=0, must-revalidate
+Content-Disposition: inline; filename="tonconnect-manifest.json"
+Content-Length: 104
+Content-Type: application/json; charset=utf-8
+Date: Sun, 02 Aug 2026 13:19:19 GMT
+Etag: "fc2fbb256ca486ac46f5a7615d03c498"
+Last-Modified: Sun, 02 Aug 2026 13:11:36 GMT
+Server: Vercel
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Vercel-Cache: HIT
+X-Vercel-Id: fra1::2965f-1785676759753-aed6a8091453
+

@@ -148,6 +148,15 @@ export class LoggerService {
 
     }
 
+    /**
+     * R7.20C — Architectural decision trace (Developer Log + Railway).
+     */
+    decisionTrace(params) {
+
+        this._manager.decisionTrace(params);
+
+    }
+
     child(fields) {
 
         return this._ensureBound().child(fields);

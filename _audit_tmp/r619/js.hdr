@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+Accept-Ranges: bytes
+Access-Control-Allow-Origin: *
+Age: 3568
+Cache-Control: public, max-age=0, must-revalidate
+Content-Disposition: inline; filename="index-CgY4Be5x.js"
+Content-Length: 1308684
+Content-Type: application/javascript; charset=utf-8
+Date: Mon, 03 Aug 2026 18:42:00 GMT
+Etag: "29b46cce0cc83daa151b9089eb5b6703"
+Last-Modified: Mon, 03 Aug 2026 17:42:32 GMT
+Server: Vercel
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Vercel-Cache: HIT
+X-Vercel-Id: fra1::l62hv-1785782520739-255cb785a25f
+

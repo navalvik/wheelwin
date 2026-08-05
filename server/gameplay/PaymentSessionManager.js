@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 
+import {
+    markDeployStage,
+    printDeployBlock,
+    safeSerialize
+} from "../diagnostics/DeployPipelineForensics.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
@@ -118,10 +123,20 @@ export class PaymentSessionManager {
         this._subscribe(
             EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
             (envelope) => {
+
+                printDeployBlock("SUBSCRIBER EXECUTING — PaymentSessionManager", {
+                    EventName: EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
+                    Subscriber: "PaymentSessionManager.initialize → failSession",
+                    RoomId: envelope.payload?.roomId ?? null,
+                    Reason: envelope.payload?.reason ?? null,
+                    Timestamp: new Date().toISOString()
+                });
+
                 this.failSession(
                     envelope.payload?.roomId,
                     envelope.payload?.reason ?? "deploy_failed"
                 );
+
             }
         );
 
@@ -390,6 +405,18 @@ export class PaymentSessionManager {
 
             this._emitDomain(EVENT_TYPES.PAYMENT_SESSION_CREATED, session);
 
+            this._logger.decisionTrace({
+                stage: "PAYMENT_SESSION_CREATED",
+                decision: "CREATED",
+                reason: "Payment session created after PAYMENT_CONNECTION_READY.",
+                caller: "PaymentSessionManager.createPaymentSession",
+                nextAction: contractAddress || contract?.contractAddress
+                    ? "Activate payment requests"
+                    : "Emit PAYMENT_SESSION_UPDATED → deploy pipeline",
+                roomId,
+                gameId: resolvedGameId
+            });
+
             if (contractAddress || contract?.contractAddress) {
 
                 this._activatePaymentRequests(session, {
@@ -422,6 +449,16 @@ export class PaymentSessionManager {
     createAndRequest(roomId, { gameId = null } = {}) {
 
         this._assertInitialized();
+
+        const stage = markDeployStage(roomId, "PAYMENT_SESSION_CREATE_AND_REQUEST");
+
+        printDeployBlock("PaymentSessionManager.createAndRequest", {
+            RoomId: roomId,
+            GameId: gameId,
+            HasExistingSession: this._sessionsByRoom.has(roomId),
+            DurationSincePreviousStageMs: stage.elapsedMs,
+            Timestamp: new Date(stage.now).toISOString()
+        });
 
         if (!roomId) {
 
@@ -856,13 +893,37 @@ export class PaymentSessionManager {
 
         const session = this._sessionsByRoom.get(roomId);
 
+        printDeployBlock("PaymentSessionManager.failSession ENTRY", {
+            RoomId: roomId,
+            Reason: reason,
+            HasSession: Boolean(session),
+            PaymentSessionId: session?.paymentSessionId ?? null,
+            SessionStatus: session?.status ?? null,
+            IsTerminal: session?.isTerminal?.() ?? null,
+            Timestamp: new Date().toISOString()
+        });
+
         if (!session) {
+
+            printDeployBlock("PaymentSessionManager.failSession ABORT", {
+                RoomId: roomId,
+                Reason: "no_session_in_registry",
+                WillEmitPAYMENT_SESSION_FAILED: false,
+                Timestamp: new Date().toISOString()
+            });
 
             return null;
 
         }
 
         if (session.isTerminal()) {
+
+            printDeployBlock("PaymentSessionManager.failSession ABORT", {
+                RoomId: roomId,
+                Reason: "session_already_terminal",
+                WillEmitPAYMENT_SESSION_FAILED: false,
+                Timestamp: new Date().toISOString()
+            });
 
             return session;
 
@@ -888,12 +949,32 @@ export class PaymentSessionManager {
 
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
-        this._emit(EVENT_TYPES.PAYMENT_SESSION_FAILED, {
+        const failedPayload = {
             ...session.toSnapshot(),
             reason
+        };
+
+        printDeployBlock("PaymentSessionManager.failSession EMITTING", {
+            EventName: EVENT_TYPES.PAYMENT_SESSION_FAILED,
+            Payload: failedPayload,
+            RoomId: roomId,
+            PaymentSessionId: session.paymentSessionId,
+            Timestamp: new Date().toISOString()
         });
 
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_FAILED, failedPayload);
+
         this._log(`FAILED | roomId=${roomId} | reason=${reason}`);
+
+        this._logger.decisionTrace({
+            stage: "PAYMENT_SESSION_FAILED",
+            decision: "FAIL",
+            reason: reason ?? "payment_failed",
+            caller: "PaymentSessionManager.failSession",
+            nextAction: "Room close / cleanup",
+            roomId,
+            gameId: session.gameId ?? null
+        });
 
         return session;
 
@@ -928,6 +1009,18 @@ export class PaymentSessionManager {
     // -------------------------------------------------------------------------
 
     _handlePaymentConnectionReady(payload) {
+
+        const stage = markDeployStage(
+            payload?.roomId,
+            "PAYMENT_CONNECTION_READY_HANDLER"
+        );
+
+        printDeployBlock("PaymentSessionManager._handlePaymentConnectionReady", {
+            RoomId: payload?.roomId ?? null,
+            GameId: payload?.gameId ?? null,
+            DurationSincePreviousStageMs: stage.elapsedMs,
+            Timestamp: new Date(stage.now).toISOString()
+        });
 
         this.createAndRequest(payload?.roomId, {
             gameId: payload?.gameId ?? null
@@ -1589,6 +1682,20 @@ export class PaymentSessionManager {
     }
 
     _emit(type, payload) {
+
+        if (type === EVENT_TYPES.PAYMENT_SESSION_FAILED) {
+
+            printDeployBlock("EVENT EMITTED", {
+                EventName: type,
+                Payload: payload,
+                Source: EVENT_SOURCES.PAYMENT_SESSION_MANAGER,
+                RoomId: payload?.roomId ?? null,
+                GameId: payload?.gameId ?? null,
+                PaymentSessionId: payload?.paymentSessionId ?? null,
+                Timestamp: new Date().toISOString()
+            });
+
+        }
 
         this._eventBus.emit({
             source: EVENT_SOURCES.PAYMENT_SESSION_MANAGER,

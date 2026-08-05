@@ -330,6 +330,63 @@ export class LoggingManager {
 
     }
 
+    /**
+     * R7.20C — Architectural decision trace (Developer Log + Railway stdout).
+     * High-level lifecycle decisions only — not low-level forensics.
+     *
+     * @param {{
+     *   stage: string,
+     *   decision: string,
+     *   reason: string,
+     *   caller: string,
+     *   nextAction: string,
+     *   roomId?: string|null,
+     *   gameId?: string|null,
+     *   level?: string
+     * }} params
+     */
+    decisionTrace({
+        stage,
+        decision,
+        reason,
+        caller,
+        nextAction,
+        roomId = null,
+        gameId = null,
+        level = LOG_LEVELS.INFO
+    }) {
+
+        const message = [
+            "==================================================",
+            "DECISION TRACE",
+            "==================================================",
+            `Stage: ${stage ?? "unknown"}`,
+            `Decision: ${decision ?? "unknown"}`,
+            `Reason: ${reason ?? "unspecified"}`,
+            `Caller: ${caller ?? "unknown"}`,
+            `Next Action: ${nextAction ?? "none"}`,
+            "=================================================="
+        ].join(" | ");
+
+        this.write({
+            level,
+            channel: LOG_CHANNELS.APPLICATION,
+            service: "DECISION_TRACE",
+            message,
+            fields: {
+                category: "DECISION_TRACE",
+                stage: stage ?? null,
+                decision: decision ?? null,
+                reason: reason ?? null,
+                caller: caller ?? null,
+                nextAction: nextAction ?? null,
+                roomId: roomId ?? null,
+                gameId: gameId ?? null
+            }
+        });
+
+    }
+
     subscribe(handler) {
 
         if (typeof handler === "function") {
