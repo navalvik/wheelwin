@@ -69,10 +69,19 @@ export class GameStartAuthorization {
 
         this._expectedPlayers = roomConfig?.maxPlayers ?? 3;
 
+        this._authorizationDurationMs = Number.isFinite(
+            roomConfig?.gameStartAuthorizationDurationMs
+        ) && roomConfig.gameStartAuthorizationDurationMs > 0
+            ? roomConfig.gameStartAuthorizationDurationMs
+            : 60 * 1000;
+
         this._devMode = devMode;
 
         // roomId → { phase, gameId, authorizedAt, initializingAt, openPage5At }
         this._lifecycleByRoom = new Map();
+
+        // R7.24 — roomId → timeout while waiting for start gates.
+        this._authorizationTimers = new Map();
 
         this._handlers = [];
 
@@ -218,11 +227,90 @@ export class GameStartAuthorization {
 
         if (!gate.ok) {
 
+            this._scheduleAuthorizationTimeout(roomId);
+
             return;
 
         }
 
+        this._clearAuthorizationTimeout(roomId);
+
         this._authorizeAndBootstrap(roomId, gate);
+
+    }
+
+    _scheduleAuthorizationTimeout(roomId) {
+
+        if (!roomId || this._authorizationTimers.has(roomId)) {
+
+            return;
+
+        }
+
+        const timeoutId = setTimeout(() => {
+
+            this._authorizationTimers.delete(roomId);
+
+            const existing = this._lifecycleByRoom.get(roomId);
+
+            if (
+                existing
+                && (
+                    existing.phase === GAME_START_PHASE.AUTHORIZED
+                    || existing.phase === GAME_START_PHASE.INITIALIZING
+                    || existing.phase === GAME_START_PHASE.OPENED
+                    || existing.phase === GAME_START_PHASE.FAILED
+                )
+            ) {
+
+                return;
+
+            }
+
+            const gate = this._checkStartConditions(roomId);
+
+            if (gate.ok) {
+
+                this._authorizeAndBootstrap(roomId, gate);
+
+                return;
+
+            }
+
+            this._logger.decisionTrace?.({
+                stage: "LIFECYCLE_TIMEOUT",
+                decision: "GAME_START_AUTHORIZATION_TIMEOUT",
+                reason: gate.reason ?? "game_start_authorization_timeout",
+                caller: "GameStartAuthorization._scheduleAuthorizationTimeout",
+                nextAction: "GAME_START_FAILED → _closeRoom",
+                roomId
+            });
+
+            this._fail(
+                roomId,
+                gate.gameId ?? null,
+                gate.reason ?? "game_start_authorization_timeout"
+            );
+
+        }, this._authorizationDurationMs);
+
+        this._authorizationTimers.set(roomId, timeoutId);
+
+    }
+
+    _clearAuthorizationTimeout(roomId) {
+
+        const timeoutId = this._authorizationTimers.get(roomId);
+
+        if (!timeoutId) {
+
+            return;
+
+        }
+
+        clearTimeout(timeoutId);
+
+        this._authorizationTimers.delete(roomId);
 
     }
 
@@ -311,6 +399,8 @@ export class GameStartAuthorization {
     }
 
     _authorizeAndBootstrap(roomId, gate) {
+
+        this._clearAuthorizationTimeout(roomId);
 
         const { gameId, blockchainCompletedAt } = gate;
 
@@ -505,6 +595,8 @@ export class GameStartAuthorization {
 
     _fail(roomId, gameId, reason) {
 
+        this._clearAuthorizationTimeout(roomId);
+
         const lifecycle = this._lifecycleByRoom.get(roomId);
 
         if (lifecycle) {
@@ -583,6 +675,8 @@ export class GameStartAuthorization {
 
         }
 
+        this._clearAuthorizationTimeout(roomId);
+
         this._lifecycleByRoom.delete(roomId);
 
     }
@@ -615,6 +709,12 @@ export class GameStartAuthorization {
     }
 
     _reset() {
+
+        for (const roomId of [...this._authorizationTimers.keys()]) {
+
+            this._clearAuthorizationTimeout(roomId);
+
+        }
 
         this._lifecycleByRoom.clear();
 

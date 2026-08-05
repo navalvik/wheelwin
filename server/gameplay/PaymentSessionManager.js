@@ -489,6 +489,23 @@ export class PaymentSessionManager {
                     + `${error?.message ?? error}`
             );
 
+            this._logger.decisionTrace({
+                stage: "TERMINAL_FAILURE",
+                decision: "FAIL",
+                reason: error?.message ?? "payment_session_create_failed",
+                caller: "PaymentSessionManager.createAndRequest",
+                nextAction: "Emit PAYMENT_SESSION_FAILED → _closeRoom",
+                roomId,
+                gameId: gameId ?? null
+            });
+
+            // R7.24 — create failure must not leave ARCHIVED rooms without a session timer.
+            this._emit(EVENT_TYPES.PAYMENT_SESSION_FAILED, {
+                roomId,
+                gameId: gameId ?? null,
+                reason: error?.message ?? "payment_session_create_failed"
+            });
+
             return null;
 
         }
@@ -967,11 +984,21 @@ export class PaymentSessionManager {
         this._log(`FAILED | roomId=${roomId} | reason=${reason}`);
 
         this._logger.decisionTrace({
-            stage: "PAYMENT_SESSION_FAILED",
+            stage: "TERMINAL_FAILURE",
             decision: "FAIL",
             reason: reason ?? "payment_failed",
             caller: "PaymentSessionManager.failSession",
             nextAction: "Room close / cleanup",
+            roomId,
+            gameId: session.gameId ?? null
+        });
+
+        this._logger.decisionTrace({
+            stage: "ROOM_TERMINATION",
+            decision: "PENDING",
+            reason: reason ?? "payment_failed",
+            caller: "PaymentSessionManager.failSession",
+            nextAction: "RoomLobbyBridge._handlePaymentSessionFailed",
             roomId,
             gameId: session.gameId ?? null
         });

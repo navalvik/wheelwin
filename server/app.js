@@ -1224,6 +1224,8 @@ class WheelWinApplication {
             configurationEngine: this._engines.configurationEngine,
             deployAdapter,
             creatingDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
+            deployTimeoutMs: this._roomConfig?.gameContractDeployTimeoutMs
+                ?? (2 * 60 * 1000),
             devMode: this._productionConfig.isDevelopment
         });
 
@@ -1324,7 +1326,8 @@ class WheelWinApplication {
             contractSettlementManager: this._contractSettlementManager,
             sessionWalletStore: this._sessionWalletStore,
             isDevelopment: this._productionConfig.isDevelopment,
-            lifecycleManager: this._lifecycleManager
+            lifecycleManager: this._lifecycleManager,
+            roomConfig: this._roomConfig
         });
 
         this._roomLobbyBridge.initialize();

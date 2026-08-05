@@ -633,6 +633,30 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         min: 1,
         category: "Payments",
         suggestedFix: "Set PAYMENT_SESSION_DURATION_MS to a positive integer."
+    }),
+    WALLET_CONNECTION_DURATION_MS: Object.freeze({
+        key: "WALLET_CONNECTION_DURATION_MS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Payments",
+        suggestedFix: "Set WALLET_CONNECTION_DURATION_MS to a positive integer."
+    }),
+    GAME_CONTRACT_DEPLOY_TIMEOUT_MS: Object.freeze({
+        key: "GAME_CONTRACT_DEPLOY_TIMEOUT_MS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Payments",
+        suggestedFix: "Set GAME_CONTRACT_DEPLOY_TIMEOUT_MS to a positive integer."
+    }),
+    GAME_START_AUTHORIZATION_DURATION_MS: Object.freeze({
+        key: "GAME_START_AUTHORIZATION_DURATION_MS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Payments",
+        suggestedFix: "Set GAME_START_AUTHORIZATION_DURATION_MS to a positive integer."
     })
 });
 

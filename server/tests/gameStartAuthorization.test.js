@@ -256,6 +256,8 @@ function createHarness({
 
     console.log("  GameStartAuthorization happy path + idempotency passed");
 
+    harness.auth.shutdown();
+
 }
 
 {
@@ -293,6 +295,8 @@ function createHarness({
 
     console.log("  GameStartAuthorization validation failure passed");
 
+    harness.auth.shutdown();
+
 }
 
 {
@@ -307,6 +311,8 @@ function createHarness({
     );
 
     console.log("  GameStartAuthorization recovery gate passed");
+
+    harness.auth.shutdown();
 
 }
 
@@ -324,6 +330,8 @@ function createHarness({
     );
 
     console.log("  GameStartAuthorization payment gate passed");
+
+    harness.auth.shutdown();
 
 }
 

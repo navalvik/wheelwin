@@ -72,7 +72,8 @@ export class RoomLobbyBridge {
         telegramWalletAdapter = null,
         entryPaymentDelays = null,
         isDevelopment = false,
-        lifecycleManager = null
+        lifecycleManager = null,
+        roomConfig = null
     }) {
 
         this._logger = logger;
@@ -99,6 +100,16 @@ export class RoomLobbyBridge {
 
         // R7.0B — drain awareness for lobby create-room.
         this._lifecycleManager = lifecycleManager;
+
+        // R7.24 — post-ARCHIVED stage timers (wallet connection barrier).
+        this._walletConnectionDurationMs = Number.isFinite(
+            roomConfig?.walletConnectionDurationMs
+        ) && roomConfig.walletConnectionDurationMs > 0
+            ? roomConfig.walletConnectionDurationMs
+            : 5 * 60 * 1000;
+
+        // roomId → timeout handle
+        this._walletConnectionTimersByRoom = new Map();
 
         // R1.3D — DEBUG_START_GAME is development-only.
         this._isDevelopment = isDevelopment === true;
@@ -664,6 +675,14 @@ export class RoomLobbyBridge {
         ]) {
 
             this._clearEntryPaymentCompletionTimer(roomId);
+
+        }
+
+        for (const roomId of [
+            ...this._walletConnectionTimersByRoom.keys()
+        ]) {
+
+            this._clearWalletConnectionTimeout(roomId);
 
         }
 
@@ -2484,6 +2503,16 @@ export class RoomLobbyBridge {
 
         this._resultSessionLifecycle?.cancel(roomId);
 
+        this._logger.decisionTrace({
+            stage: "TERMINAL_SUCCESS",
+            decision: "RESULT_FINISHED",
+            reason: reason ?? "result_session_finished",
+            caller: "RoomLobbyBridge._finishResultSession",
+            nextAction: "ROOM_TERMINATION → _closeRoom",
+            roomId,
+            gameId
+        });
+
         this._eventBus.emit({
             source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
             type: EVENT_TYPES.SESSION_FINISHED,
@@ -2569,6 +2598,17 @@ export class RoomLobbyBridge {
             nextAction: "destroyRoom()",
             roomId
         });
+
+        this._logger.decisionTrace({
+            stage: "ROOM_TERMINATION",
+            decision: "CLOSE",
+            reason: reason ?? "unspecified",
+            caller: "RoomLobbyBridge._closeRoom",
+            nextAction: "destroyRoom()",
+            roomId
+        });
+
+        this._clearWalletConnectionTimeout(roomId);
 
         const playerIds = [...room.players];
 
@@ -3862,6 +3902,8 @@ export class RoomLobbyBridge {
             byPlayer: new Map()
         });
 
+        this._scheduleWalletConnectionTimeout(roomId);
+
         console.log("[TonConnect TRACE] handshake transition", {
             old: null,
             next: "WAITING",
@@ -4833,6 +4875,8 @@ export class RoomLobbyBridge {
 
     _deliverPaymentConnectionReady(roomId) {
 
+        this._clearWalletConnectionTimeout(roomId);
+
         console.log("[TonConnect TRACE] handshake transition", {
             old: "CONNECTED",
             next: "PAYMENT_READY",
@@ -4864,6 +4908,111 @@ export class RoomLobbyBridge {
             nextAction: "Create PaymentSession",
             roomId
         });
+
+        this._logger.decisionTrace({
+            stage: "TERMINAL_SUCCESS",
+            decision: "WALLET_CONNECTION",
+            reason: "Wallet connection barrier cleared.",
+            caller: "RoomLobbyBridge._deliverPaymentConnectionReady",
+            nextAction: "Create PaymentSession",
+            roomId
+        });
+
+    }
+
+    _scheduleWalletConnectionTimeout(roomId) {
+
+        if (!roomId || this._walletConnectionTimersByRoom.has(roomId)) {
+
+            return;
+
+        }
+
+        const timeoutId = setTimeout(() => {
+
+            this._walletConnectionTimersByRoom.delete(roomId);
+
+            this._handleWalletConnectionTimeout(roomId);
+
+        }, this._walletConnectionDurationMs);
+
+        this._walletConnectionTimersByRoom.set(roomId, timeoutId);
+
+    }
+
+    _clearWalletConnectionTimeout(roomId) {
+
+        const timeoutId = this._walletConnectionTimersByRoom.get(roomId);
+
+        if (!timeoutId) {
+
+            return;
+
+        }
+
+        clearTimeout(timeoutId);
+
+        this._walletConnectionTimersByRoom.delete(roomId);
+
+    }
+
+    /**
+     * R7.24 — Stage-owned wallet barrier terminator.
+     * Soft-disconnect protection must not leave ARCHIVED rooms forever.
+     */
+    _handleWalletConnectionTimeout(roomId) {
+
+        if (!roomId || !this._roomManager.getRoom(roomId)) {
+
+            return;
+
+        }
+
+        const session = this._walletConnectionByRoom.get(roomId);
+
+        if (session?.paymentConnectionReady === true) {
+
+            return;
+
+        }
+
+        this._logger.decisionTrace({
+            stage: "LIFECYCLE_TIMEOUT",
+            decision: "WALLET_CONNECTION_TIMEOUT",
+            reason: `Wallet connection exceeded ${this._walletConnectionDurationMs}ms`,
+            caller: "RoomLobbyBridge._handleWalletConnectionTimeout",
+            nextAction: "TERMINAL_FAILURE → _closeRoom",
+            roomId
+        });
+
+        this._logger.decisionTrace({
+            stage: "TERMINAL_FAILURE",
+            decision: "FAIL",
+            reason: "wallet_connection_timeout",
+            caller: "RoomLobbyBridge._handleWalletConnectionTimeout",
+            nextAction: "ROOM_TERMINATION",
+            roomId
+        });
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_FAILED,
+            {
+                roomId,
+                reason: "wallet_connection_timeout"
+            }
+        );
+
+        this._logger.decisionTrace({
+            stage: "ROOM_TERMINATION",
+            decision: "CLOSE",
+            reason: "wallet_connection_timeout",
+            caller: "RoomLobbyBridge._handleWalletConnectionTimeout",
+            nextAction: "destroyRoom()",
+            roomId
+        });
+
+        this._closeRoom(roomId, "wallet_connection_timeout");
 
     }
 
@@ -4966,6 +5115,15 @@ export class RoomLobbyBridge {
             return;
 
         }
+
+        this._logger.decisionTrace({
+            stage: "TERMINAL_FAILURE",
+            decision: "FAIL",
+            reason: payload?.reason ?? "payment_failed",
+            caller: "RoomLobbyBridge._handlePaymentSessionFailed",
+            nextAction: "ROOM_TERMINATION → _closeRoom",
+            roomId
+        });
 
         this._closeRoom(roomId, payload?.reason ?? "payment_failed");
 
@@ -5133,6 +5291,15 @@ export class RoomLobbyBridge {
             return;
 
         }
+
+        this._logger.decisionTrace({
+            stage: "TERMINAL_FAILURE",
+            decision: "FAIL",
+            reason: payload?.reason ?? "game_start_failed",
+            caller: "RoomLobbyBridge._handleGameStartFailed",
+            nextAction: "ROOM_TERMINATION → _closeRoom",
+            roomId
+        });
 
         // Cancel game; payment + audit records stay on the ledger.
         this._closeRoom(roomId, payload?.reason ?? "game_start_failed");
@@ -5573,6 +5740,8 @@ export class RoomLobbyBridge {
         this._continueToPaymentByRoom.delete(roomId);
 
         this._paymentStageReadyByRoom.delete(roomId);
+
+        this._clearWalletConnectionTimeout(roomId);
 
         this._destroyEntryPaymentArtifacts(roomId);
 

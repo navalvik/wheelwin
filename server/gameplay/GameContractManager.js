@@ -80,6 +80,7 @@ export class GameContractManager {
         tonNetwork = null,
         creatingDelayMs = 0,
         deployDelayMs = 0,
+        deployTimeoutMs = 2 * 60 * 1000,
         devMode = false
     }) {
 
@@ -106,6 +107,11 @@ export class GameContractManager {
         this._financialPersistence = financialPersistence;
 
         this._tonNetwork = tonNetwork ?? null;
+
+        this._deployTimeoutMs = Number.isFinite(deployTimeoutMs)
+            && deployTimeoutMs > 0
+            ? deployTimeoutMs
+            : 2 * 60 * 1000;
 
         this._creatingDelayMs = Number.isFinite(creatingDelayMs)
             && creatingDelayMs >= 0
@@ -1234,10 +1240,21 @@ export class GameContractManager {
 
         try {
 
-            result = await this._deployAdapter.deploy({
-                contractId: contract.contractId,
-                snapshot: contract.snapshot
-            });
+            result = await Promise.race([
+                this._deployAdapter.deploy({
+                    contractId: contract.contractId,
+                    snapshot: contract.snapshot
+                }),
+                new Promise((_, reject) => {
+
+                    setTimeout(() => {
+
+                        reject(new Error("deploy_timeout"));
+
+                    }, this._deployTimeoutMs);
+
+                })
+            ]);
 
         } catch (error) {
 
@@ -1255,6 +1272,20 @@ export class GameContractManager {
                 ElapsedMs: Date.now() - adapterStartedAt,
                 Timestamp: new Date().toISOString()
             });
+
+            if (error?.message === "deploy_timeout") {
+
+                this._logger.decisionTrace({
+                    stage: "LIFECYCLE_TIMEOUT",
+                    decision: "DEPLOY_TIMEOUT",
+                    reason: `Deploy exceeded ${this._deployTimeoutMs}ms`,
+                    caller: "GameContractManager._beginDeploy",
+                    nextAction: "DEPLOY_RESULT FAILED",
+                    roomId,
+                    gameId: contract.gameId ?? null
+                });
+
+            }
 
             result = {
                 ok: false,

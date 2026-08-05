@@ -781,6 +781,12 @@ export class GameManager {
                 `Gameplay activation failed: no pending game for room (${roomId})`
             );
 
+            this._emitGameplayActivationFailed(
+                roomId,
+                null,
+                "no_pending_game"
+            );
+
             return;
 
         }
@@ -798,6 +804,12 @@ export class GameManager {
 
                 this._logger.error(
                     `Gameplay activation failed: configuration missing (${gameId})`
+                );
+
+                this._emitGameplayActivationFailed(
+                    roomId,
+                    gameId,
+                    "configuration_missing"
                 );
 
                 return;
@@ -824,6 +836,12 @@ export class GameManager {
 
             this._logger.error(
                 `Gameplay activation failed: game not found (${gameId})`
+            );
+
+            this._emitGameplayActivationFailed(
+                roomId,
+                gameId,
+                "game_not_found"
             );
 
             return;
@@ -860,13 +878,56 @@ export class GameManager {
 
             this._logBootstrap("GAME_INITIALIZED");
 
+            this._logger.decisionTrace({
+                stage: "TERMINAL_SUCCESS",
+                decision: "GAMEPLAY_ACTIVATED",
+                reason: "Game clock started; phases will advance to OPEN_PAGE6.",
+                caller: "GameManager._activateGameplaySession",
+                nextAction: "Gameplay phases → Result",
+                roomId,
+                gameId
+            });
+
         } catch (error) {
 
             this._logger.error(
                 `Gameplay activation failed: ${error.message}`
             );
 
+            this._emitGameplayActivationFailed(
+                roomId,
+                gameId,
+                error?.message ?? "gameplay_activation_failed"
+            );
+
         }
+
+    }
+
+    /**
+     * R7.24 — Fail closed when Page5 activation cannot start the clock.
+     */
+    _emitGameplayActivationFailed(roomId, gameId, reason) {
+
+        this._logger.decisionTrace({
+            stage: "TERMINAL_FAILURE",
+            decision: "FAIL",
+            reason: reason ?? "gameplay_activation_failed",
+            caller: "GameManager._emitGameplayActivationFailed",
+            nextAction: "GAME_START_FAILED → _closeRoom",
+            roomId,
+            gameId: gameId ?? null
+        });
+
+        this._eventBus.emit({
+            source: EVENT_SOURCES.GAME_MANAGER,
+            type: EVENT_TYPES.GAME_START_FAILED,
+            payload: {
+                roomId,
+                gameId: gameId ?? null,
+                reason: reason ?? "gameplay_activation_failed"
+            }
+        });
 
     }
 

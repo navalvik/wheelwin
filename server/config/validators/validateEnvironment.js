@@ -622,4 +622,22 @@ export function validateEnvironment(collector, env) {
         env.PAYMENT_SESSION_DURATION_MS
     );
 
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.WALLET_CONNECTION_DURATION_MS,
+        env.WALLET_CONNECTION_DURATION_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.GAME_CONTRACT_DEPLOY_TIMEOUT_MS,
+        env.GAME_CONTRACT_DEPLOY_TIMEOUT_MS
+    );
+
+    validateIntegerField(
+        collector,
+        ENVIRONMENT_SCHEMA.GAME_START_AUTHORIZATION_DURATION_MS,
+        env.GAME_START_AUTHORIZATION_DURATION_MS
+    );
+
 }
