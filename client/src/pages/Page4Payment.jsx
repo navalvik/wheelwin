@@ -736,6 +736,9 @@ export default function Page4Payment({ onNavigate }) {
 
     const tonConnectUniversalLinkRef = useRef("");
 
+    // R7.36 — one STARTED+REPORT pair per wallet proof until disconnect.
+    const lastWalletProofEmitRef = useRef(null);
+
     // R6.11B — per-attempt autopsy findings + temporary global handlers
     const autopsyAttemptRef = useRef({
         active: false,
@@ -1476,6 +1479,33 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
+        pushHandshakeTrace("TONCONNECT_WALLET_RECEIVED", {
+            connectedWallet
+        });
+
+        // R7.36 — STARTED only after wallet proof exists; always before REPORT.
+        if (lastWalletProofEmitRef.current !== connectedWallet) {
+
+            lastWalletProofEmitRef.current = connectedWallet;
+
+            emitWalletSocketEvent(
+                LOBBY_OUTGOING_EVENTS.WALLET_CONNECT_STARTED
+            );
+
+            pushHandshakeTrace("WALLET_CONNECT_STARTED", {
+                connectedWallet,
+                reason: "wallet_proof_exists"
+            });
+
+        } else {
+
+            pushHandshakeTrace("WALLET_CONNECT_STARTED_SKIPPED", {
+                connectedWallet,
+                reason: "already_emitted_for_proof"
+            });
+
+        }
+
         const reportPayload = {
             roomId: authoritative.roomId ?? null,
             playerId: localPlayerId,
@@ -1535,6 +1565,9 @@ export default function Page4Payment({ onNavigate }) {
             console.log(
                 "[TonConnect TRACE] EARLY RETURN | reason=no tonWallet.account.address"
             );
+
+            // R7.36 — allow STARTED again after SDK clears the wallet.
+            lastWalletProofEmitRef.current = null;
 
             return;
 
@@ -1738,6 +1771,9 @@ export default function Page4Payment({ onNavigate }) {
                 if (state?.status === "closed" && !tonConnectUI.wallet) {
 
                     setConnecting(false);
+
+                    // R7.36 — modal closed without proof; no STARTED was owed.
+                    lastWalletProofEmitRef.current = null;
 
                     if (localWalletStatus === WALLET_CONNECTION_STATUS.CONNECTING) {
 
@@ -2744,7 +2780,8 @@ export default function Page4Payment({ onNavigate }) {
 
         setConnecting(true);
 
-        emitWalletSocketEvent(LOBBY_OUTGOING_EVENTS.WALLET_CONNECT_STARTED);
+        // R7.36 — do not emit WALLET_CONNECT_STARTED here.
+        // Server CONNECTING waits until wallet proof → reportConnectedWallet.
 
         try {
 
@@ -2832,6 +2869,8 @@ export default function Page4Payment({ onNavigate }) {
         });
 
         pushHandshakeTrace("DISCONNECT_CLICK");
+
+        lastWalletProofEmitRef.current = null;
 
         try {
 
