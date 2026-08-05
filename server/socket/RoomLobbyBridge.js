@@ -40,6 +40,7 @@ import { CONNECTION_STATE } from "../models/ConnectionState.js";
 import { PLAYER_STATE } from "../models/PlayerState.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import {
+    WALLET_CONNECTION_STATUS,
     WalletConnectionSession
 } from "../models/WalletConnectionSession.js";
 import {
@@ -4257,6 +4258,18 @@ export class RoomLobbyBridge {
 
             session.setAddressMismatch(playerId, connectedWallet);
 
+            this._logger.decisionTrace({
+                stage: "WALLET_CONNECT_REPORT",
+                decision: "ADDRESS_MISMATCH",
+                reason: "Connected SDK wallet does not match VERIFY session wallet.",
+                caller: "RoomLobbyBridge._handleWalletConnectReport",
+                nextAction: "Require disconnect then connect correct wallet",
+                roomId,
+                playerId,
+                oldStatus,
+                nextStatus: WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH
+            });
+
             this._touchTonConnectPlayerMeta(roomId, playerId, {
                 lastStatusChangeAt: Date.now(),
                 lastReportAt: Date.now(),
@@ -4290,6 +4303,28 @@ export class RoomLobbyBridge {
         });
 
         session.setConnected(playerId, connectedWallet);
+
+        // R7.26 — restored SDK sessions report WAITING → CONNECTED without
+        // an intermediate CONNECTING seat transition.
+        this._logger.decisionTrace({
+            stage: "WALLET_CONNECT_REPORT",
+            decision: oldStatus === WALLET_CONNECTION_STATUS.WAITING
+                || oldStatus == null
+                ? "SERVER_SYNCHRONIZED"
+                : "ALLOW",
+            reason: oldStatus === WALLET_CONNECTION_STATUS.WAITING
+                || oldStatus == null
+                ? "SDK wallet synchronized without CONNECTING (restored session)."
+                : `Wallet connect report accepted from ${oldStatus}.`,
+            caller: "RoomLobbyBridge._handleWalletConnectReport",
+            nextAction: session.paymentConnectionReady
+                ? "Deliver PAYMENT_CONNECTION_READY"
+                : "Await remaining wallet connections",
+            roomId,
+            playerId,
+            oldStatus,
+            nextStatus: WALLET_CONNECTION_STATUS.CONNECTED
+        });
 
         this._touchTonConnectPlayerMeta(roomId, playerId, {
             lastStatusChangeAt: Date.now(),

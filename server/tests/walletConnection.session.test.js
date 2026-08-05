@@ -103,4 +103,23 @@ assert.equal(
     WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH
 );
 
+// R7.26 — WAITING → CONNECTED without CONNECTING (restored SDK session).
+const restored = WalletConnectionSession.createInitial("room-restored", [
+    { playerId: "r1", sessionWallet: friendly },
+    { playerId: "r2", sessionWallet: friendly },
+    { playerId: "r3", sessionWallet: friendly }
+]);
+
+assert.equal(restored.players[0].status, WALLET_CONNECTION_STATUS.WAITING);
+
+assert.equal(
+    restored.setConnected("r1", friendly),
+    true,
+    "WAITING → CONNECTED must succeed without setConnecting"
+);
+
+assert.equal(restored.players[0].status, WALLET_CONNECTION_STATUS.CONNECTED);
+
+assert.equal(restored.players[0].connectedWallet, friendly);
+
 console.log("walletConnection.session.test.js: all assertions passed");

@@ -55,6 +55,42 @@ import { resolveBackendUrl } from "../config/backendUrl.js";
 import "../styles/page4payment.css";
 
 /**
+ * R7.26 — TonConnect SDK is the source of truth for connector state.
+ * Resolve the active account address from React hook and/or UI instance.
+ */
+function resolveTonConnectSdkAddress(tonConnectUI, tonWallet) {
+
+    return tonWallet?.account?.address
+        ?? tonConnectUI?.wallet?.account?.address
+        ?? tonConnectUI?.account?.address
+        ?? null;
+
+}
+
+/**
+ * R7.26 — true when any SDK surface indicates an active session.
+ */
+function isTonConnectSdkConnected(tonConnectUI, tonWallet) {
+
+    return tonConnectUI?.connected === true
+        || tonConnectUI?.connector?.connected === true
+        || Boolean(resolveTonConnectSdkAddress(tonConnectUI, tonWallet));
+
+}
+
+/**
+ * R7.26 — a new connector.connect() / openModal() is allowed only when
+ * every SDK indicator says NOT CONNECTED.
+ */
+function mayInitiateTonConnectConnect(tonConnectUI, tonWallet) {
+
+    return tonConnectUI?.connected !== true
+        && tonConnectUI?.connector?.connected !== true
+        && !resolveTonConnectSdkAddress(tonConnectUI, tonWallet);
+
+}
+
+/**
  * R6.11B — dump ENTIRE original TonConnect / wallet / callback error object.
  * No replacement, no truncation, no mapping of wallet payloads.
  */
@@ -776,9 +812,13 @@ export default function Page4Payment({ onNavigate }) {
     const localWalletStatus = localWalletSeat?.status
         ?? WALLET_CONNECTION_STATUS.WAITING;
 
+    // R7.26 — gate Connect on server seat + SDK. ADDRESS_MISMATCH requires
+    // Disconnect before a new connect() is allowed. SDK-connected + WAITING
+    // still enables Connect (reuse path, no openModal).
     const canConnect = !inPaymentPhase
         && localWalletStatus !== WALLET_CONNECTION_STATUS.CONNECTED
         && localWalletStatus !== WALLET_CONNECTION_STATUS.CONNECTING
+        && localWalletStatus !== WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH
         && !connecting;
 
     const canConfirm = canConfirmLocalPayment(paymentSession, localPlayerId)
@@ -1475,13 +1515,17 @@ export default function Page4Payment({ onNavigate }) {
             addressChanged: prevAddress !== nextAddress,
             previousAddress: prevAddress,
             nextAddress,
+            localWalletStatus,
+            inPaymentPhase,
+            sdkConnected: isTonConnectSdkConnected(tonConnectUI, tonWallet),
             timestamp: Date.now()
         });
 
         pushHandshakeTrace("REACT_TON_WALLET_STATE", {
             previousAddress: prevAddress,
             nextAddress,
-            addressChanged: prevAddress !== nextAddress
+            addressChanged: prevAddress !== nextAddress,
+            localWalletStatus
         });
 
         prevTonWalletRef.current = tonWallet ?? null;
@@ -1496,11 +1540,73 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
+        if (inPaymentPhase) {
+
+            return;
+
+        }
+
+        // Already synchronized for this room seat — do not re-emit.
+        if (localWalletStatus === WALLET_CONNECTION_STATUS.CONNECTED) {
+
+            return;
+
+        }
+
+        // Wrong wallet already classified — Disconnect is required (no reconnect).
+        if (localWalletStatus === WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH) {
+
+            pushHandshakeTrace("ADDRESS_MISMATCH", {
+                source: "sdk_wallet_present",
+                nextAddress
+            });
+
+            return;
+
+        }
+
+        const sdkConnected = isTonConnectSdkConnected(tonConnectUI, tonWallet);
+
+        if (
+            sdkConnected
+            && localWalletStatus === WALLET_CONNECTION_STATUS.WAITING
+        ) {
+
+            pushHandshakeTrace("SDK_ALREADY_CONNECTED", {
+                source: "react_ton_wallet_effect",
+                nextAddress
+            });
+
+            pushHandshakeTrace("REUSE_EXISTING_WALLET", {
+                source: "auto_sync",
+                nextAddress
+            });
+
+        }
+
         setConnecting(false);
 
         reportConnectedWallet(tonWallet.account.address);
 
-    }, [tonWallet, reportConnectedWallet, pushHandshakeTrace]);
+        if (
+            sdkConnected
+            && localWalletStatus === WALLET_CONNECTION_STATUS.WAITING
+        ) {
+
+            pushHandshakeTrace("SERVER_SYNCHRONIZED", {
+                path: "auto_sync_waiting_seat"
+            });
+
+        }
+
+    }, [
+        tonWallet,
+        tonConnectUI,
+        localWalletStatus,
+        inPaymentPhase,
+        reportConnectedWallet,
+        pushHandshakeTrace
+    ]);
 
     useEffect(() => {
 
@@ -1509,6 +1615,10 @@ export default function Page4Payment({ onNavigate }) {
             setLocalError(
                 "Connected wallet does not match the wallet entered during VERIFY."
             );
+
+            pushHandshakeTrace("ADDRESS_MISMATCH", {
+                source: "local_wallet_status"
+            });
 
             return;
 
@@ -1520,7 +1630,7 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-    }, [localWalletStatus]);
+    }, [localWalletStatus, pushHandshakeTrace]);
 
     useEffect(() => {
 
@@ -1755,6 +1865,29 @@ export default function Page4Payment({ onNavigate }) {
             } catch {
 
                 // diagnostics only
+            }
+
+            // R7.26 — never invoke SDK connect while session already active.
+            if (connector.connected === true) {
+
+                pushHandshakeTrace("SDK_ALREADY_CONNECTED", {
+                    source: "connector_connect_wrap"
+                });
+
+                pushHandshakeTrace("CONNECT_SKIPPED", {
+                    reason: "sdk_already_connected",
+                    walletSource
+                });
+
+                dumpHandshakeSummary("connect_skipped_already_connected");
+
+                console.log(
+                    "[TonConnect TRACE] CONNECT_SKIPPED | connector.connected=true"
+                        + " — refusing duplicate connect()"
+                );
+
+                return undefined;
+
             }
 
             pushHandshakeTrace("CONNECTOR_CONNECT_BEFORE", {
@@ -2504,6 +2637,15 @@ export default function Page4Payment({ onNavigate }) {
 
         beginAutopsyAttempt(handshakeAttemptIdRef.current);
 
+        const sdkConnected = isTonConnectSdkConnected(tonConnectUI, tonWallet);
+
+        const sdkAddress = resolveTonConnectSdkAddress(tonConnectUI, tonWallet);
+
+        const mayInitiateConnect = mayInitiateTonConnectConnect(
+            tonConnectUI,
+            tonWallet
+        );
+
         console.log("[TonConnect] CONNECT TELEGRAM WALLET click", {
             timestamp: Date.now(),
             attemptId: handshakeAttemptIdRef.current,
@@ -2513,16 +2655,19 @@ export default function Page4Payment({ onNavigate }) {
             canConnect,
             currentStatus: localWalletStatus,
             paymentPhase: inPaymentPhase,
-            callingOpenModal: true,
+            callingOpenModal: mayInitiateConnect,
             hasTonConnectUI: Boolean(tonConnectUI),
-            alreadyConnected: tonConnectUI?.connected === true,
-            currentWallet: summarizeTonWalletFields(tonConnectUI?.wallet ?? null)
+            alreadyConnected: sdkConnected,
+            currentWallet: summarizeTonWalletFields(tonConnectUI?.wallet ?? null),
+            sdkAddress
         });
 
         pushHandshakeTrace("CONNECT_BUTTON_CLICK", {
             walletRequested: "telegram",
             canConnect,
-            currentStatus: localWalletStatus
+            currentStatus: localWalletStatus,
+            sdkConnected,
+            mayInitiateConnect
         });
 
         if (!canConnect) {
@@ -2550,6 +2695,52 @@ export default function Page4Payment({ onNavigate }) {
         }
 
         setLocalError("");
+
+        // R7.26 — SDK already connected: reuse wallet, never openModal/connect.
+        if (!mayInitiateConnect) {
+
+            pushHandshakeTrace("SDK_ALREADY_CONNECTED", {
+                source: "handleConnectWallet",
+                sdkAddress,
+                uiConnected: tonConnectUI?.connected === true,
+                connectorConnected: tonConnectUI?.connector?.connected === true
+            });
+
+            pushHandshakeTrace("CONNECT_SKIPPED", {
+                reason: "sdk_already_connected"
+            });
+
+            if (!sdkAddress) {
+
+                setLocalError(
+                    "Telegram Wallet session is active but no account address "
+                        + "is available. Disconnect and connect again."
+                );
+
+                dumpHandshakeSummary("reuse_blocked_no_address");
+
+                return;
+
+            }
+
+            pushHandshakeTrace("REUSE_EXISTING_WALLET", {
+                source: "handleConnectWallet",
+                sdkAddress
+            });
+
+            setConnecting(false);
+
+            reportConnectedWallet(sdkAddress);
+
+            pushHandshakeTrace("SERVER_SYNCHRONIZED", {
+                path: "reuse_existing_wallet_click"
+            });
+
+            dumpHandshakeSummary("reuse_existing_wallet");
+
+            return;
+
+        }
 
         setConnecting(true);
 
