@@ -353,6 +353,8 @@ export class LoggingManager {
         nextAction,
         roomId = null,
         gameId = null,
+        playerId = null,
+        socketId = null,
         level = LOG_LEVELS.INFO
     }) {
 
@@ -365,8 +367,9 @@ export class LoggingManager {
             `Reason: ${reason ?? "unspecified"}`,
             `Caller: ${caller ?? "unknown"}`,
             `Next Action: ${nextAction ?? "none"}`,
+            socketId != null ? `SocketId: ${socketId}` : null,
             "=================================================="
-        ].join(" | ");
+        ].filter(Boolean).join(" | ");
 
         this.write({
             level,
@@ -381,7 +384,9 @@ export class LoggingManager {
                 caller: caller ?? null,
                 nextAction: nextAction ?? null,
                 roomId: roomId ?? null,
-                gameId: gameId ?? null
+                gameId: gameId ?? null,
+                playerId: playerId ?? null,
+                socketId: socketId ?? null
             }
         });
 

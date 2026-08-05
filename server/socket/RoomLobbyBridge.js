@@ -857,7 +857,27 @@ export class RoomLobbyBridge {
 
     _handleJoinRoom(socketId, rawRoomId) {
 
+        this._logger.decisionTrace({
+            stage: "JOIN_ROOM_REQUEST",
+            decision: "RECEIVED",
+            reason: `rawRoomId=${rawRoomId ?? "null"}`,
+            caller: "RoomLobbyBridge._handleJoinRoom",
+            nextAction: "Validate socket and room",
+            roomId: typeof rawRoomId === "string" ? rawRoomId : null,
+            socketId
+        });
+
         if (this._socketToPlayer.has(socketId)) {
+
+            this._logger.decisionTrace({
+                stage: "JOIN_ROOM_VALIDATION",
+                decision: "REJECT",
+                reason: "Duplicate socket / PLAYER_ALREADY_CONNECTED",
+                caller: "RoomLobbyBridge._handleJoinRoom",
+                nextAction: "Emit roomError",
+                roomId: typeof rawRoomId === "string" ? rawRoomId : null,
+                socketId
+            });
 
             this._emitRoomError(
                 socketId,
@@ -872,12 +892,22 @@ export class RoomLobbyBridge {
 
         if (!roomId) {
 
-            this._emitRoomError(
-                socketId,
-                this._isInvalidRoomId(rawRoomId)
-                    ? LOBBY_ERROR_CODES.INVALID_ROOM_ID
-                    : LOBBY_ERROR_CODES.ROOM_NOT_FOUND
-            );
+            const invalid = this._isInvalidRoomId(rawRoomId);
+            const rejectCode = invalid
+                ? LOBBY_ERROR_CODES.INVALID_ROOM_ID
+                : LOBBY_ERROR_CODES.ROOM_NOT_FOUND;
+
+            this._logger.decisionTrace({
+                stage: "JOIN_ROOM_VALIDATION",
+                decision: "REJECT",
+                reason: invalid ? "Invalid room id format" : "Room not found",
+                caller: "RoomLobbyBridge._handleJoinRoom",
+                nextAction: "Emit roomError",
+                roomId: typeof rawRoomId === "string" ? rawRoomId : null,
+                socketId
+            });
+
+            this._emitRoomError(socketId, rejectCode);
 
             return;
 
@@ -885,18 +915,17 @@ export class RoomLobbyBridge {
 
         const room = this._roomManager.getRoom(roomId);
 
-        console.log("======================================================");
-        console.log("ROOM CLOSED FROM SOCKET (RoomLobbyBridge._closeRoom)");
-        console.log({
-            Timestamp: new Date().toISOString(),
-            RoomId: roomId,
-            Reason: reason ?? null,
-            RoomPlayerCount: room?.players.length ?? 0
-        });
-        console.trace("RoomLobbyBridge._closeRoom trace");
-        console.log("======================================================");
-
         if (!room) {
+
+            this._logger.decisionTrace({
+                stage: "JOIN_ROOM_VALIDATION",
+                decision: "REJECT",
+                reason: "Room not found",
+                caller: "RoomLobbyBridge._handleJoinRoom",
+                nextAction: "Emit roomError",
+                roomId,
+                socketId
+            });
 
             this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_NOT_FOUND);
 
@@ -905,6 +934,16 @@ export class RoomLobbyBridge {
         }
 
         if (room.status === ROOM_STATUS.LOCKED) {
+
+            this._logger.decisionTrace({
+                stage: "JOIN_ROOM_VALIDATION",
+                decision: "REJECT",
+                reason: "Room locked",
+                caller: "RoomLobbyBridge._handleJoinRoom",
+                nextAction: "Emit roomError",
+                roomId,
+                socketId
+            });
 
             this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_LOCKED);
 
@@ -915,15 +954,45 @@ export class RoomLobbyBridge {
         if (room.status === ROOM_STATUS.FULL
             || room.players.length >= room.maxPlayers) {
 
+            this._logger.decisionTrace({
+                stage: "JOIN_ROOM_VALIDATION",
+                decision: "REJECT",
+                reason: "Room full",
+                caller: "RoomLobbyBridge._handleJoinRoom",
+                nextAction: "Emit roomError",
+                roomId,
+                socketId
+            });
+
             this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_FULL);
 
             return;
 
         }
 
+        this._logger.decisionTrace({
+            stage: "JOIN_ROOM_VALIDATION",
+            decision: "PASS",
+            reason: `Room joinable; players=${room.players.length}/${room.maxPlayers}`,
+            caller: "RoomLobbyBridge._handleJoinRoom",
+            nextAction: "Register player and add to room",
+            roomId,
+            socketId
+        });
+
         const player = this._playerManager.createPlayer();
 
         if (!player) {
+
+            this._logger.decisionTrace({
+                stage: "JOIN_ROOM_VALIDATION",
+                decision: "REJECT",
+                reason: "Player creation failed",
+                caller: "RoomLobbyBridge._handleJoinRoom",
+                nextAction: "Emit roomError",
+                roomId,
+                socketId
+            });
 
             this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
 
@@ -952,19 +1021,33 @@ export class RoomLobbyBridge {
 
             const latestRoom = this._roomManager.getRoom(roomId);
 
+            let rejectReason = "Room full";
+            let rejectCode = LOBBY_ERROR_CODES.ROOM_FULL;
+
             if (!latestRoom) {
 
-                this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_NOT_FOUND);
+                rejectReason = "Room not found";
+                rejectCode = LOBBY_ERROR_CODES.ROOM_NOT_FOUND;
 
             } else if (latestRoom.status === ROOM_STATUS.LOCKED) {
 
-                this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_LOCKED);
-
-            } else {
-
-                this._emitRoomError(socketId, LOBBY_ERROR_CODES.ROOM_FULL);
+                rejectReason = "Room locked";
+                rejectCode = LOBBY_ERROR_CODES.ROOM_LOCKED;
 
             }
+
+            this._logger.decisionTrace({
+                stage: "JOIN_ROOM_VALIDATION",
+                decision: "REJECT",
+                reason: rejectReason,
+                caller: "RoomLobbyBridge._handleJoinRoom",
+                nextAction: "Emit roomError",
+                roomId,
+                playerId,
+                socketId
+            });
+
+            this._emitRoomError(socketId, rejectCode);
 
             return;
 
@@ -974,13 +1057,63 @@ export class RoomLobbyBridge {
             roomId
         });
 
+        const roomSnapshot = this._roomManager.getRoom(roomId);
+        const playerCount = roomSnapshot?.players.length ?? null;
+        const maxPlayers = roomSnapshot?.maxPlayers ?? null;
+
+        this._logger.decisionTrace({
+            stage: "JOIN_ROOM_ACCEPTED",
+            decision: "ACCEPT",
+            reason: `Player registered; playerCount=${playerCount}/${maxPlayers}`,
+            caller: "RoomLobbyBridge._handleJoinRoom",
+            nextAction: "Broadcast lobby state",
+            roomId,
+            playerId,
+            socketId
+        });
+
+        this._logger.decisionTrace({
+            stage: "PLAYER_REGISTERED",
+            decision: "SUCCESS",
+            reason: `playerCount=${playerCount}/${maxPlayers}`,
+            caller: "RoomLobbyBridge._handleJoinRoom",
+            nextAction: "Broadcast Lobby State",
+            roomId,
+            playerId,
+            socketId
+        });
+
+        this._logger.decisionTrace({
+            stage: "ROOM_PLAYER_COUNT_UPDATED",
+            decision: "UPDATE",
+            reason: `playerCount=${playerCount}/${maxPlayers}`,
+            caller: "RoomLobbyBridge._handleJoinRoom",
+            nextAction: playerCount >= maxPlayers ? "ROOM_FULL" : "Wait for players",
+            roomId,
+            playerId,
+            socketId
+        });
+
+        if (playerCount >= maxPlayers) {
+
+            this._logger.decisionTrace({
+                stage: "ROOM_FULL",
+                decision: "FULL",
+                reason: `playerCount=${playerCount}/${maxPlayers}`,
+                caller: "RoomLobbyBridge._handleJoinRoom",
+                nextAction: "VERIFY starts",
+                roomId,
+                playerId,
+                socketId
+            });
+
+        }
+
         this._logger.info(
             `Lobby room joined | roomId=${roomId} | playerId=${playerId}`
         );
 
         this._emitPlayerJoined(roomId, playerId);
-
-        const roomSnapshot = this._roomManager.getRoom(roomId);
 
         this._deliverToSocket(
             socketId,
