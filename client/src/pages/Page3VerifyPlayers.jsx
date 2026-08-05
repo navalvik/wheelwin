@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
@@ -26,6 +26,47 @@ import {
 import socket from "../socket/socket";
 
 import "../styles/page3verify.css";
+
+/**
+ * R7.30 — SPA-lifetime emit guard (survives StrictMode remount / effect replay).
+ * Keyed by roomId + playerId so reconnect replay cannot double-fire VERIFY_NEXT.
+ */
+const verifyNextEmittedSeats = new Set();
+
+function verifyNextSeatKey(roomId, playerId) {
+
+    if (roomId == null || playerId == null || playerId === "") {
+
+        return null;
+
+    }
+
+    return `${String(roomId)}::${String(playerId)}`;
+
+}
+
+function clearVerifyNextSeat(roomId, playerId) {
+
+    const key = verifyNextSeatKey(roomId, playerId);
+
+    if (key) {
+
+        verifyNextEmittedSeats.delete(key);
+
+    }
+
+}
+
+/** R7.30 — decision traces (browser console → Developer Log capture). */
+function verifyDecisionTrace(step, detail = {}) {
+
+    console.info(`[VERIFY TRACE] ${step}`, {
+        at: Date.now(),
+        step,
+        ...detail
+    });
+
+}
 
 export default function Page3VerifyPlayers({ onNavigate }) {
 
@@ -92,6 +133,15 @@ export default function Page3VerifyPlayers({ onNavigate }) {
         getAuthoritativePlayerSectorCount(localAuthoritativePlayer)
     );
 
+    const roomId = authoritative.roomId ?? null;
+
+    // Prefer roster seat; fall back to identity (server binds by socket either way).
+    const emitPlayerId = localPlayerId ?? identity.playerId ?? null;
+
+    const emitSeatKey = verifyNextSeatKey(roomId, emitPlayerId);
+
+    const autoVerifyNextInFlightRef = useRef(false);
+
     useEffect(() => {
 
         if (verifyCompleted) {
@@ -139,6 +189,11 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         function handleWalletRejected(payload) {
 
+            // Allow a single retry after server rejection (invalid wallet).
+            clearVerifyNextSeat(roomId, emitPlayerId);
+
+            autoVerifyNextInFlightRef.current = false;
+
             setWaitingForPaymentStage(false);
 
             setWalletError(
@@ -157,7 +212,206 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         };
 
-    }, []);
+    }, [roomId, emitPlayerId]);
+
+    /**
+     * R7.30 — sole VERIFY_NEXT_REQUEST emitter (auto path).
+     * Protocol unchanged; trigger is automatic after VERIFY_COMPLETED.
+     */
+    const emitVerifyNextRequest = useCallback((source) => {
+
+        const seatKey = verifyNextSeatKey(roomId, emitPlayerId);
+
+        if (seatKey && verifyNextEmittedSeats.has(seatKey)) {
+
+            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_ALREADY_SENT", {
+                source,
+                roomId,
+                playerId: emitPlayerId,
+                seatKey
+            });
+
+            if (!waitingForPaymentStage && !paymentStageReady) {
+
+                setWaitingForPaymentStage(true);
+
+            }
+
+            return false;
+
+        }
+
+        if (!verifyCompleted
+            || waitingForVerify
+            || waitingForPaymentStage
+            || paymentStageReady) {
+
+            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_NOT_READY", {
+                source,
+                roomId,
+                playerId: emitPlayerId,
+                verifyCompleted,
+                waitingForVerify,
+                waitingForPaymentStage,
+                paymentStageReady
+            });
+
+            return false;
+
+        }
+
+        if (!isWalletValid) {
+
+            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_INVALID_WALLET", {
+                source,
+                roomId,
+                playerId: emitPlayerId
+            });
+
+            return false;
+
+        }
+
+        if (!seatKey) {
+
+            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_NOT_READY", {
+                source,
+                roomId,
+                playerId: emitPlayerId,
+                reason: "missing_seat_key"
+            });
+
+            return false;
+
+        }
+
+        if (autoVerifyNextInFlightRef.current) {
+
+            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_ALREADY_SENT", {
+                source,
+                roomId,
+                playerId: emitPlayerId,
+                reason: "in_flight"
+            });
+
+            return false;
+
+        }
+
+        autoVerifyNextInFlightRef.current = true;
+
+        verifyNextEmittedSeats.add(seatKey);
+
+        setWalletError("");
+
+        setWaitingForPaymentStage(true);
+
+        verifyDecisionTrace("AUTO_VERIFY_NEXT_EMIT", {
+            source,
+            roomId,
+            playerId: emitPlayerId,
+            seatKey
+        });
+
+        socket.emit("VERIFY_NEXT_REQUEST", {
+            roomId,
+            playerId: emitPlayerId,
+            walletAddress: walletAddress.trim()
+        });
+
+        return true;
+
+    }, [
+        roomId,
+        emitPlayerId,
+        verifyCompleted,
+        waitingForVerify,
+        waitingForPaymentStage,
+        paymentStageReady,
+        isWalletValid,
+        walletAddress
+    ]);
+
+    // R7.30 — automatic VERIFY continuation after VERIFY_COMPLETED.
+    useEffect(() => {
+
+        if (!verifyCompleted) {
+
+            return;
+
+        }
+
+        if (paymentStageReady) {
+
+            return;
+
+        }
+
+        if (emitSeatKey && verifyNextEmittedSeats.has(emitSeatKey)) {
+
+            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_ALREADY_SENT", {
+                source: "auto_effect",
+                roomId,
+                playerId: emitPlayerId,
+                seatKey: emitSeatKey
+            });
+
+            if (!waitingForPaymentStage) {
+
+                setWaitingForPaymentStage(true);
+
+            }
+
+            return;
+
+        }
+
+        if (waitingForVerify || waitingForPaymentStage) {
+
+            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_NOT_READY", {
+                source: "auto_effect",
+                roomId,
+                playerId: emitPlayerId,
+                waitingForVerify,
+                waitingForPaymentStage
+            });
+
+            return;
+
+        }
+
+        if (!isWalletValid) {
+
+            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_INVALID_WALLET", {
+                source: "auto_effect",
+                roomId,
+                playerId: emitPlayerId
+            });
+
+            return;
+
+        }
+
+        verifyDecisionTrace("AUTO_VERIFY_NEXT_READY", {
+            source: "auto_effect",
+            roomId,
+            playerId: emitPlayerId
+        });
+
+        emitVerifyNextRequest("auto_effect");
+
+    }, [
+        verifyCompleted,
+        paymentStageReady,
+        waitingForVerify,
+        waitingForPaymentStage,
+        isWalletValid,
+        walletAddress,
+        emitSeatKey,
+        roomId,
+        emitPlayerId,
+        emitVerifyNextRequest
+    ]);
 
     function handleConfirmVerify() {
 
@@ -175,31 +429,6 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     }
 
-    function handleVerifyNextRequest() {
-
-        if (
-            !verifyCompleted
-            || !isWalletValid
-            || waitingForPaymentStage
-            || paymentStageReady
-        ) {
-
-            return;
-
-        }
-
-        setWalletError("");
-
-        setWaitingForPaymentStage(true);
-
-        socket.emit("VERIFY_NEXT_REQUEST", {
-            roomId: authoritative.roomId ?? null,
-            playerId: localPlayerId,
-            walletAddress: walletAddress.trim()
-        });
-
-    }
-
     function handleNext() {
 
         if (!isWalletValid) {
@@ -212,9 +441,9 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         }
 
+        // R7.30 — after VERIFY_COMPLETED, continuation is automatic.
+        // Manual NEXT is only for barrier #1 (confirmVerify).
         if (verifyCompleted) {
-
-            handleVerifyNextRequest();
 
             return;
 
@@ -235,13 +464,9 @@ export default function Page3VerifyPlayers({ onNavigate }) {
             onBack={() => onNavigate(4)}
 
             nextEnabled={
-                paymentStageReady
+                paymentStageReady || verifyCompleted
                     ? false
-                    : (
-                        verifyCompleted
-                            ? (isWalletValid && !waitingForPaymentStage)
-                            : (isWalletValid && !waitingForVerify)
-                    )
+                    : (isWalletValid && !waitingForVerify)
             }
 
             onNext={handleNext}
@@ -321,7 +546,9 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                             {waitingForPaymentStage
                                 ? "Waiting for all players to continue…"
-                                : "Players verified. Continue to payment."}
+                                : isWalletValid
+                                    ? "Players verified. Continuing to payment…"
+                                    : "Players verified. Enter a valid wallet to continue."}
 
                         </div>
 
@@ -399,10 +626,19 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                                 setWalletAddress(e.target.value);
 
-                                // P6.1 — editing before freeze unlocks another NEXT submit.
-                                if (waitingForPaymentStage && !paymentStageReady) {
+                                // P6.1 / R7.30 — editing before freeze allows one
+                                // corrected auto VERIFY_NEXT after rejection/edit.
+                                if (!paymentStageReady) {
 
-                                    setWaitingForPaymentStage(false);
+                                    clearVerifyNextSeat(roomId, emitPlayerId);
+
+                                    autoVerifyNextInFlightRef.current = false;
+
+                                    if (waitingForPaymentStage) {
+
+                                        setWaitingForPaymentStage(false);
+
+                                    }
 
                                 }
 
