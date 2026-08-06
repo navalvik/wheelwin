@@ -1,6 +1,6 @@
-# R7.66A — TON GameEscrow contract toolchain (Blueprint + Tact)
+# R7.66B — TON GameEscrow v1 (Blueprint + Tact)
 
-Skeleton only. No stake/settle logic yet.
+Contract: `INIT_GAME` + `SETTLE` (no STAKE / payouts yet).
 
 ## Commands
 
@@ -8,12 +8,7 @@ Skeleton only. No stake/settle logic yet.
 cd contracts
 npm install
 npm run compile-contracts
-```
-
-From `server/`:
-
-```bash
-npm run compile-contracts
+npm test
 ```
 
 Artifact:

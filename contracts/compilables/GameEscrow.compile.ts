@@ -1,7 +1,7 @@
 import type { CompilerConfig } from "@ton/blueprint";
 
 /**
- * R7.66A — Compile GameEscrow Tact skeleton (no escrow logic yet).
+ * R7.66B — Compile GameEscrow v1 (INIT_GAME + SETTLE).
  */
 export const compile: CompilerConfig = {
     lang: "tact",
