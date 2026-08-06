@@ -9,6 +9,7 @@ import {
     MonitorRecoveryError,
     ObservationTimeoutError
 } from "./BlockchainMonitorErrors.js";
+import { verifyGameEscrowPayouts } from "./ton/verifyGameEscrowPayouts.js";
 
 /**
  * T2.5 — BlockchainMonitor lifecycle states.
@@ -259,6 +260,9 @@ export class BlockchainMonitor {
 
         // watchId → transaction watch descriptor
         this._transactions = new Map();
+
+        // R7.66G — GameEscrow payout confirmation watches
+        this._gameEscrowSettlements = new Map();
 
         // global observation keys for duplicate protection
         this._emittedObservations = new Set();
@@ -620,6 +624,105 @@ export class BlockchainMonitor {
         this._ensureGlobalPoll();
 
         return this._publicTransactionWatch(watch);
+
+    }
+
+    /**
+     * R7.66G — Watch escrow for winner/owner payout proofs after GameEscrow SETTLE.
+     */
+    watchGameEscrowSettlement({
+        escrowAddress,
+        settleTxHash = null,
+        winnerAddress,
+        ownerAddress,
+        winnerAmount,
+        ownerAmount,
+        contractId = null,
+        roomId = null,
+        gameId = null,
+        correlationId = null,
+        contractStatus = null,
+        timeoutMs = null
+    }) {
+
+        this._assertReadyForWatch();
+
+        if (!escrowAddress || !winnerAddress || !ownerAddress) {
+
+            throw new InvalidBlockchainDataError(
+                "watchGameEscrowSettlement requires escrow, winner, and owner addresses"
+            );
+
+        }
+
+        const watchId = `GAME_ESCROW_SETTLEMENT:${contractId ?? escrowAddress}:${settleTxHash ?? "pending"}`;
+
+        if (this._gameEscrowSettlements.has(watchId)) {
+
+            return this._publicGameEscrowSettlementWatch(
+                this._gameEscrowSettlements.get(watchId)
+            );
+
+        }
+
+        const watch = {
+            watchId,
+            escrowAddress: canonicalizeTonWalletAddress(escrowAddress)
+                ?? escrowAddress,
+            settleTxHash: settleTxHash ? String(settleTxHash) : null,
+            winnerAddress: canonicalizeTonWalletAddress(winnerAddress)
+                ?? winnerAddress,
+            ownerAddress: canonicalizeTonWalletAddress(ownerAddress)
+                ?? ownerAddress,
+            winnerAmount,
+            ownerAmount,
+            contractStatus: contractStatus ?? null,
+            contractId,
+            roomId,
+            gameId,
+            correlationId,
+            status: "PENDING",
+            startedAt: this._now(),
+            timeoutMs: Number.isFinite(timeoutMs)
+                ? timeoutMs
+                : this._transactionTimeoutMs,
+            confirmedAt: null,
+            failedAt: null,
+            reason: null,
+            winnerPayoutTx: null,
+            ownerPayoutTx: null,
+            verifiedSettleTxHash: null
+        };
+
+        this._gameEscrowSettlements.set(watchId, watch);
+
+        this._ensureGlobalPoll();
+
+        return this._publicGameEscrowSettlementWatch(watch);
+
+    }
+
+    _publicGameEscrowSettlementWatch(watch) {
+
+        return Object.freeze({
+            watchId: watch.watchId,
+            escrowAddress: watch.escrowAddress,
+            settleTxHash: watch.settleTxHash,
+            winnerAddress: watch.winnerAddress,
+            ownerAddress: watch.ownerAddress,
+            winnerAmount: watch.winnerAmount,
+            ownerAmount: watch.ownerAmount,
+            status: watch.status,
+            reason: watch.reason,
+            confirmedAt: watch.confirmedAt,
+            failedAt: watch.failedAt,
+            winnerPayoutTx: watch.winnerPayoutTx,
+            ownerPayoutTx: watch.ownerPayoutTx,
+            verifiedSettleTxHash: watch.verifiedSettleTxHash,
+            contractId: watch.contractId,
+            roomId: watch.roomId,
+            gameId: watch.gameId
+        });
 
     }
 
@@ -1105,6 +1208,18 @@ export class BlockchainMonitor {
 
             }
 
+            for (const watch of [...this._gameEscrowSettlements.values()]) {
+
+                if (watch.status === "PENDING") {
+
+                    await this._observeGameEscrowSettlement(watch);
+
+                    observed = true;
+
+                }
+
+            }
+
             if (observed) {
 
                 this._lastSuccessfulCheck = this._now();
@@ -1543,6 +1658,154 @@ export class BlockchainMonitor {
             this._state = BLOCKCHAIN_MONITOR_STATE.DEGRADED;
 
             return this._publicTransactionWatch(watch);
+
+        }
+
+    }
+
+    async _observeGameEscrowSettlement(watch) {
+
+        if (
+            Number.isFinite(watch.timeoutMs)
+            && (this._now() - watch.startedAt) > watch.timeoutMs
+        ) {
+
+            watch.status = "FAILED";
+            watch.failedAt = this._now();
+            watch.reason = "observation_timeout";
+
+            this._emitObservation(EVENT_TYPES.GAME_ESCROW_SETTLEMENT_REJECTED, {
+                contractId: watch.contractId,
+                gameId: watch.gameId,
+                roomId: watch.roomId,
+                escrowAddress: watch.escrowAddress,
+                settleTxHash: watch.settleTxHash,
+                reason: "observation_timeout",
+                timestamp: this._now(),
+                correlationId: watch.correlationId
+            });
+
+            return this._publicGameEscrowSettlementWatch(watch);
+
+        }
+
+        try {
+
+            const transactions = await this._fetchTransactions(watch.escrowAddress, {
+                limit: 40
+            });
+
+            let contractStatus = watch.contractStatus;
+
+            if (contractStatus == null && this._tonService?.runGetMethod) {
+
+                try {
+
+                    const stack = await this._tonService.runGetMethod(
+                        watch.escrowAddress,
+                        "get_status"
+                    );
+                    const top = stack?.stack?.[0];
+                    contractStatus = top?.value ?? top ?? null;
+                    watch.contractStatus = contractStatus;
+
+                } catch {
+
+                    contractStatus = null;
+
+                }
+
+            }
+
+            const result = verifyGameEscrowPayouts({
+                transactions,
+                winnerAddress: watch.winnerAddress,
+                ownerAddress: watch.ownerAddress,
+                winnerAmount: watch.winnerAmount,
+                ownerAmount: watch.ownerAmount,
+                settleTxHash: watch.settleTxHash,
+                contractStatus
+            });
+
+            this._lastSuccessfulCheck = this._now();
+
+            if (result.status === "PENDING") {
+
+                return this._publicGameEscrowSettlementWatch(watch);
+
+            }
+
+            if (!result.ok) {
+
+                if (
+                    result.reason === "amount_mismatch"
+                    || result.reason === "missing_owner_payout"
+                    || result.reason === "missing_winner_payout"
+                    || result.reason === "contract_not_settled"
+                ) {
+
+                    watch.status = "FAILED";
+                    watch.failedAt = this._now();
+                    watch.reason = result.reason;
+                    watch.winnerPayoutTx = result.winnerPayoutTx;
+                    watch.ownerPayoutTx = result.ownerPayoutTx;
+
+                    this._emitObservation(
+                        EVENT_TYPES.GAME_ESCROW_SETTLEMENT_REJECTED,
+                        {
+                            contractId: watch.contractId,
+                            gameId: watch.gameId,
+                            roomId: watch.roomId,
+                            escrowAddress: watch.escrowAddress,
+                            settleTxHash: watch.settleTxHash,
+                            winnerPayoutTx: result.winnerPayoutTx,
+                            ownerPayoutTx: result.ownerPayoutTx,
+                            reason: result.reason,
+                            timestamp: this._now(),
+                            correlationId: watch.correlationId
+                        },
+                        `game-escrow-settlement-rejected:${watch.watchId}`
+                    );
+
+                }
+
+                return this._publicGameEscrowSettlementWatch(watch);
+
+            }
+
+            watch.status = "CONFIRMED";
+            watch.confirmedAt = this._now();
+            watch.winnerPayoutTx = result.winnerPayoutTx;
+            watch.ownerPayoutTx = result.ownerPayoutTx;
+            watch.verifiedSettleTxHash = result.settleTxHash;
+
+            this._emitObservation(
+                EVENT_TYPES.GAME_ESCROW_SETTLEMENT_VERIFIED,
+                {
+                    contractId: watch.contractId,
+                    gameId: watch.gameId,
+                    roomId: watch.roomId,
+                    escrowAddress: watch.escrowAddress,
+                    settleTxHash: result.settleTxHash,
+                    winnerPayoutTx: result.winnerPayoutTx,
+                    ownerPayoutTx: result.ownerPayoutTx,
+                    winnerAddress: watch.winnerAddress,
+                    ownerAddress: watch.ownerAddress,
+                    timestamp: this._now(),
+                    correlationId: watch.correlationId
+                },
+                `game-escrow-settlement-verified:${watch.watchId}`
+            );
+
+            return this._publicGameEscrowSettlementWatch(watch);
+
+        } catch (error) {
+
+            this._recordFailure("observe_game_escrow_settlement", error);
+
+            this._state = BLOCKCHAIN_MONITOR_STATE.DEGRADED;
+
+            return this._publicGameEscrowSettlementWatch(watch);
 
         }
 

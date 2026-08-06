@@ -19,7 +19,9 @@ import {
     resolveGameEscrowMode
 } from "./ton/buildGameEscrowStateInit.js";
 import {
+    printGameEscrowConfirmationDebug,
     printGameEscrowSettlementDebug,
+    setGameEscrowConfirmationDebug,
     setGameEscrowSettlementDebug
 } from "../diagnostics/SettlementPipelineForensics.js";
 
@@ -132,6 +134,16 @@ export class ContractSettlementManager {
         this._subscribe(
             EVENT_TYPES.SETTLEMENT_TRANSACTION_CONFIRMED,
             (envelope) => this._handleSettlementTransactionConfirmed(envelope.payload)
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_ESCROW_SETTLEMENT_VERIFIED,
+            (envelope) => this._handleGameEscrowSettlementVerified(envelope.payload)
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_ESCROW_SETTLEMENT_REJECTED,
+            (envelope) => this._handleGameEscrowSettlementRejected(envelope.payload)
         );
 
         this._subscribe(
@@ -389,6 +401,15 @@ export class ContractSettlementManager {
                 ) {
 
                     rewatched += this._registerSettlementWatch(session);
+
+                }
+
+                if (
+                    session.status
+                        === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION
+                ) {
+
+                    rewatched += this._registerGameEscrowPayoutWatch(session);
 
                 }
 
@@ -822,6 +843,52 @@ export class ContractSettlementManager {
             });
             printGameEscrowSettlementDebug();
 
+            // R7.66G — wait for payout proofs; do not complete on submit alone.
+            session.transitionTo(
+                SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION,
+                {
+                    settlementTransactionHash: settlementTxHash
+                }
+            );
+
+            this._gameContractManager.markSettlementPending?.(roomId);
+
+            this._persistSession(session, "update");
+
+            this._emitDomain(EVENT_TYPES.SETTLEMENT_PENDING, session, {
+                transactionHash: settlementTxHash,
+                pendingConfirmation: true
+            });
+
+            setGameEscrowConfirmationDebug({
+                escrowAddress: contract.contractAddress,
+                settleTxHash: settlementTxHash,
+                winnerPayoutTx: null,
+                ownerPayoutTx: null,
+                confirmedAt: null,
+                status: "SETTLEMENT_PENDING_CONFIRMATION"
+            });
+            printGameEscrowConfirmationDebug();
+
+            this._log(
+                `SETTLEMENT_PENDING_CONFIRMATION | gameId=${gameId} | `
+                    + `contractId=${contract.contractId} | `
+                    + `winner=${maskWalletAddress(winnerWallet)}`
+            );
+
+            const registered = this._registerGameEscrowPayoutWatch(session);
+
+            if (registered > 0) {
+
+                return;
+
+            }
+
+            // No monitor available — cannot confirm payouts in game mode.
+            this._failSettlement(session, "game_escrow_payout_watch_unavailable");
+
+            return;
+
         }
 
         session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING, {
@@ -880,7 +947,8 @@ export class ContractSettlementManager {
 
         }
 
-        if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING) {
+        if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
+            || session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION) {
 
             session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_CONFIRMED, {
                 settlementTransactionHash: settlementTxHash ?? session.settlementTransactionHash
@@ -976,6 +1044,18 @@ export class ContractSettlementManager {
 
         }
 
+        // R7.66G — GameEscrow completion requires payout proofs, not deployer tx alone.
+        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+
+            this._log(
+                `SETTLEMENT tx seen (awaiting payouts) | gameId=${gameId} | `
+                    + `tx=${payload?.transactionId ?? payload?.txHash ?? null}`
+            );
+
+            return;
+
+        }
+
         const txHash = payload?.transactionId ?? payload?.txHash ?? null;
 
         try {
@@ -993,6 +1073,114 @@ export class ContractSettlementManager {
             this._failSettlement(session, error?.message ?? "confirmation_failed");
 
         }
+
+    }
+
+    _handleGameEscrowSettlementVerified(payload) {
+
+        if (this._gameEscrowMode !== GAME_ESCROW_MODE_GAME) {
+
+            return;
+
+        }
+
+        const gameId = payload?.gameId
+            ?? this._resolveGameIdByContract(payload?.contractId);
+
+        if (!gameId) {
+
+            return;
+
+        }
+
+        const session = this._byGameId.get(gameId);
+
+        if (!session || !session.isInProgress()) {
+
+            return;
+
+        }
+
+        const confirmedAt = Date.now();
+
+        setGameEscrowConfirmationDebug({
+            escrowAddress: payload?.escrowAddress
+                ?? session.request?.contractAddress
+                ?? null,
+            settleTxHash: payload?.settleTxHash
+                ?? session.settlementTransactionHash
+                ?? null,
+            winnerPayoutTx: payload?.winnerPayoutTx ?? null,
+            ownerPayoutTx: payload?.ownerPayoutTx ?? null,
+            confirmedAt,
+            status: "CONFIRMED"
+        });
+        printGameEscrowConfirmationDebug();
+
+        try {
+
+            void this._confirmSettlement(
+                session,
+                payload?.settleTxHash ?? session.settlementTransactionHash
+            );
+
+        } catch (error) {
+
+            if (error instanceof DuplicateSettlementError) {
+
+                return;
+
+            }
+
+            this._failSettlement(session, error?.message ?? "payout_confirmation_failed");
+
+        }
+
+    }
+
+    _handleGameEscrowSettlementRejected(payload) {
+
+        if (this._gameEscrowMode !== GAME_ESCROW_MODE_GAME) {
+
+            return;
+
+        }
+
+        const gameId = payload?.gameId
+            ?? this._resolveGameIdByContract(payload?.contractId);
+
+        if (!gameId) {
+
+            return;
+
+        }
+
+        const session = this._byGameId.get(gameId);
+
+        if (!session || !session.isInProgress()) {
+
+            return;
+
+        }
+
+        setGameEscrowConfirmationDebug({
+            escrowAddress: payload?.escrowAddress
+                ?? session.request?.contractAddress
+                ?? null,
+            settleTxHash: payload?.settleTxHash
+                ?? session.settlementTransactionHash
+                ?? null,
+            winnerPayoutTx: payload?.winnerPayoutTx ?? null,
+            ownerPayoutTx: payload?.ownerPayoutTx ?? null,
+            confirmedAt: null,
+            status: "REJECTED"
+        });
+        printGameEscrowConfirmationDebug();
+
+        this._failSettlement(
+            session,
+            payload?.reason ?? "game_escrow_payout_rejected"
+        );
 
     }
 
@@ -1190,6 +1378,51 @@ export class ContractSettlementManager {
         this._log(
             `SETTLEMENT watch registered | gameId=${session.gameId} | `
                 + `deployer=${address} | tx=${session.settlementTransactionHash}`
+        );
+
+        return 1;
+
+    }
+
+    /**
+     * R7.66G — Watch escrow for GameEscrow winner/owner payout proofs.
+     */
+    _registerGameEscrowPayoutWatch(session) {
+
+        if (!this._blockchainMonitor?.watchGameEscrowSettlement) {
+
+            return 0;
+
+        }
+
+        const escrowAddress = session.request?.contractAddress
+            ?? null;
+
+        if (!escrowAddress || !session.winnerWallet || !session.ownerWallet) {
+
+            return 0;
+
+        }
+
+        this._blockchainMonitor.watchGameEscrowSettlement({
+            escrowAddress,
+            settleTxHash: session.settlementTransactionHash,
+            winnerAddress: session.winnerWallet,
+            ownerAddress: session.ownerWallet,
+            winnerAmount: session.prizeAmount,
+            ownerAmount: session.organizerAmount,
+            contractId: session.contractId,
+            roomId: session.roomId,
+            gameId: session.gameId,
+            correlationId: session.correlationId,
+            timeoutMs: session.settlementDeadline
+                ? Math.max(0, session.settlementDeadline - Date.now())
+                : null
+        });
+
+        this._log(
+            `GAME_ESCROW payout watch registered | gameId=${session.gameId} | `
+                + `escrow=${escrowAddress}`
         );
 
         return 1;

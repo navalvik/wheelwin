@@ -32,6 +32,7 @@ let _tonSettlementDebug = null;
 export function setGameEscrowSettlementDebug(fields = {}) {
 
     const previous = _tonSettlementDebug?.gameEscrowSettlement ?? null;
+    const previousConfirmation = _tonSettlementDebug?.gameEscrowConfirmation ?? null;
 
     _tonSettlementDebug = {
         timestamp: Date.now(),
@@ -48,6 +49,38 @@ export function setGameEscrowSettlementDebug(fields = {}) {
             transactionHash: fields.transactionHash
                 ?? previous?.transactionHash
                 ?? null
+        }),
+        gameEscrowConfirmation: previousConfirmation
+    };
+
+    return getTonSettlementDebug();
+
+}
+
+/**
+ * R7.66G — Payout-proof confirmation diagnostics.
+ */
+export function setGameEscrowConfirmationDebug(fields = {}) {
+
+    const previous = _tonSettlementDebug?.gameEscrowConfirmation ?? null;
+    const previousSettlement = _tonSettlementDebug?.gameEscrowSettlement ?? null;
+
+    _tonSettlementDebug = {
+        timestamp: Date.now(),
+        gameEscrowSettlement: previousSettlement,
+        gameEscrowConfirmation: Object.freeze({
+            escrowAddress: fields.escrowAddress
+                ?? previous?.escrowAddress
+                ?? null,
+            settleTxHash: fields.settleTxHash ?? previous?.settleTxHash ?? null,
+            winnerPayoutTx: fields.winnerPayoutTx
+                ?? previous?.winnerPayoutTx
+                ?? null,
+            ownerPayoutTx: fields.ownerPayoutTx
+                ?? previous?.ownerPayoutTx
+                ?? null,
+            confirmedAt: fields.confirmedAt ?? previous?.confirmedAt ?? null,
+            status: fields.status ?? previous?.status ?? null
         })
     };
 
@@ -68,8 +101,34 @@ export function getTonSettlementDebug() {
 
     return Object.freeze({
         timestamp: _tonSettlementDebug.timestamp,
-        gameEscrowSettlement: _tonSettlementDebug.gameEscrowSettlement
+        gameEscrowSettlement: _tonSettlementDebug.gameEscrowSettlement,
+        gameEscrowConfirmation: _tonSettlementDebug.gameEscrowConfirmation ?? null
     });
+
+}
+
+export function printGameEscrowConfirmationDebug(fields = null) {
+
+    const confirmation = fields
+        ?? getTonSettlementDebug()?.gameEscrowConfirmation
+        ?? null;
+
+    if (!confirmation) {
+
+        return;
+
+    }
+
+    console.log("======================================================");
+    console.log("TON_SETTLEMENT_DEBUG.gameEscrowConfirmation");
+    console.log("======================================================");
+    console.log("escrowAddress:", confirmation.escrowAddress);
+    console.log("settleTxHash:", confirmation.settleTxHash);
+    console.log("winnerPayoutTx:", confirmation.winnerPayoutTx);
+    console.log("ownerPayoutTx:", confirmation.ownerPayoutTx);
+    console.log("confirmedAt:", confirmation.confirmedAt);
+    console.log("status:", confirmation.status);
+    console.log("======================================================");
 
 }
 
