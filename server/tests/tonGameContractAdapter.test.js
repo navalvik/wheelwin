@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
+import { Cell, loadMessage } from "@ton/core";
 import { keyPairFromSeed } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
@@ -644,7 +645,17 @@ async function main() {
 
         assert.ok(transport.sentBocs.length >= 1);
 
+        // R7.54 — sent BOC must be an external-in Message envelope, not a raw
+        // createTransfer() body Cell.
+        const sentBoc = transport.sentBocs[0];
+        const messageCell = Cell.fromBoc(Buffer.from(sentBoc, "base64"))[0];
+        const message = loadMessage(messageCell.beginParse());
+
+        assert.equal(message.info.type, "external-in");
+        assert.ok(message.body);
+
         console.log("  live escrow activation success: OK");
+        console.log("  R7.54 external-in Message envelope: OK");
     }
 
     // --- R6.34 activation timeout ---

@@ -5,7 +5,7 @@
  * Gameplay modules never import @ton/* except through this adapter boundary.
  */
 
-import { beginCell, internal, toNano } from "@ton/core";
+import { beginCell, external, internal, storeMessage, toNano } from "@ton/core";
 import { mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
@@ -946,7 +946,18 @@ export class TonGameContractAdapter {
             console.log("[R7.51 TON DEPLOY]\nstage=TRANSFER_CREATED");
             pushTonDeployDebugStage("TRANSFER_CREATED");
 
-            const bocBase64 = transfer.toBoc().toString("base64");
+            // R7.54 — TonCenter sendBoc requires a full external-in Message BOC,
+            // not the raw signed transfer body Cell from createTransfer().
+            const externalMessage = external({
+                to: deployerWallet.address,
+                body: transfer
+            });
+
+            const bocBase64 = beginCell()
+                .store(storeMessage(externalMessage))
+                .endCell()
+                .toBoc()
+                .toString("base64");
 
             console.log("[R7.51 TON DEPLOY]\nstage=BOC_CREATED");
             pushTonDeployDebugStage("BOC_CREATED");
