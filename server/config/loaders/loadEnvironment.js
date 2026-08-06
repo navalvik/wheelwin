@@ -120,9 +120,11 @@ export function loadEnvironment(env = process.env) {
     } catch (error) {
 
         throw wrapLoaderError(
-            "TON_NETWORK",
+            String(error?.message || "").includes("GAME_ESCROW_MODE")
+                ? "GAME_ESCROW_MODE"
+                : "TON_NETWORK",
             error,
-            "Set TON_NETWORK and optional TON_* variables correctly."
+            "Set TON_NETWORK and optional TON_* / GAME_ESCROW_MODE correctly (v4|game)."
         );
 
     }

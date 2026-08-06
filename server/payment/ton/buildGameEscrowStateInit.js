@@ -12,10 +12,19 @@ import {
 import { keyPairFromSeed } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
+import {
+    GAME_ESCROW_MODE_GAME,
+    GAME_ESCROW_MODE_V4,
+    resolveGameEscrowMode
+} from "../../config/gameEscrowMode.js";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export const GAME_ESCROW_MODE_V4 = "v4";
-export const GAME_ESCROW_MODE_GAME = "game";
+export {
+    GAME_ESCROW_MODE_GAME,
+    GAME_ESCROW_MODE_V4,
+    resolveGameEscrowMode
+};
 
 export const GAME_ESCROW_VERSION = 1;
 export const GAME_ESCROW_STATUS_UNINITIALIZED = 0;
@@ -28,26 +37,11 @@ const ZERO_ADDRESS = new Address(0, Buffer.alloc(32));
 let cachedCodeCell = null;
 
 /**
- * P6.6 / R7.66D — Deterministic Game Escrow StateInit.
+ * P6.6 / R7.66D / R7.67A — Deterministic Game Escrow StateInit.
  *
- * GAME_ESCROW_MODE=v4  → legacy WalletContractV4 (default, rollback)
- * GAME_ESCROW_MODE=game → real GameEscrow code artifact + data cell
+ * GAME_ESCROW_MODE=game → GameEscrow (testnet default)
+ * GAME_ESCROW_MODE=v4  → legacy WalletContractV4 (explicit rollback / mainnet default)
  */
-
-export function resolveGameEscrowMode(explicitMode, env = process.env) {
-
-    const raw = explicitMode ?? env.GAME_ESCROW_MODE ?? GAME_ESCROW_MODE_V4;
-    const mode = String(raw).trim().toLowerCase();
-
-    if (mode === GAME_ESCROW_MODE_GAME) {
-
-        return GAME_ESCROW_MODE_GAME;
-
-    }
-
-    return GAME_ESCROW_MODE_V4;
-
-}
 
 export function hashGameContractSnapshot(snapshot) {
 
@@ -307,7 +301,7 @@ function buildV4EscrowWallet({ contractId, snapshot }) {
 
 /**
  * Build escrow StateInit for deploy.
- * Default mode is v4 (rollback-safe). Set GAME_ESCROW_MODE=game for GameEscrow.
+ * Testnet default is game; pass mode=v4 (or GAME_ESCROW_MODE=v4) for rollback.
  */
 export function buildGameEscrowWallet({
     contractId,

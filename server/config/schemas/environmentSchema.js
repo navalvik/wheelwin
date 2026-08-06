@@ -610,6 +610,15 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix: "Set TON_DEPLOY_MODE to stub or live."
     }),
+    // R7.67A — testnet defaults to game when unset; mainnet defaults to v4.
+    GAME_ESCROW_MODE: Object.freeze({
+        key: "GAME_ESCROW_MODE",
+        type: "enum",
+        required: false,
+        allowed: Object.freeze(["v4", "game"]),
+        category: "TON",
+        suggestedFix: "Set GAME_ESCROW_MODE to game (testnet default) or v4 (rollback / mainnet default)."
+    }),
     SETUP_DURATION_MS: Object.freeze({
         key: "SETUP_DURATION_MS",
         type: "integer",

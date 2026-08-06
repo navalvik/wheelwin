@@ -2619,6 +2619,12 @@ class WheelWinApplication {
 
         this._logger.startupLine("TonService");
 
+        // R7.67A — surface active escrow mode at startup (v4 | game).
+        this._logger.startupLine(
+            `GameEscrowMode=${this._tonConfig?.gameEscrowMode ?? "unknown"} `
+                + `(network=${this._tonConfig?.network ?? "unknown"})`
+        );
+
     }
 
     _runGameManagerDemonstration() {

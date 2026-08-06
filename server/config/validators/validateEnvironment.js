@@ -604,6 +604,25 @@ export function validateEnvironment(collector, env) {
 
     }
 
+    // R7.67A — refuse ambiguous GAME_ESCROW_MODE when the variable is present.
+    if (!isMissing(env.GAME_ESCROW_MODE)) {
+
+        const mode = String(env.GAME_ESCROW_MODE).trim().toLowerCase();
+
+        if (mode !== "v4" && mode !== "game") {
+
+            collector.add({
+                key: ENVIRONMENT_SCHEMA.GAME_ESCROW_MODE.key,
+                reason: "Ambiguous or invalid escrow mode",
+                expectedType: "v4|game",
+                received: env.GAME_ESCROW_MODE,
+                suggestedFix: ENVIRONMENT_SCHEMA.GAME_ESCROW_MODE.suggestedFix
+            });
+
+        }
+
+    }
+
     validateIntegerField(
         collector,
         ENVIRONMENT_SCHEMA.SETUP_DURATION_MS,

@@ -46,7 +46,12 @@ function main() {
     // --- mode flag ---
 
     {
+        // R7.67A — unset without network stays v4 (mainnet-safe); testnet defaults to game.
         assert.equal(resolveGameEscrowMode(undefined, {}), GAME_ESCROW_MODE_V4);
+        assert.equal(
+            resolveGameEscrowMode(undefined, { TON_NETWORK: "testnet" }),
+            GAME_ESCROW_MODE_GAME
+        );
         assert.equal(
             resolveGameEscrowMode(undefined, { GAME_ESCROW_MODE: "game" }),
             GAME_ESCROW_MODE_GAME
@@ -54,6 +59,10 @@ function main() {
         assert.equal(
             resolveGameEscrowMode("v4", { GAME_ESCROW_MODE: "game" }),
             GAME_ESCROW_MODE_V4
+        );
+        assert.throws(
+            () => resolveGameEscrowMode(undefined, { GAME_ESCROW_MODE: "ambiguous" }),
+            /Ambiguous GAME_ESCROW_MODE/
         );
         console.log("  mode flag: OK");
     }

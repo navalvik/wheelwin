@@ -1,3 +1,5 @@
+import { resolveGameEscrowMode } from "./gameEscrowMode.js";
+
 export function loadTonConfig(env = process.env) {
 
     const network = env.TON_NETWORK;
@@ -33,9 +35,11 @@ export function loadTonConfig(env = process.env) {
 
     const deployMode = requestedMode === "live" ? "live" : "stub";
 
-    // R7.66D — v4 (default, rollback) | game (GameEscrow StateInit). Deploy path only.
-    const gameEscrowModeRaw = String(env.GAME_ESCROW_MODE || "v4").trim().toLowerCase();
-    const gameEscrowMode = gameEscrowModeRaw === "game" ? "game" : "v4";
+    // R7.67A — testnet defaults to game; mainnet stays v4; refuse ambiguous values.
+    const gameEscrowMode = resolveGameEscrowMode(null, {
+        ...env,
+        TON_NETWORK: normalizedNetwork
+    });
 
     return {
         network: normalizedNetwork,
