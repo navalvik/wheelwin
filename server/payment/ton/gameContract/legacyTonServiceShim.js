@@ -55,11 +55,8 @@ export function createLegacyTonServiceShim({
                 []
             );
 
-            const stackItem = result?.stack?.[0];
-
-            const value = stackItem?.value ?? stackItem;
-
-            return Number(value ?? 0);
+            // @ton/ton runMethod returns stack as TupleReader, not an array.
+            return result.stack.readNumber();
 
         },
         async runGetMethod(address, method, stack = []) {
