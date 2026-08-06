@@ -1,5 +1,5 @@
 /**
- * R7.66B — Compile GameEscrow via Blueprint/Tact and export
+ * R7.66C — Compile GameEscrow via Blueprint/Tact and export
  * server/payment/ton/artifacts/GameEscrow.code.boc
  *
  * Deterministic: same Tact source + toolchain versions → same code cell BOC.
@@ -169,7 +169,7 @@ function resolveCodeBocPath() {
 
 function main() {
 
-    console.log("[R7.66B] Compiling GameEscrow (Blueprint + Tact)…");
+    console.log("[R7.66C] Compiling GameEscrow (Blueprint + Tact)…");
 
     runBlueprintBuild();
 
@@ -203,7 +203,7 @@ function main() {
     const meta = {
         schemaVersion: 1,
         contract: "GameEscrow",
-        phase: "R7.66B",
+        phase: "R7.66C",
         source: "contracts/game_escrow/GameEscrow.tact",
         artifact: "server/payment/ton/artifacts/GameEscrow.code.boc",
         bytes: bytes.length,
@@ -214,11 +214,11 @@ function main() {
 
     writeFileSync(META_PATH, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
 
-    console.log(`[R7.66B] sourceBoc=${codeBoc}`);
-    console.log(`[R7.66B] Exported ${ARTIFACT_PATH}`);
-    console.log(`[R7.66B] sha256=${sha256}`);
-    console.log(`[R7.66B] bytes=${bytes.length}`);
-    console.log("[R7.66B] compile-contracts OK");
+    console.log(`[R7.66C] sourceBoc=${codeBoc}`);
+    console.log(`[R7.66C] Exported ${ARTIFACT_PATH}`);
+    console.log(`[R7.66C] sha256=${sha256}`);
+    console.log(`[R7.66C] bytes=${bytes.length}`);
+    console.log("[R7.66C] compile-contracts OK");
 
 }
 

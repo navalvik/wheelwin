@@ -1,6 +1,6 @@
-# R7.66B — TON GameEscrow v1 (Blueprint + Tact)
+# R7.66C — TON GameEscrow v1 with SETTLE payouts
 
-Contract: `INIT_GAME` + `SETTLE` (no STAKE / payouts yet).
+Contract: `INIT_GAME` + `SETTLE` (pays winner/owner). No STAKE yet.
 
 ## Commands
 

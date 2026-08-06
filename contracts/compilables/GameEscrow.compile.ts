@@ -1,7 +1,7 @@
 import type { CompilerConfig } from "@ton/blueprint";
 
 /**
- * R7.66B — Compile GameEscrow v1 (INIT_GAME + SETTLE).
+ * R7.66C — Compile GameEscrow v1 with SETTLE payouts.
  */
 export const compile: CompilerConfig = {
     lang: "tact",

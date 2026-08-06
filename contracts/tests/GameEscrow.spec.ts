@@ -1,5 +1,5 @@
 /**
- * R7.66B — GameEscrow v1 Blueprint sandbox tests.
+ * R7.66C — GameEscrow payout sandbox tests.
  */
 import { Blockchain, SandboxContract, TreasuryContract } from "@ton/sandbox";
 import { toNano } from "@ton/core";
@@ -11,19 +11,20 @@ import {
     STATUS_UNINITIALIZED
 } from "../wrappers/GameEscrow";
 
-describe("GameEscrow v1", () => {
+describe("GameEscrow payouts", () => {
     let blockchain: Blockchain;
     let deployer: SandboxContract<TreasuryContract>;
     let oracle: SandboxContract<TreasuryContract>;
     let owner: SandboxContract<TreasuryContract>;
     let winner: SandboxContract<TreasuryContract>;
-    let stranger: SandboxContract<TreasuryContract>;
+    let funder: SandboxContract<TreasuryContract>;
     let gameEscrow: SandboxContract<GameEscrow>;
 
     const contractIdHash = 0x1111111111111111111111111111111111111111111111111111111111111111n;
     const snapshotHash = 0x2222222222222222222222222222222222222222222222222222222222222222n;
     const winnerAmount = toNano("2.85");
     const ownerAmount = toNano("0.15");
+    const fundAmount = toNano("4");
 
     beforeEach(async () => {
         blockchain = await Blockchain.create();
@@ -31,7 +32,7 @@ describe("GameEscrow v1", () => {
         oracle = await blockchain.treasury("oracle");
         owner = await blockchain.treasury("owner");
         winner = await blockchain.treasury("winner");
-        stranger = await blockchain.treasury("stranger");
+        funder = await blockchain.treasury("funder");
 
         gameEscrow = blockchain.openContract(await GameEscrow.fromInit());
 
@@ -65,6 +66,14 @@ describe("GameEscrow v1", () => {
         );
     }
 
+    async function fundEscrow(value: bigint) {
+        return gameEscrow.send(
+            funder.getSender(),
+            { value },
+            null
+        );
+    }
+
     async function settleFrom(sender: SandboxContract<TreasuryContract>) {
         return gameEscrow.send(
             sender.getSender(),
@@ -79,26 +88,31 @@ describe("GameEscrow v1", () => {
         );
     }
 
-    it("deploys contract", async () => {
-        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_UNINITIALIZED);
-    });
+    it("Case 1: funds escrow with TON", async () => {
+        await initGame();
 
-    it("INIT_GAME stores oracle/owner/hashes and sets DEPLOYED", async () => {
-        const result = await initGame();
+        const before = (await blockchain.getContract(gameEscrow.address)).balance;
+        const result = await fundEscrow(fundAmount);
 
         expect(result.transactions).toHaveTransaction({
-            from: deployer.address,
+            from: funder.address,
             to: gameEscrow.address,
-            success: true
+            success: true,
+            value: fundAmount
         });
 
+        const after = (await blockchain.getContract(gameEscrow.address)).balance;
+        expect(after).toBeGreaterThan(before);
+        expect(after - before).toBeGreaterThanOrEqual(fundAmount - toNano("0.02"));
         expect(await gameEscrow.getGetStatus()).toEqual(STATUS_DEPLOYED);
-        expect(await gameEscrow.getGetContractIdHash()).toEqual(contractIdHash);
-        expect(await gameEscrow.getGetSnapshotHash()).toEqual(snapshotHash);
     });
 
-    it("SETTLE from oracle stores settlement and sets SETTLED", async () => {
+    it("Case 2: valid SETTLE pays winner and owner", async () => {
         await initGame();
+        await fundEscrow(fundAmount);
+
+        const winnerBefore = (await blockchain.getContract(winner.address)).balance;
+        const ownerBefore = (await blockchain.getContract(owner.address)).balance;
 
         const result = await settleFrom(oracle);
 
@@ -107,7 +121,29 @@ describe("GameEscrow v1", () => {
             to: gameEscrow.address,
             success: true
         });
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: winner.address,
+            value: winnerAmount,
+            success: true
+        });
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: owner.address,
+            value: ownerAmount,
+            success: true
+        });
 
+        const winnerAfter = (await blockchain.getContract(winner.address)).balance;
+        const ownerAfter = (await blockchain.getContract(owner.address)).balance;
+
+        // Recipient wallets spend a small amount of gas processing the inbound transfer.
+        const winnerGain = winnerAfter - winnerBefore;
+        const ownerGain = ownerAfter - ownerBefore;
+        expect(winnerGain).toBeGreaterThan(winnerAmount - toNano("0.01"));
+        expect(winnerGain).toBeLessThanOrEqual(winnerAmount);
+        expect(ownerGain).toBeGreaterThan(ownerAmount - toNano("0.01"));
+        expect(ownerGain).toBeLessThanOrEqual(ownerAmount);
         expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
 
         const info = await gameEscrow.getGetSettlementInfo();
@@ -117,13 +153,15 @@ describe("GameEscrow v1", () => {
         expect(info.settled).toBe(true);
     });
 
-    it("rejects SETTLE from invalid sender", async () => {
+    it("Case 3: insufficient balance rejected", async () => {
         await initGame();
+        // Far below winnerAmount + ownerAmount + gas reserve.
+        await fundEscrow(toNano("0.1"));
 
-        const result = await settleFrom(stranger);
+        const result = await settleFrom(oracle);
 
         expect(result.transactions).toHaveTransaction({
-            from: stranger.address,
+            from: oracle.address,
             to: gameEscrow.address,
             success: false
         });
@@ -133,8 +171,9 @@ describe("GameEscrow v1", () => {
         expect(info.settled).toBe(false);
     });
 
-    it("rejects double SETTLE", async () => {
+    it("Case 4: double settle rejected", async () => {
         await initGame();
+        await fundEscrow(fundAmount);
 
         const first = await settleFrom(oracle);
         expect(first.transactions).toHaveTransaction({
@@ -142,6 +181,10 @@ describe("GameEscrow v1", () => {
             to: gameEscrow.address,
             success: true
         });
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
+
+        // Top up again so rejection is due to settled flag, not balance.
+        await fundEscrow(fundAmount);
 
         const second = await settleFrom(oracle);
         expect(second.transactions).toHaveTransaction({

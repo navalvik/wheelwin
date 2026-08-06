@@ -1,5 +1,5 @@
-/// R7.66B — GameEscrow v1 (Tact).
-/// INIT_GAME + SETTLE only. No STAKE / player payments / payout transfers yet.
+/// R7.66C — GameEscrow v1 with SETTLE payouts.
+/// INIT_GAME + SETTLE (sends winner/owner amounts). No STAKE yet.
 
 const STATUS_UNINITIALIZED: Int = 0;
 const STATUS_DEPLOYED: Int = 1;
@@ -9,6 +9,9 @@ const STATUS_SETTLED: Int = 8;
 const STATUS_FAILED: Int = 10;
 
 const CONTRACT_VERSION: Int = 1;
+
+/// Gas cushion so two payout sends can pay forward fees (testnet/mainnet).
+const SETTLE_GAS_RESERVE: Int = ton("0.05");
 
 /// INIT_GAME — 0x494e4954 ("INIT")
 message(0x494e4954) InitGame {
@@ -59,9 +62,9 @@ contract GameEscrow {
         self.settled = false;
     }
 
-    /// Empty body — deploy path before INIT_GAME.
+    /// Empty body — deploy path and TON funding (accepts balance).
     receive() {
-        // intentionally empty
+        // intentionally empty — value stays on contract balance
     }
 
     receive(msg: InitGame) {
@@ -77,6 +80,24 @@ contract GameEscrow {
         require(sender() == self.oracle, "GameEscrow: sender is not oracle");
         require(self.settled == false, "GameEscrow: already settled");
         require(msg.snapshotHash == self.snapshotHash, "GameEscrow: snapshot mismatch");
+
+        let required: Int = msg.winnerAmount + msg.ownerAmount + SETTLE_GAS_RESERVE;
+        require(myBalance() >= required, "GameEscrow: insufficient balance");
+
+        // Queue payouts first. State is committed only if the action phase succeeds;
+        // insufficient funds / send failure rolls back settled/status.
+        send(SendParameters{
+            to: msg.winner,
+            value: msg.winnerAmount,
+            mode: SendPayGasSeparately,
+            bounce: false
+        });
+        send(SendParameters{
+            to: self.owner,
+            value: msg.ownerAmount,
+            mode: SendPayGasSeparately,
+            bounce: false
+        });
 
         self.winner = msg.winner;
         self.winnerAmount = msg.winnerAmount;
