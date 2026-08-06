@@ -33,6 +33,10 @@ export function loadTonConfig(env = process.env) {
 
     const deployMode = requestedMode === "live" ? "live" : "stub";
 
+    // R7.66D — v4 (default, rollback) | game (GameEscrow StateInit). Deploy path only.
+    const gameEscrowModeRaw = String(env.GAME_ESCROW_MODE || "v4").trim().toLowerCase();
+    const gameEscrowMode = gameEscrowModeRaw === "game" ? "game" : "v4";
+
     return {
         network: normalizedNetwork,
         apiKey: env.TON_API_KEY || null,
@@ -47,7 +51,8 @@ export function loadTonConfig(env = process.env) {
             : null,
         pollIntervalMs,
         // live = TonGameContractAdapter; stub = offline adapter for CI without keys.
-        deployMode
+        deployMode,
+        gameEscrowMode
     };
 
 }

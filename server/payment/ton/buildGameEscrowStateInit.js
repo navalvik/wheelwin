@@ -1,13 +1,54 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { Address } from "@ton/core";
+import {
+    Address,
+    beginCell,
+    Cell,
+    contractAddress
+} from "@ton/core";
 import { keyPairFromSeed } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+export const GAME_ESCROW_MODE_V4 = "v4";
+export const GAME_ESCROW_MODE_GAME = "game";
+
+export const GAME_ESCROW_VERSION = 1;
+export const GAME_ESCROW_STATUS_UNINITIALIZED = 0;
+
+const ARTIFACT_BOC_PATH = join(__dirname, "artifacts", "GameEscrow.code.boc");
+const ARTIFACT_META_PATH = join(__dirname, "artifacts", "GameEscrow.code.json");
+
+const ZERO_ADDRESS = new Address(0, Buffer.alloc(32));
+
+let cachedCodeCell = null;
+
 /**
- * P6.6 — Deterministic Game Escrow wallet from immutable snapshot.
- * Each game gets a unique WalletContractV4 address derived from snapshot hash.
+ * P6.6 / R7.66D — Deterministic Game Escrow StateInit.
+ *
+ * GAME_ESCROW_MODE=v4  → legacy WalletContractV4 (default, rollback)
+ * GAME_ESCROW_MODE=game → real GameEscrow code artifact + data cell
  */
+
+export function resolveGameEscrowMode(explicitMode, env = process.env) {
+
+    const raw = explicitMode ?? env.GAME_ESCROW_MODE ?? GAME_ESCROW_MODE_V4;
+    const mode = String(raw).trim().toLowerCase();
+
+    if (mode === GAME_ESCROW_MODE_GAME) {
+
+        return GAME_ESCROW_MODE_GAME;
+
+    }
+
+    return GAME_ESCROW_MODE_V4;
+
+}
+
 export function hashGameContractSnapshot(snapshot) {
 
     const payload = JSON.stringify({
@@ -26,11 +67,215 @@ export function hashGameContractSnapshot(snapshot) {
 
 }
 
-export function buildGameEscrowWallet({ contractId, snapshot }) {
+export function bufferToUint256(buffer) {
+
+    return BigInt(`0x${Buffer.from(buffer).toString("hex")}`);
+
+}
+
+export function hashToUint256(value) {
+
+    if (typeof value === "bigint") {
+
+        return value;
+
+    }
+
+    if (Buffer.isBuffer(value)) {
+
+        return bufferToUint256(value);
+
+    }
+
+    const hex = String(value ?? "").replace(/^0x/i, "");
+
+    if (/^[0-9a-f]+$/i.test(hex) && hex.length === 64) {
+
+        return BigInt(`0x${hex}`);
+
+    }
+
+    return bufferToUint256(
+        createHash("sha256").update(String(value ?? "")).digest()
+    );
+
+}
+
+export function resolveTonAddress(raw, fallback = ZERO_ADDRESS) {
+
+    if (raw instanceof Address) {
+
+        return raw;
+
+    }
+
+    if (typeof raw === "string" && raw.trim()) {
+
+        try {
+
+            return Address.parse(raw.trim());
+
+        } catch {
+
+            return fallback;
+
+        }
+
+    }
+
+    return fallback;
+
+}
+
+/**
+ * Load compiled GameEscrow code cell from committed artifact.
+ */
+export function loadGameEscrowCodeCell({ forceReload = false } = {}) {
+
+    if (cachedCodeCell && !forceReload) {
+
+        return cachedCodeCell;
+
+    }
+
+    const boc = readFileSync(ARTIFACT_BOC_PATH);
+    const cells = Cell.fromBoc(boc);
+
+    if (!cells.length) {
+
+        throw new Error(`GameEscrow artifact empty: ${ARTIFACT_BOC_PATH}`);
+
+    }
+
+    cachedCodeCell = cells[0];
+
+    return cachedCodeCell;
+
+}
+
+export function loadGameEscrowArtifactMeta() {
+
+    return JSON.parse(readFileSync(ARTIFACT_META_PATH, "utf8"));
+
+}
+
+/**
+ * Tact storage layout (after loaded=1 bit):
+ * version:uint16 status:uint8 oracle owner contractIdHash:uint256
+ * ^[ snapshotHash:uint256 winner winnerAmount:coins ownerAmount:coins settled:Bool ]
+ */
+export function buildGameEscrowDataCell({
+    version = GAME_ESCROW_VERSION,
+    status = GAME_ESCROW_STATUS_UNINITIALIZED,
+    oracle,
+    owner,
+    contractIdHash,
+    snapshotHash,
+    winner = ZERO_ADDRESS,
+    winnerAmount = 0n,
+    ownerAmount = 0n,
+    settled = false
+} = {}) {
+
+    const oracleAddress = resolveTonAddress(oracle, ZERO_ADDRESS);
+    const ownerAddress = resolveTonAddress(owner, ZERO_ADDRESS);
+    const winnerAddress = resolveTonAddress(winner, ZERO_ADDRESS);
+
+    const contractIdHashInt = hashToUint256(contractIdHash);
+    const snapshotHashInt = hashToUint256(snapshotHash);
+
+    const tail = beginCell()
+        .storeUint(snapshotHashInt, 256)
+        .storeAddress(winnerAddress)
+        .storeCoins(winnerAmount)
+        .storeCoins(ownerAmount)
+        .storeBit(Boolean(settled))
+        .endCell();
+
+    // loaded=1 → contract_load reads GameEscrow$Data (skips empty init()).
+    return beginCell()
+        .storeBit(true)
+        .storeUint(Number(version), 16)
+        .storeUint(Number(status), 8)
+        .storeAddress(oracleAddress)
+        .storeAddress(ownerAddress)
+        .storeUint(contractIdHashInt, 256)
+        .storeRef(tail)
+        .endCell();
+
+}
+
+export function buildGameEscrowStateInit({
+    contractId,
+    snapshot,
+    oracle = null,
+    owner = null,
+    workchain = 0
+} = {}) {
+
+    const snapshotHashBuffer = hashGameContractSnapshot(snapshot);
+    const contractIdHashBuffer = createHash("sha256")
+        .update(String(contractId ?? ""))
+        .digest();
+
+    const oracleAddress = resolveTonAddress(
+        oracle
+            ?? snapshot?.oracleWallet
+            ?? snapshot?.oracle
+            ?? process.env.GAME_ESCROW_ORACLE
+            ?? process.env.TON_ORACLE_ADDRESS,
+        ZERO_ADDRESS
+    );
+
+    const ownerAddress = resolveTonAddress(
+        owner
+            ?? snapshot?.ownerWallet
+            ?? process.env.GAME_ESCROW_OWNER,
+        ZERO_ADDRESS
+    );
+
+    const code = loadGameEscrowCodeCell();
+    const data = buildGameEscrowDataCell({
+        version: GAME_ESCROW_VERSION,
+        status: GAME_ESCROW_STATUS_UNINITIALIZED,
+        oracle: oracleAddress,
+        owner: ownerAddress,
+        contractIdHash: contractIdHashBuffer,
+        snapshotHash: snapshotHashBuffer,
+        winner: ZERO_ADDRESS,
+        winnerAmount: 0n,
+        ownerAmount: 0n,
+        settled: false
+    });
+
+    const stateInit = { code, data };
+    const address = contractAddress(workchain, stateInit);
+
+    return {
+        mode: GAME_ESCROW_MODE_GAME,
+        wallet: null,
+        keyPair: null,
+        code,
+        data,
+        stateInit,
+        address,
+        addressFriendly: address.toString({
+            bounceable: true,
+            urlSafe: true
+        }),
+        snapshotHash: snapshotHashBuffer.toString("hex"),
+        contractIdHash: contractIdHashBuffer.toString("hex"),
+        oracle: oracleAddress,
+        owner: ownerAddress,
+        workchain
+    };
+
+}
+
+function buildV4EscrowWallet({ contractId, snapshot }) {
 
     const snapshotHash = hashGameContractSnapshot(snapshot);
 
-    // Mix contractId so redeploys of identical snapshots stay unique per id.
     const seed = createHash("sha256")
         .update(Buffer.concat([
             snapshotHash,
@@ -46,6 +291,7 @@ export function buildGameEscrowWallet({ contractId, snapshot }) {
     });
 
     return {
+        mode: GAME_ESCROW_MODE_V4,
         wallet,
         keyPair,
         address: wallet.address,
@@ -56,6 +302,37 @@ export function buildGameEscrowWallet({ contractId, snapshot }) {
         snapshotHash: snapshotHash.toString("hex"),
         stateInit: wallet.init
     };
+
+}
+
+/**
+ * Build escrow StateInit for deploy.
+ * Default mode is v4 (rollback-safe). Set GAME_ESCROW_MODE=game for GameEscrow.
+ */
+export function buildGameEscrowWallet({
+    contractId,
+    snapshot,
+    oracle = null,
+    owner = null,
+    mode = null,
+    workchain = 0
+} = {}) {
+
+    const resolvedMode = resolveGameEscrowMode(mode);
+
+    if (resolvedMode === GAME_ESCROW_MODE_GAME) {
+
+        return buildGameEscrowStateInit({
+            contractId,
+            snapshot,
+            oracle,
+            owner,
+            workchain
+        });
+
+    }
+
+    return buildV4EscrowWallet({ contractId, snapshot });
 
 }
 
@@ -76,5 +353,11 @@ export function parseFriendlyAddress(raw) {
         return null;
 
     }
+
+}
+
+export function getZeroTonAddress() {
+
+    return ZERO_ADDRESS;
 
 }
