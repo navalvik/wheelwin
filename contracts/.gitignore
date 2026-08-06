@@ -1,0 +1,7 @@
+# R7.66A — Blueprint/Tact build outputs (artifact is exported to server/)
+node_modules/
+build/
+dist/
+temp/
+*.compiled.json
+.DS_Store

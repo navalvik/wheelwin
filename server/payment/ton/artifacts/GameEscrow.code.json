@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "contract": "GameEscrow",
+  "phase": "R7.66A",
+  "source": "contracts/game_escrow/GameEscrow.tact",
+  "artifact": "server/payment/ton/artifacts/GameEscrow.code.boc",
+  "bytes": 146,
+  "sha256": "c8b9c8f362db5913ac1be2e2cc76fabaef698798a024cc4c0f7c2cb8604175ee",
+  "codeHash": "3fe4983f985ff9c24e1671ed2d42504c4d75ce297eec9567d966616665df832d",
+  "compiledAt": "2026-08-06T19:51:16.196Z"
+}

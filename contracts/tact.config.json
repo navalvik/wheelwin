@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tact-lang/tact/main/src/config/configSchema.json",
+  "projects": [
+    {
+      "name": "GameEscrow",
+      "path": "./game_escrow/GameEscrow.tact",
+      "output": "./build/GameEscrow",
+      "options": {
+        "debug": false
+      }
+    }
+  ]
+}
