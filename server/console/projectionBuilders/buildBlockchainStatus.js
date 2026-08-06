@@ -1,6 +1,8 @@
 /**
  * R6.2 — Blockchain status DTO (read-only diagnostics).
+ * R7.51.29 — includes last TON deploy attempt snapshot (no secrets).
  */
+import { getTonDeployDebug } from "../../diagnostics/DeployPipelineForensics.js";
 import {
     mapManagerStatus,
     mapMonitorStatus,
@@ -40,10 +42,13 @@ export function buildBlockchainStatus({
         ? "Connected"
         : (tonHealth ? "Disconnected" : "Unknown");
 
+    const tonDeployDebug = getTonDeployDebug();
+
     return Object.freeze({
         network,
         connectionStatus,
         deployMode: runtimeConfig?.ton?.deployMode ?? null,
+        tonDeployDebug,
         services: Object.freeze({
             tonService: Object.freeze({
                 status: mapTonServiceStatus(tonHealth),

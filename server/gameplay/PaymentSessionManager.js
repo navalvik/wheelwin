@@ -452,6 +452,14 @@ export class PaymentSessionManager {
 
         const stage = markDeployStage(roomId, "PAYMENT_SESSION_CREATE_AND_REQUEST");
 
+        // R7.50 temporary diagnostics — PaymentSession creation requested.
+        console.log("[R7.50 DIAG] PaymentSession creation requested", {
+            roomId: roomId ?? null,
+            gameId: gameId ?? null,
+            hasExistingSession: this._sessionsByRoom.has(roomId),
+            timestamp: Date.now()
+        });
+
         printDeployBlock("PaymentSessionManager.createAndRequest", {
             RoomId: roomId,
             GameId: gameId,
@@ -462,27 +470,71 @@ export class PaymentSessionManager {
 
         if (!roomId) {
 
+            console.log("[R7.50 DIAG] PaymentSession creation rejected", {
+                reason: "roomId_missing",
+                roomId: null,
+                gameId: gameId ?? null,
+                timestamp: Date.now()
+            });
+
             return null;
 
         }
 
         if (this._sessionsByRoom.has(roomId)) {
 
-            return this._sessionsByRoom.get(roomId);
+            const existing = this._sessionsByRoom.get(roomId);
+
+            console.log("[R7.50 DIAG] PaymentSession creation skipped (already exists)", {
+                roomId,
+                paymentSessionId: existing?.paymentSessionId ?? null,
+                status: existing?.status ?? null,
+                timestamp: Date.now()
+            });
+
+            return existing;
 
         }
 
         try {
 
-            return this.createPaymentSession(roomId, { gameId });
+            const created = this.createPaymentSession(roomId, { gameId });
+
+            console.log("[R7.50 DIAG] PaymentSession created", {
+                roomId,
+                gameId: created?.gameId ?? gameId ?? null,
+                paymentSessionId: created?.paymentSessionId ?? null,
+                status: created?.status ?? null,
+                participantCount: created?.participants?.length ?? null,
+                timestamp: Date.now()
+            });
+
+            return created;
 
         } catch (error) {
 
             if (error instanceof PaymentSessionAlreadyExistsError) {
 
-                return this._sessionsByRoom.get(roomId) ?? null;
+                const existing = this._sessionsByRoom.get(roomId) ?? null;
+
+                console.log("[R7.50 DIAG] PaymentSession creation rejected", {
+                    reason: "already_exists",
+                    roomId,
+                    paymentSessionId: existing?.paymentSessionId ?? null,
+                    timestamp: Date.now()
+                });
+
+                return existing;
 
             }
+
+            console.log("[R7.50 DIAG] PaymentSession creation rejected", {
+                reason: error?.message ?? "payment_session_create_failed",
+                errorName: error?.name ?? null,
+                roomId,
+                gameId: gameId ?? null,
+                timestamp: Date.now()
+            });
 
             this._logger.error(
                 `PaymentSession create failed | roomId=${roomId} | `
@@ -1015,11 +1067,22 @@ export class PaymentSessionManager {
 
         }
 
+        const existing = this._sessionsByRoom.get(roomId) ?? null;
+
+        // R7.50 temporary diagnostics — distinguish never-created vs post-destroy null.
+        console.log("[R7.50 DIAG] PaymentSession destroySession", {
+            roomId,
+            hadSession: Boolean(existing),
+            paymentSessionId: existing?.paymentSessionId ?? null,
+            status: existing?.status ?? null,
+            timestamp: Date.now()
+        });
+
         this._clearExpiry(roomId);
 
         this._blockchainMonitor?.stopRoom?.(roomId);
 
-        const session = this._sessionsByRoom.get(roomId);
+        const session = existing;
 
         if (session?.gameId) {
 
@@ -1042,6 +1105,14 @@ export class PaymentSessionManager {
             "PAYMENT_CONNECTION_READY_HANDLER"
         );
 
+        // R7.50 temporary diagnostics — EventBus handler entry.
+        console.log("[R7.50 DIAG] PAYMENT_CONNECTION_READY received by PaymentSessionManager", {
+            roomId: payload?.roomId ?? null,
+            gameId: payload?.gameId ?? null,
+            hasExistingSession: this._sessionsByRoom.has(payload?.roomId),
+            timestamp: Date.now()
+        });
+
         printDeployBlock("PaymentSessionManager._handlePaymentConnectionReady", {
             RoomId: payload?.roomId ?? null,
             GameId: payload?.gameId ?? null,
@@ -1049,8 +1120,16 @@ export class PaymentSessionManager {
             Timestamp: new Date(stage.now).toISOString()
         });
 
-        this.createAndRequest(payload?.roomId, {
+        const session = this.createAndRequest(payload?.roomId, {
             gameId: payload?.gameId ?? null
+        });
+
+        console.log("[R7.50 DIAG] createAndRequest returned", {
+            roomId: payload?.roomId ?? null,
+            created: Boolean(session),
+            paymentSessionId: session?.paymentSessionId ?? null,
+            status: session?.status ?? null,
+            timestamp: Date.now()
         });
 
     }

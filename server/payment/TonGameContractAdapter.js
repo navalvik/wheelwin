@@ -10,8 +10,10 @@ import { mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
 import {
+    beginTonDeployDebug,
     markDeployStage,
     printDeployBlock,
+    pushTonDeployDebugStage,
     safeSerialize
 } from "../diagnostics/DeployPipelineForensics.js";
 import { buildGameEscrowWallet } from "./ton/buildGameEscrowStateInit.js";
@@ -184,6 +186,14 @@ export class TonGameContractAdapter {
 
             let deployedAt = Date.now();
 
+            // R7.51.29 — diagnostics only (no secrets).
+            beginTonDeployDebug({
+                roomId: snapshot?.roomId ?? null,
+                gameId: snapshot?.gameId ?? null,
+                escrowAddress: contractAddress,
+                valueTon: "0.05"
+            });
+
             if (this._canBroadcast()) {
 
                 printDeployBlock("ADAPTER RPC — broadcastDeploy START", {
@@ -302,6 +312,31 @@ export class TonGameContractAdapter {
             return result;
 
         } catch (error) {
+
+            // R7.51.29 — explicit exception metadata (Railway-visible).
+            console.error(
+                "[R7.51 TON DEPLOY ERROR]",
+                {
+                    name: error?.name ?? null,
+                    message: error?.message ?? null,
+                    stack: error?.stack ?? null,
+                    cause: error?.cause ?? null
+                }
+            );
+
+            this._logger?.error?.(
+                "TON_DEPLOY_EXCEPTION_DETAILS",
+                {
+                    name: error?.name ?? null,
+                    message: error?.message ?? null,
+                    stack: error?.stack ?? null
+                }
+            );
+
+            pushTonDeployDebugStage("FAILED", {
+                errorName: error?.name ?? null,
+                errorMessage: error?.message ?? String(error)
+            });
 
             this._logError(
                 `TON GameContract deploy failed | ${error?.message ?? error}`
@@ -843,45 +878,103 @@ export class TonGameContractAdapter {
         bounce = true
     }) {
 
-        const keyPair = await mnemonicToPrivateKey(
-            this._tonConfig.deployerMnemonic.split(/\s+/).filter(Boolean)
-        );
+        try {
 
-        const deployerWallet = WalletContractV4.create({
-            workchain: 0,
-            publicKey: keyPair.publicKey
-        });
+            console.log("[R7.51 TON DEPLOY]\nstage=WALLET_CREATE_START");
+            pushTonDeployDebugStage("WALLET_CREATE_START", { valueTon });
 
-        const deployerAddress = deployerWallet.address.toString({
-            bounceable: true,
-            urlSafe: true
-        });
+            const keyPair = await mnemonicToPrivateKey(
+                this._tonConfig.deployerMnemonic.split(/\s+/).filter(Boolean)
+            );
 
-        const seqno = await this._service().getSeqno(deployerAddress);
+            const deployerWallet = WalletContractV4.create({
+                workchain: 0,
+                publicKey: keyPair.publicKey
+            });
 
-        const destination = typeof to === "string"
-            ? to
-            : to.toString({ bounceable: true, urlSafe: true });
+            const deployerAddress = deployerWallet.address.toString({
+                bounceable: true,
+                urlSafe: true
+            });
 
-        const transfer = deployerWallet.createTransfer({
-            seqno,
-            secretKey: keyPair.secretKey,
-            messages: [
-                internal({
-                    to: destination,
-                    value: toNano(valueTon),
-                    init: init ?? undefined,
-                    body,
-                    bounce
-                })
-            ]
-        });
+            const deployerWalletId = deployerWallet.walletId ?? null;
 
-        await this._service().broadcastTransaction(
-            transfer.toBoc().toString("base64")
-        );
+            console.log(
+                "[R7.51 TON DEPLOY]\n"
+                    + `stage=WALLET_CREATED\n`
+                    + `address=${deployerAddress}\n`
+                    + `walletId=${deployerWalletId}`
+            );
+            pushTonDeployDebugStage("WALLET_CREATED", {
+                deployerAddress,
+                deployerWalletId
+            });
 
-        return `ton_oracle_seq_${seqno}`;
+            const seqno = await this._service().getSeqno(deployerAddress);
+
+            console.log(
+                "[R7.51 TON DEPLOY]\n"
+                    + `stage=SEQNO_READ\n`
+                    + `seqno=${seqno}`
+            );
+            pushTonDeployDebugStage("SEQNO_READ", { seqno });
+
+            const destination = typeof to === "string"
+                ? to
+                : to.toString({ bounceable: true, urlSafe: true });
+
+            console.log("[R7.51 TON DEPLOY]\nstage=TRANSFER_CREATE_START");
+            pushTonDeployDebugStage("TRANSFER_CREATE_START");
+
+            const transfer = deployerWallet.createTransfer({
+                seqno,
+                secretKey: keyPair.secretKey,
+                messages: [
+                    internal({
+                        to: destination,
+                        value: toNano(valueTon),
+                        init: init ?? undefined,
+                        body,
+                        bounce
+                    })
+                ]
+            });
+
+            console.log("[R7.51 TON DEPLOY]\nstage=TRANSFER_CREATED");
+            pushTonDeployDebugStage("TRANSFER_CREATED");
+
+            const bocBase64 = transfer.toBoc().toString("base64");
+
+            console.log("[R7.51 TON DEPLOY]\nstage=BOC_CREATED");
+            pushTonDeployDebugStage("BOC_CREATED");
+
+            console.log("[R7.51 TON DEPLOY]\nstage=BOC_SEND_START");
+            pushTonDeployDebugStage("BOC_SEND_START");
+
+            await this._service().broadcastTransaction(bocBase64);
+
+            console.log("[R7.51 TON DEPLOY]\nstage=BOC_SEND_SUCCESS");
+            pushTonDeployDebugStage("BROADCAST_SENT");
+            pushTonDeployDebugStage("BOC_SEND_SUCCESS");
+
+            return `ton_oracle_seq_${seqno}`;
+
+        } catch (error) {
+
+            console.log(
+                "[R7.51 TON DEPLOY]\n"
+                    + "stage=FAILED\n"
+                    + `errorName=${error?.name ?? null}\n`
+                    + `errorMessage=${error?.message ?? String(error)}`
+            );
+            pushTonDeployDebugStage("FAILED", {
+                errorName: error?.name ?? null,
+                errorMessage: error?.message ?? String(error)
+            });
+
+            throw error;
+
+        }
 
     }
 

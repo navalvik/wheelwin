@@ -4371,6 +4371,15 @@ export class RoomLobbyBridge {
                 playerId: null
             });
 
+            // R7.50 temporary diagnostics — PAYMENT_READY → PaymentSession pipeline.
+            console.log("[R7.50 DIAG] PAYMENT_READY received", {
+                roomId,
+                playerId,
+                paymentConnectionReady: session.paymentConnectionReady === true,
+                next: "_deliverPaymentConnectionReady → EventBus PAYMENT_CONNECTION_READY",
+                timestamp: Date.now()
+            });
+
             this._deliverPaymentConnectionReady(roomId);
 
         } else {
@@ -4921,10 +4930,28 @@ export class RoomLobbyBridge {
             timestamp: Date.now()
         });
 
+        // R7.50 temporary diagnostics — EventBus emit before PaymentSessionManager.
+        console.log("[R7.50 DIAG] emitting PAYMENT_CONNECTION_READY", {
+            roomId,
+            event: EVENT_TYPES.PAYMENT_CONNECTION_READY,
+            subscriberHint: "PaymentSessionManager._handlePaymentConnectionReady",
+            timestamp: Date.now()
+        });
+
         this._eventBus.emit({
             source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
             type: EVENT_TYPES.PAYMENT_CONNECTION_READY,
             payload: { roomId, timestamp: Date.now() }
+        });
+
+        console.log("[R7.50 DIAG] PAYMENT_CONNECTION_READY emit returned", {
+            roomId,
+            hasPaymentSessionAfterEmit: Boolean(
+                this._paymentSessionManager?.getSession?.(roomId)
+            ),
+            paymentSessionId: this._paymentSessionManager?.getSession?.(roomId)
+                ?.paymentSessionId ?? null,
+            timestamp: Date.now()
         });
 
         this._deliverToRoom(

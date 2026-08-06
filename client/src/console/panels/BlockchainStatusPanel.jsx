@@ -37,6 +37,26 @@ function statusClass(status) {
 
 }
 
+function formatTimestamp(value) {
+
+    if (!value) {
+
+        return "—";
+
+    }
+
+    try {
+
+        return new Date(value).toISOString();
+
+    } catch {
+
+        return String(value);
+
+    }
+
+}
+
 export default function BlockchainStatusPanel() {
 
     const { accessToken } = useDeveloperAuth();
@@ -83,13 +103,19 @@ export default function BlockchainStatusPanel() {
 
         load();
 
+        const intervalId = setInterval(load, 5000);
+
         return () => {
 
             cancelled = true;
 
+            clearInterval(intervalId);
+
         };
 
     }, [accessToken]);
+
+    const deployDebug = status?.tonDeployDebug ?? null;
 
     return (
 
@@ -149,6 +175,172 @@ export default function BlockchainStatusPanel() {
                 })}
 
             </div>
+
+            <h3 className="devConsole__sectionTitle" style={{ marginTop: 24 }}>
+                TON Deploy Diagnostics
+            </h3>
+
+            <p className="devConsole__muted" style={{ marginBottom: 12 }}>
+                Last deploy attempt (R7.51.29). No mnemonics or private keys.
+            </p>
+
+            {!deployDebug && (
+
+                <p className="devConsole__muted">No deploy attempt recorded yet.</p>
+
+            )}
+
+            {deployDebug && (
+
+                <>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Last attempt</span>
+
+                        <span className="devConsole__kvValue">
+
+                            {formatTimestamp(deployDebug.timestamp)}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Current stage</span>
+
+                        <span className="devConsole__kvValue">
+
+                            {deployDebug.currentStage ?? "—"}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Room / Game</span>
+
+                        <span className="devConsole__kvValue">
+
+                            {deployDebug.roomId ?? "—"}
+                            {" / "}
+                            {deployDebug.gameId ?? "—"}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Deployer address</span>
+
+                        <span className="devConsole__kvValue">
+
+                            {deployDebug.deployerAddress ?? "—"}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Wallet id</span>
+
+                        <span className="devConsole__kvValue">
+
+                            {deployDebug.deployerWalletId ?? "—"}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Seqno</span>
+
+                        <span className="devConsole__kvValue">
+
+                            {deployDebug.seqno ?? "—"}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Escrow address</span>
+
+                        <span className="devConsole__kvValue">
+
+                            {deployDebug.escrowAddress ?? "—"}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Value TON</span>
+
+                        <span className="devConsole__kvValue">
+
+                            {deployDebug.valueTon ?? "—"}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Stage path</span>
+
+                        <span className="devConsole__kvValue">
+
+                            {Array.isArray(deployDebug.stage)
+                                ? deployDebug.stage.join(" → ")
+                                : "—"}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Last error name</span>
+
+                        <span className={`devConsole__kvValue ${
+                            deployDebug.errorName
+                                ? "devConsole__statusTone--error"
+                                : ""
+                        }`}>
+
+                            {deployDebug.errorName ?? "—"}
+
+                        </span>
+
+                    </div>
+
+                    <div className="devConsole__kvRow">
+
+                        <span className="devConsole__kvKey">Last error message</span>
+
+                        <span className={`devConsole__kvValue ${
+                            deployDebug.errorMessage
+                                ? "devConsole__statusTone--error"
+                                : ""
+                        }`}>
+
+                            {deployDebug.errorMessage ?? "—"}
+
+                        </span>
+
+                    </div>
+
+                </>
+
+            )}
 
         </PanelShell>
 
