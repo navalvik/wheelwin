@@ -619,6 +619,14 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix: "Set GAME_ESCROW_MODE to game (testnet default) or v4 (rollback / mainnet default)."
     }),
+    // R7.67B — public address pin for deployer identity mismatch checks.
+    TON_DEPLOYER_EXPECTED_ADDRESS: Object.freeze({
+        key: "TON_DEPLOYER_EXPECTED_ADDRESS",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix: "Set TON_DEPLOYER_EXPECTED_ADDRESS to the expected deployer wallet friendly address."
+    }),
     SETUP_DURATION_MS: Object.freeze({
         key: "SETUP_DURATION_MS",
         type: "integer",

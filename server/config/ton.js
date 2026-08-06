@@ -41,6 +41,12 @@ export function loadTonConfig(env = process.env) {
         TON_NETWORK: normalizedNetwork
     });
 
+    // R7.67B — optional pin for Railway wallet identity diagnostics.
+    const deployerExpectedAddress = typeof env.TON_DEPLOYER_EXPECTED_ADDRESS === "string"
+        && env.TON_DEPLOYER_EXPECTED_ADDRESS.trim()
+        ? env.TON_DEPLOYER_EXPECTED_ADDRESS.trim()
+        : null;
+
     return {
         network: normalizedNetwork,
         apiKey: env.TON_API_KEY || null,
@@ -49,6 +55,7 @@ export function loadTonConfig(env = process.env) {
             && env.TON_DEPLOYER_MNEMONIC.trim()
             ? env.TON_DEPLOYER_MNEMONIC.trim()
             : null,
+        deployerExpectedAddress,
         grmJettonMaster: typeof env.TON_GRM_JETTON_MASTER === "string"
             && env.TON_GRM_JETTON_MASTER.trim()
             ? env.TON_GRM_JETTON_MASTER.trim()

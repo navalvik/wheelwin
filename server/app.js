@@ -94,6 +94,13 @@ import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
 import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
 import { TonGameContractAdapter } from "./payment/TonGameContractAdapter.js";
+import { deriveDeployerWalletIdentity } from "./payment/ton/deriveDeployerWalletIdentity.js";
+import {
+    assertDeployerWalletMatchesExpected,
+    printTonWalletIdentityDebug,
+    setTonWalletIdentityDebug,
+    tonAddressesEqual
+} from "./diagnostics/TonWalletIdentityDebug.js";
 import {
     BlockchainMonitor,
     EntryPaymentAuditLedger
@@ -675,6 +682,9 @@ class WheelWinApplication {
         this._services = this._createServices(this._tonConfig);
 
         this._initializeServices();
+
+        // R7.67B — Railway wallet identity + balance diagnostics (fail on mismatch).
+        await this._runTonWalletIdentityDiagnostics();
 
         this._metricsService.initialize();
 
@@ -3332,7 +3342,97 @@ class WheelWinApplication {
     }
 
     /**
-     * R7.62 — Derive deployer WalletContractV4 address for settlement tx watches.
+     * R7.67B — Derive WalletContractV4R2 identity, log TON_WALLET_IDENTITY_DEBUG,
+     * check balance, and fail startup if derived address ≠ expected pin.
+     * Never logs mnemonic. Does not change wallet type or payment/GameEscrow paths.
+     */
+    async _runTonWalletIdentityDiagnostics() {
+
+        const mnemonic = this._tonConfig?.deployerMnemonic;
+        const network = this._tonConfig?.network ?? null;
+        const expectedAddress = this._tonConfig?.deployerExpectedAddress ?? null;
+
+        if (!mnemonic || typeof mnemonic !== "string") {
+
+            setTonWalletIdentityDebug({
+                mnemonicConfigured: false,
+                network,
+                expectedAddress,
+                identityMatch: null,
+                lastCheckedAt: null
+            });
+            printTonWalletIdentityDebug();
+            this._logger.startupLine(
+                "TonWalletIdentity (mnemonic not configured)"
+            );
+
+            return;
+
+        }
+
+        const identity = await deriveDeployerWalletIdentity({
+            mnemonic,
+            network
+        });
+
+        const lastCheckedAt = Date.now();
+        let balanceNano = null;
+        let balanceTon = null;
+        let balanceError = null;
+
+        try {
+
+            const nano = await this._services.tonService.getBalance(
+                identity.address
+            );
+
+            balanceNano = String(nano);
+            balanceTon = Number(nano) / 1e9;
+
+        } catch (error) {
+
+            balanceError = error?.message ?? String(error);
+
+        }
+
+        const identityMatch = expectedAddress
+            ? tonAddressesEqual(identity.address, expectedAddress)
+            : null;
+
+        setTonWalletIdentityDebug({
+            walletContractType: identity.walletContractType,
+            workchain: identity.workchain,
+            walletId: identity.walletId,
+            address: identity.address,
+            network: identity.network,
+            balanceTon,
+            balanceNano,
+            lastCheckedAt,
+            expectedAddress,
+            identityMatch,
+            mnemonicConfigured: true,
+            balanceError
+        });
+        printTonWalletIdentityDebug();
+
+        this._logger.info(
+            `TON wallet balance | address=${identity.address} | `
+                + `balanceTon=${balanceTon ?? "n/a"} | `
+                + `lastCheckedAt=${new Date(lastCheckedAt).toISOString()}`
+        );
+
+        this._logger.startupLine(
+            `TonWalletIdentity=${identity.walletContractType} `
+                + `walletId=${identity.walletId} `
+                + `address=${identity.address}`
+        );
+
+        assertDeployerWalletMatchesExpected(identity.address, expectedAddress);
+
+    }
+
+    /**
+     * R7.62 / R7.67B — Derive deployer WalletContractV4R2 address for settlement tx watches.
      * Never logs mnemonic. Returns null when mnemonic is not configured.
      */
     async _resolveDeployerWalletAddress() {
@@ -3347,20 +3447,12 @@ class WheelWinApplication {
 
         try {
 
-            const { mnemonicToPrivateKey } = await import("@ton/crypto");
-            const { WalletContractV4 } = await import("@ton/ton");
-
-            const keyPair = await mnemonicToPrivateKey(
-                mnemonic.split(/\s+/).filter(Boolean)
-            );
-
-            return WalletContractV4.create({
-                workchain: 0,
-                publicKey: keyPair.publicKey
-            }).address.toString({
-                bounceable: true,
-                urlSafe: true
+            const identity = await deriveDeployerWalletIdentity({
+                mnemonic,
+                network: this._tonConfig?.network ?? null
             });
+
+            return identity.address;
 
         } catch (error) {
 

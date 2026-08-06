@@ -129,7 +129,12 @@ export class RuntimeConfiguration {
                 pollIntervalMs: this.ton.pollIntervalMs,
                 endpointConfigured: Boolean(this.ton.endpoint),
                 apiKeyConfigured: Boolean(this.ton.apiKey),
-                mnemonicConfigured: Boolean(this.ton.deployerMnemonic)
+                mnemonicConfigured: Boolean(this.ton.deployerMnemonic),
+                // R7.67B — public expected-address pin (not a secret).
+                expectedAddressConfigured: Boolean(
+                    this.ton.deployerExpectedAddress
+                ),
+                gameEscrowMode: this.ton.gameEscrowMode ?? null
             }),
             developerConsole: Object.freeze({
                 authEnabled: this.developer.enabled === true,
