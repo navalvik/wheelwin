@@ -512,6 +512,9 @@ function createHarness({ shouldFail = false } = {}) {
 }
 
 {
+    const DEPLOYER = "EQDeployerWalletForSettlementWatchXXXXXXXX";
+    const ESCROW = "EQescrowaddressfortestsXXXXXXXXXXXXXX";
+
     const harness = createHarness();
 
     const blockchainMonitor = {
@@ -524,10 +527,28 @@ function createHarness({ shouldFail = false } = {}) {
     };
 
     harness.manager._blockchainMonitor = blockchainMonitor;
+    harness.manager._deployerWalletAddress = DEPLOYER;
 
     await harness.win();
 
     assert.equal(blockchainMonitor.watches.length, 1);
+
+    assert.equal(
+        blockchainMonitor.watches[0].address,
+        DEPLOYER,
+        "R7.62 settlement watch must use deployer wallet address"
+    );
+
+    assert.notEqual(
+        blockchainMonitor.watches[0].address,
+        ESCROW,
+        "R7.62 settlement watch must not use escrow address"
+    );
+
+    assert.ok(
+        blockchainMonitor.watches[0].transactionId,
+        "watch must include settlement transaction id"
+    );
 
     assert.equal(
         harness.manager.getSettlementSession("game-1").status,
@@ -551,7 +572,7 @@ function createHarness({ shouldFail = false } = {}) {
         GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED
     );
 
-    console.log("  blockchain confirmation path: OK");
+    console.log("  blockchain confirmation path (deployer watch): OK");
 
     harness.manager.shutdown();
 

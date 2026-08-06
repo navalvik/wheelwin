@@ -37,6 +37,7 @@ export class ContractSettlementManager {
         configurationEngine = null,
         settlementAdapter,
         blockchainMonitor = null,
+        deployerWalletAddress = null,
         financialPersistence = null,
         auditLedger = null,
         paymentSessionManager = null,
@@ -61,6 +62,12 @@ export class ContractSettlementManager {
         this._settlementAdapter = settlementAdapter;
 
         this._blockchainMonitor = blockchainMonitor;
+
+        // R7.62 — settlement account tx hash lives on the deployer wallet (not escrow).
+        this._deployerWalletAddress = typeof deployerWalletAddress === "string"
+            && deployerWalletAddress.trim()
+            ? deployerWalletAddress.trim()
+            : null;
 
         this._financialPersistence = financialPersistence;
 
@@ -790,9 +797,13 @@ export class ContractSettlementManager {
 
         if (this._blockchainMonitor && settlementTxHash) {
 
-            this._registerSettlementWatch(session);
+            const registered = this._registerSettlementWatch(session);
 
-            return;
+            if (registered > 0) {
+
+                return;
+
+            }
 
         }
 
@@ -1101,11 +1112,24 @@ export class ContractSettlementManager {
 
         }
 
-        const contract = this._gameContractManager.getContract?.(session.roomId);
+        // R7.62 — R7.61 settlementTxId is the deployer account transaction_id.hash.
+        // Watch the deployer wallet, not the escrow contract address.
+        const address = this._deployerWalletAddress;
+
+        if (!address) {
+
+            this._log(
+                `SETTLEMENT watch skipped | gameId=${session.gameId} | `
+                    + "reason=deployer_wallet_address_missing"
+            );
+
+            return 0;
+
+        }
 
         this._blockchainMonitor.watchTransaction({
             transactionId: session.settlementTransactionHash,
-            address: contract?.contractAddress,
+            address,
             contractId: session.contractId,
             roomId: session.roomId,
             gameId: session.gameId,
@@ -1115,6 +1139,11 @@ export class ContractSettlementManager {
                 ? Math.max(0, session.settlementDeadline - Date.now())
                 : null
         });
+
+        this._log(
+            `SETTLEMENT watch registered | gameId=${session.gameId} | `
+                + `deployer=${address} | tx=${session.settlementTransactionHash}`
+        );
 
         return 1;
 

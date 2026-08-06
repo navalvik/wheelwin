@@ -1233,6 +1233,8 @@ class WheelWinApplication {
 
         this._logger.startupLine("GameContractManager");
 
+        const deployerWalletAddress = await this._resolveDeployerWalletAddress();
+
         this._contractSettlementManager = new ContractSettlementManager({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1240,9 +1242,12 @@ class WheelWinApplication {
             winnerEngine: this._engines.winnerEngine,
             configurationEngine: this._engines.configurationEngine,
             settlementAdapter: deployAdapter,
+            blockchainMonitor: this._blockchainMonitor,
+            deployerWalletAddress,
             auditLedger: this._entryPaymentAuditLedger,
             paymentSessionManager: this._paymentSessionManager,
             gameplayContextResolver: this._gameplayContextResolver,
+            tonNetwork: this._tonConfig?.network ?? null,
             devMode: this._productionConfig.isDevelopment
         });
 
@@ -3316,6 +3321,49 @@ class WheelWinApplication {
         }
 
         this._logger.shutdown();
+
+    }
+
+    /**
+     * R7.62 — Derive deployer WalletContractV4 address for settlement tx watches.
+     * Never logs mnemonic. Returns null when mnemonic is not configured.
+     */
+    async _resolveDeployerWalletAddress() {
+
+        const mnemonic = this._tonConfig?.deployerMnemonic;
+
+        if (!mnemonic || typeof mnemonic !== "string") {
+
+            return null;
+
+        }
+
+        try {
+
+            const { mnemonicToPrivateKey } = await import("@ton/crypto");
+            const { WalletContractV4 } = await import("@ton/ton");
+
+            const keyPair = await mnemonicToPrivateKey(
+                mnemonic.split(/\s+/).filter(Boolean)
+            );
+
+            return WalletContractV4.create({
+                workchain: 0,
+                publicKey: keyPair.publicKey
+            }).address.toString({
+                bounceable: true,
+                urlSafe: true
+            });
+
+        } catch (error) {
+
+            this._logger?.error?.(
+                `Deployer wallet address resolve failed | ${error?.message ?? error}`
+            );
+
+            return null;
+
+        }
 
     }
 
