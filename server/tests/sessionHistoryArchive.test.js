@@ -118,7 +118,10 @@ pushTonDeployDebugStage("WALLET_CREATED", {
 pushTonDeployDebugStage("SEQNO_READ", { seqno: 1 });
 pushTonDeployDebugStage("FAILED", {
     errorName: "Error",
-    errorMessage: "TonCenter HTTP 500"
+    errorMessage: "TonCenter HTTP 500",
+    tonCenterStatus: 500,
+    tonCenterResponse: "{\"ok\":false,\"error\":\"Failed to unpack Message\",\"code\":500}",
+    tonCenterEndpoint: "https://testnet.toncenter.com/api/v2/jsonRPC"
 });
 
 emit(EVENT_TYPES.ROOM_CREATED, {
@@ -138,6 +141,11 @@ assert.ok(deployRecord.tonDeployDebug, "tonDeployDebug present on record");
 assert.equal(deployRecord.tonDeployDebug.roomId, "ROOMDEPLOY");
 assert.equal(deployRecord.tonDeployDebug.seqno, 1);
 assert.equal(deployRecord.tonDeployDebug.errorMessage, "TonCenter HTTP 500");
+assert.equal(deployRecord.tonDeployDebug.tonCenterStatus, 500);
+assert.match(
+    deployRecord.tonDeployDebug.tonCenterResponse,
+    /Failed to unpack Message/
+);
 assert.equal(
     deployRecord.finalSnapshot?.tonDeployDebug?.currentStage,
     "FAILED",

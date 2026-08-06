@@ -92,7 +92,10 @@ export function beginTonDeployDebug(fields = {}) {
         valueTon: fields.valueTon ?? null,
         stage: ["START"],
         errorName: null,
-        errorMessage: null
+        errorMessage: null,
+        tonCenterStatus: null,
+        tonCenterResponse: null,
+        tonCenterEndpoint: null
     };
 
     return getTonDeployDebug();
@@ -129,7 +132,10 @@ export function pushTonDeployDebugStage(stage, fields = {}) {
         "escrowAddress",
         "valueTon",
         "errorName",
-        "errorMessage"
+        "errorMessage",
+        "tonCenterStatus",
+        "tonCenterResponse",
+        "tonCenterEndpoint"
     ];
 
     for (const key of allowed) {
@@ -173,7 +179,10 @@ export function getTonDeployDebug() {
         currentStage: _tonDeployDebug.stage[_tonDeployDebug.stage.length - 1]
             ?? null,
         errorName: _tonDeployDebug.errorName,
-        errorMessage: _tonDeployDebug.errorMessage
+        errorMessage: _tonDeployDebug.errorMessage,
+        tonCenterStatus: _tonDeployDebug.tonCenterStatus,
+        tonCenterResponse: _tonDeployDebug.tonCenterResponse,
+        tonCenterEndpoint: _tonDeployDebug.tonCenterEndpoint
     });
 
 }

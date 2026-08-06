@@ -335,7 +335,10 @@ export class TonGameContractAdapter {
 
             pushTonDeployDebugStage("FAILED", {
                 errorName: error?.name ?? null,
-                errorMessage: error?.message ?? String(error)
+                errorMessage: error?.message ?? String(error),
+                tonCenterStatus: error?.status ?? null,
+                tonCenterResponse: error?.responseBody ?? null,
+                tonCenterEndpoint: error?.endpoint ?? null
             });
 
             this._logError(
@@ -969,7 +972,10 @@ export class TonGameContractAdapter {
             );
             pushTonDeployDebugStage("FAILED", {
                 errorName: error?.name ?? null,
-                errorMessage: error?.message ?? String(error)
+                errorMessage: error?.message ?? String(error),
+                tonCenterStatus: error?.status ?? null,
+                tonCenterResponse: error?.responseBody ?? null,
+                tonCenterEndpoint: error?.endpoint ?? null
             });
 
             throw error;
