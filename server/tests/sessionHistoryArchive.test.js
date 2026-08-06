@@ -156,6 +156,142 @@ assert.ok(
     "no mnemonic in archive JSON"
 );
 
+// R7.57 — unified blockchainLifecycle from deploy debug + settlement events.
+assert.ok(deployRecord.blockchainLifecycle, "blockchainLifecycle present");
+assert.ok(
+    deployRecord.blockchainLifecycle.deploy.stages.includes("BEGIN_DEPLOY"),
+    "deploy stages include BEGIN_DEPLOY"
+);
+assert.ok(
+    deployRecord.blockchainLifecycle.deploy.stages.includes("FAILED"),
+    "deploy stages include FAILED from tonDeployDebug"
+);
+assert.ok(
+    deployRecord.blockchainLifecycle.deploy.stages.includes("DEPLOY_RESULT"),
+    "deploy stages include DEPLOY_RESULT"
+);
+assert.equal(deployRecord.blockchainLifecycle.deploy.status, "FAILED");
+assert.equal(
+    deployRecord.blockchainLifecycle.deploy.error,
+    "TonCenter HTTP 500"
+);
+assert.equal(
+    deployRecord.finalSnapshot?.blockchainLifecycle?.deploy?.status,
+    "FAILED"
+);
+
+resetTonDeployDebugForTests();
+
+emit(EVENT_TYPES.ROOM_CREATED, {
+    roomId: "ROOMCHAIN",
+    createdAt: Date.now() - 2000
+});
+
+emit(EVENT_TYPES.GAME_CREATED, {
+    roomId: "ROOMCHAIN",
+    gameId: "game_chain_1"
+});
+
+beginTonDeployDebug({
+    roomId: "ROOMCHAIN",
+    gameId: "game_chain_1",
+    escrowAddress: "EQLifecycleEscrow",
+    valueTon: "0.05"
+});
+pushTonDeployDebugStage("BOC_SEND_START");
+pushTonDeployDebugStage("BOC_SEND_SUCCESS");
+
+emit(EVENT_TYPES.CONTRACT_DEPLOYING, {
+    roomId: "ROOMCHAIN",
+    gameId: "game_chain_1",
+    contractId: "c1"
+});
+
+emit(EVENT_TYPES.GAME_CONTRACT_DEPLOYED, {
+    roomId: "ROOMCHAIN",
+    gameId: "game_chain_1",
+    contractId: "c1",
+    contractAddress: "EQLifecycleEscrow",
+    deploymentTxId: "ton_oracle_seq_1"
+});
+
+emit(EVENT_TYPES.SETTLEMENT_STARTED, {
+    roomId: "ROOMCHAIN",
+    gameId: "game_chain_1",
+    winnerWallet: "EQWinnerWallet",
+    winnerAmount: 2.85,
+    organizerAmount: 0.15
+});
+
+emit(EVENT_TYPES.SETTLEMENT_SUBMITTED, {
+    roomId: "ROOMCHAIN",
+    gameId: "game_chain_1",
+    status: "PREPARING"
+});
+
+emit(EVENT_TYPES.SETTLEMENT_CONFIRMED, {
+    roomId: "ROOMCHAIN",
+    gameId: "game_chain_1",
+    transactionHash: "settle_tx_abc"
+});
+
+emit(EVENT_TYPES.SETTLEMENT_COMPLETED, {
+    roomId: "ROOMCHAIN",
+    gameId: "game_chain_1",
+    winnerAmount: 2.85,
+    organizerAmount: 0.15,
+    settlementTxHash: "settle_tx_abc"
+});
+
+emit(EVENT_TYPES.SESSION_FINISHED, {
+    roomId: "ROOMCHAIN",
+    gameId: "game_chain_1",
+    reason: "session_ended"
+});
+
+emit(EVENT_TYPES.ROOM_DESTROYED, { roomId: "ROOMCHAIN", playerCount: 3 });
+
+const chainListed = archive.listRecords({ roomId: "ROOMCHAIN" });
+
+assert.equal(chainListed.total, 1, "lifecycle room archived");
+
+const chainRecord = archive.getRecord(chainListed.records[0].sessionId);
+const lifecycle = chainRecord.blockchainLifecycle;
+
+assert.equal(
+    chainListed.records[0].lifecycleResult,
+    LIFECYCLE_RESULTS.GAME_COMPLETED,
+    "full game maps to GAME_COMPLETED"
+);
+
+assert.ok(lifecycle.deploy.stages.includes("BEGIN_DEPLOY"));
+assert.ok(lifecycle.deploy.stages.includes("BOC_SEND_START"));
+assert.ok(lifecycle.deploy.stages.includes("BOC_SEND_SUCCESS"));
+assert.ok(lifecycle.deploy.stages.includes("DEPLOY_RESULT"));
+assert.equal(lifecycle.deploy.status, "SUCCESS");
+assert.equal(lifecycle.deploy.contractAddress, "EQLifecycleEscrow");
+assert.equal(lifecycle.deploy.transactionHash, "ton_oracle_seq_1");
+
+assert.ok(lifecycle.settlement.stages.includes("SETTLEMENT_STARTED"));
+assert.ok(lifecycle.settlement.stages.includes("SETTLEMENT_SUBMITTED"));
+assert.ok(lifecycle.settlement.stages.includes("SETTLEMENT_CONFIRMED"));
+assert.ok(lifecycle.settlement.stages.includes("SETTLEMENT_COMPLETED"));
+assert.equal(lifecycle.settlement.status, "SETTLEMENT_COMPLETED");
+assert.equal(lifecycle.settlement.winnerWallet, "EQWinnerWallet");
+assert.equal(lifecycle.settlement.winnerAmount, 2.85);
+assert.equal(lifecycle.settlement.commissionAmount, 0.15);
+assert.equal(lifecycle.settlement.transactionHash, "settle_tx_abc");
+assert.equal(lifecycle.settlement.error, null);
+
+assert.ok(
+    !JSON.stringify(chainRecord).includes("mnemonic"),
+    "no mnemonic in R7.57 archive JSON"
+);
+assert.ok(
+    !JSON.stringify(chainRecord).toLowerCase().includes("secretkey"),
+    "no secretKey in R7.57 archive JSON"
+);
+
 archive.shutdown();
 eventBus.shutdown();
 logger.shutdown();

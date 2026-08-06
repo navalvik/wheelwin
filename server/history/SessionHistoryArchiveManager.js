@@ -15,8 +15,13 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { EVENT_TYPES } from "../events/EventTypes.js";
+import { OwnerConfiguration } from "../config/OwnerConfiguration.js";
 import { getTonDeployDebug } from "../diagnostics/DeployPipelineForensics.js";
+import { EVENT_TYPES } from "../events/EventTypes.js";
+import {
+    buildBlockchainLifecycle,
+    createBlockchainTrack
+} from "./buildBlockchainLifecycle.js";
 
 export const LIFECYCLE_RESULTS = Object.freeze({
     GAME_COMPLETED: "GAME_COMPLETED",
@@ -467,6 +472,96 @@ export class SessionHistoryArchiveManager {
 
         });
 
+        // R7.57 — observe deploy / settlement events into pending forensic track
+        // (managers clear themselves on ROOM_DESTROYED before archive finalize).
+        this._subscribe(EVENT_TYPES.CONTRACT_DEPLOYING, (envelope) => {
+
+            this._onDeployLifecycle("BEGIN_DEPLOY", envelope.payload);
+
+        });
+
+        this._subscribe(EVENT_TYPES.GAME_CONTRACT_DEPLOYED, (envelope) => {
+
+            this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
+                status: "SUCCESS",
+                contractAddress: envelope.payload?.contractAddress ?? null,
+                transactionHash: envelope.payload?.deploymentTxId
+                    ?? envelope.payload?.deploymentTxHash
+                    ?? null
+            });
+
+        });
+
+        this._subscribe(EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED, (envelope) => {
+
+            this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
+                status: "FAILED",
+                error: envelope.payload?.reason
+                    ?? envelope.payload?.deployError
+                    ?? envelope.payload?.failureReason
+                    ?? null
+            });
+
+        });
+
+        this._subscribe(EVENT_TYPES.CONTRACT_DEPLOYED, (envelope) => {
+
+            this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
+                status: "SUCCESS"
+            });
+
+        });
+
+        this._subscribe(EVENT_TYPES.SETTLEMENT_STARTED, (envelope) => {
+
+            this._onSettlementLifecycle("SETTLEMENT_STARTED", envelope.payload);
+
+        });
+
+        this._subscribe(EVENT_TYPES.SETTLEMENT_SUBMITTED, (envelope) => {
+
+            this._onSettlementLifecycle("SETTLEMENT_SUBMITTED", envelope.payload);
+
+        });
+
+        this._subscribe(EVENT_TYPES.SETTLEMENT_PENDING, (envelope) => {
+
+            this._onSettlementLifecycle("SETTLEMENT_PENDING", envelope.payload);
+
+        });
+
+        this._subscribe(EVENT_TYPES.SETTLEMENT_CONFIRMED, (envelope) => {
+
+            this._onSettlementLifecycle("SETTLEMENT_CONFIRMED", envelope.payload);
+
+        });
+
+        this._subscribe(EVENT_TYPES.SETTLEMENT_COMPLETED, (envelope) => {
+
+            this._onSettlementLifecycle("SETTLEMENT_COMPLETED", envelope.payload, {
+                status: "SETTLEMENT_COMPLETED"
+            });
+
+        });
+
+        this._subscribe(EVENT_TYPES.SETTLEMENT_FAILED, (envelope) => {
+
+            this._onSettlementLifecycle("SETTLEMENT_FAILED", envelope.payload, {
+                status: "SETTLEMENT_FAILED",
+                error: envelope.payload?.reason ?? null
+            });
+
+        });
+
+        this._subscribe(EVENT_TYPES.SETTLEMENT_TIMEOUT, (envelope) => {
+
+            this._onSettlementLifecycle("SETTLEMENT_FAILED", envelope.payload, {
+                status: "SETTLEMENT_TIMEOUT",
+                error: envelope.payload?.reason ?? "settlement_timeout"
+            });
+
+        });
+
         this._subscribe(EVENT_TYPES.ROOM_DESTROYED, (envelope) => {
 
             this._finalize(envelope.payload);
@@ -724,10 +819,190 @@ export class SessionHistoryArchiveManager {
                 room: payload ?? null,
                 game: null,
                 frozen: null
-            }
+            },
+            blockchain: createBlockchainTrack()
         });
 
         this._pushTimeline(roomId, "ROOM", "Room created");
+
+    }
+
+    _resolvePendingRoomId(payload) {
+
+        if (payload?.roomId) {
+
+            return payload.roomId;
+
+        }
+
+        const gameId = payload?.gameId;
+
+        if (!gameId) {
+
+            return null;
+
+        }
+
+        for (const pending of this._pending.values()) {
+
+            if (String(pending.gameId) === String(gameId)) {
+
+                return pending.roomId;
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    _onDeployLifecycle(stage, payload, fields = {}) {
+
+        const roomId = this._resolvePendingRoomId(payload);
+        const pending = this._ensurePending(roomId);
+
+        if (!pending) {
+
+            return;
+
+        }
+
+        if (payload?.gameId && !pending.gameId) {
+
+            pending.gameId = payload.gameId;
+
+        }
+
+        const deploy = pending.blockchain.deploy;
+
+        deploy.began = true;
+
+        if (stage && !deploy.stages.includes(stage)) {
+
+            deploy.stages.push(stage);
+
+        }
+
+        if (fields.status) {
+
+            deploy.status = fields.status;
+
+        }
+
+        if (fields.contractAddress) {
+
+            deploy.contractAddress = fields.contractAddress;
+
+        }
+
+        if (fields.transactionHash) {
+
+            deploy.transactionHash = fields.transactionHash;
+
+        }
+
+        if (fields.error) {
+
+            deploy.error = fields.error;
+
+        }
+
+        this._pushTimeline(roomId, "BLOCKCHAIN", stage);
+
+    }
+
+    _onSettlementLifecycle(stage, payload, fields = {}) {
+
+        const roomId = this._resolvePendingRoomId(payload);
+        const pending = this._ensurePending(roomId);
+
+        if (!pending) {
+
+            return;
+
+        }
+
+        if (payload?.gameId && !pending.gameId) {
+
+            pending.gameId = payload.gameId;
+
+        }
+
+        const settlement = pending.blockchain.settlement;
+
+        if (stage && !settlement.stages.includes(stage)) {
+
+            settlement.stages.push(stage);
+
+        }
+
+        if (fields.status) {
+
+            settlement.status = fields.status;
+
+        } else if (payload?.status && !settlement.status) {
+
+            settlement.status = payload.status;
+
+        }
+
+        if (payload?.winnerWallet) {
+
+            settlement.winnerWallet = payload.winnerWallet;
+
+        }
+
+        if (payload?.winnerAmount != null) {
+
+            settlement.winnerAmount = payload.winnerAmount;
+
+        }
+
+        if (payload?.organizerAmount != null) {
+
+            settlement.commissionAmount = payload.organizerAmount;
+
+        }
+
+        if (payload?.commissionAmount != null) {
+
+            settlement.commissionAmount = payload.commissionAmount;
+
+        }
+
+        const txHash = payload?.settlementTxHash
+            ?? payload?.transactionHash
+            ?? payload?.settlementTransactionHash
+            ?? null;
+
+        if (txHash) {
+
+            settlement.transactionHash = txHash;
+
+        }
+
+        if (fields.error || payload?.reason) {
+
+            settlement.error = fields.error ?? payload.reason;
+
+        }
+
+        if (!settlement.commissionWallet) {
+
+            try {
+
+                settlement.commissionWallet = OwnerConfiguration.getOwnerWallet();
+
+            } catch {
+
+                settlement.commissionWallet = payload?.ownerWallet ?? null;
+
+            }
+
+        }
+
+        this._pushTimeline(roomId, "BLOCKCHAIN", stage);
 
     }
 
@@ -929,6 +1204,12 @@ export class SessionHistoryArchiveManager {
 
         })();
 
+        const blockchainLifecycle = buildBlockchainLifecycle({
+            tonDeployDebug,
+            deployTrack: pending.blockchain?.deploy ?? null,
+            settlementTrack: pending.blockchain?.settlement ?? null
+        });
+
         this._refreshPlayersFromManagers(pending);
 
         if (tonConnect?.events?.length) {
@@ -1034,6 +1315,7 @@ export class SessionHistoryArchiveManager {
             payment: roomDetail?.paymentSession ?? null,
             tonConnect: tonConnect ?? null,
             tonDeployDebug: tonDeployDebug ?? null,
+            blockchainLifecycle,
             walletConnectionSession: tonConnect
                 ? Object.freeze({
                     paymentConnectionReady: tonConnect.paymentConnectionReady,
@@ -1053,6 +1335,7 @@ export class SessionHistoryArchiveManager {
                 payment: roomDetail?.paymentSession ?? null,
                 tonConnect,
                 tonDeployDebug: tonDeployDebug ?? null,
+                blockchainLifecycle,
                 serverState: Object.freeze({
                     roomDestroyed: true,
                     playerCountAtDestroy: payload?.playerCount ?? players.length
