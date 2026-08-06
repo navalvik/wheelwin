@@ -16,6 +16,7 @@ import {
 import { join } from "node:path";
 
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { getTonDeployDebug } from "../diagnostics/DeployPipelineForensics.js";
 
 export const LIFECYCLE_RESULTS = Object.freeze({
     GAME_COMPLETED: "GAME_COMPLETED",
@@ -906,6 +907,28 @@ export class SessionHistoryArchiveManager {
             ?? roomDetail?.tonConnect
             ?? null;
 
+        // R7.51.30 — persist last TON deploy diagnostics into ROOM_DESTROYED JSON.
+        // Prefer room-scoped match; never include mnemonic/secret material.
+        const tonDeployDebugRaw = getTonDeployDebug();
+        const tonDeployDebug = (() => {
+
+            if (!tonDeployDebugRaw) {
+
+                return null;
+
+            }
+
+            if (tonDeployDebugRaw.roomId != null
+                && String(tonDeployDebugRaw.roomId) !== String(roomId)) {
+
+                return null;
+
+            }
+
+            return tonDeployDebugRaw;
+
+        })();
+
         this._refreshPlayersFromManagers(pending);
 
         if (tonConnect?.events?.length) {
@@ -1010,6 +1033,7 @@ export class SessionHistoryArchiveManager {
             }),
             payment: roomDetail?.paymentSession ?? null,
             tonConnect: tonConnect ?? null,
+            tonDeployDebug: tonDeployDebug ?? null,
             walletConnectionSession: tonConnect
                 ? Object.freeze({
                     paymentConnectionReady: tonConnect.paymentConnectionReady,
@@ -1028,6 +1052,7 @@ export class SessionHistoryArchiveManager {
                 players,
                 payment: roomDetail?.paymentSession ?? null,
                 tonConnect,
+                tonDeployDebug: tonDeployDebug ?? null,
                 serverState: Object.freeze({
                     roomDestroyed: true,
                     playerCountAtDestroy: payload?.playerCount ?? players.length
