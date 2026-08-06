@@ -14,6 +14,14 @@ import { maskWalletAddress } from "./maskWalletAddress.js";
 import { SettlementSession } from "./SettlementSession.js";
 import { SETTLEMENT_SESSION_STATUS } from "./SettlementSessionStates.js";
 import { TON_FINANCIAL_RECORD_TYPES } from "../persistence/TonFinancialPersistence.js";
+import {
+    GAME_ESCROW_MODE_GAME,
+    resolveGameEscrowMode
+} from "./ton/buildGameEscrowStateInit.js";
+import {
+    printGameEscrowSettlementDebug,
+    setGameEscrowSettlementDebug
+} from "../diagnostics/SettlementPipelineForensics.js";
 
 const DEFAULT_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -45,6 +53,7 @@ export class ContractSettlementManager {
         gameplayContextResolver = null,
         ownerConfiguration = OwnerConfiguration,
         tonNetwork = null,
+        gameEscrowMode = null,
         settlementTimeoutMs = DEFAULT_SETTLEMENT_TIMEOUT_MS,
         devMode = false
     }) {
@@ -82,6 +91,9 @@ export class ContractSettlementManager {
         this._ownerConfiguration = ownerConfiguration;
 
         this._tonNetwork = tonNetwork ?? null;
+
+        // R7.66F — v4 (default) keeps legacy settle; game uses GameEscrow SETTLE ABI.
+        this._gameEscrowMode = resolveGameEscrowMode(gameEscrowMode);
 
         this._settlementTimeoutMs = Number.isFinite(settlementTimeoutMs)
             && settlementTimeoutMs > 0
@@ -739,7 +751,10 @@ export class ContractSettlementManager {
             totalPot,
             traceSeed,
             timestamp: startedAt,
-            snapshot: contract.snapshot
+            snapshot: contract.snapshot,
+            snapshotHash: contract.snapshotHash ?? null,
+            // R7.66F — adapter selects legacy vs GameEscrow SETTLE body.
+            gameEscrowMode: this._gameEscrowMode
         });
 
         session.request = request;
@@ -747,6 +762,22 @@ export class ContractSettlementManager {
         session.transitionTo(SETTLEMENT_SESSION_STATUS.READY);
 
         this._persistSession(session, "update");
+
+        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+
+            setGameEscrowSettlementDebug({
+                mode: this._gameEscrowMode,
+                escrowAddress: contract.contractAddress,
+                winner: winnerWallet,
+                owner: ownerWallet,
+                winnerAmount,
+                ownerAmount: organizerAmount,
+                snapshotHash: contract.snapshotHash ?? null,
+                transactionHash: null
+            });
+            printGameEscrowSettlementDebug();
+
+        }
 
         let adapterResult;
 
@@ -776,6 +807,22 @@ export class ContractSettlementManager {
         const settlementTxHash = adapterResult.settlementTxId
             ?? adapterResult.txHash
             ?? null;
+
+        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+
+            setGameEscrowSettlementDebug({
+                mode: this._gameEscrowMode,
+                escrowAddress: contract.contractAddress,
+                winner: winnerWallet,
+                owner: ownerWallet,
+                winnerAmount,
+                ownerAmount: organizerAmount,
+                snapshotHash: contract.snapshotHash ?? null,
+                transactionHash: settlementTxHash
+            });
+            printGameEscrowSettlementDebug();
+
+        }
 
         session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING, {
             settlementTransactionHash: settlementTxHash

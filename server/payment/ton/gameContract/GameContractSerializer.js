@@ -10,6 +10,47 @@ import {
 } from "./GameContractOpcodes.js";
 import { SerializationError } from "./GameContractErrors.js";
 
+/** GameEscrow Tact SETTLE opcode width (legacy V4 path still uses 24). */
+export const GAME_ESCROW_SETTLE_OPCODE_BITS = 32;
+
+function snapshotHashToUint256(snapshotHash) {
+
+    if (typeof snapshotHash === "bigint") {
+
+        return snapshotHash;
+
+    }
+
+    if (Buffer.isBuffer(snapshotHash)) {
+
+        return BigInt(`0x${snapshotHash.toString("hex")}`);
+
+    }
+
+    const hex = String(snapshotHash ?? "").replace(/^0x/i, "").trim();
+
+    if (!/^[0-9a-f]+$/i.test(hex) || hex.length !== 64) {
+
+        throw new Error("snapshotHash must be a 32-byte hex string");
+
+    }
+
+    return BigInt(`0x${hex}`);
+
+}
+
+function amountToNano(amount) {
+
+    if (typeof amount === "bigint") {
+
+        return amount;
+
+    }
+
+    return toNano(String(amount ?? 0));
+
+}
+
 export function serializeInitGameBody({
     snapshotHash,
     gameId,
@@ -62,6 +103,48 @@ export function serializeSettleBody({
 
         throw new SerializationError(
             "Failed to serialize settle body",
+            { cause: error?.message ?? null }
+        );
+
+    }
+
+}
+
+/**
+ * R7.66F — GameEscrow Tact SETTLE body (matches contracts/game_escrow ABI).
+ *
+ * Layout (32-bit opcode):
+ *   op:uint32 snapshotHash:uint256 winner:MsgAddress
+ *   winnerAmount:Coins ownerAmount:Coins
+ *
+ * ownerAddress is NOT in the on-chain message (owner comes from INIT storage);
+ * callers may pass it for diagnostics only.
+ */
+export function serializeGameEscrowSettleBody({
+    snapshotHash,
+    winnerWallet,
+    winnerAmount,
+    ownerAmount = null,
+    organizerAmount = null
+}) {
+
+    try {
+
+        const winner = Address.parse(String(winnerWallet).trim());
+        const payoutOwnerAmount = ownerAmount ?? organizerAmount ?? 0;
+
+        return beginCell()
+            .storeUint(GAME_CONTRACT_OPCODES.SETTLE, GAME_ESCROW_SETTLE_OPCODE_BITS)
+            .storeUint(snapshotHashToUint256(snapshotHash), 256)
+            .storeAddress(winner)
+            .storeCoins(amountToNano(winnerAmount))
+            .storeCoins(amountToNano(payoutOwnerAmount))
+            .endCell();
+
+    } catch (error) {
+
+        throw new SerializationError(
+            "Failed to serialize GameEscrow settle body",
             { cause: error?.message ?? null }
         );
 

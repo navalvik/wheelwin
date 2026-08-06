@@ -1248,6 +1248,7 @@ class WheelWinApplication {
             paymentSessionManager: this._paymentSessionManager,
             gameplayContextResolver: this._gameplayContextResolver,
             tonNetwork: this._tonConfig?.network ?? null,
+            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null,
             devMode: this._productionConfig.isDevelopment
         });
 

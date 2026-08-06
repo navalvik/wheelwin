@@ -18,11 +18,17 @@ import {
     safeSerialize,
     setGameEscrowDeployDebug
 } from "../diagnostics/DeployPipelineForensics.js";
+import {
+    printGameEscrowSettlementDebug,
+    setGameEscrowSettlementDebug
+} from "../diagnostics/SettlementPipelineForensics.js";
 import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
 import {
+    GAME_ESCROW_MODE_GAME,
     buildGameEscrowWallet,
     resolveGameEscrowMode
 } from "./ton/buildGameEscrowStateInit.js";
+import { buildSettleMessagePlan } from "./ton/buildSettleMessagePlan.js";
 import {
     assertNetworkCompatibility,
     parseContractAddress
@@ -49,7 +55,6 @@ import {
     serializeArchiveBody,
     serializeDeployBocPlaceholder,
     serializeEmergencyCancelBody,
-    serializeLegacySettleBody,
     serializeSettleBocPlaceholder
 } from "./ton/gameContract/GameContractSerializer.js";
 import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
@@ -658,6 +663,10 @@ export class TonGameContractAdapter {
 
         }
 
+        const gameEscrowMode = resolveGameEscrowMode(
+            settlementRequest.gameEscrowMode ?? this._tonConfig?.gameEscrowMode
+        );
+
         try {
 
             if (this._canBroadcast()) {
@@ -681,6 +690,25 @@ export class TonGameContractAdapter {
 
             }
 
+            // Stub / no-mnemonic path — still emit GameEscrow settlement diagnostics.
+            const settlePlan = this._buildSettleMessagePlan(settlementRequest);
+
+            if (!settlePlan.ok) {
+
+                return createOperationResultDTO({
+                    ok: false,
+                    reason: settlePlan.reason
+                });
+
+            }
+
+            this._recordGameEscrowSettlementDebug({
+                mode: gameEscrowMode,
+                settlementRequest,
+                snapshotHash: settlePlan.snapshotHash,
+                transactionHash: null
+            });
+
             await this._service().broadcastTransaction(
                 serializeSettleBocPlaceholder({
                     contractId: settlementRequest.contractId,
@@ -692,8 +720,16 @@ export class TonGameContractAdapter {
                 .replace(/[^a-zA-Z0-9]/g, "")
                 .slice(-16)}`;
 
+            this._recordGameEscrowSettlementDebug({
+                mode: gameEscrowMode,
+                settlementRequest,
+                snapshotHash: settlePlan.snapshotHash,
+                transactionHash: settlementTxId
+            });
+
             this._logInfo(
-                `TON GameContract settled | contractId=${settlementRequest.contractId}`
+                `TON GameContract settled | contractId=${settlementRequest.contractId} | `
+                    + `mode=${gameEscrowMode}`
             );
 
             return createOperationResultDTO({
@@ -960,16 +996,38 @@ export class TonGameContractAdapter {
 
     async _broadcastSettle(settlementRequest) {
 
+        const settlePlan = this._buildSettleMessagePlan(settlementRequest);
+
+        if (!settlePlan.ok) {
+
+            return {
+                ok: false,
+                reason: settlePlan.reason
+            };
+
+        }
+
+        this._recordGameEscrowSettlementDebug({
+            mode: settlePlan.mode,
+            settlementRequest,
+            snapshotHash: settlePlan.snapshotHash,
+            transactionHash: null
+        });
+
         const txId = await this._sendOracleMessage({
             to: settlementRequest.contractAddress,
-            body: serializeLegacySettleBody({
-                winnerAmount: settlementRequest.winnerAmount,
-                organizerAmount: settlementRequest.organizerAmount
-            }),
+            body: settlePlan.body,
             valueTon: "0.05",
-            bounce: true,
+            bounce: settlePlan.mode === GAME_ESCROW_MODE_GAME ? false : true,
             // R7.61A — resolve real deployer account tx hash (not ton_oracle_seq_*).
             resolveAccountTxHash: true
+        });
+
+        this._recordGameEscrowSettlementDebug({
+            mode: settlePlan.mode,
+            settlementRequest,
+            snapshotHash: settlePlan.snapshotHash,
+            transactionHash: txId
         });
 
         return {
@@ -977,6 +1035,40 @@ export class TonGameContractAdapter {
             settlementTxId: txId,
             settledAt: Date.now()
         };
+
+    }
+
+    /**
+     * R7.66F — Build settle body for v4 (legacy) or game (GameEscrow ABI).
+     */
+    _buildSettleMessagePlan(settlementRequest) {
+
+        return buildSettleMessagePlan(settlementRequest, this._tonConfig);
+
+    }
+
+    _recordGameEscrowSettlementDebug({
+        mode,
+        settlementRequest,
+        snapshotHash,
+        transactionHash
+    }) {
+
+        const debug = {
+            mode,
+            escrowAddress: settlementRequest?.contractAddress ?? null,
+            winner: settlementRequest?.winnerWallet ?? null,
+            owner: settlementRequest?.ownerWallet ?? null,
+            winnerAmount: settlementRequest?.winnerAmount ?? null,
+            ownerAmount: settlementRequest?.organizerAmount
+                ?? settlementRequest?.ownerAmount
+                ?? null,
+            snapshotHash: snapshotHash ?? null,
+            transactionHash: transactionHash ?? null
+        };
+
+        setGameEscrowSettlementDebug(debug);
+        printGameEscrowSettlementDebug(debug);
 
     }
 
