@@ -5,7 +5,7 @@
  * Gameplay modules never import @ton/* except through this adapter boundary.
  */
 
-import { beginCell, external, internal, storeMessage, toNano } from "@ton/core";
+import { Address, beginCell, external, internal, storeMessage, toNano } from "@ton/core";
 import { mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
@@ -16,6 +16,7 @@ import {
     pushTonDeployDebugStage,
     safeSerialize
 } from "../diagnostics/DeployPipelineForensics.js";
+import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
 import { buildGameEscrowWallet } from "./ton/buildGameEscrowStateInit.js";
 import {
     assertNetworkCompatibility,
@@ -862,7 +863,9 @@ export class TonGameContractAdapter {
                 organizerAmount: settlementRequest.organizerAmount
             }),
             valueTon: "0.05",
-            bounce: true
+            bounce: true,
+            // R7.61A — resolve real deployer account tx hash (not ton_oracle_seq_*).
+            resolveAccountTxHash: true
         });
 
         return {
@@ -878,7 +881,8 @@ export class TonGameContractAdapter {
         body,
         init = null,
         valueTon = "0.05",
-        bounce = true
+        bounce = true,
+        resolveAccountTxHash = false
     }) {
 
         try {
@@ -965,13 +969,26 @@ export class TonGameContractAdapter {
             console.log("[R7.51 TON DEPLOY]\nstage=BOC_SEND_START");
             pushTonDeployDebugStage("BOC_SEND_START");
 
+            const sentAtMs = Date.now();
+
             await this._service().broadcastTransaction(bocBase64);
 
             console.log("[R7.51 TON DEPLOY]\nstage=BOC_SEND_SUCCESS");
             pushTonDeployDebugStage("BROADCAST_SENT");
             pushTonDeployDebugStage("BOC_SEND_SUCCESS");
 
-            return `ton_oracle_seq_${seqno}`;
+            if (!resolveAccountTxHash) {
+
+                return `ton_oracle_seq_${seqno}`;
+
+            }
+
+            return this._lookupDeployerAccountTxHash({
+                deployerAddress,
+                destinationAddress: destination,
+                seqno,
+                sentAtMs
+            });
 
         } catch (error) {
 
@@ -995,6 +1012,164 @@ export class TonGameContractAdapter {
 
     }
 
+    /**
+     * R7.61A — After settlement sendBoc, resolve deployer account transaction_id.hash.
+     *
+     * Algorithm:
+     *   1. Poll getTransactions(deployer) until timeout.
+     *   2. Match a tx whose out_msg.destination equals the escrow/settle destination.
+     *   3. Prefer txs with utime >= sentAt (minus small skew).
+     *   4. Return transaction_id.hash of the newest matching tx.
+     *
+     * Timeout: tonConfig.settlementTxLookupTimeoutMs (default 30000).
+     * Poll: tonConfig.settlementTxLookupPollMs (default 1000).
+     */
+    async _lookupDeployerAccountTxHash({
+        deployerAddress,
+        destinationAddress,
+        seqno,
+        sentAtMs
+    }) {
+
+        const timeoutMs = Number.isFinite(this._tonConfig?.settlementTxLookupTimeoutMs)
+            ? this._tonConfig.settlementTxLookupTimeoutMs
+            : 30_000;
+
+        const pollMs = Number.isFinite(this._tonConfig?.settlementTxLookupPollMs)
+            ? Math.max(50, this._tonConfig.settlementTxLookupPollMs)
+            : 1_000;
+
+        const destination = Address.parse(destinationAddress);
+        const sentAtSec = Math.floor(sentAtMs / 1000);
+        const deadline = Date.now() + timeoutMs;
+        let pollCount = 0;
+
+        console.log(
+            "[R7.61 SETTLEMENT TX]\n"
+                + "stage=SETTLEMENT_TX_LOOKUP_START\n"
+                + `deployer=${deployerAddress}\n`
+                + `destination=${destinationAddress}\n`
+                + `seqno=${seqno}\n`
+                + `timeoutMs=${timeoutMs}`
+        );
+
+        while (Date.now() < deadline) {
+
+            pollCount += 1;
+
+            console.log(
+                "[R7.61 SETTLEMENT TX]\n"
+                    + "stage=SETTLEMENT_TX_LOOKUP_POLL\n"
+                    + `poll=${pollCount}`
+            );
+
+            const transactions = await this._service().getTransactions(
+                deployerAddress,
+                { limit: 20 }
+            );
+
+            const match = this._findSettlementDeployerTx(
+                transactions,
+                destination,
+                sentAtSec
+            );
+
+            if (match?.hash) {
+
+                console.log(
+                    "[R7.61 SETTLEMENT TX]\n"
+                        + "stage=SETTLEMENT_TX_LOOKUP_MATCHED\n"
+                        + `hash=${match.hash}\n`
+                        + `poll=${pollCount}`
+                );
+
+                return match.hash;
+
+            }
+
+            await delay(pollMs);
+
+        }
+
+        console.log(
+            "[R7.61 SETTLEMENT TX]\n"
+                + "stage=SETTLEMENT_TX_LOOKUP_TIMEOUT\n"
+                + `polls=${pollCount}\n`
+                + `seqno=${seqno}`
+        );
+
+        throw new Error(
+            `settlement_tx_lookup_timeout | seqno=${seqno} | `
+                + `deployer=${deployerAddress}`
+        );
+
+    }
+
+    _findSettlementDeployerTx(transactions, destinationAddress, sentAtSec) {
+
+        if (!Array.isArray(transactions) || transactions.length === 0) {
+
+            return null;
+
+        }
+
+        const skewSec = 30;
+        const minUtime = Number.isFinite(sentAtSec) ? sentAtSec - skewSec : null;
+
+        for (const tx of transactions) {
+
+            const utime = Number(tx?.utime ?? tx?.now ?? NaN);
+
+            if (minUtime != null && Number.isFinite(utime) && utime < minUtime) {
+
+                continue;
+
+            }
+
+            const outMsgs = tx?.out_msgs ?? tx?.outMessages ?? [];
+
+            if (!Array.isArray(outMsgs) || outMsgs.length === 0) {
+
+                continue;
+
+            }
+
+            const targetsEscrow = outMsgs.some((msg) => {
+
+                const raw = msg?.destination
+                    ?? msg?.dest
+                    ?? msg?.info?.dest
+                    ?? null;
+
+                return addressesEqual(raw, destinationAddress);
+
+            });
+
+            if (!targetsEscrow) {
+
+                continue;
+
+            }
+
+            const hash = tx?.transaction_id?.hash
+                ?? tx?.txHash
+                ?? tx?.hash
+                ?? null;
+
+            if (!hash) {
+
+                continue;
+
+            }
+
+            return { hash: String(hash), tx };
+
+        }
+
+        return null;
+
+    }
+
     _logInfo(message) {
 
         this._logger?.info?.(message);
@@ -1004,6 +1179,49 @@ export class TonGameContractAdapter {
     _logError(message) {
 
         this._logger?.error?.(message);
+
+    }
+
+}
+
+function delay(ms) {
+
+    return new Promise((resolve) => {
+
+        setTimeout(resolve, ms);
+
+    });
+
+}
+
+function addressesEqual(raw, expectedAddress) {
+
+    if (!raw || !expectedAddress) {
+
+        return false;
+
+    }
+
+    try {
+
+        const left = typeof raw === "string"
+            ? Address.parse(raw)
+            : raw;
+
+        if (expectedAddress instanceof Address) {
+
+            return left.equals(expectedAddress);
+
+        }
+
+        return left.equals(Address.parse(String(expectedAddress)));
+
+    } catch {
+
+        const left = canonicalizeTonWalletAddress(String(raw));
+        const right = canonicalizeTonWalletAddress(String(expectedAddress));
+
+        return Boolean(left && right && left === right);
 
     }
 

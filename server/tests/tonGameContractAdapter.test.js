@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 import { Cell, loadMessage } from "@ton/core";
-import { keyPairFromSeed } from "@ton/crypto";
+import { keyPairFromSeed, mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
 import { TonGameContractAdapter } from "../payment/TonGameContractAdapter.js";
@@ -118,6 +118,11 @@ function createMockTonService({
         async getSeqno() {
 
             return 1;
+
+        },
+        async getTransactions(address, query) {
+
+            return transport.getTransactions(address, query);
 
         },
         async runGetMethod(address, method) {
@@ -542,6 +547,158 @@ async function main() {
         assert.equal(transport.sentBocs.length, 1);
 
         console.log("  settle stub path: OK");
+    }
+
+    // --- R7.61A live settle returns real deployer account tx hash ---
+
+    {
+        const TEST_MNEMONIC = [
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "art"
+        ].join(" ");
+
+        const keyPair = await mnemonicToPrivateKey(
+            TEST_MNEMONIC.split(/\s+/).filter(Boolean)
+        );
+
+        const deployerAddress = WalletContractV4.create({
+            workchain: 0,
+            publicKey: keyPair.publicKey
+        }).address.toString({ bounceable: true, urlSafe: true });
+
+        const escrowAddress = friendlyAddress("escrow-settle-r761");
+        const REAL_TX_HASH = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789+/=";
+
+        const transport = new MockTonTransport();
+
+        transport.seedTransactions(deployerAddress, [
+            {
+                utime: Math.floor(Date.now() / 1000) + 5,
+                transaction_id: { hash: REAL_TX_HASH, lt: "1001" },
+                out_msgs: [
+                    { destination: escrowAddress }
+                ]
+            }
+        ]);
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            isConnected: () => true,
+            async broadcastTransaction(boc) {
+
+                return transport.sendBoc(boc);
+
+            },
+            async getAccount() {
+
+                return { state: "active", balance: "0" };
+
+            },
+            async getSeqno() {
+
+                return 4;
+
+            },
+            async getTransactions(address) {
+
+                return transport.getTransactions(address);
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        }, {
+            deployerMnemonic: TEST_MNEMONIC,
+            settlementTxLookupTimeoutMs: 2000,
+            settlementTxLookupPollMs: 50
+        });
+
+        const result = await adapter.settleContract({
+            contractId: "c_r761",
+            contractAddress: escrowAddress,
+            winnerWallet: friendlyAddress("player-1"),
+            ownerWallet: friendlyAddress("owner-1"),
+            winnerId: "p1",
+            winnerAmount: 2.85,
+            organizerAmount: 0.15
+        });
+
+        assert.equal(result.ok, true);
+        assert.equal(result.settlementTxId, REAL_TX_HASH);
+        assert.equal(
+            String(result.settlementTxId).startsWith("ton_oracle_seq_"),
+            false,
+            "must not return synthetic ton_oracle_seq_* id"
+        );
+        assert.equal(transport.sentBocs.length, 1);
+
+        console.log("  R7.61A live settle real tx hash: OK");
+    }
+
+    // --- R7.61A settle lookup timeout ---
+
+    {
+        const TEST_MNEMONIC = [
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+            "abandon", "abandon", "abandon", "abandon", "abandon", "art"
+        ].join(" ");
+
+        const transport = new MockTonTransport();
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            isConnected: () => true,
+            async broadcastTransaction(boc) {
+
+                return transport.sendBoc(boc);
+
+            },
+            async getAccount() {
+
+                return { state: "active", balance: "0" };
+
+            },
+            async getSeqno() {
+
+                return 0;
+
+            },
+            async getTransactions() {
+
+                return [];
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        }, {
+            deployerMnemonic: TEST_MNEMONIC,
+            settlementTxLookupTimeoutMs: 150,
+            settlementTxLookupPollMs: 40
+        });
+
+        const result = await adapter.settleContract({
+            contractId: "c_r761_timeout",
+            contractAddress: friendlyAddress("escrow-timeout"),
+            winnerWallet: friendlyAddress("player-1"),
+            ownerWallet: friendlyAddress("owner-1"),
+            winnerId: "p1",
+            winnerAmount: 1,
+            organizerAmount: 0.05
+        });
+
+        assert.equal(result.ok, false);
+        assert.equal(result.reason, "settle_failed");
+
+        console.log("  R7.61A settle lookup timeout: OK");
     }
 
     // --- decode contract state DTO ---

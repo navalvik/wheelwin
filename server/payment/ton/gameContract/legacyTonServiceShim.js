@@ -47,6 +47,11 @@ export function createLegacyTonServiceShim({
             return transport.getAddressInformation(address);
 
         },
+        async getTransactions(address, query = {}) {
+
+            return transport.getTransactions(address, query);
+
+        },
         async getSeqno(walletAddress) {
 
             const result = await tonClient.runMethod(
