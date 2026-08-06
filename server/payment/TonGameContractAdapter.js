@@ -13,11 +13,16 @@ import {
     beginTonDeployDebug,
     markDeployStage,
     printDeployBlock,
+    printGameEscrowDeployDebug,
     pushTonDeployDebugStage,
-    safeSerialize
+    safeSerialize,
+    setGameEscrowDeployDebug
 } from "../diagnostics/DeployPipelineForensics.js";
 import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
-import { buildGameEscrowWallet } from "./ton/buildGameEscrowStateInit.js";
+import {
+    buildGameEscrowWallet,
+    resolveGameEscrowMode
+} from "./ton/buildGameEscrowStateInit.js";
 import {
     assertNetworkCompatibility,
     parseContractAddress
@@ -50,6 +55,7 @@ import {
 import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
 
 const DEFAULT_ESCROW_ACTIVATION_TIMEOUT_MS = 60_000;
+const DEFAULT_DEPLOY_VALUE_TON = "0.05";
 
 function sleep(ms) {
 
@@ -58,6 +64,55 @@ function sleep(ms) {
         setTimeout(resolve, ms);
 
     });
+
+}
+
+function addressToFriendly(address) {
+
+    if (!address) {
+
+        return null;
+
+    }
+
+    if (typeof address === "string") {
+
+        return address;
+
+    }
+
+    try {
+
+        return address.toString({
+            bounceable: true,
+            urlSafe: true
+        });
+
+    } catch {
+
+        return String(address);
+
+    }
+
+}
+
+function cellHashHex(cell) {
+
+    if (!cell || typeof cell.hash !== "function") {
+
+        return null;
+
+    }
+
+    try {
+
+        return cell.hash().toString("hex");
+
+    } catch {
+
+        return null;
+
+    }
 
 }
 
@@ -179,7 +234,24 @@ export class TonGameContractAdapter {
 
         try {
 
-            const escrow = buildGameEscrowWallet({ contractId, snapshot });
+            const gameEscrowMode = resolveGameEscrowMode(
+                this._tonConfig?.gameEscrowMode
+            );
+
+            const deployValueTon = DEFAULT_DEPLOY_VALUE_TON;
+
+            const escrow = buildGameEscrowWallet({
+                contractId,
+                snapshot,
+                mode: gameEscrowMode,
+                oracle: snapshot?.oracleWallet
+                    ?? snapshot?.oracle
+                    ?? this._tonConfig?.oracleAddress
+                    ?? null,
+                owner: snapshot?.ownerWallet
+                    ?? this._tonConfig?.ownerWallet
+                    ?? null
+            });
 
             const contractAddress = escrow.addressFriendly;
 
@@ -192,19 +264,39 @@ export class TonGameContractAdapter {
                 roomId: snapshot?.roomId ?? null,
                 gameId: snapshot?.gameId ?? null,
                 escrowAddress: contractAddress,
-                valueTon: "0.05"
+                valueTon: deployValueTon
             });
+
+            // R7.66E — GameEscrow deploy diagnostics (v4 or game).
+            const gameEscrowDebug = {
+                mode: escrow.mode ?? gameEscrowMode,
+                contractAddress,
+                codeHash: cellHashHex(escrow.stateInit?.code ?? escrow.code),
+                dataHash: cellHashHex(escrow.stateInit?.data ?? escrow.data),
+                oracle: addressToFriendly(escrow.oracle),
+                owner: addressToFriendly(escrow.owner),
+                transactionHash: null,
+                valueTon: deployValueTon,
+                snapshotHash: escrow.snapshotHash ?? null
+            };
+
+            setGameEscrowDeployDebug(gameEscrowDebug);
+            printGameEscrowDeployDebug(gameEscrowDebug);
 
             if (this._canBroadcast()) {
 
                 printDeployBlock("ADAPTER RPC — broadcastDeploy START", {
                     ContractAddress: contractAddress,
+                    GameEscrowMode: gameEscrowMode,
                     DeployerAddress: "(resolved at broadcast)",
                     RpcEndpoint: this._tonConfig?.endpoint ?? null,
                     RequestPayload: safeSerialize({
                         contractId,
                         to: contractAddress,
-                        valueTon: "0.05"
+                        valueTon: deployValueTon,
+                        mode: gameEscrowMode,
+                        hasCode: Boolean(escrow.stateInit?.code),
+                        hasData: Boolean(escrow.stateInit?.data)
                     }),
                     Timestamp: new Date().toISOString()
                 });
@@ -238,6 +330,11 @@ export class TonGameContractAdapter {
                 deploymentTxId = broadcast.deploymentTxId;
 
                 deployedAt = broadcast.deployedAt ?? deployedAt;
+
+                setGameEscrowDeployDebug({
+                    transactionHash: deploymentTxId
+                });
+                printGameEscrowDeployDebug();
 
                 printDeployBlock("ADAPTER RPC — waitUntilEscrowActive START", {
                     ContractAddress: contractAddress,
@@ -279,6 +376,7 @@ export class TonGameContractAdapter {
 
                 printDeployBlock("ADAPTER RPC — no-broadcast placeholder path", {
                     Reason: "deployerMnemonic not configured",
+                    GameEscrowMode: gameEscrowMode,
                     RpcEndpoint: this._tonConfig?.endpoint ?? null,
                     Timestamp: new Date().toISOString()
                 });
@@ -289,11 +387,16 @@ export class TonGameContractAdapter {
 
                 deploymentTxId = `ton_addr_${escrow.snapshotHash.slice(0, 16)}`;
 
+                setGameEscrowDeployDebug({
+                    transactionHash: deploymentTxId
+                });
+                printGameEscrowDeployDebug();
+
             }
 
             this._logInfo(
                 `TON GameContract deployed | contractId=${contractId} | `
-                    + `address=${contractAddress}`
+                    + `mode=${gameEscrowMode} | address=${contractAddress}`
             );
 
             const result = createDeployResultDTO({
@@ -306,6 +409,7 @@ export class TonGameContractAdapter {
 
             printDeployBlock("ADAPTER deployContract RETURN", {
                 Case: "A — ok:true",
+                GameEscrowMode: gameEscrowMode,
                 ReturnedObject: safeSerialize(result),
                 Timestamp: new Date().toISOString()
             });

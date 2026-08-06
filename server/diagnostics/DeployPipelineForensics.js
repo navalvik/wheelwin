@@ -23,6 +23,19 @@ const _attemptByRoom = new Map();
  * }} */
 let _tonDeployDebug = null;
 
+/** @type {null | {
+ *   mode: string|null,
+ *   contractAddress: string|null,
+ *   codeHash: string|null,
+ *   dataHash: string|null,
+ *   oracle: string|null,
+ *   owner: string|null,
+ *   transactionHash: string|null,
+ *   valueTon: string|null,
+ *   snapshotHash: string|null
+ * }} */
+let _gameEscrowDeployDebug = null;
+
 /**
  * @param {string} roomId
  * @returns {number}
@@ -98,7 +111,93 @@ export function beginTonDeployDebug(fields = {}) {
         tonCenterEndpoint: null
     };
 
+    // New deploy attempt clears prior GameEscrow deploy diagnostics.
+    _gameEscrowDeployDebug = null;
+
     return getTonDeployDebug();
+
+}
+
+/**
+ * R7.66E — TON_GAME_ESCROW_DEPLOY_DEBUG snapshot (no secrets).
+ *
+ * @param {{
+ *   mode?: string|null,
+ *   contractAddress?: string|null,
+ *   codeHash?: string|null,
+ *   dataHash?: string|null,
+ *   oracle?: string|null,
+ *   owner?: string|null,
+ *   transactionHash?: string|null,
+ *   valueTon?: string|null,
+ *   snapshotHash?: string|null
+ * }} [fields]
+ */
+export function setGameEscrowDeployDebug(fields = {}) {
+
+    _gameEscrowDeployDebug = {
+        mode: fields.mode ?? _gameEscrowDeployDebug?.mode ?? null,
+        contractAddress: fields.contractAddress
+            ?? _gameEscrowDeployDebug?.contractAddress
+            ?? null,
+        codeHash: fields.codeHash ?? _gameEscrowDeployDebug?.codeHash ?? null,
+        dataHash: fields.dataHash ?? _gameEscrowDeployDebug?.dataHash ?? null,
+        oracle: fields.oracle ?? _gameEscrowDeployDebug?.oracle ?? null,
+        owner: fields.owner ?? _gameEscrowDeployDebug?.owner ?? null,
+        transactionHash: fields.transactionHash
+            ?? _gameEscrowDeployDebug?.transactionHash
+            ?? null,
+        valueTon: fields.valueTon ?? _gameEscrowDeployDebug?.valueTon ?? null,
+        snapshotHash: fields.snapshotHash
+            ?? _gameEscrowDeployDebug?.snapshotHash
+            ?? null
+    };
+
+    return getGameEscrowDeployDebug();
+
+}
+
+/**
+ * @returns {object|null}
+ */
+export function getGameEscrowDeployDebug() {
+
+    if (!_gameEscrowDeployDebug) {
+
+        return null;
+
+    }
+
+    return Object.freeze({ ..._gameEscrowDeployDebug });
+
+}
+
+/**
+ * Print TON_GAME_ESCROW_DEPLOY_DEBUG block to stdout (Railway-visible).
+ */
+export function printGameEscrowDeployDebug(fields = null) {
+
+    const snapshot = fields
+        ? Object.freeze({ ...fields })
+        : getGameEscrowDeployDebug();
+
+    if (!snapshot) {
+
+        return;
+
+    }
+
+    printDeployBlock("TON_GAME_ESCROW_DEPLOY_DEBUG", {
+        mode: snapshot.mode,
+        contractAddress: snapshot.contractAddress,
+        codeHash: snapshot.codeHash,
+        dataHash: snapshot.dataHash,
+        oracle: snapshot.oracle,
+        owner: snapshot.owner,
+        transactionHash: snapshot.transactionHash,
+        valueTon: snapshot.valueTon ?? null,
+        snapshotHash: snapshot.snapshotHash ?? null
+    });
 
 }
 
@@ -182,7 +281,9 @@ export function getTonDeployDebug() {
         errorMessage: _tonDeployDebug.errorMessage,
         tonCenterStatus: _tonDeployDebug.tonCenterStatus,
         tonCenterResponse: _tonDeployDebug.tonCenterResponse,
-        tonCenterEndpoint: _tonDeployDebug.tonCenterEndpoint
+        tonCenterEndpoint: _tonDeployDebug.tonCenterEndpoint,
+        // R7.66E — nested GameEscrow deploy diagnostics for lifecycle archive.
+        gameEscrowDeploy: getGameEscrowDeployDebug()
     });
 
 }
@@ -190,6 +291,8 @@ export function getTonDeployDebug() {
 export function resetTonDeployDebugForTests() {
 
     _tonDeployDebug = null;
+
+    _gameEscrowDeployDebug = null;
 
     _lastStageAtByRoom.clear();
 
