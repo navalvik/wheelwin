@@ -84,6 +84,50 @@ export function serializeInitGameBody({
 
 }
 
+/**
+ * R7.66H — GameEscrow Tact INIT_GAME body (matches contracts/game_escrow ABI).
+ *
+ * Layout:
+ *   op:uint32 oracle:MsgAddress owner:MsgAddress
+ *   contractIdHash:uint256 ^[ snapshotHash:uint256 ]
+ */
+export function serializeGameEscrowInitGameBody({
+    oracle,
+    owner,
+    contractIdHash,
+    snapshotHash
+}) {
+
+    try {
+
+        const oracleAddress = Address.parse(String(oracle).trim());
+        const ownerAddress = Address.parse(String(owner).trim());
+        const contractIdHashInt = snapshotHashToUint256(contractIdHash);
+        const snapshotHashInt = snapshotHashToUint256(snapshotHash);
+
+        const tail = beginCell()
+            .storeUint(snapshotHashInt, 256)
+            .endCell();
+
+        return beginCell()
+            .storeUint(GAME_CONTRACT_OPCODES.INIT_GAME, 32)
+            .storeAddress(oracleAddress)
+            .storeAddress(ownerAddress)
+            .storeUint(contractIdHashInt, 256)
+            .storeRef(tail)
+            .endCell();
+
+    } catch (error) {
+
+        throw new SerializationError(
+            "Failed to serialize GameEscrow INIT_GAME body",
+            { cause: error?.message ?? null }
+        );
+
+    }
+
+}
+
 export function serializeSettleBody({
     winnerWallet,
     winnerAmount,

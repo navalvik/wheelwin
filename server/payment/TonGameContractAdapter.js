@@ -55,6 +55,7 @@ import {
     serializeArchiveBody,
     serializeDeployBocPlaceholder,
     serializeEmergencyCancelBody,
+    serializeGameEscrowInitGameBody,
     serializeSettleBocPlaceholder
 } from "./ton/gameContract/GameContractSerializer.js";
 import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
@@ -493,6 +494,93 @@ export class TonGameContractAdapter {
             network: this._service().getActiveNetwork(),
             exists
         });
+
+    }
+
+    /**
+     * R7.66H — Send GameEscrow INIT_GAME (Tact ABI) to an already-deployed escrow.
+     */
+    async initGame({
+        contractAddress,
+        oracle,
+        owner,
+        contractIdHash,
+        snapshotHash
+    }) {
+
+        if (!contractAddress || !oracle || !owner || !contractIdHash || !snapshotHash) {
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "invalid_init_game_request"
+            });
+
+        }
+
+        const mode = resolveGameEscrowMode(this._tonConfig?.gameEscrowMode);
+
+        if (mode !== GAME_ESCROW_MODE_GAME) {
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "init_game_requires_game_escrow_mode"
+            });
+
+        }
+
+        try {
+
+            const body = serializeGameEscrowInitGameBody({
+                oracle,
+                owner,
+                contractIdHash,
+                snapshotHash
+            });
+
+            if (this._canBroadcast()) {
+
+                const txId = await this._sendOracleMessage({
+                    to: contractAddress,
+                    body,
+                    valueTon: "0.05",
+                    bounce: false,
+                    resolveAccountTxHash: true
+                });
+
+                return createOperationResultDTO({
+                    ok: true,
+                    txId,
+                    completedAt: Date.now()
+                });
+
+            }
+
+            await this._service().broadcastTransaction(
+                Buffer.from(
+                    `init:${contractAddress}:${String(snapshotHash).slice(0, 16)}`
+                ).toString("base64")
+            );
+
+            const txId = `ton_init_${String(snapshotHash).replace(/[^a-fA-F0-9]/g, "").slice(0, 16)}`;
+
+            return createOperationResultDTO({
+                ok: true,
+                txId,
+                completedAt: Date.now()
+            });
+
+        } catch (error) {
+
+            this._logError(
+                `TON GameEscrow INIT_GAME failed | ${error?.message ?? error}`
+            );
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "init_game_failed"
+            });
+
+        }
 
     }
 
