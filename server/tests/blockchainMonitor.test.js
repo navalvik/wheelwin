@@ -520,6 +520,127 @@ async function main() {
         console.log("  invalid blockchain response: OK");
     }
 
+    // --- R7.69B GameEscrow payment state + watch dedupe ---
+
+    {
+        const logger = createLogger();
+
+        const eventBus = new EventBus({
+            logger,
+            eventBusConfig: { logEvents: false, showDebugPanel: false }
+        });
+
+        eventBus.initialize();
+
+        const adapter = {
+            async getPaidMask() {
+
+                return 0b101;
+
+            },
+            async getTotalPaid() {
+
+                return 30n;
+
+            },
+            async getRequiredTotal() {
+
+                return 30n;
+
+            },
+            async getPlayerPayment(_address, index) {
+
+                return {
+                    index,
+                    wallet: friendlyAddress(`seat-${index}`),
+                    requiredStake: 10n,
+                    paid: (0b101 & (1 << index)) !== 0
+                };
+
+            }
+        };
+
+        const monitor = new BlockchainMonitor({
+            logger,
+            eventBus,
+            transport: new MockTonTransport(),
+            contractAdapter: adapter,
+            pollIntervalMs: 50_000
+        });
+
+        monitor.initialize();
+
+        const state = await monitor.readGameEscrowPaymentState(
+            friendlyAddress("escrow"),
+            { playerCount: 3 }
+        );
+
+        assert.equal(state.paidMask, 0b101);
+
+        assert.equal(state.totalPaid, 30n);
+
+        assert.equal(state.players[0].paid, true);
+
+        assert.equal(state.players[1].paid, false);
+
+        assert.equal(state.players[2].paid, true);
+
+        monitor.setContractAdapter(null);
+
+        assert.equal(
+            await monitor.readGameEscrowPaymentState(friendlyAddress("escrow")),
+            null
+        );
+
+        monitor.setContractAdapter(adapter);
+
+        const roomId = "room-dedupe";
+
+        const stakeEvents = [];
+
+        eventBus.subscribe(EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED, (envelope) => {
+
+            stakeEvents.push(envelope.payload);
+
+        });
+
+        monitor.watchPayment({
+            roomId,
+            gameId: "game-1",
+            playerId: "p1",
+            contractAddress: friendlyAddress("escrow"),
+            paymentReference: "ref-1",
+            expectedGram: 10,
+            expectedWallet: friendlyAddress("seat-0"),
+            playerIndex: 0
+        });
+
+        monitor.watchPayment({
+            roomId,
+            gameId: "game-1",
+            playerId: "p1",
+            contractAddress: friendlyAddress("escrow"),
+            paymentReference: "ref-1",
+            expectedGram: 10,
+            expectedWallet: friendlyAddress("seat-0"),
+            playerIndex: 0
+        });
+
+        assert.equal(
+            monitor.exportCheckpoint().paymentWatches.length,
+            1,
+            "duplicate watchPayment must not create duplicate watchers"
+        );
+
+        assert.equal(stakeEvents.length, 0, "sync path must not emit stake confirmed");
+
+        monitor.shutdown();
+
+        eventBus.shutdown();
+
+        console.log("  R7.69B GameEscrow getters + watch dedupe: OK");
+    }
+
     console.log("blockchainMonitor.test.js: all assertions passed");
 }
 

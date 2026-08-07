@@ -1235,6 +1235,9 @@ class WheelWinApplication {
 
         this._gameContractDeployAdapter = deployAdapter;
 
+        // R7.69B — GameEscrow getters for payment recovery / reconnect sync.
+        this._blockchainMonitor.setContractAdapter?.(deployAdapter);
+
         this._gameContractManager = new GameContractManager({
             logger: this._logger,
             eventBus: this._eventBus,

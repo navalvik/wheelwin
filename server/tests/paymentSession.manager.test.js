@@ -48,7 +48,8 @@ function createLogger() {
         info() {},
         error() {},
         warn() {},
-        debug() {}
+        debug() {},
+        decisionTrace() {}
     };
 
 }
@@ -99,15 +100,69 @@ function createHarness({
 
     const blockchainMonitor = {
         watches: [],
+        stakeConfirmedEvents: [],
+        paidMaskByAddress: new Map(),
         watchPayment(payload) {
 
-            this.watches.push(payload);
+            const key = `${payload.roomId}:${payload.playerId}`;
+
+            const existing = this.watches.findIndex(
+                (entry) => `${entry.roomId}:${entry.playerId}` === key
+            );
+
+            if (existing >= 0) {
+
+                this.watches[existing] = payload;
+
+            } else {
+
+                this.watches.push(payload);
+
+            }
 
         },
-        unwatchPayment() {},
-        stopRoom() {
+        unwatchPayment(roomId, playerId) {
 
-            this.watches = [];
+            this.watches = this.watches.filter(
+                (entry) => !(entry.roomId === roomId && entry.playerId === playerId)
+            );
+
+        },
+        stopRoom(roomId) {
+
+            this.watches = this.watches.filter((entry) => entry.roomId !== roomId);
+
+        },
+        async readGameEscrowPaymentState(contractAddress, { playerCount = 3 } = {}) {
+
+            if (!this.paidMaskByAddress.has(contractAddress)) {
+
+                return null;
+
+            }
+
+            const paidMask = Number(this.paidMaskByAddress.get(contractAddress));
+
+            const players = [];
+
+            for (let index = 0; index < playerCount; index += 1) {
+
+                players.push({
+                    index,
+                    paid: (paidMask & (1 << index)) !== 0,
+                    wallet: null,
+                    requiredStake: null
+                });
+
+            }
+
+            return {
+                contractAddress,
+                paidMask,
+                totalPaid: 0n,
+                requiredTotal: 0n,
+                players
+            };
 
         }
     };
@@ -582,7 +637,13 @@ async function main() {
             withWalletManager: true
         });
 
-        const summary = second.manager.restorePaymentSessions();
+        // Backend cache says p1 paid; GameEscrow agrees (bit 0).
+        second.blockchainMonitor.paidMaskByAddress.set(
+            second.contractAddress,
+            0b001
+        );
+
+        const summary = await second.manager.restorePaymentSessions();
 
         assert.equal(summary.restored, 1);
 
@@ -592,11 +653,188 @@ async function main() {
 
         assert.equal(restored.confirmedCount(), 1);
 
-        assert.ok(second.blockchainMonitor.watches.length >= 2);
+        // Unpaid seats only — p2 and p3.
+        assert.equal(second.blockchainMonitor.watches.length, 2);
 
         TonFinancialPersistence.destroyStorage(dataDir);
 
         console.log("  persistence + restore: OK");
+    }
+
+    // --- R7.69B GameEscrow recovery sync ---
+
+    {
+        // Backend restart: cache unpaid, chain paid → restore paid, no repay watch.
+        const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-payment-escrow-"));
+
+        const first = createHarness({
+            dataDir,
+            withContract: true,
+            withWalletManager: true
+        });
+
+        first.manager.createPaymentSession("room-1", {
+            contractAddress: first.contractAddress
+        });
+
+        // Leave p1 unpaid in persistence (simulate missed confirmation).
+        first.persistence.shutdown();
+
+        const second = createHarness({
+            dataDir,
+            withContract: true,
+            withWalletManager: true
+        });
+
+        second.blockchainMonitor.paidMaskByAddress.set(
+            second.contractAddress,
+            0b001
+        );
+
+        const summary = await second.manager.restorePaymentSessions();
+
+        assert.equal(summary.restored, 1);
+
+        assert.ok(summary.syncedFromChain >= 1);
+
+        const restored = second.manager.getSession("room-1");
+
+        assert.equal(
+            restored.findParticipant("p1").status,
+            PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED,
+            "GameEscrow paidMask restores p1 as paid after restart"
+        );
+
+        assert.equal(
+            second.blockchainMonitor.watches.some((w) => w.playerId === "p1"),
+            false,
+            "already-paid seat must not re-register payment watch"
+        );
+
+        TonFinancialPersistence.destroyStorage(dataDir);
+
+        console.log("  R7.69B backend restart GameEscrow sync: OK");
+    }
+
+    {
+        // Browser refresh / reconnect: sync unpaid local → chain paid.
+        const { manager, blockchainMonitor, contractAddress } = createHarness({
+            withContract: true,
+            withWalletManager: true
+        });
+
+        manager.createPaymentSession("room-1", {
+            contractAddress
+        });
+
+        assert.equal(
+            manager.getSession("room-1").findParticipant("p1").status,
+            PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
+        );
+
+        blockchainMonitor.paidMaskByAddress.set(contractAddress, 0b011);
+
+        const sync = await manager.syncFromGameEscrow("room-1");
+
+        assert.equal(sync.ok, true);
+
+        assert.equal(sync.synced, 2);
+
+        const session = manager.getSession("room-1");
+
+        assert.equal(
+            session.findParticipant("p1").status,
+            PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+        );
+
+        assert.equal(
+            session.findParticipant("p2").status,
+            PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+        );
+
+        assert.equal(
+            session.findParticipant("p3").status,
+            PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
+        );
+
+        // Duplicate reconnect must not double-sync / re-confirm.
+        const again = await manager.syncFromGameEscrow("room-1");
+
+        assert.equal(again.synced, 0);
+
+        assert.equal(session.confirmedCount(), 2);
+
+        console.log("  R7.69B reconnect / refresh GameEscrow sync: OK");
+    }
+
+    {
+        // GameEscrow wins over stale backend confirmed cache.
+        const { manager, blockchainMonitor, contractAddress } = createHarness({
+            withContract: true,
+            withWalletManager: true
+        });
+
+        manager.createPaymentSession("room-1", {
+            contractAddress
+        });
+
+        manager.confirmBlockchainPayment("room-1", "p1", { txHash: "stale-tx" });
+
+        assert.equal(
+            manager.getSession("room-1").findParticipant("p1").status,
+            PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+        );
+
+        blockchainMonitor.paidMaskByAddress.set(contractAddress, 0);
+
+        const sync = await manager.syncFromGameEscrow("room-1");
+
+        assert.equal(sync.demoted, 1);
+
+        assert.equal(
+            manager.getSession("room-1").findParticipant("p1").status,
+            PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION,
+            "GameEscrow unpaid demotes stale backend confirmation"
+        );
+
+        console.log("  R7.69B GameEscrow authority over backend cache: OK");
+    }
+
+    {
+        // Multi-player sync: already-paid peers match GameEscrow exactly.
+        const { manager, blockchainMonitor, contractAddress } = createHarness({
+            withContract: true,
+            withWalletManager: true
+        });
+
+        manager.createPaymentSession("room-1", {
+            contractAddress
+        });
+
+        // OPEN_PAYMENTS-equivalent: seats awaiting; chain already has p2+p3 paid.
+        blockchainMonitor.paidMaskByAddress.set(contractAddress, 0b110);
+
+        await manager.syncFromGameEscrow("room-1");
+
+        const session = manager.getSession("room-1");
+
+        assert.equal(session.findParticipant("p1").status,
+            PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION);
+
+        assert.equal(session.findParticipant("p2").status,
+            PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED);
+
+        assert.equal(session.findParticipant("p3").status,
+            PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED);
+
+        // After READY-equivalent all paid.
+        blockchainMonitor.paidMaskByAddress.set(contractAddress, 0b111);
+
+        await manager.syncFromGameEscrow("room-1");
+
+        assert.equal(session.status, PAYMENT_SESSION_STATUS.FULLY_PAID);
+
+        console.log("  R7.69B multi-player / OPEN_PAYMENTS / READY sync: OK");
     }
 
     // --- GameContractManager notification via completion event ---

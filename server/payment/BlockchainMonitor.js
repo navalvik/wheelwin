@@ -955,6 +955,103 @@ export class BlockchainMonitor {
 
     }
 
+    /**
+     * R7.69B — Attach TonGameContractAdapter after construction (app.js creates
+     * the adapter after BlockchainMonitor).
+     */
+    setContractAdapter(contractAdapter) {
+
+        this._contractAdapter = contractAdapter ?? null;
+
+    }
+
+    /**
+     * R7.69B — Read authoritative GameEscrow payment state via getters.
+     * Returns null when the adapter / getters are unavailable.
+     */
+    async readGameEscrowPaymentState(contractAddress, {
+        playerCount = 3
+    } = {}) {
+
+        if (!contractAddress || !this._contractAdapter?.getPaidMask) {
+
+            return null;
+
+        }
+
+        const paidMask = Number(await this._contractAdapter.getPaidMask(contractAddress));
+
+        let totalPaid = null;
+
+        let requiredTotal = null;
+
+        if (this._contractAdapter.getTotalPaid) {
+
+            totalPaid = await this._contractAdapter.getTotalPaid(contractAddress);
+
+        }
+
+        if (this._contractAdapter.getRequiredTotal) {
+
+            requiredTotal = await this._contractAdapter.getRequiredTotal(contractAddress);
+
+        }
+
+        const players = [];
+
+        const count = Number.isFinite(Number(playerCount))
+            ? Math.max(0, Number(playerCount))
+            : 3;
+
+        for (let index = 0; index < count; index += 1) {
+
+            const bit = 1 << index;
+
+            let player = {
+                index,
+                paid: (paidMask & bit) !== 0,
+                wallet: null,
+                requiredStake: null
+            };
+
+            if (this._contractAdapter.getPlayerPayment) {
+
+                try {
+
+                    const detail = await this._contractAdapter.getPlayerPayment(
+                        contractAddress,
+                        index
+                    );
+
+                    player = {
+                        index,
+                        paid: detail?.paid === true || (paidMask & bit) !== 0,
+                        wallet: detail?.wallet ?? null,
+                        requiredStake: detail?.requiredStake ?? null
+                    };
+
+                } catch {
+
+                    // Mask bit remains authoritative when per-seat getter fails.
+
+                }
+
+            }
+
+            players.push(Object.freeze(player));
+
+        }
+
+        return Object.freeze({
+            contractAddress,
+            paidMask,
+            totalPaid,
+            requiredTotal,
+            players: Object.freeze(players)
+        });
+
+    }
+
     // -------------------------------------------------------------------------
     // Legacy payment observation API (PaymentSessionManager)
     // -------------------------------------------------------------------------
@@ -984,7 +1081,10 @@ export class BlockchainMonitor {
 
         const key = this._watchKey(roomId, playerId);
 
-        this._watches.set(key, {
+        // R7.69B — idempotent re-register; Map key prevents duplicate watchers.
+        const existing = this._watches.get(key);
+
+        const nextWatch = {
             roomId,
             gameId,
             playerId,
@@ -997,8 +1097,10 @@ export class BlockchainMonitor {
             expectedWallet: canonicalizeTonWalletAddress(expectedWallet),
             paymentDeadline,
             playerIndex: playerIndex == null ? null : Number(playerIndex),
-            startedAt: this._now()
-        });
+            startedAt: existing?.startedAt ?? this._now()
+        };
+
+        this._watches.set(key, nextWatch);
 
         if (
             this._state === BLOCKCHAIN_MONITOR_STATE.RUNNING
@@ -1021,15 +1123,19 @@ export class BlockchainMonitor {
 
         }
 
-        this._audit(roomId, {
-            type: "WATCH_STARTED",
-            gameId,
-            playerId,
-            contractAddress,
-            paymentReference,
-            expectedGram,
-            expectedWallet
-        });
+        if (!existing) {
+
+            this._audit(roomId, {
+                type: "WATCH_STARTED",
+                gameId,
+                playerId,
+                contractAddress,
+                paymentReference,
+                expectedGram,
+                expectedWallet
+            });
+
+        }
 
         return key;
 

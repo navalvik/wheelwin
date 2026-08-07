@@ -40,6 +40,25 @@ export function createParticipantDTO({
 
 }
 
+/**
+ * R7.69B — GameEscrow get_player_payment result.
+ */
+export function createPlayerPaymentDTO({
+    index,
+    wallet = null,
+    requiredStake = null,
+    paid = false
+}) {
+
+    return Object.freeze({
+        index,
+        wallet,
+        requiredStake,
+        paid: paid === true
+    });
+
+}
+
 export function createSettlementDTO({
     address,
     status,

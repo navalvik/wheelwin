@@ -13,7 +13,10 @@ import { TonGameContractAdapter } from "../payment/TonGameContractAdapter.js";
 import {
     decodeContractState,
     decodePaidMask,
+    decodePlayerPayment,
+    decodeRequiredTotal,
     decodeSettlementState,
+    decodeTotalPaid,
     decodeWinner
 } from "../payment/ton/gameContract/GameContractDeserializer.js";
 import {
@@ -161,6 +164,19 @@ const defaultGetMethodHandlers = {
     }),
     get_paid_mask: () => ({
         stack: [{ value: 7 }]
+    }),
+    get_total_paid: () => ({
+        stack: [{ value: 30n }]
+    }),
+    get_required_total: () => ({
+        stack: [{ value: 30n }]
+    }),
+    get_player_payment: () => ({
+        stack: [
+            { value: friendlyAddress("player-1") },
+            { value: 10n },
+            { value: 1 }
+        ]
     }),
     get_participants: () => ({
         stack: [[
@@ -316,6 +332,59 @@ async function main() {
         assert.equal(mask, 5);
 
         console.log("  decode paid mask: OK");
+    }
+
+    // --- R7.69B decode payment getters ---
+
+    {
+        assert.equal(decodeTotalPaid({ stack: [{ value: 42n }] }), 42n);
+
+        assert.equal(decodeRequiredTotal({ stack: [{ value: 99n }] }), 99n);
+
+        const player = decodePlayerPayment({
+            stack: [
+                { value: friendlyAddress("player-2") },
+                { value: 15n },
+                { value: 1 }
+            ]
+        }, 1);
+
+        assert.equal(player.index, 1);
+
+        assert.equal(player.paid, true);
+
+        assert.equal(player.requiredStake, 15n);
+
+        console.log("  decode total/required/player payment: OK");
+    }
+
+    // --- R7.69B adapter payment getters ---
+
+    {
+        const tonService = createMockTonService({
+            getMethodHandlers: defaultGetMethodHandlers
+        });
+
+        tonService.getTransport().seedAddressInfo(contractAddress, {
+            state: "active",
+            balance: "1000000000"
+        });
+
+        const adapter = createAdapter(tonService);
+
+        assert.equal(await adapter.getPaidMask(contractAddress), 7);
+
+        assert.equal(await adapter.getTotalPaid(contractAddress), 30n);
+
+        assert.equal(await adapter.getRequiredTotal(contractAddress), 30n);
+
+        const seat = await adapter.getPlayerPayment(contractAddress, 0);
+
+        assert.equal(seat.paid, true);
+
+        assert.equal(seat.requiredStake, 10n);
+
+        console.log("  adapter GameEscrow payment getters: OK");
     }
 
     // --- decode balances ---

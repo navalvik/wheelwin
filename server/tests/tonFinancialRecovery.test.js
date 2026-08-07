@@ -585,7 +585,7 @@ function createRecoveryHarness({
 
     harness.recovery._phaseOrderGuard = 4;
 
-    const second = harness.recovery.recoverBlockchain();
+    const second = await harness.recovery.recoverBlockchain();
 
     assert.equal(harness.blockchainMonitor.contracts.size, firstContracts);
 

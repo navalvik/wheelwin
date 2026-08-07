@@ -51,7 +51,8 @@ export class PaymentParticipant {
         txHash = null,
         paidAmount = 0,
         confirmationStatus = PAYMENT_CONFIRMATION_STATUS.NONE,
-        confirmedAt = null
+        confirmedAt = null,
+        playerIndex = null
     }) {
 
         this.playerId = playerId;
@@ -76,6 +77,8 @@ export class PaymentParticipant {
 
         this.confirmedAt = confirmedAt ?? null;
 
+        this.playerIndex = playerIndex == null ? null : Number(playerIndex);
+
     }
 
     toSnapshot() {
@@ -94,7 +97,8 @@ export class PaymentParticipant {
             transactionHash: this.txHash,
             paidAmount: this.paidAmount,
             confirmationStatus: this.confirmationStatus,
-            confirmedAt: this.confirmedAt
+            confirmedAt: this.confirmedAt,
+            playerIndex: this.playerIndex
         });
 
     }

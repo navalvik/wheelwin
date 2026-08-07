@@ -36,7 +36,8 @@ const PAYMENT_READY_CONTRACT_STATUSES = new Set([
 /**
  * P6.3 / T2.7 — Authoritative Payment Session manager.
  *
- * Owns payment orchestration only. Never communicates with TON directly.
+ * Owns payment orchestration only. Never communicates with TON directly —
+ * GameEscrow reads go through BlockchainMonitor (+ TonGameContractAdapter).
  */
 export class PaymentSessionManager {
 
@@ -607,7 +608,8 @@ export class PaymentSessionManager {
             return Object.freeze({
                 restored: 0,
                 recovered: 0,
-                rewatched: 0
+                rewatched: 0,
+                syncedFromChain: 0
             });
 
         }
@@ -621,6 +623,8 @@ export class PaymentSessionManager {
         let recovered = 0;
 
         let rewatched = 0;
+
+        const pendingSync = [];
 
         for (const record of records) {
 
@@ -652,6 +656,17 @@ export class PaymentSessionManager {
 
                 }
 
+                // R7.69B — restore seat indices for GameEscrow paidMask mapping.
+                session.participants.forEach((participant, index) => {
+
+                    if (participant.playerIndex == null) {
+
+                        participant.playerIndex = index;
+
+                    }
+
+                });
+
                 this._indexSession(session);
 
                 if (session.paymentDeadline && session.paymentDeadline > Date.now()) {
@@ -660,13 +675,7 @@ export class PaymentSessionManager {
 
                 }
 
-                const contract = this._resolveContract(session.roomId, session.contractId);
-
-                if (contract?.contractAddress && session.isInProgress()) {
-
-                    rewatched += this._registerBlockchainWatches(session, contract.contractAddress);
-
-                }
+                pendingSync.push(session);
 
                 this._emitDomain(EVENT_TYPES.PAYMENT_SESSION_RECOVERED, session);
 
@@ -683,11 +692,325 @@ export class PaymentSessionManager {
 
         }
 
+        return this._finishPaymentSessionRestore({
+            restored,
+            recovered,
+            rewatched,
+            pendingSync
+        });
+
+    }
+
+    /**
+     * R7.69B — Finish restore: sync paid seats from GameEscrow, then rewatch unpaid.
+     * Returns a Promise when chain sync is available; otherwise a sync summary.
+     */
+    _finishPaymentSessionRestore({
+        restored,
+        recovered,
+        rewatched,
+        pendingSync
+    }) {
+
+        const applyWatches = (syncedFromChain = 0) => {
+
+            let watchCount = rewatched;
+
+            for (const session of pendingSync) {
+
+                if (!session.isInProgress()) {
+
+                    continue;
+
+                }
+
+                const contract = this._resolveContract(session.roomId, session.contractId);
+
+                const contractAddress = contract?.contractAddress
+                    ?? session.participants?.[0]?.contractAddress
+                    ?? null;
+
+                if (contractAddress) {
+
+                    watchCount += this._registerBlockchainWatches(session, contractAddress);
+
+                }
+
+            }
+
+            this._log(
+                `RESTORE | restored=${restored} | recovered=${recovered} | `
+                    + `rewatched=${watchCount} | syncedFromChain=${syncedFromChain}`
+            );
+
+            return Object.freeze({
+                restored,
+                recovered,
+                rewatched: watchCount,
+                syncedFromChain
+            });
+
+        };
+
+        if (
+            pendingSync.length === 0
+            || !this._blockchainMonitor?.readGameEscrowPaymentState
+        ) {
+
+            return applyWatches(0);
+
+        }
+
+        return (async () => {
+
+            let syncedFromChain = 0;
+
+            for (const session of pendingSync) {
+
+                try {
+
+                    const sync = await this.syncFromGameEscrow(session.roomId);
+
+                    syncedFromChain += sync?.synced ?? 0;
+
+                } catch (error) {
+
+                    this._logger?.warn?.(
+                        `GameEscrow payment sync skipped on restore | `
+                            + `roomId=${session.roomId} | ${error?.message ?? error}`
+                    );
+
+                }
+
+            }
+
+            return applyWatches(syncedFromChain);
+
+        })();
+
+    }
+
+    /**
+     * R7.69B — Align PaymentSession participants with GameEscrow paidMask.
+     * GameEscrow is authoritative; backend cache never overrides chain.
+     */
+    async syncFromGameEscrow(roomId, {
+        contractAddress: explicitAddress = null
+    } = {}) {
+
+        this._assertInitialized();
+
+        const session = this._sessionsByRoom.get(roomId);
+
+        if (!session || !session.isInProgress()) {
+
+            return Object.freeze({
+                ok: false,
+                synced: 0,
+                demoted: 0,
+                reason: "no_active_session"
+            });
+
+        }
+
+        const contract = this._resolveContract(session.roomId, session.contractId);
+
+        const contractAddress = explicitAddress
+            ?? contract?.contractAddress
+            ?? session.participants.find((p) => p.contractAddress)?.contractAddress
+            ?? null;
+
+        if (!contractAddress) {
+
+            return Object.freeze({
+                ok: false,
+                synced: 0,
+                demoted: 0,
+                reason: "no_contract_address"
+            });
+
+        }
+
+        if (!this._blockchainMonitor?.readGameEscrowPaymentState) {
+
+            return Object.freeze({
+                ok: false,
+                synced: 0,
+                demoted: 0,
+                reason: "monitor_unavailable"
+            });
+
+        }
+
+        let chainState;
+
+        try {
+
+            chainState = await this._blockchainMonitor.readGameEscrowPaymentState(
+                contractAddress,
+                { playerCount: session.participants.length }
+            );
+
+        } catch (error) {
+
+            this._logger?.warn?.(
+                `GameEscrow payment state read failed | roomId=${roomId} | `
+                    + `${error?.message ?? error}`
+            );
+
+            return Object.freeze({
+                ok: false,
+                synced: 0,
+                demoted: 0,
+                reason: error?.message ?? "chain_read_failed"
+            });
+
+        }
+
+        if (!chainState) {
+
+            return Object.freeze({
+                ok: false,
+                synced: 0,
+                demoted: 0,
+                reason: "chain_state_unavailable"
+            });
+
+        }
+
+        let synced = 0;
+
+        let demoted = 0;
+
+        let changed = false;
+
+        session.participants.forEach((participant, index) => {
+
+            if (participant.playerIndex == null) {
+
+                participant.playerIndex = index;
+
+            }
+
+            const seatIndex = Number(participant.playerIndex);
+
+            const bit = 1 << seatIndex;
+
+            const onChainPaid = (Number(chainState.paidMask) & bit) !== 0;
+
+            const playerDetail = chainState.players?.find(
+                (entry) => Number(entry.index) === seatIndex
+            );
+
+            const paid = playerDetail?.paid === true || onChainPaid;
+
+            if (paid) {
+
+                if (participant.status !== PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED) {
+
+                    this._applyGameEscrowConfirmed(session, participant, {
+                        amount: participant.requiredGram
+                    });
+
+                    synced += 1;
+
+                    changed = true;
+
+                }
+
+                this._blockchainMonitor?.unwatchPayment?.(roomId, participant.playerId);
+
+            } else if (
+                participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+            ) {
+
+                // GameEscrow wins over stale backend cache.
+                participant.status = PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION;
+
+                participant.confirmationStatus = PAYMENT_CONFIRMATION_STATUS.NONE;
+
+                participant.confirmedAt = null;
+
+                participant.txHash = null;
+
+                demoted += 1;
+
+                changed = true;
+
+            }
+
+        });
+
+        if (changed) {
+
+            this._persistSession(session, "update");
+
+            this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+            this._maybeCompleteSession(session);
+
+        }
+
         this._log(
-            `RESTORE | restored=${restored} | recovered=${recovered} | rewatched=${rewatched}`
+            `GAME_ESCROW_SYNC | roomId=${roomId} | paidMask=${chainState.paidMask} | `
+                + `synced=${synced} | demoted=${demoted}`
         );
 
-        return Object.freeze({ restored, recovered, rewatched });
+        return Object.freeze({
+            ok: true,
+            synced,
+            demoted,
+            paidMask: chainState.paidMask,
+            totalPaid: chainState.totalPaid,
+            requiredTotal: chainState.requiredTotal
+        });
+
+    }
+
+    /**
+     * R7.69B — Mark seat paid from GameEscrow without emitting stake-confirmed
+     * observation events (avoids duplicate GAME_ESCROW_STAKE_CONFIRMED).
+     */
+    _applyGameEscrowConfirmed(session, participant, { amount = null } = {}) {
+
+        if (participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED) {
+
+            return;
+
+        }
+
+        if (amount != null && Number.isFinite(Number(amount))) {
+
+            participant.paidAmount = Number(amount);
+
+        } else if (!participant.paidAmount) {
+
+            participant.paidAmount = participant.requiredGram;
+
+        }
+
+        participant.confirmationStatus = PAYMENT_CONFIRMATION_STATUS.CONFIRMED;
+
+        participant.confirmedAt = Date.now();
+
+        participant.status = PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED;
+
+        session.addReceivedPayment({
+            playerId: participant.playerId,
+            walletAddress: participant.wallet,
+            amount: participant.paidAmount || participant.requiredGram,
+            transactionHash: participant.txHash ?? `game_escrow:${session.roomId}:${participant.playerId}`,
+            status: PAYMENT_CONFIRMATION_STATUS.CONFIRMED
+        });
+
+        this._lastConfirmationAt = Date.now();
+
+        this._emitDomain(EVENT_TYPES.PAYMENT_CONFIRMED, session, {
+            playerId: participant.playerId,
+            walletAddress: participant.wallet,
+            transactionHash: participant.txHash,
+            source: "game_escrow"
+        });
 
     }
 

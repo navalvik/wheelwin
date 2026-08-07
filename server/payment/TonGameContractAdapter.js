@@ -39,7 +39,10 @@ import {
     decodeContractState,
     decodePaidMask,
     decodeParticipants,
+    decodePlayerPayment,
+    decodeRequiredTotal,
     decodeSettlementState,
+    decodeTotalPaid,
     decodeWinner,
     decodeNetwork
 } from "./ton/gameContract/GameContractDeserializer.js";
@@ -728,6 +731,54 @@ export class TonGameContractAdapter {
 
     }
 
+    async getTotalPaid(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.TOTAL_PAID
+        );
+
+        return decodeTotalPaid(stack);
+
+    }
+
+    async getRequiredTotal(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.REQUIRED_TOTAL
+        );
+
+        return decodeRequiredTotal(stack);
+
+    }
+
+    async getPlayerPayment(contractAddress, playerIndex) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const index = Number(playerIndex);
+
+        if (!Number.isInteger(index) || index < 0) {
+
+            throw new Error(`Invalid playerIndex for get_player_payment: ${playerIndex}`);
+
+        }
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.PLAYER_PAYMENT,
+            [{ type: "int", value: String(index) }]
+        );
+
+        return decodePlayerPayment(stack, index);
+
+    }
+
     async getParticipants(contractAddress) {
 
         const address = this._parseAddress(contractAddress);
@@ -1048,7 +1099,7 @@ export class TonGameContractAdapter {
 
     }
 
-    async _runContractMethod(address, method) {
+    async _runContractMethod(address, method, stack = []) {
 
         if (!await this.contractExists(address)) {
 
@@ -1056,7 +1107,7 @@ export class TonGameContractAdapter {
 
         }
 
-        return this._service().runGetMethod(address, method, []);
+        return this._service().runGetMethod(address, method, stack);
 
     }
 

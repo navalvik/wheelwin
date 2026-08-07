@@ -7,6 +7,7 @@ import {
     createBalanceDTO,
     createContractStateDTO,
     createParticipantDTO,
+    createPlayerPaymentDTO,
     createSettlementDTO,
     createWinnerDTO
 } from "./GameContractDtos.js";
@@ -78,6 +79,51 @@ export function decodePaidMask(stackResult) {
     const stack = normalizeStack(stackResult);
 
     return readInt(stack, 0, GAME_CONTRACT_GET_METHODS.PAID_MASK);
+
+}
+
+export function decodeTotalPaid(stackResult) {
+
+    const stack = normalizeStack(stackResult);
+
+    return readBigInt(stack, 0, GAME_CONTRACT_GET_METHODS.TOTAL_PAID);
+
+}
+
+export function decodeRequiredTotal(stackResult) {
+
+    const stack = normalizeStack(stackResult);
+
+    return readBigInt(stack, 0, GAME_CONTRACT_GET_METHODS.REQUIRED_TOTAL);
+
+}
+
+/**
+ * R7.69B — Decode GameEscrow get_player_payment(index).
+ * Stack: player address, requiredStake, paid (0|1).
+ */
+export function decodePlayerPayment(stackResult, index = 0) {
+
+    const stack = normalizeStack(stackResult);
+
+    const wallet = readAddress(stack[0], 0, { optional: true });
+
+    const requiredStake = readBigInt(stack, 1, GAME_CONTRACT_GET_METHODS.PLAYER_PAYMENT, {
+        optional: true,
+        fallback: 0n
+    });
+
+    const paid = readInt(stack, 2, GAME_CONTRACT_GET_METHODS.PLAYER_PAYMENT, {
+        optional: true,
+        fallback: 0
+    }) === 1;
+
+    return createPlayerPaymentDTO({
+        index: Number(index) || 0,
+        wallet,
+        requiredStake,
+        paid
+    });
 
 }
 

@@ -206,7 +206,7 @@ export class TonFinancialRecovery {
             this._mergePhaseResult(
                 report,
                 FINANCIAL_RECOVERY_PHASE.PAYMENTS,
-                this.recoverPayments()
+                await this.recoverPayments()
             );
 
             this._mergePhaseResult(
@@ -218,7 +218,7 @@ export class TonFinancialRecovery {
             this._mergePhaseResult(
                 report,
                 FINANCIAL_RECOVERY_PHASE.BLOCKCHAIN,
-                this.recoverBlockchain()
+                await this.recoverBlockchain()
             );
 
             this._state = FINANCIAL_RECOVERY_STATE.VALIDATING;
@@ -465,7 +465,7 @@ export class TonFinancialRecovery {
 
     }
 
-    recoverPayments() {
+    async recoverPayments() {
 
         this._assertInitialized();
 
@@ -489,7 +489,7 @@ export class TonFinancialRecovery {
 
         try {
 
-            const summary = this._paymentSessionManager.restorePaymentSessions();
+            const summary = await this._paymentSessionManager.restorePaymentSessions();
 
             return Object.freeze({
                 ok: true,
@@ -553,7 +553,7 @@ export class TonFinancialRecovery {
 
     }
 
-    recoverBlockchain() {
+    async recoverBlockchain() {
 
         this._assertInitialized();
 
@@ -600,7 +600,7 @@ export class TonFinancialRecovery {
 
         }
 
-        const watchSummary = this._reregisterBlockchainWatches();
+        const watchSummary = await this._reregisterBlockchainWatches();
 
         this._currentPhase = FINANCIAL_RECOVERY_PHASE.WATCHES;
 
@@ -872,7 +872,7 @@ export class TonFinancialRecovery {
 
     }
 
-    _reregisterBlockchainWatches() {
+    async _reregisterBlockchainWatches() {
 
         if (!this._blockchainMonitor) {
 
@@ -950,11 +950,32 @@ export class TonFinancialRecovery {
 
                 const contractAddress = contract?.contractAddress
                     ?? session.contractAddress
+                    ?? session.participants?.find?.((p) => p.contractAddress)?.contractAddress
                     ?? null;
 
                 if (!contractAddress) {
 
                     continue;
+
+                }
+
+                // R7.69B — GameEscrow is payment authority before re-registering watches.
+                if (this._paymentSessionManager.syncFromGameEscrow) {
+
+                    try {
+
+                        await this._paymentSessionManager.syncFromGameEscrow(roomId, {
+                            contractAddress
+                        });
+
+                    } catch (error) {
+
+                        this._logger?.warn?.(
+                            `GameEscrow payment sync skipped before watches | `
+                                + `roomId=${roomId} | ${error?.message ?? error}`
+                        );
+
+                    }
 
                 }
 
@@ -978,7 +999,8 @@ export class TonFinancialRecovery {
                             paymentReference: participant.paymentReference,
                             expectedGram: participant.requiredGram,
                             expectedWallet: participant.wallet,
-                            paymentDeadline: session.paymentDeadline
+                            paymentDeadline: session.paymentDeadline,
+                            playerIndex: participant.playerIndex ?? null
                         });
 
                         paymentWatches += 1;
