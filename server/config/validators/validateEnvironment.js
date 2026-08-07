@@ -623,6 +623,31 @@ export function validateEnvironment(collector, env) {
 
     }
 
+    // R7.68 / R8.1A — Mainnet profile escrow mode must be explicit when set.
+    if (!isMissing(env.TON_MAINNET_GAME_ESCROW_MODE)) {
+
+        const mode = String(env.TON_MAINNET_GAME_ESCROW_MODE).trim().toLowerCase();
+
+        if (mode !== "v4" && mode !== "game") {
+
+            collector.add({
+                key: ENVIRONMENT_SCHEMA.TON_MAINNET_GAME_ESCROW_MODE.key,
+                reason: "Ambiguous or invalid mainnet escrow mode",
+                expectedType: "v4|game",
+                received: env.TON_MAINNET_GAME_ESCROW_MODE,
+                suggestedFix: ENVIRONMENT_SCHEMA.TON_MAINNET_GAME_ESCROW_MODE.suggestedFix
+            });
+
+        }
+
+    }
+
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.TON_MAINNET_DRY_RUN_DEBUG,
+        env.TON_MAINNET_DRY_RUN_DEBUG
+    );
+
     validateIntegerField(
         collector,
         ENVIRONMENT_SCHEMA.SETUP_DURATION_MS,

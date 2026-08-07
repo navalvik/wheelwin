@@ -664,6 +664,16 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix: "Set TON_GAME_ESCROW_ARTIFACT_SHA256 to the SHA256 of GameEscrow.code.boc."
     }),
+    // R8.1A — Mainnet dry-run diagnostics (does not enable Mainnet gameplay).
+    TON_MAINNET_DRY_RUN_DEBUG: Object.freeze({
+        key: "TON_MAINNET_DRY_RUN_DEBUG",
+        type: "boolean",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Set TON_MAINNET_DRY_RUN_DEBUG to true to print TON_MAINNET_DRY_RUN_DEBUG "
+            + "readiness diagnostics (network, wallet, artifact, escrow mode)."
+    }),
     SETUP_DURATION_MS: Object.freeze({
         key: "SETUP_DURATION_MS",
         type: "integer",

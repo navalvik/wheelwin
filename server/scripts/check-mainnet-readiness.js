@@ -1,10 +1,13 @@
 /**
- * R7.68 — Mainnet readiness validation (does not enable Mainnet).
+ * R7.68 / R8.1A — Mainnet dry-run readiness validation (does not enable Mainnet).
  *
  * Usage (from repo root or server/):
  *   node server/scripts/check-mainnet-readiness.js
  *
  * Exit 0 = PASS, 1 = FAIL.
+ *
+ * Optional:
+ *   TON_MAINNET_DRY_RUN_DEBUG=true  — print TON_MAINNET_DRY_RUN_DEBUG block
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -12,6 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import {
     evaluateMainnetReadiness,
+    printTonMainnetDryRunDebug,
     printTonMainnetReadiness,
     setTonMainnetReadiness
 } from "../diagnostics/TonMainnetReadiness.js";
@@ -91,6 +95,8 @@ async function probeWallet(profile) {
 
         return {
             walletType: null,
+            workchain: null,
+            walletId: null,
             walletAddress: null,
             balanceTon: null,
             balanceNano: null,
@@ -166,6 +172,8 @@ async function probeWallet(profile) {
 
     return {
         walletType: identity.walletContractType,
+        workchain: identity.workchain,
+        walletId: identity.walletId,
         walletAddress: identity.address,
         balanceTon,
         balanceNano,
@@ -174,27 +182,44 @@ async function probeWallet(profile) {
 
 }
 
+/**
+ * @param {string} label
+ * @param {"PASS"|"FAIL"|"SKIP"|string} status
+ * @param {string} [detail]
+ */
+function printCheck(label, status, detail = "") {
+
+    const suffix = detail ? ` — ${detail}` : "";
+    console.log(`  ${label}: ${status}${suffix}`);
+
+}
+
 async function main() {
 
     const profile = loadMainnetTonProfile(process.env);
     const wallet = await probeWallet(profile);
+    const requireLiveWallet = Boolean(process.env.TON_DEPLOYER_MNEMONIC?.trim());
 
     const readiness = evaluateMainnetReadiness({
         env: process.env,
         activeNetwork: process.env.TON_NETWORK || null,
         walletType: wallet.walletType,
+        workchain: wallet.workchain,
+        walletId: wallet.walletId,
         walletAddress: wallet.walletAddress,
         balanceTon: wallet.balanceTon,
         balanceNano: wallet.balanceNano,
         seqno: wallet.seqno,
-        requireLiveWallet: Boolean(process.env.TON_DEPLOYER_MNEMONIC?.trim())
+        requireLiveWallet
     });
 
     setTonMainnetReadiness(readiness);
     printTonMainnetReadiness();
+    printTonMainnetDryRunDebug(readiness);
 
     console.log("");
-    console.log(readiness.status);
+    console.log("=== R8.1A Mainnet Dry-Run Readiness ===");
+    console.log(readiness.status === "PASS" ? "PASS" : "FAIL");
 
     if (readiness.reasons.length > 0) {
 
@@ -208,33 +233,72 @@ async function main() {
 
     }
 
+    const checks = readiness.checks ?? {};
+
     console.log("");
     console.log("checks:");
-    console.log(`  wallet identity: ${
+    printCheck(
+        "configuration",
+        checks.configuration ?? "FAIL",
+        readiness.endpoint ? readiness.endpoint : "endpoint missing"
+    );
+    printCheck(
+        "wallet identity",
+        checks.walletIdentity ?? "SKIP",
         readiness.identityMatch === true
-            ? "PASS"
+            ? `${readiness.walletType} ${readiness.walletAddress}`
             : readiness.identityMatch === false
-                ? "FAIL"
-                : "SKIP"
-    }`);
-    console.log(`  balance: ${
-        readiness.balanceTon != null ? `PASS (${readiness.balanceTon} TON)` : "SKIP"
-    }`);
-    console.log(`  artifact: ${
-        readiness.artifactMatch === true
-            ? "PASS"
+                ? `mismatch derived=${readiness.walletAddress} expected=${readiness.expectedAddress}`
+                : readiness.expectedAddress
+                    ? (requireLiveWallet
+                        ? "mnemonic/identity incomplete"
+                        : "no mnemonic (SKIP)")
+                    : "expected address not configured (SKIP)"
+    );
+    printCheck(
+        "artifact",
+        checks.artifact ?? "FAIL",
+        readiness.artifactMatch === true && readiness.artifactLoadable === true
+            ? `sha256=${readiness.artifactHash} loadable=true`
             : readiness.artifactHash
-                ? "FAIL"
-                : "FAIL"
-    }`);
-    console.log(`  config: ${
-        readiness.oracleAddress && readiness.expectedAddress && readiness.endpoint
-            ? "PASS"
-            : "FAIL"
-    }`);
-    console.log(`  rollback availability: ${
-        readiness.rollbackAvailable ? "PASS (v4)" : "FAIL"
-    }`);
+                ? `hash/loadable check failed`
+                : "artifact missing"
+    );
+    printCheck(
+        "network profile",
+        checks.networkProfile ?? "FAIL",
+        `network=${readiness.network} escrow=${readiness.escrowMode}`
+    );
+    printCheck(
+        "rollback safety",
+        checks.rollbackSafety ?? "FAIL",
+        readiness.rollbackAvailable
+            ? "Mainnet still v4 / GameEscrow not production-enabled"
+            : "Mainnet GameEscrow must remain disabled (expect v4)"
+    );
+
+    if (readiness.balanceAvailable) {
+
+        printCheck(
+            "wallet balance",
+            "PASS",
+            `${readiness.balanceTon} TON`
+        );
+
+    } else if (requireLiveWallet) {
+
+        printCheck(
+            "wallet balance",
+            "SKIP",
+            "RPC balance unavailable (identity still validated)"
+        );
+
+    }
+
+    console.log("");
+    console.log(
+        `validationTimestamp=${new Date(readiness.validationTimestamp).toISOString()}`
+    );
 
     process.exit(readiness.status === "PASS" ? 0 : 1);
 

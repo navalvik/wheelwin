@@ -104,6 +104,7 @@ import {
 import {
     assertMainnetStartupSafe,
     evaluateMainnetReadiness,
+    printTonMainnetDryRunDebug,
     printTonMainnetReadiness,
     setTonMainnetReadiness
 } from "./diagnostics/TonMainnetReadiness.js";
@@ -3445,8 +3446,9 @@ class WheelWinApplication {
     }
 
     /**
-     * R7.68 — Print TON_MAINNET_READINESS and fail-fast when active network is mainnet.
+     * R7.68 / R8.1A — Print TON_MAINNET_READINESS and fail-fast when active network is mainnet.
      * Testnet runtime stays unchanged (report may FAIL until mainnet env is filled).
+     * Does not enable Mainnet GameEscrow gameplay.
      */
     async _runTonMainnetReadinessDiagnostics() {
 
@@ -3455,6 +3457,8 @@ class WheelWinApplication {
         const mainnetProfile = this._tonConfig?.profiles?.mainnet ?? null;
 
         let walletType = null;
+        let workchain = null;
+        let walletId = null;
         let walletAddress = null;
         let balanceTon = null;
         let balanceNano = null;
@@ -3470,6 +3474,8 @@ class WheelWinApplication {
                 });
 
                 walletType = identity.walletContractType;
+                workchain = identity.workchain;
+                walletId = identity.walletId;
                 walletAddress = identity.address;
 
                 try {
@@ -3515,6 +3521,8 @@ class WheelWinApplication {
                 ?? mainnetProfile?.artifactSha256
                 ?? null,
             requirePresent: network === "mainnet"
+                || this._tonConfig?.gameEscrowMode === "game",
+            requireLoadable: network === "mainnet"
                 || this._tonConfig?.gameEscrowMode === "game"
         });
 
@@ -3536,10 +3544,24 @@ class WheelWinApplication {
 
         }
 
+        if (
+            (network === "mainnet" || this._tonConfig?.gameEscrowMode === "game")
+            && artifact.loadable === false
+        ) {
+
+            throw new Error(
+                artifact.reasons.find((reason) => reason.includes("loadable"))
+                    ?? "GameEscrow artifact not loadable by StateInit builder"
+            );
+
+        }
+
         const readiness = evaluateMainnetReadiness({
             env: process.env,
             activeNetwork: network,
             walletType,
+            workchain,
+            walletId,
             walletAddress,
             balanceTon,
             balanceNano,
@@ -3549,6 +3571,7 @@ class WheelWinApplication {
 
         setTonMainnetReadiness(readiness);
         printTonMainnetReadiness();
+        printTonMainnetDryRunDebug(readiness);
 
         this._logger.startupLine(
             `TonMainnetReadiness=${readiness.status} `
@@ -3560,6 +3583,9 @@ class WheelWinApplication {
             assertMainnetStartupSafe({
                 profile: mainnetProfile ?? readiness.profile,
                 walletAddress,
+                walletType,
+                workchain,
+                walletId,
                 artifact
             });
 

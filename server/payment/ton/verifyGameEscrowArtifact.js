@@ -1,10 +1,12 @@
 /**
- * R7.68 — GameEscrow.code.boc integrity (SHA256). No contract/ABI changes.
+ * R7.68 / R8.1A — GameEscrow.code.boc integrity (SHA256 + StateInit loadability).
+ * No contract/ABI changes. Does not rebuild the contract.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Cell } from "@ton/core";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -103,7 +105,66 @@ export function resolveExpectedArtifactSha256(configuredSha256) {
 }
 
 /**
- * @param {{ expectedSha256?: string|null, requirePresent?: boolean }} [options]
+ * Prove the committed BOC can be loaded as a code cell (StateInit builder input).
+ * Does not rebuild or mutate the contract artifact.
+ *
+ * @param {string} [bocPath]
+ * @returns {{ loadable: boolean, reason: string|null }}
+ */
+export function assertGameEscrowArtifactLoadable(
+    bocPath = GAME_ESCROW_ARTIFACT_BOC_PATH
+) {
+
+    if (!existsSync(bocPath)) {
+
+        return {
+            loadable: false,
+            reason: `GameEscrow artifact missing: ${bocPath}`
+        };
+
+    }
+
+    try {
+
+        const boc = readFileSync(bocPath);
+        const cells = Cell.fromBoc(boc);
+
+        if (!cells.length || !cells[0]) {
+
+            return {
+                loadable: false,
+                reason: `GameEscrow artifact empty / unloadable: ${bocPath}`
+            };
+
+        }
+
+        // Touch bits/hash so a corrupt cell fails here rather than later at deploy.
+        cells[0].hash();
+
+        return {
+            loadable: true,
+            reason: null
+        };
+
+    } catch (error) {
+
+        return {
+            loadable: false,
+            reason:
+                `GameEscrow artifact not loadable by StateInit builder: `
+                + `${error?.message ?? error}`
+        };
+
+    }
+
+}
+
+/**
+ * @param {{
+ *   expectedSha256?: string|null,
+ *   requirePresent?: boolean,
+ *   requireLoadable?: boolean
+ * }} [options]
  * @returns {{
  *   ok: boolean,
  *   present: boolean,
@@ -111,12 +172,14 @@ export function resolveExpectedArtifactSha256(configuredSha256) {
  *   actualSha256: string|null,
  *   expectedSha256: string|null,
  *   match: boolean|null,
+ *   loadable: boolean|null,
  *   reasons: string[]
  * }}
  */
 export function verifyGameEscrowArtifact(options = {}) {
 
     const requirePresent = options.requirePresent === true;
+    const requireLoadable = options.requireLoadable === true;
     const expectedSha256 = resolveExpectedArtifactSha256(options.expectedSha256);
     const hashed = hashGameEscrowArtifactBoc();
     const reasons = [];
@@ -132,6 +195,7 @@ export function verifyGameEscrowArtifact(options = {}) {
             actualSha256: null,
             expectedSha256,
             match: null,
+            loadable: false,
             reasons
         };
 
@@ -155,9 +219,25 @@ export function verifyGameEscrowArtifact(options = {}) {
 
     }
 
+    let loadable = null;
+
+    if (requireLoadable || requirePresent || expectedSha256) {
+
+        const loaded = assertGameEscrowArtifactLoadable(hashed.path);
+        loadable = loaded.loadable;
+
+        if (!loaded.loadable) {
+
+            reasons.push(loaded.reason ?? "GameEscrow artifact not loadable");
+
+        }
+
+    }
+
     const ok = reasons.length === 0
         && (expectedSha256 ? match === true : true)
-        && (requirePresent ? hashed.present : true);
+        && (requirePresent ? hashed.present : true)
+        && (requireLoadable ? loadable === true : true);
 
     return {
         ok,
@@ -166,6 +246,7 @@ export function verifyGameEscrowArtifact(options = {}) {
         actualSha256,
         expectedSha256,
         match,
+        loadable,
         reasons
     };
 
