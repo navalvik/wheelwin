@@ -99,6 +99,42 @@ export function amountsMatch(expected, actual) {
 }
 
 /**
+ * R7.69D — True when a TonCenter / SDK transaction aborted or failed compute.
+ * Aborted inbound messages must never confirm GameEscrow payments.
+ */
+export function isFailedTonTransaction(tx) {
+
+    if (!tx || typeof tx !== "object") {
+
+        return false;
+
+    }
+
+    if (tx.aborted === true || tx.success === false) {
+
+        return true;
+
+    }
+
+    if (tx.description === "failed") {
+
+        return true;
+
+    }
+
+    const compute = tx.compute_ph ?? tx.computePhase ?? tx.description?.computePh;
+
+    if (compute?.success === false || compute?.skipped === true) {
+
+        return true;
+
+    }
+
+    return false;
+
+}
+
+/**
  * Extract structured payment fields from a TonCenter transaction-like object.
  */
 export function parseDepositCandidate(tx) {
@@ -2389,6 +2425,23 @@ export class BlockchainMonitor {
             ? String(deposit.txHash)
             : null;
 
+        // R7.69D — rejected / bounced deposits are not payment proof.
+        if (isFailedTonTransaction(tx)) {
+
+            this._markSeen(roomId, txHash);
+
+            this._audit(roomId, {
+                type: "INVALID_PAYMENT",
+                txHash,
+                reason: "aborted_or_failed_transaction",
+                sender: deposit.sender,
+                amount: deposit.amountGram
+            });
+
+            return;
+
+        }
+
         if (txHash && roomId) {
 
             const seen = this._seenTxByRoom.get(roomId) ?? new Set();
@@ -2568,6 +2621,58 @@ export class BlockchainMonitor {
             });
 
             return;
+
+        }
+
+        // R7.69D — GameEscrow seats: confirm only when paidMask bit is set on-chain.
+        // Do not markSeen on getter lag so the next poll can re-check.
+        if (
+            matchingWatch.playerIndex != null
+            && this._contractAdapter?.getPaidMask
+        ) {
+
+            try {
+
+                const paidMask = Number(
+                    await this._contractAdapter.getPaidMask(
+                        matchingWatch.contractAddress
+                    )
+                );
+
+                const bit = 1 << Number(matchingWatch.playerIndex);
+
+                if ((paidMask & bit) === 0) {
+
+                    this._audit(roomId, {
+                        type: "INVALID_PAYMENT",
+                        txHash,
+                        playerId: matchingWatch.playerId,
+                        reason: "paid_mask_not_set",
+                        sender: deposit.sender,
+                        amount: deposit.amountGram,
+                        playerIndex: matchingWatch.playerIndex,
+                        paidMask
+                    });
+
+                    return;
+
+                }
+
+            } catch (error) {
+
+                this._audit(roomId, {
+                    type: "INVALID_PAYMENT",
+                    txHash,
+                    playerId: matchingWatch.playerId,
+                    reason: "paid_mask_read_failed",
+                    sender: deposit.sender,
+                    amount: deposit.amountGram,
+                    detail: error?.message ?? String(error)
+                });
+
+                return;
+
+            }
 
         }
 

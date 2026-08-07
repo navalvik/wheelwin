@@ -17,6 +17,7 @@ import {
     MonitorNotStartedError,
     ObservationTimeoutError,
     amountsMatch,
+    isFailedTonTransaction,
     parseDepositCandidate
 } from "../payment/BlockchainMonitor.js";
 import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
@@ -808,6 +809,119 @@ async function main() {
         eventBus.shutdown();
 
         console.log("  R7.69C GameEscrow refund confirm + dedupe: OK");
+    }
+
+    // --- R7.69D aborted tx + paidMask gate ---
+
+    {
+        assert.equal(
+            isFailedTonTransaction({ aborted: true, in_msg: {} }),
+            true
+        );
+        assert.equal(
+            isFailedTonTransaction({ success: false, in_msg: {} }),
+            true
+        );
+        assert.equal(
+            isFailedTonTransaction({ description: "failed" }),
+            true
+        );
+        assert.equal(isFailedTonTransaction({ in_msg: {} }), false);
+
+        const { eventBus, monitor, audit } = createMonitor();
+
+        await monitor.start();
+
+        const confirmed = [];
+
+        eventBus.subscribe(EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED, (envelope) => {
+
+            confirmed.push(envelope.payload);
+
+        });
+
+        const contractAddress = friendlyAddress("r769d-escrow");
+        const playerWallet = friendlyAddress("r769d-player");
+
+        monitor.setContractAdapter({
+            async getPaidMask() {
+
+                return 0;
+
+            }
+        });
+
+        monitor.watchPayment({
+            roomId: "room-r769d",
+            gameId: "game-r769d",
+            playerId: "p1",
+            contractAddress,
+            paymentReference: "ref-r769d",
+            expectedGram: 10,
+            expectedWallet: playerWallet,
+            playerIndex: 0
+        });
+
+        await monitor.ingestTransaction("room-r769d", {
+            transaction_id: { hash: "tx_aborted" },
+            aborted: true,
+            in_msg: {
+                source: playerWallet,
+                destination: contractAddress,
+                grmAmount: 10
+            }
+        });
+
+        assert.equal(confirmed.length, 0, "aborted tx must not confirm");
+
+        assert.ok(
+            audit.list("room-r769d").some(
+                (entry) => entry.reason === "aborted_or_failed_transaction"
+            ),
+            "aborted tx audited"
+        );
+
+        await monitor.ingestTransaction("room-r769d", {
+            transaction_id: { hash: "tx_no_mask" },
+            in_msg: {
+                source: playerWallet,
+                destination: contractAddress,
+                grmAmount: 10
+            }
+        });
+
+        assert.equal(confirmed.length, 0, "paidMask=0 must not confirm");
+
+        assert.ok(
+            audit.list("room-r769d").some(
+                (entry) => entry.reason === "paid_mask_not_set"
+            ),
+            "missing paidMask audited"
+        );
+
+        monitor.setContractAdapter({
+            async getPaidMask() {
+
+                return 0b001;
+
+            }
+        });
+
+        await monitor.ingestTransaction("room-r769d", {
+            transaction_id: { hash: "tx_mask_ok" },
+            in_msg: {
+                source: playerWallet,
+                destination: contractAddress,
+                grmAmount: 10
+            }
+        });
+
+        assert.equal(confirmed.length, 1, "paidMask bit confirms stake");
+
+        monitor.shutdown();
+        eventBus.shutdown();
+
+        console.log("  R7.69D aborted + paidMask payment gate: OK");
     }
 
     console.log("blockchainMonitor.test.js: all assertions passed");

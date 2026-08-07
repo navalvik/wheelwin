@@ -1478,11 +1478,20 @@ export class GameContractManager {
                     .digest("hex");
                 const players = current.snapshot?.players ?? [];
 
+                // R7.69D — oracle must be platform config, never a player wallet.
+                const oracle = current.snapshot?.oracleWallet
+                    ?? this._deployAdapter?._tonConfig?.oracleAddress
+                    ?? null;
+
+                if (!oracle) {
+
+                    throw new Error("oracle_address_missing");
+
+                }
+
                 const init = await this._deployAdapter.initGame({
                     contractAddress: current.contractAddress,
-                    oracle: current.snapshot?.oracleWallet
-                        ?? players[0]?.wallet
-                        ?? null,
+                    oracle,
                     owner: current.snapshot?.ownerWallet ?? null,
                     contractIdHash,
                     snapshotHash
