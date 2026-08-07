@@ -1,9 +1,0 @@
-HTTP/1.1 204 No Content
-Cache-Control: public, max-age=0, must-revalidate
-Content-Disposition: inline; filename="tonconnect-manifest.json"
-Date: Sun, 02 Aug 2026 13:19:21 GMT
-Server: Vercel
-Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
-X-Vercel-Cache: BYPASS
-X-Vercel-Id: fra1::n2lb4-1785676761252-3376cdedb30b
-

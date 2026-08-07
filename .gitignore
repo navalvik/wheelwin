@@ -1,4 +1,7 @@
 #
+# R7.69E - local investigation scratch (never commit)
+_audit_tmp/
+
 # P6.8A — owner production wallet (created manually after deployment).
 config/owner.json
 
