@@ -113,12 +113,53 @@ export function tonAddressesEqual(left, right) {
 }
 
 /**
+ * R8.1B — Validate TON address format (no guessing / rewriting).
+ *
+ * @param {string|null|undefined} value
+ * @returns {boolean}
+ */
+export function isValidTonAddress(value) {
+
+    if (value === undefined || value === null) {
+
+        return false;
+
+    }
+
+    const trimmed = String(value).trim();
+
+    if (!trimmed) {
+
+        return false;
+
+    }
+
+    try {
+
+        Address.parse(trimmed);
+
+        return true;
+
+    } catch {
+
+        return false;
+
+    }
+
+}
+
+/**
  * Fail when derived mnemonic address does not match expected pin.
  *
  * @param {string} derivedAddress
  * @param {string} expectedAddress
+ * @param {{ network?: string|null }} [options]
  */
-export function assertDeployerWalletMatchesExpected(derivedAddress, expectedAddress) {
+export function assertDeployerWalletMatchesExpected(
+    derivedAddress,
+    expectedAddress,
+    options = {}
+) {
 
     if (!expectedAddress) {
 
@@ -126,11 +167,14 @@ export function assertDeployerWalletMatchesExpected(derivedAddress, expectedAddr
 
     }
 
+    const network = options.network == null ? null : String(options.network);
+    const networkSuffix = network ? ` | network=${network}` : "";
+
     if (!derivedAddress) {
 
         throw new Error(
             "TON deployer wallet identity mismatch | derived address missing | "
-                + `expected=${expectedAddress}`
+                + `expected=${expectedAddress}${networkSuffix}`
         );
 
     }
@@ -140,6 +184,7 @@ export function assertDeployerWalletMatchesExpected(derivedAddress, expectedAddr
         throw new Error(
             "TON deployer wallet identity mismatch | "
                 + `derived=${derivedAddress} | expected=${expectedAddress}`
+                + networkSuffix
         );
 
     }

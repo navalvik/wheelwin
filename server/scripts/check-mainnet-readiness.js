@@ -1,5 +1,6 @@
 /**
- * R7.68 / R8.1A — Mainnet dry-run readiness validation (does not enable Mainnet).
+ * R7.68 / R8.1A / R8.1B — Mainnet dry-run readiness + wallet verification
+ * (does not enable Mainnet GameEscrow).
  *
  * Usage (from repo root or server/):
  *   node server/scripts/check-mainnet-readiness.js
@@ -7,7 +8,8 @@
  * Exit 0 = PASS, 1 = FAIL.
  *
  * Optional:
- *   TON_MAINNET_DRY_RUN_DEBUG=true  — print TON_MAINNET_DRY_RUN_DEBUG block
+ *   TON_MAINNET_DRY_RUN_DEBUG=true
+ *   TON_MAINNET_WALLET_IDENTITY_DEBUG=true
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -19,6 +21,10 @@ import {
     printTonMainnetReadiness,
     setTonMainnetReadiness
 } from "../diagnostics/TonMainnetReadiness.js";
+import {
+    printTonMainnetWalletIdentityDebug,
+    setTonMainnetWalletIdentityDebug
+} from "../diagnostics/TonMainnetWalletIdentityDebug.js";
 import { deriveDeployerWalletIdentity } from "../payment/ton/deriveDeployerWalletIdentity.js";
 import { TonService } from "../services/TonService.js";
 import { loadMainnetTonProfile } from "../config/tonNetworkProfiles.js";
@@ -217,8 +223,24 @@ async function main() {
     printTonMainnetReadiness();
     printTonMainnetDryRunDebug(readiness);
 
+    setTonMainnetWalletIdentityDebug({
+        network: "mainnet",
+        walletType: readiness.walletType,
+        workchain: readiness.workchain,
+        walletId: readiness.walletId,
+        derivedAddress: readiness.walletAddress,
+        expectedAddress: readiness.expectedAddress,
+        oracleAddress: readiness.oracleAddress,
+        identityMatch: readiness.identityMatch,
+        balanceTon: readiness.balanceTon,
+        balanceNano: readiness.balanceNano,
+        seqno: readiness.seqno,
+        timestamp: readiness.validationTimestamp
+    });
+    printTonMainnetWalletIdentityDebug();
+
     console.log("");
-    console.log("=== R8.1A Mainnet Dry-Run Readiness ===");
+    console.log("=== R8.1B Mainnet Wallet / Dry-Run Readiness ===");
     console.log(readiness.status === "PASS" ? "PASS" : "FAIL");
 
     if (readiness.reasons.length > 0) {
@@ -243,17 +265,49 @@ async function main() {
         readiness.endpoint ? readiness.endpoint : "endpoint missing"
     );
     printCheck(
+        "network profile",
+        checks.networkProfile ?? "FAIL",
+        `network=${readiness.network} escrow=${readiness.escrowMode}`
+    );
+    printCheck(
+        "wallet derivation",
+        checks.walletDerivation ?? "SKIP",
+        readiness.walletAddress
+            ? `${readiness.walletType} ${readiness.walletAddress}`
+            : (requireLiveWallet
+                ? "mnemonic/identity incomplete"
+                : "no mnemonic (SKIP)")
+    );
+    printCheck(
+        "expected address match",
+        checks.expectedAddressMatch ?? "SKIP",
+        readiness.identityMatch === true
+            ? `derived == expected (${readiness.expectedAddress})`
+            : readiness.identityMatch === false
+                ? `mismatch derived=${readiness.walletAddress} `
+                    + `expected=${readiness.expectedAddress} network=mainnet`
+                : readiness.expectedAddress
+                    ? (requireLiveWallet
+                        ? "identity incomplete"
+                        : "no mnemonic (SKIP)")
+                    : "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS not configured"
+    );
+    printCheck(
+        "oracle configuration",
+        checks.oracleConfiguration ?? "FAIL",
+        readiness.oracleAddress
+            ? `oracle=${readiness.oracleAddress}`
+            : "TON_MAINNET_ORACLE_ADDRESS not configured"
+    );
+    printCheck(
         "wallet identity",
         checks.walletIdentity ?? "SKIP",
         readiness.identityMatch === true
             ? `${readiness.walletType} ${readiness.walletAddress}`
             : readiness.identityMatch === false
-                ? `mismatch derived=${readiness.walletAddress} expected=${readiness.expectedAddress}`
-                : readiness.expectedAddress
-                    ? (requireLiveWallet
-                        ? "mnemonic/identity incomplete"
-                        : "no mnemonic (SKIP)")
-                    : "expected address not configured (SKIP)"
+                ? `mismatch derived=${readiness.walletAddress} `
+                    + `expected=${readiness.expectedAddress} network=mainnet`
+                : "see wallet derivation / expected address match"
     );
     printCheck(
         "artifact",
@@ -261,13 +315,8 @@ async function main() {
         readiness.artifactMatch === true && readiness.artifactLoadable === true
             ? `sha256=${readiness.artifactHash} loadable=true`
             : readiness.artifactHash
-                ? `hash/loadable check failed`
+                ? "hash/loadable check failed"
                 : "artifact missing"
-    );
-    printCheck(
-        "network profile",
-        checks.networkProfile ?? "FAIL",
-        `network=${readiness.network} escrow=${readiness.escrowMode}`
     );
     printCheck(
         "rollback safety",

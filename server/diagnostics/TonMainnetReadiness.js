@@ -1,8 +1,11 @@
 /**
- * R7.68 / R8.1A — TON_MAINNET_READINESS + dry-run diagnostics (Railway-visible, no secrets).
+ * R7.68 / R8.1A / R8.1B — TON_MAINNET_READINESS + dry-run / wallet identity diagnostics.
  */
 import { printDeployBlock } from "./DeployPipelineForensics.js";
-import { tonAddressesEqual } from "./TonWalletIdentityDebug.js";
+import {
+    isValidTonAddress,
+    tonAddressesEqual
+} from "./TonWalletIdentityDebug.js";
 import {
     GAME_ESCROW_MODE_V4,
     assertValidGameEscrowMode
@@ -371,7 +374,7 @@ export function evaluateMainnetReadiness(input = {}) {
 
             reasons.push(
                 `Mainnet deployer identity mismatch | derived=${walletAddress} | `
-                    + `expected=${expectedAddress}`
+                    + `expected=${expectedAddress} | network=mainnet`
             );
 
         }
@@ -379,6 +382,46 @@ export function evaluateMainnetReadiness(input = {}) {
     } else if (input.requireLiveWallet === true && !walletAddress) {
 
         reasons.push("Deployer wallet identity not available (mnemonic required)");
+
+    }
+
+    const oracleAddress = profile.oracleWallet ?? null;
+    let oracleConfigured = Boolean(oracleAddress);
+
+    if (oracleAddress && !isValidTonAddress(oracleAddress)) {
+
+        oracleConfigured = false;
+
+        const invalidOracle =
+            "TON_MAINNET_ORACLE_ADDRESS is not a valid TON address";
+
+        if (!reasons.includes(invalidOracle)) {
+
+            reasons.push(invalidOracle);
+
+        }
+
+    }
+
+    if (
+        oracleConfigured
+        && expectedAddress
+        && isValidTonAddress(expectedAddress)
+        && !tonAddressesEqual(oracleAddress, expectedAddress)
+    ) {
+
+        const oracleMismatch =
+            "TON_MAINNET_ORACLE_ADDRESS must match "
+            + "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS "
+            + `(oracle=${oracleAddress} | expected=${expectedAddress} | network=mainnet)`;
+
+        if (!reasons.includes(oracleMismatch)) {
+
+            reasons.push(oracleMismatch);
+
+        }
+
+        oracleConfigured = false;
 
     }
 
@@ -424,24 +467,30 @@ export function evaluateMainnetReadiness(input = {}) {
         && Boolean(expectedAddress)
         && Boolean(artifact.expectedSha256);
 
-    const walletIdentityPass = identityMatch === true
-        && (walletType == null || walletType === DEPLOYER_WALLET_CONTRACT_TYPE)
-        && (workchain == null || workchain === DEPLOYER_WALLET_WORKCHAIN)
-        && (walletId == null || Number.isFinite(Number(walletId)))
-        && (
-            input.requireLiveWallet !== true
-            || (
-                walletType === DEPLOYER_WALLET_CONTRACT_TYPE
-                && workchain === DEPLOYER_WALLET_WORKCHAIN
-                && Number.isFinite(Number(walletId))
-            )
-        );
+    const walletDerivationPass = walletType === DEPLOYER_WALLET_CONTRACT_TYPE
+        && workchain === DEPLOYER_WALLET_WORKCHAIN
+        && Number.isFinite(Number(walletId))
+        && Boolean(walletAddress);
 
-    const walletIdentitySkip = identityMatch === null
+    const walletDerivationSkip = !walletAddress
+        && input.requireLiveWallet !== true;
+
+    const expectedAddressMatchPass = identityMatch === true;
+    const expectedAddressMatchSkip = identityMatch === null
         && (
             !expectedAddress
             || (input.requireLiveWallet !== true && !walletAddress)
         );
+
+    const walletIdentityPass = walletDerivationPass
+        && expectedAddressMatchPass;
+    const walletIdentitySkip = walletDerivationSkip
+        || expectedAddressMatchSkip;
+
+    const oracleConfigurationPass = oracleConfigured === true
+        && Boolean(expectedAddress)
+        && isValidTonAddress(expectedAddress)
+        && tonAddressesEqual(oracleAddress, expectedAddress);
 
     const artifactPass = artifact.present === true
         && artifact.match === true
@@ -454,9 +503,18 @@ export function evaluateMainnetReadiness(input = {}) {
 
     const checks = Object.freeze({
         configuration: checkStatus(configurationPass),
-        walletIdentity: checkStatus(walletIdentityPass, walletIdentitySkip),
-        artifact: checkStatus(artifactPass),
         networkProfile: checkStatus(networkProfilePass),
+        walletDerivation: checkStatus(walletDerivationPass, walletDerivationSkip),
+        expectedAddressMatch: checkStatus(
+            expectedAddressMatchPass,
+            expectedAddressMatchSkip
+        ),
+        walletIdentity: checkStatus(
+            walletIdentityPass,
+            walletIdentitySkip && !walletIdentityPass
+        ),
+        oracleConfiguration: checkStatus(oracleConfigurationPass),
+        artifact: checkStatus(artifactPass),
         rollbackSafety: checkStatus(rollbackAvailable)
     });
 
@@ -480,7 +538,7 @@ export function evaluateMainnetReadiness(input = {}) {
         expectedArtifactHash: artifact.expectedSha256,
         artifactMatch: artifact.match,
         artifactLoadable: artifact.loadable,
-        oracleAddress: profile.oracleWallet,
+        oracleAddress,
         escrowMode: profile.gameEscrowMode,
         endpoint: profile.endpoint,
         rollbackAvailable,
@@ -621,7 +679,37 @@ export function assertMainnetStartupSafe({
 
             failures.push(
                 `TON deployer wallet identity mismatch | derived=${walletAddress} | `
-                    + `expected=${expected}`
+                    + `expected=${expected} | network=mainnet`
+            );
+
+        }
+
+    }
+
+    if (profile.oracleWallet) {
+
+        if (!isValidTonAddress(profile.oracleWallet)) {
+
+            failures.push(
+                "TON_MAINNET_ORACLE_ADDRESS is not a valid TON address"
+            );
+
+        } else if (
+            (profile.deployerExpectedAddress || profile.expectedWalletAddress)
+            && !tonAddressesEqual(
+                profile.oracleWallet,
+                profile.deployerExpectedAddress ?? profile.expectedWalletAddress
+            )
+        ) {
+
+            failures.push(
+                "TON_MAINNET_ORACLE_ADDRESS must match "
+                    + "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS "
+                    + `| oracle=${profile.oracleWallet} | `
+                    + `expected=${
+                        profile.deployerExpectedAddress
+                        ?? profile.expectedWalletAddress
+                    } | network=mainnet`
             );
 
         }

@@ -108,6 +108,10 @@ import {
     printTonMainnetReadiness,
     setTonMainnetReadiness
 } from "./diagnostics/TonMainnetReadiness.js";
+import {
+    printTonMainnetWalletIdentityDebug,
+    setTonMainnetWalletIdentityDebug
+} from "./diagnostics/TonMainnetWalletIdentityDebug.js";
 import { verifyGameEscrowArtifact } from "./payment/ton/verifyGameEscrowArtifact.js";
 import {
     BlockchainMonitor,
@@ -3441,12 +3445,14 @@ class WheelWinApplication {
                 + `address=${identity.address}`
         );
 
-        assertDeployerWalletMatchesExpected(identity.address, expectedAddress);
+        assertDeployerWalletMatchesExpected(identity.address, expectedAddress, {
+            network
+        });
 
     }
 
     /**
-     * R7.68 / R8.1A — Print TON_MAINNET_READINESS and fail-fast when active network is mainnet.
+     * R7.68 / R8.1A / R8.1B — Print TON_MAINNET_READINESS and fail-fast when active network is mainnet.
      * Testnet runtime stays unchanged (report may FAIL until mainnet env is filled).
      * Does not enable Mainnet GameEscrow gameplay.
      */
@@ -3572,6 +3578,22 @@ class WheelWinApplication {
         setTonMainnetReadiness(readiness);
         printTonMainnetReadiness();
         printTonMainnetDryRunDebug(readiness);
+
+        setTonMainnetWalletIdentityDebug({
+            network: "mainnet",
+            walletType: readiness.walletType,
+            workchain: readiness.workchain,
+            walletId: readiness.walletId,
+            derivedAddress: readiness.walletAddress,
+            expectedAddress: readiness.expectedAddress,
+            oracleAddress: readiness.oracleAddress,
+            identityMatch: readiness.identityMatch,
+            balanceTon: readiness.balanceTon,
+            balanceNano: readiness.balanceNano,
+            seqno: readiness.seqno,
+            timestamp: readiness.validationTimestamp
+        });
+        printTonMainnetWalletIdentityDebug();
 
         this._logger.startupLine(
             `TonMainnetReadiness=${readiness.status} `

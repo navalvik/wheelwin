@@ -1,5 +1,5 @@
 /**
- * R7.68 / R8.1A — Mainnet dry-run readiness config + artifact integrity tests.
+ * R7.68 / R8.1A / R8.1B — Mainnet dry-run readiness + wallet verification tests.
  */
 import assert from "node:assert/strict";
 
@@ -25,6 +25,16 @@ import {
     resetTonMainnetReadinessForTests
 } from "../diagnostics/TonMainnetReadiness.js";
 import {
+    isTonMainnetWalletIdentityDebugEnabled,
+    resetTonMainnetWalletIdentityDebugForTests,
+    setTonMainnetWalletIdentityDebug,
+    getTonMainnetWalletIdentityDebug
+} from "../diagnostics/TonMainnetWalletIdentityDebug.js";
+import {
+    assertDeployerWalletMatchesExpected,
+    isValidTonAddress
+} from "../diagnostics/TonWalletIdentityDebug.js";
+import {
     DEPLOYER_WALLET_CONTRACT_TYPE,
     DEPLOYER_WALLET_WORKCHAIN
 } from "../payment/ton/deriveDeployerWalletIdentity.js";
@@ -34,9 +44,15 @@ import {
     verifyGameEscrowArtifact
 } from "../payment/ton/verifyGameEscrowArtifact.js";
 
+/** Valid zero-address pin used for format-safe config tests. */
+const VALID_ADDR_A = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
+/** Distinct valid address for mismatch cases. */
+const VALID_ADDR_B = "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j";
+
 function main() {
 
     resetTonMainnetReadinessForTests();
+    resetTonMainnetWalletIdentityDebugForTests();
 
     {
         const testnet = loadTestnetTonProfile({});
@@ -69,9 +85,8 @@ function main() {
         );
 
         const profiles = loadTonNetworkProfiles({
-            TON_MAINNET_ORACLE_ADDRESS: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
-            TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS:
-                "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j",
+            TON_MAINNET_ORACLE_ADDRESS: VALID_ADDR_A,
+            TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS: VALID_ADDR_A,
             TON_GAME_ESCROW_ARTIFACT_SHA256: "abc"
         });
 
@@ -123,9 +138,42 @@ function main() {
     }
 
     {
+        assert.equal(isValidTonAddress(VALID_ADDR_A), true);
+        assert.equal(isValidTonAddress("not-an-address"), false);
+        assert.equal(isValidTonAddress(""), false);
+        console.log("  ton address format: OK");
+    }
+
+    {
         const meta = loadGameEscrowArtifactExpectedMeta();
-        const oracle = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
-        const expected = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
+        const oracle = VALID_ADDR_A;
+        const expected = VALID_ADDR_A;
+
+        // Missing oracle address → FAIL
+        const missingOracle = validateMainnetConfiguration({
+            TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS: expected,
+            TON_MAINNET_GAME_ESCROW_MODE: "v4",
+            TON_GAME_ESCROW_ARTIFACT_SHA256: meta.sha256
+        });
+        assert.equal(missingOracle.ok, false);
+        assert.ok(
+            missingOracle.reasons.some((reason) => reason.includes(
+                "TON_MAINNET_ORACLE_ADDRESS"
+            ))
+        );
+
+        // Missing expected wallet address → FAIL
+        const missingExpected = validateMainnetConfiguration({
+            TON_MAINNET_ORACLE_ADDRESS: oracle,
+            TON_MAINNET_GAME_ESCROW_MODE: "v4",
+            TON_GAME_ESCROW_ARTIFACT_SHA256: meta.sha256
+        });
+        assert.equal(missingExpected.ok, false);
+        assert.ok(
+            missingExpected.reasons.some((reason) => reason.includes(
+                "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS"
+            ))
+        );
 
         const missingEnv = validateMainnetConfiguration({
             TON_MAINNET_GAME_ESCROW_MODE: "v4"
@@ -148,6 +196,7 @@ function main() {
         assert.equal(fail.status, "FAIL");
         assert.ok(fail.reasons.length >= 1);
         assert.equal(fail.checks.configuration, "FAIL");
+        assert.equal(fail.checks.oracleConfiguration, "FAIL");
 
         const passEnv = {
             TON_MAINNET_ENDPOINT: "https://toncenter.com/api/v2/jsonRPC",
@@ -157,10 +206,12 @@ function main() {
             TON_GAME_ESCROW_ARTIFACT_SHA256: meta.sha256
         };
 
+        // Valid configuration → PASS
         const configOk = validateMainnetConfiguration(passEnv);
         assert.equal(configOk.ok, true, configOk.reasons.join("; "));
         assert.equal(isMainnetRollbackSafe(configOk.escrowMode), true);
 
+        // Correct derived wallet → PASS
         const pass = evaluateMainnetReadiness({
             env: passEnv,
             activeNetwork: "testnet",
@@ -176,9 +227,12 @@ function main() {
         assert.equal(pass.rollbackAvailable, true);
         assert.equal(pass.escrowMode, GAME_ESCROW_MODE_V4);
         assert.equal(pass.checks.configuration, "PASS");
+        assert.equal(pass.checks.networkProfile, "PASS");
+        assert.equal(pass.checks.walletDerivation, "PASS");
+        assert.equal(pass.checks.expectedAddressMatch, "PASS");
+        assert.equal(pass.checks.oracleConfiguration, "PASS");
         assert.equal(pass.checks.walletIdentity, "PASS");
         assert.equal(pass.checks.artifact, "PASS");
-        assert.equal(pass.checks.networkProfile, "PASS");
         assert.equal(pass.checks.rollbackSafety, "PASS");
         assert.equal(typeof pass.validationTimestamp, "number");
         assert.equal(pass.artifactLoadable, true);
@@ -196,19 +250,54 @@ function main() {
                 || /Allowed values/i.test(reason))
         );
 
+        // Wrong expected address → FAIL
         const walletMismatch = evaluateMainnetReadiness({
             env: passEnv,
             walletType: "WalletContractV4R2",
             workchain: 0,
             walletId: 698983191,
-            walletAddress: "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j",
+            walletAddress: VALID_ADDR_B,
             requireLiveWallet: true
         });
         assert.equal(walletMismatch.status, "FAIL");
         assert.ok(
-            walletMismatch.reasons.some((reason) => reason.includes("identity mismatch"))
+            walletMismatch.reasons.some((reason) => reason.includes("identity mismatch")
+                && reason.includes("network=mainnet"))
         );
+        assert.equal(walletMismatch.checks.expectedAddressMatch, "FAIL");
         assert.equal(walletMismatch.checks.walletIdentity, "FAIL");
+
+        assert.throws(
+            () => assertDeployerWalletMatchesExpected(
+                VALID_ADDR_B,
+                expected,
+                { network: "mainnet" }
+            ),
+            /network=mainnet/
+        );
+
+        // Oracle ≠ expected deployer → FAIL
+        const oracleMismatch = validateMainnetConfiguration({
+            ...passEnv,
+            TON_MAINNET_ORACLE_ADDRESS: VALID_ADDR_B
+        });
+        assert.equal(oracleMismatch.ok, false);
+        assert.ok(
+            oracleMismatch.reasons.some((reason) => reason.includes(
+                "must match"
+            ))
+        );
+
+        const invalidOracleFormat = validateMainnetConfiguration({
+            ...passEnv,
+            TON_MAINNET_ORACLE_ADDRESS: "not-a-ton-address"
+        });
+        assert.equal(invalidOracleFormat.ok, false);
+        assert.ok(
+            invalidOracleFormat.reasons.some((reason) => reason.includes(
+                "not a valid TON address"
+            ))
+        );
 
         const artifactMismatch = evaluateMainnetReadiness({
             env: {
@@ -247,7 +336,7 @@ function main() {
     }
 
     {
-        // Testnet behavior unchanged while Mainnet profile stays v4.
+        // Testnet regression — wallet flow / GameEscrow mode unchanged.
         const testnet = loadTestnetTonProfile({
             GAME_ESCROW_MODE: "game"
         });
@@ -262,7 +351,27 @@ function main() {
 
         assert.equal(isTonMainnetDryRunDebugEnabled("true"), true);
         assert.equal(isTonMainnetDryRunDebugEnabled("0"), false);
-        console.log("  testnet unchanged + dry-run debug flag: OK");
+        assert.equal(isTonMainnetWalletIdentityDebugEnabled("true"), true);
+        assert.equal(isTonMainnetWalletIdentityDebugEnabled("0"), false);
+
+        setTonMainnetWalletIdentityDebug({
+            network: "mainnet",
+            walletType: DEPLOYER_WALLET_CONTRACT_TYPE,
+            workchain: 0,
+            walletId: 698983191,
+            derivedAddress: VALID_ADDR_A,
+            expectedAddress: VALID_ADDR_A,
+            oracleAddress: VALID_ADDR_A,
+            identityMatch: true,
+            balanceTon: 1,
+            seqno: 2,
+            timestamp: 123
+        });
+        const snap = getTonMainnetWalletIdentityDebug();
+        assert.equal(snap.derivedAddress, VALID_ADDR_A);
+        assert.equal(snap.oracleAddress, VALID_ADDR_A);
+        assert.equal(snap.walletType, "WalletContractV4R2");
+        console.log("  testnet unchanged + wallet identity debug: OK");
     }
 
     console.log("mainnetReadiness.test.js: all assertions passed");

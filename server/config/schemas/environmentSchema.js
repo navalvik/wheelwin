@@ -674,6 +674,16 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
             "Set TON_MAINNET_DRY_RUN_DEBUG to true to print TON_MAINNET_DRY_RUN_DEBUG "
             + "readiness diagnostics (network, wallet, artifact, escrow mode)."
     }),
+    // R8.1B — Mainnet wallet identity diagnostics (does not enable Mainnet gameplay).
+    TON_MAINNET_WALLET_IDENTITY_DEBUG: Object.freeze({
+        key: "TON_MAINNET_WALLET_IDENTITY_DEBUG",
+        type: "boolean",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Set TON_MAINNET_WALLET_IDENTITY_DEBUG to true to print "
+            + "TON_MAINNET_WALLET_IDENTITY_DEBUG (derived vs expected address; no mnemonic)."
+    }),
     SETUP_DURATION_MS: Object.freeze({
         key: "SETUP_DURATION_MS",
         type: "integer",

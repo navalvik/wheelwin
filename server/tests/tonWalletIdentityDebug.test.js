@@ -75,6 +75,14 @@ async function main() {
             ),
             /identity mismatch/
         );
+        assert.throws(
+            () => assertDeployerWalletMatchesExpected(
+                expectedBounceable,
+                "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+                { network: "mainnet" }
+            ),
+            /network=mainnet/
+        );
         console.log("  expected address validation: OK");
     }
 

@@ -1,5 +1,5 @@
 /**
- * R8.1A — Mainnet configuration validation for dry-run preparation.
+ * R8.1A / R8.1B — Mainnet configuration validation for dry-run preparation.
  * Does not enable Mainnet GameEscrow. Invalid config fails hard (no silent fallback).
  */
 
@@ -11,6 +11,10 @@ import {
     assertTonNetworkProfileComplete,
     loadMainnetTonProfile
 } from "./tonNetworkProfiles.js";
+import {
+    isValidTonAddress,
+    tonAddressesEqual
+} from "../diagnostics/TonWalletIdentityDebug.js";
 import { loadGameEscrowArtifactExpectedMeta } from "../payment/ton/verifyGameEscrowArtifact.js";
 
 const MAINNET_REQUIRED_ENV_KEYS = Object.freeze([
@@ -100,6 +104,43 @@ export function validateMainnetConfiguration(env = process.env) {
             reasons.push(`${key} is not configured`);
 
         }
+
+    }
+
+    // R8.1B — Explicit address pins must be valid TON addresses (no guessing).
+    const oracleRaw = trimOrNull(env.TON_MAINNET_ORACLE_ADDRESS);
+    const expectedRaw = trimOrNull(env.TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS);
+
+    if (oracleRaw && !isValidTonAddress(oracleRaw)) {
+
+        reasons.push(
+            "TON_MAINNET_ORACLE_ADDRESS is not a valid TON address"
+        );
+
+    }
+
+    if (expectedRaw && !isValidTonAddress(expectedRaw)) {
+
+        reasons.push(
+            "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS is not a valid TON address"
+        );
+
+    }
+
+    // R8.1B — Oracle must pin the same verified Railway wallet identity as deployer.
+    if (
+        oracleRaw
+        && expectedRaw
+        && isValidTonAddress(oracleRaw)
+        && isValidTonAddress(expectedRaw)
+        && !tonAddressesEqual(oracleRaw, expectedRaw)
+    ) {
+
+        reasons.push(
+            "TON_MAINNET_ORACLE_ADDRESS must match "
+                + "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS "
+                + `(oracle=${oracleRaw} | expected=${expectedRaw} | network=mainnet)`
+        );
 
     }
 

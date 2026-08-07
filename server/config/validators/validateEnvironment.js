@@ -648,6 +648,12 @@ export function validateEnvironment(collector, env) {
         env.TON_MAINNET_DRY_RUN_DEBUG
     );
 
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.TON_MAINNET_WALLET_IDENTITY_DEBUG,
+        env.TON_MAINNET_WALLET_IDENTITY_DEBUG
+    );
+
     validateIntegerField(
         collector,
         ENVIRONMENT_SCHEMA.SETUP_DURATION_MS,
