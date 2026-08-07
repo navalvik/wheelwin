@@ -36,10 +36,13 @@ import {
 import {
     decodeArchiveState,
     decodeBalances,
+    decodeCancelStatus,
     decodeContractState,
     decodePaidMask,
     decodeParticipants,
     decodePlayerPayment,
+    decodeRefundMask,
+    decodeRefundedTotal,
     decodeRequiredTotal,
     decodeSettlementState,
     decodeTotalPaid,
@@ -776,6 +779,45 @@ export class TonGameContractAdapter {
         );
 
         return decodePlayerPayment(stack, index);
+
+    }
+
+    async getRefundMask(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.REFUND_MASK
+        );
+
+        return decodeRefundMask(stack);
+
+    }
+
+    async getRefundedTotal(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.REFUNDED_TOTAL
+        );
+
+        return decodeRefundedTotal(stack);
+
+    }
+
+    async getCancelStatus(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.CANCEL_STATUS
+        );
+
+        return decodeCancelStatus(stack);
 
     }
 

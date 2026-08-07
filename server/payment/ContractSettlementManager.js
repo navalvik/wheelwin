@@ -543,6 +543,26 @@ export class ContractSettlementManager {
 
         const paymentSession = this._paymentSessionManager?.getSession?.(contract.roomId);
 
+        // R7.69C — ignore cancelled GameEscrow / payment sessions (no settle).
+        if (paymentSession?.status === PAYMENT_SESSION_STATUS.CANCELLED) {
+
+            this._audit(contract.roomId, {
+                type: "SETTLEMENT_IGNORED_CANCELLED",
+                gameId,
+                contractId: contract.contractId,
+                at: Date.now()
+            });
+
+            return {
+                ok: false,
+                gameId,
+                roomId: contract.roomId,
+                contractId: contract.contractId,
+                reason: "contract_cancelled"
+            };
+
+        }
+
         if (
             paymentSession
             && !PAYMENT_COMPLETE_STATUSES.has(paymentSession.status)

@@ -11,9 +11,12 @@ import { WalletContractV4 } from "@ton/ton";
 
 import { TonGameContractAdapter } from "../payment/TonGameContractAdapter.js";
 import {
+    decodeCancelStatus,
     decodeContractState,
     decodePaidMask,
     decodePlayerPayment,
+    decodeRefundMask,
+    decodeRefundedTotal,
     decodeRequiredTotal,
     decodeSettlementState,
     decodeTotalPaid,
@@ -176,6 +179,19 @@ const defaultGetMethodHandlers = {
             { value: friendlyAddress("player-1") },
             { value: 10n },
             { value: 1 }
+        ]
+    }),
+    get_refund_mask: () => ({
+        stack: [{ value: 0 }]
+    }),
+    get_refunded_total: () => ({
+        stack: [{ value: 0n }]
+    }),
+    get_cancel_status: () => ({
+        stack: [
+            { value: 0 },
+            { value: 0 },
+            { value: 0 }
         ]
     }),
     get_participants: () => ({
@@ -358,6 +374,28 @@ async function main() {
         console.log("  decode total/required/player payment: OK");
     }
 
+    // --- R7.69C decode cancel / refund getters ---
+
+    {
+        assert.equal(decodeRefundMask({ stack: [{ value: 5 }] }), 5);
+
+        assert.equal(decodeRefundedTotal({ stack: [{ value: 42n }] }), 42n);
+
+        const cancel = decodeCancelStatus({
+            stack: [
+                { value: 1 },
+                { value: 99 },
+                { value: 7 }
+            ]
+        });
+
+        assert.equal(cancel.cancelled, true);
+        assert.equal(cancel.cancelReason, 99);
+        assert.equal(cancel.refundMask, 7);
+
+        console.log("  decode refund/cancel status: OK");
+    }
+
     // --- R7.69B adapter payment getters ---
 
     {
@@ -385,6 +423,43 @@ async function main() {
         assert.equal(seat.requiredStake, 10n);
 
         console.log("  adapter GameEscrow payment getters: OK");
+    }
+
+    // --- R7.69C adapter cancel / refund getters ---
+
+    {
+        const tonService = createMockTonService({
+            getMethodHandlers: {
+                ...defaultGetMethodHandlers,
+                get_refund_mask: () => ({ stack: [{ value: 3 }] }),
+                get_refunded_total: () => ({ stack: [{ value: 25n }] }),
+                get_cancel_status: () => ({
+                    stack: [
+                        { value: 1 },
+                        { value: 7 },
+                        { value: 3 }
+                    ]
+                })
+            }
+        });
+
+        tonService.getTransport().seedAddressInfo(contractAddress, {
+            state: "active",
+            balance: "1000000000"
+        });
+
+        const adapter = createAdapter(tonService);
+
+        assert.equal(await adapter.getRefundMask(contractAddress), 3);
+        assert.equal(await adapter.getRefundedTotal(contractAddress), 25n);
+
+        const cancel = await adapter.getCancelStatus(contractAddress);
+
+        assert.equal(cancel.cancelled, true);
+        assert.equal(cancel.cancelReason, 7);
+        assert.equal(cancel.refundMask, 3);
+
+        console.log("  adapter GameEscrow cancel/refund getters: OK");
     }
 
     // --- decode balances ---

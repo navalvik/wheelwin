@@ -880,6 +880,7 @@ export class TonFinancialRecovery {
                 contractWatches: 0,
                 paymentWatches: 0,
                 settlementWatches: 0,
+                refundWatches: 0,
                 totalWatches: 0,
                 warning: "watch_registration_skipped_no_monitor"
             });
@@ -891,6 +892,8 @@ export class TonFinancialRecovery {
         let paymentWatches = 0;
 
         let settlementWatches = 0;
+
+        let refundWatches = 0;
 
         if (this._gameContractManager?.listContracts) {
 
@@ -940,7 +943,14 @@ export class TonFinancialRecovery {
 
                 const session = this._paymentSessionManager.getSession(roomId);
 
-                if (!session?.isInProgress?.()) {
+                if (
+                    !session
+                    || (
+                        !session.isInProgress?.()
+                        && session.status !== PAYMENT_SESSION_STATUS.CANCELLED
+                        && session.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
+                    )
+                ) {
 
                     continue;
 
@@ -979,7 +989,23 @@ export class TonFinancialRecovery {
 
                 }
 
-                for (const participant of session.participants ?? []) {
+                // Refresh session after possible cancel sync.
+                const syncedSession = this._paymentSessionManager.getSession(roomId)
+                    ?? session;
+
+                if (syncedSession.status === PAYMENT_SESSION_STATUS.CANCELLED) {
+
+                    // R7.69C — restore refund observation only; never resend refunds.
+                    refundWatches += this._registerRefundWatchFromSession(
+                        syncedSession,
+                        contractAddress
+                    );
+
+                    continue;
+
+                }
+
+                for (const participant of syncedSession.participants ?? []) {
 
                     if (participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED) {
 
@@ -990,16 +1016,16 @@ export class TonFinancialRecovery {
                     try {
 
                         this._blockchainMonitor.watchPayment?.({
-                            roomId: session.roomId,
-                            gameId: session.gameId,
+                            roomId: syncedSession.roomId,
+                            gameId: syncedSession.gameId,
                             playerId: participant.playerId,
                             contractAddress,
-                            contractId: session.contractId,
-                            correlationId: session.correlationId,
+                            contractId: syncedSession.contractId,
+                            correlationId: syncedSession.correlationId,
                             paymentReference: participant.paymentReference,
                             expectedGram: participant.requiredGram,
                             expectedWallet: participant.wallet,
-                            paymentDeadline: session.paymentDeadline,
+                            paymentDeadline: syncedSession.paymentDeadline,
                             playerIndex: participant.playerIndex ?? null
                         });
 
@@ -1077,8 +1103,101 @@ export class TonFinancialRecovery {
             contractWatches,
             paymentWatches,
             settlementWatches,
-            totalWatches: contractWatches + paymentWatches + settlementWatches
+            refundWatches,
+            totalWatches: contractWatches
+                + paymentWatches
+                + settlementWatches
+                + refundWatches
         });
+
+    }
+
+    /**
+     * R7.69C — Re-register refund observation watches after restart.
+     * Observation only — never resends EMERGENCY_CANCEL / refunds.
+     */
+    _registerRefundWatchFromSession(session, contractAddress) {
+
+        if (
+            !this._blockchainMonitor?.watchGameEscrowRefunds
+            || !session
+            || !contractAddress
+        ) {
+
+            return 0;
+
+        }
+
+        const pendingRefunds = (session.participants ?? [])
+            .filter((participant) => {
+                const paid = participant.status
+                    === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+                    || Number(participant.paidAmount) > 0;
+                return paid && participant.refunded !== true;
+            })
+            .map((participant) => ({
+                playerIndex: participant.playerIndex,
+                playerId: participant.playerId,
+                wallet: participant.wallet,
+                amount: participant.paidAmount || participant.requiredGram
+            }))
+            .filter((entry) => entry.wallet && entry.amount != null);
+
+        // Even with empty pending list, restore a watch when session is cancelled
+        // so chain confirmation can complete idempotently.
+        try {
+
+            const expectedRefundMask = (session.participants ?? []).reduce(
+                (mask, participant, index) => {
+                    const seat = participant.playerIndex == null
+                        ? index
+                        : Number(participant.playerIndex);
+                    const paid = participant.status
+                        === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+                        || Number(participant.paidAmount) > 0;
+                    return paid ? (mask | (1 << seat)) : mask;
+                },
+                0
+            );
+
+            this._blockchainMonitor.watchGameEscrowRefunds({
+                escrowAddress: contractAddress,
+                cancelTxHash: session.recoveryMetadata?.cancelTxHash ?? null,
+                refunds: pendingRefunds.length > 0
+                    ? pendingRefunds
+                    : (session.participants ?? [])
+                        .filter((participant) => {
+                            const paid = participant.status
+                                === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+                                || Number(participant.paidAmount) > 0;
+                            return paid;
+                        })
+                        .map((participant) => ({
+                            playerIndex: participant.playerIndex,
+                            playerId: participant.playerId,
+                            wallet: participant.wallet,
+                            amount: participant.paidAmount || participant.requiredGram
+                        })),
+                expectedRefundMask,
+                contractId: session.contractId,
+                roomId: session.roomId,
+                gameId: session.gameId,
+                correlationId: session.correlationId,
+                contractStatus: 9
+            });
+
+            return 1;
+
+        } catch (error) {
+
+            this._logger?.warn?.(
+                `Refund watch registration skipped | roomId=${session.roomId} | `
+                    + `${error?.message ?? error}`
+            );
+
+            return 0;
+
+        }
 
     }
 

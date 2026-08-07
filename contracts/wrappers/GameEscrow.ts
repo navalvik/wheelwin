@@ -1,5 +1,5 @@
 /**
- * R7.69A — Re-export Tact-generated GameEscrow bindings for Blueprint tests.
+ * R7.69C — Re-export Tact-generated GameEscrow bindings for Blueprint tests.
  */
 export {
     GameEscrow,
@@ -7,6 +7,7 @@ export {
     storeOpenPayments,
     storeStake,
     storeSettle,
+    storeEmergencyCancel,
     STATUS_UNINITIALIZED,
     STATUS_DEPLOYED,
     STATUS_WAITING_PAYMENTS,
@@ -26,6 +27,8 @@ export type {
     OpenPayments,
     Stake,
     Settle,
+    EmergencyCancel,
     SettlementInfo,
-    PlayerPaymentInfo
+    PlayerPaymentInfo,
+    CancelStatus
 } from "../build/GameEscrow/GameEscrow_GameEscrow";

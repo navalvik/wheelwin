@@ -59,6 +59,23 @@ export function createPlayerPaymentDTO({
 
 }
 
+/**
+ * R7.69C — GameEscrow get_cancel_status result.
+ */
+export function createCancelStatusDTO({
+    cancelled = false,
+    cancelReason = 0,
+    refundMask = 0
+}) {
+
+    return Object.freeze({
+        cancelled: cancelled === true,
+        cancelReason: Number(cancelReason) || 0,
+        refundMask: Number(refundMask) || 0
+    });
+
+}
+
 export function createSettlementDTO({
     address,
     status,

@@ -157,6 +157,17 @@ export class PaymentSessionManager {
             (envelope) => this._handlePaymentTransactionConfirmed(envelope.payload)
         );
 
+        // R7.69C — GameEscrow refunds are authoritative; PSM only synchronizes.
+        this._subscribe(
+            EVENT_TYPES.GAME_ESCROW_REFUND_CONFIRMED,
+            (envelope) => this._handleGameEscrowRefundConfirmed(envelope.payload)
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_ESCROW_CANCEL_CONFIRMED,
+            (envelope) => this._handleGameEscrowCancelConfirmed(envelope.payload)
+        );
+
         this._subscribe(
             EVENT_TYPES.TRANSACTION_FAILED,
             (envelope) => this._handleTransactionFailed(envelope.payload)
@@ -638,13 +649,20 @@ export class PaymentSessionManager {
 
                 }
 
-                if (session.isTerminal()) {
+                // R7.69C — restore CANCELLED sessions for refund sync / watch recovery.
+                const isCancelled = session.status === PAYMENT_SESSION_STATUS.CANCELLED;
+
+                if (session.isTerminal() && !isCancelled) {
 
                     continue;
 
                 }
 
-                if (!session.isInProgress() && session.status !== PAYMENT_SESSION_STATUS.RECOVERED) {
+                if (
+                    !isCancelled
+                    && !session.isInProgress()
+                    && session.status !== PAYMENT_SESSION_STATUS.RECOVERED
+                ) {
 
                     session.status = PAYMENT_SESSION_STATUS.RECOVERED;
 
@@ -669,7 +687,11 @@ export class PaymentSessionManager {
 
                 this._indexSession(session);
 
-                if (session.paymentDeadline && session.paymentDeadline > Date.now()) {
+                if (
+                    !isCancelled
+                    && session.paymentDeadline
+                    && session.paymentDeadline > Date.now()
+                ) {
 
                     this._scheduleExpiry(session);
 
@@ -718,7 +740,10 @@ export class PaymentSessionManager {
 
             for (const session of pendingSync) {
 
-                if (!session.isInProgress()) {
+                if (
+                    !session.isInProgress()
+                    && session.status !== PAYMENT_SESSION_STATUS.CANCELLED
+                ) {
 
                     continue;
 
@@ -732,7 +757,11 @@ export class PaymentSessionManager {
 
                 if (contractAddress) {
 
-                    watchCount += this._registerBlockchainWatches(session, contractAddress);
+                    if (session.status !== PAYMENT_SESSION_STATUS.CANCELLED) {
+
+                        watchCount += this._registerBlockchainWatches(session, contractAddress);
+
+                    }
 
                 }
 
@@ -802,7 +831,23 @@ export class PaymentSessionManager {
 
         const session = this._sessionsByRoom.get(roomId);
 
-        if (!session || !session.isInProgress()) {
+        if (!session) {
+
+            return Object.freeze({
+                ok: false,
+                synced: 0,
+                demoted: 0,
+                reason: "no_active_session"
+            });
+
+        }
+
+        // R7.69C — allow cancel sync after FULLY_PAID (READY on-chain) before settle.
+        if (
+            !session.isInProgress()
+            && session.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
+            && session.status !== PAYMENT_SESSION_STATUS.CANCELLED
+        ) {
 
             return Object.freeze({
                 ok: false,
@@ -827,6 +872,21 @@ export class PaymentSessionManager {
                 synced: 0,
                 demoted: 0,
                 reason: "no_contract_address"
+            });
+
+        }
+
+        if (session.status === PAYMENT_SESSION_STATUS.CANCELLED) {
+
+            const cancelSync = await this._syncCancelFromGameEscrow(session, contractAddress);
+
+            return Object.freeze({
+                ok: true,
+                synced: 0,
+                demoted: 0,
+                cancelled: true,
+                refundSynced: cancelSync.refundSynced ?? 0,
+                refundMask: cancelSync.refundMask ?? null
             });
 
         }
@@ -956,14 +1016,301 @@ export class PaymentSessionManager {
                 + `synced=${synced} | demoted=${demoted}`
         );
 
+        const cancelSync = await this._syncCancelFromGameEscrow(session, contractAddress);
+
         return Object.freeze({
             ok: true,
             synced,
             demoted,
             paidMask: chainState.paidMask,
             totalPaid: chainState.totalPaid,
-            requiredTotal: chainState.requiredTotal
+            requiredTotal: chainState.requiredTotal,
+            cancelled: cancelSync.cancelled === true,
+            refundSynced: cancelSync.refundSynced ?? 0,
+            refundMask: cancelSync.refundMask ?? null
         });
+
+    }
+
+    /**
+     * R7.69C — Align PaymentSession with GameEscrow cancel / refundMask.
+     * Does not resend refunds; chain is source of truth.
+     */
+    async _syncCancelFromGameEscrow(session, contractAddress) {
+
+        if (!session || !contractAddress) {
+
+            return Object.freeze({
+                cancelled: false,
+                refundSynced: 0,
+                refundMask: null
+            });
+
+        }
+
+        if (!this._blockchainMonitor?.readGameEscrowCancelState) {
+
+            return Object.freeze({
+                cancelled: false,
+                refundSynced: 0,
+                refundMask: null
+            });
+
+        }
+
+        let cancelState;
+
+        try {
+
+            cancelState = await this._blockchainMonitor.readGameEscrowCancelState(
+                contractAddress,
+                { playerCount: session.participants.length }
+            );
+
+        } catch (error) {
+
+            this._logger?.warn?.(
+                `GameEscrow cancel state read failed | roomId=${session.roomId} | `
+                    + `${error?.message ?? error}`
+            );
+
+            return Object.freeze({
+                cancelled: false,
+                refundSynced: 0,
+                refundMask: null
+            });
+
+        }
+
+        if (!cancelState?.cancelled) {
+
+            return Object.freeze({
+                cancelled: false,
+                refundSynced: 0,
+                refundMask: cancelState?.refundMask ?? null
+            });
+
+        }
+
+        let refundSynced = 0;
+
+        let changed = false;
+
+        const refundMask = Number(cancelState.refundMask) || 0;
+
+        session.participants.forEach((participant, index) => {
+
+            if (participant.playerIndex == null) {
+
+                participant.playerIndex = index;
+
+            }
+
+            const seatIndex = Number(participant.playerIndex);
+
+            const bit = 1 << seatIndex;
+
+            const onChainRefunded = (refundMask & bit) !== 0;
+
+            const playerDetail = cancelState.players?.find(
+                (entry) => Number(entry.index) === seatIndex
+            );
+
+            const refunded = playerDetail?.refunded === true || onChainRefunded;
+
+            if (refunded && participant.refunded !== true) {
+
+                participant.refunded = true;
+
+                refundSynced += 1;
+
+                changed = true;
+
+            }
+
+            this._blockchainMonitor?.unwatchPayment?.(
+                session.roomId,
+                participant.playerId
+            );
+
+        });
+
+        if (session.status !== PAYMENT_SESSION_STATUS.CANCELLED && session.isInProgress()) {
+
+            try {
+
+                session.markCancelled();
+
+                changed = true;
+
+            } catch (error) {
+
+                this._logger?.warn?.(
+                    `PaymentSession cancel transition skipped | roomId=${session.roomId} | `
+                        + `${error?.message ?? error}`
+                );
+
+            }
+
+        }
+
+        if (
+            session.status !== PAYMENT_SESSION_STATUS.CANCELLED
+            && session.status === PAYMENT_SESSION_STATUS.FULLY_PAID
+        ) {
+
+            try {
+
+                session.markCancelled();
+
+                changed = true;
+
+            } catch (error) {
+
+                this._logger?.warn?.(
+                    `PaymentSession cancel from FULLY_PAID skipped | roomId=${session.roomId} | `
+                        + `${error?.message ?? error}`
+                );
+
+            }
+
+        }
+
+        if (changed) {
+
+            this._clearExpiry(session.roomId);
+
+            this._blockchainMonitor?.stopRoom?.(session.roomId);
+
+            this._persistSession(session, "update");
+
+            this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+        }
+
+        this._log(
+            `GAME_ESCROW_CANCEL_SYNC | roomId=${session.roomId} | `
+                + `refundMask=${refundMask} | refundSynced=${refundSynced}`
+        );
+
+        return Object.freeze({
+            cancelled: true,
+            refundSynced,
+            refundMask
+        });
+
+    }
+
+    /**
+     * R7.69C — Apply a single on-chain refund confirmation (idempotent).
+     */
+    _handleGameEscrowRefundConfirmed(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId || !this._initialized) {
+
+            return;
+
+        }
+
+        const session = this._sessionsByRoom.get(roomId);
+
+        if (!session) {
+
+            return;
+
+        }
+
+        let participant = null;
+
+        if (payload.playerId) {
+
+            participant = session.findParticipant(payload.playerId);
+
+        }
+
+        if (!participant && payload.playerIndex != null) {
+
+            participant = session.participants.find(
+                (entry) => Number(entry.playerIndex) === Number(payload.playerIndex)
+            );
+
+        }
+
+        if (!participant) {
+
+            return;
+
+        }
+
+        if (participant.refunded === true) {
+
+            return;
+
+        }
+
+        participant.refunded = true;
+
+        participant.refundTxHash = payload.transactionId ?? payload.txHash ?? null;
+
+        this._persistSession(session, "update");
+
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+    }
+
+    /**
+     * R7.69C — Mark payment session CANCELLED after cancel confirmed on-chain.
+     */
+    _handleGameEscrowCancelConfirmed(payload) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId || !this._initialized) {
+
+            return;
+
+        }
+
+        const session = this._sessionsByRoom.get(roomId);
+
+        if (!session || session.status === PAYMENT_SESSION_STATUS.CANCELLED) {
+
+            return;
+
+        }
+
+        if (
+            !session.isInProgress()
+            && session.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
+        ) {
+
+            return;
+
+        }
+
+        try {
+
+            session.markCancelled();
+
+        } catch {
+
+            return;
+
+        }
+
+        this._clearExpiry(session.roomId);
+
+        this._blockchainMonitor?.stopRoom?.(session.roomId);
+
+        this._persistSession(session, "update");
+
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+        this._log(
+            `CANCELLED | roomId=${roomId} | paymentSessionId=${session.paymentSessionId}`
+        );
 
     }
 

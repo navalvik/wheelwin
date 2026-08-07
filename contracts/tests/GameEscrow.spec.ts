@@ -1,11 +1,12 @@
 /**
- * R7.69A — GameEscrow STAKE + payment lifecycle sandbox tests.
+ * R7.69A / R7.69C — GameEscrow STAKE + payment lifecycle sandbox tests.
  */
 import { Blockchain, SandboxContract, TreasuryContract } from "@ton/sandbox";
 import { toNano } from "@ton/core";
 import "@ton/test-utils";
 import {
     GameEscrow,
+    STATUS_CANCELLED,
     STATUS_DEPLOYED,
     STATUS_PAYMENTS_OPEN,
     STATUS_READY,
@@ -115,6 +116,20 @@ describe("GameEscrow stakes", () => {
                 winner: winner.address,
                 winnerAmount,
                 ownerAmount
+            }
+        );
+    }
+
+    async function emergencyCancel(
+        sender: SandboxContract<TreasuryContract>,
+        reasonCode = 1n
+    ) {
+        return gameEscrow.send(
+            sender.getSender(),
+            { value: toNano("0.1") },
+            {
+                $$type: "EmergencyCancel",
+                reasonCode
             }
         );
     }
@@ -282,6 +297,293 @@ describe("GameEscrow stakes", () => {
         const early = await settleFrom(oracle);
         expect(early.transactions).toHaveTransaction({
             from: oracle.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_PAYMENTS_OPEN);
+    });
+});
+
+describe("GameEscrow cancel and refunds (R7.69C)", () => {
+    let blockchain: Blockchain;
+    let deployer: SandboxContract<TreasuryContract>;
+    let oracle: SandboxContract<TreasuryContract>;
+    let owner: SandboxContract<TreasuryContract>;
+    let playerA: SandboxContract<TreasuryContract>;
+    let playerB: SandboxContract<TreasuryContract>;
+    let playerC: SandboxContract<TreasuryContract>;
+    let gameEscrow: SandboxContract<GameEscrow>;
+
+    const contractIdHash = 0x3333333333333333333333333333333333333333333333333333333333333333n;
+    const snapshotHash = 0x4444444444444444444444444444444444444444444444444444444444444444n;
+    const stakeA = toNano("1");
+    const stakeB = toNano("1.5");
+    const stakeC = toNano("2");
+    const winnerAmount = toNano("4");
+    const ownerAmount = toNano("0.5");
+
+    beforeEach(async () => {
+        blockchain = await Blockchain.create();
+        deployer = await blockchain.treasury("deployer");
+        oracle = await blockchain.treasury("oracle");
+        owner = await blockchain.treasury("owner");
+        playerA = await blockchain.treasury("playerA");
+        playerB = await blockchain.treasury("playerB");
+        playerC = await blockchain.treasury("playerC");
+
+        gameEscrow = blockchain.openContract(await GameEscrow.fromInit());
+
+        await gameEscrow.send(
+            deployer.getSender(),
+            { value: toNano("0.05") },
+            null
+        );
+    });
+
+    async function initAndOpen() {
+        await gameEscrow.send(
+            deployer.getSender(),
+            { value: toNano("0.05") },
+            {
+                $$type: "InitGame",
+                oracle: oracle.address,
+                owner: owner.address,
+                contractIdHash,
+                snapshotHash
+            }
+        );
+        await gameEscrow.send(
+            oracle.getSender(),
+            { value: toNano("0.05") },
+            {
+                $$type: "OpenPayments",
+                player0: playerA.address,
+                stake0: stakeA,
+                player1: playerB.address,
+                stake1: stakeB,
+                player2: playerC.address,
+                stake2: stakeC
+            }
+        );
+    }
+
+    async function stake(
+        player: SandboxContract<TreasuryContract>,
+        index: number,
+        value: bigint
+    ) {
+        return gameEscrow.send(
+            player.getSender(),
+            { value },
+            { $$type: "Stake", playerIndex: BigInt(index) }
+        );
+    }
+
+    async function cancel(reasonCode = 42n) {
+        return gameEscrow.send(
+            oracle.getSender(),
+            { value: toNano("0.1") },
+            { $$type: "EmergencyCancel", reasonCode }
+        );
+    }
+
+    it("cancel before READY with no payments → CANCELLED, empty refunds", async () => {
+        await initAndOpen();
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_PAYMENTS_OPEN);
+
+        const result = await cancel(7n);
+        expect(result.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: true
+        });
+
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_CANCELLED);
+        expect(await gameEscrow.getGetRefundMask()).toEqual(0n);
+        expect(await gameEscrow.getGetRefundedTotal()).toEqual(0n);
+
+        const cancelStatus = await gameEscrow.getGetCancelStatus();
+        expect(cancelStatus.cancelled).toBe(true);
+        expect(cancelStatus.cancelReason).toEqual(7n);
+        expect(cancelStatus.refundMask).toEqual(0n);
+    });
+
+    it("cancel after partial payments refunds only paid seats", async () => {
+        await initAndOpen();
+        await stake(playerA, 0, stakeA);
+        await stake(playerB, 1, stakeB);
+        expect(await gameEscrow.getGetPaidMask()).toEqual(3n);
+
+        const aBefore = (await blockchain.getContract(playerA.address)).balance;
+        const bBefore = (await blockchain.getContract(playerB.address)).balance;
+        const cBefore = (await blockchain.getContract(playerC.address)).balance;
+
+        const result = await cancel();
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: playerA.address,
+            value: stakeA,
+            success: true
+        });
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: playerB.address,
+            value: stakeB,
+            success: true
+        });
+        expect(result.transactions).not.toHaveTransaction({
+            from: gameEscrow.address,
+            to: playerC.address
+        });
+
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_CANCELLED);
+        expect(await gameEscrow.getGetRefundMask()).toEqual(3n);
+        expect(await gameEscrow.getGetRefundedTotal()).toEqual(stakeA + stakeB);
+
+        const aGain =
+            (await blockchain.getContract(playerA.address)).balance - aBefore;
+        const bGain =
+            (await blockchain.getContract(playerB.address)).balance - bBefore;
+        const cGain =
+            (await blockchain.getContract(playerC.address)).balance - cBefore;
+        expect(aGain).toBeGreaterThan(stakeA - toNano("0.01"));
+        expect(bGain).toBeGreaterThan(stakeB - toNano("0.01"));
+        expect(cGain).toEqual(0n);
+    });
+
+    it("refund 1 player", async () => {
+        await initAndOpen();
+        await stake(playerA, 0, stakeA);
+
+        const result = await cancel();
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: playerA.address,
+            value: stakeA,
+            success: true
+        });
+        expect(await gameEscrow.getGetRefundMask()).toEqual(1n);
+        expect(await gameEscrow.getGetRefundedTotal()).toEqual(stakeA);
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_CANCELLED);
+    });
+
+    it("refund 2 players", async () => {
+        await initAndOpen();
+        await stake(playerA, 0, stakeA);
+        await stake(playerC, 2, stakeC);
+
+        const result = await cancel();
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: playerA.address,
+            value: stakeA,
+            success: true
+        });
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: playerC.address,
+            value: stakeC,
+            success: true
+        });
+        expect(await gameEscrow.getGetRefundMask()).toEqual(5n);
+        expect(await gameEscrow.getGetRefundedTotal()).toEqual(stakeA + stakeC);
+    });
+
+    it("refund 3 players after READY", async () => {
+        await initAndOpen();
+        await stake(playerA, 0, stakeA);
+        await stake(playerB, 1, stakeB);
+        await stake(playerC, 2, stakeC);
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_READY);
+
+        const result = await cancel(99n);
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: playerA.address,
+            value: stakeA,
+            success: true
+        });
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: playerB.address,
+            value: stakeB,
+            success: true
+        });
+        expect(result.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: playerC.address,
+            value: stakeC,
+            success: true
+        });
+
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_CANCELLED);
+        expect(await gameEscrow.getGetRefundMask()).toEqual(7n);
+        expect(await gameEscrow.getGetRefundedTotal()).toEqual(
+            stakeA + stakeB + stakeC
+        );
+
+        const cancelStatus = await gameEscrow.getGetCancelStatus();
+        expect(cancelStatus.cancelled).toBe(true);
+        expect(cancelStatus.cancelReason).toEqual(99n);
+        expect(cancelStatus.refundMask).toEqual(7n);
+    });
+
+    it("double cancel / refund rejected", async () => {
+        await initAndOpen();
+        await stake(playerA, 0, stakeA);
+        await cancel();
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_CANCELLED);
+
+        const again = await cancel(2n);
+        expect(again.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetRefundMask()).toEqual(1n);
+        expect(await gameEscrow.getGetRefundedTotal()).toEqual(stakeA);
+    });
+
+    it("cancel after SETTLE rejected", async () => {
+        await initAndOpen();
+        await stake(playerA, 0, stakeA);
+        await stake(playerB, 1, stakeB);
+        await stake(playerC, 2, stakeC);
+
+        await gameEscrow.send(
+            oracle.getSender(),
+            { value: toNano("0.05") },
+            {
+                $$type: "Settle",
+                snapshotHash,
+                winner: playerA.address,
+                winnerAmount,
+                ownerAmount
+            }
+        );
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
+
+        const cancelAttempt = await cancel();
+        expect(cancelAttempt.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
+        expect(await gameEscrow.getGetRefundMask()).toEqual(0n);
+    });
+
+    it("non-oracle cancel rejected", async () => {
+        await initAndOpen();
+        await stake(playerA, 0, stakeA);
+
+        const bad = await gameEscrow.send(
+            playerA.getSender(),
+            { value: toNano("0.1") },
+            { $$type: "EmergencyCancel", reasonCode: 1n }
+        );
+        expect(bad.transactions).toHaveTransaction({
+            from: playerA.address,
             to: gameEscrow.address,
             success: false
         });

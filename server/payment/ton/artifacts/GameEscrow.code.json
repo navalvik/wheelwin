@@ -4,8 +4,8 @@
   "phase": "R7.66C",
   "source": "contracts/game_escrow/GameEscrow.tact",
   "artifact": "server/payment/ton/artifacts/GameEscrow.code.boc",
-  "bytes": 2235,
-  "sha256": "aaf0eceda7a643e64393fae478b9d34df97439980a7d6b489701be1b1232ea04",
-  "codeHash": "82d324a212316e5abe7bcc3aefd8ea2392f624deed21161a1b39fbab112fa926",
-  "compiledAt": "2026-08-07T12:22:19.479Z"
+  "bytes": 2121,
+  "sha256": "d215a1b5087ccdf7e490d5f43426b05db904bf5697173b082967e3859beddaaf",
+  "codeHash": "28f9d0bd138e38510f9d824143cd217cf0f74c647d05451b87e90f8a71996192",
+  "compiledAt": "2026-08-07T15:40:37.828Z"
 }

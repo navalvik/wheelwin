@@ -154,10 +154,11 @@ export function loadGameEscrowArtifactMeta() {
 }
 
 /**
- * Tact storage layout (after loaded=1 bit) — R7.69A:
+ * Tact storage layout (after loaded=1 bit) — R7.69C:
  * version:uint16 status:uint8 oracle owner contractIdHash:uint256
  * ^[ snapshotHash winner winnerAmount ownerAmount settled paidMask totalPaid
- *    ^[ requiredTotal player0 stake0 player1 stake1 ^[ player2 stake2 ] ] ]
+ *    ^[ requiredTotal player0 stake0 player1 stake1
+ *       ^[ player2 stake2 refundMask refundedAmount cancelReason ] ] ]
  */
 export function buildGameEscrowDataCell({
     version = GAME_ESCROW_VERSION,
@@ -178,7 +179,10 @@ export function buildGameEscrowDataCell({
     player1 = ZERO_ADDRESS,
     stake1 = 0n,
     player2 = ZERO_ADDRESS,
-    stake2 = 0n
+    stake2 = 0n,
+    refundMask = 0,
+    refundedAmount = 0n,
+    cancelReason = 0
 } = {}) {
 
     const oracleAddress = resolveTonAddress(oracle, ZERO_ADDRESS);
@@ -194,6 +198,9 @@ export function buildGameEscrowDataCell({
     const rosterTail = beginCell()
         .storeAddress(p2)
         .storeCoins(stake2)
+        .storeUint(Number(refundMask) & 0xff, 8)
+        .storeCoins(refundedAmount)
+        .storeUint(Number(cancelReason) >>> 0, 32)
         .endCell();
 
     const roster = beginCell()
@@ -269,7 +276,10 @@ export function buildGameEscrowStateInit({
         winner: ZERO_ADDRESS,
         winnerAmount: 0n,
         ownerAmount: 0n,
-        settled: false
+        settled: false,
+        refundMask: 0,
+        refundedAmount: 0n,
+        cancelReason: 0
     });
 
     const stateInit = { code, data };

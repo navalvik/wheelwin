@@ -5,6 +5,7 @@
 import {
     createArchiveDTO,
     createBalanceDTO,
+    createCancelStatusDTO,
     createContractStateDTO,
     createParticipantDTO,
     createPlayerPaymentDTO,
@@ -123,6 +124,59 @@ export function decodePlayerPayment(stackResult, index = 0) {
         wallet,
         requiredStake,
         paid
+    });
+
+}
+
+/**
+ * R7.69C — Decode GameEscrow get_refund_mask().
+ */
+export function decodeRefundMask(stackResult) {
+
+    const stack = normalizeStack(stackResult);
+
+    return readInt(stack, 0, GAME_CONTRACT_GET_METHODS.REFUND_MASK);
+
+}
+
+/**
+ * R7.69C — Decode GameEscrow get_refunded_total().
+ */
+export function decodeRefundedTotal(stackResult) {
+
+    const stack = normalizeStack(stackResult);
+
+    return readBigInt(stack, 0, GAME_CONTRACT_GET_METHODS.REFUNDED_TOTAL);
+
+}
+
+/**
+ * R7.69C — Decode GameEscrow get_cancel_status().
+ * Stack: cancelled (0|1), cancelReason, refundMask.
+ */
+export function decodeCancelStatus(stackResult) {
+
+    const stack = normalizeStack(stackResult);
+
+    const cancelled = readInt(stack, 0, GAME_CONTRACT_GET_METHODS.CANCEL_STATUS, {
+        optional: true,
+        fallback: 0
+    }) === 1;
+
+    const cancelReason = readInt(stack, 1, GAME_CONTRACT_GET_METHODS.CANCEL_STATUS, {
+        optional: true,
+        fallback: 0
+    });
+
+    const refundMask = readInt(stack, 2, GAME_CONTRACT_GET_METHODS.CANCEL_STATUS, {
+        optional: true,
+        fallback: 0
+    });
+
+    return createCancelStatusDTO({
+        cancelled,
+        cancelReason,
+        refundMask
     });
 
 }

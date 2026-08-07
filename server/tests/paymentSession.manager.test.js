@@ -100,8 +100,10 @@ function createHarness({
 
     const blockchainMonitor = {
         watches: [],
+        refundWatches: [],
         stakeConfirmedEvents: [],
         paidMaskByAddress: new Map(),
+        cancelStateByAddress: new Map(),
         watchPayment(payload) {
 
             const key = `${payload.roomId}:${payload.playerId}`;
@@ -133,6 +135,30 @@ function createHarness({
             this.watches = this.watches.filter((entry) => entry.roomId !== roomId);
 
         },
+        watchGameEscrowRefunds(payload) {
+
+            const existing = this.refundWatches.findIndex(
+                (entry) => entry.watchId === `GAME_ESCROW_REFUND:${payload.contractId ?? payload.escrowAddress}:${payload.cancelTxHash ?? "pending"}`
+            );
+
+            const watch = {
+                ...payload,
+                watchId: `GAME_ESCROW_REFUND:${payload.contractId ?? payload.escrowAddress}:${payload.cancelTxHash ?? "pending"}`
+            };
+
+            if (existing >= 0) {
+
+                this.refundWatches[existing] = watch;
+
+            } else {
+
+                this.refundWatches.push(watch);
+
+            }
+
+            return watch;
+
+        },
         async readGameEscrowPaymentState(contractAddress, { playerCount = 3 } = {}) {
 
             if (!this.paidMaskByAddress.has(contractAddress)) {
@@ -161,6 +187,49 @@ function createHarness({
                 paidMask,
                 totalPaid: 0n,
                 requiredTotal: 0n,
+                players
+            };
+
+        },
+        async readGameEscrowCancelState(contractAddress, { playerCount = 3 } = {}) {
+
+            if (!this.cancelStateByAddress.has(contractAddress)) {
+
+                return null;
+
+            }
+
+            const state = this.cancelStateByAddress.get(contractAddress);
+
+            const refundMask = Number(state.refundMask) || 0;
+
+            const paidMask = Number(
+                state.paidMask
+                ?? this.paidMaskByAddress.get(contractAddress)
+                ?? 0
+            );
+
+            const players = [];
+
+            for (let index = 0; index < playerCount; index += 1) {
+
+                players.push({
+                    index,
+                    refunded: (refundMask & (1 << index)) !== 0,
+                    paid: (paidMask & (1 << index)) !== 0,
+                    wallet: null,
+                    requiredStake: null
+                });
+
+            }
+
+            return {
+                contractAddress,
+                cancelled: state.cancelled === true,
+                cancelReason: state.cancelReason ?? 0,
+                refundMask,
+                refundedTotal: state.refundedTotal ?? 0n,
+                paidMask,
                 players
             };
 
@@ -835,6 +904,110 @@ async function main() {
         assert.equal(session.status, PAYMENT_SESSION_STATUS.FULLY_PAID);
 
         console.log("  R7.69B multi-player / OPEN_PAYMENTS / READY sync: OK");
+    }
+
+    // --- R7.69C GameEscrow cancel / refund sync ---
+
+    {
+        const { manager, blockchainMonitor, contractAddress } = createHarness({
+            withContract: true,
+            withWalletManager: true
+        });
+
+        manager.createPaymentSession("room-1", {
+            contractAddress
+        });
+
+        blockchainMonitor.paidMaskByAddress.set(contractAddress, 0b011);
+        blockchainMonitor.cancelStateByAddress.set(contractAddress, {
+            cancelled: true,
+            cancelReason: 42,
+            refundMask: 0b011,
+            paidMask: 0b011,
+            refundedTotal: 20n
+        });
+
+        const sync = await manager.syncFromGameEscrow("room-1");
+
+        assert.equal(sync.ok, true);
+        assert.equal(sync.cancelled, true);
+        assert.equal(sync.refundSynced, 2);
+
+        const session = manager.getSession("room-1");
+
+        assert.equal(session.status, PAYMENT_SESSION_STATUS.CANCELLED);
+        assert.equal(session.findParticipant("p1").refunded, true);
+        assert.equal(session.findParticipant("p2").refunded, true);
+        assert.equal(session.findParticipant("p3").refunded, false);
+        assert.equal(blockchainMonitor.watches.length, 0);
+
+        // Duplicate reconnect must not re-apply refunds.
+        const again = await manager.syncFromGameEscrow("room-1");
+
+        assert.equal(again.refundSynced, 0);
+        assert.equal(again.cancelled, true);
+
+        console.log("  R7.69C cancel / refund GameEscrow sync: OK");
+    }
+
+    {
+        // Backend restart during cancel: restore refunded seats, no repay watches.
+        const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-payment-cancel-"));
+
+        const first = createHarness({
+            dataDir,
+            withContract: true,
+            withWalletManager: true
+        });
+
+        first.manager.createPaymentSession("room-1", {
+            contractAddress: first.contractAddress
+        });
+
+        first.blockchainMonitor.paidMaskByAddress.set(first.contractAddress, 0b001);
+        first.blockchainMonitor.cancelStateByAddress.set(first.contractAddress, {
+            cancelled: true,
+            cancelReason: 1,
+            refundMask: 0b001,
+            paidMask: 0b001
+        });
+
+        await first.manager.syncFromGameEscrow("room-1");
+
+        assert.equal(
+            first.manager.getSession("room-1").status,
+            PAYMENT_SESSION_STATUS.CANCELLED
+        );
+
+        first.persistence.shutdown();
+
+        const second = createHarness({
+            dataDir,
+            withContract: true,
+            withWalletManager: true
+        });
+
+        second.blockchainMonitor.paidMaskByAddress.set(second.contractAddress, 0b001);
+        second.blockchainMonitor.cancelStateByAddress.set(second.contractAddress, {
+            cancelled: true,
+            cancelReason: 1,
+            refundMask: 0b001,
+            paidMask: 0b001
+        });
+
+        const summary = await second.manager.restorePaymentSessions();
+
+        assert.equal(summary.restored, 1);
+
+        const restored = second.manager.getSession("room-1");
+
+        assert.equal(restored.status, PAYMENT_SESSION_STATUS.CANCELLED);
+        assert.equal(restored.findParticipant("p1").refunded, true);
+        assert.equal(second.blockchainMonitor.watches.length, 0);
+
+        TonFinancialPersistence.destroyStorage(dataDir);
+
+        console.log("  R7.69C backend restart cancel sync: OK");
     }
 
     // --- GameContractManager notification via completion event ---

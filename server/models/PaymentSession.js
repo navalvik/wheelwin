@@ -52,7 +52,9 @@ export class PaymentParticipant {
         paidAmount = 0,
         confirmationStatus = PAYMENT_CONFIRMATION_STATUS.NONE,
         confirmedAt = null,
-        playerIndex = null
+        playerIndex = null,
+        refunded = false,
+        refundTxHash = null
     }) {
 
         this.playerId = playerId;
@@ -79,6 +81,10 @@ export class PaymentParticipant {
 
         this.playerIndex = playerIndex == null ? null : Number(playerIndex);
 
+        this.refunded = refunded === true;
+
+        this.refundTxHash = refundTxHash ?? null;
+
     }
 
     toSnapshot() {
@@ -98,7 +104,9 @@ export class PaymentParticipant {
             paidAmount: this.paidAmount,
             confirmationStatus: this.confirmationStatus,
             confirmedAt: this.confirmedAt,
-            playerIndex: this.playerIndex
+            playerIndex: this.playerIndex,
+            refunded: this.refunded === true,
+            refundTxHash: this.refundTxHash
         });
 
     }
@@ -392,6 +400,22 @@ export class PaymentSession {
             }
 
         }
+
+        return this;
+
+    }
+
+    markCancelled() {
+
+        if (this.status === PAYMENT_SESSION_STATUS.CANCELLED) {
+
+            return this;
+
+        }
+
+        this.transitionTo(PAYMENT_SESSION_STATUS.CANCELLED, {
+            completedAt: this.completedAt ?? Date.now()
+        });
 
         return this;
 

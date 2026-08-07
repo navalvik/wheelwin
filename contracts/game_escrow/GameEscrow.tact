@@ -1,6 +1,6 @@
-/// R7.69A — GameEscrow with on-chain player STAKE deposits.
-/// INIT_GAME + OpenPayments + STAKE + SETTLE.
-/// INIT_GAME and SETTLE message ABIs unchanged from R7.66C.
+/// R7.69C — GameEscrow with STAKE deposits and EMERGENCY_CANCEL refunds.
+/// INIT_GAME + OpenPayments + STAKE + SETTLE + EMERGENCY_CANCEL.
+/// INIT_GAME and SETTLE message ABIs unchanged from R7.66C / R7.69A.
 
 const STATUS_UNINITIALIZED: Int = 0;
 const STATUS_DEPLOYED: Int = 1;
@@ -17,6 +17,9 @@ const PLAYER_COUNT: Int = 3;
 
 /// Gas cushion so two payout sends can pay forward fees (testnet/mainnet).
 const SETTLE_GAS_RESERVE: Int = ton("0.05");
+
+/// Gas cushion for up to three refund sends on cancel.
+const CANCEL_GAS_RESERVE: Int = ton("0.08");
 
 /// INIT_GAME — 0x494e4954 ("INIT") — ABI unchanged
 message(0x494e4954) InitGame {
@@ -49,6 +52,11 @@ message(0x53544c) Settle {
     ownerAmount: Int as coins;
 }
 
+/// EMERGENCY_CANCEL — 0x43414e43 ("CANC") — oracle refunds paid stakes
+message(0x43414e43) EmergencyCancel {
+    reasonCode: Int as uint32;
+}
+
 struct SettlementInfo {
     winner: Address;
     winnerAmount: Int as coins;
@@ -60,6 +68,12 @@ struct PlayerPaymentInfo {
     player: Address;
     requiredStake: Int as coins;
     paid: Bool;
+}
+
+struct CancelStatus {
+    cancelled: Bool;
+    cancelReason: Int as uint32;
+    refundMask: Int as uint8;
 }
 
 contract GameEscrow {
@@ -85,6 +99,11 @@ contract GameEscrow {
     player2: Address;
     stake2: Int as coins;
 
+    // R7.69C — cancellation / refund authority
+    refundMask: Int as uint8;
+    refundedAmount: Int as coins;
+    cancelReason: Int as uint32;
+
     init() {
         let zero: Address = newAddress(0, 0);
         self.version = CONTRACT_VERSION;
@@ -106,6 +125,9 @@ contract GameEscrow {
         self.stake1 = 0;
         self.player2 = zero;
         self.stake2 = 0;
+        self.refundMask = 0;
+        self.refundedAmount = 0;
+        self.cancelReason = 0;
     }
 
     /// Empty body — deploy path only. Player funds must use STAKE.
@@ -146,6 +168,9 @@ contract GameEscrow {
         self.requiredTotal = msg.stake0 + msg.stake1 + msg.stake2;
         self.paidMask = 0;
         self.totalPaid = 0;
+        self.refundMask = 0;
+        self.refundedAmount = 0;
+        self.cancelReason = 0;
 
         self.status = STATUS_PAYMENTS_OPEN;
     }
@@ -217,6 +242,73 @@ contract GameEscrow {
         self.settled = true;
     }
 
+    /// R7.69C — Oracle cancel before SETTLE; refund exact paid stakes once.
+    receive(msg: EmergencyCancel) {
+        require(sender() == self.oracle, "GameEscrow: sender is not oracle");
+        require(self.settled == false, "GameEscrow: already settled");
+        require(
+            self.status == STATUS_PAYMENTS_OPEN || self.status == STATUS_READY,
+            "GameEscrow: cancel not allowed"
+        );
+
+        // Compute exact refund total for paid seats not yet refunded.
+        let pendingRefund: Int = 0;
+        if ((self.paidMask & 1) != 0 && (self.refundMask & 1) == 0) {
+            pendingRefund = pendingRefund + self.stake0;
+        }
+        if ((self.paidMask & 2) != 0 && (self.refundMask & 2) == 0) {
+            pendingRefund = pendingRefund + self.stake1;
+        }
+        if ((self.paidMask & 4) != 0 && (self.refundMask & 4) == 0) {
+            pendingRefund = pendingRefund + self.stake2;
+        }
+
+        require(
+            myBalance() >= pendingRefund + CANCEL_GAS_RESERVE,
+            "GameEscrow: insufficient balance for refunds"
+        );
+
+        self.cancelReason = msg.reasonCode;
+
+        let nextMask: Int = self.refundMask;
+        let refundedNow: Int = 0;
+
+        if ((self.paidMask & 1) != 0 && (self.refundMask & 1) == 0) {
+            send(SendParameters{
+                to: self.player0,
+                value: self.stake0,
+                mode: SendPayGasSeparately,
+                bounce: false
+            });
+            nextMask = nextMask | 1;
+            refundedNow = refundedNow + self.stake0;
+        }
+        if ((self.paidMask & 2) != 0 && (self.refundMask & 2) == 0) {
+            send(SendParameters{
+                to: self.player1,
+                value: self.stake1,
+                mode: SendPayGasSeparately,
+                bounce: false
+            });
+            nextMask = nextMask | 2;
+            refundedNow = refundedNow + self.stake1;
+        }
+        if ((self.paidMask & 4) != 0 && (self.refundMask & 4) == 0) {
+            send(SendParameters{
+                to: self.player2,
+                value: self.stake2,
+                mode: SendPayGasSeparately,
+                bounce: false
+            });
+            nextMask = nextMask | 4;
+            refundedNow = refundedNow + self.stake2;
+        }
+
+        self.refundMask = nextMask;
+        self.refundedAmount = self.refundedAmount + refundedNow;
+        self.status = STATUS_CANCELLED;
+    }
+
     get fun get_status(): Int {
         return self.status;
     }
@@ -274,6 +366,22 @@ contract GameEscrow {
             player: self.player2,
             requiredStake: self.stake2,
             paid: paid
+        };
+    }
+
+    get fun get_refund_mask(): Int {
+        return self.refundMask;
+    }
+
+    get fun get_refunded_total(): Int {
+        return self.refundedAmount;
+    }
+
+    get fun get_cancel_status(): CancelStatus {
+        return CancelStatus{
+            cancelled: self.status == STATUS_CANCELLED,
+            cancelReason: self.cancelReason,
+            refundMask: self.refundMask
         };
     }
 }

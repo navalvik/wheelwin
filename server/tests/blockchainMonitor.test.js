@@ -641,6 +641,175 @@ async function main() {
         console.log("  R7.69B GameEscrow getters + watch dedupe: OK");
     }
 
+    // --- R7.69C GameEscrow cancel / refund observation ---
+
+    {
+        const logger = createLogger();
+
+        const eventBus = new EventBus({
+            logger,
+            eventBusConfig: { logEvents: false, showDebugPanel: false }
+        });
+
+        eventBus.initialize();
+
+        const playerWallet = friendlyAddress("refund-player-0");
+        const escrow = friendlyAddress("refund-escrow");
+
+        const adapter = {
+            async getCancelStatus() {
+
+                return {
+                    cancelled: true,
+                    cancelReason: 1,
+                    refundMask: 0b001
+                };
+
+            },
+            async getRefundMask() {
+
+                return 0b001;
+
+            },
+            async getRefundedTotal() {
+
+                return 10n;
+
+            },
+            async getPaidMask() {
+
+                return 0b001;
+
+            },
+            async getPlayerPayment(_address, index) {
+
+                return {
+                    index,
+                    wallet: index === 0 ? playerWallet : friendlyAddress(`seat-${index}`),
+                    requiredStake: 10n,
+                    paid: index === 0
+                };
+
+            }
+        };
+
+        const transport = new MockTonTransport();
+
+        transport.seedTransactions(escrow, [
+            {
+                transaction_id: { hash: "cancel-tx-1" },
+                out_msgs: [
+                    {
+                        destination: playerWallet,
+                        value: String(10 * 1e9),
+                        currency: "TON"
+                    }
+                ]
+            }
+        ]);
+
+        const monitor = new BlockchainMonitor({
+            logger,
+            eventBus,
+            transport,
+            contractAdapter: adapter,
+            pollIntervalMs: 50_000
+        });
+
+        monitor.initialize();
+
+        await monitor.start();
+
+        const cancelState = await monitor.readGameEscrowCancelState(escrow, {
+            playerCount: 3
+        });
+
+        assert.equal(cancelState.cancelled, true);
+        assert.equal(cancelState.refundMask, 0b001);
+        assert.equal(cancelState.players[0].refunded, true);
+
+        const refundEvents = [];
+
+        eventBus.subscribe(EVENT_TYPES.GAME_ESCROW_REFUND_CONFIRMED, (envelope) => {
+
+            refundEvents.push(envelope.payload);
+
+        });
+
+        const cancelEvents = [];
+
+        eventBus.subscribe(EVENT_TYPES.GAME_ESCROW_CANCEL_CONFIRMED, (envelope) => {
+
+            cancelEvents.push(envelope.payload);
+
+        });
+
+        const watch = monitor.watchGameEscrowRefunds({
+            escrowAddress: escrow,
+            cancelTxHash: "cancel-tx-1",
+            refunds: [
+                {
+                    playerIndex: 0,
+                    playerId: "p1",
+                    wallet: playerWallet,
+                    amount: 10
+                }
+            ],
+            expectedRefundMask: 0b001,
+            contractStatus: 9,
+            roomId: "room-refund",
+            gameId: "game-refund"
+        });
+
+        assert.equal(watch.status, "PENDING");
+
+        // Duplicate register is idempotent.
+        const again = monitor.watchGameEscrowRefunds({
+            escrowAddress: escrow,
+            cancelTxHash: "cancel-tx-1",
+            refunds: [
+                {
+                    playerIndex: 0,
+                    playerId: "p1",
+                    wallet: playerWallet,
+                    amount: 10
+                }
+            ],
+            expectedRefundMask: 0b001,
+            contractStatus: 9,
+            roomId: "room-refund",
+            gameId: "game-refund"
+        });
+
+        assert.equal(again.watchId, watch.watchId);
+
+        await monitor._observeGameEscrowRefunds(
+            monitor._gameEscrowRefunds.get(watch.watchId)
+        );
+
+        assert.equal(
+            monitor._gameEscrowRefunds.get(watch.watchId).status,
+            "CONFIRMED"
+        );
+
+        assert.equal(cancelEvents.length, 1);
+        assert.equal(refundEvents.length, 1);
+        assert.equal(refundEvents[0].playerIndex, 0);
+        assert.equal(refundEvents[0].amount, 10);
+
+        // No duplicate confirmation on re-observe.
+        await monitor._observeGameEscrowRefunds(
+            monitor._gameEscrowRefunds.get(watch.watchId)
+        );
+
+        assert.equal(refundEvents.length, 1);
+
+        monitor.shutdown();
+        eventBus.shutdown();
+
+        console.log("  R7.69C GameEscrow refund confirm + dedupe: OK");
+    }
+
     console.log("blockchainMonitor.test.js: all assertions passed");
 }
 
