@@ -2932,6 +2932,10 @@ export default function Page4Payment({ onNavigate }) {
             const paymentReference = localPaymentRequest?.paymentReference
                 ?? null;
 
+            const playerIndex = localPaymentRequest?.playerIndex
+                ?? localPaymentRequest?.seatIndex
+                ?? null;
+
             if (!tonWallet || !tonConnectUI?.sendTransaction) {
 
                 console.warn(
@@ -2957,7 +2961,8 @@ export default function Page4Payment({ onNavigate }) {
                 transaction = buildTonConnectPaymentTransaction({
                     contractAddress,
                     requiredGram,
-                    paymentReference
+                    paymentReference,
+                    playerIndex
                 });
 
             } catch (error) {

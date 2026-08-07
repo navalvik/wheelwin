@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
     markDeployStage,
@@ -1459,6 +1459,72 @@ export class GameContractManager {
         if (result.snapshotHash) {
 
             current.snapshotHash = result.snapshotHash;
+
+        }
+
+        // R7.69A — GameEscrow: INIT_GAME + OPEN_PAYMENTS before player STAKE window.
+        if (
+            typeof this._deployAdapter?.initGame === "function"
+            && typeof this._deployAdapter?.openPayments === "function"
+            && this._deployAdapter?._tonConfig?.gameEscrowMode === "game"
+        ) {
+
+            try {
+
+                const snapshotHash = current.snapshotHash
+                    ?? result.snapshotHash;
+                const contractIdHash = createHash("sha256")
+                    .update(String(current.contractId ?? ""))
+                    .digest("hex");
+                const players = current.snapshot?.players ?? [];
+
+                const init = await this._deployAdapter.initGame({
+                    contractAddress: current.contractAddress,
+                    oracle: current.snapshot?.oracleWallet
+                        ?? players[0]?.wallet
+                        ?? null,
+                    owner: current.snapshot?.ownerWallet ?? null,
+                    contractIdHash,
+                    snapshotHash
+                });
+
+                if (!init?.ok) {
+
+                    throw new Error(init?.reason ?? "init_game_failed");
+
+                }
+
+                const open = await this._deployAdapter.openPayments({
+                    contractAddress: current.contractAddress,
+                    players
+                });
+
+                if (!open?.ok) {
+
+                    throw new Error(open?.reason ?? "open_payments_failed");
+
+                }
+
+                this._log(
+                    `GAME_ESCROW_PAYMENTS_OPEN | roomId=${roomId} | `
+                        + `address=${current.contractAddress}`
+                );
+
+            } catch (error) {
+
+                current.applyDeploymentFailure(
+                    error?.message ?? "game_escrow_payments_open_failed"
+                );
+                current.transitionTo(GAME_CONTRACT_STATUS.DEPLOY_FAILED);
+                this._persistContract(current);
+                this._emitClientUpdate(current);
+                this._emit(EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED, {
+                    ...current.toClientSnapshot(),
+                    reason: current.deployError
+                });
+                return;
+
+            }
 
         }
 

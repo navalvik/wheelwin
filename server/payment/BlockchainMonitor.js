@@ -972,7 +972,8 @@ export class BlockchainMonitor {
         expectedWallet,
         paymentDeadline = null,
         contractId = null,
-        correlationId = null
+        correlationId = null,
+        playerIndex = null
     }) {
 
         if (!this._initialized) {
@@ -995,6 +996,7 @@ export class BlockchainMonitor {
             expectedGram: Number(expectedGram),
             expectedWallet: canonicalizeTonWalletAddress(expectedWallet),
             paymentDeadline,
+            playerIndex: playerIndex == null ? null : Number(playerIndex),
             startedAt: this._now()
         });
 
@@ -1874,8 +1876,29 @@ export class BlockchainMonitor {
         }
 
         const matchingWatch = watches.find((watch) => (
-            Boolean(deposit.comment?.includes(watch.paymentReference))
-        ));
+            Boolean(
+                watch.paymentReference
+                && deposit.comment?.includes(watch.paymentReference)
+            )
+        )) ?? watches.find((watch) => {
+            // R7.69A — STAKE deposits have no text comment; match wallet + amount.
+            if (!watch.expectedWallet || deposit.sender !== watch.expectedWallet) {
+
+                return false;
+
+            }
+
+            if (!Number.isFinite(Number(deposit.amountGram))) {
+
+                return false;
+
+            }
+
+            return Math.abs(
+                Number(deposit.amountGram) - Number(watch.expectedGram)
+            ) < 1e-9;
+
+        });
 
         if (!matchingWatch) {
 
@@ -2019,9 +2042,33 @@ export class BlockchainMonitor {
                 roomId,
                 gameId: matchingWatch.gameId,
                 playerId: matchingWatch.playerId,
-                paymentReference: matchingWatch.paymentReference
+                paymentReference: matchingWatch.paymentReference,
+                playerIndex: matchingWatch.playerIndex ?? null,
+                amount: deposit.amountGram,
+                sender: deposit.sender
             },
             txHash ? `payment-confirmed:${txHash}` : null
+        );
+
+        // R7.69A — explicit GameEscrow STAKE confirmation (observer fact).
+        this._emitObservation(
+            EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED,
+            {
+                contractId: matchingWatch.contractId ?? null,
+                transactionId: txHash,
+                escrowAddress: matchingWatch.contractAddress,
+                network: this._network,
+                timestamp: this._now(),
+                correlationId: matchingWatch.correlationId ?? null,
+                roomId,
+                gameId: matchingWatch.gameId,
+                playerId: matchingWatch.playerId,
+                playerIndex: matchingWatch.playerIndex ?? null,
+                amount: deposit.amountGram,
+                sender: deposit.sender,
+                paymentReference: matchingWatch.paymentReference
+            },
+            txHash ? `game-escrow-stake-confirmed:${txHash}` : null
         );
 
         // Business-facing fact for PaymentSessionManager (unchanged).

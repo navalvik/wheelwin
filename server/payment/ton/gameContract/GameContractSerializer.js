@@ -220,6 +220,78 @@ export function serializeLegacySettleBody({
 
 }
 
+/**
+ * R7.69A — OPEN_PAYMENTS body (oracle registers seats after INIT_GAME).
+ *
+ * Layout:
+ *   op:uint32 player0 stake0 player1 stake1 player2 stake2
+ */
+export function serializeGameEscrowOpenPaymentsBody({
+    player0,
+    stake0,
+    player1,
+    stake1,
+    player2,
+    stake2
+}) {
+
+    try {
+
+        return beginCell()
+            .storeUint(GAME_CONTRACT_OPCODES.OPEN_PAYMENTS, 32)
+            .storeAddress(Address.parse(String(player0).trim()))
+            .storeCoins(amountToNano(stake0))
+            .storeAddress(Address.parse(String(player1).trim()))
+            .storeCoins(amountToNano(stake1))
+            .storeAddress(Address.parse(String(player2).trim()))
+            .storeCoins(amountToNano(stake2))
+            .endCell();
+
+    } catch (error) {
+
+        throw new SerializationError(
+            "Failed to serialize GameEscrow OPEN_PAYMENTS body",
+            { cause: error?.message ?? null }
+        );
+
+    }
+
+}
+
+/**
+ * R7.69A — STAKE body for TonConnect / player deposits.
+ *
+ * Layout:
+ *   op:uint32 playerIndex:uint8
+ */
+export function serializeGameEscrowStakeBody({ playerIndex }) {
+
+    try {
+
+        const index = Number(playerIndex);
+
+        if (!Number.isInteger(index) || index < 0 || index > 255) {
+
+            throw new Error("playerIndex must be an integer 0..255");
+
+        }
+
+        return beginCell()
+            .storeUint(GAME_CONTRACT_OPCODES.STAKE, 32)
+            .storeUint(index, 8)
+            .endCell();
+
+    } catch (error) {
+
+        throw new SerializationError(
+            "Failed to serialize GameEscrow STAKE body",
+            { cause: error?.message ?? null }
+        );
+
+    }
+
+}
+
 export function serializeEmergencyCancelBody({ reasonCode = 0 } = {}) {
 
     try {

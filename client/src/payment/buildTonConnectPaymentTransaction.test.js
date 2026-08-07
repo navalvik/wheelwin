@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { beginCell } from "@ton/core";
 
 import {
+    buildGameEscrowStakePayload,
     buildTonCommentPayload,
     buildTonConnectPaymentTransaction,
     requiredGramToNanotonString
@@ -74,5 +75,20 @@ assert.throws(
     }),
     /paymentReference/
 );
+
+{
+    const stakeTx = buildTonConnectPaymentTransaction({
+        contractAddress: "EQescrowaddressfortestsXXXXXXXXXXXXXX",
+        requiredGram: 1,
+        playerIndex: 0,
+        nowMs
+    });
+
+    assert.equal(
+        stakeTx.messages[0].payload,
+        buildGameEscrowStakePayload(0)
+    );
+    assert.equal(stakeTx.messages[0].amount, "1000000000");
+}
 
 console.log("buildTonConnectPaymentTransaction.test.js: all assertions passed");

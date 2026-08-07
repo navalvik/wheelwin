@@ -56,6 +56,7 @@ import {
     serializeDeployBocPlaceholder,
     serializeEmergencyCancelBody,
     serializeGameEscrowInitGameBody,
+    serializeGameEscrowOpenPaymentsBody,
     serializeSettleBocPlaceholder
 } from "./ton/gameContract/GameContractSerializer.js";
 import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
@@ -578,6 +579,90 @@ export class TonGameContractAdapter {
             return createOperationResultDTO({
                 ok: false,
                 reason: "init_game_failed"
+            });
+
+        }
+
+    }
+
+    /**
+     * R7.69A — Oracle OPEN_PAYMENTS: register player seats and open STAKE window.
+     */
+    async openPayments({
+        contractAddress,
+        players
+    }) {
+
+        if (!contractAddress || !Array.isArray(players) || players.length < 3) {
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "invalid_open_payments_request"
+            });
+
+        }
+
+        const mode = resolveGameEscrowMode(this._tonConfig?.gameEscrowMode);
+
+        if (mode !== GAME_ESCROW_MODE_GAME) {
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "open_payments_requires_game_escrow_mode"
+            });
+
+        }
+
+        try {
+
+            const body = serializeGameEscrowOpenPaymentsBody({
+                player0: players[0].wallet,
+                stake0: players[0].requiredGram,
+                player1: players[1].wallet,
+                stake1: players[1].requiredGram,
+                player2: players[2].wallet,
+                stake2: players[2].requiredGram
+            });
+
+            if (this._canBroadcast()) {
+
+                const txId = await this._sendOracleMessage({
+                    to: contractAddress,
+                    body,
+                    valueTon: "0.05",
+                    bounce: false,
+                    resolveAccountTxHash: true
+                });
+
+                return createOperationResultDTO({
+                    ok: true,
+                    txId,
+                    completedAt: Date.now()
+                });
+
+            }
+
+            await this._service().broadcastTransaction(
+                Buffer.from(
+                    `open:${contractAddress}:${players.map((p) => p.playerId).join(",")}`
+                ).toString("base64")
+            );
+
+            return createOperationResultDTO({
+                ok: true,
+                txId: `ton_open_${String(contractAddress).slice(-12)}`,
+                completedAt: Date.now()
+            });
+
+        } catch (error) {
+
+            this._logError(
+                `TON GameEscrow OPEN_PAYMENTS failed | ${error?.message ?? error}`
+            );
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "open_payments_failed"
             });
 
         }

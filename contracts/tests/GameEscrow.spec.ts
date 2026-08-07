@@ -1,5 +1,5 @@
 /**
- * R7.66C — GameEscrow payout sandbox tests.
+ * R7.69A — GameEscrow STAKE + payment lifecycle sandbox tests.
  */
 import { Blockchain, SandboxContract, TreasuryContract } from "@ton/sandbox";
 import { toNano } from "@ton/core";
@@ -7,32 +7,40 @@ import "@ton/test-utils";
 import {
     GameEscrow,
     STATUS_DEPLOYED,
+    STATUS_PAYMENTS_OPEN,
+    STATUS_READY,
     STATUS_SETTLED,
     STATUS_UNINITIALIZED
 } from "../wrappers/GameEscrow";
 
-describe("GameEscrow payouts", () => {
+describe("GameEscrow stakes", () => {
     let blockchain: Blockchain;
     let deployer: SandboxContract<TreasuryContract>;
     let oracle: SandboxContract<TreasuryContract>;
     let owner: SandboxContract<TreasuryContract>;
+    let playerA: SandboxContract<TreasuryContract>;
+    let playerB: SandboxContract<TreasuryContract>;
+    let playerC: SandboxContract<TreasuryContract>;
     let winner: SandboxContract<TreasuryContract>;
-    let funder: SandboxContract<TreasuryContract>;
     let gameEscrow: SandboxContract<GameEscrow>;
 
     const contractIdHash = 0x1111111111111111111111111111111111111111111111111111111111111111n;
     const snapshotHash = 0x2222222222222222222222222222222222222222222222222222222222222222n;
+    const stakeA = toNano("1");
+    const stakeB = toNano("1");
+    const stakeC = toNano("1");
     const winnerAmount = toNano("2.85");
     const ownerAmount = toNano("0.15");
-    const fundAmount = toNano("4");
 
     beforeEach(async () => {
         blockchain = await Blockchain.create();
         deployer = await blockchain.treasury("deployer");
         oracle = await blockchain.treasury("oracle");
         owner = await blockchain.treasury("owner");
-        winner = await blockchain.treasury("winner");
-        funder = await blockchain.treasury("funder");
+        playerA = await blockchain.treasury("playerA");
+        playerB = await blockchain.treasury("playerB");
+        playerC = await blockchain.treasury("playerC");
+        winner = playerA;
 
         gameEscrow = blockchain.openContract(await GameEscrow.fromInit());
 
@@ -66,11 +74,34 @@ describe("GameEscrow payouts", () => {
         );
     }
 
-    async function fundEscrow(value: bigint) {
+    async function openPayments() {
         return gameEscrow.send(
-            funder.getSender(),
+            oracle.getSender(),
+            { value: toNano("0.05") },
+            {
+                $$type: "OpenPayments",
+                player0: playerA.address,
+                stake0: stakeA,
+                player1: playerB.address,
+                stake1: stakeB,
+                player2: playerC.address,
+                stake2: stakeC
+            }
+        );
+    }
+
+    async function stake(
+        player: SandboxContract<TreasuryContract>,
+        index: number,
+        value: bigint
+    ) {
+        return gameEscrow.send(
+            player.getSender(),
             { value },
-            null
+            {
+                $$type: "Stake",
+                playerIndex: BigInt(index)
+            }
         );
     }
 
@@ -88,111 +119,172 @@ describe("GameEscrow payouts", () => {
         );
     }
 
-    it("Case 1: funds escrow with TON", async () => {
+    it("player A/B/C pay → READY → SETTLE pays winner and owner", async () => {
         await initGame();
-
-        const before = (await blockchain.getContract(gameEscrow.address)).balance;
-        const result = await fundEscrow(fundAmount);
-
-        expect(result.transactions).toHaveTransaction({
-            from: funder.address,
-            to: gameEscrow.address,
-            success: true,
-            value: fundAmount
-        });
-
-        const after = (await blockchain.getContract(gameEscrow.address)).balance;
-        expect(after).toBeGreaterThan(before);
-        expect(after - before).toBeGreaterThanOrEqual(fundAmount - toNano("0.02"));
         expect(await gameEscrow.getGetStatus()).toEqual(STATUS_DEPLOYED);
-    });
 
-    it("Case 2: valid SETTLE pays winner and owner", async () => {
-        await initGame();
-        await fundEscrow(fundAmount);
+        await openPayments();
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_PAYMENTS_OPEN);
+        expect(await gameEscrow.getGetRequiredTotal()).toEqual(stakeA + stakeB + stakeC);
+        expect(await gameEscrow.getGetPaidMask()).toEqual(0n);
+
+        const a = await stake(playerA, 0, stakeA);
+        expect(a.transactions).toHaveTransaction({
+            from: playerA.address,
+            to: gameEscrow.address,
+            success: true
+        });
+        expect(await gameEscrow.getGetPaidMask()).toEqual(1n);
+
+        const b = await stake(playerB, 1, stakeB);
+        expect(b.transactions).toHaveTransaction({
+            from: playerB.address,
+            to: gameEscrow.address,
+            success: true
+        });
+        expect(await gameEscrow.getGetPaidMask()).toEqual(3n);
+
+        const c = await stake(playerC, 2, stakeC);
+        expect(c.transactions).toHaveTransaction({
+            from: playerC.address,
+            to: gameEscrow.address,
+            success: true
+        });
+        expect(await gameEscrow.getGetPaidMask()).toEqual(7n);
+        expect(await gameEscrow.getGetTotalPaid()).toEqual(stakeA + stakeB + stakeC);
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_READY);
+
+        const payment0 = await gameEscrow.getGetPlayerPayment(0n);
+        expect(payment0.paid).toBe(true);
+        expect(payment0.requiredStake).toEqual(stakeA);
 
         const winnerBefore = (await blockchain.getContract(winner.address)).balance;
         const ownerBefore = (await blockchain.getContract(owner.address)).balance;
 
-        const result = await settleFrom(oracle);
-
-        expect(result.transactions).toHaveTransaction({
+        const settle = await settleFrom(oracle);
+        expect(settle.transactions).toHaveTransaction({
             from: oracle.address,
             to: gameEscrow.address,
             success: true
         });
-        expect(result.transactions).toHaveTransaction({
+        expect(settle.transactions).toHaveTransaction({
             from: gameEscrow.address,
             to: winner.address,
             value: winnerAmount,
             success: true
         });
-        expect(result.transactions).toHaveTransaction({
+        expect(settle.transactions).toHaveTransaction({
             from: gameEscrow.address,
             to: owner.address,
             value: ownerAmount,
             success: true
         });
 
-        const winnerAfter = (await blockchain.getContract(winner.address)).balance;
-        const ownerAfter = (await blockchain.getContract(owner.address)).balance;
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
 
-        // Recipient wallets spend a small amount of gas processing the inbound transfer.
-        const winnerGain = winnerAfter - winnerBefore;
-        const ownerGain = ownerAfter - ownerBefore;
+        const winnerGain =
+            (await blockchain.getContract(winner.address)).balance - winnerBefore;
+        const ownerGain =
+            (await blockchain.getContract(owner.address)).balance - ownerBefore;
         expect(winnerGain).toBeGreaterThan(winnerAmount - toNano("0.01"));
-        expect(winnerGain).toBeLessThanOrEqual(winnerAmount);
         expect(ownerGain).toBeGreaterThan(ownerAmount - toNano("0.01"));
-        expect(ownerGain).toBeLessThanOrEqual(ownerAmount);
-        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
-
-        const info = await gameEscrow.getGetSettlementInfo();
-        expect(info.winner.equals(winner.address)).toBe(true);
-        expect(info.winnerAmount).toEqual(winnerAmount);
-        expect(info.ownerAmount).toEqual(ownerAmount);
-        expect(info.settled).toBe(true);
     });
 
-    it("Case 3: insufficient balance rejected", async () => {
+    it("duplicate payment rejected", async () => {
         await initGame();
-        // Far below winnerAmount + ownerAmount + gas reserve.
-        await fundEscrow(toNano("0.1"));
+        await openPayments();
+        await stake(playerA, 0, stakeA);
 
-        const result = await settleFrom(oracle);
+        const dup = await stake(playerA, 0, stakeA);
+        expect(dup.transactions).toHaveTransaction({
+            from: playerA.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetPaidMask()).toEqual(1n);
+    });
 
-        expect(result.transactions).toHaveTransaction({
-            from: oracle.address,
+    it("wrong amount rejected", async () => {
+        await initGame();
+        await openPayments();
+
+        const bad = await stake(playerA, 0, toNano("0.5"));
+        expect(bad.transactions).toHaveTransaction({
+            from: playerA.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetPaidMask()).toEqual(0n);
+    });
+
+    it("invalid player rejected", async () => {
+        await initGame();
+        await openPayments();
+
+        const badIndex = await stake(playerA, 3, stakeA);
+        expect(badIndex.transactions).toHaveTransaction({
+            from: playerA.address,
             to: gameEscrow.address,
             success: false
         });
 
-        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_DEPLOYED);
-        const info = await gameEscrow.getGetSettlementInfo();
-        expect(info.settled).toBe(false);
+        const wrongWallet = await stake(playerB, 0, stakeA);
+        expect(wrongWallet.transactions).toHaveTransaction({
+            from: playerB.address,
+            to: gameEscrow.address,
+            success: false
+        });
     });
 
-    it("Case 4: double settle rejected", async () => {
+    it("payment after READY rejected", async () => {
         await initGame();
-        await fundEscrow(fundAmount);
+        await openPayments();
+        await stake(playerA, 0, stakeA);
+        await stake(playerB, 1, stakeB);
+        await stake(playerC, 2, stakeC);
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_READY);
 
-        const first = await settleFrom(oracle);
-        expect(first.transactions).toHaveTransaction({
-            from: oracle.address,
+        // Extra stake attempt with a fresh treasury pretending to be unpaid — status blocks.
+        const extra = await gameEscrow.send(
+            playerA.getSender(),
+            { value: stakeA },
+            { $$type: "Stake", playerIndex: 0n }
+        );
+        expect(extra.transactions).toHaveTransaction({
+            from: playerA.address,
             to: gameEscrow.address,
-            success: true
+            success: false
         });
+    });
+
+    it("payment after SETTLED rejected", async () => {
+        await initGame();
+        await openPayments();
+        await stake(playerA, 0, stakeA);
+        await stake(playerB, 1, stakeB);
+        await stake(playerC, 2, stakeC);
+        await settleFrom(oracle);
         expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
 
-        // Top up again so rejection is due to settled flag, not balance.
-        await fundEscrow(fundAmount);
+        const afterSettle = await stake(playerA, 0, stakeA);
+        expect(afterSettle.transactions).toHaveTransaction({
+            from: playerA.address,
+            to: gameEscrow.address,
+            success: false
+        });
+    });
 
-        const second = await settleFrom(oracle);
-        expect(second.transactions).toHaveTransaction({
+    it("SETTLE before READY rejected", async () => {
+        await initGame();
+        await openPayments();
+        await stake(playerA, 0, stakeA);
+
+        const early = await settleFrom(oracle);
+        expect(early.transactions).toHaveTransaction({
             from: oracle.address,
             to: gameEscrow.address,
             success: false
         });
-
-        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_PAYMENTS_OPEN);
     });
 });

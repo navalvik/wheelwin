@@ -150,6 +150,12 @@ export class PaymentSessionManager {
             (envelope) => this._handlePaymentTransactionConfirmed(envelope.payload)
         );
 
+        // R7.69A — GameEscrow STAKE is authoritative; PSM only synchronizes.
+        this._subscribe(
+            EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED,
+            (envelope) => this._handlePaymentTransactionConfirmed(envelope.payload)
+        );
+
         this._subscribe(
             EVENT_TYPES.TRANSACTION_FAILED,
             (envelope) => this._handleTransactionFailed(envelope.payload)
@@ -1378,7 +1384,9 @@ export class PaymentSessionManager {
 
         }
 
-        for (const participant of session.participants) {
+        for (let index = 0; index < session.participants.length; index += 1) {
+
+            const participant = session.participants[index];
 
             if (
                 participant.status !== PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
@@ -1394,6 +1402,8 @@ export class PaymentSessionManager {
 
             participant.paymentReference = `payref_${session.paymentSessionId}_${participant.playerId}`;
 
+            participant.playerIndex = index;
+
             participant.status = PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION;
 
             this._emit(EVENT_TYPES.PAYMENT_REQUEST, {
@@ -1401,6 +1411,7 @@ export class PaymentSessionManager {
                 roomId: session.roomId,
                 gameId: session.gameId,
                 playerId: participant.playerId,
+                playerIndex: index,
                 requiredGram: participant.requiredGram,
                 paymentDeadline: session.paymentDeadline,
                 contractAddress,
@@ -1463,7 +1474,8 @@ export class PaymentSessionManager {
             paymentReference: participant.paymentReference,
             expectedGram: participant.requiredGram,
             expectedWallet: participant.wallet,
-            paymentDeadline: session.paymentDeadline
+            paymentDeadline: session.paymentDeadline,
+            playerIndex: participant.playerIndex ?? null
         });
 
     }

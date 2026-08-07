@@ -37,7 +37,8 @@ import {
 import { GAME_CONTRACT_OPCODES } from "../payment/ton/gameContract/GameContractOpcodes.js";
 import {
     serializeGameEscrowInitGameBody,
-    serializeGameEscrowSettleBody
+    serializeGameEscrowSettleBody,
+    serializeGameEscrowStakeBody
 } from "../payment/ton/gameContract/GameContractSerializer.js";
 import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
 import { verifyGameEscrowPayouts } from "../payment/ton/verifyGameEscrowPayouts.js";
@@ -91,12 +92,12 @@ function buildSnapshot(gameId = "game_e2e_r766h") {
             }),
             Object.freeze({
                 playerId: "p2",
-                wallet: "EQThirdPlayerWalletXXXXXXXXXXXXXXXXXXX",
+                wallet: "EQALFhmSA17gNMlTA2O76SvTB3jH8cO63jLmZVg2xCFYHYZY",
                 requiredGram: 1
             }),
             Object.freeze({
                 playerId: "p3",
-                wallet: "EQOtherPlayerWalletXXXXXXXXXXXXXXXXXXXX",
+                wallet: "EQApQspMmYOKt4fcGymBJ1ybl2F9GqQFgpimDT7varjtLeHL",
                 requiredGram: 1
             })
         ])
@@ -253,6 +254,25 @@ async function main() {
         pushGameEscrowE2EStage(report, "INIT_GAME");
 
         console.log("  3) INIT_GAME: OK");
+    }
+
+    // --- 3b) OPEN_PAYMENTS + STAKE bodies ---
+
+    {
+        const open = await adapter.openPayments({
+            contractAddress: report.escrowAddress,
+            players: snapshot.players
+        });
+        assert.equal(open.ok, true);
+        pushGameEscrowE2EStage(report, "OPEN_PAYMENTS");
+
+        const stakeBody = serializeGameEscrowStakeBody({ playerIndex: 0 });
+        const stakeSlice = stakeBody.beginParse();
+        assert.equal(stakeSlice.loadUint(32), GAME_CONTRACT_OPCODES.STAKE);
+        assert.equal(stakeSlice.loadUint(8), 0);
+
+        pushGameEscrowE2EStage(report, "STAKE_READY");
+        console.log("  3b) OPEN_PAYMENTS + STAKE: OK");
     }
 
     // --- 4) Complete game + wire settlement manager ---
@@ -496,6 +516,8 @@ async function main() {
         "SESSION_CREATED",
         "DEPLOYED",
         "INIT_GAME",
+        "OPEN_PAYMENTS",
+        "STAKE_READY",
         "GAME_COMPLETED",
         "SETTLE_SUBMITTED",
         "SETTLEMENT_COMPLETED"

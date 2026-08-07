@@ -1,15 +1,16 @@
 /**
- * R6.16B — Build a TonConnect sendTransaction request from authoritative
- * payment-session seat fields. Does not verify payment or touch chain state.
+ * R6.16B / R7.69A — Build a TonConnect sendTransaction request.
+ * Destination is GameEscrow. Payload is STAKE (preferred) or legacy text comment.
  */
 
 import { beginCell, toNano } from "@ton/core";
 
 const DEFAULT_VALID_UNTIL_SECONDS = 600;
+const GAME_ESCROW_STAKE_OPCODE = 0x5354414B;
 
 /**
  * Standard TON text-comment body (op = 0) as base64 BOC for TonConnect payload.
- * BlockchainMonitor matches deposit.comment against paymentReference.
+ * Legacy path — BlockchainMonitor can still match deposit.comment.
  */
 export function buildTonCommentPayload(comment) {
 
@@ -29,8 +30,29 @@ export function buildTonCommentPayload(comment) {
 }
 
 /**
+ * R7.69A — GameEscrow STAKE body (op + playerIndex) as base64 BOC.
+ */
+export function buildGameEscrowStakePayload(playerIndex) {
+
+    const index = Number(playerIndex);
+
+    if (!Number.isInteger(index) || index < 0 || index > 255) {
+
+        throw new Error("playerIndex must be an integer 0..255 for STAKE payload");
+
+    }
+
+    return beginCell()
+        .storeUint(GAME_ESCROW_STAKE_OPCODE, 32)
+        .storeUint(index, 8)
+        .endCell()
+        .toBoc()
+        .toString("base64");
+
+}
+
+/**
  * Convert authoritative requiredGram (whole GRM / TON units) to nanotons string.
- * Matches BlockchainMonitor parseDepositCandidate (nanotons / 1e9 → amountGram).
  */
 export function requiredGramToNanotonString(requiredGram) {
 
@@ -54,17 +76,18 @@ export function requiredGramToNanotonString(requiredGram) {
 
 /**
  * @param {object} params
- * @param {string} params.contractAddress — escrow destination
- * @param {number|string} params.requiredGram — whole GRM units from seat
- * @param {string} params.paymentReference — comment matched by BlockchainMonitor
+ * @param {string} params.contractAddress — GameEscrow destination
+ * @param {number|string} params.requiredGram — exact stake
+ * @param {string} [params.paymentReference] — legacy comment (v4 / fallback)
+ * @param {number} [params.playerIndex] — seat index for STAKE body (game mode)
  * @param {number} [params.validUntilSeconds=600]
  * @param {number} [params.nowMs]
- * @returns {{ validUntil: number, messages: Array<{ address: string, amount: string, payload: string }> }}
  */
 export function buildTonConnectPaymentTransaction({
     contractAddress,
     requiredGram,
-    paymentReference,
+    paymentReference = null,
+    playerIndex = null,
     validUntilSeconds = DEFAULT_VALID_UNTIL_SECONDS,
     nowMs = Date.now()
 } = {}) {
@@ -80,7 +103,9 @@ export function buildTonConnectPaymentTransaction({
 
     const amount = requiredGramToNanotonString(requiredGram);
 
-    const payload = buildTonCommentPayload(paymentReference);
+    const payload = playerIndex != null && playerIndex !== ""
+        ? buildGameEscrowStakePayload(playerIndex)
+        : buildTonCommentPayload(paymentReference);
 
     const ttl = Number(validUntilSeconds);
 

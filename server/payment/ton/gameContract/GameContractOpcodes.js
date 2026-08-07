@@ -8,6 +8,9 @@ export const GAME_CONTRACT_OPCODES = Object.freeze({
     // Legacy 24-bit settle opcode retained for backward compatibility.
     SETTLE: 0x53544c,
     INIT_GAME: 0x494e4954,
+    // R7.69A — on-chain player stakes / open payments.
+    OPEN_PAYMENTS: 0x4F50454E,
+    STAKE: 0x5354414B,
     EMERGENCY_CANCEL: 0x43414e43,
     ARCHIVE: 0x41524348
 });
@@ -15,6 +18,9 @@ export const GAME_CONTRACT_OPCODES = Object.freeze({
 export const GAME_CONTRACT_GET_METHODS = Object.freeze({
     CONTRACT_STATE: "get_contract_state",
     PAID_MASK: "get_paid_mask",
+    TOTAL_PAID: "get_total_paid",
+    REQUIRED_TOTAL: "get_required_total",
+    PLAYER_PAYMENT: "get_player_payment",
     PARTICIPANTS: "get_participants",
     WINNER: "get_winner",
     SETTLEMENT_STATE: "get_settlement_state",

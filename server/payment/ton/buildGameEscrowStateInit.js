@@ -154,9 +154,10 @@ export function loadGameEscrowArtifactMeta() {
 }
 
 /**
- * Tact storage layout (after loaded=1 bit):
+ * Tact storage layout (after loaded=1 bit) — R7.69A:
  * version:uint16 status:uint8 oracle owner contractIdHash:uint256
- * ^[ snapshotHash:uint256 winner winnerAmount:coins ownerAmount:coins settled:Bool ]
+ * ^[ snapshotHash winner winnerAmount ownerAmount settled paidMask totalPaid
+ *    ^[ requiredTotal player0 stake0 player1 stake1 ^[ player2 stake2 ] ] ]
  */
 export function buildGameEscrowDataCell({
     version = GAME_ESCROW_VERSION,
@@ -168,15 +169,41 @@ export function buildGameEscrowDataCell({
     winner = ZERO_ADDRESS,
     winnerAmount = 0n,
     ownerAmount = 0n,
-    settled = false
+    settled = false,
+    paidMask = 0,
+    totalPaid = 0n,
+    requiredTotal = 0n,
+    player0 = ZERO_ADDRESS,
+    stake0 = 0n,
+    player1 = ZERO_ADDRESS,
+    stake1 = 0n,
+    player2 = ZERO_ADDRESS,
+    stake2 = 0n
 } = {}) {
 
     const oracleAddress = resolveTonAddress(oracle, ZERO_ADDRESS);
     const ownerAddress = resolveTonAddress(owner, ZERO_ADDRESS);
     const winnerAddress = resolveTonAddress(winner, ZERO_ADDRESS);
+    const p0 = resolveTonAddress(player0, ZERO_ADDRESS);
+    const p1 = resolveTonAddress(player1, ZERO_ADDRESS);
+    const p2 = resolveTonAddress(player2, ZERO_ADDRESS);
 
     const contractIdHashInt = hashToUint256(contractIdHash);
     const snapshotHashInt = hashToUint256(snapshotHash);
+
+    const rosterTail = beginCell()
+        .storeAddress(p2)
+        .storeCoins(stake2)
+        .endCell();
+
+    const roster = beginCell()
+        .storeCoins(requiredTotal)
+        .storeAddress(p0)
+        .storeCoins(stake0)
+        .storeAddress(p1)
+        .storeCoins(stake1)
+        .storeRef(rosterTail)
+        .endCell();
 
     const tail = beginCell()
         .storeUint(snapshotHashInt, 256)
@@ -184,6 +211,9 @@ export function buildGameEscrowDataCell({
         .storeCoins(winnerAmount)
         .storeCoins(ownerAmount)
         .storeBit(Boolean(settled))
+        .storeUint(Number(paidMask) & 0xff, 8)
+        .storeCoins(totalPaid)
+        .storeRef(roster)
         .endCell();
 
     // loaded=1 → contract_load reads GameEscrow$Data (skips empty init()).

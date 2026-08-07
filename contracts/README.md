@@ -1,11 +1,11 @@
-# R7.66C / R7.67A — TON GameEscrow v1
+# R7.69A — TON GameEscrow with on-chain STAKE
 
-Contract: `INIT_GAME` + `SETTLE` (pays winner/owner). No STAKE yet.
+Contract: `INIT_GAME` + `OPEN_PAYMENTS` + `STAKE` + `SETTLE`.
 
-**Testnet default (R7.67A):** `GAME_ESCROW_MODE=game`  
-**Rollback:** `GAME_ESCROW_MODE=v4` (legacy WalletContractV4; mainnet default unchanged)
+**Testnet default:** `GAME_ESCROW_MODE=game`  
+**Rollback / mainnet default:** `GAME_ESCROW_MODE=v4`
 
-See [docs/architecture/R7.67A-Testnet-GameEscrow-Default.md](../docs/architecture/R7.67A-Testnet-GameEscrow-Default.md).
+Player deposits go to GameEscrow via STAKE (not backend custody).
 
 ## Commands
 
