@@ -134,7 +134,16 @@ export class RuntimeConfiguration {
                 expectedAddressConfigured: Boolean(
                     this.ton.deployerExpectedAddress
                 ),
-                gameEscrowMode: this.ton.gameEscrowMode ?? null
+                gameEscrowMode: this.ton.gameEscrowMode ?? null,
+                // R7.68 — readiness pins (not secrets).
+                oracleConfigured: Boolean(this.ton.oracleAddress),
+                artifactHashConfigured: Boolean(
+                    this.ton.artifactSha256Expected
+                ),
+                mainnetProfileConfigured: Boolean(
+                    this.ton.profiles?.mainnet?.oracleWallet
+                    && this.ton.profiles?.mainnet?.deployerExpectedAddress
+                )
             }),
             developerConsole: Object.freeze({
                 authEnabled: this.developer.enabled === true,

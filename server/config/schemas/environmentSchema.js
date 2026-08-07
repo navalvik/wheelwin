@@ -627,6 +627,43 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix: "Set TON_DEPLOYER_EXPECTED_ADDRESS to the expected deployer wallet friendly address."
     }),
+    // R7.68 — Mainnet readiness profile (does not enable mainnet by itself).
+    TON_MAINNET_ENDPOINT: Object.freeze({
+        key: "TON_MAINNET_ENDPOINT",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix: "Set TON_MAINNET_ENDPOINT to the mainnet TonCenter JSON-RPC URL."
+    }),
+    TON_MAINNET_ORACLE_ADDRESS: Object.freeze({
+        key: "TON_MAINNET_ORACLE_ADDRESS",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix: "Set TON_MAINNET_ORACLE_ADDRESS to the mainnet oracle wallet."
+    }),
+    TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS: Object.freeze({
+        key: "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix: "Set TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS to the expected mainnet deployer address."
+    }),
+    TON_MAINNET_GAME_ESCROW_MODE: Object.freeze({
+        key: "TON_MAINNET_GAME_ESCROW_MODE",
+        type: "enum",
+        required: false,
+        allowed: Object.freeze(["v4", "game"]),
+        category: "TON",
+        suggestedFix: "Keep TON_MAINNET_GAME_ESCROW_MODE=v4 until Mainnet GameEscrow cutover."
+    }),
+    TON_GAME_ESCROW_ARTIFACT_SHA256: Object.freeze({
+        key: "TON_GAME_ESCROW_ARTIFACT_SHA256",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix: "Set TON_GAME_ESCROW_ARTIFACT_SHA256 to the SHA256 of GameEscrow.code.boc."
+    }),
     SETUP_DURATION_MS: Object.freeze({
         key: "SETUP_DURATION_MS",
         type: "integer",

@@ -1,4 +1,8 @@
 import { resolveGameEscrowMode } from "./gameEscrowMode.js";
+import {
+    loadTonNetworkProfiles,
+    resolveActiveTonProfile
+} from "./tonNetworkProfiles.js";
 
 export function loadTonConfig(env = process.env) {
 
@@ -11,15 +15,13 @@ export function loadTonConfig(env = process.env) {
     }
 
     const normalizedNetwork = String(network).trim().toLowerCase();
-
-    const defaultEndpoint = normalizedNetwork === "mainnet"
-        ? "https://toncenter.com/api/v2/jsonRPC"
-        : "https://testnet.toncenter.com/api/v2/jsonRPC";
+    const profiles = loadTonNetworkProfiles(env);
+    const activeProfile = resolveActiveTonProfile(normalizedNetwork, env);
 
     const endpoint = typeof env.TON_ENDPOINT === "string"
         && env.TON_ENDPOINT.trim()
         ? env.TON_ENDPOINT.trim()
-        : defaultEndpoint;
+        : activeProfile.endpoint;
 
     const pollIntervalMs = env.TON_POLL_INTERVAL_MS === undefined
         ? 2000
@@ -35,17 +37,18 @@ export function loadTonConfig(env = process.env) {
 
     const deployMode = requestedMode === "live" ? "live" : "stub";
 
-    // R7.67A — testnet defaults to game; mainnet stays v4; refuse ambiguous values.
+    // Active network escrow mode (testnet default game; mainnet default v4).
     const gameEscrowMode = resolveGameEscrowMode(null, {
         ...env,
         TON_NETWORK: normalizedNetwork
     });
 
-    // R7.67B — optional pin for Railway wallet identity diagnostics.
-    const deployerExpectedAddress = typeof env.TON_DEPLOYER_EXPECTED_ADDRESS === "string"
-        && env.TON_DEPLOYER_EXPECTED_ADDRESS.trim()
-        ? env.TON_DEPLOYER_EXPECTED_ADDRESS.trim()
-        : null;
+    // R7.67B / R7.68 — expected deployer pin (active network profile preferred).
+    const deployerExpectedAddress = activeProfile.deployerExpectedAddress
+        ?? (typeof env.TON_DEPLOYER_EXPECTED_ADDRESS === "string"
+            && env.TON_DEPLOYER_EXPECTED_ADDRESS.trim()
+            ? env.TON_DEPLOYER_EXPECTED_ADDRESS.trim()
+            : null);
 
     return {
         network: normalizedNetwork,
@@ -56,6 +59,9 @@ export function loadTonConfig(env = process.env) {
             ? env.TON_DEPLOYER_MNEMONIC.trim()
             : null,
         deployerExpectedAddress,
+        oracleAddress: activeProfile.oracleWallet,
+        artifactSha256Expected: activeProfile.artifactSha256,
+        profiles,
         grmJettonMaster: typeof env.TON_GRM_JETTON_MASTER === "string"
             && env.TON_GRM_JETTON_MASTER.trim()
             ? env.TON_GRM_JETTON_MASTER.trim()

@@ -102,6 +102,13 @@ import {
     tonAddressesEqual
 } from "./diagnostics/TonWalletIdentityDebug.js";
 import {
+    assertMainnetStartupSafe,
+    evaluateMainnetReadiness,
+    printTonMainnetReadiness,
+    setTonMainnetReadiness
+} from "./diagnostics/TonMainnetReadiness.js";
+import { verifyGameEscrowArtifact } from "./payment/ton/verifyGameEscrowArtifact.js";
+import {
     BlockchainMonitor,
     EntryPaymentAuditLedger
 } from "./payment/BlockchainMonitor.js";
@@ -685,6 +692,9 @@ class WheelWinApplication {
 
         // R7.67B — Railway wallet identity + balance diagnostics (fail on mismatch).
         await this._runTonWalletIdentityDiagnostics();
+
+        // R7.68 — Mainnet readiness report (does not enable Mainnet).
+        await this._runTonMainnetReadinessDiagnostics();
 
         this._metricsService.initialize();
 
@@ -3428,6 +3438,137 @@ class WheelWinApplication {
         );
 
         assertDeployerWalletMatchesExpected(identity.address, expectedAddress);
+
+    }
+
+    /**
+     * R7.68 — Print TON_MAINNET_READINESS and fail-fast when active network is mainnet.
+     * Testnet runtime stays unchanged (report may FAIL until mainnet env is filled).
+     */
+    async _runTonMainnetReadinessDiagnostics() {
+
+        const network = this._tonConfig?.network ?? null;
+        const mnemonic = this._tonConfig?.deployerMnemonic;
+        const mainnetProfile = this._tonConfig?.profiles?.mainnet ?? null;
+
+        let walletType = null;
+        let walletAddress = null;
+        let balanceTon = null;
+        let balanceNano = null;
+        let seqno = null;
+
+        if (mnemonic && typeof mnemonic === "string") {
+
+            try {
+
+                const identity = await deriveDeployerWalletIdentity({
+                    mnemonic,
+                    network
+                });
+
+                walletType = identity.walletContractType;
+                walletAddress = identity.address;
+
+                try {
+
+                    const nano = await this._services.tonService.getBalance(
+                        identity.address
+                    );
+
+                    balanceNano = String(nano);
+                    balanceTon = Number(nano) / 1e9;
+
+                } catch {
+
+                    balanceTon = null;
+                    balanceNano = null;
+
+                }
+
+                try {
+
+                    seqno = await this._services.tonService.getSeqno(
+                        identity.address
+                    );
+
+                } catch {
+
+                    seqno = null;
+
+                }
+
+            } catch (error) {
+
+                this._logger?.warn?.(
+                    `Mainnet readiness wallet probe skipped | ${error?.message ?? error}`
+                );
+
+            }
+
+        }
+
+        const artifact = verifyGameEscrowArtifact({
+            expectedSha256: this._tonConfig?.artifactSha256Expected
+                ?? mainnetProfile?.artifactSha256
+                ?? null,
+            requirePresent: network === "mainnet"
+                || this._tonConfig?.gameEscrowMode === "game"
+        });
+
+        // Integrity: when an expected hash is known, mismatch fails on any network.
+        if (artifact.expectedSha256 && artifact.present && artifact.match === false) {
+
+            throw new Error(artifact.reasons[0] ?? "GameEscrow artifact SHA256 mismatch");
+
+        }
+
+        if (
+            (network === "mainnet" || this._tonConfig?.gameEscrowMode === "game")
+            && !artifact.present
+        ) {
+
+            throw new Error(
+                artifact.reasons[0] ?? "GameEscrow artifact missing"
+            );
+
+        }
+
+        const readiness = evaluateMainnetReadiness({
+            env: process.env,
+            activeNetwork: network,
+            walletType,
+            walletAddress,
+            balanceTon,
+            balanceNano,
+            seqno,
+            requireLiveWallet: network === "mainnet"
+        });
+
+        setTonMainnetReadiness(readiness);
+        printTonMainnetReadiness();
+
+        this._logger.startupLine(
+            `TonMainnetReadiness=${readiness.status} `
+                + `(active=${network ?? "unknown"} escrow=${readiness.escrowMode})`
+        );
+
+        if (network === "mainnet") {
+
+            assertMainnetStartupSafe({
+                profile: mainnetProfile ?? readiness.profile,
+                walletAddress,
+                artifact
+            });
+
+            if (readiness.status !== "PASS") {
+
+                throw new Error(
+                    `Mainnet startup validation failed: ${readiness.reasons.join("; ")}`
+                );
+
+            }
+
+        }
 
     }
 
