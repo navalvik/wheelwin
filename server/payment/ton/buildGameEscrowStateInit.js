@@ -253,6 +253,7 @@ export function buildGameEscrowStateInit({
         oracle
             ?? snapshot?.oracleWallet
             ?? snapshot?.oracle
+            ?? process.env.TON_TESTNET_ORACLE_ADDRESS
             ?? process.env.GAME_ESCROW_ORACLE
             ?? process.env.TON_ORACLE_ADDRESS,
         ZERO_ADDRESS

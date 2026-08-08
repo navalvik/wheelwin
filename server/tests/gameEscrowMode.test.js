@@ -91,6 +91,39 @@ function main() {
         console.log("  loadTonConfig: OK");
     }
 
+    {
+        // R7.70A.2 — temporary Testnet oracle + Mainnet isolation
+        const TEMP_ORACLE = "EQB83s9XMOMseDFxyXxj4hrC0sS4FB4xhdNiUPkl_3zx3PDQ";
+
+        const before = loadTonConfig({ TON_NETWORK: "testnet" });
+        assert.equal(before.oracleAddress, null);
+
+        const after = loadTonConfig({
+            TON_NETWORK: "testnet",
+            TON_TESTNET_ORACLE_ADDRESS: TEMP_ORACLE
+        });
+        assert.equal(after.oracleAddress, TEMP_ORACLE);
+        assert.equal(after.oracleSource, "TON_TESTNET_ORACLE_ADDRESS");
+        assert.equal(after.gameEscrowMode, GAME_ESCROW_MODE_GAME);
+
+        const fallback = loadTonConfig({
+            TON_NETWORK: "testnet",
+            TON_ORACLE_ADDRESS: TEMP_ORACLE
+        });
+        assert.equal(fallback.oracleAddress, TEMP_ORACLE);
+        assert.equal(fallback.oracleSource, "TON_ORACLE_ADDRESS");
+
+        const mainnetIsolated = loadTonConfig({
+            TON_NETWORK: "mainnet",
+            TON_TESTNET_ORACLE_ADDRESS: TEMP_ORACLE,
+            TON_ORACLE_ADDRESS: TEMP_ORACLE
+        });
+        assert.equal(mainnetIsolated.oracleAddress, null);
+        assert.equal(mainnetIsolated.profiles.testnet.oracleWallet, TEMP_ORACLE);
+        assert.equal(mainnetIsolated.profiles.mainnet.oracleWallet, null);
+        console.log("  testnet oracle + mainnet isolation: OK");
+    }
+
     console.log("gameEscrowMode.test.js: all assertions passed");
 
 }

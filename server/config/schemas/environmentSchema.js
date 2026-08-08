@@ -642,6 +642,24 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix: "Set TON_MAINNET_ORACLE_ADDRESS to the mainnet oracle wallet."
     }),
+    // R7.70A.2 — Testnet oracle pin (temporary deployer-as-oracle for settlement validation).
+    TON_TESTNET_ORACLE_ADDRESS: Object.freeze({
+        key: "TON_TESTNET_ORACLE_ADDRESS",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Set TON_TESTNET_ORACLE_ADDRESS to the Testnet oracle bounceable address "
+            + "(falls back to TON_ORACLE_ADDRESS / GAME_ESCROW_ORACLE)."
+    }),
+    TON_ORACLE_ADDRESS: Object.freeze({
+        key: "TON_ORACLE_ADDRESS",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Optional shared oracle fallback. Prefer TON_TESTNET_ORACLE_ADDRESS on Testnet."
+    }),
     TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS: Object.freeze({
         key: "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS",
         type: "string",

@@ -60,6 +60,7 @@ export function loadTonConfig(env = process.env) {
             : null,
         deployerExpectedAddress,
         oracleAddress: activeProfile.oracleWallet,
+        oracleSource: activeProfile.oracleSource ?? null,
         artifactSha256Expected: activeProfile.artifactSha256,
         profiles,
         grmJettonMaster: typeof env.TON_GRM_JETTON_MASTER === "string"

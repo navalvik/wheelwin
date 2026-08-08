@@ -223,8 +223,8 @@ export function serializeLegacySettleBody({
 /**
  * R7.69A — OPEN_PAYMENTS body (oracle registers seats after INIT_GAME).
  *
- * Layout:
- *   op:uint32 player0 stake0 player1 stake1 player2 stake2
+ * Layout matches Tact storeOpenPayments (cell overflow split):
+ *   op:uint32 player0 stake0 player1 stake1 ^[ player2 stake2 ]
  */
 export function serializeGameEscrowOpenPaymentsBody({
     player0,
@@ -237,14 +237,18 @@ export function serializeGameEscrowOpenPaymentsBody({
 
     try {
 
+        const tail = beginCell()
+            .storeAddress(Address.parse(String(player2).trim()))
+            .storeCoins(amountToNano(stake2))
+            .endCell();
+
         return beginCell()
             .storeUint(GAME_CONTRACT_OPCODES.OPEN_PAYMENTS, 32)
             .storeAddress(Address.parse(String(player0).trim()))
             .storeCoins(amountToNano(stake0))
             .storeAddress(Address.parse(String(player1).trim()))
             .storeCoins(amountToNano(stake1))
-            .storeAddress(Address.parse(String(player2).trim()))
-            .storeCoins(amountToNano(stake2))
+            .storeRef(tail)
             .endCell();
 
     } catch (error) {

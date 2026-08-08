@@ -12,6 +12,7 @@ import {
     buildStubContractAddress,
     GameContractDeployAdapter
 } from "../payment/GameContractDeployAdapter.js";
+import { buildGameEscrowStateInit } from "../payment/ton/buildGameEscrowStateInit.js";
 
 {
     const contract = new GameContract({
@@ -173,7 +174,8 @@ import {
             }
         },
         configuration: { stake: 10, players: [], sectors: [] },
-        ownerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
+        ownerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+        oracleWallet: "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j"
     });
 
     assert.equal(snapshot.totalPot, 45);
@@ -184,10 +186,124 @@ import {
     );
 
     assert.equal(
+        snapshot.oracleWallet,
+        "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j"
+    );
+
+    assert.equal(
         Object.isFrozen(snapshot),
         true,
         "snapshot must be frozen"
     );
+
+}
+
+{
+    // R7.70C2.4 — oracleWallet omitted stays null (not hardcoded).
+    const snapshot = buildGameContractSnapshot({
+        gameId: "game_no_oracle",
+        roomId: "room_no_oracle",
+        playerIds: ["p1"],
+        playerManager: {
+            getIdentity() {
+
+                return { nickname: "A", baseStake: 10, sectorCount: 1 };
+
+            }
+        },
+        sessionWalletStore: {
+            getWallet() {
+
+                return "EQ_p1";
+
+            }
+        },
+        configuration: { stake: 10, players: [], sectors: [] },
+        ownerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
+    });
+
+    assert.equal(snapshot.oracleWallet, null);
+
+}
+
+{
+    // R7.70C2.4 — snapshot.oracleWallet → GameEscrow StateInit (non-ZERO).
+    const ORACLE = "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j";
+    const ZERO = new Address(0, Buffer.alloc(32));
+
+    const snapshot = buildGameContractSnapshot({
+        gameId: "game_oracle_stateinit",
+        roomId: "room_oracle_stateinit",
+        playerIds: ["p1"],
+        playerManager: {
+            getIdentity() {
+
+                return { nickname: "A", baseStake: 10, sectorCount: 1 };
+
+            }
+        },
+        sessionWalletStore: {
+            getWallet() {
+
+                return "EQ_p1";
+
+            }
+        },
+        configuration: { stake: 10, players: [], sectors: [] },
+        ownerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+        oracleWallet: ORACLE
+    });
+
+    assert.equal(snapshot.oracleWallet, ORACLE);
+
+    const saved = {
+        TON_TESTNET_ORACLE_ADDRESS: process.env.TON_TESTNET_ORACLE_ADDRESS,
+        GAME_ESCROW_ORACLE: process.env.GAME_ESCROW_ORACLE,
+        TON_ORACLE_ADDRESS: process.env.TON_ORACLE_ADDRESS
+    };
+
+    delete process.env.TON_TESTNET_ORACLE_ADDRESS;
+    delete process.env.GAME_ESCROW_ORACLE;
+    delete process.env.TON_ORACLE_ADDRESS;
+
+    try {
+
+        const escrow = buildGameEscrowStateInit({
+            contractId: "contract_oracle_prop",
+            snapshot
+        });
+
+        assert.ok(escrow.oracle.equals(Address.parse(ORACLE)));
+        assert.equal(escrow.oracle.equals(ZERO), false);
+
+        const missing = buildGameEscrowStateInit({
+            contractId: "contract_oracle_prop_missing",
+            snapshot: Object.freeze({ ...snapshot, oracleWallet: null })
+        });
+
+        assert.equal(
+            missing.oracle.equals(ZERO),
+            true,
+            "missing oracleWallet must yield ZERO (must fail deploy path)"
+        );
+
+    } finally {
+
+        for (const [key, value] of Object.entries(saved)) {
+
+            if (value === undefined) {
+
+                delete process.env[key];
+
+            } else {
+
+                process.env[key] = value;
+
+            }
+
+        }
+
+    }
 
 }
 

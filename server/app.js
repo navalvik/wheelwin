@@ -7,6 +7,7 @@ import http from "http";
 import { GameCatalog } from "./catalog/GameCatalog.js";
 import { ConfigurationManager } from "./config/ConfigurationManager.js";
 import { ConfigurationError } from "./config/ConfigurationError.js";
+import { OwnerConfiguration } from "./config/OwnerConfiguration.js";
 import {
     validateEngineDependencies,
     validateStartupConfiguration
@@ -112,6 +113,15 @@ import {
     printTonMainnetWalletIdentityDebug,
     setTonMainnetWalletIdentityDebug
 } from "./diagnostics/TonMainnetWalletIdentityDebug.js";
+import {
+    printTonTestnetOracleDebug,
+    setTonTestnetOracleDebug
+} from "./diagnostics/TonTestnetOracleDebug.js";
+import {
+    evaluateTonTestnetWalletReadiness,
+    printTonTestnetWalletReadiness,
+    setTonTestnetWalletReadiness
+} from "./diagnostics/TonTestnetWalletReadiness.js";
 import { verifyGameEscrowArtifact } from "./payment/ton/verifyGameEscrowArtifact.js";
 import {
     BlockchainMonitor,
@@ -697,6 +707,9 @@ class WheelWinApplication {
 
         // R7.67B — Railway wallet identity + balance diagnostics (fail on mismatch).
         await this._runTonWalletIdentityDiagnostics();
+
+        // R7.70B — Testnet wallet readiness for settlement validation prep.
+        await this._runTonTestnetWalletReadinessDiagnostics();
 
         // R7.68 — Mainnet readiness report (does not enable Mainnet).
         await this._runTonMainnetReadinessDiagnostics();
@@ -2651,6 +2664,132 @@ class WheelWinApplication {
         this._logger.startupLine(
             `GameEscrowMode=${this._tonConfig?.gameEscrowMode ?? "unknown"} `
                 + `(network=${this._tonConfig?.network ?? "unknown"})`
+        );
+
+        // R7.70A.2 — Testnet oracle diagnostics (public address only).
+        if ((this._tonConfig?.network ?? "").toLowerCase() === "testnet") {
+
+            const oracleAddress = this._tonConfig?.oracleAddress ?? null;
+            const oracleSource = this._tonConfig?.oracleSource ?? null;
+
+            setTonTestnetOracleDebug({
+                network: "testnet",
+                oracleConfigured: Boolean(oracleAddress),
+                oracleAddress,
+                oracleSource,
+                timestamp: Date.now()
+            });
+            printTonTestnetOracleDebug();
+
+            this._logger.startupLine(
+                `TonTestnetOracle configured=${Boolean(oracleAddress)} `
+                    + `source=${oracleSource ?? "none"} `
+                    + `address=${oracleAddress ?? "null"}`
+            );
+
+        }
+
+    }
+
+    /**
+     * R7.70B — Print R7.70 WALLET READINESS (read-only; no on-chain mutations).
+     */
+    async _runTonTestnetWalletReadinessDiagnostics() {
+
+        if ((this._tonConfig?.network ?? "").toLowerCase() !== "testnet") {
+
+            return;
+
+        }
+
+        let deployAddress = null;
+        let deployWalletId = null;
+        let deployBalanceTon = null;
+        let ownerAddress = null;
+        let ownerBalanceTon = null;
+
+        try {
+
+            const mnemonic = this._tonConfig?.deployerMnemonic;
+
+            if (mnemonic) {
+
+                const identity = await deriveDeployerWalletIdentity({
+                    mnemonic,
+                    network: "testnet"
+                });
+
+                deployAddress = identity.address;
+                deployWalletId = identity.walletId;
+
+                try {
+
+                    const nano = await this._services.tonService.getBalance(
+                        identity.address
+                    );
+
+                    deployBalanceTon = Number(nano) / 1e9;
+
+                } catch {
+
+                    deployBalanceTon = null;
+
+                }
+
+            }
+
+        } catch {
+
+            // identity probe best-effort
+        }
+
+        try {
+
+            if (OwnerConfiguration.isLoaded()) {
+
+                ownerAddress = OwnerConfiguration.getOwnerWallet();
+
+                try {
+
+                    const nano = await this._services.tonService.getBalance(
+                        ownerAddress
+                    );
+
+                    ownerBalanceTon = Number(nano) / 1e9;
+
+                } catch {
+
+                    ownerBalanceTon = null;
+
+                }
+
+            }
+
+        } catch {
+
+            ownerAddress = null;
+
+        }
+
+        const walletReadiness = evaluateTonTestnetWalletReadiness({
+            network: this._tonConfig?.network,
+            gameEscrowMode: this._tonConfig?.gameEscrowMode,
+            deployAddress,
+            deployWalletId,
+            deployBalanceTon,
+            oracleAddress: this._tonConfig?.oracleAddress ?? null,
+            oracleSource: this._tonConfig?.oracleSource ?? null,
+            ownerAddress,
+            ownerBalanceTon
+        });
+
+        setTonTestnetWalletReadiness(walletReadiness);
+        printTonTestnetWalletReadiness(walletReadiness);
+
+        this._logger.startupLine(
+            `R770WalletReadiness=${walletReadiness.status} `
+                + `stake=${walletReadiness.stakeGram}Gram `
+                + `mode=${walletReadiness.mode}`
         );
 
     }

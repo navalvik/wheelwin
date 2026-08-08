@@ -12,6 +12,8 @@ function roundMoney(value) {
  * P6.4 — Build an immutable Game Contract snapshot from authoritative sources.
  * Values freeze at request time and must never change afterward.
  * P6.8A — ownerWallet is copied from OwnerConfiguration into the snapshot.
+ * R7.70C2.4 — oracleWallet is copied from tonConfig.oracleAddress (caller)
+ * so GameEscrow StateInit does not fall back to ZERO.
  */
 export function buildGameContractSnapshot({
     gameId,
@@ -21,7 +23,8 @@ export function buildGameContractSnapshot({
     sessionWalletStore,
     configuration = null,
     paymentRules = PAYMENT_RULES,
-    ownerWallet = null
+    ownerWallet = null,
+    oracleWallet = null
 }) {
 
     if (!gameId || !roomId || !Array.isArray(playerIds) || playerIds.length === 0) {
@@ -38,6 +41,11 @@ export function buildGameContractSnapshot({
         return null;
 
     }
+
+    const resolvedOracleWallet = typeof oracleWallet === "string"
+        && oracleWallet.trim()
+        ? oracleWallet.trim()
+        : null;
 
     const feeRate = Number(paymentRules.platformFeeRate) || 0.05;
 
@@ -138,6 +146,7 @@ export function buildGameContractSnapshot({
         winnerPercentage,
         currency: "GRM",
         ownerWallet: resolvedOwnerWallet,
+        oracleWallet: resolvedOracleWallet,
         frozenAt: Date.now()
     });
 

@@ -37,8 +37,11 @@ const P2 = "EQACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAsoi";
     assert.equal(slice.loadCoins(), toNano("1"));
     assert.ok(slice.loadAddress().equals(Address.parse(P1)));
     assert.equal(slice.loadCoins(), toNano("1"));
-    assert.ok(slice.loadAddress().equals(Address.parse(P2)));
-    assert.equal(slice.loadCoins(), toNano("1"));
+    // Tact packs player2/stake2 into a ref (cell-overflow split).
+    assert.equal(slice.remainingRefs, 1);
+    const tail = slice.loadRef().beginParse();
+    assert.ok(tail.loadAddress().equals(Address.parse(P2)));
+    assert.equal(tail.loadCoins(), toNano("1"));
     console.log("  OPEN_PAYMENTS body: OK");
 }
 

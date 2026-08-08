@@ -391,7 +391,10 @@ export class GameContractManager {
             playerManager: this._playerManager,
             sessionWalletStore: this._sessionWalletStore,
             configuration,
-            paymentRules: this._paymentRules ?? undefined
+            paymentRules: this._paymentRules ?? undefined,
+            // R7.70C2.4 — freeze platform oracle into snapshot for StateInit.
+            oracleWallet: this._deployAdapter?._tonConfig?.oracleAddress
+                ?? null
         });
 
         if (!snapshot) {

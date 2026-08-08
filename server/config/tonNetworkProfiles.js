@@ -42,10 +42,81 @@ function trimOrNull(value) {
 }
 
 /**
+ * R7.70A.2 — Resolve oracle wallet + env source (public address only; no secrets).
+ * Testnet priority: TON_TESTNET_ORACLE_ADDRESS → TON_ORACLE_ADDRESS → GAME_ESCROW_ORACLE.
+ * Mainnet: TON_MAINNET_ORACLE_ADDRESS only (no testnet fallback).
+ *
+ * @param {"testnet"|"mainnet"|string} network
+ * @param {NodeJS.ProcessEnv|Record<string, string|undefined>} [env]
+ * @returns {{ address: string|null, source: string|null, configured: boolean }}
+ */
+export function resolveOracleWalletConfig(network, env = process.env) {
+
+    const normalized = String(network ?? "").trim().toLowerCase();
+
+    if (normalized === "mainnet") {
+
+        const address = trimOrNull(env.TON_MAINNET_ORACLE_ADDRESS);
+
+        return Object.freeze({
+            address,
+            source: address ? "TON_MAINNET_ORACLE_ADDRESS" : null,
+            configured: Boolean(address)
+        });
+
+    }
+
+    // Testnet (and unknown networks that share testnet-style keys).
+    const testnetDedicated = trimOrNull(env.TON_TESTNET_ORACLE_ADDRESS);
+
+    if (testnetDedicated) {
+
+        return Object.freeze({
+            address: testnetDedicated,
+            source: "TON_TESTNET_ORACLE_ADDRESS",
+            configured: true
+        });
+
+    }
+
+    const shared = trimOrNull(env.TON_ORACLE_ADDRESS);
+
+    if (shared) {
+
+        return Object.freeze({
+            address: shared,
+            source: "TON_ORACLE_ADDRESS",
+            configured: true
+        });
+
+    }
+
+    const legacy = trimOrNull(env.GAME_ESCROW_ORACLE);
+
+    if (legacy) {
+
+        return Object.freeze({
+            address: legacy,
+            source: "GAME_ESCROW_ORACLE",
+            configured: true
+        });
+
+    }
+
+    return Object.freeze({
+        address: null,
+        source: null,
+        configured: false
+    });
+
+}
+
+/**
  * @param {"testnet"|"mainnet"} network
  * @param {{
  *   endpoint: string,
  *   oracleWallet: string|null,
+ *   oracleSource?: string|null,
  *   deployerExpectedAddress: string|null,
  *   gameEscrowMode: "v4"|"game",
  *   artifactSha256: string|null
@@ -58,6 +129,7 @@ function freezeTonNetworkProfile(network, fields) {
         endpoint: fields.endpoint,
         deployWallet: EXPLICIT_DEPLOY_WALLET,
         oracleWallet: fields.oracleWallet,
+        oracleSource: fields.oracleSource ?? null,
         deployerExpectedAddress: fields.deployerExpectedAddress,
         expectedWalletAddress: fields.deployerExpectedAddress,
         gameEscrowMode: fields.gameEscrowMode,
@@ -95,12 +167,12 @@ export function loadTestnetTonProfile(env = process.env) {
     }
 
     const gameEscrowMode = resolveGameEscrowMode(null, resolveEnv);
+    const oracle = resolveOracleWalletConfig("testnet", env);
 
     return freezeTonNetworkProfile("testnet", {
         endpoint,
-        oracleWallet: trimOrNull(env.TON_TESTNET_ORACLE_ADDRESS)
-            || trimOrNull(env.TON_ORACLE_ADDRESS)
-            || trimOrNull(env.GAME_ESCROW_ORACLE),
+        oracleWallet: oracle.address,
+        oracleSource: oracle.source,
         deployerExpectedAddress: trimOrNull(env.TON_TESTNET_DEPLOYER_EXPECTED_ADDRESS)
             || trimOrNull(env.TON_DEPLOYER_EXPECTED_ADDRESS),
         gameEscrowMode,
@@ -127,9 +199,12 @@ export function loadMainnetTonProfile(env = process.env) {
         ? assertValidGameEscrowMode(modeRaw)
         : defaultGameEscrowModeForNetwork("mainnet");
 
+    const oracle = resolveOracleWalletConfig("mainnet", env);
+
     return freezeTonNetworkProfile("mainnet", {
         endpoint,
-        oracleWallet: trimOrNull(env.TON_MAINNET_ORACLE_ADDRESS),
+        oracleWallet: oracle.address,
+        oracleSource: oracle.source,
         deployerExpectedAddress: trimOrNull(
             env.TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS
         ),

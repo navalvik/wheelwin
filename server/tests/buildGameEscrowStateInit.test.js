@@ -209,6 +209,86 @@ function main() {
         console.log("  data cell layout: OK");
     }
 
+    // --- R7.70C2.4 — snapshot.oracleWallet propagates into StateInit ---
+
+    {
+        const ZERO = new Address(0, Buffer.alloc(32));
+        const saved = {
+            TON_TESTNET_ORACLE_ADDRESS: process.env.TON_TESTNET_ORACLE_ADDRESS,
+            GAME_ESCROW_ORACLE: process.env.GAME_ESCROW_ORACLE,
+            TON_ORACLE_ADDRESS: process.env.TON_ORACLE_ADDRESS
+        };
+
+        delete process.env.TON_TESTNET_ORACLE_ADDRESS;
+        delete process.env.GAME_ESCROW_ORACLE;
+        delete process.env.TON_ORACLE_ADDRESS;
+
+        try {
+
+            const withOracle = Object.freeze({
+                ...snapshotA,
+                oracleWallet: oracleA
+            });
+
+            const fromSnapshot = buildGameEscrowStateInit({
+                contractId: "contract_oracle_snap",
+                snapshot: withOracle
+                // no oracle/owner args — must read snapshot.oracleWallet
+            });
+
+            assert.ok(
+                fromSnapshot.oracle.equals(Address.parse(oracleA)),
+                "StateInit oracle must match snapshot.oracleWallet"
+            );
+            assert.equal(
+                fromSnapshot.oracle.equals(ZERO),
+                false,
+                "StateInit oracle must not be ZERO when snapshot.oracleWallet set"
+            );
+
+            const missingOracle = buildGameEscrowStateInit({
+                contractId: "contract_oracle_missing",
+                snapshot: snapshotA
+            });
+
+            assert.equal(
+                missingOracle.oracle.equals(ZERO),
+                true,
+                "missing oracleWallet must resolve to ZERO (failure mode)"
+            );
+
+            // Regression: ZERO oracle is an invalid GameEscrow deploy input.
+            assert.notEqual(
+                fromSnapshot.oracle.equals(ZERO),
+                true,
+                "propagated oracle path must reject ZERO"
+            );
+
+        } finally {
+
+            if (saved.TON_TESTNET_ORACLE_ADDRESS === undefined) {
+                delete process.env.TON_TESTNET_ORACLE_ADDRESS;
+            } else {
+                process.env.TON_TESTNET_ORACLE_ADDRESS = saved.TON_TESTNET_ORACLE_ADDRESS;
+            }
+
+            if (saved.GAME_ESCROW_ORACLE === undefined) {
+                delete process.env.GAME_ESCROW_ORACLE;
+            } else {
+                process.env.GAME_ESCROW_ORACLE = saved.GAME_ESCROW_ORACLE;
+            }
+
+            if (saved.TON_ORACLE_ADDRESS === undefined) {
+                delete process.env.TON_ORACLE_ADDRESS;
+            } else {
+                process.env.TON_ORACLE_ADDRESS = saved.TON_ORACLE_ADDRESS;
+            }
+
+        }
+
+        console.log("  snapshot.oracleWallet → StateInit: OK");
+    }
+
     console.log("buildGameEscrowStateInit.test.js: all assertions passed");
 
 }

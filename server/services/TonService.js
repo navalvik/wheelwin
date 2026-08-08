@@ -483,9 +483,25 @@ export class TonService {
             options
         );
 
-        const stackItem = result?.stack?.[0];
+        const stack = result?.stack;
+        const stackItem = Array.isArray(stack)
+            ? stack[0]
+            : (Array.isArray(stack?.items) ? stack.items[0] : null);
 
-        const value = stackItem?.value ?? stackItem;
+        let value = stackItem?.value ?? stackItem?.num ?? stackItem;
+
+        // TonClient / TonCenter may return tuple-style ["num", "7"] items.
+        if (Array.isArray(stackItem) && stackItem.length >= 2) {
+
+            value = stackItem[1];
+
+        }
+
+        if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+
+            return Number(value.trim());
+
+        }
 
         if (typeof value === "number") {
 
