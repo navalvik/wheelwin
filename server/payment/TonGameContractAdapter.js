@@ -5,7 +5,7 @@
  * Gameplay modules never import @ton/* except through this adapter boundary.
  */
 
-import { Address, beginCell, external, internal, storeMessage, toNano } from "@ton/core";
+import { Address, Cell, beginCell, external, internal, storeMessage, toNano } from "@ton/core";
 import { mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
@@ -69,6 +69,23 @@ import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceS
 
 const DEFAULT_ESCROW_ACTIVATION_TIMEOUT_MS = 60_000;
 const DEFAULT_DEPLOY_VALUE_TON = "0.05";
+
+/**
+ * R7.70C2.6 — Per-deployer async mutex.
+ * Serializes getSeqno → sign → broadcast → confirm for one Wallet V4 account.
+ * Keyed by bounceable deployer address so unrelated wallets never share a lock.
+ * @type {Map<string, Promise<void>>}
+ */
+const _deployerSendTailByAddress = new Map();
+
+/**
+ * Test-only: clear deployer send serialization state.
+ */
+export function resetDeployerSendLocksForTests() {
+
+    _deployerSendTailByAddress.clear();
+
+}
 
 function sleep(ms) {
 
@@ -547,6 +564,7 @@ export class TonGameContractAdapter {
             if (this._canBroadcast()) {
 
                 const txId = await this._sendOracleMessage({
+                    operation: "INIT_GAME",
                     to: contractAddress,
                     body,
                     valueTon: "0.05",
@@ -633,6 +651,7 @@ export class TonGameContractAdapter {
             if (this._canBroadcast()) {
 
                 const txId = await this._sendOracleMessage({
+                    operation: "OPEN_PAYMENTS",
                     to: contractAddress,
                     body,
                     valueTon: "0.05",
@@ -1035,6 +1054,7 @@ export class TonGameContractAdapter {
             const address = this._parseAddress(contractAddress);
 
             const txId = await this._sendOracleMessage({
+                operation: "ARCHIVE",
                 to: address.friendly,
                 body: serializeArchiveBody(),
                 valueTon: "0.05"
@@ -1077,6 +1097,7 @@ export class TonGameContractAdapter {
             const address = this._parseAddress(contractAddress);
 
             const txId = await this._sendOracleMessage({
+                operation: "CANCEL",
                 to: address.friendly,
                 body: serializeEmergencyCancelBody({ reasonCode }),
                 valueTon: "0.05"
@@ -1245,11 +1266,14 @@ export class TonGameContractAdapter {
     async _broadcastDeploy(escrow) {
 
         const txId = await this._sendOracleMessage({
+            operation: "DEPLOY",
             to: escrow.address,
             init: escrow.stateInit,
             body: beginCell().endCell(),
             valueTon: "0.05",
-            bounce: false
+            bounce: false,
+            // R7.70C2.6 — confirm on-chain before INIT_GAME/OPEN_PAYMENTS.
+            resolveAccountTxHash: true
         });
 
         return {
@@ -1281,6 +1305,7 @@ export class TonGameContractAdapter {
         });
 
         const txId = await this._sendOracleMessage({
+            operation: "SETTLE",
             to: settlementRequest.contractAddress,
             body: settlePlan.body,
             valueTon: "0.05",
@@ -1339,6 +1364,7 @@ export class TonGameContractAdapter {
     }
 
     async _sendOracleMessage({
+        operation = "ORACLE",
         to,
         body,
         init = null,
@@ -1349,8 +1375,15 @@ export class TonGameContractAdapter {
 
         try {
 
-            console.log("[R7.51 TON DEPLOY]\nstage=WALLET_CREATE_START");
-            pushTonDeployDebugStage("WALLET_CREATE_START", { valueTon });
+            console.log(
+                "[R7.51 TON DEPLOY]\n"
+                    + "stage=WALLET_CREATE_START\n"
+                    + `operation=${operation}`
+            );
+            pushTonDeployDebugStage("WALLET_CREATE_START", {
+                operation,
+                valueTon
+            });
 
             const keyPair = await mnemonicToPrivateKey(
                 this._tonConfig.deployerMnemonic.split(/\s+/).filter(Boolean)
@@ -1371,85 +1404,201 @@ export class TonGameContractAdapter {
             console.log(
                 "[R7.51 TON DEPLOY]\n"
                     + `stage=WALLET_CREATED\n`
+                    + `operation=${operation}\n`
                     + `address=${deployerAddress}\n`
                     + `walletId=${deployerWalletId}`
             );
             pushTonDeployDebugStage("WALLET_CREATED", {
+                operation,
                 deployerAddress,
                 deployerWalletId
             });
 
-            const seqno = await this._service().getSeqno(deployerAddress);
+            // R7.70C2.6 — serialize the full critical section for this deployer.
+            return await this._withDeployerSendLock(deployerAddress, async () => {
 
-            console.log(
-                "[R7.51 TON DEPLOY]\n"
-                    + `stage=SEQNO_READ\n`
-                    + `seqno=${seqno}`
-            );
-            pushTonDeployDebugStage("SEQNO_READ", { seqno });
+                const seqno = await this._service().getSeqno(deployerAddress);
 
-            const destination = typeof to === "string"
-                ? to
-                : to.toString({ bounceable: true, urlSafe: true });
+                console.log(
+                    "[R7.51 TON DEPLOY]\n"
+                        + `stage=SEQNO_READ\n`
+                        + `operation=${operation}\n`
+                        + `seqno=${seqno}`
+                );
+                pushTonDeployDebugStage("SEQNO_READ", { operation, seqno });
 
-            console.log("[R7.51 TON DEPLOY]\nstage=TRANSFER_CREATE_START");
-            pushTonDeployDebugStage("TRANSFER_CREATE_START");
+                const destination = typeof to === "string"
+                    ? to
+                    : to.toString({ bounceable: true, urlSafe: true });
 
-            const transfer = deployerWallet.createTransfer({
-                seqno,
-                secretKey: keyPair.secretKey,
-                messages: [
-                    internal({
-                        to: destination,
-                        value: toNano(valueTon),
-                        init: init ?? undefined,
-                        body,
-                        bounce
-                    })
-                ]
-            });
+                console.log(
+                    "[R7.51 TON DEPLOY]\n"
+                        + "stage=TRANSFER_CREATE_START\n"
+                        + `operation=${operation}\n`
+                        + `destination=${destination}`
+                );
+                pushTonDeployDebugStage("TRANSFER_CREATE_START", {
+                    operation,
+                    destination
+                });
 
-            console.log("[R7.51 TON DEPLOY]\nstage=TRANSFER_CREATED");
-            pushTonDeployDebugStage("TRANSFER_CREATED");
+                const transfer = deployerWallet.createTransfer({
+                    seqno,
+                    secretKey: keyPair.secretKey,
+                    messages: [
+                        internal({
+                            to: destination,
+                            value: toNano(valueTon),
+                            init: init ?? undefined,
+                            body,
+                            bounce
+                        })
+                    ]
+                });
 
-            // R7.54 — TonCenter sendBoc requires a full external-in Message BOC,
-            // not the raw signed transfer body Cell from createTransfer().
-            const externalMessage = external({
-                to: deployerWallet.address,
-                body: transfer
-            });
+                console.log(
+                    "[R7.51 TON DEPLOY]\n"
+                        + "stage=TRANSFER_CREATED\n"
+                        + `operation=${operation}`
+                );
+                pushTonDeployDebugStage("TRANSFER_CREATED", { operation });
 
-            const bocBase64 = beginCell()
-                .store(storeMessage(externalMessage))
-                .endCell()
-                .toBoc()
-                .toString("base64");
+                // R7.54 — TonCenter sendBoc requires a full external-in Message BOC,
+                // not the raw signed transfer body Cell from createTransfer().
+                const externalMessage = external({
+                    to: deployerWallet.address,
+                    body: transfer
+                });
 
-            console.log("[R7.51 TON DEPLOY]\nstage=BOC_CREATED");
-            pushTonDeployDebugStage("BOC_CREATED");
+                const bocBase64 = beginCell()
+                    .store(storeMessage(externalMessage))
+                    .endCell()
+                    .toBoc()
+                    .toString("base64");
 
-            console.log("[R7.51 TON DEPLOY]\nstage=BOC_SEND_START");
-            pushTonDeployDebugStage("BOC_SEND_START");
+                console.log(
+                    "[R7.51 TON DEPLOY]\n"
+                        + "stage=BOC_CREATED\n"
+                        + `operation=${operation}`
+                );
+                pushTonDeployDebugStage("BOC_CREATED", { operation });
 
-            const sentAtMs = Date.now();
+                console.log(
+                    "[R7.51 TON DEPLOY]\n"
+                        + "stage=BOC_SEND_START\n"
+                        + `operation=${operation}\n`
+                        + `seqno=${seqno}`
+                );
+                pushTonDeployDebugStage("BOC_SEND_START", { operation, seqno });
 
-            await this._service().broadcastTransaction(bocBase64);
+                const sentAtMs = Date.now();
 
-            console.log("[R7.51 TON DEPLOY]\nstage=BOC_SEND_SUCCESS");
-            pushTonDeployDebugStage("BROADCAST_SENT");
-            pushTonDeployDebugStage("BOC_SEND_SUCCESS");
+                await this._service().broadcastTransaction(bocBase64);
 
-            if (!resolveAccountTxHash) {
+                console.log(
+                    "[R7.51 TON DEPLOY]\n"
+                        + "stage=BOC_SEND_SUCCESS\n"
+                        + `operation=${operation}`
+                );
+                pushTonDeployDebugStage("BROADCAST_SENT", {
+                    operation,
+                    broadcastResult: "SUCCESS"
+                });
+                pushTonDeployDebugStage("BOC_SEND_SUCCESS", {
+                    operation,
+                    broadcastResult: "SUCCESS"
+                });
 
+                // R7.70C2.6 — broadcast acceptance is NOT confirmation.
+                const confirmedSeqno = await this._waitForDeployerSeqnoAdvance({
+                    operation,
+                    deployerAddress,
+                    sentSeqno: seqno
+                });
+
+                const confirmationDurationMs = Date.now() - sentAtMs;
+
+                pushTonDeployDebugStage("SEQNO_CONFIRMED", {
+                    operation,
+                    confirmedSeqno,
+                    confirmationStatus: "SEQNO_ADVANCED",
+                    confirmationDurationMs
+                });
+
+                console.log(
+                    "[R7.70C2.6 DEPLOYER CONFIRM]\n"
+                        + `operation=${operation}\n`
+                        + `deployerAddress=${deployerAddress}\n`
+                        + `deployerWalletId=${deployerWalletId}\n`
+                        + `seqno=${seqno}\n`
+                        + `destination=${destination}\n`
+                        + `valueTon=${valueTon}\n`
+                        + "broadcast=SUCCESS\n"
+                        + `confirmedSeqno=${confirmedSeqno}\n`
+                        + `confirmationDurationMs=${confirmationDurationMs}`
+                );
+
+                let matchedTxHash = null;
+
+                try {
+
+                    matchedTxHash = await this._lookupDeployerAccountTxHash({
+                        operation,
+                        deployerAddress,
+                        destinationAddress: destination,
+                        seqno,
+                        sentAtMs
+                    });
+
+                } catch (lookupError) {
+
+                    if (resolveAccountTxHash) {
+
+                        pushTonDeployDebugStage("CONFIRMATION_FAILED", {
+                            operation,
+                            confirmationStatus: "TX_LOOKUP_FAILED",
+                            failureReason: lookupError?.message ?? String(lookupError),
+                            confirmationDurationMs: Date.now() - sentAtMs
+                        });
+
+                        throw lookupError;
+
+                    }
+
+                    console.log(
+                        "[R7.70C2.6 DEPLOYER CONFIRM]\n"
+                            + `operation=${operation}\n`
+                            + "stage=TX_LOOKUP_OPTIONAL_MISS\n"
+                            + `error=${lookupError?.message ?? String(lookupError)}`
+                    );
+
+                }
+
+                pushTonDeployDebugStage("CONFIRMED", {
+                    operation,
+                    confirmationStatus: matchedTxHash
+                        ? "TX_HASH_MATCHED"
+                        : "SEQNO_ADVANCED",
+                    confirmedSeqno,
+                    matchedTxHash,
+                    confirmationDurationMs: Date.now() - sentAtMs
+                });
+
+                if (matchedTxHash) {
+
+                    console.log(
+                        "[R7.70C2.6 DEPLOYER CONFIRM]\n"
+                            + `operation=${operation}\n`
+                            + `txHash=${matchedTxHash}`
+                    );
+
+                    return matchedTxHash;
+
+                }
+
+                // Internal non-chain placeholder only when real hash is optional.
                 return `ton_oracle_seq_${seqno}`;
 
-            }
-
-            return this._lookupDeployerAccountTxHash({
-                deployerAddress,
-                destinationAddress: destination,
-                seqno,
-                sentAtMs
             });
 
         } catch (error) {
@@ -1457,12 +1606,16 @@ export class TonGameContractAdapter {
             console.log(
                 "[R7.51 TON DEPLOY]\n"
                     + "stage=FAILED\n"
+                    + `operation=${operation}\n`
                     + `errorName=${error?.name ?? null}\n`
                     + `errorMessage=${error?.message ?? String(error)}`
             );
             pushTonDeployDebugStage("FAILED", {
+                operation,
                 errorName: error?.name ?? null,
                 errorMessage: error?.message ?? String(error),
+                failureReason: error?.message ?? String(error),
+                confirmationStatus: "FAILED",
                 tonCenterStatus: error?.status ?? null,
                 tonCenterResponse: error?.responseBody ?? null,
                 tonCenterEndpoint: error?.endpoint ?? null
@@ -1475,18 +1628,144 @@ export class TonGameContractAdapter {
     }
 
     /**
-     * R7.61A — After settlement sendBoc, resolve deployer account transaction_id.hash.
+     * R7.70C2.6 — Run fn exclusively for one deployer wallet address.
+     */
+    async _withDeployerSendLock(deployerAddress, fn) {
+
+        const key = String(deployerAddress ?? "").trim();
+
+        if (!key) {
+
+            throw new Error("deployer_send_lock_missing_address");
+
+        }
+
+        const previous = _deployerSendTailByAddress.get(key) ?? Promise.resolve();
+
+        let releaseGate;
+
+        const gate = new Promise((resolve) => {
+
+            releaseGate = resolve;
+
+        });
+
+        const chained = previous
+            .catch(() => undefined)
+            .then(() => gate);
+
+        _deployerSendTailByAddress.set(key, chained);
+
+        await previous.catch(() => undefined);
+
+        try {
+
+            return await fn();
+
+        } finally {
+
+            releaseGate();
+
+            if (_deployerSendTailByAddress.get(key) === chained) {
+
+                _deployerSendTailByAddress.delete(key);
+
+            }
+
+        }
+
+    }
+
+    /**
+     * R7.70C2.6 — Poll getSeqno until wallet advances past the sent seqno.
+     * Fixed sleeps are never used as the correctness signal.
+     */
+    async _waitForDeployerSeqnoAdvance({
+        operation,
+        deployerAddress,
+        sentSeqno
+    }) {
+
+        const timeoutMs = Number.isFinite(this._tonConfig?.settlementTxLookupTimeoutMs)
+            ? this._tonConfig.settlementTxLookupTimeoutMs
+            : 30_000;
+
+        const pollMs = Number.isFinite(this._tonConfig?.settlementTxLookupPollMs)
+            ? Math.max(50, this._tonConfig.settlementTxLookupPollMs)
+            : 1_000;
+
+        const deadline = Date.now() + timeoutMs;
+        let pollCount = 0;
+        let lastSeen = sentSeqno;
+
+        console.log(
+            "[R7.70C2.6 DEPLOYER CONFIRM]\n"
+                + "stage=SEQNO_WAIT_START\n"
+                + `operation=${operation}\n`
+                + `deployer=${deployerAddress}\n`
+                + `sentSeqno=${sentSeqno}\n`
+                + `timeoutMs=${timeoutMs}`
+        );
+        pushTonDeployDebugStage("SEQNO_WAIT_START", {
+            operation,
+            seqno: sentSeqno,
+            confirmationStatus: "WAITING"
+        });
+
+        while (Date.now() < deadline) {
+
+            pollCount += 1;
+
+            lastSeen = await this._service().getSeqno(deployerAddress);
+
+            if (Number(lastSeen) > Number(sentSeqno)) {
+
+                console.log(
+                    "[R7.70C2.6 DEPLOYER CONFIRM]\n"
+                        + "stage=SEQNO_WAIT_DONE\n"
+                        + `operation=${operation}\n`
+                        + `sentSeqno=${sentSeqno}\n`
+                        + `confirmedSeqno=${lastSeen}\n`
+                        + `polls=${pollCount}`
+                );
+
+                return Number(lastSeen);
+
+            }
+
+            await delay(pollMs);
+
+        }
+
+        const reason = `deployer_seqno_confirmation_timeout | operation=${operation} | `
+            + `sentSeqno=${sentSeqno} | lastSeen=${lastSeen} | `
+            + `deployer=${deployerAddress} | polls=${pollCount}`;
+
+        pushTonDeployDebugStage("SEQNO_WAIT_TIMEOUT", {
+            operation,
+            confirmationStatus: "TIMEOUT",
+            failureReason: reason,
+            confirmedSeqno: lastSeen
+        });
+
+        throw new Error(reason);
+
+    }
+
+    /**
+     * R7.61A / R7.70C2.6 — After seqno confirmation, resolve deployer account
+     * transaction_id.hash for THIS operation.
      *
-     * Algorithm:
-     *   1. Poll getTransactions(deployer) until timeout.
-     *   2. Match a tx whose out_msg.destination equals the escrow/settle destination.
-     *   3. Prefer txs with utime >= sentAt (minus small skew).
-     *   4. Return transaction_id.hash of the newest matching tx.
+     * Matching priority:
+     *   1. out_msg.destination equals escrow destination
+     *   2. Wallet V4 in_msg body seqno equals the seqno used to sign
+     *   3. utime within sentAt window (secondary)
      *
-     * Timeout: tonConfig.settlementTxLookupTimeoutMs (default 30000).
-     * Poll: tonConfig.settlementTxLookupPollMs (default 1000).
+     * Destination+time alone is never enough when a prior operation targeted the
+     * same escrow address (DEPLOY / INIT_GAME / OPEN_PAYMENTS).
      */
     async _lookupDeployerAccountTxHash({
+        operation = "ORACLE",
         deployerAddress,
         destinationAddress,
         seqno,
@@ -1509,6 +1788,7 @@ export class TonGameContractAdapter {
         console.log(
             "[R7.61 SETTLEMENT TX]\n"
                 + "stage=SETTLEMENT_TX_LOOKUP_START\n"
+                + `operation=${operation}\n`
                 + `deployer=${deployerAddress}\n`
                 + `destination=${destinationAddress}\n`
                 + `seqno=${seqno}\n`
@@ -1522,6 +1802,7 @@ export class TonGameContractAdapter {
             console.log(
                 "[R7.61 SETTLEMENT TX]\n"
                     + "stage=SETTLEMENT_TX_LOOKUP_POLL\n"
+                    + `operation=${operation}\n`
                     + `poll=${pollCount}`
             );
 
@@ -1533,7 +1814,8 @@ export class TonGameContractAdapter {
             const match = this._findSettlementDeployerTx(
                 transactions,
                 destination,
-                sentAtSec
+                sentAtSec,
+                seqno
             );
 
             if (match?.hash) {
@@ -1541,7 +1823,9 @@ export class TonGameContractAdapter {
                 console.log(
                     "[R7.61 SETTLEMENT TX]\n"
                         + "stage=SETTLEMENT_TX_LOOKUP_MATCHED\n"
+                        + `operation=${operation}\n`
                         + `hash=${match.hash}\n`
+                        + `matchedSeqno=${match.matchedSeqno ?? "n/a"}\n`
                         + `poll=${pollCount}`
                 );
 
@@ -1556,18 +1840,24 @@ export class TonGameContractAdapter {
         console.log(
             "[R7.61 SETTLEMENT TX]\n"
                 + "stage=SETTLEMENT_TX_LOOKUP_TIMEOUT\n"
+                + `operation=${operation}\n`
                 + `polls=${pollCount}\n`
                 + `seqno=${seqno}`
         );
 
         throw new Error(
-            `settlement_tx_lookup_timeout | seqno=${seqno} | `
-                + `deployer=${deployerAddress}`
+            `settlement_tx_lookup_timeout | operation=${operation} | `
+                + `seqno=${seqno} | deployer=${deployerAddress}`
         );
 
     }
 
-    _findSettlementDeployerTx(transactions, destinationAddress, sentAtSec) {
+    _findSettlementDeployerTx(
+        transactions,
+        destinationAddress,
+        sentAtSec,
+        expectedSeqno = null
+    ) {
 
         if (!Array.isArray(transactions) || transactions.length === 0) {
 
@@ -1577,6 +1867,9 @@ export class TonGameContractAdapter {
 
         const skewSec = 30;
         const minUtime = Number.isFinite(sentAtSec) ? sentAtSec - skewSec : null;
+        const requireSeqno = Number.isFinite(Number(expectedSeqno));
+
+        const destinationMatches = [];
 
         for (const tx of transactions) {
 
@@ -1624,11 +1917,51 @@ export class TonGameContractAdapter {
 
             }
 
-            return { hash: String(hash), tx };
+            const parsedSeqno = parseWalletV4SeqnoFromTransaction(tx);
+
+            destinationMatches.push({
+                hash: String(hash),
+                tx,
+                matchedSeqno: parsedSeqno
+            });
 
         }
 
-        return null;
+        if (destinationMatches.length === 0) {
+
+            return null;
+
+        }
+
+        if (requireSeqno) {
+
+            const seqnoMatch = destinationMatches.find(
+                (entry) => entry.matchedSeqno === Number(expectedSeqno)
+            );
+
+            if (seqnoMatch) {
+
+                return seqnoMatch;
+
+            }
+
+            // If any destination candidate exposes a parseable Wallet V4 seqno,
+            // refuse destination-only matching — that is the R7.70C2.6 false-match.
+            const anyParseable = destinationMatches.some(
+                (entry) => entry.matchedSeqno != null
+            );
+
+            if (anyParseable) {
+
+                return null;
+
+            }
+
+        }
+
+        // Fallback: destination + time only when no seqno bodies are available
+        // (e.g. unit fixtures). Safe in live path only after seqno advancement.
+        return destinationMatches[0];
 
     }
 
@@ -1653,6 +1986,75 @@ function delay(ms) {
         setTimeout(resolve, ms);
 
     });
+
+}
+
+/**
+ * R7.70C2.6 — Extract Wallet V4 external-in seqno from a TonCenter transaction.
+ *
+ * TonCenter getTransactions returns in_msg.msg_data.body as a base64 Cell BOC.
+ * Wallet V4 signed external body layout (from @ton/ton createWalletTransferV4):
+ *   signature (512 bits) + wallet_id (32) + valid_until (32) + seqno (32) + ...
+ *
+ * Returns null when the body is missing or not a parseable V4 external body.
+ *
+ * @param {object} tx
+ * @returns {number|null}
+ */
+export function parseWalletV4SeqnoFromTransaction(tx) {
+
+    const inMsg = tx?.in_msg ?? tx?.inMessage ?? null;
+
+    if (!inMsg || typeof inMsg !== "object") {
+
+        return null;
+
+    }
+
+    const bodyB64 = inMsg?.msg_data?.body
+        ?? inMsg?.body
+        ?? null;
+
+    if (typeof bodyB64 !== "string" || !bodyB64.trim()) {
+
+        return null;
+
+    }
+
+    try {
+
+        let cell;
+
+        try {
+
+            cell = Cell.fromBase64(bodyB64);
+
+        } catch {
+
+            cell = Cell.fromBoc(Buffer.from(bodyB64, "base64"))[0];
+
+        }
+
+        const slice = cell.beginParse();
+
+        // signature + walletId + validUntil + seqno
+        if (slice.remainingBits < 512 + 32 + 32 + 32) {
+
+            return null;
+
+        }
+
+        slice.loadBuffer(64);
+        slice.loadUint(32); // walletId
+        slice.loadUint(32); // validUntil
+
+        return slice.loadUint(32);
+
+    } catch {
+
+        return null;
+
+    }
 
 }
 
