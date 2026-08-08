@@ -1,16 +1,20 @@
-const DEFAULT_SETUP_DURATION_MS = 10 * 60 * 1000;
+// TEMP R7.70C2.7 diagnostic: 20 min (was 10 * 60 * 1000). Revert after Testnet validation.
+const DEFAULT_SETUP_DURATION_MS = 20 * 60 * 1000;
 
 /** R6.5 — Page6 result linger before authoritative SESSION_FINISHED. */
-const DEFAULT_RESULT_SESSION_DURATION_MS = 5 * 60 * 1000;
+// TEMP R7.70C2.7 diagnostic: 10 min (was 5 * 60 * 1000). Revert after Testnet validation.
+const DEFAULT_RESULT_SESSION_DURATION_MS = 10 * 60 * 1000;
 
 /** P6.3 — Payment Session wall-clock before authoritative failure. */
-const DEFAULT_PAYMENT_SESSION_DURATION_MS = 5 * 60 * 1000;
+// TEMP R7.70C2.7 diagnostic: 10 min (was 5 * 60 * 1000). Revert after Testnet validation.
+const DEFAULT_PAYMENT_SESSION_DURATION_MS = 10 * 60 * 1000;
 
 /**
  * R7.24 — Wallet connection barrier after PAYMENT_STAGE_READY.
  * Soft-disconnect protection must not allow infinite wait.
  */
-const DEFAULT_WALLET_CONNECTION_DURATION_MS = 5 * 60 * 1000;
+// TEMP R7.70C2.7 diagnostic: 10 min (was 5 * 60 * 1000). Revert after Testnet validation.
+const DEFAULT_WALLET_CONNECTION_DURATION_MS = 10 * 60 * 1000;
 
 /** R7.24 — Deploy adapter wall-clock (nested under PaymentSession timer). */
 const DEFAULT_GAME_CONTRACT_DEPLOY_TIMEOUT_MS = 2 * 60 * 1000;
@@ -18,7 +22,8 @@ const DEFAULT_GAME_CONTRACT_DEPLOY_TIMEOUT_MS = 2 * 60 * 1000;
 /**
  * R7.24 — After payments complete, authorization/bootstrap must not wait forever.
  */
-const DEFAULT_GAME_START_AUTHORIZATION_DURATION_MS = 60 * 1000;
+// TEMP R7.70C2.7 diagnostic: 120 s (was 60 * 1000). Revert after Testnet validation.
+const DEFAULT_GAME_START_AUTHORIZATION_DURATION_MS = 120 * 1000;
 
 const DEFAULT_MAX_CONCURRENT_ROOMS = 64;
 
