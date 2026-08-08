@@ -74,6 +74,8 @@ async function createLiveAdapter(gameEscrowMode) {
         }
     ]);
 
+    let currentSeqno = 1;
+
     const adapter = new TonGameContractAdapter({
         tonConfig: {
             endpoint: "https://testnet.toncenter.com/api/v2/jsonRPC",
@@ -90,6 +92,9 @@ async function createLiveAdapter(gameEscrowMode) {
             getTransport: () => transport,
             async broadcastTransaction(boc) {
 
+                // R7.70C2.6 — broadcast acceptance then on-chain seqno advance.
+                currentSeqno += 1;
+
                 return transport.sendBoc(boc);
 
             },
@@ -100,7 +105,7 @@ async function createLiveAdapter(gameEscrowMode) {
             },
             async getSeqno() {
 
-                return 1;
+                return currentSeqno;
 
             },
             async getTransactions(address) {

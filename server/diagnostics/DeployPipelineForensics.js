@@ -108,7 +108,15 @@ export function beginTonDeployDebug(fields = {}) {
         errorMessage: null,
         tonCenterStatus: null,
         tonCenterResponse: null,
-        tonCenterEndpoint: null
+        tonCenterEndpoint: null,
+        operation: null,
+        destination: null,
+        broadcastResult: null,
+        confirmationStatus: null,
+        confirmedSeqno: null,
+        matchedTxHash: null,
+        confirmationDurationMs: null,
+        failureReason: null
     };
 
     // New deploy attempt clears prior GameEscrow deploy diagnostics.
@@ -234,7 +242,16 @@ export function pushTonDeployDebugStage(stage, fields = {}) {
         "errorMessage",
         "tonCenterStatus",
         "tonCenterResponse",
-        "tonCenterEndpoint"
+        "tonCenterEndpoint",
+        // R7.70C2.6 — sequential deployer confirmation diagnostics
+        "operation",
+        "destination",
+        "broadcastResult",
+        "confirmationStatus",
+        "confirmedSeqno",
+        "matchedTxHash",
+        "confirmationDurationMs",
+        "failureReason"
     ];
 
     for (const key of allowed) {
@@ -282,6 +299,14 @@ export function getTonDeployDebug() {
         tonCenterStatus: _tonDeployDebug.tonCenterStatus,
         tonCenterResponse: _tonDeployDebug.tonCenterResponse,
         tonCenterEndpoint: _tonDeployDebug.tonCenterEndpoint,
+        operation: _tonDeployDebug.operation ?? null,
+        destination: _tonDeployDebug.destination ?? null,
+        broadcastResult: _tonDeployDebug.broadcastResult ?? null,
+        confirmationStatus: _tonDeployDebug.confirmationStatus ?? null,
+        confirmedSeqno: _tonDeployDebug.confirmedSeqno ?? null,
+        matchedTxHash: _tonDeployDebug.matchedTxHash ?? null,
+        confirmationDurationMs: _tonDeployDebug.confirmationDurationMs ?? null,
+        failureReason: _tonDeployDebug.failureReason ?? null,
         // R7.66E — nested GameEscrow deploy diagnostics for lifecycle archive.
         gameEscrowDeploy: getGameEscrowDeployDebug()
     });

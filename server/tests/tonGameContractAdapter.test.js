@@ -727,10 +727,14 @@ async function main() {
             }
         ]);
 
+        let currentSeqno = 4;
+
         const adapter = createAdapter({
             getActiveNetwork: () => "testnet",
             isConnected: () => true,
             async broadcastTransaction(boc) {
+
+                currentSeqno += 1;
 
                 return transport.sendBoc(boc);
 
@@ -742,7 +746,7 @@ async function main() {
             },
             async getSeqno() {
 
-                return 4;
+                return currentSeqno;
 
             },
             async getTransactions(address) {
@@ -891,10 +895,19 @@ async function main() {
         ].join(" ");
 
         let accountCalls = 0;
+        let currentSeqno = 0;
+
+        const keyPair = await mnemonicToPrivateKey(
+            TEST_MNEMONIC.split(/\s+/).filter(Boolean)
+        );
+        const deployerAddress = WalletContractV4.create({
+            workchain: 0,
+            publicKey: keyPair.publicKey
+        }).address.toString({ bounceable: true, urlSafe: true });
 
         const transport = new MockTonTransport();
 
-        const adapter = createAdapter({
+        const tonService = {
             getActiveNetwork: () => "testnet",
             isConnected: () => true,
             async broadcastTransaction(boc) {
@@ -914,7 +927,12 @@ async function main() {
             },
             async getSeqno() {
 
-                return 0;
+                return currentSeqno;
+
+            },
+            async getTransactions(address) {
+
+                return transport.getTransactions(address);
 
             },
             async runGetMethod() {
@@ -922,11 +940,57 @@ async function main() {
                 return { stack: [] };
 
             }
-        }, {
+        };
+
+        const adapter = createAdapter(tonService, {
             deployerMnemonic: TEST_MNEMONIC,
             pollIntervalMs: 200,
-            escrowActivationTimeoutMs: 3000
+            escrowActivationTimeoutMs: 3000,
+            settlementTxLookupTimeoutMs: 2000,
+            settlementTxLookupPollMs: 40
         });
+
+        // R7.70C2.6 — advance seqno + seed destination-bound deployer tx on send.
+        const originalSend = adapter._sendOracleMessage.bind(adapter);
+
+        adapter._sendOracleMessage = async (opts) => {
+
+            const destination = typeof opts.to === "string"
+                ? opts.to
+                : opts.to.toString({ bounceable: true, urlSafe: true });
+
+            const previousBroadcast = tonService.broadcastTransaction;
+
+            tonService.broadcastTransaction = async (boc) => {
+
+                const seqnoUsed = currentSeqno;
+                currentSeqno += 1;
+                transport.seedTransactions(deployerAddress, [
+                    {
+                        utime: Math.floor(Date.now() / 1000) + 5,
+                        transaction_id: {
+                            hash: `activation-tx-${seqnoUsed}`,
+                            lt: String(1000 + seqnoUsed)
+                        },
+                        out_msgs: [{ destination }]
+                    }
+                ]);
+
+                return previousBroadcast(boc);
+
+            };
+
+            try {
+
+                return await originalSend(opts);
+
+            } finally {
+
+                tonService.broadcastTransaction = previousBroadcast;
+
+            }
+
+        };
 
         const result = await adapter.deploy({
             contractId: "contract_activation_ok",
@@ -970,13 +1034,24 @@ async function main() {
         ].join(" ");
 
         let accountCalls = 0;
+        let currentSeqno = 0;
 
-        const adapter = createAdapter({
+        const keyPair = await mnemonicToPrivateKey(
+            TEST_MNEMONIC.split(/\s+/).filter(Boolean)
+        );
+        const deployerAddress = WalletContractV4.create({
+            workchain: 0,
+            publicKey: keyPair.publicKey
+        }).address.toString({ bounceable: true, urlSafe: true });
+
+        const transport = new MockTonTransport();
+
+        const tonService = {
             getActiveNetwork: () => "testnet",
             isConnected: () => true,
-            async broadcastTransaction() {
+            async broadcastTransaction(boc) {
 
-                return { ok: true };
+                return transport.sendBoc(boc);
 
             },
             async getAccount() {
@@ -988,7 +1063,12 @@ async function main() {
             },
             async getSeqno() {
 
-                return 0;
+                return currentSeqno;
+
+            },
+            async getTransactions(address) {
+
+                return transport.getTransactions(address);
 
             },
             async runGetMethod() {
@@ -996,11 +1076,56 @@ async function main() {
                 return { stack: [] };
 
             }
-        }, {
+        };
+
+        const adapter = createAdapter(tonService, {
             deployerMnemonic: TEST_MNEMONIC,
             pollIntervalMs: 200,
-            escrowActivationTimeoutMs: 400
+            escrowActivationTimeoutMs: 400,
+            settlementTxLookupTimeoutMs: 2000,
+            settlementTxLookupPollMs: 40
         });
+
+        const originalSend = adapter._sendOracleMessage.bind(adapter);
+
+        adapter._sendOracleMessage = async (opts) => {
+
+            const destination = typeof opts.to === "string"
+                ? opts.to
+                : opts.to.toString({ bounceable: true, urlSafe: true });
+
+            const previousBroadcast = tonService.broadcastTransaction;
+
+            tonService.broadcastTransaction = async (boc) => {
+
+                const seqnoUsed = currentSeqno;
+                currentSeqno += 1;
+                transport.seedTransactions(deployerAddress, [
+                    {
+                        utime: Math.floor(Date.now() / 1000) + 5,
+                        transaction_id: {
+                            hash: `timeout-tx-${seqnoUsed}`,
+                            lt: String(2000 + seqnoUsed)
+                        },
+                        out_msgs: [{ destination }]
+                    }
+                ]);
+
+                return previousBroadcast(boc);
+
+            };
+
+            try {
+
+                return await originalSend(opts);
+
+            } finally {
+
+                tonService.broadcastTransaction = previousBroadcast;
+
+            }
+
+        };
 
         const result = await adapter.deploy({
             contractId: "contract_activation_timeout",
@@ -1032,13 +1157,24 @@ async function main() {
         ].join(" ");
 
         let accountCalls = 0;
+        let currentSeqno = 0;
 
-        const adapter = createAdapter({
+        const keyPair = await mnemonicToPrivateKey(
+            TEST_MNEMONIC.split(/\s+/).filter(Boolean)
+        );
+        const deployerAddress = WalletContractV4.create({
+            workchain: 0,
+            publicKey: keyPair.publicKey
+        }).address.toString({ bounceable: true, urlSafe: true });
+
+        const transport = new MockTonTransport();
+
+        const tonService = {
             getActiveNetwork: () => "testnet",
             isConnected: () => true,
-            async broadcastTransaction() {
+            async broadcastTransaction(boc) {
 
-                return { ok: true };
+                return transport.sendBoc(boc);
 
             },
             async getAccount() {
@@ -1056,7 +1192,12 @@ async function main() {
             },
             async getSeqno() {
 
-                return 0;
+                return currentSeqno;
+
+            },
+            async getTransactions(address) {
+
+                return transport.getTransactions(address);
 
             },
             async runGetMethod() {
@@ -1064,11 +1205,56 @@ async function main() {
                 return { stack: [] };
 
             }
-        }, {
+        };
+
+        const adapter = createAdapter(tonService, {
             deployerMnemonic: TEST_MNEMONIC,
             pollIntervalMs: 200,
-            escrowActivationTimeoutMs: 3000
+            escrowActivationTimeoutMs: 3000,
+            settlementTxLookupTimeoutMs: 2000,
+            settlementTxLookupPollMs: 40
         });
+
+        const originalSend = adapter._sendOracleMessage.bind(adapter);
+
+        adapter._sendOracleMessage = async (opts) => {
+
+            const destination = typeof opts.to === "string"
+                ? opts.to
+                : opts.to.toString({ bounceable: true, urlSafe: true });
+
+            const previousBroadcast = tonService.broadcastTransaction;
+
+            tonService.broadcastTransaction = async (boc) => {
+
+                const seqnoUsed = currentSeqno;
+                currentSeqno += 1;
+                transport.seedTransactions(deployerAddress, [
+                    {
+                        utime: Math.floor(Date.now() / 1000) + 5,
+                        transaction_id: {
+                            hash: `rpc-retry-tx-${seqnoUsed}`,
+                            lt: String(3000 + seqnoUsed)
+                        },
+                        out_msgs: [{ destination }]
+                    }
+                ]);
+
+                return previousBroadcast(boc);
+
+            };
+
+            try {
+
+                return await originalSend(opts);
+
+            } finally {
+
+                tonService.broadcastTransaction = previousBroadcast;
+
+            }
+
+        };
 
         const result = await adapter.deploy({
             contractId: "contract_activation_retry",
