@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
-import { Cell, loadMessage } from "@ton/core";
+import { Cell, TupleReader, loadMessage } from "@ton/core";
 import { keyPairFromSeed, mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
@@ -348,6 +348,66 @@ async function main() {
         assert.equal(mask, 5);
 
         console.log("  decode paid mask: OK");
+    }
+
+    // --- R7.70C13 — TonClient.runMethod TupleReader stack ---
+
+    {
+        assert.equal(
+            decodePaidMask({
+                gas_used: 123,
+                stack: new TupleReader([{ type: "int", value: 0n }])
+            }),
+            0
+        );
+
+        assert.equal(
+            decodePaidMask({
+                gas_used: 123,
+                stack: new TupleReader([{ type: "int", value: 1n }])
+            }),
+            1
+        );
+
+        assert.equal(
+            decodePaidMask({
+                gas_used: 123,
+                stack: new TupleReader([{ type: "int", value: 7n }])
+            }),
+            7
+        );
+
+        // Raw TupleReader (no wrapper object) still supported.
+        assert.equal(
+            decodePaidMask(new TupleReader([{ type: "int", value: 7n }])),
+            7
+        );
+
+        // Existing array shapes must remain valid.
+        assert.equal(decodePaidMask({ stack: [{ value: 7 }] }), 7);
+
+        assert.equal(decodePaidMask([{ value: 1 }]), 1);
+
+        const tonService = createMockTonService({
+            getMethodHandlers: {
+                ...defaultGetMethodHandlers,
+                get_paid_mask: () => ({
+                    gas_used: 50,
+                    stack: new TupleReader([{ type: "int", value: 7n }])
+                })
+            }
+        });
+
+        tonService.getTransport().seedAddressInfo(contractAddress, {
+            state: "active",
+            balance: "1000000000"
+        });
+
+        const adapter = createAdapter(tonService);
+
+        assert.equal(await adapter.getPaidMask(contractAddress), 7);
+
+        console.log("  R7.70C13 TupleReader paidMask decode + getPaidMask: OK");
     }
 
     // --- R7.69B decode payment getters ---

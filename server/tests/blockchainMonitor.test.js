@@ -924,6 +924,130 @@ async function main() {
         console.log("  R7.69D aborted + paidMask payment gate: OK");
     }
 
+    // --- R7.70C13 paidMask gate confirms / rejects STAKE-shaped deposits ---
+
+    {
+        const { eventBus, monitor } = createMonitor();
+
+        await monitor.start();
+
+        const confirmed = [];
+
+        const stakeConfirmed = [];
+
+        const observationConfirmed = [];
+
+        eventBus.subscribe(EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED, (envelope) => {
+
+            confirmed.push(envelope.payload);
+
+        });
+
+        eventBus.subscribe(EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED, (envelope) => {
+
+            stakeConfirmed.push(envelope.payload);
+
+        });
+
+        eventBus.subscribe(EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED, (envelope) => {
+
+            observationConfirmed.push(envelope.payload);
+
+        });
+
+        const contractAddress = friendlyAddress("r770c13-escrow");
+
+        const playerWallet = friendlyAddress("r770c13-player");
+
+        monitor.setContractAdapter({
+            async getPaidMask() {
+
+                return 0;
+
+            }
+        });
+
+        monitor.watchPayment({
+            roomId: "room-r770c13-neg",
+            gameId: "game-r770c13-neg",
+            playerId: "p0",
+            contractAddress,
+            paymentReference: "ref-r770c13-neg",
+            expectedGram: 1,
+            expectedWallet: playerWallet,
+            playerIndex: 0
+        });
+
+        await monitor.ingestTransaction("room-r770c13-neg", {
+            transaction_id: { hash: "tx_r770c13_mask0" },
+            in_msg: {
+                source: playerWallet,
+                destination: contractAddress,
+                value: "1000000000"
+            }
+        });
+
+        assert.equal(confirmed.length, 0, "paidMask=0 must not confirm");
+
+        assert.equal(stakeConfirmed.length, 0, "paidMask=0 must not emit stake confirmed");
+
+        assert.equal(
+            observationConfirmed.length,
+            0,
+            "paidMask=0 must not emit observation confirmed"
+        );
+
+        monitor.unwatchPayment("room-r770c13-neg", "p0");
+
+        monitor.setContractAdapter({
+            async getPaidMask() {
+
+                return 1;
+
+            }
+        });
+
+        monitor.watchPayment({
+            roomId: "room-r770c13-ok",
+            gameId: "game-r770c13-ok",
+            playerId: "p0",
+            contractAddress,
+            paymentReference: "ref-r770c13-ok",
+            expectedGram: 1,
+            expectedWallet: playerWallet,
+            playerIndex: 0
+        });
+
+        await monitor.ingestTransaction("room-r770c13-ok", {
+            transaction_id: { hash: "tx_r770c13_mask1" },
+            in_msg: {
+                source: playerWallet,
+                destination: contractAddress,
+                value: "1000000000"
+            }
+        });
+
+        assert.equal(confirmed.length, 1, "paidMask bit 0 set must confirm");
+
+        assert.equal(stakeConfirmed.length, 1, "GAME_ESCROW_STAKE_CONFIRMED emitted");
+
+        assert.equal(
+            observationConfirmed.length,
+            1,
+            "PAYMENT_TRANSACTION_CONFIRMED emitted"
+        );
+
+        assert.equal(confirmed[0].playerId, "p0");
+
+        assert.equal(stakeConfirmed[0].playerIndex, 0);
+
+        monitor.shutdown();
+
+        eventBus.shutdown();
+
+        console.log("  R7.70C13 paidMask confirm + negative gate: OK");
+    }
+
     console.log("blockchainMonitor.test.js: all assertions passed");
 }
 

@@ -325,6 +325,43 @@ export function decodeNetwork(stackResult) {
 
 }
 
+/**
+ * @ton/ton TonClient.runMethod returns `{ stack: TupleReader }` (@ton/core).
+ * Existing tests/shims also pass plain arrays or `{ stack: [...] }`.
+ */
+function isTupleReaderLike(value) {
+
+    return Boolean(
+        value
+        && typeof value === "object"
+        && typeof value.pop === "function"
+        && typeof value.peek === "function"
+        && typeof value.remaining === "number"
+    );
+
+}
+
+function tupleReaderToItemArray(reader) {
+
+    // Non-destructive: TupleReader keeps items on a runtime field (TS-private).
+    if (Array.isArray(reader.items)) {
+
+        return reader.items.slice();
+
+    }
+
+    const items = [];
+
+    while (reader.remaining > 0) {
+
+        items.push(reader.pop());
+
+    }
+
+    return items;
+
+}
+
 function normalizeStack(stackResult) {
 
     if (!stackResult) {
@@ -342,6 +379,19 @@ function normalizeStack(stackResult) {
     if (Array.isArray(stackResult)) {
 
         return stackResult;
+
+    }
+
+    // Production TonClient.runMethod shape: { gas_used, stack: TupleReader }.
+    if (isTupleReaderLike(stackResult.stack)) {
+
+        return tupleReaderToItemArray(stackResult.stack);
+
+    }
+
+    if (isTupleReaderLike(stackResult)) {
+
+        return tupleReaderToItemArray(stackResult);
 
     }
 
