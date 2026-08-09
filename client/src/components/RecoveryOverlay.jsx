@@ -1,12 +1,17 @@
 import { useRecoveryExperience } from "../context/RecoveryExperienceContext";
 
-import { RECOVERY_UI_STATUS, mapRecoveryStatusMessage } from "../game/sessionRecovery/recoveryFlow";
+import { mapRecoveryStatusMessage } from "../game/sessionRecovery/recoveryFlow";
 
 import "../styles/recoveryOverlay.css";
 
+/**
+ * R7.70C20 — Recovery overlay only shows reconnect/restore status.
+ * No RETURN LOBBY action after recovery (success or failure).
+ * Terminal failures already navigate via RecoveryExperienceContext.
+ */
 export default function RecoveryOverlay() {
 
-    const { status, returnToLobby } = useRecoveryExperience();
+    const { status } = useRecoveryExperience();
 
     const message = mapRecoveryStatusMessage(status);
 
@@ -27,20 +32,6 @@ export default function RecoveryOverlay() {
                     {message}
 
                 </p>
-
-                {status === RECOVERY_UI_STATUS.FAILED && (
-
-                    <button
-                        type="button"
-                        className="recoveryOverlay__action"
-                        onClick={returnToLobby}
-                    >
-
-                        Return to Lobby
-
-                    </button>
-
-                )}
 
             </div>
 

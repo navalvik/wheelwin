@@ -83,15 +83,21 @@ function resolveLifecycleResult({ reason, flags, gameId }) {
     const normalized = String(reason ?? "").toLowerCase();
 
     if (
-        flags.sessionFinished
+        gameId
         && (
-            normalized.includes("session_ended")
-            || normalized.includes("finish")
-            || normalized.includes("page6")
-            || normalized === "completed"
-            || normalized === ""
+            flags.gameCompleted === true
+            || normalized === "game_completed"
+            || (
+                flags.sessionFinished
+                && (
+                    normalized.includes("session_ended")
+                    || normalized.includes("finish")
+                    || normalized.includes("page6")
+                    || normalized === "completed"
+                    || normalized === ""
+                )
+            )
         )
-        && gameId
     ) {
 
         return LIFECYCLE_RESULTS.GAME_COMPLETED;
@@ -460,6 +466,50 @@ export class SessionHistoryArchiveManager {
                 "RESULT",
                 `Session finished (${envelope.payload?.reason ?? "session_ended"})`
             );
+
+        });
+
+        // R7.70C20 — finalize GAME_COMPLETED archive when Page6 opens.
+        // Does not wait for per-player FINISH. ROOM_DESTROYED remains idempotent.
+        this._subscribe(EVENT_TYPES.OPEN_PAGE6, (envelope) => {
+
+            const gameId = envelope.payload?.gameId ?? null;
+            const roomId = this._resolvePendingRoomId(envelope.payload);
+
+            if (!roomId) {
+
+                return;
+
+            }
+
+            const pending = this._ensurePending(roomId);
+
+            if (pending) {
+
+                pending.flags.gameCompleted = true;
+                pending.gameId = gameId ?? pending.gameId;
+                pending.startedAt = pending.startedAt ?? envelope.payload?.timestamp;
+
+            }
+
+            this._setTerminalHint(
+                roomId,
+                "game_completed",
+                envelope.payload
+            );
+
+            this._pushTimeline(
+                roomId,
+                "RESULT",
+                "OPEN_PAGE6 — GAME_COMPLETED archive"
+            );
+
+            this._finalize({
+                roomId,
+                gameId: gameId ?? pending?.gameId ?? null,
+                reason: "game_completed",
+                playerCount: pending?.players?.size ?? null
+            });
 
         });
 
@@ -837,6 +887,7 @@ export class SessionHistoryArchiveManager {
                 tonConnectSeen: false,
                 gameInitialized: false,
                 gameStarted: false,
+                gameCompleted: false,
                 sessionFinished: false,
                 recoveryFailed: false
             },

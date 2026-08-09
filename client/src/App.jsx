@@ -53,17 +53,30 @@ function GameFlow() {
     }, []);
 
     /**
-     * R6.4 / R6.5 — FINISH asks the server to close the session.
-     * Local remount happens only on authoritative SESSION_FINISHED
-     * (manual FINISH and result-session timeout share that path).
+     * R6.4 / R7.70C20 — FINISH is per-player.
+     * Navigate this client to Page1 and detach from the room without
+     * broadcasting SESSION_FINISHED to other players still on Page6.
      */
     function finishSession() {
+
+        try {
+
+            if (typeof window !== "undefined" && window.sessionStorage) {
+
+                window.sessionStorage.removeItem("wheelwin.setupRecoveryIdentity");
+                window.sessionStorage.removeItem("wheelwin.setupRecoveryPage");
+
+            }
+
+        } catch {
+
+            // Ignore storage failures — local reset still proceeds.
+
+        }
 
         if (socket.connected) {
 
             socket.emit(LOBBY_OUTGOING_EVENTS.LEAVE_ROOM);
-
-            return;
 
         }
 

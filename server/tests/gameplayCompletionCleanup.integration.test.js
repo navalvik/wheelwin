@@ -299,11 +299,11 @@ async function run() {
         payload: { socketId: sockets[0] }
     });
 
-    const room = roomManager.getRooms()[0];
+    const roomCreated = roomManager.getRooms()[0];
 
-    assert(room, "a lobby room should be created");
+    assert(roomCreated, "a lobby room should be created");
 
-    const roomId = room.roomId;
+    const roomId = roomCreated.roomId;
 
     for (let index = 1; index < sockets.length; index += 1) {
 
@@ -318,6 +318,15 @@ async function run() {
     const bootstrapped = await poll(() => Boolean(captured.gameId));
 
     assert(bootstrapped, "ROOM_FULL should bootstrap a game");
+
+    // getRoom/getRooms return snapshots — re-read after joins so profile seeding
+    // covers all three seats (stale create-time snapshot has only the creator).
+    const room = roomManager.getRoom(roomId);
+
+    assert(
+        room && room.players.length === 3,
+        "room snapshot must list all three players before profile seeding"
+    );
 
     completeRoomProfilesForConfiguration(playerManager, eventBus, room);
 
@@ -431,8 +440,8 @@ async function run() {
     console.log("  gameplay-core cleanup verified (all pools at zero)");
 
     // -------------------------------------------------------------------
-    // 5. Return to Page1: deliberate leave ends the lobby session and
-    //    releases the last recovery-window survivors (room + mapping).
+    // 5. R7.70C20 — Per-player FINISH: one leave must NOT destroy the room.
+    //    All players leaving empties the room → SESSION_FINISHED path.
     // -------------------------------------------------------------------
 
     // The room + mapping are intentionally still alive here (recovery window).
@@ -452,16 +461,38 @@ async function run() {
         payload: { socketId: sockets[0] }
     });
 
-    console.log("  [C4.9] ROOM DESTROYED    (return to Page1)");
+    console.log("  [C4.9/R7.70C20] first player FINISH (room retained)");
+
+    assert(
+        roomManager.getRooms().length === 1,
+        "room must survive one player's FINISH while others remain"
+    );
+
+    assert(
+        roomManager.getRoom(roomId)?.players.length === 2,
+        "two players remain after first FINISH"
+    );
+
+    for (let index = 1; index < sockets.length; index += 1) {
+
+        eventBus.emit({
+            source: EVENT_SOURCES.SOCKET_GATEWAY,
+            type: EVENT_TYPES.LOBBY_LEAVE_ROOM_REQUEST,
+            payload: { socketId: sockets[index] }
+        });
+
+    }
+
+    console.log("  [C4.9] ROOM DESTROYED    (all players left Page6)");
 
     assert(
         roomManager.getRooms().length === 0,
-        "RoomManager must hold no rooms after return to Page1"
+        "RoomManager must hold no rooms after all players leave Page6"
     );
 
     assert(
         !gameplayContextResolver.resolveRoomByGameId(gameId),
-        "GameplayContextResolver must hold no mapping after return to Page1"
+        "GameplayContextResolver must hold no mapping after final leave"
     );
 
     // -------------------------------------------------------------------

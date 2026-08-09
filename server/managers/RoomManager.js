@@ -287,7 +287,9 @@ export class RoomManager {
 
     }
 
-    removePlayer(roomId, playerId) {
+    removePlayer(roomId, playerId, options = {}) {
+
+        const allowLocked = options?.allowLocked === true;
 
         const room = this._getRoomOrLog(roomId, "remove player from");
 
@@ -297,7 +299,7 @@ export class RoomManager {
 
         }
 
-        if (room.status === ROOM_STATUS.LOCKED) {
+        if (room.status === ROOM_STATUS.LOCKED && !allowLocked) {
 
             this._logger.error(
                 `Remove player failed: room is locked (${roomId})`

@@ -48,7 +48,8 @@ const OVERLAY_HIDE_MS = 2000;
  * Hard cap for COMPLETE / RESTORING overlays. Guards against a cancelled
  * soft-hide timer leaving the full-screen backdrop mounted forever.
  * Must stay above OVERLAY_HIDE_MS. Must not apply to RECONNECTING (network
- * may take longer) or FAILED (user must tap Return to Lobby on gameplay).
+ * Soft-hide after COMPLETE (recovery may take longer) or FAILED.
+ * R7.70C20 — no RETURN LOBBY button; terminal failures navigate via wipe path.
  */
 const OVERLAY_MAX_VISIBLE_MS = 5000;
 
@@ -308,6 +309,10 @@ export function RecoveryExperienceProvider({
         getIdentity
     ]);
 
+    /**
+     * R6.17 / R7.70C20 — Terminal wipe only. No RETURN LOBBY button.
+     * Kept for API stability; overlays no longer expose this action.
+     */
     const returnToLobby = useCallback(() => {
 
         clearIdentity();
@@ -318,7 +323,7 @@ export function RecoveryExperienceProvider({
 
         hideOverlay();
 
-        onNavigate(APP_PAGES.LOBBY);
+        onNavigate(APP_PAGES.WELCOME);
 
     }, [clearIdentity, hideOverlay, onNavigate]);
 

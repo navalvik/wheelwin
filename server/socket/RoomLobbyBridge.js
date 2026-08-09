@@ -2415,13 +2415,13 @@ export class RoomLobbyBridge {
 
         }
 
-        // C4.9 / R6.5 — Deliberate leave of a started room ends the session via
-        // the single SESSION_FINISHED cleanup path (same as result-session timeout).
-        // Soft disconnect never reaches here; recovery is untouched.
+        // C4.9 / R7.70C20 — Deliberate leave of a started room is per-player.
+        // Do NOT finish the Result Session / SESSION_FINISHED for everyone.
+        // Room-wide close remains Result Session timeout (or empty room).
         if (gameStarted) {
 
             console.log("======================================================");
-            console.log("SOCKET BRANCH: gameStarted (finishResultSession)");
+            console.log("SOCKET BRANCH: gameStarted (per-player leave)");
             console.log({
                 Timestamp: new Date().toISOString(),
                 RoomId: roomId,
@@ -2430,10 +2430,71 @@ export class RoomLobbyBridge {
                 GameStarted: gameStarted,
                 DisconnectReason: reason ?? null
             });
-            console.trace("RoomLobbyBridge._removePlayerFromLobby gameStarted trace");
+            console.trace("RoomLobbyBridge._removePlayerFromLobby gameStarted leave");
             console.log("======================================================");
 
-            this._finishResultSession(roomId, "session_ended");
+            const room = this._roomManager.getRoom(roomId);
+
+            if (!room) {
+
+                this._cleanupPlayer(playerId);
+
+                if (socketId) {
+
+                    this._unregisterSocket(socketId);
+
+                }
+
+                return;
+
+            }
+
+            this._roomManager.removePlayer(roomId, playerId, { allowLocked: true });
+
+            this._emitPlayerLeft(roomId, playerId);
+
+            this._cleanupPlayer(playerId);
+
+            if (socketId) {
+
+                if (notifyPlayer) {
+
+                    this._deliverToSocket(
+                        socketId,
+                        LOBBY_SERVER_EVENTS.ROOM_LEFT,
+                        { roomId, playerId }
+                    );
+
+                }
+
+                this._unregisterSocket(socketId);
+
+            }
+
+            this._logger.info(
+                `Lobby per-player leave (started) | roomId=${roomId} `
+                + `| playerId=${playerId} | reason=${reason}`
+            );
+
+            const remainingRoom = this._roomManager.getRoom(roomId);
+
+            if (!remainingRoom || remainingRoom.players.length === 0) {
+
+                registerRoomDestroyContext(roomId, {
+                    reason: "empty_room_after_result_leave",
+                    caller: "RoomLobbyBridge._removePlayerFromLobby",
+                    triggerEvent: "PLAYER_LEFT_EMPTY_STARTED_ROOM",
+                    currentGameStage: "RESULT"
+                });
+
+                // Last player left Page6 — close via single SESSION_FINISHED path.
+                this._finishResultSession(roomId, "session_ended");
+
+                return;
+
+            }
+
+            this._broadcastRoomState(roomId);
 
             return;
 

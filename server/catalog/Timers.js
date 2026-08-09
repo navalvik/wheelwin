@@ -16,8 +16,8 @@ export const TIMER_PHASES = Object.freeze({
 export const TIMERS = Object.freeze({
     [TIMER_PHASES.PRE_GAME_READY]: Object.freeze({
         phase: TIMER_PHASES.PRE_GAME_READY,
-        // TEMP R7.70C2.7 diagnostic: 360000 (was 180000). Revert after Testnet validation.
-        durationMs: 360000
+        // R7.70C19A — restored from C7 TEMP 360000 → 180000.
+        durationMs: 180000
     }),
     [TIMER_PHASES.READY]: Object.freeze({
         phase: TIMER_PHASES.READY,

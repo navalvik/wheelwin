@@ -1,8 +1,8 @@
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 
 export const DEFAULT_GAMEPLAY_PHASE_DURATIONS_MS = Object.freeze({
-    // TEMP R7.70C2.7 diagnostic: 360000 (was 180000). Revert after Testnet validation.
-    [GAME_STATES.PRE_GAME_READY]: 360000,
+    // R7.70C19A — restored from C7 TEMP 360000 → 180000.
+    [GAME_STATES.PRE_GAME_READY]: 180000,
     [GAME_STATES.READY]: 3000,
     [GAME_STATES.SELF_TEST]: 1500,
     [GAME_STATES.SPEED]: 8000,
