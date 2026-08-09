@@ -292,6 +292,268 @@ assert.ok(
     "no secretKey in R7.57 archive JSON"
 );
 
+assert.ok(
+    chainRecord.blockchainLifecycle.paymentConfirmation,
+    "R7.70C16 paymentConfirmation section present"
+);
+assert.equal(
+    chainRecord.blockchainLifecycle.paymentConfirmation.paidMask,
+    null,
+    "no payment confirmation events => paidMask null"
+);
+assert.equal(
+    chainRecord.blockchainLifecycle.paymentConfirmation.events.length,
+    0,
+    "no payment confirmation events persisted without emits"
+);
+
+// R7.70C16 — GAME_COMPLETED persistence of payment confirmation evidence.
+resetTonDeployDebugForTests();
+
+emit(EVENT_TYPES.ROOM_CREATED, {
+    roomId: "ROOMPAYC16",
+    createdAt: Date.now() - 3000
+});
+
+emit(EVENT_TYPES.GAME_CREATED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16"
+});
+
+emit(EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    playerId: "p0",
+    playerIndex: 0,
+    transactionId: "tx_p0",
+    address: "EQEscrowC16",
+    paymentReference: "ref_p0",
+    amount: 1,
+    expectedGram: 1,
+    sender: "EQBob",
+    paidMask: 1,
+    paidMaskBit: 1,
+    timestamp: Date.now() - 200
+});
+
+emit(EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    playerId: "p0",
+    playerIndex: 0,
+    transactionId: "tx_p0",
+    escrowAddress: "EQEscrowC16",
+    paymentReference: "ref_p0",
+    amount: 1,
+    expectedGram: 1,
+    sender: "EQBob",
+    paidMask: 1,
+    paidMaskBit: 1,
+    timestamp: Date.now() - 190
+});
+
+emit(EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    playerId: "p0",
+    playerIndex: 0,
+    txHash: "tx_p0",
+    contractAddress: "EQEscrowC16",
+    paymentReference: "ref_p0",
+    amount: 1,
+    expectedGram: 1,
+    sender: "EQBob",
+    paidMask: 1,
+    paidMaskBit: 1,
+    confirmedAt: Date.now() - 180
+});
+
+emit(EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    playerId: "p1",
+    playerIndex: 1,
+    transactionId: "tx_p1",
+    address: "EQEscrowC16",
+    paidMask: 3,
+    paidMaskBit: 2,
+    timestamp: Date.now() - 100
+});
+
+emit(EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    playerId: "p1",
+    playerIndex: 1,
+    transactionId: "tx_p1",
+    escrowAddress: "EQEscrowC16",
+    paidMask: 3,
+    paidMaskBit: 2,
+    timestamp: Date.now() - 90
+});
+
+emit(EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    playerId: "p1",
+    playerIndex: 1,
+    txHash: "tx_p1",
+    contractAddress: "EQEscrowC16",
+    paidMask: 3,
+    paidMaskBit: 2,
+    confirmedAt: Date.now() - 80
+});
+
+emit(EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    playerId: "p2",
+    playerIndex: 2,
+    transactionId: "tx_p2",
+    address: "EQEscrowC16",
+    paidMask: 7,
+    paidMaskBit: 4,
+    timestamp: Date.now() - 50
+});
+
+emit(EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    playerId: "p2",
+    playerIndex: 2,
+    transactionId: "tx_p2",
+    escrowAddress: "EQEscrowC16",
+    paidMask: 7,
+    paidMaskBit: 4,
+    timestamp: Date.now() - 40
+});
+
+emit(EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    playerId: "p2",
+    playerIndex: 2,
+    txHash: "tx_p2",
+    contractAddress: "EQEscrowC16",
+    paidMask: 7,
+    paidMaskBit: 4,
+    confirmedAt: Date.now() - 30
+});
+
+emit(EVENT_TYPES.SESSION_FINISHED, {
+    roomId: "ROOMPAYC16",
+    gameId: "game_pay_c16",
+    reason: "session_ended"
+});
+
+emit(EVENT_TYPES.ROOM_DESTROYED, { roomId: "ROOMPAYC16", playerCount: 3 });
+
+const payListed = archive.listRecords({ roomId: "ROOMPAYC16" });
+
+assert.equal(payListed.total, 1, "R7.70C16 payment room archived");
+assert.equal(
+    payListed.records[0].lifecycleResult,
+    LIFECYCLE_RESULTS.GAME_COMPLETED,
+    "R7.70C16 maps to GAME_COMPLETED"
+);
+
+const payRecord = archive.getRecord(payListed.records[0].sessionId);
+const payEvidence = payRecord.blockchainLifecycle.paymentConfirmation;
+
+assert.ok(payEvidence, "paymentConfirmation present on GAME_COMPLETED");
+assert.equal(payEvidence.paidMask, 7, "final observed paidMask persisted");
+assert.equal(payEvidence.events.length, 9, "three players × three confirmation events");
+
+const types = payEvidence.events.map((e) => e.type);
+
+assert.deepEqual(
+    types.slice(0, 3),
+    [
+        EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED,
+        EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED,
+        EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED
+    ],
+    "player0 confirmation order preserved"
+);
+
+assert.ok(
+    types.includes(EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED),
+    "PAYMENT_TRANSACTION_CONFIRMED persisted"
+);
+assert.ok(
+    types.includes(EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED),
+    "GAME_ESCROW_STAKE_CONFIRMED persisted"
+);
+assert.ok(
+    types.includes(EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED),
+    "PAYMENT_BLOCKCHAIN_CONFIRMED persisted"
+);
+
+const p0Tx = payEvidence.events.find(
+    (e) => e.type === EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED
+        && e.playerId === "p0"
+);
+
+assert.equal(p0Tx.playerIndex, 0);
+assert.equal(p0Tx.paidMask, 1);
+assert.equal(p0Tx.paidMaskBit, 1);
+assert.equal(p0Tx.transactionHash, "tx_p0");
+assert.equal(p0Tx.contractAddress, "EQEscrowC16");
+
+assert.equal(
+    payRecord.finalSnapshot?.blockchainLifecycle?.paymentConfirmation?.paidMask,
+    7,
+    "finalSnapshot includes paymentConfirmation.paidMask"
+);
+
+const payDownload = archive.getDownloadBuffer(payListed.records[0].sessionId);
+const payJson = JSON.parse(payDownload.buffer.toString("utf8"));
+
+assert.equal(
+    payJson.blockchainLifecycle.paymentConfirmation.paidMask,
+    7,
+    "GAME_COMPLETED download JSON includes paidMask"
+);
+assert.ok(
+    payJson.blockchainLifecycle.paymentConfirmation.events.some(
+        (e) => e.type === "PAYMENT_BLOCKCHAIN_CONFIRMED"
+    ),
+    "GAME_COMPLETED download JSON includes PAYMENT_BLOCKCHAIN_CONFIRMED"
+);
+
+// Negative: paidMask failure path never emits confirmation events to archive.
+emit(EVENT_TYPES.ROOM_CREATED, {
+    roomId: "ROOMNEGMASK",
+    createdAt: Date.now() - 1000
+});
+
+emit(EVENT_TYPES.GAME_CREATED, {
+    roomId: "ROOMNEGMASK",
+    gameId: "game_neg_mask"
+});
+
+emit(EVENT_TYPES.SESSION_FINISHED, {
+    roomId: "ROOMNEGMASK",
+    gameId: "game_neg_mask",
+    reason: "session_ended"
+});
+
+emit(EVENT_TYPES.ROOM_DESTROYED, { roomId: "ROOMNEGMASK", playerCount: 3 });
+
+const negListed = archive.listRecords({ roomId: "ROOMNEGMASK" });
+const negRecord = archive.getRecord(negListed.records[0].sessionId);
+
+assert.equal(
+    negRecord.blockchainLifecycle.paymentConfirmation.events.length,
+    0,
+    "no false confirmation evidence without confirmation emits"
+);
+assert.equal(
+    negRecord.blockchainLifecycle.paymentConfirmation.paidMask,
+    null,
+    "paidMask stays null without confirmation"
+);
+
 archive.shutdown();
 eventBus.shutdown();
 logger.shutdown();

@@ -77,14 +77,16 @@ function scrubValue(value) {
  * @param {{
  *   tonDeployDebug?: object|null,
  *   deployTrack?: object|null,
- *   settlementTrack?: object|null
+ *   settlementTrack?: object|null,
+ *   paymentConfirmationTrack?: object|null
  * }} input
- * @returns {{ deploy: object, settlement: object }}
+ * @returns {{ deploy: object, settlement: object, paymentConfirmation: object }}
  */
 export function buildBlockchainLifecycle({
     tonDeployDebug = null,
     deployTrack = null,
-    settlementTrack = null
+    settlementTrack = null,
+    paymentConfirmationTrack = null
 } = {}) {
 
     const deployStages = [];
@@ -185,16 +187,29 @@ export function buildBlockchainLifecycle({
         error: settlementTrack?.error ?? null
     });
 
+    // R7.70C16 — payment confirmation evidence for GAME_COMPLETED archive.
+    const paymentEvents = Array.isArray(paymentConfirmationTrack?.events)
+        ? paymentConfirmationTrack.events.map((entry) => Object.freeze({ ...entry }))
+        : [];
+
+    const paymentConfirmation = Object.freeze({
+        paidMask: paymentConfirmationTrack?.paidMask == null
+            ? null
+            : Number(paymentConfirmationTrack.paidMask),
+        events: Object.freeze(paymentEvents)
+    });
+
     return Object.freeze(scrubValue({
         deploy,
-        settlement
+        settlement,
+        paymentConfirmation
     }));
 
 }
 
 /**
  * Empty forensic track attached to a pending archive session.
- * @returns {{ deploy: object, settlement: object }}
+ * @returns {{ deploy: object, settlement: object, paymentConfirmation: object }}
  */
 export function createBlockchainTrack() {
 
@@ -216,6 +231,10 @@ export function createBlockchainTrack() {
             commissionAmount: null,
             transactionHash: null,
             error: null
+        },
+        paymentConfirmation: {
+            paidMask: null,
+            events: []
         }
     };
 

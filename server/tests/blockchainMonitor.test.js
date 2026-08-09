@@ -1041,6 +1041,19 @@ async function main() {
 
         assert.equal(stakeConfirmed[0].playerIndex, 0);
 
+        assert.equal(confirmed[0].paidMask, 1, "R7.70C16 paidMask on BLOCKCHAIN_CONFIRMED");
+        assert.equal(confirmed[0].paidMaskBit, 1, "R7.70C16 paidMaskBit on BLOCKCHAIN_CONFIRMED");
+        assert.equal(
+            observationConfirmed[0].paidMask,
+            1,
+            "R7.70C16 paidMask on TRANSACTION_CONFIRMED"
+        );
+        assert.equal(
+            stakeConfirmed[0].paidMask,
+            1,
+            "R7.70C16 paidMask on STAKE_CONFIRMED"
+        );
+
         monitor.shutdown();
 
         eventBus.shutdown();

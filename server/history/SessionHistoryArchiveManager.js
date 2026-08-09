@@ -562,6 +562,34 @@ export class SessionHistoryArchiveManager {
 
         });
 
+        // R7.70C16 — persist payment confirmation chain into GAME_COMPLETED archive.
+        this._subscribe(EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED, (envelope) => {
+
+            this._onPaymentConfirmationLifecycle(
+                EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED,
+                envelope.payload
+            );
+
+        });
+
+        this._subscribe(EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED, (envelope) => {
+
+            this._onPaymentConfirmationLifecycle(
+                EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED,
+                envelope.payload
+            );
+
+        });
+
+        this._subscribe(EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED, (envelope) => {
+
+            this._onPaymentConfirmationLifecycle(
+                EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED,
+                envelope.payload
+            );
+
+        });
+
         this._subscribe(EVENT_TYPES.ROOM_DESTROYED, (envelope) => {
 
             this._finalize(envelope.payload);
@@ -1006,6 +1034,95 @@ export class SessionHistoryArchiveManager {
 
     }
 
+    /**
+     * R7.70C16 — observe payment confirmation events into pending forensic track.
+     * Preserves chronological emission order. Does not invent missing fields.
+     */
+    _onPaymentConfirmationLifecycle(type, payload = {}) {
+
+        const roomId = this._resolvePendingRoomId(payload);
+        const pending = this._ensurePending(roomId);
+
+        if (!pending) {
+
+            return;
+
+        }
+
+        if (payload?.gameId && !pending.gameId) {
+
+            pending.gameId = payload.gameId;
+
+        }
+
+        if (!pending.blockchain.paymentConfirmation) {
+
+            pending.blockchain.paymentConfirmation = {
+                paidMask: null,
+                events: []
+            };
+
+        }
+
+        const track = pending.blockchain.paymentConfirmation;
+
+        const playerIndex = payload.playerIndex == null
+            ? null
+            : Number(payload.playerIndex);
+
+        const paidMask = payload.paidMask == null
+            ? null
+            : Number(payload.paidMask);
+
+        const paidMaskBit = payload.paidMaskBit == null
+            ? (
+                playerIndex == null || !Number.isFinite(playerIndex)
+                    ? null
+                    : (1 << playerIndex)
+            )
+            : Number(payload.paidMaskBit);
+
+        const transactionHash = payload.transactionId
+            ?? payload.txHash
+            ?? payload.transactionHash
+            ?? null;
+
+        const contractAddress = payload.contractAddress
+            ?? payload.escrowAddress
+            ?? payload.address
+            ?? null;
+
+        const at = payload.timestamp
+            ?? payload.confirmedAt
+            ?? Date.now();
+
+        track.events.push({
+            type,
+            at,
+            roomId: payload.roomId ?? roomId ?? null,
+            gameId: payload.gameId ?? pending.gameId ?? null,
+            playerId: payload.playerId ?? null,
+            playerIndex: Number.isFinite(playerIndex) ? playerIndex : null,
+            contractAddress,
+            paymentReference: payload.paymentReference ?? null,
+            transactionHash,
+            expectedGram: payload.expectedGram ?? null,
+            amount: payload.amount ?? null,
+            sender: payload.sender ?? null,
+            paidMask,
+            paidMaskBit: Number.isFinite(paidMaskBit) ? paidMaskBit : null
+        });
+
+        if (paidMask != null && Number.isFinite(paidMask)) {
+
+            track.paidMask = paidMask;
+
+        }
+
+        this._pushTimeline(roomId, "PAYMENT", type);
+
+    }
+
     _ensurePending(roomId) {
 
         if (!roomId) {
@@ -1207,7 +1324,8 @@ export class SessionHistoryArchiveManager {
         const blockchainLifecycle = buildBlockchainLifecycle({
             tonDeployDebug,
             deployTrack: pending.blockchain?.deploy ?? null,
-            settlementTrack: pending.blockchain?.settlement ?? null
+            settlementTrack: pending.blockchain?.settlement ?? null,
+            paymentConfirmationTrack: pending.blockchain?.paymentConfirmation ?? null
         });
 
         this._refreshPlayersFromManagers(pending);
