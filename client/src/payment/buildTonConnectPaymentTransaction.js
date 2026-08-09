@@ -1,12 +1,12 @@
 /**
- * R6.16B / R7.69A — Build a TonConnect sendTransaction request.
- * Destination is GameEscrow. Payload is STAKE (preferred) or legacy text comment.
+ * R6.16B / R7.69A / R7.70C10 — Build a TonConnect sendTransaction request.
+ * Destination is GameEscrow. Payload is STAKE (required) or intentional legacy comment.
  */
 
 import { beginCell, toNano } from "@ton/core";
 
 const DEFAULT_VALID_UNTIL_SECONDS = 600;
-const GAME_ESCROW_STAKE_OPCODE = 0x5354414B;
+export const GAME_ESCROW_STAKE_OPCODE = 0x5354414B;
 
 /**
  * Standard TON text-comment body (op = 0) as base64 BOC for TonConnect payload.
@@ -74,12 +74,19 @@ export function requiredGramToNanotonString(requiredGram) {
 
 }
 
+function hasUsablePlayerIndex(playerIndex) {
+
+    return playerIndex != null && playerIndex !== "";
+
+}
+
 /**
  * @param {object} params
  * @param {string} params.contractAddress — GameEscrow destination
  * @param {number|string} params.requiredGram — exact stake
- * @param {string} [params.paymentReference] — legacy comment (v4 / fallback)
+ * @param {string} [params.paymentReference] — legacy comment (v4 / intentional)
  * @param {number} [params.playerIndex] — seat index for STAKE body (game mode)
+ * @param {boolean} [params.allowLegacyComment=false] — opt into text-comment payload
  * @param {number} [params.validUntilSeconds=600]
  * @param {number} [params.nowMs]
  */
@@ -88,6 +95,7 @@ export function buildTonConnectPaymentTransaction({
     requiredGram,
     paymentReference = null,
     playerIndex = null,
+    allowLegacyComment = false,
     validUntilSeconds = DEFAULT_VALID_UNTIL_SECONDS,
     nowMs = Date.now()
 } = {}) {
@@ -103,9 +111,25 @@ export function buildTonConnectPaymentTransaction({
 
     const amount = requiredGramToNanotonString(requiredGram);
 
-    const payload = playerIndex != null && playerIndex !== ""
-        ? buildGameEscrowStakePayload(playerIndex)
-        : buildTonCommentPayload(paymentReference);
+    let payload;
+
+    if (hasUsablePlayerIndex(playerIndex)) {
+
+        payload = buildGameEscrowStakePayload(playerIndex);
+
+    } else if (allowLegacyComment === true) {
+
+        // Intentional v4 / legacy comment path only — never the GameEscrow default.
+        payload = buildTonCommentPayload(paymentReference);
+
+    } else {
+
+        // R7.70C10 — fail closed: GameEscrow must never send payref text comments.
+        throw new Error(
+            "playerIndex is required for GameEscrow STAKE payment"
+        );
+
+    }
 
     const ttl = Number(validUntilSeconds);
 

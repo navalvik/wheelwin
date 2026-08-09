@@ -409,6 +409,76 @@ function assert(condition, message) {
 
 }
 
+// R7.70C10 — playerIndex survives authoritative payment session projection.
+{
+
+    const state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_UPDATED,
+            payload: {
+                paymentSessionId: "pay_stake",
+                roomId: "ROOM83",
+                gameId: "G_STAKE",
+                status: "WAITING_FOR_PAYMENTS",
+                participants: [
+                    {
+                        playerId: "player_a",
+                        playerIndex: 0,
+                        requiredGram: 1,
+                        status: "AWAITING_PLAYER_CONFIRMATION",
+                        wallet: "EQwalletA_for_unit_tests_only________",
+                        paymentReference: "payref_pay_stake_player_a",
+                        contractAddress: "EQescrow_for_unit_tests_only_________",
+                        txHash: null
+                    },
+                    {
+                        playerId: "player_b",
+                        playerIndex: 1,
+                        requiredGram: 1,
+                        status: "AWAITING_PLAYER_CONFIRMATION",
+                        wallet: "EQwalletB_for_unit_tests_only________",
+                        paymentReference: "payref_pay_stake_player_b",
+                        contractAddress: "EQescrow_for_unit_tests_only_________",
+                        txHash: null
+                    },
+                    {
+                        playerId: "player_c",
+                        playerIndex: 2,
+                        requiredGram: 1,
+                        status: "AWAITING_PLAYER_CONFIRMATION",
+                        wallet: "EQwalletC_for_unit_tests_only________",
+                        paymentReference: "payref_pay_stake_player_c",
+                        contractAddress: "EQescrow_for_unit_tests_only_________",
+                        txHash: null
+                    }
+                ]
+            }
+        }
+    );
+
+    const seats = state.paymentSession?.participants ?? [];
+
+    assert(seats.length === 3, "three payment seats mirrored");
+    assert(seats[0].playerIndex === 0, "playerIndex 0 preserved from server");
+    assert(seats[1].playerIndex === 1, "playerIndex 1 preserved from server");
+    assert(seats[2].playerIndex === 2, "playerIndex 2 preserved from server");
+    assert(
+        seats[0].paymentReference === "payref_pay_stake_player_a",
+        "paymentReference still preserved"
+    );
+    assert(
+        seats[0].contractAddress === "EQescrow_for_unit_tests_only_________",
+        "contractAddress still preserved"
+    );
+    assert(seats[0].wallet === "EQwalletA_for_unit_tests_only________",
+        "wallet still preserved");
+    assert(seats[0].txHash === null, "txHash still preserved");
+
+    console.log("  R7.70C10 playerIndex projection passed");
+
+}
+
 // P6.4 — GAME_CONTRACT_UPDATED mirrors identifier + state only.
 {
 

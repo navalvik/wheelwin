@@ -1,11 +1,12 @@
 /**
- * R6.16B — TonConnect payment transaction builder unit checks.
+ * R6.16B / R7.70C10 — TonConnect payment transaction builder unit checks.
  */
 
 import assert from "node:assert/strict";
-import { beginCell } from "@ton/core";
+import { beginCell, Cell } from "@ton/core";
 
 import {
+    GAME_ESCROW_STAKE_OPCODE,
     buildGameEscrowStakePayload,
     buildTonCommentPayload,
     buildTonConnectPaymentTransaction,
@@ -40,21 +41,24 @@ const decoded = beginCell()
 assert.equal(commentBoc, decoded);
 
 const nowMs = 1_700_000_000_000;
+const escrowAddress = "EQescrowaddressfortestsXXXXXXXXXXXXXX";
 
-const tx = buildTonConnectPaymentTransaction({
-    contractAddress: "EQescrowaddressfortestsXXXXXXXXXXXXXX",
+// TEST 4 — intentional legacy comment mode (opt-in only).
+const legacyTx = buildTonConnectPaymentTransaction({
+    contractAddress: escrowAddress,
     requiredGram: 25,
     paymentReference: "payref_abc_player1",
+    allowLegacyComment: true,
     validUntilSeconds: 600,
     nowMs
 });
 
-assert.equal(tx.validUntil, Math.floor(nowMs / 1000) + 600);
-assert.equal(tx.messages.length, 1);
-assert.equal(tx.messages[0].address, "EQescrowaddressfortestsXXXXXXXXXXXXXX");
-assert.equal(tx.messages[0].amount, "25000000000");
+assert.equal(legacyTx.validUntil, Math.floor(nowMs / 1000) + 600);
+assert.equal(legacyTx.messages.length, 1);
+assert.equal(legacyTx.messages[0].address, escrowAddress);
+assert.equal(legacyTx.messages[0].amount, "25000000000");
 assert.equal(
-    tx.messages[0].payload,
+    legacyTx.messages[0].payload,
     buildTonCommentPayload("payref_abc_player1")
 );
 
@@ -62,7 +66,7 @@ assert.throws(
     () => buildTonConnectPaymentTransaction({
         contractAddress: "",
         requiredGram: 10,
-        paymentReference: "ref"
+        playerIndex: 0
     }),
     /contractAddress/
 );
@@ -71,24 +75,82 @@ assert.throws(
     () => buildTonConnectPaymentTransaction({
         contractAddress: "EQ1",
         requiredGram: 10,
-        paymentReference: ""
+        paymentReference: "",
+        allowLegacyComment: true
     }),
     /paymentReference/
 );
 
-{
-    const stakeTx = buildTonConnectPaymentTransaction({
-        contractAddress: "EQescrowaddressfortestsXXXXXXXXXXXXXX",
+// TEST 3 — missing playerIndex fails closed (no legacy comment, no tx object).
+assert.throws(
+    () => buildTonConnectPaymentTransaction({
+        contractAddress: escrowAddress,
         requiredGram: 1,
-        playerIndex: 0,
+        paymentReference: "payref_must_not_be_sent",
+        nowMs
+    }),
+    /playerIndex is required for GameEscrow STAKE payment/
+);
+
+assert.throws(
+    () => buildTonConnectPaymentTransaction({
+        contractAddress: escrowAddress,
+        requiredGram: 1,
+        playerIndex: null,
+        paymentReference: "payref_must_not_be_sent",
+        nowMs
+    }),
+    /playerIndex is required for GameEscrow STAKE payment/
+);
+
+function decodeStakePayload(payloadBase64) {
+
+    const slice = Cell.fromBase64(payloadBase64).beginParse();
+    const opcode = slice.loadUint(32);
+    const index = slice.loadUint(8);
+
+    return { opcode, index };
+
+}
+
+// TEST 2 — GameEscrow STAKE for playerIndex 0 / 1 / 2 (decoded).
+for (const index of [0, 1, 2]) {
+
+    const stakeTx = buildTonConnectPaymentTransaction({
+        contractAddress: escrowAddress,
+        requiredGram: 1,
+        playerIndex: index,
+        paymentReference: "payref_ignored_when_stake",
         nowMs
     });
 
+    assert.equal(stakeTx.messages.length, 1);
+    assert.equal(stakeTx.messages[0].address, escrowAddress);
+    assert.equal(stakeTx.messages[0].amount, "1000000000");
     assert.equal(
         stakeTx.messages[0].payload,
-        buildGameEscrowStakePayload(0)
+        buildGameEscrowStakePayload(index)
     );
-    assert.equal(stakeTx.messages[0].amount, "1000000000");
+    assert.notEqual(
+        stakeTx.messages[0].payload,
+        buildTonCommentPayload("payref_ignored_when_stake")
+    );
+
+    const decodedStake = decodeStakePayload(stakeTx.messages[0].payload);
+
+    assert.equal(decodedStake.opcode, GAME_ESCROW_STAKE_OPCODE);
+    assert.equal(decodedStake.index, index);
+
+}
+
+{
+    const p0 = buildGameEscrowStakePayload(0);
+    const p1 = buildGameEscrowStakePayload(1);
+    const p2 = buildGameEscrowStakePayload(2);
+
+    assert.notEqual(p0, p1);
+    assert.notEqual(p1, p2);
+    assert.notEqual(p0, p2);
 }
 
 console.log("buildTonConnectPaymentTransaction.test.js: all assertions passed");
