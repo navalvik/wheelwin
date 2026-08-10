@@ -80,12 +80,13 @@ export class SetupSessionLifecycle {
 
     }
 
-    _isSessionRecoverable(session) {
+    _isSessionRecoverable(session, now = Date.now()) {
 
         return Boolean(session)
             && (session.state === SETUP_SESSION_STATUS.ACTIVE
                 || session.state === SETUP_SESSION_STATUS.COMPLETED
-                || session.state === SETUP_SESSION_STATUS.ARCHIVED);
+                || session.state === SETUP_SESSION_STATUS.ARCHIVED)
+            && session.expiresAt > now;
 
     }
 
@@ -362,9 +363,8 @@ export class SetupSessionLifecycle {
     }
 
     /**
-     * R6.1 / R6.38 — Soft disconnect / reclaim while Setup Session exists:
-     * ACTIVE lobby, COMPLETED prep, or ARCHIVED (payment owns destroy; SYNC
-     * still exposes immutable expiresAt for InfoBar).
+     * R6.1 / R7.70C23 — Soft disconnect / reclaim while Setup Session exists
+     * and expiresAt is still in the future.
      */
     isRecoverable(roomId) {
 
@@ -416,9 +416,9 @@ export class SetupSessionLifecycle {
     }
 
     /**
-     * R6.38 — Ownership transfer at PAYMENT_STAGE_READY.
-     * Destroys Setup timer permanently; archives session (no destroy authority).
-     * Payment lifecycle becomes the sole room-lifetime owner afterwards.
+     * R6.38 / R7.70C23 — Ownership transfer at PAYMENT_STAGE_READY.
+     * Archives session for payment reconnect/SYNC; wall-clock expiresAt still
+     * terminates the room via SETUP_SESSION_EXPIRED when the Setup Timer hits 0.
      *
      * @returns {object | null} archived sync snapshot, or null if no handoff
      */
@@ -516,8 +516,6 @@ export class SetupSessionLifecycle {
             console.trace();
             console.log("======================================================");
 
-            this._clearExpiry(roomId);
-
             this._logger.decisionTrace({
                 stage: "ARCHIVE_SETUP",
                 decision: "ARCHIVED",
@@ -582,9 +580,10 @@ export class SetupSessionLifecycle {
         console.trace();
         console.log("======================================================");
 
-        this._clearExpiry(roomId);
-
         session.archive();
+
+        // R7.70C23 — PAYMENT must still honor the original Setup Timer expiresAt.
+        this._rescheduleExpiry(session);
 
         const snapshot = session.toSnapshot();
 
@@ -747,6 +746,20 @@ export class SetupSessionLifecycle {
 
     }
 
+    _rescheduleExpiry(session) {
+
+        if (!session?.roomId) {
+
+            return;
+
+        }
+
+        this._clearExpiry(session.roomId);
+
+        this._scheduleExpiry(session);
+
+    }
+
     _onExpiry(roomId) {
 
         this._expiryTimers.delete(roomId);
@@ -763,10 +776,11 @@ export class SetupSessionLifecycle {
 
         }
 
-        // R6.38 — ARCHIVED never expires / never destroys the room.
-        // ACTIVE lobby + COMPLETED prep (pre-PAYMENT) may still expire.
+        // R7.70C23 — ACTIVE, COMPLETED prep, and ARCHIVED (PAYMENT) honor
+        // the authoritative Setup Timer expiresAt (InfoBar on every prep page).
         if (session.state !== SETUP_SESSION_STATUS.ACTIVE
-            && session.state !== SETUP_SESSION_STATUS.COMPLETED) {
+            && session.state !== SETUP_SESSION_STATUS.COMPLETED
+            && session.state !== SETUP_SESSION_STATUS.ARCHIVED) {
 
             return;
 
@@ -782,7 +796,7 @@ export class SetupSessionLifecycle {
 
         } else {
 
-            // COMPLETED sessions are immutable — emit EXPIRED without mutate.
+            // COMPLETED / ARCHIVED are immutable — emit EXPIRED without mutate.
             snapshot = Object.freeze({
                 ...session.toSnapshot(),
                 state: SETUP_SESSION_STATUS.EXPIRED,

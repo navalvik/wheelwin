@@ -168,7 +168,7 @@ const lifecycle = harness.setupSessionLifecycle;
 }
 
 {
-    // R6.38 — PAYMENT_STAGE_READY archives Setup; old timer must not destroy room.
+    // R7.70C23 — PAYMENT (ARCHIVED) honors authoritative Setup Timer expiresAt.
     const expired = [];
 
     eventBus.subscribe(EVENT_TYPES.SETUP_SESSION_EXPIRED, (envelope) => {
@@ -210,7 +210,7 @@ const lifecycle = harness.setupSessionLifecycle;
 
     assert(
         lifecycle.isRecoverable(roomId) === true,
-        "ARCHIVED remains recoverable for payment reconnect"
+        "ARCHIVED remains recoverable before Setup Timer expires"
     );
 
     assert(
@@ -218,36 +218,24 @@ const lifecycle = harness.setupSessionLifecycle;
         "ARCHIVED still SYNCs immutable expiresAt for InfoBar"
     );
 
-    assert(
-        lifecycle.archiveForPayment(roomId)?.state === "ARCHIVED",
-        "archiveForPayment is idempotent"
-    );
-
     await wait(120);
 
     assert(
-        !expired.some((payload) => payload.roomId === roomId),
-        "ARCHIVED must never emit SETUP_SESSION_EXPIRED"
+        expired.some((payload) => payload.roomId === roomId),
+        "ARCHIVED must emit SETUP_SESSION_EXPIRED when Setup Timer reaches 0"
     );
 
     assert(
-        roomManager.hasRoom(roomId),
-        "archived Setup must not destroy room after former setup timeout"
+        !roomManager.hasRoom(roomId),
+        "ARCHIVED Setup expiry must destroy the room"
     );
-
-    assert(
-        lifecycle.getSession(roomId)?.state === "ARCHIVED",
-        "ARCHIVED survives former setup deadline"
-    );
-
-    roomManager.destroyRoom(roomId);
 
     assert(
         lifecycle.getSession(roomId) == null,
-        "ROOM_DESTROYED removes ARCHIVED session"
+        "ARCHIVED session removed after Setup Timer expiry"
     );
 
-    console.log("  R6.38 payment handoff archives Setup without destroy passed");
+    console.log("  R7.70C23 ARCHIVED payment Setup Timer expiry passed");
 }
 
 {

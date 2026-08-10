@@ -9,13 +9,17 @@ import {
 
 import { calculatePaymentGram } from "../utils/playerProfileRules";
 
+import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
+
+import { shouldNavigateOnSetupSessionExpiry } from "../game/session/setupSessionExpiry";
+
 import { INCOMING_SOCKET_EVENTS } from "../socket/socketEvents";
 
 import socket from "../socket/socket";
 
-const PAGE_SETUP_START = 3;
+const PAGE_SETUP_START = APP_PAGES.PLAYER_SETUP;
 
-const PAGE_GAME_START = 7;
+const PAGE_GAME_START = APP_PAGES.GAMEPLAY;
 
 const INITIAL_SESSION = {
     maxPlayers: 3,
@@ -51,6 +55,14 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
     const preGameEndedRef = useRef(false);
 
     const expiredHandledRef = useRef(false);
+
+    const currentPageRef = useRef(currentPage);
+
+    const onNavigateRef = useRef(onNavigate);
+
+    currentPageRef.current = currentPage;
+
+    onNavigateRef.current = onNavigate;
 
     const destroySession = useCallback(() => {
 
@@ -155,7 +167,7 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
             }
 
-            if (currentPage < PAGE_SETUP_START || currentPage >= PAGE_GAME_START) {
+            if (!shouldNavigateOnSetupSessionExpiry(currentPageRef.current)) {
 
                 return;
 
@@ -165,11 +177,21 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
             destroySession();
 
-            onNavigate(1);
+            // destroySession clears expiredHandledRef — re-arm so duplicate
+            // SETUP_SESSION_EXPIRED / roomClosed cannot double-navigate.
+            expiredHandledRef.current = true;
+
+            onNavigateRef.current(APP_PAGES.WELCOME);
 
         }
 
         function handleRoomClosed() {
+
+            handleSetupExpired();
+
+        }
+
+        function handlePaymentSessionFailed() {
 
             handleSetupExpired();
 
@@ -182,6 +204,11 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
         socket.on("roomClosed", handleRoomClosed);
 
+        socket.on(
+            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED,
+            handlePaymentSessionFailed
+        );
+
         return () => {
 
             socket.off(
@@ -191,9 +218,14 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
             socket.off("roomClosed", handleRoomClosed);
 
+            socket.off(
+                INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED,
+                handlePaymentSessionFailed
+            );
+
         };
 
-    }, [currentPage, destroySession, onNavigate]);
+    }, [destroySession]);
 
     const showInfoBar = currentPage >= PAGE_SETUP_START;
 
