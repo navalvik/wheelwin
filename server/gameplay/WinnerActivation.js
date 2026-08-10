@@ -2,10 +2,17 @@ import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 
+/** R9.2 — bounded resolve attempts after PHYSICS_STOPPED (1 immediate + retries). */
+const DEFAULT_RESOLVE_ATTEMPTS = 3;
+
+/** R9.2 — non-blocking delay between resolve attempts (ms). */
+const DEFAULT_RESOLVE_RETRY_DELAY_MS = 25;
+
 /**
  * P5.8 — Winner Activation.
  *
  * PHYSICS_STOPPED → WinnerEngine.resolveResult() → WINNER_DETERMINED (once).
+ * R9.2 — bounded non-blocking retry on resolve failure (no physics replay).
  * BrakePhaseController owns BRAKE physics (P5.7).
  * GameplayPhaseLifecycle owns RESULT / Page6 transitions (deferred).
  */
@@ -17,7 +24,9 @@ export class WinnerActivation {
         physicsEngine,
         winnerEngine,
         gameStateEngine,
-        devMode = false
+        devMode = false,
+        resolveAttempts = DEFAULT_RESOLVE_ATTEMPTS,
+        resolveRetryDelayMs = DEFAULT_RESOLVE_RETRY_DELAY_MS
     }) {
 
         this._logger = logger;
@@ -32,6 +41,15 @@ export class WinnerActivation {
 
         this._devMode = devMode;
 
+        this._resolveAttempts = Number.isFinite(resolveAttempts) && resolveAttempts > 0
+            ? Math.floor(resolveAttempts)
+            : DEFAULT_RESOLVE_ATTEMPTS;
+
+        this._resolveRetryDelayMs = Number.isFinite(resolveRetryDelayMs)
+            && resolveRetryDelayMs >= 0
+            ? resolveRetryDelayMs
+            : DEFAULT_RESOLVE_RETRY_DELAY_MS;
+
         this._handlers = [];
 
         this._brakeTriggered = new Set();
@@ -39,6 +57,9 @@ export class WinnerActivation {
         this._resolved = new Set();
 
         this._resultTransitioned = new Set();
+
+        /** @type {Map<string, ReturnType<typeof setTimeout>>} */
+        this._retryTimers = new Map();
 
         this._initialized = false;
 
@@ -134,11 +155,26 @@ export class WinnerActivation {
 
         }
 
+        // Claim once — prevents duplicate WINNER_DETERMINED / retry chains.
         this._resolved.add(gameId);
 
         this._logStep("Wheel stopped");
 
-        this._logStep("WinnerEngine.resolveResult()");
+        this._attemptResolve(gameId, 1);
+
+    }
+
+    /**
+     * R9.2 — Try WinnerEngine.resolveResult with bounded non-blocking retries.
+     * Does not replay PHYSICS_STOPPED or physics.
+     */
+    _attemptResolve(gameId, attempt) {
+
+        this._clearRetryTimer(gameId);
+
+        this._logStep(
+            `WinnerEngine.resolveResult() attempt ${attempt}/${this._resolveAttempts}`
+        );
 
         let result;
 
@@ -148,12 +184,35 @@ export class WinnerActivation {
 
         } catch (error) {
 
+            const reason = error?.message ?? String(error);
+
+            if (attempt < this._resolveAttempts) {
+
+                this._logger.warn(
+                    `Winner determination retry scheduled | gameId=${gameId} | `
+                        + `attempt=${attempt}/${this._resolveAttempts} | reason=${reason}`
+                );
+
+                const timerId = setTimeout(() => {
+
+                    this._retryTimers.delete(gameId);
+
+                    this._attemptResolve(gameId, attempt + 1);
+
+                }, this._resolveRetryDelayMs);
+
+                this._retryTimers.set(gameId, timerId);
+
+                return;
+
+            }
+
             this._logger.error(
-                `Winner determination failed | gameId=${gameId} | reason=${error.message}`
+                `Winner determination failed permanently | gameId=${gameId} | `
+                    + `attempts=${this._resolveAttempts} | reason=${reason}`
             );
 
-            this._resolved.delete(gameId);
-
+            // Keep _resolved so we do not start another chain without PHYSICS_STOPPED.
             return;
 
         }
@@ -209,6 +268,8 @@ export class WinnerActivation {
 
     forgetGame(gameId) {
 
+        this._clearRetryTimer(gameId);
+
         this._brakeTriggered.delete(gameId);
 
         this._resolved.delete(gameId);
@@ -217,7 +278,27 @@ export class WinnerActivation {
 
     }
 
+    _clearRetryTimer(gameId) {
+
+        const timerId = this._retryTimers.get(gameId);
+
+        if (timerId != null) {
+
+            clearTimeout(timerId);
+
+            this._retryTimers.delete(gameId);
+
+        }
+
+    }
+
     _reset() {
+
+        for (const gameId of [...this._retryTimers.keys()]) {
+
+            this._clearRetryTimer(gameId);
+
+        }
 
         this._brakeTriggered.clear();
 

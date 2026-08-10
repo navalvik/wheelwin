@@ -133,7 +133,8 @@ export class ContractSettlementManager {
             EVENT_TYPES.WINNER_DETERMINED,
             (envelope) => {
 
-                void this._handleWinnerDetermined(envelope.payload);
+                // R9.2 — sync durable handoff before any async adapter work.
+                this._onWinnerDetermined(envelope.payload);
 
             }
         );
@@ -439,7 +440,11 @@ export class ContractSettlementManager {
 
     }
 
-    async _handleWinnerDetermined(payload) {
+    /**
+     * R9.2 — Synchronous entry: validate + persist SettlementSession handoff
+     * before yielding to the async adapter pipeline.
+     */
+    _onWinnerDetermined(payload) {
 
         const gameId = payload?.gameId;
 
@@ -480,17 +485,364 @@ export class ContractSettlementManager {
 
         }
 
-        this._inFlight.add(gameId);
+        let session;
 
         try {
 
-            await this._executeSettlement(validation);
+            session = this._createDurableSettlementHandoff(validation);
 
-        } finally {
+        } catch (error) {
 
-            this._inFlight.delete(gameId);
+            this._logger.error(
+                `Settlement durable handoff failed | gameId=${gameId} | `
+                    + `${error?.message ?? error}`
+            );
+
+            this._failWithoutContract(gameId, {
+                ...validation,
+                ok: false,
+                reason: `handoff_persist_failed:${error?.message ?? "unknown"}`
+            });
+
+            return;
 
         }
+
+        this._inFlight.add(gameId);
+
+        void this._advanceSettlementAfterHandoff(session, validation)
+            .catch((error) => {
+
+                this._logger.error(
+                    `Settlement pipeline failed after handoff | gameId=${gameId} | `
+                        + `${error?.message ?? error}`
+                );
+
+                if (session && session.isInProgress?.()) {
+
+                    this._failSettlement(
+                        session,
+                        `pipeline_failed:${error?.message ?? "unknown"}`
+                    );
+
+                }
+
+            })
+            .finally(() => {
+
+                this._inFlight.delete(gameId);
+
+            });
+
+    }
+
+    /**
+     * R9.2 — Create + persist SettlementSession with winner/payout fields
+     * before any await. Reuses existing SettlementSession + TonFinancialPersistence.
+     */
+    _createDurableSettlementHandoff(ctx) {
+
+        const {
+            gameId,
+            roomId,
+            contract,
+            winnerId,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount,
+            totalPot,
+            traceSeed
+        } = ctx;
+
+        if (this._byGameId.has(gameId)) {
+
+            throw new SettlementAlreadyExistsError(gameId, roomId);
+
+        }
+
+        const startedAt = Date.now();
+
+        const deadline = startedAt + this._settlementTimeoutMs;
+
+        const request = Object.freeze({
+            gameId,
+            contractId: contract.contractId,
+            contractAddress: contract.contractAddress,
+            winnerId,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount,
+            totalPot,
+            traceSeed,
+            timestamp: startedAt,
+            snapshot: contract.snapshot,
+            snapshotHash: contract.snapshotHash ?? null,
+            gameEscrowMode: this._gameEscrowMode
+        });
+
+        const session = new SettlementSession({
+            settlementSessionId: `settle_${randomUUID()}`,
+            contractId: contract.contractId,
+            gameId,
+            roomId,
+            winnerId,
+            winnerWallet,
+            prizeAmount: winnerAmount,
+            organizerAmount,
+            totalPot,
+            network: contract.tonNetwork ?? this._tonNetwork,
+            status: SETTLEMENT_SESSION_STATUS.CREATED,
+            ownerWallet,
+            traceSeed,
+            startedAt,
+            settlementDeadline: deadline,
+            correlationId: contract.correlationId ?? randomUUID(),
+            request
+        });
+
+        this._byGameId.set(gameId, session);
+
+        this._persistSession(session, "create");
+
+        this._emitDomain(EVENT_TYPES.SETTLEMENT_SESSION_CREATED, session);
+
+        this._scheduleExpiry(session);
+
+        this._log(
+            `Settlement durable handoff persisted | gameId=${gameId} | `
+                + `winner=${maskWalletAddress(winnerWallet)} | `
+                + `status=${session.status}`
+        );
+
+        return session;
+
+    }
+
+    async _advanceSettlementAfterHandoff(session, ctx) {
+
+        const {
+            gameId,
+            roomId,
+            contract,
+            winnerId,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount,
+            totalPot
+        } = ctx;
+
+        const startedAt = session.startedAt ?? Date.now();
+
+        session.transitionTo(SETTLEMENT_SESSION_STATUS.PREPARING);
+
+        this._gameContractManager.markWinnerPending?.(roomId);
+
+        this._persistSession(session, "update");
+
+        this._audit(roomId, {
+            type: "SETTLEMENT_STARTED",
+            gameId,
+            contractId: contract.contractId,
+            winnerId,
+            winnerWallet,
+            ownerWalletMasked: maskWalletAddress(ownerWallet),
+            totalPot,
+            winnerAmount,
+            organizerAmount,
+            at: startedAt
+        });
+
+        this._emitDomain(EVENT_TYPES.SETTLEMENT_STARTED, session, {
+            winnerAmount,
+            organizerAmount
+        });
+
+        this._emit(EVENT_TYPES.SETTLEMENT_SUBMITTED, {
+            gameId,
+            roomId,
+            contractId: contract.contractId,
+            status: SETTLEMENT_SESSION_STATUS.PREPARING,
+            timestamp: Date.now()
+        });
+
+        const request = session.request ?? Object.freeze({
+            gameId,
+            contractId: contract.contractId,
+            contractAddress: contract.contractAddress,
+            winnerId,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount,
+            totalPot,
+            traceSeed: ctx.traceSeed,
+            timestamp: startedAt,
+            snapshot: contract.snapshot,
+            snapshotHash: contract.snapshotHash ?? null,
+            gameEscrowMode: this._gameEscrowMode
+        });
+
+        session.request = request;
+
+        session.transitionTo(SETTLEMENT_SESSION_STATUS.READY);
+
+        this._persistSession(session, "update");
+
+        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+
+            setGameEscrowSettlementDebug({
+                mode: this._gameEscrowMode,
+                escrowAddress: contract.contractAddress,
+                winner: winnerWallet,
+                owner: ownerWallet,
+                winnerAmount,
+                ownerAmount: organizerAmount,
+                snapshotHash: contract.snapshotHash ?? null,
+                transactionHash: null
+            });
+            printGameEscrowSettlementDebug();
+
+        }
+
+        let adapterResult;
+
+        try {
+
+            adapterResult = await this._settlementAdapter.settleContract(request);
+
+        } catch (error) {
+
+            this._failSettlement(session, `adapter_threw:${error?.message ?? "unknown"}`);
+
+            return;
+
+        }
+
+        if (!adapterResult?.ok) {
+
+            this._failSettlement(
+                session,
+                adapterResult?.reason ?? "settlement_adapter_failed"
+            );
+
+            return;
+
+        }
+
+        await this._applySettlementAdapterResult(session, ctx, adapterResult);
+
+    }
+
+    async _applySettlementAdapterResult(session, ctx, adapterResult) {
+
+        const {
+            gameId,
+            roomId,
+            contract,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount
+        } = ctx;
+
+        const settlementTxHash = adapterResult.settlementTxId
+            ?? adapterResult.txHash
+            ?? null;
+
+        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+
+            setGameEscrowSettlementDebug({
+                mode: this._gameEscrowMode,
+                escrowAddress: contract.contractAddress,
+                winner: winnerWallet,
+                owner: ownerWallet,
+                winnerAmount,
+                ownerAmount: organizerAmount,
+                snapshotHash: contract.snapshotHash ?? null,
+                transactionHash: settlementTxHash
+            });
+            printGameEscrowSettlementDebug();
+
+            session.transitionTo(
+                SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION,
+                {
+                    settlementTransactionHash: settlementTxHash
+                }
+            );
+
+            this._gameContractManager.markSettlementPending?.(roomId);
+
+            this._persistSession(session, "update");
+
+            this._emitDomain(EVENT_TYPES.SETTLEMENT_PENDING, session, {
+                transactionHash: settlementTxHash,
+                pendingConfirmation: true
+            });
+
+            setGameEscrowConfirmationDebug({
+                escrowAddress: contract.contractAddress,
+                settleTxHash: settlementTxHash,
+                winnerPayoutTx: null,
+                ownerPayoutTx: null,
+                confirmedAt: null,
+                status: "SETTLEMENT_PENDING_CONFIRMATION"
+            });
+            printGameEscrowConfirmationDebug();
+
+            this._log(
+                `SETTLEMENT_PENDING_CONFIRMATION | gameId=${gameId} | `
+                    + `contractId=${contract.contractId} | `
+                    + `winner=${maskWalletAddress(winnerWallet)}`
+            );
+
+            const registered = this._registerGameEscrowPayoutWatch(session);
+
+            if (registered > 0) {
+
+                return;
+
+            }
+
+            this._failSettlement(session, "game_escrow_payout_watch_unavailable");
+
+            return;
+
+        }
+
+        session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING, {
+            settlementTransactionHash: settlementTxHash
+        });
+
+        this._gameContractManager.markSettlementPending?.(roomId);
+
+        this._persistSession(session, "update");
+
+        this._emitDomain(EVENT_TYPES.SETTLEMENT_PENDING, session, {
+            transactionHash: settlementTxHash
+        });
+
+        this._log(
+            `SETTLEMENT_PENDING | gameId=${gameId} | `
+                + `contractId=${contract.contractId} | `
+                + `winner=${maskWalletAddress(winnerWallet)}`
+        );
+
+        if (this._blockchainMonitor && settlementTxHash) {
+
+            const registered = this._registerSettlementWatch(session);
+
+            if (registered > 0) {
+
+                return;
+
+            }
+
+        }
+
+        await this._confirmSettlement(session, settlementTxHash);
 
     }
 
@@ -703,252 +1055,17 @@ export class ContractSettlementManager {
 
     }
 
+    /**
+     * Test / internal entry: durable handoff then async pipeline.
+     * Production path uses `_onWinnerDetermined` (sync handoff first).
+     */
     async _executeSettlement(ctx) {
 
-        const {
-            gameId,
-            roomId,
-            contract,
-            winnerId,
-            winnerWallet,
-            ownerWallet,
-            winnerAmount,
-            organizerAmount,
-            totalPot,
-            traceSeed
-        } = ctx;
+        const session = this._createDurableSettlementHandoff(ctx);
 
-        if (this._byGameId.has(gameId)) {
+        await this._advanceSettlementAfterHandoff(session, ctx);
 
-            throw new SettlementAlreadyExistsError(gameId, roomId);
-
-        }
-
-        const startedAt = Date.now();
-
-        const deadline = startedAt + this._settlementTimeoutMs;
-
-        const session = new SettlementSession({
-            settlementSessionId: `settle_${randomUUID()}`,
-            contractId: contract.contractId,
-            gameId,
-            roomId,
-            winnerId,
-            winnerWallet,
-            prizeAmount: winnerAmount,
-            organizerAmount,
-            totalPot,
-            network: contract.tonNetwork ?? this._tonNetwork,
-            status: SETTLEMENT_SESSION_STATUS.CREATED,
-            ownerWallet,
-            traceSeed,
-            startedAt,
-            settlementDeadline: deadline,
-            correlationId: contract.correlationId ?? randomUUID()
-        });
-
-        this._byGameId.set(gameId, session);
-
-        this._persistSession(session, "create");
-
-        this._emitDomain(EVENT_TYPES.SETTLEMENT_SESSION_CREATED, session);
-
-        session.transitionTo(SETTLEMENT_SESSION_STATUS.PREPARING);
-
-        this._gameContractManager.markWinnerPending?.(roomId);
-
-        this._persistSession(session, "update");
-
-        this._scheduleExpiry(session);
-
-        this._audit(roomId, {
-            type: "SETTLEMENT_STARTED",
-            gameId,
-            contractId: contract.contractId,
-            winnerId,
-            winnerWallet,
-            ownerWalletMasked: maskWalletAddress(ownerWallet),
-            totalPot,
-            winnerAmount,
-            organizerAmount,
-            at: startedAt
-        });
-
-        this._emitDomain(EVENT_TYPES.SETTLEMENT_STARTED, session, {
-            winnerAmount,
-            organizerAmount
-        });
-
-        this._emit(EVENT_TYPES.SETTLEMENT_SUBMITTED, {
-            gameId,
-            roomId,
-            contractId: contract.contractId,
-            status: SETTLEMENT_SESSION_STATUS.PREPARING,
-            timestamp: Date.now()
-        });
-
-        const request = Object.freeze({
-            gameId,
-            contractId: contract.contractId,
-            contractAddress: contract.contractAddress,
-            winnerId,
-            winnerWallet,
-            ownerWallet,
-            winnerAmount,
-            organizerAmount,
-            totalPot,
-            traceSeed,
-            timestamp: startedAt,
-            snapshot: contract.snapshot,
-            snapshotHash: contract.snapshotHash ?? null,
-            // R7.66F — adapter selects legacy vs GameEscrow SETTLE body.
-            gameEscrowMode: this._gameEscrowMode
-        });
-
-        session.request = request;
-
-        session.transitionTo(SETTLEMENT_SESSION_STATUS.READY);
-
-        this._persistSession(session, "update");
-
-        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
-
-            setGameEscrowSettlementDebug({
-                mode: this._gameEscrowMode,
-                escrowAddress: contract.contractAddress,
-                winner: winnerWallet,
-                owner: ownerWallet,
-                winnerAmount,
-                ownerAmount: organizerAmount,
-                snapshotHash: contract.snapshotHash ?? null,
-                transactionHash: null
-            });
-            printGameEscrowSettlementDebug();
-
-        }
-
-        let adapterResult;
-
-        try {
-
-            adapterResult = await this._settlementAdapter.settleContract(request);
-
-        } catch (error) {
-
-            this._failSettlement(session, `adapter_threw:${error?.message ?? "unknown"}`);
-
-            return;
-
-        }
-
-        if (!adapterResult?.ok) {
-
-            this._failSettlement(
-                session,
-                adapterResult?.reason ?? "settlement_adapter_failed"
-            );
-
-            return;
-
-        }
-
-        const settlementTxHash = adapterResult.settlementTxId
-            ?? adapterResult.txHash
-            ?? null;
-
-        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
-
-            setGameEscrowSettlementDebug({
-                mode: this._gameEscrowMode,
-                escrowAddress: contract.contractAddress,
-                winner: winnerWallet,
-                owner: ownerWallet,
-                winnerAmount,
-                ownerAmount: organizerAmount,
-                snapshotHash: contract.snapshotHash ?? null,
-                transactionHash: settlementTxHash
-            });
-            printGameEscrowSettlementDebug();
-
-            // R7.66G — wait for payout proofs; do not complete on submit alone.
-            session.transitionTo(
-                SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION,
-                {
-                    settlementTransactionHash: settlementTxHash
-                }
-            );
-
-            this._gameContractManager.markSettlementPending?.(roomId);
-
-            this._persistSession(session, "update");
-
-            this._emitDomain(EVENT_TYPES.SETTLEMENT_PENDING, session, {
-                transactionHash: settlementTxHash,
-                pendingConfirmation: true
-            });
-
-            setGameEscrowConfirmationDebug({
-                escrowAddress: contract.contractAddress,
-                settleTxHash: settlementTxHash,
-                winnerPayoutTx: null,
-                ownerPayoutTx: null,
-                confirmedAt: null,
-                status: "SETTLEMENT_PENDING_CONFIRMATION"
-            });
-            printGameEscrowConfirmationDebug();
-
-            this._log(
-                `SETTLEMENT_PENDING_CONFIRMATION | gameId=${gameId} | `
-                    + `contractId=${contract.contractId} | `
-                    + `winner=${maskWalletAddress(winnerWallet)}`
-            );
-
-            const registered = this._registerGameEscrowPayoutWatch(session);
-
-            if (registered > 0) {
-
-                return;
-
-            }
-
-            // No monitor available — cannot confirm payouts in game mode.
-            this._failSettlement(session, "game_escrow_payout_watch_unavailable");
-
-            return;
-
-        }
-
-        session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING, {
-            settlementTransactionHash: settlementTxHash
-        });
-
-        this._gameContractManager.markSettlementPending?.(roomId);
-
-        this._persistSession(session, "update");
-
-        this._emitDomain(EVENT_TYPES.SETTLEMENT_PENDING, session, {
-            transactionHash: settlementTxHash
-        });
-
-        this._log(
-            `SETTLEMENT_PENDING | gameId=${gameId} | `
-                + `contractId=${contract.contractId} | `
-                + `winner=${maskWalletAddress(winnerWallet)}`
-        );
-
-        if (this._blockchainMonitor && settlementTxHash) {
-
-            const registered = this._registerSettlementWatch(session);
-
-            if (registered > 0) {
-
-                return;
-
-            }
-
-        }
-
-        await this._confirmSettlement(session, settlementTxHash);
+        return session;
 
     }
 
