@@ -2,6 +2,7 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 import { GAME_STATUS } from "../models/GameStatus.js";
+import { isSettlementSessionTerminal } from "../payment/SettlementSessionStates.js";
 
 const DEFAULT_RESULT_LINGER_MS = 3000;
 
@@ -22,6 +23,10 @@ const DEFAULT_RESULT_LINGER_MS = 3000;
  * Teardown is deferred by the RESULT display duration so that clients, recovery
  * and audit can still read the authoritative result while RESULT is shown. All
  * pending timers are tracked and cleared on shutdown (no orphan timers).
+ *
+ * R8.6 — When settlement ownership is configured, GAME_DESTROYED also waits for
+ * a terminal settlement session (or absence of paid contract). OPEN_PAGE6 remains
+ * ungated elsewhere (R5.19).
  */
 export class GameplayLifecycle {
 
@@ -45,6 +50,8 @@ export class GameplayLifecycle {
         auditActivation = null,
         waitForAudit = false,
         gameManager,
+        contractSettlementManager = null,
+        gameContractManager = null,
         devMode = false
     }) {
 
@@ -86,6 +93,10 @@ export class GameplayLifecycle {
 
         this._gameManager = gameManager;
 
+        this._contractSettlementManager = contractSettlementManager;
+
+        this._gameContractManager = gameContractManager;
+
         this._devMode = devMode;
 
         this._handlers = [];
@@ -97,6 +108,8 @@ export class GameplayLifecycle {
         this._awaitingAudit = new Set();
 
         this._auditTerminal = new Set();
+
+        this._awaitingSettlement = new Set();
 
         this._initialized = false;
 
@@ -161,6 +174,29 @@ export class GameplayLifecycle {
 
     }
 
+    /**
+     * R8.6 — Gate gameplay teardown on terminal settlement for paid games.
+     * Does not affect OPEN_PAGE6 (owned by GameplayPhaseLifecycle / R5.19).
+     */
+    configureSettlementTeardownGate({
+        contractSettlementManager = null,
+        gameContractManager = null
+    } = {}) {
+
+        if (contractSettlementManager) {
+
+            this._contractSettlementManager = contractSettlementManager;
+
+        }
+
+        if (gameContractManager) {
+
+            this._gameContractManager = gameContractManager;
+
+        }
+
+    }
+
     initialize() {
 
         this._subscribe(
@@ -186,6 +222,33 @@ export class GameplayLifecycle {
             (envelope) => {
 
                 this._handleAuditTerminal(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETTLEMENT_COMPLETED,
+            (envelope) => {
+
+                this._handleSettlementTerminal(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETTLEMENT_FAILED,
+            (envelope) => {
+
+                this._handleSettlementTerminal(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.SETTLEMENT_TIMEOUT,
+            (envelope) => {
+
+                this._handleSettlementTerminal(envelope.payload);
 
             }
         );
@@ -223,6 +286,8 @@ export class GameplayLifecycle {
         this._awaitingAudit.clear();
 
         this._auditTerminal.clear();
+
+        this._awaitingSettlement.clear();
 
         this._initialized = false;
 
@@ -265,6 +330,16 @@ export class GameplayLifecycle {
 
         }
 
+        if (!this._isSettlementReadyForTeardown(gameId)) {
+
+            this._awaitingSettlement.add(gameId);
+
+            this._logStep(`Awaiting settlement before teardown ${gameId}`);
+
+            return;
+
+        }
+
         this._scheduleTeardown(gameId);
 
     }
@@ -289,9 +364,129 @@ export class GameplayLifecycle {
 
         this._awaitingAudit.delete(gameId);
 
+        if (!this._isSettlementReadyForTeardown(gameId)) {
+
+            this._awaitingSettlement.add(gameId);
+
+            this._logStep(
+                `Audit terminal received, awaiting settlement before teardown ${gameId}`
+            );
+
+            return;
+
+        }
+
         this._logStep(`Audit terminal received, scheduling teardown ${gameId}`);
 
         this._scheduleTeardown(gameId);
+
+    }
+
+    _handleSettlementTerminal(payload) {
+
+        const gameId = payload?.gameId;
+
+        if (!gameId) {
+
+            return;
+
+        }
+
+        if (!this._awaitingSettlement.has(gameId)) {
+
+            return;
+
+        }
+
+        if (!this._isSettlementReadyForTeardown(gameId)) {
+
+            return;
+
+        }
+
+        this._awaitingSettlement.delete(gameId);
+
+        this._logStep(
+            `Settlement terminal received, scheduling teardown ${gameId}`
+        );
+
+        this._scheduleTeardown(gameId);
+
+    }
+
+    /**
+     * R8.6 / R8.8 — Winner required. Financially activated / contracted games
+     * wait for settlement terminal. Missing contract after entry-payment is
+     * UNKNOWN → keep game alive (never treat as unpaid).
+     * ContractSettlementManager / GameContract evidence is never deleted here.
+     */
+    _isSettlementReadyForTeardown(gameId) {
+
+        if (!this._winnerEngine?.getResult?.(gameId)) {
+
+            return false;
+
+        }
+
+        if (!this._contractSettlementManager) {
+
+            return true;
+
+        }
+
+        const session = this._contractSettlementManager
+            .getSettlementSession?.(gameId)
+            ?? null;
+
+        if (session) {
+
+            return isSettlementSessionTerminal(session.status);
+
+        }
+
+        const contract = this._gameContractManager
+            ?.getContractByGameId?.(gameId)
+            ?? null;
+
+        if (contract) {
+
+            return false;
+
+        }
+
+        // R8.8 — ENTRY_PAYMENT_COMPLETED activation ⇒ financially relevant.
+        // Absent live contract/session is NOT proof of unpaid.
+        if (this._gameManager?.wasEntryPaymentActivated?.(gameId)) {
+
+            this._logStep(
+                `Teardown blocked — entry-paid game without terminal settlement ${gameId}`
+            );
+
+            return false;
+
+        }
+
+        const snapshot = this._gameManager?.getGame?.(gameId);
+
+        const roomId = snapshot?.roomId ?? null;
+
+        if (roomId
+            && this._gameContractManager?.getContract?.(roomId)) {
+
+            return false;
+
+        }
+
+        if (roomId
+            && this._gameManager?.hasInitializedGameplay?.(roomId)
+            && this._gameManager?.wasEntryPaymentActivated?.(gameId)) {
+
+            return false;
+
+        }
+
+        // Proven non-financial / legacy stack (no entry-payment activation).
+        return true;
 
     }
 
@@ -308,6 +503,19 @@ export class GameplayLifecycle {
         const handle = setTimeout(() => {
 
             this._pendingTeardowns.delete(gameId);
+
+            // Re-check settlement in case state changed during linger.
+            if (!this._isSettlementReadyForTeardown(gameId)) {
+
+                this._awaitingSettlement.add(gameId);
+
+                this._logStep(
+                    `Teardown deferred — settlement not terminal ${gameId}`
+                );
+
+                return;
+
+            }
 
             this._teardown(gameId);
 
@@ -336,6 +544,8 @@ export class GameplayLifecycle {
         }
 
         this._completed.add(gameId);
+
+        this._awaitingSettlement.delete(gameId);
 
         this._logStep(`Game destroyed ${gameId}`);
 

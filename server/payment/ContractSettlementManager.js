@@ -12,7 +12,10 @@ import {
 } from "./ContractSettlementManagerErrors.js";
 import { maskWalletAddress } from "./maskWalletAddress.js";
 import { SettlementSession } from "./SettlementSession.js";
-import { SETTLEMENT_SESSION_STATUS } from "./SettlementSessionStates.js";
+import {
+    SETTLEMENT_SESSION_STATUS,
+    isSettlementSessionTerminal
+} from "./SettlementSessionStates.js";
 import { TON_FINANCIAL_RECORD_TYPES } from "../persistence/TonFinancialPersistence.js";
 import {
     GAME_ESCROW_MODE_GAME,
@@ -24,6 +27,7 @@ import {
     setGameEscrowConfirmationDebug,
     setGameEscrowSettlementDebug
 } from "../diagnostics/SettlementPipelineForensics.js";
+import { shouldPreserveFinancialEvidence } from "../gameplay/financialEvidenceGuards.js";
 
 const DEFAULT_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -53,6 +57,7 @@ export class ContractSettlementManager {
         paymentSessionManager = null,
         walletManager = null,
         gameplayContextResolver = null,
+        gameManager = null,
         ownerConfiguration = OwnerConfiguration,
         tonNetwork = null,
         gameEscrowMode = null,
@@ -73,6 +78,8 @@ export class ContractSettlementManager {
         this._settlementAdapter = settlementAdapter;
 
         this._blockchainMonitor = blockchainMonitor;
+
+        this._gameManager = gameManager;
 
         // R7.62 — settlement account tx hash lives on the deployer wallet (not escrow).
         this._deployerWalletAddress = typeof deployerWalletAddress === "string"
@@ -1608,9 +1615,31 @@ export class ContractSettlementManager {
 
         }
 
+        // R8.6 / R8.8 — Room/SessionFinished must not erase financial evidence
+        // while settlement is incomplete or financially activated post-init.
+        if (shouldPreserveFinancialEvidence({
+            roomId,
+            gameManager: this._gameManager,
+            contractSettlementManager: this,
+            gameContractManager: this._gameContractManager,
+            paymentSessionManager: this._paymentSessionManager
+        })) {
+
+            return;
+
+        }
+
         for (const [gameId, session] of this._byGameId.entries()) {
 
             if (session.roomId === roomId) {
+
+                // Preserve non-terminal sessions even if game record is gone.
+                if (session.isInProgress?.() === true
+                    || !isSettlementSessionTerminal(session.status)) {
+
+                    continue;
+
+                }
 
                 this._clearExpiry(gameId);
 

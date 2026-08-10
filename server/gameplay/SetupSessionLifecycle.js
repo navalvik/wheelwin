@@ -30,6 +30,7 @@ export class SetupSessionLifecycle {
         logger,
         eventBus,
         roomManager,
+        gameManager = null,
         roomConfig = null,
         devMode = false
     }) {
@@ -39,6 +40,8 @@ export class SetupSessionLifecycle {
         this._eventBus = eventBus;
 
         this._roomManager = roomManager;
+
+        this._gameManager = gameManager;
 
         this._durationMs = Number.isFinite(roomConfig?.setupDurationMs)
             && roomConfig.setupDurationMs > 0
@@ -51,12 +54,28 @@ export class SetupSessionLifecycle {
 
         this._expiryTimers = new Map();
 
+        // R8.6 — rooms whose Setup Session released destroy authority at GAME_INITIALIZED.
+        this._gameplayReleased = new Set();
+
         this._handlers = [];
 
         this._initialized = false;
 
         /** @type {{ isAcceptingNewWork: () => boolean } | null} R7.0B */
         this._lifecycleGate = null;
+
+    }
+
+    /**
+     * Late-bind GameManager when constructed before managers are fully wired.
+     */
+    setGameManager(gameManager) {
+
+        if (gameManager) {
+
+            this._gameManager = gameManager;
+
+        }
 
     }
 
@@ -248,6 +267,15 @@ export class SetupSessionLifecycle {
         );
 
         this._subscribe(
+            EVENT_TYPES.GAME_INITIALIZED,
+            (envelope) => {
+
+                this._releaseGameplayOwnership(envelope.payload?.roomId);
+
+            }
+        );
+
+        this._subscribe(
             EVENT_TYPES.ROOM_DESTROYED,
             (envelope) => {
 
@@ -266,6 +294,22 @@ export class SetupSessionLifecycle {
         );
 
         this._initialized = true;
+
+    }
+
+    /**
+     * R8.6 — After GAME_INITIALIZED Setup no longer owns Room/financial teardown.
+     */
+    isGameplayOwnershipReleased(roomId) {
+
+        if (!roomId) {
+
+            return false;
+
+        }
+
+        return this._gameplayReleased.has(roomId)
+            || this._gameManager?.hasInitializedGameplay?.(roomId) === true;
 
     }
 
@@ -728,7 +772,32 @@ export class SetupSessionLifecycle {
 
         }
 
+        this._gameplayReleased.delete(roomId);
+
         this.abortForRoom(roomId);
+
+    }
+
+    /**
+     * R8.6 — GAME_INITIALIZED transfers gameplay/financial ownership away from Setup.
+     * Clears the Setup Timer so ARCHIVED expiry cannot destroy an active game room.
+     * Session record may remain for history until ROOM_DESTROYED.
+     */
+    _releaseGameplayOwnership(roomId) {
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        this._gameplayReleased.add(roomId);
+
+        this._clearExpiry(roomId);
+
+        this._log(
+            `Setup ownership released for gameplay | roomId=${roomId}`
+        );
 
     }
 
@@ -754,6 +823,15 @@ export class SetupSessionLifecycle {
 
         }
 
+        // R8.6 — never re-arm Setup Timer after gameplay ownership transfer.
+        if (this.isGameplayOwnershipReleased(session.roomId)) {
+
+            this._clearExpiry(session.roomId);
+
+            return;
+
+        }
+
         this._clearExpiry(session.roomId);
 
         this._scheduleExpiry(session);
@@ -763,6 +841,17 @@ export class SetupSessionLifecycle {
     _onExpiry(roomId) {
 
         this._expiryTimers.delete(roomId);
+
+        // R8.6 — After GAME_INITIALIZED Setup expiry has no destroy authority.
+        if (this.isGameplayOwnershipReleased(roomId)) {
+
+            this._log(
+                `Setup expiry ignored — gameplay ownership released | roomId=${roomId}`
+            );
+
+            return;
+
+        }
 
         const session = this._sessionGet(
             roomId,
@@ -886,6 +975,8 @@ export class SetupSessionLifecycle {
         console.log("======================================================");
 
         this._sessionClear("SetupSessionLifecycle._reset", "reset_clear");
+
+        this._gameplayReleased.clear();
 
     }
 

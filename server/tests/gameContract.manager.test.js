@@ -30,7 +30,8 @@ function createLogger() {
         info() {},
         error() {},
         warn() {},
-        debug() {}
+        debug() {},
+        decisionTrace() {}
     };
 
 }

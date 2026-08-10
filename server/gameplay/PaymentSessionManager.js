@@ -25,6 +25,7 @@ import {
     PaymentValidationError,
     UnexpectedPaymentError
 } from "./PaymentSessionManagerErrors.js";
+import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
 
 const DEFAULT_PAYMENT_SESSION_DURATION_MS = 5 * 60 * 1000;
 
@@ -46,12 +47,14 @@ export class PaymentSessionManager {
         eventBus,
         playerManager,
         roomManager,
+        gameManager = null,
         roomConfig = null,
         gameplayContextResolver = null,
         sessionWalletStore = null,
         sessionWalletStoreForWatch = null,
         walletManager = null,
         gameContractManager = null,
+        contractSettlementManager = null,
         blockchainMonitor = null,
         financialPersistence = null,
         tonNetwork = null,
@@ -66,6 +69,8 @@ export class PaymentSessionManager {
 
         this._roomManager = roomManager;
 
+        this._gameManager = gameManager;
+
         this._gameplayContextResolver = gameplayContextResolver;
 
         this._sessionWalletStore = sessionWalletStore
@@ -74,6 +79,8 @@ export class PaymentSessionManager {
         this._walletManager = walletManager;
 
         this._gameContractManager = gameContractManager;
+
+        this._contractSettlementManager = contractSettlementManager;
 
         this._blockchainMonitor = blockchainMonitor;
 
@@ -101,6 +108,40 @@ export class PaymentSessionManager {
         this._handlers = [];
 
         this._initialized = false;
+
+    }
+
+    /**
+     * R8.8 — Late-bind settlement/contract refs for financial retention checks.
+     */
+    setFinancialEvidenceDeps({
+        gameContractManager = null,
+        contractSettlementManager = null
+    } = {}) {
+
+        if (gameContractManager) {
+
+            this._gameContractManager = gameContractManager;
+
+        }
+
+        if (contractSettlementManager) {
+
+            this._contractSettlementManager = contractSettlementManager;
+
+        }
+
+    }
+
+    _shouldPreserveFinancialEvidence(roomId) {
+
+        return shouldPreserveFinancialEvidence({
+            roomId,
+            gameManager: this._gameManager,
+            contractSettlementManager: this._contractSettlementManager,
+            gameContractManager: this._gameContractManager,
+            paymentSessionManager: this
+        });
 
     }
 
@@ -185,12 +226,37 @@ export class PaymentSessionManager {
 
         this._subscribe(
             EVENT_TYPES.ROOM_DESTROYED,
-            (envelope) => this.destroySession(envelope.payload?.roomId)
+            (envelope) => {
+
+                const roomId = envelope.payload?.roomId;
+
+                if (this._shouldPreserveFinancialEvidence(roomId)) {
+
+                    return;
+
+                }
+
+                this.destroySession(roomId);
+
+            }
         );
 
         this._subscribe(
             EVENT_TYPES.SESSION_FINISHED,
-            (envelope) => this.destroySession(envelope.payload?.roomId)
+            (envelope) => {
+
+                const roomId = envelope.payload?.roomId;
+
+                // R8.8 — Page6/result finish is not financial completion.
+                if (this._shouldPreserveFinancialEvidence(roomId)) {
+
+                    return;
+
+                }
+
+                this.destroySession(roomId);
+
+            }
         );
 
         this._subscribe(

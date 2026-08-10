@@ -3,6 +3,8 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import http from "http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { GameCatalog } from "./catalog/GameCatalog.js";
 import { ConfigurationManager } from "./config/ConfigurationManager.js";
@@ -129,6 +131,31 @@ import {
 } from "./payment/BlockchainMonitor.js";
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
+import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
+
+const SERVER_ROOT_DIR = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * R8.10 — Resolve durable financial storage directory.
+ * Priority: TON_FINANCIAL_DATA_DIR → WHEELWIN_FINANCIAL_DATA_DIR → server/data/ton-financial
+ */
+function resolveTonFinancialDataDir(env = process.env) {
+
+    const fromEnv = String(
+        env.TON_FINANCIAL_DATA_DIR
+            || env.WHEELWIN_FINANCIAL_DATA_DIR
+            || ""
+    ).trim();
+
+    if (fromEnv) {
+
+        return fromEnv;
+
+    }
+
+    return join(SERVER_ROOT_DIR, "data", "ton-financial");
+
+}
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
@@ -253,6 +280,8 @@ class WheelWinApplication {
         this._entryPaymentAuditLedger = null;
 
         this._sessionWalletStore = null;
+
+        this._financialPersistence = null;
 
         this._tonFinancialRecovery = null;
 
@@ -777,6 +806,7 @@ class WheelWinApplication {
             logger: this._logger,
             eventBus: this._eventBus,
             roomManager: this._managers.roomManager,
+            gameManager: this._managers.gameManager,
             roomConfig: this._roomConfig,
             devMode: this._productionConfig.isDevelopment
         });
@@ -1093,7 +1123,27 @@ class WheelWinApplication {
 
         this._logger.startupLine("AuditEngine");
 
-        this._sessionWalletStore = new SessionWalletStore();
+        // R8.10 — Single shared TonFinancialPersistence for restart recovery.
+        const financialDataDir = resolveTonFinancialDataDir();
+
+        this._financialPersistence = new TonFinancialPersistence({
+            logger: this._logger,
+            dataDir: financialDataDir
+        });
+
+        const persistenceSummary = this._financialPersistence.initialize();
+
+        this._logger.startupLine("TonFinancialPersistence");
+
+        this._logger.info(
+            `TonFinancialPersistence dataDir=${financialDataDir} | `
+                + `records=${persistenceSummary?.recordCount ?? 0}`
+        );
+
+        this._sessionWalletStore = new SessionWalletStore({
+            financialPersistence: this._financialPersistence,
+            logger: this._logger
+        });
 
         this._gameReportEngine = new GameReportEngine({
             logger: this._logger,
@@ -1223,10 +1273,12 @@ class WheelWinApplication {
             eventBus: this._eventBus,
             playerManager: this._managers.playerManager,
             roomManager: this._managers.roomManager,
+            gameManager: this._managers.gameManager,
             roomConfig: this._roomConfig,
             gameplayContextResolver: this._gameplayContextResolver,
             sessionWalletStore: this._sessionWalletStore,
             blockchainMonitor: this._blockchainMonitor,
+            financialPersistence: this._financialPersistence,
             devMode: this._productionConfig.isDevelopment
         });
 
@@ -1261,9 +1313,11 @@ class WheelWinApplication {
             eventBus: this._eventBus,
             playerManager: this._managers.playerManager,
             roomManager: this._managers.roomManager,
+            gameManager: this._managers.gameManager,
             sessionWalletStore: this._sessionWalletStore,
             configurationEngine: this._engines.configurationEngine,
             deployAdapter,
+            financialPersistence: this._financialPersistence,
             creatingDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
             deployTimeoutMs: this._roomConfig?.gameContractDeployTimeoutMs
                 ?? (2 * 60 * 1000),
@@ -1288,6 +1342,8 @@ class WheelWinApplication {
             auditLedger: this._entryPaymentAuditLedger,
             paymentSessionManager: this._paymentSessionManager,
             gameplayContextResolver: this._gameplayContextResolver,
+            gameManager: this._managers.gameManager,
+            financialPersistence: this._financialPersistence,
             tonNetwork: this._tonConfig?.network ?? null,
             gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null,
             devMode: this._productionConfig.isDevelopment
@@ -1301,6 +1357,23 @@ class WheelWinApplication {
         // on Page5 after the winner was already shown).
         this._gameplayPhaseLifecycle.configureSettlementGate({ enabled: false });
 
+        // R8.6 — GAME_DESTROYED waits for settlement terminal; OPEN_PAGE6 stays ungated.
+        this._gameplayLifecycle.configureSettlementTeardownGate({
+            contractSettlementManager: this._contractSettlementManager,
+            gameContractManager: this._gameContractManager
+        });
+
+        // R8.8 — Cross-wire financial retention checks (SESSION_FINISHED / room).
+        this._paymentSessionManager.setFinancialEvidenceDeps({
+            gameContractManager: this._gameContractManager,
+            contractSettlementManager: this._contractSettlementManager
+        });
+
+        this._gameContractManager.setFinancialEvidenceDeps({
+            paymentSessionManager: this._paymentSessionManager,
+            contractSettlementManager: this._contractSettlementManager
+        });
+
         this._logger.startupLine("ContractSettlementManager");
 
         this._tonFinancialRecovery = new TonFinancialRecovery({
@@ -1312,7 +1385,8 @@ class WheelWinApplication {
             contractSettlementManager: this._contractSettlementManager,
             blockchainMonitor: this._blockchainMonitor,
             playerManager: this._managers.playerManager,
-            roomManager: this._managers.roomManager
+            roomManager: this._managers.roomManager,
+            financialPersistence: this._financialPersistence
         });
 
         this._tonFinancialRecovery.initialize();
@@ -1761,6 +1835,16 @@ class WheelWinApplication {
             if (this._contractSettlementManager) {
 
                 this._contractSettlementManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("financialPersistence", () => {
+
+            if (this._financialPersistence) {
+
+                this._financialPersistence.shutdown({ checkpoint: true });
 
             }
 

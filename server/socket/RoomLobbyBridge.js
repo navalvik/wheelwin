@@ -2253,6 +2253,18 @@ export class RoomLobbyBridge {
 
         }
 
+        // R8.6 — After GAME_INITIALIZED Setup expiry must not close the room
+        // or tear down gameplay/financial bindings.
+        if (this._setupSessionLifecycle?.isGameplayOwnershipReleased?.(roomId)) {
+
+            this._logger.info(
+                `Lobby ignored SETUP_SESSION_EXPIRED after gameplay init | roomId=${roomId}`
+            );
+
+            return;
+
+        }
+
         this._deliverToRoom(
             roomId,
             LOBBY_SERVER_EVENTS.SETUP_SESSION_EXPIRED,
@@ -5288,7 +5300,14 @@ export class RoomLobbyBridge {
         // Mirror setup expiry: cancel the room; game never starts.
         if (!this._roomManager.getRoom(roomId)) {
 
-            this._paymentSessionManager?.destroySession(roomId);
+            const gameManager = this._paymentSessionManager?._gameManager
+                ?? null;
+
+            if (!gameManager?.hasInitializedGameplay?.(roomId)) {
+
+                this._paymentSessionManager?.destroySession(roomId);
+
+            }
 
             return;
 
@@ -5827,6 +5846,17 @@ export class RoomLobbyBridge {
         this._tonConnectPlayerMetaByRoom.delete(roomId);
 
         this._tonConnectAutopsyByRoom.delete(roomId);
+
+        // R8.8 — never wipe PaymentSession/GameContract after gameplay init.
+        const gameManager = this._paymentSessionManager?._gameManager
+            ?? this._gameContractManager?._gameManager
+            ?? null;
+
+        if (gameManager?.hasInitializedGameplay?.(roomId)) {
+
+            return;
+
+        }
 
         this._paymentSessionManager?.destroySession(roomId);
 

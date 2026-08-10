@@ -39,6 +39,9 @@ export class GameManager {
         // R5.15 — roomId → gameId waiting for complete Page2 profiles.
         this._pendingConfigurationByRoom = new Map();
 
+        // R8.8 — games activated via authoritative ENTRY_PAYMENT_COMPLETED.
+        this._entryPaymentActivatedGames = new Set();
+
         this._initialized = false;
 
     }
@@ -151,6 +154,8 @@ export class GameManager {
         this._pendingGameplayActivation.clear();
 
         this._pendingConfigurationByRoom.clear();
+
+        this._entryPaymentActivatedGames.clear();
 
         for (const gameId of [...this._games.keys()]) {
 
@@ -403,6 +408,85 @@ export class GameManager {
     hasGame(gameId) {
 
         return this._games.has(gameId);
+
+    }
+
+    /**
+     * R8.6 — Authoritative gameplay ownership boundary.
+     * True once GAME_INITIALIZED has advanced the game past CREATED
+     * (status is READY / RUNNING / FINISHED / …), until DESTROYED.
+     */
+    hasInitializedGameplay(roomId) {
+
+        if (!roomId) {
+
+            return false;
+
+        }
+
+        for (const game of this._games.values()) {
+
+            if (game.roomId !== roomId) {
+
+                continue;
+
+            }
+
+            if (game.status === GAME_STATUS.CREATED
+                || game.status === GAME_STATUS.DESTROYED) {
+
+                continue;
+
+            }
+
+            return true;
+
+        }
+
+        return false;
+
+    }
+
+    getGameIdByRoomId(roomId) {
+
+        if (!roomId) {
+
+            return null;
+
+        }
+
+        for (const game of this._games.values()) {
+
+            if (game.roomId === roomId
+                && game.status !== GAME_STATUS.DESTROYED) {
+
+                return game.gameId;
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    /**
+     * R8.8 — True when this gameId was activated by ENTRY_PAYMENT_COMPLETED.
+     * Authoritative paid-game marker (not inferred from live contract maps).
+     */
+    wasEntryPaymentActivated(gameId) {
+
+        return Boolean(gameId) && this._entryPaymentActivatedGames.has(gameId);
+
+    }
+
+    markEntryPaymentActivated(gameId) {
+
+        if (gameId) {
+
+            this._entryPaymentActivatedGames.add(gameId);
+
+        }
 
     }
 
@@ -873,6 +957,9 @@ export class GameManager {
             this._bootstrap.gameClockEngine.startClock(gameId);
 
             this.initializeGame(gameId);
+
+            // R8.8 — durable paid-activation marker from authoritative entry payment.
+            this.markEntryPaymentActivated(gameId);
 
             this._pendingGameplayActivation.delete(roomId);
 

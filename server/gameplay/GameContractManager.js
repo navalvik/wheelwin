@@ -24,6 +24,7 @@ import {
     InvalidContractStateTransitionError,
     PersistenceFailureError
 } from "./GameContractManagerErrors.js";
+import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
 
 const R711B_EMIT_EVENTS = new Set([
     EVENT_TYPES.GAME_CONTRACT_DEPLOYED,
@@ -72,11 +73,14 @@ export class GameContractManager {
         eventBus,
         playerManager,
         roomManager,
+        gameManager = null,
         sessionWalletStore = null,
         configurationEngine = null,
         paymentRules = null,
         deployAdapter = null,
         financialPersistence = null,
+        paymentSessionManager = null,
+        contractSettlementManager = null,
         tonNetwork = null,
         creatingDelayMs = 0,
         deployDelayMs = 0,
@@ -92,6 +96,8 @@ export class GameContractManager {
 
         this._roomManager = roomManager;
 
+        this._gameManager = gameManager;
+
         this._sessionWalletStore = sessionWalletStore;
 
         this._configurationEngine = configurationEngine;
@@ -105,6 +111,10 @@ export class GameContractManager {
             });
 
         this._financialPersistence = financialPersistence;
+
+        this._paymentSessionManager = paymentSessionManager;
+
+        this._contractSettlementManager = contractSettlementManager;
 
         this._tonNetwork = tonNetwork ?? null;
 
@@ -136,6 +146,40 @@ export class GameContractManager {
 
     }
 
+    /**
+     * R8.8 — Late-bind payment/settlement refs for financial retention checks.
+     */
+    setFinancialEvidenceDeps({
+        paymentSessionManager = null,
+        contractSettlementManager = null
+    } = {}) {
+
+        if (paymentSessionManager) {
+
+            this._paymentSessionManager = paymentSessionManager;
+
+        }
+
+        if (contractSettlementManager) {
+
+            this._contractSettlementManager = contractSettlementManager;
+
+        }
+
+    }
+
+    _shouldPreserveFinancialEvidence(roomId) {
+
+        return shouldPreserveFinancialEvidence({
+            roomId,
+            gameManager: this._gameManager,
+            contractSettlementManager: this._contractSettlementManager,
+            gameContractManager: this,
+            paymentSessionManager: this._paymentSessionManager
+        });
+
+    }
+
     initialize() {
 
         this._subscribe(
@@ -160,7 +204,15 @@ export class GameContractManager {
             EVENT_TYPES.PAYMENT_SESSION_FAILED,
             (envelope) => {
 
-                this.destroyContract(envelope.payload?.roomId);
+                const roomId = envelope.payload?.roomId;
+
+                if (this._shouldPreserveFinancialEvidence(roomId)) {
+
+                    return;
+
+                }
+
+                this.destroyContract(roomId);
 
             }
         );
@@ -169,7 +221,15 @@ export class GameContractManager {
             EVENT_TYPES.ROOM_DESTROYED,
             (envelope) => {
 
-                this.destroyContract(envelope.payload?.roomId);
+                const roomId = envelope.payload?.roomId;
+
+                if (this._shouldPreserveFinancialEvidence(roomId)) {
+
+                    return;
+
+                }
+
+                this.destroyContract(roomId);
 
             }
         );
@@ -178,7 +238,16 @@ export class GameContractManager {
             EVENT_TYPES.SESSION_FINISHED,
             (envelope) => {
 
-                this.destroyContract(envelope.payload?.roomId);
+                const roomId = envelope.payload?.roomId;
+
+                // R8.8 — result presentation end ≠ financial teardown.
+                if (this._shouldPreserveFinancialEvidence(roomId)) {
+
+                    return;
+
+                }
+
+                this.destroyContract(roomId);
 
             }
         );
