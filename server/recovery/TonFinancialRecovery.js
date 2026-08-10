@@ -221,6 +221,31 @@ export class TonFinancialRecovery {
                 await this.recoverBlockchain()
             );
 
+            // R9.4 — Resume CREATED/PREPARING/READY after contracts + settlements
+            // are restored (does not reorder the mandatory recovery phases).
+            if (this._contractSettlementManager?.resumeRestoredSettlements) {
+
+                try {
+
+                    const resumeSummary = await this._contractSettlementManager
+                        .resumeRestoredSettlements();
+
+                    report.warnings.push(
+                        `settlement_resume:attempted=${resumeSummary?.attempted ?? 0}`
+                            + `|resumed=${resumeSummary?.resumed ?? 0}`
+                            + `|skipped=${resumeSummary?.skipped ?? 0}`
+                    );
+
+                } catch (error) {
+
+                    report.errors.push(
+                        `settlement_resume_failed:${error?.message ?? error}`
+                    );
+
+                }
+
+            }
+
             this._state = FINANCIAL_RECOVERY_STATE.VALIDATING;
 
             this._currentPhase = FINANCIAL_RECOVERY_PHASE.VALIDATION;

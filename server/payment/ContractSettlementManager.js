@@ -7,6 +7,7 @@ import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import { PAYMENT_SESSION_STATUS } from "../models/PaymentSession.js";
 import {
     DuplicateSettlementError,
+    InvalidSettlementStateTransitionError,
     SettlementAlreadyExistsError,
     SettlementValidationError
 } from "./ContractSettlementManagerErrors.js";
@@ -21,6 +22,7 @@ import {
     GAME_ESCROW_MODE_GAME,
     resolveGameEscrowMode
 } from "./ton/buildGameEscrowStateInit.js";
+import { GAME_CONTRACT_ON_CHAIN_STATUS } from "./ton/gameContract/GameContractOpcodes.js";
 import {
     printGameEscrowConfirmationDebug,
     printGameEscrowSettlementDebug,
@@ -441,6 +443,443 @@ export class ContractSettlementManager {
     }
 
     /**
+     * R9.4 — After financial recovery phases (contracts available), resume
+     * restored CREATED / PREPARING / READY sessions via existing pipeline.
+     * PENDING+ are never resubmitted here (rewatch-only on restore).
+     */
+    async resumeRestoredSettlements() {
+
+        let attempted = 0;
+
+        let resumed = 0;
+
+        let skipped = 0;
+
+        const sessions = [...this._byGameId.values()];
+
+        for (const session of sessions) {
+
+            if (!this._canResumeRestoredSettlement(session)) {
+
+                skipped += 1;
+
+                continue;
+
+            }
+
+            attempted += 1;
+
+            const ok = await this._resumeRestoredSettlement(session);
+
+            if (ok) {
+
+                resumed += 1;
+
+            } else {
+
+                skipped += 1;
+
+            }
+
+        }
+
+        return Object.freeze({ attempted, resumed, skipped });
+
+    }
+
+    /**
+     * R9.4 — Idempotent guards before adapter resubmit.
+     */
+    _canResumeRestoredSettlement(session) {
+
+        if (!session?.gameId) {
+
+            return false;
+
+        }
+
+        if (!this._byGameId.has(session.gameId)) {
+
+            return false;
+
+        }
+
+        if (session.isTerminal?.() === true) {
+
+            return false;
+
+        }
+
+        if (this._inFlight.has(session.gameId)) {
+
+            return false;
+
+        }
+
+        if (session.settlementTransactionHash) {
+
+            return false;
+
+        }
+
+        if (
+            session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
+            || session.status
+                === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION
+            || session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_CONFIRMED
+        ) {
+
+            return false;
+
+        }
+
+        return session.status === SETTLEMENT_SESSION_STATUS.CREATED
+            || session.status === SETTLEMENT_SESSION_STATUS.PREPARING
+            || session.status === SETTLEMENT_SESSION_STATUS.READY;
+
+    }
+
+    /**
+     * R9.4 — Continue existing lifecycle for a restored pre-submit session.
+     */
+    async _resumeRestoredSettlement(session) {
+
+        if (!this._canResumeRestoredSettlement(session)) {
+
+            return false;
+
+        }
+
+        const ctx = this._buildResumeContext(session);
+
+        if (!ctx) {
+
+            this._logger.error(
+                `Settlement resume skipped — context incomplete | `
+                    + `gameId=${session.gameId} | status=${session.status}`
+            );
+
+            return false;
+
+        }
+
+        this._inFlight.add(session.gameId);
+
+        this._log(
+            `Settlement resume starting | gameId=${session.gameId} | `
+                + `status=${session.status}`
+        );
+
+        try {
+
+            // R9.6 — If SETTLE already landed on-chain (Case B crash), adopt
+            // confirmation path and never call settleContract again.
+            const onChain = await this._probeOnChainSettlement(session, ctx);
+
+            if (onChain.settled) {
+
+                await this._adoptOnChainSettlement(session, ctx, onChain);
+
+                return true;
+
+            }
+
+            if (session.status === SETTLEMENT_SESSION_STATUS.CREATED) {
+
+                await this._advanceSettlementAfterHandoff(session, ctx);
+
+            } else if (session.status === SETTLEMENT_SESSION_STATUS.PREPARING) {
+
+                await this._resumeFromPreparing(session, ctx);
+
+            } else if (session.status === SETTLEMENT_SESSION_STATUS.READY) {
+
+                await this._submitSettlementAdapter(session, ctx);
+
+            } else {
+
+                return false;
+
+            }
+
+            return true;
+
+        } catch (error) {
+
+            this._logger.error(
+                `Settlement resume failed | gameId=${session.gameId} | `
+                    + `${error?.message ?? error}`
+            );
+
+            if (session.isInProgress?.()) {
+
+                this._failSettlement(
+                    session,
+                    `resume_failed:${error?.message ?? "unknown"}`
+                );
+
+            }
+
+            return false;
+
+        } finally {
+
+            this._inFlight.delete(session.gameId);
+
+        }
+
+    }
+
+    _buildResumeContext(session) {
+
+        const gameId = session.gameId;
+
+        const roomId = session.roomId
+            ?? this._gameplayContextResolver?.resolveRoomByGameId?.(gameId)
+            ?? null;
+
+        const contract = this._gameContractManager.getContractByGameId?.(gameId)
+            ?? (roomId
+                ? this._gameContractManager.getContract?.(roomId)
+                : null)
+            ?? (session.contractId
+                ? this._gameContractManager.getContractById?.(session.contractId)
+                : null)
+            ?? null;
+
+        if (!contract?.contractAddress || !contract.snapshot) {
+
+            return null;
+
+        }
+
+        const request = session.request ?? null;
+
+        const winnerId = session.winnerId
+            ?? request?.winnerId
+            ?? null;
+
+        const winnerWallet = session.winnerWallet
+            ?? request?.winnerWallet
+            ?? null;
+
+        const ownerWallet = session.ownerWallet
+            ?? request?.ownerWallet
+            ?? contract.snapshot.ownerWallet
+            ?? null;
+
+        const winnerAmount = session.prizeAmount
+            ?? request?.winnerAmount
+            ?? Number(contract.snapshot.payoutAmount);
+
+        const organizerAmount = session.organizerAmount
+            ?? request?.organizerAmount
+            ?? Number(contract.snapshot.organizerFee);
+
+        const totalPot = session.totalPot
+            ?? request?.totalPot
+            ?? Number(contract.snapshot.totalPot);
+
+        if (!winnerId || !winnerWallet || !ownerWallet) {
+
+            return null;
+
+        }
+
+        if (!Number.isFinite(winnerAmount) || !Number.isFinite(organizerAmount)) {
+
+            return null;
+
+        }
+
+        return {
+            ok: true,
+            gameId,
+            roomId: roomId ?? contract.roomId,
+            contract,
+            winnerId,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount,
+            totalPot,
+            traceSeed: session.traceSeed ?? request?.traceSeed ?? null
+        };
+
+    }
+
+    /**
+     * R9.6 — Probe escrow via existing adapter get methods (no new chain layer).
+     */
+    async _probeOnChainSettlement(session, ctx) {
+
+        const address = ctx?.contract?.contractAddress
+            ?? session?.request?.contractAddress
+            ?? null;
+
+        if (!address || !this._settlementAdapter) {
+
+            return Object.freeze({
+                settled: false,
+                settlementTxHash: null
+            });
+
+        }
+
+        try {
+
+            if (typeof this._settlementAdapter.getSettlementState === "function") {
+
+                const state = await this._settlementAdapter.getSettlementState(address);
+
+                return Object.freeze({
+                    settled: this._isOnChainSettledStatus(state?.status),
+                    settlementTxHash: state?.settlementTxHash
+                        ?? state?.settlementTxId
+                        ?? null
+                });
+
+            }
+
+            if (typeof this._settlementAdapter.getContractState === "function") {
+
+                const state = await this._settlementAdapter.getContractState(address);
+
+                return Object.freeze({
+                    settled: this._isOnChainSettledStatus(state?.status),
+                    settlementTxHash: state?.settlementTxHash
+                        ?? state?.lastSettlementTxHash
+                        ?? null
+                });
+
+            }
+
+        } catch (error) {
+
+            this._logger.warn?.(
+                `On-chain settlement probe failed | gameId=${session?.gameId} | `
+                    + `${error?.message ?? error}`
+            );
+
+        }
+
+        return Object.freeze({
+            settled: false,
+            settlementTxHash: null
+        });
+
+    }
+
+    _isOnChainSettledStatus(status) {
+
+        if (status == null) {
+
+            return false;
+
+        }
+
+        if (status === GAME_CONTRACT_ON_CHAIN_STATUS.SETTLED) {
+
+            return true;
+
+        }
+
+        if (typeof status === "number") {
+
+            return status === 8;
+
+        }
+
+        const normalized = String(status).toUpperCase();
+
+        return normalized === "SETTLED" || normalized === "8";
+
+    }
+
+    /**
+     * R9.6 — Chain already settled: advance session to confirmation/watch path
+     * without calling settleContract.
+     */
+    async _adoptOnChainSettlement(session, ctx, onChain) {
+
+        const {
+            roomId,
+            contract,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount
+        } = ctx;
+
+        const settlementTxHash = onChain?.settlementTxHash
+            ?? session.settlementTransactionHash
+            ?? null;
+
+        this._log(
+            `Settlement adopt on-chain SETTLED | gameId=${session.gameId} | `
+                + `tx=${settlementTxHash ?? "unknown"}`
+        );
+
+        // Reach READY using legal transitions (no new statuses).
+        if (session.status === SETTLEMENT_SESSION_STATUS.CREATED) {
+
+            session.transitionTo(SETTLEMENT_SESSION_STATUS.PREPARING);
+
+            this._gameContractManager.markWinnerPending?.(roomId);
+
+            this._persistSession(session, "update");
+
+        }
+
+        if (session.status === SETTLEMENT_SESSION_STATUS.PREPARING) {
+
+            if (!session.request) {
+
+                session.request = Object.freeze({
+                    gameId: ctx.gameId,
+                    contractId: contract.contractId,
+                    contractAddress: contract.contractAddress,
+                    winnerId: ctx.winnerId,
+                    winnerWallet,
+                    ownerWallet,
+                    winnerAmount,
+                    organizerAmount,
+                    totalPot: ctx.totalPot,
+                    traceSeed: ctx.traceSeed,
+                    timestamp: session.startedAt ?? Date.now(),
+                    snapshot: contract.snapshot,
+                    snapshotHash: contract.snapshotHash ?? null,
+                    gameEscrowMode: this._gameEscrowMode
+                });
+
+            }
+
+            session.transitionTo(SETTLEMENT_SESSION_STATUS.READY);
+
+            this._persistSession(session, "update");
+
+        }
+
+        if (session.status !== SETTLEMENT_SESSION_STATUS.READY) {
+
+            throw new InvalidSettlementStateTransitionError(
+                session.settlementSessionId,
+                session.status,
+                SETTLEMENT_SESSION_STATUS.READY
+            );
+
+        }
+
+        // Reuse post-adapter confirmation path without broadcasting.
+        await this._applySettlementAdapterResult(session, ctx, {
+            ok: true,
+            settlementTxId: settlementTxHash,
+            txHash: settlementTxHash
+        });
+
+    }
+
+    /**
      * R9.2 — Synchronous entry: validate + persist SettlementSession handoff
      * before yielding to the async adapter pipeline.
      */
@@ -690,6 +1129,111 @@ export class ContractSettlementManager {
         session.transitionTo(SETTLEMENT_SESSION_STATUS.READY);
 
         this._persistSession(session, "update");
+
+        await this._submitSettlementAdapter(session, ctx);
+
+    }
+
+    /**
+     * R9.4 — PREPARING → READY → existing adapter submit (no CREATED restart).
+     */
+    async _resumeFromPreparing(session, ctx) {
+
+        const {
+            gameId,
+            roomId,
+            contract,
+            winnerId,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount,
+            totalPot
+        } = ctx;
+
+        const startedAt = session.startedAt ?? Date.now();
+
+        const request = session.request ?? Object.freeze({
+            gameId,
+            contractId: contract.contractId,
+            contractAddress: contract.contractAddress,
+            winnerId,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount,
+            totalPot,
+            traceSeed: ctx.traceSeed,
+            timestamp: startedAt,
+            snapshot: contract.snapshot,
+            snapshotHash: contract.snapshotHash ?? null,
+            gameEscrowMode: this._gameEscrowMode
+        });
+
+        session.request = request;
+
+        session.transitionTo(SETTLEMENT_SESSION_STATUS.READY);
+
+        this._persistSession(session, "update");
+
+        await this._submitSettlementAdapter(session, ctx);
+
+    }
+
+    /**
+     * Shared READY → settleContract path (live handoff + R9.4 READY resume).
+     */
+    async _submitSettlementAdapter(session, ctx) {
+
+        const {
+            contract,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount
+        } = ctx;
+
+        if (session.status !== SETTLEMENT_SESSION_STATUS.READY) {
+
+            throw new InvalidSettlementStateTransitionError(
+                session.settlementSessionId,
+                session.status,
+                SETTLEMENT_SESSION_STATUS.READY
+            );
+
+        }
+
+        if (session.settlementTransactionHash) {
+
+            this._log(
+                `Settlement adapter submit skipped — tx already present | `
+                    + `gameId=${session.gameId}`
+            );
+
+            return;
+
+        }
+
+        const startedAt = session.startedAt ?? Date.now();
+
+        const request = session.request ?? Object.freeze({
+            gameId: ctx.gameId,
+            contractId: contract.contractId,
+            contractAddress: contract.contractAddress,
+            winnerId: ctx.winnerId,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount,
+            totalPot: ctx.totalPot,
+            traceSeed: ctx.traceSeed,
+            timestamp: startedAt,
+            snapshot: contract.snapshot,
+            snapshotHash: contract.snapshotHash ?? null,
+            gameEscrowMode: this._gameEscrowMode
+        });
+
+        session.request = request;
 
         if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
 
