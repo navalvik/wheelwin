@@ -38,6 +38,30 @@ const PAYMENT_COMPLETE_STATUSES = new Set([
     PAYMENT_SESSION_STATUS.COMPLETED
 ]);
 
+/** R10.4 — On-chain settlement probe tri-state (never collapse UNKNOWN→NOT_SETTLED). */
+export const ON_CHAIN_SETTLEMENT_PROBE_STATUS = Object.freeze({
+    SETTLED: "SETTLED",
+    NOT_SETTLED: "NOT_SETTLED",
+    UNKNOWN: "UNKNOWN"
+});
+
+const ON_CHAIN_EXPLICITLY_NOT_SETTLED = new Set([
+    GAME_CONTRACT_ON_CHAIN_STATUS.UNINITIALIZED,
+    GAME_CONTRACT_ON_CHAIN_STATUS.DEPLOYED,
+    GAME_CONTRACT_ON_CHAIN_STATUS.WAITING_PAYMENTS,
+    GAME_CONTRACT_ON_CHAIN_STATUS.PAYMENTS_OPEN,
+    GAME_CONTRACT_ON_CHAIN_STATUS.PAYMENTS_LOCKED,
+    GAME_CONTRACT_ON_CHAIN_STATUS.READY,
+    GAME_CONTRACT_ON_CHAIN_STATUS.LOCKED,
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6"
+]);
+
 /**
  * P6.8B / T2.8 — Authoritative post-winner settlement orchestration.
  *
@@ -443,9 +467,9 @@ export class ContractSettlementManager {
     }
 
     /**
-     * R9.4 — After financial recovery phases (contracts available), resume
-     * restored CREATED / PREPARING / READY sessions via existing pipeline.
-     * PENDING+ are never resubmitted here (rewatch-only on restore).
+     * R9.4 / R10.4 — After financial recovery phases (contracts available),
+     * resume restored CREATED / PREPARING / READY / hashless PENDING sessions.
+     * PENDING with a tx hash remains rewatch-only on restore.
      */
     async resumeRestoredSettlements() {
 
@@ -488,7 +512,7 @@ export class ContractSettlementManager {
     }
 
     /**
-     * R9.4 — Idempotent guards before adapter resubmit.
+     * R9.4 / R10.4 — Idempotent guards before resume (submit or hashless PENDING).
      */
     _canResumeRestoredSettlement(session) {
 
@@ -516,18 +540,14 @@ export class ContractSettlementManager {
 
         }
 
+        // Hashed PENDING+ stays rewatch-only (registered during restore).
         if (session.settlementTransactionHash) {
 
             return false;
 
         }
 
-        if (
-            session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
-            || session.status
-                === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION
-            || session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_CONFIRMED
-        ) {
+        if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_CONFIRMED) {
 
             return false;
 
@@ -535,12 +555,30 @@ export class ContractSettlementManager {
 
         return session.status === SETTLEMENT_SESSION_STATUS.CREATED
             || session.status === SETTLEMENT_SESSION_STATUS.PREPARING
-            || session.status === SETTLEMENT_SESSION_STATUS.READY;
+            || session.status === SETTLEMENT_SESSION_STATUS.READY
+            || session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
+            || session.status
+                === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION;
+
+    }
+
+    _isHashlessPendingSession(session) {
+
+        if (session?.settlementTransactionHash) {
+
+            return false;
+
+        }
+
+        return session?.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
+            || session?.status
+                === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION;
 
     }
 
     /**
-     * R9.4 — Continue existing lifecycle for a restored pre-submit session.
+     * R9.4 / R10.4 — Resume restored sessions with tri-state on-chain probe.
+     * UNKNOWN never authorizes settleContract().
      */
     async _resumeRestoredSettlement(session) {
 
@@ -572,11 +610,48 @@ export class ContractSettlementManager {
 
         try {
 
-            // R9.6 — If SETTLE already landed on-chain (Case B crash), adopt
-            // confirmation path and never call settleContract again.
             const onChain = await this._probeOnChainSettlement(session, ctx);
 
-            if (onChain.settled) {
+            this._log(
+                `Settlement on-chain probe | gameId=${session.gameId} | `
+                    + `probe=${onChain.status} | `
+                    + `tx=${onChain.settlementTxHash ?? "none"}`
+            );
+
+            if (onChain.status === ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN) {
+
+                this._log(
+                    `Settlement resume parked — on-chain UNKNOWN | `
+                        + `gameId=${session.gameId} | status=${session.status}`
+                );
+
+                return true;
+
+            }
+
+            if (this._isHashlessPendingSession(session)) {
+
+                if (onChain.status === ON_CHAIN_SETTLEMENT_PROBE_STATUS.SETTLED) {
+
+                    await this._resumeHashlessPendingSettled(session, ctx, onChain);
+
+                    return true;
+
+                }
+
+                if (onChain.status === ON_CHAIN_SETTLEMENT_PROBE_STATUS.NOT_SETTLED) {
+
+                    await this._resumeHashlessPendingNotSettled(session, ctx);
+
+                    return true;
+
+                }
+
+                return true;
+
+            }
+
+            if (onChain.status === ON_CHAIN_SETTLEMENT_PROBE_STATUS.SETTLED) {
 
                 await this._adoptOnChainSettlement(session, ctx, onChain);
 
@@ -584,6 +659,7 @@ export class ContractSettlementManager {
 
             }
 
+            // NOT_SETTLED — existing submit paths only.
             if (session.status === SETTLEMENT_SESSION_STATUS.CREATED) {
 
                 await this._advanceSettlementAfterHandoff(session, ctx);
@@ -709,9 +785,15 @@ export class ContractSettlementManager {
     }
 
     /**
-     * R9.6 — Probe escrow via existing adapter get methods (no new chain layer).
+     * R9.6 / R10.4 — Probe escrow via adapter get methods.
+     * Returns tri-state status; UNKNOWN never authorizes settleContract().
      */
     async _probeOnChainSettlement(session, ctx) {
+
+        const unknown = () => Object.freeze({
+            status: ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN,
+            settlementTxHash: null
+        });
 
         const address = ctx?.contract?.contractAddress
             ?? session?.request?.contractAddress
@@ -719,40 +801,54 @@ export class ContractSettlementManager {
 
         if (!address || !this._settlementAdapter) {
 
-            return Object.freeze({
-                settled: false,
-                settlementTxHash: null
-            });
+            return unknown();
 
         }
 
         try {
 
+            let state = null;
+
             if (typeof this._settlementAdapter.getSettlementState === "function") {
 
-                const state = await this._settlementAdapter.getSettlementState(address);
+                state = await this._settlementAdapter.getSettlementState(address);
 
-                return Object.freeze({
-                    settled: this._isOnChainSettledStatus(state?.status),
-                    settlementTxHash: state?.settlementTxHash
-                        ?? state?.settlementTxId
-                        ?? null
-                });
+            } else if (typeof this._settlementAdapter.getContractState === "function") {
+
+                state = await this._settlementAdapter.getContractState(address);
+
+            } else {
+
+                return unknown();
+
+            }
+
+            if (!state || state.status == null) {
+
+                return unknown();
 
             }
 
-            if (typeof this._settlementAdapter.getContractState === "function") {
+            const probeStatus = this._classifyOnChainSettlementProbe(state.status);
 
-                const state = await this._settlementAdapter.getContractState(address);
+            if (probeStatus === ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN) {
 
-                return Object.freeze({
-                    settled: this._isOnChainSettledStatus(state?.status),
-                    settlementTxHash: state?.settlementTxHash
-                        ?? state?.lastSettlementTxHash
-                        ?? null
-                });
+                return unknown();
 
             }
+
+            const settlementTxHash = state.settlementTxHash
+                ?? state.settlementTxId
+                ?? state.lastSettlementTxHash
+                ?? null;
+
+            return Object.freeze({
+                status: probeStatus,
+                settlementTxHash: probeStatus
+                    === ON_CHAIN_SETTLEMENT_PROBE_STATUS.SETTLED
+                    ? settlementTxHash
+                    : null
+            });
 
         } catch (error) {
 
@@ -761,12 +857,62 @@ export class ContractSettlementManager {
                     + `${error?.message ?? error}`
             );
 
+            return unknown();
+
         }
 
-        return Object.freeze({
-            settled: false,
-            settlementTxHash: null
-        });
+    }
+
+    _classifyOnChainSettlementProbe(status) {
+
+        if (status == null) {
+
+            return ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN;
+
+        }
+
+        if (this._isOnChainSettledStatus(status)) {
+
+            return ON_CHAIN_SETTLEMENT_PROBE_STATUS.SETTLED;
+
+        }
+
+        if (typeof status === "number") {
+
+            if (status === 7) {
+
+                return ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN;
+
+            }
+
+            if (status >= 0 && status <= 6) {
+
+                return ON_CHAIN_SETTLEMENT_PROBE_STATUS.NOT_SETTLED;
+
+            }
+
+            return ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN;
+
+        }
+
+        const normalized = String(status).toUpperCase();
+
+        if (
+            normalized === GAME_CONTRACT_ON_CHAIN_STATUS.SETTLING
+            || normalized === "7"
+        ) {
+
+            return ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN;
+
+        }
+
+        if (ON_CHAIN_EXPLICITLY_NOT_SETTLED.has(normalized)) {
+
+            return ON_CHAIN_SETTLEMENT_PROBE_STATUS.NOT_SETTLED;
+
+        }
+
+        return ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN;
 
     }
 
@@ -793,6 +939,231 @@ export class ContractSettlementManager {
         const normalized = String(status).toUpperCase();
 
         return normalized === "SETTLED" || normalized === "8";
+
+    }
+
+    /**
+     * R10.4 — Hashless PENDING + on-chain SETTLED: watch/confirm only (no settleContract).
+     * Does not use _adoptOnChainSettlement (READY/pre-submit only).
+     */
+    async _resumeHashlessPendingSettled(session, ctx, onChain) {
+
+        const settlementTxHash = onChain?.settlementTxHash
+            ?? session.settlementTransactionHash
+            ?? null;
+
+        this._log(
+            `Hashless PENDING adopt via watch | gameId=${session.gameId} | `
+                + `status=${session.status} | tx=${settlementTxHash ?? "none"}`
+        );
+
+        if (settlementTxHash && !session.settlementTransactionHash) {
+
+            session.settlementTransactionHash = settlementTxHash;
+
+            session.updatedAt = Date.now();
+
+            session.version += 1;
+
+            this._persistSession(session, "update");
+
+        }
+
+        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+
+            if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING) {
+
+                session.transitionTo(
+                    SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION,
+                    {
+                        settlementTransactionHash:
+                            session.settlementTransactionHash
+                    }
+                );
+
+                this._persistSession(session, "update");
+
+            }
+
+            const registered = this._registerGameEscrowPayoutWatch(session);
+
+            if (registered <= 0) {
+
+                this._failSettlement(
+                    session,
+                    "game_escrow_payout_watch_unavailable"
+                );
+
+            }
+
+            return;
+
+        }
+
+        if (session.settlementTransactionHash) {
+
+            const registered = this._registerSettlementWatch(session);
+
+            if (registered <= 0) {
+
+                await this._confirmSettlement(
+                    session,
+                    session.settlementTransactionHash
+                );
+
+            }
+
+            return;
+
+        }
+
+        this._log(
+            `Hashless PENDING SETTLED without tx hash — awaiting deadline | `
+                + `gameId=${session.gameId}`
+        );
+
+    }
+
+    /**
+     * R10.4 — Hashless PENDING + explicit NOT_SETTLED: settleContract exactly once.
+     * PENDING cannot legally return to READY; submit then apply into confirm/watch.
+     */
+    async _resumeHashlessPendingNotSettled(session, ctx) {
+
+        if (session.settlementTransactionHash) {
+
+            return;
+
+        }
+
+        const {
+            contract,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount
+        } = ctx;
+
+        const request = session.request ?? Object.freeze({
+            gameId: ctx.gameId,
+            contractId: contract.contractId,
+            contractAddress: contract.contractAddress,
+            winnerId: ctx.winnerId,
+            winnerWallet,
+            ownerWallet,
+            winnerAmount,
+            organizerAmount,
+            totalPot: ctx.totalPot,
+            traceSeed: ctx.traceSeed,
+            timestamp: session.startedAt ?? Date.now(),
+            snapshot: contract.snapshot,
+            snapshotHash: contract.snapshotHash ?? null,
+            gameEscrowMode: this._gameEscrowMode
+        });
+
+        session.request = request;
+
+        this._persistSession(session, "update");
+
+        this._log(
+            `Hashless PENDING submit once | gameId=${session.gameId} | `
+                + `status=${session.status}`
+        );
+
+        let adapterResult;
+
+        try {
+
+            adapterResult = await this._settlementAdapter.settleContract(request);
+
+        } catch (error) {
+
+            this._failSettlement(
+                session,
+                `adapter_threw:${error?.message ?? "unknown"}`
+            );
+
+            return;
+
+        }
+
+        if (!adapterResult?.ok) {
+
+            this._failSettlement(
+                session,
+                adapterResult?.reason ?? "settlement_adapter_failed"
+            );
+
+            return;
+
+        }
+
+        const settlementTxHash = adapterResult.settlementTxId
+            ?? adapterResult.txHash
+            ?? null;
+
+        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+
+            if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING) {
+
+                session.transitionTo(
+                    SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION,
+                    { settlementTransactionHash: settlementTxHash }
+                );
+
+            } else {
+
+                session.settlementTransactionHash = settlementTxHash;
+
+                session.updatedAt = Date.now();
+
+                session.version += 1;
+
+            }
+
+            this._gameContractManager.markSettlementPending?.(ctx.roomId);
+
+            this._persistSession(session, "update");
+
+            const registered = this._registerGameEscrowPayoutWatch(session);
+
+            if (registered <= 0) {
+
+                this._failSettlement(
+                    session,
+                    "game_escrow_payout_watch_unavailable"
+                );
+
+            }
+
+            return;
+
+        }
+
+        // Non-game PENDING: attach hash in place (PENDING→PENDING illegal).
+        session.settlementTransactionHash = settlementTxHash;
+
+        session.updatedAt = Date.now();
+
+        session.version += 1;
+
+        this._gameContractManager.markSettlementPending?.(ctx.roomId);
+
+        this._persistSession(session, "update");
+
+        if (this._blockchainMonitor && settlementTxHash) {
+
+            const registered = this._registerSettlementWatch(session);
+
+            if (registered > 0) {
+
+                return;
+
+            }
+
+        }
+
+        await this._confirmSettlement(session, settlementTxHash);
 
     }
 

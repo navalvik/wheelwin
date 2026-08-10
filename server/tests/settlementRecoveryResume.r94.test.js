@@ -100,6 +100,15 @@ function createAdapterCounter() {
                 settlementTxId: `tx-r94-${state.calls}`
             };
 
+        },
+        // R10.4 — Explicit NOT_SETTLED so resume may submit (no probe methods ⇒ UNKNOWN).
+        async getSettlementState() {
+
+            return {
+                status: "READY",
+                settlementTxHash: null
+            };
+
         }
     };
 
