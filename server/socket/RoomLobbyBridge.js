@@ -2398,13 +2398,32 @@ export class RoomLobbyBridge {
 
     _removePlayerFromLobby(playerId, roomId, { notifyPlayer, reason }) {
 
-        this._clearRecoveryOwnershipForPlayer(playerId);
-
         const socketId = this._playerToSocket.get(playerId);
 
         const creatorId = this._roomCreators.get(roomId);
 
         const gameStarted = this._startedRooms.has(roomId);
+
+        // R13.1B — After GAME_INITIALIZED, explicit LEAVE_ROOM is soft-offline
+        // until Result Session (Page6) allows per-player FINISH / terminal empty close.
+        // Do not remove seats or destroy the room during active gameplay.
+        if (
+            gameStarted
+            && this._isActiveGameplayProtected(roomId)
+            && !this._isTerminalResultLeaveAllowed(roomId)
+        ) {
+
+            this._softLeaveActiveGameplay(playerId, roomId, {
+                socketId,
+                notifyPlayer,
+                reason
+            });
+
+            return;
+
+        }
+
+        this._clearRecoveryOwnershipForPlayer(playerId);
 
         if (creatorId === playerId && !gameStarted) {
 
@@ -2428,9 +2447,9 @@ export class RoomLobbyBridge {
 
         }
 
-        // C4.9 / R7.70C20 — Deliberate leave of a started room is per-player.
-        // Do NOT finish the Result Session / SESSION_FINISHED for everyone.
-        // Room-wide close remains Result Session timeout (or empty room).
+        // C4.9 / R7.70C20 / R13.1B — Deliberate leave after Result Session
+        // (Page6 FINISH) is per-player. Room-wide close remains Result Session
+        // timeout or last Page6 leave — never mid-gameplay empty-room destroy.
         if (gameStarted) {
 
             console.log("======================================================");
@@ -2492,6 +2511,21 @@ export class RoomLobbyBridge {
             const remainingRoom = this._roomManager.getRoom(roomId);
 
             if (!remainingRoom || remainingRoom.players.length === 0) {
+
+                // R13.1B — never treat empty seats as destroy during active gameplay.
+                if (
+                    this._isActiveGameplayProtected(roomId)
+                    && !this._isTerminalResultLeaveAllowed(roomId)
+                ) {
+
+                    this._logger.info(
+                        `Lobby refused empty-room finish during active gameplay`
+                        + ` | roomId=${roomId}`
+                    );
+
+                    return;
+
+                }
 
                 registerRoomDestroyContext(roomId, {
                     reason: "empty_room_after_result_leave",
@@ -2598,15 +2632,130 @@ export class RoomLobbyBridge {
     }
 
     /**
-     * R6.5 / R12.5I — Authoritative Result Session / room cleanup path.
+     * R13.1B — Active gameplay ownership after GAME_INITIALIZED.
+     * Setup ownership release and GameManager initialized status are authoritative;
+     * socket/online counts are not.
+     */
+    _isActiveGameplayProtected(roomId) {
+
+        if (!roomId) {
+
+            return false;
+
+        }
+
+        if (this._setupSessionLifecycle?.isGameplayOwnershipReleased?.(roomId) === true) {
+
+            return true;
+
+        }
+
+        return this._resolveGameManager()?.hasInitializedGameplay?.(roomId) === true;
+
+    }
+
+    /**
+     * R13.1B — Page6 / Result Session linger may remove seats and finish empty rooms.
+     */
+    _isTerminalResultLeaveAllowed(roomId) {
+
+        return this._resultSessionLifecycle?.isActive?.(roomId) === true;
+
+    }
+
+    _resolveGameManager() {
+
+        return this._paymentSessionManager?._gameManager
+            ?? this._gameContractManager?._gameManager
+            ?? null;
+
+    }
+
+    /**
+     * R13.1B — Explicit leave during active gameplay reuses soft-disconnect
+     * abandonment: seat + identity remain; player goes offline; game continues.
+     */
+    _softLeaveActiveGameplay(playerId, roomId, {
+        socketId = null,
+        notifyPlayer = false,
+        reason = "left"
+    } = {}) {
+
+        this._logger.decisionTrace({
+            stage: "LEAVE_ROOM",
+            decision: "SOFT_LEAVE_ACTIVE_GAME",
+            reason: reason ?? "left",
+            caller: "RoomLobbyBridge._softLeaveActiveGameplay",
+            nextAction: "Keep seat / continue gameplay",
+            roomId,
+            playerId
+        });
+
+        if (socketId) {
+
+            this._stashRecoveryOwnership(socketId, {
+                playerId,
+                roomId
+            });
+
+        }
+
+        this._playerManager.setConnectionState(
+            playerId,
+            CONNECTION_STATE.DISCONNECTED
+        );
+
+        if (socketId) {
+
+            this._deliverSocketLeaveRoom(socketId);
+
+            if (notifyPlayer) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.ROOM_LEFT,
+                    { roomId, playerId }
+                );
+
+            }
+
+        }
+
+        this._logger.info(
+            `Lobby soft leave during active gameplay | roomId=${roomId}`
+            + ` | playerId=${playerId} | reason=${reason}`
+        );
+
+    }
+
+    /**
+     * R6.5 / R12.5I / R13.1B — Authoritative Result Session / room cleanup path.
      * Used when the server Result Session expires (or equivalent session end).
      * Client Page6 FINISH navigates locally via LEAVE_ROOM and does not wait
      * for this path. Broadcasts SESSION_FINISHED while sockets are still
      * joined, then closes the room.
+     *
+     * session_ended from empty-room leave is refused while active gameplay is
+     * protected and Result Session has not started (Page6).
      */
     _finishResultSession(roomId, reason) {
 
         if (!roomId) {
+
+            return;
+
+        }
+
+        if (
+            reason === "session_ended"
+            && this._isActiveGameplayProtected(roomId)
+            && !this._isTerminalResultLeaveAllowed(roomId)
+        ) {
+
+            this._logger.info(
+                `Lobby refused SESSION_FINISHED(session_ended) during active gameplay`
+                + ` | roomId=${roomId}`
+            );
 
             return;
 
