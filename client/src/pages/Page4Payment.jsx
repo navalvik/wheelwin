@@ -3037,18 +3037,6 @@ export default function Page4Payment({ onNavigate }) {
 
     }
 
-    function handleCancelPayment() {
-
-        if (!canConfirm || confirmingPayment) {
-
-            return;
-
-        }
-
-        socket.emit(LOBBY_OUTGOING_EVENTS.PAYMENT_CANCEL_INTENT);
-
-    }
-
     return (
 
         <GameLayout
@@ -3219,33 +3207,18 @@ export default function Page4Payment({ onNavigate }) {
 
                             ) : (
 
-                                <>
+                                <button
+                                    type="button"
+                                    className="page4__connectButton"
+                                    disabled={!canConfirm || confirmingPayment}
+                                    onClick={handleConfirmPayment}
+                                >
 
-                                    <button
-                                        type="button"
-                                        className="page4__connectButton"
-                                        disabled={!canConfirm || confirmingPayment}
-                                        onClick={handleConfirmPayment}
-                                    >
+                                    {confirmingPayment
+                                        ? "OPENING WALLET…"
+                                        : "CONFIRM IN TELEGRAM WALLET"}
 
-                                        {confirmingPayment
-                                            ? "OPENING WALLET…"
-                                            : "CONFIRM IN TELEGRAM WALLET"}
-
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        className="page4__disconnectButton"
-                                        disabled={!canConfirm || confirmingPayment}
-                                        onClick={handleCancelPayment}
-                                    >
-
-                                        CANCEL
-
-                                    </button>
-
-                                </>
+                                </button>
 
                             )}
 
