@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameClock } from "../context/GameClockContext";
+import { useGameResult } from "../context/GameResultContext";
 import { useGameSession } from "../context/GameSessionContext";
+import { useLanguage } from "../context/LanguageContext";
 
 import {
     formatAuthoritativeRoomId,
@@ -17,7 +19,15 @@ import {
     resolveGameplayCountdown
 } from "../game/gameClock/gameClockView";
 
-import { isGameplayPage } from "../game/sessionRecovery/recoveryFlow";
+import {
+    formatResultSessionClock,
+    remainingResultSessionSeconds
+} from "../game/result/resultSessionCountdown";
+
+import {
+    APP_PAGES,
+    isGameplayPage
+} from "../game/sessionRecovery/recoveryFlow";
 
 import "../styles/infoBar.css";
 
@@ -34,21 +44,35 @@ export default function InfoBar() {
 
     const { clock } = useGameClock();
 
+    const { resultSessionExpiresAt } = useGameResult();
+
+    const { t } = useLanguage();
+
     const room = getAuthoritativeRoom(authoritative);
 
     const [, setTick] = useState(0);
 
+    const onResultPage = currentPage === APP_PAGES.RESULT;
+
     const onGameplayPage = isGameplayPage(currentPage);
 
-    const gameplayEndsAt = onGameplayPage ? clock.endsAt : null;
+    const gameplayEndsAt = onGameplayPage && !onResultPage
+        ? clock.endsAt
+        : null;
 
     const setupExpiresAt = onGameplayPage
         ? null
         : authoritative.setup?.expiresAt;
 
+    const resultExpiresAt = onResultPage
+        ? resultSessionExpiresAt
+        : null;
+
     useEffect(() => {
 
-        const expiresAt = onGameplayPage ? gameplayEndsAt : setupExpiresAt;
+        const expiresAt = onResultPage
+            ? resultExpiresAt
+            : (onGameplayPage ? gameplayEndsAt : setupExpiresAt);
 
         if (!Number.isFinite(expiresAt)) {
 
@@ -64,7 +88,13 @@ export default function InfoBar() {
 
         return () => clearInterval(timerId);
 
-    }, [onGameplayPage, gameplayEndsAt, setupExpiresAt]);
+    }, [
+        onResultPage,
+        onGameplayPage,
+        gameplayEndsAt,
+        setupExpiresAt,
+        resultExpiresAt
+    ]);
 
     const roomIdDisplay = formatAuthoritativeRoomId(room.roomId) ?? "—";
 
@@ -78,15 +108,34 @@ export default function InfoBar() {
 
     const gameplayRemaining = resolveGameplayCountdown(clock);
 
-    const timerLabel = onGameplayPage
-        ? resolveClockPhaseLabel(clock.phase)
-        : phaseTimerLabel;
+    const resultRemaining = remainingResultSessionSeconds(resultExpiresAt);
 
-    const timerValue = onGameplayPage
-        ? formatClockSeconds(gameplayRemaining)
-        : (setupRemaining === null
+    let timerLabel;
+
+    let timerValue;
+
+    if (onResultPage) {
+
+        // R12.5B — Page6 footer shows authoritative Result Session lifetime.
+        timerLabel = t("page.result.timeLeft");
+
+        timerValue = formatResultSessionClock(resultRemaining) ?? "—";
+
+    } else if (onGameplayPage) {
+
+        timerLabel = resolveClockPhaseLabel(clock.phase);
+
+        timerValue = formatClockSeconds(gameplayRemaining);
+
+    } else {
+
+        timerLabel = phaseTimerLabel;
+
+        timerValue = setupRemaining === null
             ? "—"
-            : formatPhaseTime(setupRemaining));
+            : formatPhaseTime(setupRemaining);
+
+    }
 
     return (
 

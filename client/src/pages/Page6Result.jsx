@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
@@ -16,10 +16,6 @@ import {
     PAYMENT_VIEW_STATUS,
     AUDIT_VIEW_STATUS
 } from "../game/result/gameResultFlow";
-
-import {
-    remainingResultSessionSeconds
-} from "../game/result/resultSessionCountdown";
 
 import {
     downloadGameReportNative
@@ -192,7 +188,7 @@ const RESERVED_AREAS = [
 
 export default function Page6Result({ onFinish }) {
 
-    const { result, payment, audit, resultSessionExpiresAt } = useGameResult();
+    const { result, payment, audit } = useGameResult();
 
     const { t } = useLanguage();
 
@@ -201,33 +197,6 @@ export default function Page6Result({ onFinish }) {
     const authoritative = useAuthoritativeSession();
 
     const { wheelConfiguration } = useWheelConfig();
-
-    const [, setTick] = useState(0);
-
-    // R12.5A — display-only tick against the authoritative Result Session deadline.
-    useEffect(() => {
-
-        if (!Number.isFinite(resultSessionExpiresAt)) {
-
-            return undefined;
-
-        }
-
-        const timerId = setInterval(() => {
-
-            setTick((value) => value + 1);
-
-        }, 1000);
-
-        return () => {
-
-            clearInterval(timerId);
-
-        };
-
-    }, [resultSessionExpiresAt]);
-
-    const closesInSeconds = remainingResultSessionSeconds(resultSessionExpiresAt);
 
     const localPlayerId = resolveLocalPlayerId(
         identity.playerId ?? null,
@@ -335,20 +304,6 @@ export default function Page6Result({ onFinish }) {
             <div className="page6" data-has-result={Boolean(result)}>
 
                 <div className="page6__headline">{t("page.result.title")}</div>
-
-                {closesInSeconds !== null && (
-
-                    <div
-                        className="page6__lifetime"
-                        aria-live="polite"
-                        data-remaining-seconds={closesInSeconds}
-                    >
-
-                        {t("page.result.closesIn", { seconds: closesInSeconds })}
-
-                    </div>
-
-                )}
 
                 {result
                     ? (

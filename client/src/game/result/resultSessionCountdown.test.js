@@ -1,9 +1,10 @@
 /**
- * R12.5A — Page6 Result Session countdown (display-only).
+ * R12.5A / R12.5B — Page6 Result Session countdown (display-only).
  */
 import assert from "node:assert/strict";
 
 import {
+    formatResultSessionClock,
     remainingResultSessionSeconds,
     resolveResultSessionExpiresAt
 } from "./resultSessionCountdown.js";
@@ -51,6 +52,35 @@ import {
 }
 
 {
+    assert.equal(formatResultSessionClock(299), "04:59");
+    assert.equal(formatResultSessionClock(180), "03:00");
+    assert.equal(formatResultSessionClock(61), "01:01");
+    assert.equal(formatResultSessionClock(1), "00:01");
+    assert.equal(formatResultSessionClock(0), "00:00");
+    assert.equal(formatResultSessionClock(-5), "00:00", "never negative clock");
+    assert.equal(formatResultSessionClock(null), null);
+
+    const now = 1_000_000;
+    const fiveMinAhead = now + (5 * 60 * 1000);
+
+    assert.equal(
+        formatResultSessionClock(
+            remainingResultSessionSeconds(fiveMinAhead, now)
+        ),
+        "05:00"
+    );
+
+    assert.equal(
+        formatResultSessionClock(
+            remainingResultSessionSeconds(fiveMinAhead, now + 1000)
+        ),
+        "04:59"
+    );
+
+    console.log("  formatResultSessionClock MM:SS: OK");
+}
+
+{
     assert.equal(
         resolveResultSessionExpiresAt({ expiresAt: 12345 }),
         12345,
@@ -85,7 +115,6 @@ import {
 
     assert.equal(state.resultSessionExpiresAt, deadline, "stores deadline");
 
-    // Remount/recovery with the same deadline must not restart lifetime.
     state = gameResultReducer(state, {
         type: GAME_RESULT_ACTIONS.RESULT_SESSION,
         payload: { expiresAt: deadline }
@@ -97,7 +126,6 @@ import {
         "same deadline preserved"
     );
 
-    // A different later deadline must not extend the session.
     state = gameResultReducer(state, {
         type: GAME_RESULT_ACTIONS.RESULT_SESSION,
         payload: { expiresAt: deadline + 30_000 }
@@ -124,8 +152,6 @@ import {
     const openedAt = 5_000_000;
     const durationMs = 5 * 60 * 1000;
     const expiresAt = openedAt + durationMs;
-
-    // Simulate remount after 2 minutes of Result Session.
     const remountNow = openedAt + (2 * 60 * 1000);
 
     assert.equal(
@@ -134,10 +160,12 @@ import {
         "remount recalculates remaining from absolute deadline"
     );
 
-    assert.notEqual(
-        remainingResultSessionSeconds(expiresAt, remountNow),
-        300,
-        "remount must not restart full duration"
+    assert.equal(
+        formatResultSessionClock(
+            remainingResultSessionSeconds(expiresAt, remountNow)
+        ),
+        "03:00",
+        "remount shows remaining MM:SS not full 05:00"
     );
 
     console.log("  remount does not restart lifetime: OK");
