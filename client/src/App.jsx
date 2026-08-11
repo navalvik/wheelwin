@@ -25,6 +25,7 @@ import {
 } from "./config/devMode";
 import { APP_PAGES } from "./game/sessionRecovery/recoveryFlow";
 import { useTerminalNavigation } from "./game/session/useTerminalNavigation";
+import { webPage6Diag } from "./game/result/webPage6StateDiag";
 import socket from "./socket/socket";
 import { LOBBY_OUTGOING_EVENTS } from "./socket/socketEvents";
 
@@ -40,6 +41,26 @@ function GameFlow() {
     const [sessionGeneration, setSessionGeneration] = useState(0);
 
     function navigate(page) {
+
+        const fromPage = currentPage;
+
+        if (page === APP_PAGES.RESULT || page === APP_PAGES.GAMEPLAY) {
+
+            webPage6Diag(
+                page === APP_PAGES.RESULT
+                    ? "NAVIGATION_PAGE6"
+                    : "NAVIGATION_PAGE5",
+                {
+                    fromPage,
+                    toPage: page,
+                    source: "App.navigate",
+                    reason: "setCurrentPage",
+                    currentPageBefore: fromPage,
+                    currentPageAfter: page
+                }
+            );
+
+        }
 
         setCurrentPage(page);
 

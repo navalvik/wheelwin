@@ -8,6 +8,7 @@ import { resolveWheelIcon } from "../components/game/WheelEngine/wheelUtils";
 
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameResult } from "../context/GameResultContext";
+import { useGameSession } from "../context/GameSessionContext";
 import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
@@ -20,6 +21,18 @@ import {
 import {
     downloadGameReportNative
 } from "../game/result/gameReportDownload";
+
+import {
+    remainingResultSessionSeconds
+} from "../game/result/resultSessionCountdown";
+
+import {
+    clearPage6MountSnapshot,
+    notePage6MountSnapshot,
+    webPage6Diag
+} from "../game/result/webPage6StateDiag";
+
+import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 
 import { resolveLocalPlayerId } from "../game/session";
 import {
@@ -188,7 +201,9 @@ const RESERVED_AREAS = [
 
 export default function Page6Result({ onFinish }) {
 
-    const { result, payment, audit } = useGameResult();
+    const { result, payment, audit, resultSessionExpiresAt } = useGameResult();
+
+    const { currentPage } = useGameSession();
 
     const { t } = useLanguage();
 
@@ -205,6 +220,66 @@ export default function Page6Result({ onFinish }) {
             verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted)
         }
     );
+
+    useEffect(() => {
+
+        const source = "GameSessionContext.currentPage";
+
+        notePage6MountSnapshot({
+            currentPage,
+            source,
+            resultSessionExpiresAt
+        });
+
+        webPage6Diag("PAGE6_RENDER_STATE", {
+            playerId: localPlayerId,
+            roomId: authoritative.roomId ?? identity.roomId ?? null,
+            gameId: result?.gameId ?? null,
+            currentPage,
+            currentPageType: typeof currentPage,
+            appPagesResult: APP_PAGES.RESULT,
+            page6Mounted: true,
+            hasResult: Boolean(result),
+            resultSessionExpiresAt: Number.isFinite(resultSessionExpiresAt)
+                ? resultSessionExpiresAt
+                : null,
+            remainingResultSessionSeconds: remainingResultSessionSeconds(
+                resultSessionExpiresAt
+            ),
+            navigationSource: source
+        }, { key: "PAGE6_RENDER_STATE" });
+
+        webPage6Diag("PAGE_STATE_SOURCE", {
+            component: "Page6Result",
+            source,
+            currentPage,
+            currentPageType: typeof currentPage,
+            appPagesResult: APP_PAGES.RESULT,
+            equalsAppPagesResult: currentPage === APP_PAGES.RESULT,
+            playerId: localPlayerId,
+            roomId: authoritative.roomId ?? identity.roomId ?? null
+        }, { key: "PAGE_STATE_SOURCE_PAGE6" });
+
+        return () => {
+
+            clearPage6MountSnapshot();
+
+            webPage6Diag("PAGE6_UNMOUNT", {
+                playerId: localPlayerId,
+                roomId: authoritative.roomId ?? identity.roomId ?? null,
+                currentPageBeforeUnmount: currentPage
+            }, { force: true });
+
+        };
+
+    }, [
+        authoritative.roomId,
+        currentPage,
+        identity.roomId,
+        localPlayerId,
+        result,
+        resultSessionExpiresAt
+    ]);
 
     useEffect(() => {
 

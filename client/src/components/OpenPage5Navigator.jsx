@@ -4,6 +4,8 @@ import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 
 import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
 
+import { webPage6Diag } from "../game/result/webPage6StateDiag";
+
 import { useRegisterEngineModule } from "../context/EngineBridgeContext";
 
 import socket from "../socket/socket";
@@ -67,6 +69,14 @@ export default function OpenPage5Navigator({
                     socketConnected: socket.connected === true
                 });
 
+                webPage6Diag("NAVIGATION_PAGE5", {
+                    fromPage: null,
+                    toPage: APP_PAGES.GAMEPLAY,
+                    source: "OpenPage5Navigator.onOpenPage5",
+                    reason: "OPEN_PAGE5",
+                    socketConnected: socket.connected === true
+                });
+
                 onNavigateRef.current?.(APP_PAGES.GAMEPLAY);
 
             },
@@ -85,6 +95,18 @@ export default function OpenPage5Navigator({
                         socketConnected: socket.connected === true
                     });
 
+                    webPage6Diag("NAVIGATION_PAGE6", {
+                        fromPage: null,
+                        toPage: APP_PAGES.RESULT,
+                        source: "OpenPage5Navigator.onOpenPage6",
+                        reason: "skipped_already_opened",
+                        blocked: true,
+                        resultSessionExpiresAt: Number.isFinite(payload?.expiresAt)
+                            ? payload.expiresAt
+                            : null,
+                        socketConnected: socket.connected === true
+                    }, { force: true });
+
                     return;
 
                 }
@@ -95,6 +117,21 @@ export default function OpenPage5Navigator({
                     targetPage: APP_PAGES.RESULT,
                     roomId: payload?.roomId ?? null,
                     gameId: payload?.gameId ?? null,
+                    resultSessionExpiresAt: Number.isFinite(payload?.expiresAt)
+                        ? payload.expiresAt
+                        : null,
+                    remainingMs: Number.isFinite(payload?.expiresAt)
+                        ? payload.expiresAt - Date.now()
+                        : null,
+                    socketConnected: socket.connected === true
+                });
+
+                webPage6Diag("NAVIGATION_PAGE6", {
+                    fromPage: APP_PAGES.GAMEPLAY,
+                    toPage: APP_PAGES.RESULT,
+                    source: "OpenPage5Navigator.onOpenPage6",
+                    reason: "OPEN_PAGE6",
+                    blocked: false,
                     resultSessionExpiresAt: Number.isFinite(payload?.expiresAt)
                         ? payload.expiresAt
                         : null,

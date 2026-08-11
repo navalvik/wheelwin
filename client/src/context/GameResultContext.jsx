@@ -20,6 +20,8 @@ import { resolveResultSessionExpiresAt } from "../game/result/resultSessionCount
 
 import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
 
+import { webPage6Diag } from "../game/result/webPage6StateDiag";
+
 import { useRegisterEngineModule } from "./EngineBridgeContext";
 
 import socket from "../socket/socket";
@@ -111,6 +113,23 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
                 : "resultSessionExpiresAt",
             socketConnected: socket.connected === true
         }, { key: "RESULT_SESSION_STORE" });
+
+        webPage6Diag("RESULT_SESSION_STATE", {
+            active: expiresAt > Date.now(),
+            startedAt: Number.isFinite(payload?.startedAt)
+                ? payload.startedAt
+                : null,
+            expiresAt,
+            remainingSeconds: Math.max(
+                0,
+                Math.ceil((expiresAt - Date.now()) / 1000)
+            ),
+            deadlineSource: payload?.expiresAt != null
+                ? "expiresAt"
+                : "resultSessionExpiresAt",
+            openPage6: payload?.openPage6 === true,
+            socketConnected: socket.connected === true
+        }, { key: "RESULT_SESSION_STATE" });
 
         dispatch({
             type: GAME_RESULT_ACTIONS.RESULT_SESSION,

@@ -31,6 +31,13 @@ import {
 } from "../game/result/page6LifecycleDiag";
 
 import {
+    classifyPage6InfoBarCombination,
+    detectCurrentPageSourceSplit,
+    getPage6MountSnapshot,
+    webPage6Diag
+} from "../game/result/webPage6StateDiag";
+
+import {
     APP_PAGES,
     isGameplayPage
 } from "../game/sessionRecovery/recoveryFlow";
@@ -194,6 +201,79 @@ export default function InfoBar() {
             onResultPage,
             onGameplayPage
         }, { key: "INFOBAR_FOOTER" });
+
+        const page6Snap = getPage6MountSnapshot();
+
+        const page6Mounted = page6Snap != null;
+
+        const combination = classifyPage6InfoBarCombination({
+            page6Mounted,
+            infoBarCurrentPage: currentPage,
+            footerMode,
+            timerLabel,
+            timerValue
+        });
+
+        const sourceSplit = detectCurrentPageSourceSplit({
+            page6CurrentPage: page6Snap?.currentPage ?? null,
+            infoBarCurrentPage: currentPage,
+            page6Source: page6Snap?.source ?? null,
+            infoBarSource: "GameSessionContext.currentPage"
+        });
+
+        webPage6Diag("INFOBAR_STATE", {
+            playerId: identity.playerId ?? null,
+            roomId: room.roomId ?? identity.roomId ?? null,
+            currentPage,
+            currentPageType: typeof currentPage,
+            appPagesResult: APP_PAGES.RESULT,
+            equalsAppPagesResult: currentPage === APP_PAGES.RESULT,
+            gameState: clock.phase ?? null,
+            footerMode,
+            selectedLabel: timerLabel,
+            selectedValue: timerValue,
+            resultSessionExpiresAt: Number.isFinite(resultSessionExpiresAt)
+                ? resultSessionExpiresAt
+                : null,
+            remainingResultSessionSeconds: resultRemaining,
+            page6Mounted,
+            combination
+        }, { key: "INFOBAR_STATE" });
+
+        webPage6Diag("PAGE_STATE_SOURCE", {
+            component: "InfoBar",
+            source: "GameSessionContext.currentPage",
+            currentPage,
+            currentPageType: typeof currentPage,
+            appPagesResult: APP_PAGES.RESULT,
+            equalsAppPagesResult: currentPage === APP_PAGES.RESULT,
+            page6Mounted,
+            page6CurrentPage: page6Snap?.currentPage ?? null,
+            page6Source: page6Snap?.source ?? null,
+            splitDetected: sourceSplit.splitDetected === true,
+            sameValue: sourceSplit.sameValue,
+            sameSource: sourceSplit.sameSource,
+            combination,
+            playerId: identity.playerId ?? null,
+            roomId: room.roomId ?? identity.roomId ?? null
+        }, { key: "PAGE_STATE_SOURCE_INFOBAR" });
+
+        if (combination === "C_PAGE6_BODY_RESULT_FOOTER" || sourceSplit.splitDetected) {
+
+            webPage6Diag("STATE_SPLIT_DETECTED", {
+                combination,
+                ...sourceSplit,
+                footerMode,
+                selectedLabel: timerLabel,
+                selectedValue: timerValue,
+                resultSessionExpiresAt: Number.isFinite(resultSessionExpiresAt)
+                    ? resultSessionExpiresAt
+                    : null,
+                playerId: identity.playerId ?? null,
+                roomId: room.roomId ?? identity.roomId ?? null
+            }, { force: true });
+
+        }
 
     }
 

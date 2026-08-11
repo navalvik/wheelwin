@@ -24,6 +24,8 @@ import { normalizeSessionSnapshot } from "../game/sessionRecovery/sessionSnapsho
 
 import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
 
+import { webPage6Diag } from "../game/result/webPage6StateDiag";
+
 import { logTerminalNav } from "../game/session/gameplayTerminal";
 
 import { RECOVERY_SOCKET_EVENTS } from "../game/sessionRecovery/sessionRecoveryEvents";
@@ -330,6 +332,21 @@ export function RecoveryExperienceProvider({
                     socketConnected: socket.connected === true
                 });
 
+                webPage6Diag("NAVIGATION_PAGE6", {
+                    fromPage: currentPage,
+                    toPage: APP_PAGES.RESULT,
+                    source: "RecoveryExperience.handleGameplaySnapshot",
+                    reason: resolvedPage !== targetPage
+                        ? "demotion_blocked_keep_RESULT"
+                        : "recovery_open_page6",
+                    currentPageBefore: currentPage,
+                    currentPageAfter: APP_PAGES.RESULT,
+                    resultSessionExpiresAt: Number.isFinite(snapshot.resultSessionExpiresAt)
+                        ? snapshot.resultSessionExpiresAt
+                        : null,
+                    demotionBlocked: resolvedPage !== targetPage
+                });
+
                 onNavigate(APP_PAGES.RESULT);
 
             }
@@ -349,6 +366,18 @@ export function RecoveryExperienceProvider({
                 resolvedPage,
                 demotionBlocked: false,
                 socketConnected: socket.connected === true
+            });
+
+            webPage6Diag("NAVIGATION_PAGE5", {
+                fromPage: currentPage,
+                toPage: APP_PAGES.GAMEPLAY,
+                source: "RecoveryExperience.handleGameplaySnapshot",
+                reason: "recovery_open_page5",
+                currentPageBefore: currentPage,
+                currentPageAfter: APP_PAGES.GAMEPLAY,
+                resultSessionExpiresAt: Number.isFinite(snapshot.resultSessionExpiresAt)
+                    ? snapshot.resultSessionExpiresAt
+                    : null
             });
 
             onNavigate(APP_PAGES.GAMEPLAY);
