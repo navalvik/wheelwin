@@ -83,9 +83,49 @@
     animation: centerButtonPulseCountdown 1.2s ease-in-out infinite;
 }
 
-.centerButton--pulseSpeed {
+/*
+ * C22 — SPEED / SPIN: static rainbow backgrounds only.
+ * Ready = spectrum order 1; pressed = reversed (see .centerButton--pressed).
+ * No animation, transitions, glow, or moving gradients on SPIN.
+ */
+.centerButton--speedRainbow {
 
-    animation: centerButtonPulseSpeed 0.9s ease-in-out infinite;
+    border-color: rgba(255, 255, 255, 0.82);
+
+    background-color: transparent;
+
+    background-image: linear-gradient(
+        180deg,
+        #FF0000 0%,
+        #FF9900 16.66%,
+        #FFFF00 33.33%,
+        #00FF00 50%,
+        #00FFFF 66.66%,
+        #0066FF 83.33%,
+        #9900FF 100%
+    );
+
+    box-shadow: none;
+
+    transition: none;
+
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.centerButton--speedRainbow.centerButton--pressed {
+
+    animation: none;
+
+    background-image: linear-gradient(
+        180deg,
+        #9900FF 0%,
+        #0066FF 16.66%,
+        #00FFFF 33.33%,
+        #00FF00 50%,
+        #FFFF00 66.66%,
+        #FF9900 83.33%,
+        #FF0000 100%
+    );
 }
 
 .centerButton--pulseBrake {
@@ -143,18 +183,6 @@
 
     50% {
         opacity: 1;
-    }
-}
-
-@keyframes centerButtonPulseSpeed {
-
-    0%,
-    100% {
-        box-shadow: 0 0 0 0 rgba(0, 170, 68, 0.4);
-    }
-
-    50% {
-        box-shadow: 0 0 0 10px rgba(0, 170, 68, 0);
     }
 }
 

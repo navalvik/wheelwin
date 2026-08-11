@@ -58,10 +58,11 @@ export const BUTTON_PRESENTATION = Object.freeze({
     },
     [BUTTON_STATES.SPEED]: {
         label: "SPIN",
-        backgroundColor: "#00aa44",
-        borderColor: "#008833",
+        backgroundColor: "transparent",
+        borderColor: "rgba(255, 255, 255, 0.82)",
         textColor: "#ffffff",
-        pulseClass: "centerButton--pulseSpeed"
+        // C22 — static rainbow via CSS; pressed order via .centerButton--pressed
+        pulseClass: "centerButton--speedRainbow"
     },
     [BUTTON_STATES.BRAKE]: {
         label: "",
