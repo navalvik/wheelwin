@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
@@ -16,7 +16,16 @@ import { GAME_STATES } from "../game/GameState";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
 import { usePreGameReady } from "../context/PreGameReadyContext";
+import { useRecoveryExperience } from "../context/RecoveryExperienceContext";
 import { resolveLocalPlayerId } from "../game/session";
+import {
+    PAGE5_CONFIG_HYDRATION_GRACE_MS,
+    logTerminalNav
+} from "../game/session/gameplayTerminal";
+import {
+    APP_PAGES,
+    hasGameplayIdentity
+} from "../game/sessionRecovery/recoveryFlow";
 import {
     isLocalPlayerWinner,
     resolveAuthoritativeWinnerPlayerId,
@@ -113,6 +122,77 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
     const { wheelConfiguration } = useWheelConfig();
 
+    const { requestSessionRecovery } = useRecoveryExperience();
+
+    const hydrationRecoveryRequestedRef = useRef(false);
+
+    const [hydrationGraceExpired, setHydrationGraceExpired] = useState(false);
+
+    const hasIdentity = hasGameplayIdentity({
+        roomId: identity.roomId ?? authoritative.roomId,
+        playerId: identity.playerId
+    });
+
+    useEffect(() => {
+
+        hydrationRecoveryRequestedRef.current = false;
+
+        setHydrationGraceExpired(false);
+
+        if (wheelConfiguration !== null || !hasIdentity) {
+
+            return undefined;
+
+        }
+
+        const graceTimer = setTimeout(() => {
+
+            setHydrationGraceExpired(true);
+
+        }, PAGE5_CONFIG_HYDRATION_GRACE_MS);
+
+        return () => {
+
+            clearTimeout(graceTimer);
+
+        };
+
+    }, [wheelConfiguration, hasIdentity]);
+
+    useEffect(() => {
+
+        if (!hydrationGraceExpired || wheelConfiguration !== null || !hasIdentity) {
+
+            return;
+
+        }
+
+        if (hydrationRecoveryRequestedRef.current) {
+
+            return;
+
+        }
+
+        hydrationRecoveryRequestedRef.current = true;
+
+        logTerminalNav({
+            event: "hydration_recovery",
+            currentPage: APP_PAGES.GAMEPLAY
+        });
+
+        requestSessionRecovery();
+
+    }, [
+        hydrationGraceExpired,
+        wheelConfiguration,
+        hasIdentity,
+        requestSessionRecovery
+    ]);
+
+    const suppressStaleGameplayUi = hydrationGraceExpired
+        && wheelConfiguration === null
+        && hasIdentity;
+
     const {
         snapshot: buttonSnapshot,
         press,
@@ -164,26 +244,30 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
                     <div className="gameArea gamePanel__body">
 
-                        <Page5PlayerPanel />
+                        {!suppressStaleGameplayUi && <Page5PlayerPanel />}
 
                         <div className="wheelContainer gamePanel__wheelArea">
 
-                            <WheelPlaceholder
-                                wheelConfiguration={wheelConfiguration}
-                                buttonSnapshot={buttonSnapshot}
-                                onButtonPress={
-                                    isPreGameReadyPhase
-                                        ? confirmPreGameReady
-                                        : (buttonInputDisabled ? undefined : press)
-                                }
-                                onButtonRelease={
-                                    isPreGameReadyPhase
-                                        ? undefined
-                                        : (buttonInputDisabled ? undefined : release)
-                                }
-                            />
+                            {!suppressStaleGameplayUi && (
+                                <WheelPlaceholder
+                                    wheelConfiguration={wheelConfiguration}
+                                    buttonSnapshot={buttonSnapshot}
+                                    onButtonPress={
+                                        isPreGameReadyPhase
+                                            ? confirmPreGameReady
+                                            : (buttonInputDisabled ? undefined : press)
+                                    }
+                                    onButtonRelease={
+                                        isPreGameReadyPhase
+                                            ? undefined
+                                            : (buttonInputDisabled ? undefined : release)
+                                    }
+                                />
+                            )}
 
-                            {isResultPhase && <Page5ResultOverlay />}
+                            {!suppressStaleGameplayUi && isResultPhase && (
+                                <Page5ResultOverlay />
+                            )}
 
                         </div>
 

@@ -13,6 +13,8 @@ import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 
 import { shouldNavigateOnSetupSessionExpiry } from "../game/session/setupSessionExpiry";
 
+import { shouldNavigateOnGameplayRoomClosed } from "../game/session/gameplayTerminal";
+
 import { INCOMING_SOCKET_EVENTS } from "../socket/socketEvents";
 
 import socket from "../socket/socket";
@@ -46,7 +48,12 @@ export function formatPhaseTime(totalSeconds) {
 
 export const GameSessionContext = createContext(null);
 
-export function GameSessionProvider({ children, currentPage, onNavigate }) {
+export function GameSessionProvider({
+    children,
+    currentPage,
+    onNavigate,
+    resetToWelcome = null
+}) {
 
     const [session, setSession] = useState(INITIAL_SESSION);
 
@@ -60,9 +67,13 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
 
     const onNavigateRef = useRef(onNavigate);
 
+    const resetToWelcomeRef = useRef(resetToWelcome);
+
     currentPageRef.current = currentPage;
 
     onNavigateRef.current = onNavigate;
+
+    resetToWelcomeRef.current = resetToWelcome;
 
     const destroySession = useCallback(() => {
 
@@ -186,6 +197,17 @@ export function GameSessionProvider({ children, currentPage, onNavigate }) {
         }
 
         function handleRoomClosed() {
+
+            if (shouldNavigateOnGameplayRoomClosed(
+                currentPageRef.current,
+                preGameEndedRef.current
+            )) {
+
+                resetToWelcomeRef.current?.("roomClosed");
+
+                return;
+
+            }
 
             handleSetupExpired();
 

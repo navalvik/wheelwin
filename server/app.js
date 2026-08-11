@@ -960,6 +960,7 @@ class WheelWinApplication {
             physicsEngine: this._engines.physicsEngine,
             winnerEngine: this._engines.winnerEngine,
             gameStateEngine: this._engines.gameStateEngine,
+            configurationEngine: this._engines.configurationEngine,
             devMode: this._productionConfig.isDevelopment
         });
 

@@ -80,6 +80,7 @@ function buildStack() {
         physicsEngine,
         winnerEngine,
         gameStateEngine,
+        configurationEngine,
         devMode: false
     });
 

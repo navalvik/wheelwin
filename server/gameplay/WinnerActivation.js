@@ -1,6 +1,7 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
+import { PHYSICS_SIMULATION_STATE } from "../engines/physics/PhysicsSimulationState.js";
 
 /** R9.2 — bounded resolve attempts after PHYSICS_STOPPED (1 immediate + retries). */
 const DEFAULT_RESOLVE_ATTEMPTS = 3;
@@ -8,11 +9,26 @@ const DEFAULT_RESOLVE_ATTEMPTS = 3;
 /** R9.2 — non-blocking delay between resolve attempts (ms). */
 const DEFAULT_RESOLVE_RETRY_DELAY_MS = 25;
 
+/** R11.2 — deferred resolve delays after fast retries (ms). */
+const DEFAULT_DEFERRED_RETRY_DELAYS_MS = Object.freeze([
+    1000,
+    5000,
+    30000
+]);
+
+/** R11.2 — terminal failure reason codes. */
+export const WINNER_RESOLUTION_FAILURE_REASON = Object.freeze({
+    RESOLUTION_EXCEPTION: "resolution_exception",
+    REQUIRED_INPUTS_UNAVAILABLE: "required_inputs_unavailable",
+    RETRY_BUDGET_EXHAUSTED: "retry_budget_exhausted"
+});
+
 /**
  * P5.8 — Winner Activation.
  *
  * PHYSICS_STOPPED → WinnerEngine.resolveResult() → WINNER_DETERMINED (once).
  * R9.2 — bounded non-blocking retry on resolve failure (no physics replay).
+ * R11.2 — deferred retries + WINNER_RESOLUTION_FAILED terminal observability.
  * BrakePhaseController owns BRAKE physics (P5.7).
  * GameplayPhaseLifecycle owns RESULT / Page6 transitions (deferred).
  */
@@ -24,9 +40,11 @@ export class WinnerActivation {
         physicsEngine,
         winnerEngine,
         gameStateEngine,
+        configurationEngine = null,
         devMode = false,
         resolveAttempts = DEFAULT_RESOLVE_ATTEMPTS,
-        resolveRetryDelayMs = DEFAULT_RESOLVE_RETRY_DELAY_MS
+        resolveRetryDelayMs = DEFAULT_RESOLVE_RETRY_DELAY_MS,
+        deferredRetryDelaysMs = DEFAULT_DEFERRED_RETRY_DELAYS_MS
     }) {
 
         this._logger = logger;
@@ -39,6 +57,8 @@ export class WinnerActivation {
 
         this._gameStateEngine = gameStateEngine;
 
+        this._configurationEngine = configurationEngine;
+
         this._devMode = devMode;
 
         this._resolveAttempts = Number.isFinite(resolveAttempts) && resolveAttempts > 0
@@ -50,6 +70,12 @@ export class WinnerActivation {
             ? resolveRetryDelayMs
             : DEFAULT_RESOLVE_RETRY_DELAY_MS;
 
+        this._deferredRetryDelaysMs = Array.isArray(deferredRetryDelaysMs)
+            ? deferredRetryDelaysMs.filter(
+                (delay) => Number.isFinite(delay) && delay >= 0
+            )
+            : [...DEFAULT_DEFERRED_RETRY_DELAYS_MS];
+
         this._handlers = [];
 
         this._brakeTriggered = new Set();
@@ -57,6 +83,12 @@ export class WinnerActivation {
         this._resolved = new Set();
 
         this._resultTransitioned = new Set();
+
+        /** @type {Set<string>} */
+        this._terminalFailed = new Set();
+
+        /** @type {Map<string, { totalAttempts: number, lastError: string|null }>} */
+        this._retryState = new Map();
 
         /** @type {Map<string, ReturnType<typeof setTimeout>>} */
         this._retryTimers = new Map();
@@ -158,22 +190,44 @@ export class WinnerActivation {
         // Claim once — prevents duplicate WINNER_DETERMINED / retry chains.
         this._resolved.add(gameId);
 
+        this._retryState.set(gameId, {
+            totalAttempts: 0,
+            lastError: null
+        });
+
         this._logStep("Wheel stopped");
 
-        this._attemptResolve(gameId, 1);
+        this._attemptFastResolve(gameId, 1);
 
     }
 
     /**
-     * R9.2 — Try WinnerEngine.resolveResult with bounded non-blocking retries.
-     * Does not replay PHYSICS_STOPPED or physics.
+     * R9.2 — Fast resolve attempts (existing behavior).
      */
-    _attemptResolve(gameId, attempt) {
+    _attemptFastResolve(gameId, attempt) {
 
         this._clearRetryTimer(gameId);
 
+        if (this._terminalFailed.has(gameId)) {
+
+            return;
+
+        }
+
+        const existing = this._winnerEngine.getResult?.(gameId);
+
+        if (existing) {
+
+            this._emitWinnerDetermined(gameId, existing);
+
+            return;
+
+        }
+
+        this._incrementAttempt(gameId);
+
         this._logStep(
-            `WinnerEngine.resolveResult() attempt ${attempt}/${this._resolveAttempts}`
+            `WinnerEngine.resolveResult() fast attempt ${attempt}/${this._resolveAttempts}`
         );
 
         let result;
@@ -186,6 +240,8 @@ export class WinnerActivation {
 
             const reason = error?.message ?? String(error);
 
+            this._recordLastError(gameId, reason);
+
             if (attempt < this._resolveAttempts) {
 
                 this._logger.warn(
@@ -197,7 +253,7 @@ export class WinnerActivation {
 
                     this._retryTimers.delete(gameId);
 
-                    this._attemptResolve(gameId, attempt + 1);
+                    this._attemptFastResolve(gameId, attempt + 1);
 
                 }, this._resolveRetryDelayMs);
 
@@ -207,15 +263,206 @@ export class WinnerActivation {
 
             }
 
-            this._logger.error(
-                `Winner determination failed permanently | gameId=${gameId} | `
-                    + `attempts=${this._resolveAttempts} | reason=${reason}`
+            this._logger.warn(
+                `Winner fast retries exhausted | gameId=${gameId} | reason=${reason}`
             );
 
-            // Keep _resolved so we do not start another chain without PHYSICS_STOPPED.
+            this._scheduleDeferredResolve(gameId, 0);
+
             return;
 
         }
+
+        this._emitWinnerDetermined(gameId, result);
+
+    }
+
+    _scheduleDeferredResolve(gameId, deferredIndex) {
+
+        this._clearRetryTimer(gameId);
+
+        if (this._terminalFailed.has(gameId)) {
+
+            return;
+
+        }
+
+        const existing = this._winnerEngine.getResult?.(gameId);
+
+        if (existing) {
+
+            this._emitWinnerDetermined(gameId, existing);
+
+            return;
+
+        }
+
+        const delay = this._deferredRetryDelaysMs[deferredIndex];
+
+        if (delay === undefined) {
+
+            const state = this._retryState.get(gameId);
+
+            this._emitTerminalFailure(
+                gameId,
+                WINNER_RESOLUTION_FAILURE_REASON.RETRY_BUDGET_EXHAUSTED,
+                state?.lastError ?? "retry_budget_exhausted"
+            );
+
+            return;
+
+        }
+
+        this._logger.info(
+            `Winner deferred retry scheduled | gameId=${gameId} | `
+                + `deferred=${deferredIndex + 1}/${this._deferredRetryDelaysMs.length} | `
+                + `delayMs=${delay}`
+        );
+
+        const timerId = setTimeout(() => {
+
+            this._retryTimers.delete(gameId);
+
+            this._attemptDeferredResolve(gameId, deferredIndex);
+
+        }, delay);
+
+        this._retryTimers.set(gameId, timerId);
+
+    }
+
+    /**
+     * R11.2 — Deferred resolve attempts with input validation.
+     */
+    _attemptDeferredResolve(gameId, deferredIndex) {
+
+        this._clearRetryTimer(gameId);
+
+        if (this._terminalFailed.has(gameId)) {
+
+            return;
+
+        }
+
+        const existing = this._winnerEngine.getResult?.(gameId);
+
+        if (existing) {
+
+            this._emitWinnerDetermined(gameId, existing);
+
+            return;
+
+        }
+
+        const validation = this._validateResolutionInputs(gameId);
+
+        if (!validation.ok) {
+
+            this._emitTerminalFailure(
+                gameId,
+                validation.reason,
+                validation.detail
+            );
+
+            return;
+
+        }
+
+        this._incrementAttempt(gameId);
+
+        this._logStep(
+            `WinnerEngine.resolveResult() deferred attempt `
+                + `${deferredIndex + 1}/${this._deferredRetryDelaysMs.length}`
+        );
+
+        let result;
+
+        try {
+
+            result = this._winnerEngine.resolveResult(gameId);
+
+        } catch (error) {
+
+            const reason = error?.message ?? String(error);
+
+            this._recordLastError(gameId, reason);
+
+            this._logger.warn(
+                `Winner deferred resolve failed | gameId=${gameId} | `
+                    + `deferred=${deferredIndex + 1} | reason=${reason}`
+            );
+
+            this._scheduleDeferredResolve(gameId, deferredIndex + 1);
+
+            return;
+
+        }
+
+        this._emitWinnerDetermined(gameId, result);
+
+    }
+
+    _validateResolutionInputs(gameId) {
+
+        if (this._winnerEngine.getResult?.(gameId)) {
+
+            return { ok: true };
+
+        }
+
+        const physics = this._physicsEngine?.getSimulation?.(gameId);
+
+        if (!physics) {
+
+            return {
+                ok: false,
+                reason: WINNER_RESOLUTION_FAILURE_REASON.REQUIRED_INPUTS_UNAVAILABLE,
+                detail: "Physics simulation is missing"
+            };
+
+        }
+
+        if (physics.runtime?.state !== PHYSICS_SIMULATION_STATE.STOPPED) {
+
+            return {
+                ok: false,
+                reason: WINNER_RESOLUTION_FAILURE_REASON.REQUIRED_INPUTS_UNAVAILABLE,
+                detail: "Physics simulation is not complete"
+            };
+
+        }
+
+        if (this._configurationEngine?.getConfiguration) {
+
+            const configuration = this._configurationEngine.getConfiguration(gameId);
+
+            if (!configuration) {
+
+                return {
+                    ok: false,
+                    reason: WINNER_RESOLUTION_FAILURE_REASON.REQUIRED_INPUTS_UNAVAILABLE,
+                    detail: "Configuration is missing"
+                };
+
+            }
+
+        }
+
+        return { ok: true };
+
+    }
+
+    _emitWinnerDetermined(gameId, result) {
+
+        if (this._terminalFailed.has(gameId)) {
+
+            return;
+
+        }
+
+        this._clearRetryTimer(gameId);
+
+        this._retryState.delete(gameId);
 
         this._logStep(`Winning Sector ${result.winningSector?.sectorId ?? "?"}`);
 
@@ -249,6 +496,84 @@ export class WinnerActivation {
 
     }
 
+    _emitTerminalFailure(gameId, reason, lastError) {
+
+        if (this._terminalFailed.has(gameId)) {
+
+            return;
+
+        }
+
+        this._terminalFailed.add(gameId);
+
+        this._clearRetryTimer(gameId);
+
+        const state = this._retryState.get(gameId) ?? {
+            totalAttempts: 0,
+            lastError: null
+        };
+
+        this._retryState.delete(gameId);
+
+        const resolvedReason = reason
+            ?? WINNER_RESOLUTION_FAILURE_REASON.RESOLUTION_EXCEPTION;
+
+        const attempts = state.totalAttempts;
+
+        const errorText = lastError ?? state.lastError ?? null;
+
+        this._logger.error(
+            `Winner resolution failed terminally | gameId=${gameId} | `
+                + `roomId=${this._resolveRoomId(gameId) ?? "unknown"} | `
+                + `reason=${resolvedReason} | attempts=${attempts} | `
+                + `lastError=${errorText ?? "none"}`
+        );
+
+        this._emit(EVENT_TYPES.WINNER_RESOLUTION_FAILED, {
+            gameId,
+            roomId: this._resolveRoomId(gameId),
+            reason: resolvedReason,
+            attempts,
+            lastError: errorText,
+            timestamp: Date.now()
+        });
+
+    }
+
+    _resolveRoomId(gameId) {
+
+        const configuration = this._configurationEngine?.getConfiguration?.(gameId);
+
+        return configuration?.metadata?.roomId ?? null;
+
+    }
+
+    _incrementAttempt(gameId) {
+
+        const state = this._retryState.get(gameId) ?? {
+            totalAttempts: 0,
+            lastError: null
+        };
+
+        state.totalAttempts += 1;
+
+        this._retryState.set(gameId, state);
+
+    }
+
+    _recordLastError(gameId, lastError) {
+
+        const state = this._retryState.get(gameId) ?? {
+            totalAttempts: 0,
+            lastError: null
+        };
+
+        state.lastError = lastError;
+
+        this._retryState.set(gameId, state);
+
+    }
+
     _handleWinnerDetermined(payload) {
 
         const gameId = payload?.gameId;
@@ -275,6 +600,10 @@ export class WinnerActivation {
         this._resolved.delete(gameId);
 
         this._resultTransitioned.delete(gameId);
+
+        this._terminalFailed.delete(gameId);
+
+        this._retryState.delete(gameId);
 
     }
 
@@ -305,6 +634,10 @@ export class WinnerActivation {
         this._resolved.clear();
 
         this._resultTransitioned.clear();
+
+        this._terminalFailed.clear();
+
+        this._retryState.clear();
 
     }
 

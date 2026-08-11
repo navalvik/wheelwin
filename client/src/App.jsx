@@ -24,6 +24,7 @@ import {
     DEV_PAGE_SEQUENCE
 } from "./config/devMode";
 import { APP_PAGES } from "./game/sessionRecovery/recoveryFlow";
+import { useTerminalNavigation } from "./game/session/useTerminalNavigation";
 import socket from "./socket/socket";
 import { LOBBY_OUTGOING_EVENTS } from "./socket/socketEvents";
 
@@ -44,13 +45,18 @@ function GameFlow() {
 
     }
 
-    const resetToWelcome = useCallback(() => {
+    const performTerminalReset = useCallback(() => {
 
         setCurrentPage(APP_PAGES.WELCOME);
 
         setSessionGeneration((generation) => generation + 1);
 
     }, []);
+
+    const { resetToWelcome, armNewGameplaySession } = useTerminalNavigation({
+        sessionGeneration,
+        performReset: performTerminalReset
+    });
 
     /**
      * R6.4 / R7.70C20 — FINISH is per-player.
@@ -264,11 +270,14 @@ function GameFlow() {
                 <GameEngineProviders
                     currentPage={currentPage}
                     onNavigate={navigate}
+                    resetToWelcome={resetToWelcome}
+                    sessionGeneration={sessionGeneration}
                 >
 
                     <OpenPage5Navigator
                         onNavigate={navigate}
                         onSessionFinished={resetToWelcome}
+                        onArmNewGameplaySession={armNewGameplaySession}
                     />
 
                     {renderPage()}

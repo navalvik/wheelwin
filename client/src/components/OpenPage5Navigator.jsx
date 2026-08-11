@@ -9,11 +9,17 @@ import { useRegisterEngineModule } from "../context/EngineBridgeContext";
  * only on authoritative server events (OPEN_PAGE5 / OPEN_PAGE6 /
  * SESSION_FINISHED). Never navigate on local RESULT / wheel / timeout.
  */
-export default function OpenPage5Navigator({ onNavigate, onSessionFinished }) {
+export default function OpenPage5Navigator({
+    onNavigate,
+    onSessionFinished,
+    onArmNewGameplaySession
+}) {
 
     const onNavigateRef = useRef(onNavigate);
 
     const onSessionFinishedRef = useRef(onSessionFinished);
+
+    const onArmNewGameplaySessionRef = useRef(onArmNewGameplaySession);
 
     const openedPage6Ref = useRef(false);
 
@@ -29,6 +35,12 @@ export default function OpenPage5Navigator({ onNavigate, onSessionFinished }) {
 
     }, [onSessionFinished]);
 
+    useEffect(() => {
+
+        onArmNewGameplaySessionRef.current = onArmNewGameplaySession;
+
+    }, [onArmNewGameplaySession]);
+
     useRegisterEngineModule("pageNavigation", () => {
 
         if (typeof onNavigateRef.current !== "function"
@@ -43,6 +55,8 @@ export default function OpenPage5Navigator({ onNavigate, onSessionFinished }) {
 
                 // New gameplay session may open Page6 again later.
                 openedPage6Ref.current = false;
+
+                onArmNewGameplaySessionRef.current?.();
 
                 onNavigateRef.current?.(APP_PAGES.GAMEPLAY);
 
@@ -63,7 +77,7 @@ export default function OpenPage5Navigator({ onNavigate, onSessionFinished }) {
             },
             onSessionFinished: (payload) => {
 
-                onSessionFinishedRef.current?.(payload);
+                onSessionFinishedRef.current?.("SESSION_FINISHED", payload);
 
             }
         };

@@ -20,6 +20,8 @@ import {
     resolveGameplayRecoveryPage
 } from "../game/sessionRecovery/recoveryFlow";
 
+import { logTerminalNav } from "../game/session/gameplayTerminal";
+
 import { RECOVERY_SOCKET_EVENTS } from "../game/sessionRecovery/sessionRecoveryEvents";
 
 import {
@@ -78,7 +80,9 @@ function recoveryTrace(stage, { roomId = null, playerId = null } = {}) {
 export function RecoveryExperienceProvider({
     children,
     currentPage,
-    onNavigate
+    onNavigate,
+    resetToWelcome = null,
+    sessionGeneration = 0
 }) {
 
     const { applyRecoverySnapshot } = useGameResultRecovery();
@@ -98,6 +102,14 @@ export function RecoveryExperienceProvider({
     // Timer ids live in refs so hide scheduling survives socket-effect
     // re-subscriptions (unstable onNavigate / session updates after restore).
     const hideOverlayTimerRef = useRef(null);
+
+    const resetToWelcomeRef = useRef(resetToWelcome);
+
+    const sessionGenerationRef = useRef(sessionGeneration);
+
+    resetToWelcomeRef.current = resetToWelcome;
+
+    sessionGenerationRef.current = sessionGeneration;
 
     const clearOverlayTimer = useCallback(() => {
 
@@ -292,19 +304,13 @@ export function RecoveryExperienceProvider({
 
         clearIdentity();
 
-        if (currentPage !== APP_PAGES.WELCOME) {
-
-            onNavigate(APP_PAGES.WELCOME);
-
-        }
+        resetToWelcomeRef.current?.("terminal_recovery_failure");
 
         scheduleOverlayHide();
 
     }, [
-        currentPage,
         destroySession,
         clearIdentity,
-        onNavigate,
         scheduleOverlayHide,
         getIdentity
     ]);
@@ -405,6 +411,67 @@ export function RecoveryExperienceProvider({
         };
 
     }, [currentPage, getIdentity, requestSessionRecovery]);
+
+    // R12.2 — WebView wake-up: request recovery without waiting for disconnect.
+    useEffect(() => {
+
+        if (typeof document === "undefined" || typeof window === "undefined") {
+
+            return undefined;
+
+        }
+
+        function onVisibilityRecovery(sourceEvent) {
+
+            if (document.visibilityState === "hidden") {
+
+                return;
+
+            }
+
+            if (!isGameplayPage(currentPage)) {
+
+                return;
+
+            }
+
+            logTerminalNav({
+                event: "visibility_recovery",
+                currentPage,
+                sessionGeneration: sessionGenerationRef.current
+            });
+
+            devLog(`Wake-up recovery (${sourceEvent})`);
+
+            requestSessionRecovery();
+
+        }
+
+        function onVisibilityChange() {
+
+            onVisibilityRecovery("visibilitychange");
+
+        }
+
+        function onPageShow() {
+
+            onVisibilityRecovery("pageshow");
+
+        }
+
+        document.addEventListener("visibilitychange", onVisibilityChange);
+
+        window.addEventListener("pageshow", onPageShow);
+
+        return () => {
+
+            document.removeEventListener("visibilitychange", onVisibilityChange);
+
+            window.removeEventListener("pageshow", onPageShow);
+
+        };
+
+    }, [currentPage, requestSessionRecovery]);
 
     // Hard cap: COMPLETE / RESTORING must never block input longer than 5s
     // even if the soft-hide timer was cancelled by an effect re-subscribe.
@@ -568,8 +635,14 @@ export function RecoveryExperienceProvider({
     const value = useMemo(() => ({
         status,
         consumePendingGameplaySnapshot,
-        returnToLobby
-    }), [status, consumePendingGameplaySnapshot, returnToLobby]);
+        returnToLobby,
+        requestSessionRecovery
+    }), [
+        status,
+        consumePendingGameplaySnapshot,
+        returnToLobby,
+        requestSessionRecovery
+    ]);
 
     return (
 

@@ -177,7 +177,7 @@ async function main() {
 
     }
 
-    // --- TEST B: permanent resolve failure — no WINNER_DETERMINED ---
+    // --- TEST B: permanent resolve failure — terminal WINNER_RESOLUTION_FAILED ---
 
     {
         const logger = createLogger();
@@ -192,6 +192,11 @@ async function main() {
         let attempts = 0;
 
         const winnerEngine = {
+            getResult() {
+
+                return null;
+
+            },
             resolveResult() {
 
                 attempts += 1;
@@ -203,20 +208,37 @@ async function main() {
 
         const determined = [];
 
+        const failed = [];
+
         eventBus.subscribe(EVENT_TYPES.WINNER_DETERMINED, (envelope) => {
 
             determined.push(envelope.payload);
 
         });
 
+        eventBus.subscribe(EVENT_TYPES.WINNER_RESOLUTION_FAILED, (envelope) => {
+
+            failed.push(envelope.payload);
+
+        });
+
         const activation = new WinnerActivation({
             logger,
             eventBus,
-            physicsEngine: {},
+            physicsEngine: {
+                getSimulation() {
+
+                    return {
+                        runtime: { state: "STOPPED", angle: 1.0 }
+                    };
+
+                }
+            },
             winnerEngine,
             gameStateEngine: {},
             resolveAttempts: 3,
-            resolveRetryDelayMs: 5
+            resolveRetryDelayMs: 5,
+            deferredRetryDelaysMs: [10, 20, 30]
         });
 
         activation.initialize();
@@ -227,11 +249,19 @@ async function main() {
             payload: { gameId: "game-retry-fail" }
         });
 
-        await wait(80);
+        await wait(200);
 
-        assert.equal(attempts, 3, "TEST B: exhausted resolve attempts");
+        assert.equal(attempts, 6, "TEST B: fast + deferred resolve attempts");
 
         assert.equal(determined.length, 0, "TEST B: no WINNER_DETERMINED");
+
+        assert.equal(failed.length, 1, "TEST B: WINNER_RESOLUTION_FAILED once");
+
+        assert.equal(
+            failed[0].reason,
+            "retry_budget_exhausted",
+            "TEST B: terminal reason"
+        );
 
         eventBus.emit({
             source: "test",
@@ -241,9 +271,11 @@ async function main() {
 
         await wait(40);
 
-        assert.equal(attempts, 3, "TEST B: no extra attempts after terminal failure");
+        assert.equal(attempts, 6, "TEST B: no extra attempts after terminal failure");
 
         assert.equal(determined.length, 0, "TEST B: still no duplicate events");
+
+        assert.equal(failed.length, 1, "TEST B: still one terminal failure");
 
         activation.shutdown();
 

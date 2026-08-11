@@ -90,7 +90,9 @@ function resolveGameplayProps({ currentPage, onNavigate }) {
 function GameEngineProviderStack({
     children,
     currentPage,
-    onNavigate
+    onNavigate,
+    resetToWelcome,
+    sessionGeneration
 }) {
 
     const { pushFromReady } = useGameState();
@@ -116,6 +118,8 @@ function GameEngineProviderStack({
                             <RecoveryExperienceProvider
                                 currentPage={currentPage}
                                 onNavigate={onNavigate}
+                                resetToWelcome={resetToWelcome}
+                                sessionGeneration={sessionGeneration}
                             >
 
                                 <SessionRecoveryProvider>
@@ -156,10 +160,14 @@ function GameEngineProviderStack({
 export function GameEngineProviders({
     children,
     currentPage,
-    onNavigate
+    onNavigate,
+    resetToWelcome = null,
+    sessionGeneration = 0
 }) {
 
     const resolved = resolveGameplayProps({ currentPage, onNavigate });
+
+    const resolvedResetToWelcome = resetToWelcome ?? noopNavigate;
 
     return (
 
@@ -191,6 +199,7 @@ export function GameEngineProviders({
                                         <GameSessionProvider
                                             currentPage={resolved.currentPage}
                                             onNavigate={resolved.onNavigate}
+                                            resetToWelcome={resolvedResetToWelcome}
                                         >
 
                                             <GameResultProvider
@@ -201,6 +210,8 @@ export function GameEngineProviders({
                                                 <GameEngineProviderStack
                                                     currentPage={resolved.currentPage}
                                                     onNavigate={resolved.onNavigate}
+                                                    resetToWelcome={resolvedResetToWelcome}
+                                                    sessionGeneration={sessionGeneration}
                                                 >
 
                                                     {children}
