@@ -16,6 +16,7 @@ import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 import { buildGameContractSnapshot } from "../payment/buildGameContractSnapshot.js";
 import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
 import { hashGameContractSnapshot } from "../payment/ton/buildGameEscrowStateInit.js";
+import { resolveGameEscrowMode } from "../config/gameEscrowMode.js";
 import {
     ContractAlreadyExistsError,
     ContractNotFoundError,
@@ -453,6 +454,25 @@ export class GameContractManager {
             ?.getConfiguration?.(resolvedGameId)
             ?? null;
 
+        const tonConfig = this._deployAdapter?._tonConfig ?? {};
+
+        let escrowMode = null;
+
+        try {
+
+            escrowMode = resolveGameEscrowMode(tonConfig.gameEscrowMode);
+
+        } catch {
+
+            escrowMode = tonConfig.gameEscrowMode ?? null;
+
+        }
+
+        const network = this._resolveTonNetwork();
+
+        const adapterIdentity = this._deployAdapter?.constructor?.name
+            ?? "GameContractDeployAdapter";
+
         const snapshot = buildGameContractSnapshot({
             gameId: resolvedGameId,
             roomId,
@@ -462,8 +482,12 @@ export class GameContractManager {
             configuration,
             paymentRules: this._paymentRules ?? undefined,
             // R7.70C2.4 — freeze platform oracle into snapshot for StateInit.
-            oracleWallet: this._deployAdapter?._tonConfig?.oracleAddress
-                ?? null
+            oracleWallet: tonConfig.oracleAddress ?? null,
+            // R13.1H — freeze escrow lifecycle configuration at create.
+            escrowMode,
+            network,
+            adapterIdentity,
+            contractAddress: null
         });
 
         if (!snapshot) {
@@ -486,7 +510,7 @@ export class GameContractManager {
             snapshot,
             createdAt: null,
             updatedAt: now,
-            tonNetwork: this._resolveTonNetwork(),
+            tonNetwork: network,
             correlationId: correlationId ?? randomUUID(),
             snapshotHash: hashGameContractSnapshot(snapshot).toString("hex"),
             version: 1

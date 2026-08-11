@@ -1231,6 +1231,11 @@ export class PaymentSessionManager {
 
                 changed = true;
 
+                this._log(
+                    `AUTHORIZED_EMERGENCY_CANCEL | roomId=${session.roomId} | `
+                        + `source=GAME_ESCROW_CANCEL_SYNC | from=FULLY_PAID`
+                );
+
             } catch (error) {
 
                 this._logger?.warn?.(
@@ -1375,7 +1380,9 @@ export class PaymentSessionManager {
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
         this._log(
-            `CANCELLED | roomId=${roomId} | paymentSessionId=${session.paymentSessionId}`
+            `AUTHORIZED_EMERGENCY_CANCEL | roomId=${roomId} | `
+                + `paymentSessionId=${session.paymentSessionId} | `
+                + `source=GAME_ESCROW_CANCEL_CONFIRMED`
         );
 
     }
@@ -1417,6 +1424,11 @@ export class PaymentSessionManager {
         });
 
         this._lastConfirmationAt = Date.now();
+
+        this._sessionWalletStore?.lockFinancialWallet?.(
+            session.roomId,
+            participant.playerId
+        );
 
         this._emitDomain(EVENT_TYPES.PAYMENT_CONFIRMED, session, {
             playerId: participant.playerId,
@@ -1643,6 +1655,8 @@ export class PaymentSessionManager {
 
             this._lastConfirmationAt = Date.now();
 
+            this._sessionWalletStore?.lockFinancialWallet?.(roomId, playerId);
+
             this._persistSession(session, "update");
 
             this._emitDomain(EVENT_TYPES.PAYMENT_CONFIRMED, session, {
@@ -1659,13 +1673,33 @@ export class PaymentSessionManager {
 
     }
 
+    /**
+     * Player-initiated cancel (PAYMENT_CANCEL_INTENT).
+     * R13.1H — Never cancels FULLY_PAID / PAYMENT_CONFIRMED seats.
+     * Only resets SUBMITTED / BLOCKCHAIN_PENDING intent before confirmation.
+     */
     reportPlayerCancel(roomId, playerId) {
 
         this._assertInitialized();
 
         const session = this._sessionsByRoom.get(roomId);
 
-        if (!session || !session.isInProgress()) {
+        if (!session) {
+
+            return null;
+
+        }
+
+        // R13.1H — PLAYER_REQUEST_CANCEL forbidden after financial commitment.
+        if (
+            !session.isInProgress()
+            || session.status === PAYMENT_SESSION_STATUS.FULLY_PAID
+        ) {
+
+            this._log(
+                `PLAYER_CANCEL_FORBIDDEN | roomId=${roomId} | playerId=${playerId} | `
+                    + `sessionStatus=${session.status}`
+            );
 
             return null;
 
@@ -1674,6 +1708,17 @@ export class PaymentSessionManager {
         const participant = session.findParticipant(playerId);
 
         if (!participant) {
+
+            return null;
+
+        }
+
+        if (participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED) {
+
+            this._log(
+                `PLAYER_CANCEL_FORBIDDEN | roomId=${roomId} | playerId=${playerId} | `
+                    + `seat=PAYMENT_CONFIRMED`
+            );
 
             return null;
 

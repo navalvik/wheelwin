@@ -35,6 +35,9 @@ export class SessionWalletStore {
         // P6.1 legacy: roomId → Map(playerId → walletAddress)
         this._walletsByRoom = new Map();
 
+        // R13.1H — financial wallet locks after PAYMENT_CONFIRMED (roomId::playerId).
+        this._financialLockedKeys = new Set();
+
     }
 
     create(sessionInput) {
@@ -79,6 +82,21 @@ export class SessionWalletStore {
         const session = this.load(walletSessionId);
 
         const previousAddress = session.walletAddress;
+
+        if (
+            patch.walletAddress
+            && patch.walletAddress !== previousAddress
+            && this.isFinancialWalletLocked(session.roomId, session.playerId)
+        ) {
+
+            this._logError(
+                `WALLET_FINANCIALLY_LOCKED | refuse update | `
+                    + `roomId=${session.roomId} | playerId=${session.playerId}`
+            );
+
+            return session;
+
+        }
 
         if (patch.status && patch.status !== session.status) {
 
@@ -353,9 +371,82 @@ export class SessionWalletStore {
     // P6.1 legacy API (RoomLobbyBridge compatibility)
     // -------------------------------------------------------------------------
 
+    /**
+     * R13.1H — Lock the player's financial wallet after payment confirmation.
+     * Subsequent setWallet / address updates are rejected.
+     */
+    lockFinancialWallet(roomId, playerId) {
+
+        if (!roomId || !playerId) {
+
+            return false;
+
+        }
+
+        this._financialLockedKeys.add(this._financialLockKey(roomId, playerId));
+
+        const existing = this.findByPlayer(playerId, { roomId, activeOnly: true });
+
+        for (const session of existing) {
+
+            if (!session.walletLocked) {
+
+                try {
+
+                    this.update(session.walletSessionId, {
+                        walletLocked: true
+                    });
+
+                } catch {
+
+                    session.walletLocked = true;
+
+                }
+
+            }
+
+        }
+
+        return true;
+
+    }
+
+    isFinancialWalletLocked(roomId, playerId) {
+
+        if (!roomId || !playerId) {
+
+            return false;
+
+        }
+
+        return this._financialLockedKeys.has(
+            this._financialLockKey(roomId, playerId)
+        );
+
+    }
+
     setWallet(roomId, playerId, wallet) {
 
         if (!roomId || !playerId || typeof wallet !== "string") {
+
+            return false;
+
+        }
+
+        if (this.isFinancialWalletLocked(roomId, playerId)) {
+
+            const current = this.getWallet(roomId, playerId);
+
+            if (current && current === wallet) {
+
+                return true;
+
+            }
+
+            this._logError(
+                `WALLET_FINANCIALLY_LOCKED | refuse setWallet | `
+                    + `roomId=${roomId} | playerId=${playerId}`
+            );
 
             return false;
 
@@ -453,6 +544,16 @@ export class SessionWalletStore {
 
         this._walletsByRoom.delete(roomId);
 
+        for (const key of [...this._financialLockedKeys]) {
+
+            if (key.startsWith(`${roomId}::`)) {
+
+                this._financialLockedKeys.delete(key);
+
+            }
+
+        }
+
         const sessions = this.findByRoom(roomId, { activeOnly: false });
 
         for (const session of sessions) {
@@ -478,6 +579,14 @@ export class SessionWalletStore {
         this._sessionIdsByRoom.clear();
 
         this._sessionIdsByWallet.clear();
+
+        this._financialLockedKeys.clear();
+
+    }
+
+    _financialLockKey(roomId, playerId) {
+
+        return `${roomId}::${playerId}`;
 
     }
 

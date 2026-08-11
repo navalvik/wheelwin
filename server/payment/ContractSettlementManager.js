@@ -20,6 +20,7 @@ import {
 import { TON_FINANCIAL_RECORD_TYPES } from "../persistence/TonFinancialPersistence.js";
 import {
     GAME_ESCROW_MODE_GAME,
+    GAME_ESCROW_MODE_V4,
     resolveGameEscrowMode
 } from "./ton/buildGameEscrowStateInit.js";
 import { GAME_CONTRACT_ON_CHAIN_STATUS } from "./ton/gameContract/GameContractOpcodes.js";
@@ -150,6 +151,37 @@ export class ContractSettlementManager {
         this._handlers = [];
 
         this._initialized = false;
+
+    }
+
+    /**
+     * R13.1H — Prefer escrow mode frozen in the game financial snapshot.
+     */
+    _resolveEscrowMode(contract, request = null) {
+
+        const fromSnapshot = contract?.snapshot?.escrowMode;
+
+        if (
+            fromSnapshot === GAME_ESCROW_MODE_GAME
+            || fromSnapshot === GAME_ESCROW_MODE_V4
+        ) {
+
+            return fromSnapshot;
+
+        }
+
+        const fromRequest = request?.gameEscrowMode;
+
+        if (
+            fromRequest === GAME_ESCROW_MODE_GAME
+            || fromRequest === GAME_ESCROW_MODE_V4
+        ) {
+
+            return fromRequest;
+
+        }
+
+        return this._gameEscrowMode;
 
     }
 
@@ -969,7 +1001,7 @@ export class ContractSettlementManager {
 
         }
 
-        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+        if (this._resolveEscrowMode(ctx.contract, session.request) === GAME_ESCROW_MODE_GAME) {
 
             if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING) {
 
@@ -1058,7 +1090,7 @@ export class ContractSettlementManager {
             timestamp: session.startedAt ?? Date.now(),
             snapshot: contract.snapshot,
             snapshotHash: contract.snapshotHash ?? null,
-            gameEscrowMode: this._gameEscrowMode
+            gameEscrowMode: this._resolveEscrowMode(contract)
         });
 
         session.request = request;
@@ -1102,7 +1134,7 @@ export class ContractSettlementManager {
             ?? adapterResult.txHash
             ?? null;
 
-        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+        if (this._resolveEscrowMode(contract, request) === GAME_ESCROW_MODE_GAME) {
 
             if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING) {
 
@@ -1220,7 +1252,7 @@ export class ContractSettlementManager {
                     timestamp: session.startedAt ?? Date.now(),
                     snapshot: contract.snapshot,
                     snapshotHash: contract.snapshotHash ?? null,
-                    gameEscrowMode: this._gameEscrowMode
+                    gameEscrowMode: this._resolveEscrowMode(contract)
                 });
 
             }
@@ -1389,7 +1421,7 @@ export class ContractSettlementManager {
             timestamp: startedAt,
             snapshot: contract.snapshot,
             snapshotHash: contract.snapshotHash ?? null,
-            gameEscrowMode: this._gameEscrowMode
+            gameEscrowMode: this._resolveEscrowMode(contract)
         });
 
         const session = new SettlementSession({
@@ -1492,7 +1524,7 @@ export class ContractSettlementManager {
             timestamp: startedAt,
             snapshot: contract.snapshot,
             snapshotHash: contract.snapshotHash ?? null,
-            gameEscrowMode: this._gameEscrowMode
+            gameEscrowMode: this._resolveEscrowMode(contract)
         });
 
         session.request = request;
@@ -1538,7 +1570,7 @@ export class ContractSettlementManager {
             timestamp: startedAt,
             snapshot: contract.snapshot,
             snapshotHash: contract.snapshotHash ?? null,
-            gameEscrowMode: this._gameEscrowMode
+            gameEscrowMode: this._resolveEscrowMode(contract)
         });
 
         session.request = request;
@@ -1601,15 +1633,17 @@ export class ContractSettlementManager {
             timestamp: startedAt,
             snapshot: contract.snapshot,
             snapshotHash: contract.snapshotHash ?? null,
-            gameEscrowMode: this._gameEscrowMode
+            gameEscrowMode: this._resolveEscrowMode(contract)
         });
 
         session.request = request;
 
-        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+        const escrowMode = this._resolveEscrowMode(contract, request);
+
+        if (escrowMode === GAME_ESCROW_MODE_GAME) {
 
             setGameEscrowSettlementDebug({
-                mode: this._gameEscrowMode,
+                mode: escrowMode,
                 escrowAddress: contract.contractAddress,
                 winner: winnerWallet,
                 owner: ownerWallet,
@@ -1667,10 +1701,12 @@ export class ContractSettlementManager {
             ?? adapterResult.txHash
             ?? null;
 
-        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+        const escrowMode = this._resolveEscrowMode(contract, session.request);
+
+        if (escrowMode === GAME_ESCROW_MODE_GAME) {
 
             setGameEscrowSettlementDebug({
-                mode: this._gameEscrowMode,
+                mode: escrowMode,
                 escrowAddress: contract.contractAddress,
                 winner: winnerWallet,
                 owner: ownerWallet,
@@ -2104,7 +2140,14 @@ export class ContractSettlementManager {
         }
 
         // R7.66G — GameEscrow completion requires payout proofs, not deployer tx alone.
-        if (this._gameEscrowMode === GAME_ESCROW_MODE_GAME) {
+        const settleContract = this._gameContractManager
+            ?.getContractByGameId?.(gameId)
+            ?? null;
+
+        if (
+            this._resolveEscrowMode(settleContract, session.request)
+            === GAME_ESCROW_MODE_GAME
+        ) {
 
             this._log(
                 `SETTLEMENT tx seen (awaiting payouts) | gameId=${gameId} | `
@@ -2137,14 +2180,27 @@ export class ContractSettlementManager {
 
     _handleGameEscrowSettlementVerified(payload) {
 
-        if (this._gameEscrowMode !== GAME_ESCROW_MODE_GAME) {
+        const gameIdProbe = payload?.gameId
+            ?? this._resolveGameIdByContract(payload?.contractId);
+
+        const sessionProbe = gameIdProbe
+            ? this._byGameId.get(gameIdProbe)
+            : null;
+
+        const contractProbe = gameIdProbe
+            ? this._gameContractManager?.getContractByGameId?.(gameIdProbe)
+            : null;
+
+        if (
+            this._resolveEscrowMode(contractProbe, sessionProbe?.request)
+            !== GAME_ESCROW_MODE_GAME
+        ) {
 
             return;
 
         }
 
-        const gameId = payload?.gameId
-            ?? this._resolveGameIdByContract(payload?.contractId);
+        const gameId = gameIdProbe;
 
         if (!gameId) {
 
@@ -2199,14 +2255,27 @@ export class ContractSettlementManager {
 
     _handleGameEscrowSettlementRejected(payload) {
 
-        if (this._gameEscrowMode !== GAME_ESCROW_MODE_GAME) {
+        const gameIdProbe = payload?.gameId
+            ?? this._resolveGameIdByContract(payload?.contractId);
+
+        const sessionProbe = gameIdProbe
+            ? this._byGameId.get(gameIdProbe)
+            : null;
+
+        const contractProbe = gameIdProbe
+            ? this._gameContractManager?.getContractByGameId?.(gameIdProbe)
+            : null;
+
+        if (
+            this._resolveEscrowMode(contractProbe, sessionProbe?.request)
+            !== GAME_ESCROW_MODE_GAME
+        ) {
 
             return;
 
         }
 
-        const gameId = payload?.gameId
-            ?? this._resolveGameIdByContract(payload?.contractId);
+        const gameId = gameIdProbe;
 
         if (!gameId) {
 
