@@ -98,7 +98,7 @@ export function getPage6MountSnapshot() {
 /**
  * Classify the observed Page6 body / InfoBar footer combination.
  *
- * A — Page6 + TIME LEFT (healthy)
+ * A — Page6 + neutral footer (no lifetime countdown)
  * B — Page5 + RESULT / 00:00 (healthy Page5 RESULT phase)
  * C — Page6 body + RESULT footer (critical failure / split)
  * D — other / inconclusive
@@ -121,16 +121,26 @@ export function classifyPage6InfoBarCombination({
     const infoBarOnGameplayPage = infoBarCurrentPage === APP_PAGES.GAMEPLAY
         || infoBarCurrentPage === 7;
 
-    const timeLeftFooter = footerMode === "PAGE6_TIME_LEFT"
-        || /^TIME LEFT$/i.test(label)
+    const neutralPage6Footer = footerMode === "PAGE6_NEUTRAL"
+        || footerMode === "PAGE6_TIME_LEFT"
+        || (infoBarOnResultPage && label === "—" && value === "—");
+
+    const timeLeftFooter = /^TIME LEFT$/i.test(label)
         || /ОСТАЛОСЬ ВРЕМЕНИ/i.test(label);
 
     const resultFooter = footerMode === "PAGE5_RESULT_OR_GAMEPLAY"
         || /^RESULT$/i.test(label);
 
+    if (page6Mounted && neutralPage6Footer && infoBarOnResultPage && !timeLeftFooter) {
+
+        return "A_PAGE6_NEUTRAL";
+
+    }
+
+    // Legacy TIME LEFT on Page6 is still treated as Page6 (pre-R12.5H logs).
     if (page6Mounted && timeLeftFooter && infoBarOnResultPage) {
 
-        return "A_PAGE6_TIME_LEFT";
+        return "A_PAGE6_NEUTRAL";
 
     }
 

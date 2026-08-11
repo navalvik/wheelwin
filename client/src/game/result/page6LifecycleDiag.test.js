@@ -43,7 +43,7 @@ import { GAME_STATES } from "../GameState";
             onResultPage: true,
             onGameplayPage: true
         }),
-        "PAGE6_TIME_LEFT"
+        "PAGE6_NEUTRAL"
     );
 
     assert.equal(
@@ -90,7 +90,8 @@ import { GAME_STATES } from "../GameState";
 
     assert.equal(
         resolveGameplayRecoveryPage(expired, now),
-        APP_PAGES.WELCOME
+        APP_PAGES.RESULT,
+        "R12.5H: openPage6 + past expiresAt still restores Page6"
     );
 
     const page5 = normalizeSessionSnapshot({

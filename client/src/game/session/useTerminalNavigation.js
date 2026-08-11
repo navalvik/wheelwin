@@ -43,7 +43,7 @@ export function useTerminalNavigation({
                 sessionGeneration: sessionGenerationRef.current
             });
 
-            return;
+            return false;
 
         }
 
@@ -62,6 +62,8 @@ export function useTerminalNavigation({
         });
 
         performReset();
+
+        return true;
 
     }, [performReset]);
 

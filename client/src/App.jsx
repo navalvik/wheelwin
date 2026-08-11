@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useRef, useState } from "react";
 import { Routes, Route } from "react-router-dom";
 
 import Page1Welcome from "./pages/Page1Welcome";
@@ -25,6 +25,7 @@ import {
 } from "./config/devMode";
 import { APP_PAGES } from "./game/sessionRecovery/recoveryFlow";
 import { useTerminalNavigation } from "./game/session/useTerminalNavigation";
+import { page6LifecycleDiag } from "./game/result/page6LifecycleDiag";
 import { webPage6Diag } from "./game/result/webPage6StateDiag";
 import socket from "./socket/socket";
 import { LOBBY_OUTGOING_EVENTS } from "./socket/socketEvents";
@@ -39,6 +40,10 @@ function GameFlow() {
 
     // R6.4 / R6.5 — bumping remounts all session providers so reset matches a fresh launch.
     const [sessionGeneration, setSessionGeneration] = useState(0);
+
+    const currentPageRef = useRef(currentPage);
+
+    currentPageRef.current = currentPage;
 
     function navigate(page) {
 
@@ -80,11 +85,48 @@ function GameFlow() {
     });
 
     /**
-     * R6.4 / R7.70C20 — FINISH is per-player.
+     * R12.5H — SESSION_FINISHED must not auto-leave an already displayed Page6.
+     * FINISH is the only client Page6 → Page1 navigation action.
+     */
+    const handleSessionFinished = useCallback((event) => {
+
+        if (currentPageRef.current === APP_PAGES.RESULT) {
+
+            page6LifecycleDiag("SESSION_FINISHED_IGNORED_ON_PAGE6", {
+                reason: event,
+                currentPage: APP_PAGES.RESULT
+            });
+
+            webPage6Diag("SESSION_FINISHED_IGNORED_ON_PAGE6", {
+                reason: event,
+                currentPage: APP_PAGES.RESULT,
+                source: "App.handleSessionFinished"
+            });
+
+            return;
+
+        }
+
+        resetToWelcome(event);
+
+    }, [resetToWelcome]);
+
+    /**
+     * R6.4 / R7.70C20 / R12.5H — FINISH is per-player and idempotent.
      * Navigate this client to Page1 and detach from the room without
      * broadcasting SESSION_FINISHED to other players still on Page6.
+     * Does not wait for RESULT_SESSION_EXPIRED / SESSION_FINISHED.
      */
     function finishSession() {
+
+        page6LifecycleDiag("PAGE6_FINISH_CLICK", {
+            currentPage: currentPageRef.current
+        });
+
+        webPage6Diag("PAGE6_FINISH_CLICK", {
+            currentPage: currentPageRef.current,
+            source: "App.finishSession"
+        });
 
         try {
 
@@ -101,13 +143,31 @@ function GameFlow() {
 
         }
 
+        const navigated = resetToWelcome("PAGE6_FINISH");
+
+        if (!navigated) {
+
+            return;
+
+        }
+
         if (socket.connected) {
 
             socket.emit(LOBBY_OUTGOING_EVENTS.LEAVE_ROOM);
 
         }
 
-        resetToWelcome();
+        page6LifecycleDiag("PAGE6_FINISH_NAVIGATE", {
+            currentPageBefore: currentPageRef.current,
+            targetPage: APP_PAGES.WELCOME
+        });
+
+        webPage6Diag("PAGE6_FINISH_NAVIGATE", {
+            fromPage: currentPageRef.current,
+            toPage: APP_PAGES.WELCOME,
+            source: "App.finishSession",
+            reason: "PAGE6_FINISH"
+        });
 
     }
 
@@ -297,7 +357,7 @@ function GameFlow() {
 
                     <OpenPage5Navigator
                         onNavigate={navigate}
-                        onSessionFinished={resetToWelcome}
+                        onSessionFinished={handleSessionFinished}
                         onArmNewGameplaySession={armNewGameplaySession}
                     />
 

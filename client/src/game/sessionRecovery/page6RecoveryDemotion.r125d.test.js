@@ -48,8 +48,8 @@ const now = 8_000_000;
     });
 
     assert(
-        resolveGameplayRecoveryPage(expired, now) === APP_PAGES.WELCOME,
-        "expired Page6 recovery → WELCOME"
+        resolveGameplayRecoveryPage(expired, now) === APP_PAGES.RESULT,
+        "expired deadline still recovers Page6 (R12.5H FINISH-only exit)"
     );
 
 }

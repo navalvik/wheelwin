@@ -161,24 +161,24 @@ function assert(condition, message) {
         "TEST A: openPage6 + future expiresAt → Page6"
     );
 
-    // Test B — Expired Page6 recovery
+    // Test B — Expired deadline still recovers Page6 (FINISH exits, not timer)
     assert(
         resolveGameplayRecoveryPage({
             gameState: GAME_STATES.RESULT,
             gameResult: { winner: { id: "p1" } },
             openPage6: true,
             resultSessionExpiresAt: now - 1000
-        }, now) === APP_PAGES.WELCOME,
-        "TEST B: openPage6 + past expiresAt → Page1"
+        }, now) === APP_PAGES.RESULT,
+        "TEST B: openPage6 + past expiresAt → Page6 (R12.5H)"
     );
 
-    // openPage6 without live deadline → terminal (no invented duration)
+    // openPage6 without live deadline → still Page6 (no timer-driven exit)
     assert(
         resolveGameplayRecoveryPage({
             gameState: GAME_STATES.RESULT,
             openPage6: true
-        }, now) === APP_PAGES.WELCOME,
-        "openPage6 without expiresAt → Page1 (no invented deadline)"
+        }, now) === APP_PAGES.RESULT,
+        "openPage6 without expiresAt → Page6 (R12.5H)"
     );
 
     assert(
@@ -261,8 +261,8 @@ function assert(condition, message) {
     });
 
     assert(
-        resolveGameplayRecoveryPage(expiredNormalized) === APP_PAGES.WELCOME,
-        "normalized expired Page6 snapshot routes to Page1"
+        resolveGameplayRecoveryPage(expiredNormalized) === APP_PAGES.RESULT,
+        "normalized expired Page6 snapshot still routes to Page6 (R12.5H)"
     );
 
     const droppedShape = normalizeSessionSnapshot({

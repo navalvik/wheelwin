@@ -31,8 +31,8 @@ import { useTerminalNavigation } from "./useTerminalNavigation.js";
 
     assert.equal(
         shouldNavigateOnGameplayRoomClosed(APP_PAGES.RESULT, true),
-        true,
-        "page 8 + gameStarted → gameplay roomClosed"
+        false,
+        "R12.5H: page 8 must not auto-navigate on roomClosed"
     );
 
     assert.equal(
@@ -286,7 +286,7 @@ import { useTerminalNavigation } from "./useTerminalNavigation.js";
 
     handleRoomClosed();
 
-    assert.equal(terminalResetCount, 1, "page 8 roomClosed → resetToWelcome");
+    assert.equal(terminalResetCount, 0, "R12.5H: page 8 roomClosed must not resetToWelcome");
 
     currentPage = APP_PAGES.PAYMENT;
 

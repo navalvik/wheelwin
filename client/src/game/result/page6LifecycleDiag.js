@@ -102,7 +102,7 @@ export function classifyInfoBarFooterMode({
 
     if (onResultPage === true || currentPage === 8) {
 
-        return "PAGE6_TIME_LEFT";
+        return "PAGE6_NEUTRAL";
 
     }
 

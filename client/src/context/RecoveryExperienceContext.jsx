@@ -263,7 +263,8 @@ export function RecoveryExperienceProvider({
             }
         );
 
-        // R12.5C — expired Page6 Result Session → existing terminal reset.
+        // R12.5H — WELCOME from resolve is rare; keep terminal path for safety.
+        // Expired Result Session alone no longer forces Page6 → Page1.
         if (targetPage === APP_PAGES.WELCOME) {
 
             destroySession();
@@ -292,21 +293,25 @@ export function RecoveryExperienceProvider({
 
         }
 
-        // R12.5D — never demote live Page6 → Page5 while Result Session is alive.
+        // R12.5D / R12.5H — never demote an active Page6 → Page5.
+        // FINISH owns client exit; Result Session deadline is not a demotion trigger.
         let resolvedPage = targetPage;
 
         if (
             currentPage === APP_PAGES.RESULT
             && targetPage === APP_PAGES.GAMEPLAY
-            && Number.isFinite(snapshot.resultSessionExpiresAt)
-            && snapshot.resultSessionExpiresAt > Date.now()
         ) {
 
             resolvedPage = APP_PAGES.RESULT;
 
             recoveryTrace(
                 `blocked Page6 demotion | kept RESULT`
-                + ` | resultSessionExpiresAt=${snapshot.resultSessionExpiresAt}`,
+                + ` | openPage6=${snapshot.openPage6 === true}`
+                + ` | resultSessionExpiresAt=${
+                    Number.isFinite(snapshot.resultSessionExpiresAt)
+                        ? snapshot.resultSessionExpiresAt
+                        : "null"
+                }`,
                 {
                     roomId: snapshot.roomId ?? getIdentity().roomId,
                     playerId: snapshot.playerId ?? getIdentity().playerId

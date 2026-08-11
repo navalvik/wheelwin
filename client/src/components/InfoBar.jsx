@@ -20,10 +20,7 @@ import {
     resolveGameplayCountdown
 } from "../game/gameClock/gameClockView";
 
-import {
-    formatResultSessionClock,
-    remainingResultSessionSeconds
-} from "../game/result/resultSessionCountdown";
+import { remainingResultSessionSeconds } from "../game/result/resultSessionCountdown";
 
 import {
     classifyInfoBarFooterMode,
@@ -81,15 +78,18 @@ export default function InfoBar() {
         ? null
         : authoritative.setup?.expiresAt;
 
-    const resultExpiresAt = onResultPage
-        ? resultSessionExpiresAt
-        : null;
+    // R12.5H — Page6 has no lifetime countdown; do not tick from Result Session.
+    const resultExpiresAt = null;
 
     useEffect(() => {
 
-        const expiresAt = onResultPage
-            ? resultExpiresAt
-            : (onGameplayPage ? gameplayEndsAt : setupExpiresAt);
+        if (onResultPage) {
+
+            return undefined;
+
+        }
+
+        const expiresAt = onGameplayPage ? gameplayEndsAt : setupExpiresAt;
 
         if (!Number.isFinite(expiresAt)) {
 
@@ -109,8 +109,7 @@ export default function InfoBar() {
         onResultPage,
         onGameplayPage,
         gameplayEndsAt,
-        setupExpiresAt,
-        resultExpiresAt
+        setupExpiresAt
     ]);
 
     const roomIdDisplay = formatAuthoritativeRoomId(room.roomId) ?? "—";
@@ -135,12 +134,12 @@ export default function InfoBar() {
 
     if (onResultPage) {
 
-        // R12.5B — Page6 footer shows authoritative Result Session lifetime.
-        footerMode = "PAGE6_TIME_LEFT";
+        // R12.5H — Page6 exit is FINISH-only; no lifetime countdown UI.
+        footerMode = "PAGE6_NEUTRAL";
 
-        timerLabel = t("page.result.timeLeft");
+        timerLabel = "—";
 
-        timerValue = formatResultSessionClock(resultRemaining) ?? "—";
+        timerValue = "—";
 
     } else if (onGameplayPage) {
 

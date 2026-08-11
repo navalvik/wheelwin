@@ -7,7 +7,9 @@ export { shouldNavigateOnSetupSessionExpiry } from "./setupSessionExpiry.js";
 export const PAGE5_CONFIG_HYDRATION_GRACE_MS = 1500;
 
 /**
- * R12.2 — Post-game roomClosed backup for gameplay pages only.
+ * R12.2 / R12.5H — Post-game roomClosed backup for active Page5 only.
+ * Page6 exit is FINISH-only; Result Session expiry / roomClosed must not
+ * auto-navigate an already displayed Page6.
  * Requires authoritative gameStarted (preGameEnded) so pre-game closures
  * keep using setupSessionExpiry semantics.
  */
@@ -19,8 +21,7 @@ export function shouldNavigateOnGameplayRoomClosed(currentPage, gameStarted) {
 
     }
 
-    return currentPage === APP_PAGES.GAMEPLAY
-        || currentPage === APP_PAGES.RESULT;
+    return currentPage === APP_PAGES.GAMEPLAY;
 
 }
 
