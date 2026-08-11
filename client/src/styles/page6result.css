@@ -29,6 +29,16 @@
     color: #1c73d0;
 }
 
+/* R12.5A — compact Result Session lifetime display (observer only). */
+.page6__lifetime {
+
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+
+    color: #4b5563;
+}
+
 .page6__result {
 
     width: 100%;

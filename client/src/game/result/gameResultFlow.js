@@ -16,6 +16,7 @@ export const GAME_RESULT_ACTIONS = Object.freeze({
     AUTHORITATIVE_RESULT: "AUTHORITATIVE_RESULT",
     PAYMENT_STATUS: "PAYMENT_STATUS",
     AUDIT_STATUS: "AUDIT_STATUS",
+    RESULT_SESSION: "RESULT_SESSION",
     NAVIGATED: "NAVIGATED",
     RESET: "RESET"
 });
@@ -48,6 +49,8 @@ export const GAME_RESULT_INITIAL_STATE = Object.freeze({
     result: null,
     payment: null,
     audit: null,
+    // R12.5A — authoritative Page6 linger deadline (ResultSessionLifecycle).
+    resultSessionExpiresAt: null,
     navigated: false
 });
 
@@ -231,6 +234,35 @@ export function gameResultReducer(state, action) {
             }
 
             return { ...state, audit: view };
+
+        }
+
+        case GAME_RESULT_ACTIONS.RESULT_SESSION: {
+
+            const expiresAt = Number.isFinite(action.payload?.expiresAt)
+                ? action.payload.expiresAt
+                : null;
+
+            if (expiresAt === null) {
+
+                return state;
+
+            }
+
+            // Keep the earliest authoritative deadline for this session.
+            if (
+                Number.isFinite(state.resultSessionExpiresAt)
+                && state.resultSessionExpiresAt !== expiresAt
+            ) {
+
+                return state;
+
+            }
+
+            return {
+                ...state,
+                resultSessionExpiresAt: expiresAt
+            };
 
         }
 

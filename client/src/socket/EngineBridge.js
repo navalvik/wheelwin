@@ -295,6 +295,10 @@ export class EngineBridge {
             },
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE6]: (payload) => {
 
+                // R12.5A — store Result Session expiresAt before navigating so
+                // Page6 mounts with the authoritative deadline already available.
+                modules.gameResult?.onOpenPage6?.(payload);
+
                 modules.pageNavigation?.onOpenPage6?.(payload);
 
             },

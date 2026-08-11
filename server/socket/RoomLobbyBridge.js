@@ -5800,16 +5800,23 @@ export class RoomLobbyBridge {
 
         }
 
+        // R6.5 / R12.5A — start the authoritative Page6 linger first so the
+        // OPEN_PAGE6 socket payload can carry the same expiresAt clients display.
+        const resultSession = this._resultSessionLifecycle?.start(roomId, {
+            gameId: gameId ?? null
+        }) ?? null;
+
         this._deliverToRoom(
             roomId,
             LOBBY_SERVER_EVENTS.OPEN_PAGE6,
-            { roomId, gameId: gameId ?? null }
+            {
+                roomId,
+                gameId: gameId ?? null,
+                expiresAt: resultSession?.expiresAt ?? null,
+                startedAt: resultSession?.startedAt ?? null,
+                durationMs: resultSession?.durationMs ?? null
+            }
         );
-
-        // R6.5 — start the authoritative Page6 linger (FINISH or timeout).
-        this._resultSessionLifecycle?.start(roomId, {
-            gameId: gameId ?? null
-        });
 
     }
 

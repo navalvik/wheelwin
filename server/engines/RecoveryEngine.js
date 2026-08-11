@@ -18,6 +18,7 @@ export class RecoveryEngine {
         paymentEngine,
         resultActivation = null,
         preGameReadyActivation = null,
+        resultSessionLifecycle = null,
         metricsService = null
     }) {
 
@@ -44,6 +45,8 @@ export class RecoveryEngine {
         this._resultActivation = resultActivation;
 
         this._preGameReadyActivation = preGameReadyActivation;
+
+        this._resultSessionLifecycle = resultSessionLifecycle;
 
         this._metricsService = metricsService;
 
@@ -202,6 +205,7 @@ export class RecoveryEngine {
                 payment: sources.payment,
                 preGameReady: sources.preGameReady,
                 openPage6: sources.openPage6 === true,
+                resultSessionExpiresAt: sources.resultSessionExpiresAt ?? null,
                 recoveredAt: Date.now(),
                 metadata: {
                     traceSeed: sources.configuration.traceSeed,
@@ -352,6 +356,14 @@ export class RecoveryEngine {
 
         const input = this._buildInputSnapshot(gameId, configuration);
 
+        const roomId = configuration?.metadata?.roomId
+            ?? configuration?.roomId
+            ?? null;
+
+        const resultSession = roomId
+            ? this._resultSessionLifecycle?.getSession?.(roomId) ?? null
+            : null;
+
         return {
             configuration,
             gameState,
@@ -361,7 +373,11 @@ export class RecoveryEngine {
             winner: this._winnerEngine.getResult(gameId),
             payment: this._paymentEngine.getPayment(gameId),
             preGameReady: this._preGameReadyActivation?.getSnapshot(gameId) ?? null,
-            openPage6: this._resultActivation?.hasOpenedPage6(gameId) === true
+            openPage6: this._resultActivation?.hasOpenedPage6(gameId) === true,
+            // R12.5A — authoritative Page6 linger deadline for display/recovery.
+            resultSessionExpiresAt: Number.isFinite(resultSession?.expiresAt)
+                ? resultSession.expiresAt
+                : null
         };
 
     }

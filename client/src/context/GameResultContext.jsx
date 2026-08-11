@@ -16,6 +16,10 @@ import {
     shouldResetResult
 } from "../game/result/gameResultFlow";
 
+import { resolveResultSessionExpiresAt } from "../game/result/resultSessionCountdown";
+
+import { useRegisterEngineModule } from "./EngineBridgeContext";
+
 const GameResultContext = createContext(null);
 
 function devLog(message) {
@@ -76,6 +80,25 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
 
     }, []);
 
+    const publishResultSession = useCallback((payload) => {
+
+        const expiresAt = resolveResultSessionExpiresAt(payload);
+
+        if (expiresAt === null) {
+
+            return;
+
+        }
+
+        devLog(`RESULT_SESSION expiresAt=${expiresAt}`);
+
+        dispatch({
+            type: GAME_RESULT_ACTIONS.RESULT_SESSION,
+            payload: { expiresAt }
+        });
+
+    }, []);
+
     const applyRecoverySnapshot = useCallback((snapshot) => {
 
         if (snapshot?.gameResult) {
@@ -108,7 +131,19 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
 
         }
 
-    }, [publishAuthoritativeResult, publishPaymentStatus, publishAuditStatus]);
+        // R12.5A — restore authoritative Page6 linger deadline for countdown.
+        if (snapshot?.openPage6 === true || snapshot?.resultSessionExpiresAt) {
+
+            publishResultSession(snapshot);
+
+        }
+
+    }, [
+        publishAuthoritativeResult,
+        publishPaymentStatus,
+        publishAuditStatus,
+        publishResultSession
+    ]);
 
     // Clear a stale result whenever a fresh game begins (pre-gameplay pages).
     useEffect(() => {
@@ -121,6 +156,18 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
 
     }, [currentPage]);
 
+    // P5.9 / R12.5A — OPEN_PAGE6 stores Result Session expiresAt for display only.
+    useRegisterEngineModule("gameResult", () => ({
+        onOpenPage6: (payload) => {
+
+            publishResultSession(payload);
+
+        },
+        publishAuthoritativeResult,
+        publishPaymentStatus,
+        publishAuditStatus
+    }));
+
     // P5.9 — Page6 opens only via authoritative OPEN_PAGE6 (OpenPage5Navigator).
     // GAME_RESULT is stored for RESULT presentation on Page5; it does not navigate.
 
@@ -128,6 +175,7 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
         result: state.result,
         payment: state.payment,
         audit: state.audit,
+        resultSessionExpiresAt: state.resultSessionExpiresAt,
         hasResult: Boolean(state.result),
         publishAuthoritativeResult,
         publishPaymentStatus,
@@ -137,6 +185,7 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
         state.result,
         state.payment,
         state.audit,
+        state.resultSessionExpiresAt,
         publishAuthoritativeResult,
         publishPaymentStatus,
         publishAuditStatus,

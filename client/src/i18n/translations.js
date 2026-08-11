@@ -26,6 +26,7 @@ export const TRANSLATIONS = Object.freeze({
         "page.verify.title": "VERIFY",
         "page.payment.title": "PAYMENT",
         "page.result.title": "GAME FINISHED",
+        "page.result.closesIn": "Page closes in: {seconds}",
 
         "setup.yourLanguage": "YOUR LANGUAGE",
         "setup.nickname": "INPUT YOUR NICKNAME",
@@ -67,6 +68,7 @@ export const TRANSLATIONS = Object.freeze({
         "page.verify.title": "ПРОВЕРКА",
         "page.payment.title": "ОПЛАТА",
         "page.result.title": "ИГРА ЗАВЕРШЕНА",
+        "page.result.closesIn": "Страница закроется через: {seconds}",
 
         "setup.yourLanguage": "ВАШ ЯЗЫК",
         "setup.nickname": "ВВЕДИТЕ НИКНЕЙМ",

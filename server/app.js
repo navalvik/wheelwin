@@ -1098,6 +1098,7 @@ class WheelWinApplication {
             paymentEngine: this._engines.paymentEngine,
             resultActivation: this._resultActivation,
             preGameReadyActivation: this._preGameReadyActivation,
+            resultSessionLifecycle: this._resultSessionLifecycle,
             metricsService: this._metricsService
         });
 

@@ -15,6 +15,14 @@ assert.equal(getLanguageLabel("en"), "English");
 assert.equal(translate("en", "setup.yourLanguage"), "YOUR LANGUAGE");
 assert.equal(translate("ru", "setup.yourLanguage"), "ВАШ ЯЗЫК");
 assert.equal(
+    translate("en", "page.result.closesIn", { seconds: 5 }),
+    "Page closes in: 5"
+);
+assert.equal(
+    translate("ru", "page.result.closesIn", { seconds: 5 }),
+    "Страница закроется через: 5"
+);
+assert.equal(
     translate("ru", "setup.ageHint", { min: 18, max: 99 }),
     "Вам должно быть от 18 до 99 лет."
 );
