@@ -45,6 +45,9 @@ export const EVENT_TYPES = Object.freeze({
     // R6.5 — Authoritative signal that the completed session is fully closed.
     SESSION_FINISHED: "SESSION_FINISHED",
 
+    // R12.5G — Untrusted client Page6 / InfoBar diagnostic metadata only.
+    CLIENT_PAGE6_DIAGNOSTIC: "CLIENT_PAGE6_DIAGNOSTIC",
+
     GAME_FINISHED: "GAME_FINISHED",
     GAME_DESTROYED: "GAME_DESTROYED",
 

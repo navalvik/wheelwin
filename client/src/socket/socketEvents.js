@@ -87,5 +87,7 @@ export const LOBBY_OUTGOING_EVENTS = Object.freeze({
     /** R6.11E — forensic autopsy snapshot (does not affect handshake). */
     TONCONNECT_AUTOPSY_SNAPSHOT: "TONCONNECT_AUTOPSY_SNAPSHOT",
     PAYMENT_CONFIRM_INTENT: "PAYMENT_CONFIRM_INTENT",
-    PAYMENT_CANCEL_INTENT: "PAYMENT_CANCEL_INTENT"
+    PAYMENT_CANCEL_INTENT: "PAYMENT_CANCEL_INTENT",
+    /** R12.5G — observation-only Page6 / InfoBar client diagnostics. */
+    PAGE6_CLIENT_DIAG: "PAGE6_CLIENT_DIAG"
 });

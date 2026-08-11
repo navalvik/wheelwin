@@ -941,6 +941,61 @@ export class GameDiagnosticLogManager {
 
         });
 
+        track(EVENT_TYPES.CLIENT_PAGE6_DIAGNOSTIC, (envelope) => {
+
+            const payload = envelope.payload ?? {};
+
+            const roomId = payload.roomId
+                ?? this._resolveRoomId(payload);
+
+            if (!roomId) {
+
+                return;
+
+            }
+
+            this._append(
+                roomId,
+                "CLIENT_PAGE6",
+                `[R12.5G ClientDiag] ${payload.event ?? "UNKNOWN"}`,
+                {
+                    diagnosticSource: payload.diagnosticSource ?? "client",
+                    diagnosticVersion: payload.diagnosticVersion ?? "R12.5G",
+                    roomId,
+                    gameId: payload.gameId ?? null,
+                    playerId: payload.playerId ?? null,
+                    socketId: payload.socketId ?? null,
+                    clientType: payload.clientType ?? "unknown",
+                    currentPage: payload.currentPage ?? null,
+                    currentPageType: payload.currentPageType ?? null,
+                    timestamp: payload.timestamp ?? Date.now(),
+                    event: payload.event ?? null,
+                    footerMode: payload.footerMode ?? null,
+                    timerLabel: payload.timerLabel ?? null,
+                    timerValue: payload.timerValue ?? null,
+                    page6Mounted: payload.page6Mounted ?? null,
+                    page6DomPresent: payload.page6DomPresent ?? null,
+                    page6DomVisible: payload.page6DomVisible ?? null,
+                    page6HeadlineText: payload.page6HeadlineText ?? null,
+                    headerMessageText: payload.headerMessageText ?? null,
+                    infoBarPresent: payload.infoBarPresent ?? null,
+                    infoBarTimerLabelText: payload.infoBarTimerLabelText ?? null,
+                    infoBarTimerValueText: payload.infoBarTimerValueText ?? null,
+                    resultSessionExpiresAt: payload.resultSessionExpiresAt ?? null,
+                    remainingResultSessionSeconds:
+                        payload.remainingResultSessionSeconds ?? null,
+                    combination: payload.combination ?? null,
+                    socketConnected: payload.socketConnected ?? null,
+                    visibilityState: payload.visibilityState ?? null,
+                    recoveryDecision: payload.recoveryDecision ?? null,
+                    navigationTarget: payload.navigationTarget ?? null,
+                    source: payload.source ?? null,
+                    reason: payload.reason ?? null
+                }
+            );
+
+        });
+
         track(EVENT_TYPES.SESSION_FINISHED, (envelope) => {
 
             const roomId = envelope.payload?.roomId

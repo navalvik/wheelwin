@@ -22,6 +22,9 @@ import {
 } from "./gameplayRecoveryProtocol.js";
 import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
 import {
+    sanitizeIncomingPage6ClientDiag
+} from "../logging/page6ClientDiagSanitize.js";
+import {
     buildPhysicsSyncMessage
 } from "./gameplayPhysicsProtocol.js";
 import {
@@ -860,6 +863,13 @@ export class SocketGateway {
                 EVENT_TYPES.LOBBY_PAYMENT_CANCEL_INTENT_REQUEST,
                 { socketId: socket.id }
             );
+
+        });
+
+        // R12.5G — observation-only. Never mutates gameplay / navigation / payment.
+        socket.on(LOBBY_CLIENT_EVENTS.PAGE6_CLIENT_DIAG, (payload) => {
+
+            this._handlePage6ClientDiag(socket, payload);
 
         });
 
@@ -2061,6 +2071,54 @@ export class SocketGateway {
             );
 
         }
+
+    }
+
+    /**
+     * R12.5G — Accept untrusted client Page6 diagnostics and forward to EventBus
+     * / logger only. No gameplay, recovery, payment, or navigation side effects.
+     */
+    _handlePage6ClientDiag(socket, rawPayload) {
+
+        const bound = this._gameplayContextResolver?.resolve?.(socket?.id) ?? null;
+
+        const sanitized = sanitizeIncomingPage6ClientDiag(rawPayload, {
+            socketId: socket?.id ?? null,
+            boundRoomId: bound?.ok ? bound.roomId : null,
+            boundPlayerId: bound?.ok ? bound.playerId : null,
+            boundGameId: bound?.ok ? bound.gameId : null
+        });
+
+        page6LifecycleDiag(this._logger, "CLIENT_DIAG_RECEIVED", {
+            roomId: sanitized.roomId,
+            gameId: sanitized.gameId,
+            playerId: sanitized.playerId,
+            socketId: sanitized.socketId,
+            event: sanitized.event,
+            clientType: sanitized.clientType,
+            currentPage: sanitized.currentPage,
+            footerMode: sanitized.footerMode,
+            timerLabel: sanitized.timerLabel,
+            timerValue: sanitized.timerValue,
+            page6DomPresent: sanitized.page6DomPresent,
+            combination: sanitized.combination,
+            resultSessionExpiresAt: sanitized.resultSessionExpiresAt,
+            remainingResultSessionSeconds: sanitized.remainingResultSessionSeconds,
+            socketConnected: sanitized.socketConnected,
+            visibilityState: sanitized.visibilityState
+        });
+
+        if (!this._eventBus) {
+
+            return;
+
+        }
+
+        this._eventBus.emit({
+            source: EVENT_SOURCES.SOCKET_GATEWAY,
+            type: EVENT_TYPES.CLIENT_PAGE6_DIAGNOSTIC,
+            payload: sanitized
+        });
 
     }
 

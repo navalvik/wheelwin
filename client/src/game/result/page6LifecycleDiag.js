@@ -3,6 +3,8 @@
  * Observation only. Does not change navigation or countdown behavior.
  */
 
+import { forwardPage6ClientDiag } from "./page6ClientDiagForwarder.js";
+
 const PREFIX = "[R12.5E Page6]";
 
 const lastFingerprintByKey = new Map();
@@ -33,6 +35,16 @@ export function page6LifecycleDiag(event, fields = {}, options = {}) {
     lastFingerprintByKey.set(key, fingerprint);
 
     console.info(PREFIX, payload);
+
+    try {
+
+        forwardPage6ClientDiag(event, payload, { force: options.force === true });
+
+    } catch {
+
+        // Diagnostics must never throw into UI paths.
+
+    }
 
     return payload;
 

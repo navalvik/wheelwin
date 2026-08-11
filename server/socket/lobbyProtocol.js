@@ -18,7 +18,9 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     // P6.3 — player confirms the authoritative payment request (no chain yet).
     PAYMENT_CONFIRM_INTENT: "PAYMENT_CONFIRM_INTENT",
     // P6.5 — player cancelled Telegram Wallet payment confirmation.
-    PAYMENT_CANCEL_INTENT: "PAYMENT_CANCEL_INTENT"
+    PAYMENT_CANCEL_INTENT: "PAYMENT_CANCEL_INTENT",
+    // R12.5G — observation-only Page6 / InfoBar client diagnostics.
+    PAGE6_CLIENT_DIAG: "PAGE6_CLIENT_DIAG"
 });
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({
