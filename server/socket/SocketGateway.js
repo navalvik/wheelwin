@@ -17,7 +17,8 @@ import {
 import {
     buildClientRecoveryPayload,
     buildRecoveryFailedMessage,
-    buildRecoverySnapshotMessage
+    buildRecoverySnapshotMessage,
+    enrichPage6RecoveryFields
 } from "./gameplayRecoveryProtocol.js";
 import {
     buildPhysicsSyncMessage
@@ -64,6 +65,7 @@ export class SocketGateway {
         paymentEngine = null,
         auditEngine = null,
         roomLobbyBridge = null,
+        resultSessionLifecycle = null,
         devMode = false
     }) {
 
@@ -88,6 +90,8 @@ export class SocketGateway {
         this._auditEngine = auditEngine;
 
         this._roomLobbyBridge = roomLobbyBridge;
+
+        this._resultSessionLifecycle = resultSessionLifecycle;
 
         this._devMode = devMode;
 
@@ -641,7 +645,8 @@ export class SocketGateway {
         recoverySnapshotCache,
         paymentEngine,
         auditEngine,
-        roomLobbyBridge
+        roomLobbyBridge,
+        resultSessionLifecycle
     }) {
 
         if (recoveryEngine) {
@@ -671,6 +676,12 @@ export class SocketGateway {
         if (roomLobbyBridge) {
 
             this._roomLobbyBridge = roomLobbyBridge;
+
+        }
+
+        if (resultSessionLifecycle) {
+
+            this._resultSessionLifecycle = resultSessionLifecycle;
 
         }
 
@@ -1253,20 +1264,48 @@ export class SocketGateway {
 
         }
 
-        const clientPayload = buildClientRecoveryPayload({
-            snapshot: authoritativeSnapshot,
-            playerId,
-            roomId,
-            paymentStatus,
-            payment,
-            auditStatus
-        });
+        const cachedEntry = this._recoverySnapshotCache?.get(gameId) ?? null;
+
+        const resultSession = roomId
+            ? this._resultSessionLifecycle?.getSession?.(roomId) ?? null
+            : null;
+
+        const clientPayload = enrichPage6RecoveryFields(
+            buildClientRecoveryPayload({
+                snapshot: authoritativeSnapshot,
+                playerId,
+                roomId,
+                paymentStatus,
+                payment,
+                auditStatus
+            }),
+            {
+                resultSession,
+                page6Opened: cachedEntry?.page6Opened === true,
+                cachedResultSessionExpiresAt:
+                    cachedEntry?.resultSessionExpiresAt ?? null
+            }
+        );
 
         const { channel, message: responseMessage } = buildRecoverySnapshotMessage(
             clientPayload
         );
 
         socket.emit(channel, responseMessage);
+
+        this._logger.info(
+            `[R12.5D Recovery] Snapshot sent`
+            + ` | roomId=${roomId ?? "null"}`
+            + ` | gameId=${gameId ?? "null"}`
+            + ` | playerId=${playerId ?? "null"}`
+            + ` | gameState=${clientPayload.gameState ?? "?"}`
+            + ` | openPage6=${clientPayload.openPage6 === true}`
+            + ` | resultSessionExpiresAt=${
+                Number.isFinite(clientPayload.resultSessionExpiresAt)
+                    ? clientPayload.resultSessionExpiresAt
+                    : "null"
+            }`
+        );
 
         this._logRecoveryStep(
             `Snapshot sent | gameState=${clientPayload.gameState ?? "?"}`

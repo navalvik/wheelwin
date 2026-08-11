@@ -8,6 +8,11 @@ import { GAME_STATES } from "../engines/gameState/GameStates.js";
  * them with live payment status while settlement progresses. The cache survives
  * GameplayLifecycle teardown so reconnecting clients can still restore Page6.
  *
+ * R12.5D — RESULT-phase capture happens BEFORE OPEN_PAGE6, so the frozen
+ * snapshot has openPage6=false. On OPEN_PAGE6 we stamp page6Opened +
+ * resultSessionExpiresAt onto the cache entry so post-teardown recovery
+ * restores Page6 instead of Page5.
+ *
  * This module does not duplicate RecoveryEngine logic — it only stores the
  * frozen snapshots RecoveryEngine already builds.
  */
@@ -19,6 +24,7 @@ export class RecoverySnapshotCache {
         recoveryEngine,
         paymentEngine = null,
         auditEngine = null,
+        resultSessionLifecycle = null,
         devMode = false
     }) {
 
@@ -31,6 +37,8 @@ export class RecoverySnapshotCache {
         this._paymentEngine = paymentEngine;
 
         this._auditEngine = auditEngine;
+
+        this._resultSessionLifecycle = resultSessionLifecycle;
 
         this._devMode = devMode;
 
@@ -49,6 +57,15 @@ export class RecoverySnapshotCache {
             (envelope) => {
 
                 this._handleGameStateChanged(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.OPEN_PAGE6,
+            (envelope) => {
+
+                this._handleOpenPage6(envelope.payload);
 
             }
         );
@@ -147,6 +164,10 @@ export class RecoverySnapshotCache {
             capturedAt: entry.capturedAt ?? null,
             paymentStatus: entry.paymentStatus ?? null,
             auditStatus: entry.auditStatus ?? null,
+            page6Opened: entry.page6Opened === true,
+            resultSessionExpiresAt: Number.isFinite(entry.resultSessionExpiresAt)
+                ? entry.resultSessionExpiresAt
+                : null,
             hasSnapshot: entry.snapshot != null
         }));
 
@@ -171,6 +192,59 @@ export class RecoverySnapshotCache {
         }
 
         this._capture(gameId);
+
+    }
+
+    /**
+     * R12.5D — RESULT cache is taken before OPEN_PAGE6. Stamp Page6 authority
+     * onto the surviving cache entry so reconnect restores Page6.
+     */
+    _handleOpenPage6(payload) {
+
+        const gameId = payload?.gameId;
+
+        if (!gameId || !this._cache.has(gameId)) {
+
+            return;
+
+        }
+
+        const entry = this._cache.get(gameId);
+
+        entry.page6Opened = true;
+
+        // Defer so RoomLobbyBridge can start ResultSessionLifecycle first.
+        queueMicrotask(() => {
+
+            if (!this._cache.has(gameId)) {
+
+                return;
+
+            }
+
+            const live = this._cache.get(gameId);
+
+            const roomId = live.snapshot?.configuration?.metadata?.roomId
+                ?? live.snapshot?.configuration?.roomId
+                ?? payload?.roomId
+                ?? null;
+
+            const session = roomId
+                ? this._resultSessionLifecycle?.getSession?.(roomId) ?? null
+                : null;
+
+            if (Number.isFinite(session?.expiresAt)) {
+
+                live.resultSessionExpiresAt = session.expiresAt;
+
+            }
+
+            this._logStep(
+                `OPEN_PAGE6 stamped for ${gameId}`
+                + ` | expiresAt=${live.resultSessionExpiresAt ?? "null"}`
+            );
+
+        });
 
     }
 
@@ -214,11 +288,18 @@ export class RecoverySnapshotCache {
 
             const snapshot = this._recoveryEngine.buildRecoverySnapshot(gameId);
 
+            const previous = this._cache.get(gameId);
+
             this._cache.set(gameId, {
                 snapshot,
                 payment: this._paymentEngine?.getPayment(gameId) ?? null,
                 paymentStatus: this._resolvePaymentStatus(gameId),
                 auditStatus: this._resolveAuditStatus(gameId),
+                // Preserve Page6 stamp across late RESULT re-captures.
+                page6Opened: previous?.page6Opened === true,
+                resultSessionExpiresAt: Number.isFinite(previous?.resultSessionExpiresAt)
+                    ? previous.resultSessionExpiresAt
+                    : null,
                 capturedAt: Date.now()
             });
 

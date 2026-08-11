@@ -280,6 +280,53 @@ export function buildClientRecoveryPayload({
 
 }
 
+/**
+ * R12.5D — Overlay authoritative Page6 Result Session fields onto a recovery
+ * payload. RESULT-phase cache snapshots are captured before OPEN_PAGE6 and
+ * would otherwise restore Page5 after GameplayLifecycle teardown.
+ */
+export function enrichPage6RecoveryFields(payload, {
+    resultSession = null,
+    page6Opened = false,
+    cachedResultSessionExpiresAt = null
+} = {}) {
+
+    if (!payload || typeof payload !== "object") {
+
+        return payload;
+
+    }
+
+    const liveExpiresAt = Number.isFinite(resultSession?.expiresAt)
+        ? resultSession.expiresAt
+        : null;
+
+    const cachedExpiresAt = Number.isFinite(cachedResultSessionExpiresAt)
+        ? cachedResultSessionExpiresAt
+        : null;
+
+    const snapshotExpiresAt = Number.isFinite(payload.resultSessionExpiresAt)
+        ? payload.resultSessionExpiresAt
+        : null;
+
+    const resultSessionExpiresAt = liveExpiresAt
+        ?? cachedExpiresAt
+        ?? snapshotExpiresAt
+        ?? null;
+
+    const openPage6 = payload.openPage6 === true
+        || page6Opened === true
+        || resultSession != null
+        || Number.isFinite(resultSessionExpiresAt);
+
+    return {
+        ...payload,
+        openPage6,
+        resultSessionExpiresAt
+    };
+
+}
+
 export function buildRecoverySnapshotMessage(payload) {
 
     return {

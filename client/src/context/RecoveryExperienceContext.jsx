@@ -271,7 +271,30 @@ export function RecoveryExperienceProvider({
 
         }
 
-        if (targetPage === APP_PAGES.RESULT) {
+        // R12.5D — never demote live Page6 → Page5 while Result Session is alive.
+        let resolvedPage = targetPage;
+
+        if (
+            currentPage === APP_PAGES.RESULT
+            && targetPage === APP_PAGES.GAMEPLAY
+            && Number.isFinite(snapshot.resultSessionExpiresAt)
+            && snapshot.resultSessionExpiresAt > Date.now()
+        ) {
+
+            resolvedPage = APP_PAGES.RESULT;
+
+            recoveryTrace(
+                `blocked Page6 demotion | kept RESULT`
+                + ` | resultSessionExpiresAt=${snapshot.resultSessionExpiresAt}`,
+                {
+                    roomId: snapshot.roomId ?? getIdentity().roomId,
+                    playerId: snapshot.playerId ?? getIdentity().playerId
+                }
+            );
+
+        }
+
+        if (resolvedPage === APP_PAGES.RESULT) {
 
             applyRecoverySnapshot(snapshot);
 
@@ -295,7 +318,11 @@ export function RecoveryExperienceProvider({
 
         setStatus(RECOVERY_UI_STATUS.COMPLETE);
 
-        recoveryTrace("overlay COMPLETE", getIdentity());
+        recoveryTrace(
+            `overlay COMPLETE | navigatedPage=${resolvedPage}`
+            + ` | currentPageBefore=${currentPage}`,
+            getIdentity()
+        );
 
         devLog("Recovery complete");
 

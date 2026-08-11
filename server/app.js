@@ -1184,6 +1184,7 @@ class WheelWinApplication {
             recoveryEngine: this._recoveryEngine,
             paymentEngine: this._engines.paymentEngine,
             auditEngine: this._auditEngine,
+            resultSessionLifecycle: this._resultSessionLifecycle,
             devMode: this._productionConfig.isDevelopment
         });
 
@@ -1477,7 +1478,8 @@ class WheelWinApplication {
             recoverySnapshotCache: this._recoverySnapshotCache,
             paymentEngine: this._engines.paymentEngine,
             auditEngine: this._auditEngine,
-            roomLobbyBridge: this._roomLobbyBridge
+            roomLobbyBridge: this._roomLobbyBridge,
+            resultSessionLifecycle: this._resultSessionLifecycle
         });
 
         this._logger.startupLine("RoomLobbyBridge");

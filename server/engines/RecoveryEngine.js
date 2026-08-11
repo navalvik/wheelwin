@@ -373,7 +373,10 @@ export class RecoveryEngine {
             winner: this._winnerEngine.getResult(gameId),
             payment: this._paymentEngine.getPayment(gameId),
             preGameReady: this._preGameReadyActivation?.getSnapshot(gameId) ?? null,
-            openPage6: this._resultActivation?.hasOpenedPage6(gameId) === true,
+            // R12.5D — live Result Session proves OPEN_PAGE6 already occurred,
+            // even if ResultActivation.forgetGame cleared _page6Opened at teardown.
+            openPage6: this._resultActivation?.hasOpenedPage6(gameId) === true
+                || resultSession != null,
             // R12.5A — authoritative Page6 linger deadline for display/recovery.
             resultSessionExpiresAt: Number.isFinite(resultSession?.expiresAt)
                 ? resultSession.expiresAt
