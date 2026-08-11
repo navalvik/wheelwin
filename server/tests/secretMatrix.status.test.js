@@ -129,7 +129,12 @@ function fillRoom(stack) {
             CONNECTION_STATE.CONNECTED
         );
 
-        seats.push({ playerId, socketId });
+        const recoveryCredential = stack.roomLobbyBridge.issueRecoveryCredential(
+            playerId,
+            room.roomId
+        );
+
+        seats.push({ playerId, socketId, recoveryCredential });
 
     }
 
@@ -216,7 +221,11 @@ function collectStatus(eventBus, limit = 20) {
 
         const reclaimed = stack.roomLobbyBridge.reconnectGameplaySession(
             "sock-reclaimed",
-            { playerId: host.playerId, roomId }
+            {
+                playerId: host.playerId,
+                roomId,
+                recoveryCredential: host.recoveryCredential
+            }
         );
 
         assert(reclaimed.ok, "reclaim must succeed");
@@ -389,7 +398,11 @@ function collectStatus(eventBus, limit = 20) {
 
         const reclaimed = stack.roomLobbyBridge.reconnectGameplaySession(
             "sock-restore",
-            { playerId: seats[0].playerId, roomId }
+            {
+                playerId: seats[0].playerId,
+                roomId,
+                recoveryCredential: seats[0].recoveryCredential
+            }
         );
 
         assert(reclaimed.ok, "reclaim must succeed");

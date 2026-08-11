@@ -115,7 +115,12 @@ function seatPlayer(stack, { socketId, nickname = "P" }) {
 
     stack.playerManager.setConnectionState(playerId, CONNECTION_STATE.CONNECTED);
 
-    return { roomId: room.roomId, playerId };
+    const recoveryCredential = stack.roomLobbyBridge.issueRecoveryCredential(
+        playerId,
+        room.roomId
+    );
+
+    return { roomId: room.roomId, playerId, recoveryCredential };
 
 }
 
@@ -126,7 +131,7 @@ function seatPlayer(stack, { socketId, nickname = "P" }) {
 
     try {
 
-        const { roomId, playerId } = seatPlayer(stack, { socketId: "sock-a" });
+        const { roomId, playerId, recoveryCredential } = seatPlayer(stack, { socketId: "sock-a" });
 
         // Keep room at 3 seats so a single submit stays in the Map (not auto-accepted).
         for (const nick of ["P2", "P3"]) {
@@ -155,7 +160,7 @@ function seatPlayer(stack, { socketId, nickname = "P" }) {
 
         const reclaimed = stack.roomLobbyBridge.reconnectGameplaySession(
             "sock-b",
-            { playerId, roomId }
+            { playerId, roomId, recoveryCredential }
         );
 
         assert(reclaimed.ok, "reclaim must succeed");
@@ -323,7 +328,7 @@ function seatPlayer(stack, { socketId, nickname = "P" }) {
 
     try {
 
-        const { roomId, playerId } = seatPlayer(stack, { socketId: "sock-p4" });
+        const { roomId, playerId, recoveryCredential } = seatPlayer(stack, { socketId: "sock-p4" });
 
         assert(
             stack.setupSessionLifecycle.isRecoverable(roomId),
@@ -339,7 +344,7 @@ function seatPlayer(stack, { socketId, nickname = "P" }) {
 
         const reclaimed = stack.roomLobbyBridge.reconnectGameplaySession(
             "sock-p4b",
-            { playerId, roomId }
+            { playerId, roomId, recoveryCredential }
         );
 
         assert(reclaimed.ok, "page4 reclaim must succeed");
@@ -366,7 +371,7 @@ function seatPlayer(stack, { socketId, nickname = "P" }) {
 
     try {
 
-        const { roomId, playerId } = seatPlayer(stack, { socketId: "sock-g1" });
+        const { roomId, playerId, recoveryCredential } = seatPlayer(stack, { socketId: "sock-g1" });
 
         stack.roomLobbyBridge._startedRooms.add(roomId);
 
@@ -379,7 +384,7 @@ function seatPlayer(stack, { socketId, nickname = "P" }) {
 
         const reclaimed = stack.roomLobbyBridge.reconnectGameplaySession(
             "sock-g2",
-            { playerId, roomId }
+            { playerId, roomId, recoveryCredential }
         );
 
         assert(reclaimed.ok, "gameplay reclaim must succeed");

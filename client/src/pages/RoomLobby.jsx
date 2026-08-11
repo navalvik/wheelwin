@@ -36,7 +36,10 @@ export default function RoomLobby({
 
                 setIdentity({
                     roomId: data.roomId,
-                    playerId: data.playerId
+                    playerId: data.playerId,
+                    ...(data.recoveryCredential
+                        ? { recoveryCredential: data.recoveryCredential }
+                        : {})
                 });
 
             }
@@ -49,7 +52,10 @@ export default function RoomLobby({
 
                 setIdentity({
                     roomId: data.roomId,
-                    playerId: data.playerId
+                    playerId: data.playerId,
+                    ...(data.recoveryCredential
+                        ? { recoveryCredential: data.recoveryCredential }
+                        : {})
                 });
 
             }

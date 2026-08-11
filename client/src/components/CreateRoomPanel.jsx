@@ -51,7 +51,10 @@ export default function CreateRoomPanel({
 
                 setIdentity({
                     roomId: data.roomId,
-                    playerId: data.playerId
+                    playerId: data.playerId,
+                    ...(data.recoveryCredential
+                        ? { recoveryCredential: data.recoveryCredential }
+                        : {})
                 });
 
             }

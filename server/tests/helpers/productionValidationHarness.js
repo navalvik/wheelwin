@@ -401,6 +401,22 @@ export async function buildProductionStack() {
 
     const disconnectedSockets = new Map();
 
+    const recoveryCredentialsByPlayer = new Map();
+
+    const originalIssue = roomLobbyBridge.issueRecoveryCredential.bind(
+        roomLobbyBridge
+    );
+
+    roomLobbyBridge.issueRecoveryCredential = (playerId, roomId) => {
+
+        const credential = originalIssue(playerId, roomId);
+
+        recoveryCredentialsByPlayer.set(playerId, credential);
+
+        return credential;
+
+    };
+
     // Soft disconnect through the real lobby path (started room): sets the player
     // DISCONNECTED and emits PLAYER_DISCONNECTED, exactly as a dropped socket.
     function disconnect(playerId) {
@@ -417,8 +433,7 @@ export async function buildProductionStack() {
 
     }
 
-    // Real gameplay reconnect: identity is resolved server-side from stashed
-    // player ownership. A new socket id presents a playerId claim only.
+    // Real gameplay reconnect: identity requires playerId + recovery credential.
     function reconnect(playerId, roomId, socketId) {
 
         const previousSocketId = disconnectedSockets.get(playerId)
@@ -430,7 +445,12 @@ export async function buildProductionStack() {
 
         return roomLobbyBridge.reconnectGameplaySession(
             targetSocketId,
-            { playerId, roomId }
+            {
+                playerId,
+                roomId,
+                recoveryCredential: recoveryCredentialsByPlayer.get(playerId)
+                    ?? null
+            }
         );
 
     }

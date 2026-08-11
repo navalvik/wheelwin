@@ -208,7 +208,8 @@ export class SessionRecoveryEngine {
             {
                 timestamp: Date.now(),
                 playerId: identity.playerId ?? null,
-                roomId: identity.roomId ?? null
+                roomId: identity.roomId ?? null,
+                recoveryCredential: identity.recoveryCredential ?? null
             }
         );
 

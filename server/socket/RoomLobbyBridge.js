@@ -55,6 +55,9 @@ import {
 } from "./lobbyProtocol.js";
 
 import { SessionWalletStore } from "../session/SessionWalletStore.js";
+import {
+    RecoveryCredentialStore
+} from "../gameplay/RecoveryCredentialStore.js";
 
 export class RoomLobbyBridge {
 
@@ -154,6 +157,9 @@ export class RoomLobbyBridge {
         // R6.1 — Server-owned recovery identity keyed by persistent playerId.
         // New socket.id reclaim uses this map; client claim is only a lookup key.
         this._recoveryOwnershipByPlayer = new Map();
+
+        // R13.1E — per-player recovery credentials (hashed; plaintext never stored).
+        this._recoveryCredentials = new RecoveryCredentialStore();
 
         // R7.5A — sockets that requested reclaim but are not yet authoritative.
         this._pendingSockets = new Map();
@@ -648,6 +654,8 @@ export class RoomLobbyBridge {
 
         this._recoveryOwnershipByPlayer.clear();
 
+        this._recoveryCredentials.clear();
+
         this._pendingSockets.clear();
 
         this._obsoleteSockets.clear();
@@ -848,6 +856,11 @@ export class RoomLobbyBridge {
 
         this._roomCreators.set(room.roomId, playerId);
 
+        const recoveryCredential = this.issueRecoveryCredential(
+            playerId,
+            room.roomId
+        );
+
         this._logger.info(
             `Lobby room created | roomId=${room.roomId} | playerId=${playerId}`
         );
@@ -859,6 +872,7 @@ export class RoomLobbyBridge {
         const roomCreatedPayload = {
             roomId: roomSnapshot.roomId,
             playerId,
+            recoveryCredential,
             connectedPlayers: roomSnapshot.players.length,
             maxPlayers: roomSnapshot.maxPlayers,
             players: this._buildPlayerList(roomSnapshot)
@@ -1130,6 +1144,11 @@ export class RoomLobbyBridge {
 
         }
 
+        const recoveryCredential = this.issueRecoveryCredential(
+            playerId,
+            roomId
+        );
+
         this._logger.info(
             `Lobby room joined | roomId=${roomId} | playerId=${playerId}`
         );
@@ -1142,6 +1161,7 @@ export class RoomLobbyBridge {
             {
                 roomId: roomSnapshot.roomId,
                 playerId,
+                recoveryCredential,
                 connectedPlayers: roomSnapshot.players.length,
                 maxPlayers: roomSnapshot.maxPlayers,
                 players: this._buildPlayerList(roomSnapshot)
@@ -1549,9 +1569,38 @@ export class RoomLobbyBridge {
     }
 
     /**
+     * Issue a server-owned recovery credential for a player seat.
+     * Plaintext is returned once for private delivery to the owner socket.
+     */
+    issueRecoveryCredential(playerId, roomId) {
+
+        return this._recoveryCredentials.issue(playerId, roomId);
+
+    }
+
+    /**
+     * Validate a recovery credential before any seat rebind / soft transfer.
+     */
+    authorizeRecoveryCredential({
+        playerId = null,
+        roomId = null,
+        credential = null
+    } = {}) {
+
+        return this._recoveryCredentials.validate({
+            playerId,
+            roomId,
+            credential
+        });
+
+    }
+
+    /**
      * Rebind a socket for Setup Session or Game Session recovery.
      * Identity is resolved exclusively from server-owned recovery ownership.
      * Setup reconnect never restarts the timer / session.
+     *
+     * R13.1E — playerId claims require a valid recovery credential first.
      */
     reconnectSession(socketId, claim = null) {
 
@@ -1561,13 +1610,69 @@ export class RoomLobbyBridge {
             ? this.getRecoveryOwnershipDebug(claim.playerId).previousSocketId
             : null;
 
+        const credential = claim?.recoveryCredential
+            ?? claim?.recoveryToken
+            ?? null;
+
+        const credentialPresent = typeof credential === "string"
+            && credential.length > 0;
+
         this._logger.info(
             `[R6.2A Recovery] authorization begin`
             + ` | roomId=${claim?.roomId ?? "null"}`
             + ` | playerId=${claim?.playerId ?? "null"}`
             + ` | socket.id=${socketId ?? "null"}`
             + ` | previousSocket.id=${previousSocketId ?? "null"}`
+            + ` | credentialPresent=${credentialPresent}`
         );
+
+        if (claim?.playerId) {
+
+            const auth = this.authorizeRecoveryCredential({
+                playerId: claim.playerId,
+                roomId: claim.roomId ?? null,
+                credential
+            });
+
+            this._logger.info(
+                `[R13.1E Recovery] credential validation`
+                + ` | result=${auth.ok ? "pass" : "fail"}`
+                + ` | reason=${auth.ok ? "ok" : auth.reason}`
+                + ` | credentialPresent=${credentialPresent}`
+                + ` | requestedPlayerId=${claim.playerId}`
+                + ` | requestedRoomId=${claim.roomId ?? "null"}`
+                + ` | socket.id=${socketId ?? "null"}`
+            );
+
+            if (!auth.ok) {
+
+                this._denyRecoveryIdentity(
+                    "Recovery identity is not authorized for this socket",
+                    {
+                        playerId: claim.playerId,
+                        roomId: claim.roomId ?? null,
+                        socketId,
+                        authReason: auth.reason
+                    }
+                );
+
+                this._logger.info(
+                    `[R6.2A Recovery] reclaim failure`
+                    + ` | roomId=${claim?.roomId ?? "null"}`
+                    + ` | playerId=${claim?.playerId ?? "null"}`
+                    + ` | socket.id=${socketId ?? "null"}`
+                    + ` | previousSocket.id=${previousSocketId ?? "null"}`
+                    + ` | reason=${auth.reason}`
+                );
+
+                return {
+                    ok: false,
+                    reason: "Recovery identity is not authorized for this socket"
+                };
+
+            }
+
+        }
 
         const identity = this.resolveRecoveryIdentity(socketId, claim);
 
@@ -2904,6 +3009,8 @@ export class RoomLobbyBridge {
         this._clearWalletConnectionTimeout(roomId);
 
         const playerIds = [...room.players];
+
+        this._recoveryCredentials.invalidateRoom(roomId);
 
         this._resultSessionLifecycle?.cancel(roomId);
 
@@ -6617,6 +6724,8 @@ export class RoomLobbyBridge {
     _cleanupPlayer(playerId) {
 
         this._clearRecoveryOwnershipForPlayer(playerId);
+
+        this._recoveryCredentials.invalidate(playerId);
 
         this._playerManager.setConnectionState(
             playerId,

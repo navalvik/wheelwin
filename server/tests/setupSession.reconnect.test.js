@@ -109,6 +109,8 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
     stack.playerManager.setConnectionState(playerId, CONNECTION_STATE.CONNECTED);
 
+    return stack.roomLobbyBridge.issueRecoveryCredential(playerId, roomId);
+
 }
 
 // Scenario A/B — soft disconnect during ACTIVE Setup Session, reclaim on new socket.
@@ -128,7 +130,7 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
         stack.playerManager.updateRuntime(playerId, { roomId: room.roomId });
 
-        bindPlayer(stack, {
+        const recoveryCredential = bindPlayer(stack, {
             socketId: "socket-wifi",
             playerId,
             roomId: room.roomId
@@ -173,7 +175,7 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
         const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-lte",
-            { playerId, roomId: room.roomId }
+            { playerId, roomId: room.roomId, recoveryCredential }
         );
 
         assert(reconnected.ok, "new socket.id reclaim must succeed");
@@ -223,7 +225,7 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
         stack.playerManager.updateRuntime(playerId, { roomId });
 
-        bindPlayer(stack, { socketId: "socket-late", playerId, roomId });
+        const recoveryCredential = bindPlayer(stack, { socketId: "socket-late", playerId, roomId });
 
         stack.roomLobbyBridge._handleSocketDisconnected("socket-late");
 
@@ -237,7 +239,7 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
         const rejected = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-too-late",
-            { playerId, roomId }
+            { playerId, roomId, recoveryCredential }
         );
 
         assert(!rejected.ok, "recovery after expiry must be rejected");
@@ -263,6 +265,8 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
         const players = [];
 
+        const credentials = new Map();
+
         for (let index = 0; index < room.maxPlayers; index += 1) {
 
             const player = stack.playerManager.createPlayer({
@@ -277,11 +281,14 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
                 roomId: room.roomId
             });
 
-            bindPlayer(stack, {
-                socketId: `socket-${index}`,
-                playerId: player.identity.playerId,
-                roomId: room.roomId
-            });
+            credentials.set(
+                player.identity.playerId,
+                bindPlayer(stack, {
+                    socketId: `socket-${index}`,
+                    playerId: player.identity.playerId,
+                    roomId: room.roomId
+                })
+            );
 
         }
 
@@ -297,7 +304,11 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
         const reclaimed = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-0-new",
-            { playerId: seat, roomId: room.roomId }
+            {
+                playerId: seat,
+                roomId: room.roomId,
+                recoveryCredential: credentials.get(seat)
+            }
         );
 
         assert(reclaimed.ok, "original disconnected player may reclaim");
@@ -331,12 +342,12 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
         stack.playerManager.updateRuntime(playerId, { roomId });
 
-        bindPlayer(stack, { socketId: "socket-stale", playerId, roomId });
+        const recoveryCredential = bindPlayer(stack, { socketId: "socket-stale", playerId, roomId });
 
         // R7.5A — reclaim while old binding still present must atomically commit.
         const withoutPrep = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-new",
-            { playerId, roomId }
+            { playerId, roomId, recoveryCredential }
         );
 
         assert(

@@ -10,9 +10,10 @@ import {
 /**
  * Player identity for the active application session.
  *
- * R6.1 — Persists roomId/playerId in sessionStorage so a browser refresh during
- * an active Setup Session can present a reclaim claim. The server still owns
- * identity; the stored values are only a lookup key into soft-disconnect stash.
+ * R6.1 — Persists roomId/playerId/recoveryCredential in sessionStorage so a
+ * browser refresh during an active Setup Session can present a reclaim claim.
+ * The server still owns identity; the stored playerId is only a lookup key and
+ * R13.1E recoveryCredential is the ownership proof.
  */
 
 const PlayerIdentityContext = createContext(null);
@@ -24,7 +25,8 @@ const PAGE_STORAGE_KEY = "wheelwin.setupRecoveryPage";
 const EMPTY_IDENTITY = Object.freeze({
     roomId: null,
     playerId: null,
-    gameId: null
+    gameId: null,
+    recoveryCredential: null
 });
 
 function readStoredIdentity() {
@@ -56,7 +58,8 @@ function readStoredIdentity() {
         return {
             roomId: parsed.roomId,
             playerId: parsed.playerId,
-            gameId: parsed.gameId ?? null
+            gameId: parsed.gameId ?? null,
+            recoveryCredential: parsed.recoveryCredential ?? null
         };
 
     } catch {
@@ -92,7 +95,8 @@ function writeStoredIdentity(identity) {
             JSON.stringify({
                 roomId: identity.roomId,
                 playerId: identity.playerId,
-                gameId: identity.gameId ?? null
+                gameId: identity.gameId ?? null,
+                recoveryCredential: identity.recoveryCredential ?? null
             })
         );
 
@@ -240,7 +244,8 @@ export function usePlayerIdentityReader() {
     return context?.getIdentity ?? (() => ({
         roomId: null,
         playerId: null,
-        gameId: null
+        gameId: null,
+        recoveryCredential: null
     }));
 
 }

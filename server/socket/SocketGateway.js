@@ -1054,9 +1054,13 @@ export class SocketGateway {
 
         const claimRoomId = message?.payload?.roomId ?? null;
 
-        const recoveryToken = message?.payload?.recoveryToken
+        const recoveryCredential = message?.payload?.recoveryCredential
+            ?? message?.payload?.recoveryToken
             ?? message?.payload?.token
             ?? null;
+
+        const credentialPresent = typeof recoveryCredential === "string"
+            && recoveryCredential.length > 0;
 
         const ownershipDebug = this._roomLobbyBridge?.getRecoveryOwnershipDebug?.(
             claimPlayerId
@@ -1068,7 +1072,7 @@ export class SocketGateway {
             + ` | playerId=${claimPlayerId ?? "null"}`
             + ` | socket.id=${socket?.id ?? "null"}`
             + ` | previousSocket.id=${ownershipDebug?.previousSocketId ?? "null"}`
-            + ` | recoveryToken=${recoveryToken ?? "null"}`
+            + ` | credentialPresent=${credentialPresent}`
         );
 
         if (!socket?.connected) {
@@ -1127,9 +1131,43 @@ export class SocketGateway {
 
             }
 
+            // R13.1E — validate ownership before any prepare/rebind transfer.
+            if (claimPlayerId) {
+
+                const auth = this._roomLobbyBridge.authorizeRecoveryCredential({
+                    playerId: claimPlayerId,
+                    roomId: claimRoomId,
+                    credential: recoveryCredential
+                });
+
+                this._logger.info(
+                    `[R13.1E Recovery] credential validation`
+                    + ` | result=${auth.ok ? "pass" : "fail"}`
+                    + ` | reason=${auth.ok ? "ok" : auth.reason}`
+                    + ` | credentialPresent=${credentialPresent}`
+                    + ` | requestedPlayerId=${claimPlayerId}`
+                    + ` | requestedRoomId=${claimRoomId ?? "null"}`
+                    + ` | socket.id=${socket.id}`
+                );
+
+                if (!auth.ok) {
+
+                    this._sendRecoveryFailed(socket, {
+                        reason: "Recovery identity is not authorized for this socket",
+                        playerId: claimPlayerId,
+                        roomId: claimRoomId
+                    });
+
+                    return;
+
+                }
+
+            }
+
             const claim = {
                 playerId: claimPlayerId,
-                roomId: claimRoomId
+                roomId: claimRoomId,
+                recoveryCredential
             };
 
             const stalePrep = this._roomLobbyBridge.prepareRecoveryAuthorization?.(

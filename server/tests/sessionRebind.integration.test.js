@@ -128,6 +128,8 @@ function bindStartedPlayer(stack, {
         CONNECTION_STATE.CONNECTED
     );
 
+    return stack.roomLobbyBridge.issueRecoveryCredential(playerId, roomId);
+
 }
 
 function tryGameplayInput(stack, socketId, playerId) {
@@ -451,7 +453,7 @@ function tryGameplayInput(stack, socketId, playerId) {
 
         stack.playerManager.updateRuntime(playerId, { roomId: room.roomId });
 
-        bindStartedPlayer(stack, {
+        const recoveryCredential = bindStartedPlayer(stack, {
             socketId: "socket-old",
             playerId,
             roomId: room.roomId,
@@ -462,7 +464,7 @@ function tryGameplayInput(stack, socketId, playerId) {
 
         const refreshed = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-refresh",
-            { playerId, roomId: room.roomId }
+            { playerId, roomId: room.roomId, recoveryCredential }
         );
 
         assert(refreshed.ok, "refresh reconnect must succeed");
@@ -511,6 +513,11 @@ function tryGameplayInput(stack, socketId, playerId) {
 
         stack.roomLobbyBridge._attachSocketToRoom("socket-setup-a", room.roomId);
 
+        const recoveryCredential = stack.roomLobbyBridge.issueRecoveryCredential(
+            playerId,
+            room.roomId
+        );
+
         // Soft protect begins at Setup Session (createRoom attaches lifecycle).
         assert(
             stack.setupSessionLifecycle.isRecoverable(room.roomId),
@@ -531,7 +538,7 @@ function tryGameplayInput(stack, socketId, playerId) {
 
         const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-setup-b",
-            { playerId, roomId: room.roomId }
+            { playerId, roomId: room.roomId, recoveryCredential }
         );
 
         assert(reconnected.ok, "setup reconnect must succeed");
@@ -581,7 +588,7 @@ function tryGameplayInput(stack, socketId, playerId) {
 
         stack.playerManager.updateRuntime(playerId, { roomId: room.roomId });
 
-        bindStartedPlayer(stack, {
+        const recoveryCredential = bindStartedPlayer(stack, {
             socketId: "socket-a",
             playerId,
             roomId: room.roomId,
@@ -594,7 +601,7 @@ function tryGameplayInput(stack, socketId, playerId) {
 
         const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-a",
-            { playerId, roomId: room.roomId }
+            { playerId, roomId: room.roomId, recoveryCredential }
         );
 
         assert(reconnected.ok, "authorized reconnect must succeed");

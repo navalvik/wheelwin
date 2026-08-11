@@ -571,6 +571,11 @@ function activateGame(stack, gameId, playerIds) {
 
         stack.gameplayContextResolver.activateRoomGame(room.roomId, "game-recovery");
 
+        const recoveryCredential = stack.roomLobbyBridge.issueRecoveryCredential(
+            playerId,
+            room.roomId
+        );
+
         stack.roomLobbyBridge._handleSocketDisconnected("socket-a");
 
         assert(
@@ -580,7 +585,7 @@ function activateGame(stack, gameId, playerIds) {
 
         const reconnected = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-b",
-            { playerId, roomId: room.roomId }
+            { playerId, roomId: room.roomId, recoveryCredential }
         );
 
         assert(reconnected.ok, "gameplay reconnect should succeed");
@@ -626,6 +631,11 @@ function activateGame(stack, gameId, playerIds) {
 
         stack.roomLobbyBridge._startedRooms.add(room.roomId);
 
+        const recoveryCredential = stack.roomLobbyBridge.issueRecoveryCredential(
+            playerId,
+            room.roomId
+        );
+
         stack.roomLobbyBridge._handleSocketDisconnected("victim-socket");
 
         const forged = stack.roomLobbyBridge.reconnectGameplaySession(
@@ -647,9 +657,19 @@ function activateGame(stack, gameId, playerIds) {
             "a forged playerId claim must not invent recovery ownership"
         );
 
+        const playerIdOnly = stack.roomLobbyBridge.reconnectGameplaySession(
+            "attacker-socket",
+            { playerId, roomId: room.roomId }
+        );
+
+        assert(
+            !playerIdOnly.ok,
+            "known playerId without credential must not recover"
+        );
+
         const legitimate = stack.roomLobbyBridge.reconnectGameplaySession(
             "socket-new",
-            { playerId, roomId: room.roomId }
+            { playerId, roomId: room.roomId, recoveryCredential }
         );
 
         assert(

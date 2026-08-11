@@ -176,11 +176,15 @@ export function RecoveryExperienceProvider({
             payload: {
                 timestamp: Date.now(),
                 playerId: identity.playerId,
-                roomId: identity.roomId
+                roomId: identity.roomId,
+                recoveryCredential: identity.recoveryCredential ?? null
             }
         });
 
-        recoveryTrace("SESSION_RECOVERY_REQUEST sent", identity);
+        recoveryTrace("SESSION_RECOVERY_REQUEST sent", {
+            roomId: identity.roomId,
+            playerId: identity.playerId
+        });
 
     }, [getIdentity]);
 
