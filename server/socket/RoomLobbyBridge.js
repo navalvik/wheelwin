@@ -2598,8 +2598,11 @@ export class RoomLobbyBridge {
     }
 
     /**
-     * R6.5 — Single cleanup path for Page6 FINISH and Result Session timeout.
-     * Broadcasts SESSION_FINISHED while sockets are still joined, then closes.
+     * R6.5 / R12.5I — Authoritative Result Session / room cleanup path.
+     * Used when the server Result Session expires (or equivalent session end).
+     * Client Page6 FINISH navigates locally via LEAVE_ROOM and does not wait
+     * for this path. Broadcasts SESSION_FINISHED while sockets are still
+     * joined, then closes the room.
      */
     _finishResultSession(roomId, reason) {
 

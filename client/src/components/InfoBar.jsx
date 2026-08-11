@@ -78,9 +78,7 @@ export default function InfoBar() {
         ? null
         : authoritative.setup?.expiresAt;
 
-    // R12.5H — Page6 has no lifetime countdown; do not tick from Result Session.
-    const resultExpiresAt = null;
-
+    // R12.5H — Page6 has no lifetime countdown tick.
     useEffect(() => {
 
         if (onResultPage) {
@@ -124,7 +122,10 @@ export default function InfoBar() {
 
     const gameplayRemaining = resolveGameplayCountdown(clock);
 
-    const resultRemaining = remainingResultSessionSeconds(resultExpiresAt);
+    // Diagnostic-only remaining (not shown on Page6 after R12.5H).
+    const resultRemaining = onResultPage
+        ? remainingResultSessionSeconds(resultSessionExpiresAt)
+        : null;
 
     let timerLabel;
 

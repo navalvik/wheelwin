@@ -90,7 +90,7 @@ import {
             if (selector === ".infoBar") {
 
                 return {
-                    textContent: "ROOM ID\nX\nPLAYERS\n3\nTIME LEFT\n04:18",
+                    textContent: "ROOM ID\nX\nPLAYERS\n3\n—\n—",
                     querySelector(inner) {
 
                         if (inner === ".infoBarSection:last-child") {
@@ -100,13 +100,13 @@ import {
 
                                     if (child === ".infoBarTitle") {
 
-                                        return { textContent: "TIME LEFT" };
+                                        return { textContent: "—" };
 
                                     }
 
                                     if (child === ".infoBarValue") {
 
-                                        return { textContent: "04:18" };
+                                        return { textContent: "—" };
 
                                     }
 
@@ -134,8 +134,8 @@ import {
     assert.equal(snap.page6DomPresent, true);
     assert.equal(snap.page6HeadlineText, "GAME FINISHED");
     assert.equal(snap.infoBarPresent, true);
-    assert.equal(snap.infoBarTimerLabelText, "TIME LEFT");
-    assert.equal(snap.infoBarTimerValueText, "04:18");
+    assert.equal(snap.infoBarTimerLabelText, "—");
+    assert.equal(snap.infoBarTimerValueText, "—");
 
     console.log("  DOM snapshot capture: OK");
 
@@ -147,9 +147,9 @@ import {
         event: "INFOBAR_STATE",
         fields: {
             currentPage: 8,
-            footerMode: "PAGE6_TIME_LEFT",
-            selectedLabel: "TIME LEFT",
-            selectedValue: "04:18",
+            footerMode: "PAGE6_NEUTRAL",
+            selectedLabel: "—",
+            selectedValue: "—",
             wallet: "should-not-appear"
         },
         roomId: "ROOM1",

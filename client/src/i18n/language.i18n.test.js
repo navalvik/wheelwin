@@ -14,14 +14,8 @@ assert.equal(getLanguageLabel("ru"), "Русский");
 assert.equal(getLanguageLabel("en"), "English");
 assert.equal(translate("en", "setup.yourLanguage"), "YOUR LANGUAGE");
 assert.equal(translate("ru", "setup.yourLanguage"), "ВАШ ЯЗЫК");
-assert.equal(
-    translate("en", "page.result.timeLeft"),
-    "TIME LEFT"
-);
-assert.equal(
-    translate("ru", "page.result.timeLeft"),
-    "ОСТАЛОСЬ ВРЕМЕНИ"
-);
+assert.equal(translate("en", "page.result.title"), "GAME FINISHED");
+assert.equal(translate("ru", "page.result.title"), "ИГРА ЗАВЕРШЕНА");
 assert.equal(
     translate("ru", "setup.ageHint", { min: 18, max: 99 }),
     "Вам должно быть от 18 до 99 лет."

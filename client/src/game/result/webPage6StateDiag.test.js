@@ -33,18 +33,6 @@ import {
 
     assert.equal(
         classifyPage6InfoBarCombination({
-            page6Mounted: true,
-            infoBarCurrentPage: APP_PAGES.RESULT,
-            footerMode: "PAGE6_TIME_LEFT",
-            timerLabel: "TIME LEFT",
-            timerValue: "04:59"
-        }),
-        "A_PAGE6_NEUTRAL",
-        "Case A legacy: Page6 + TIME LEFT still classified as Page6"
-    );
-
-    assert.equal(
-        classifyPage6InfoBarCombination({
             page6Mounted: false,
             infoBarCurrentPage: APP_PAGES.GAMEPLAY,
             footerMode: "PAGE5_RESULT_OR_GAMEPLAY",

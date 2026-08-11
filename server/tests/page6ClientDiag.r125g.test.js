@@ -23,9 +23,9 @@ import { LoggerService } from "../services/LoggerService.js";
         roomId: "R1",
         playerId: "p1",
         currentPage: 8,
-        footerMode: "PAGE6_TIME_LEFT",
-        timerLabel: "TIME LEFT",
-        timerValue: "04:18",
+        footerMode: "PAGE6_NEUTRAL",
+        timerLabel: "—",
+        timerValue: "—",
         page6DomPresent: true,
         page6Mounted: true,
         wallet: "secret",
@@ -38,7 +38,7 @@ import { LoggerService } from "../services/LoggerService.js";
     assert.equal(sanitized.wallet, undefined);
     assert.equal(sanitized.accessToken, undefined);
     assert.equal(sanitized.page6DomPresent, true);
-    assert.equal(sanitized.timerLabel, "TIME LEFT");
+    assert.equal(sanitized.timerLabel, "—");
 
     console.log("  server sanitize: OK");
 
@@ -95,9 +95,9 @@ import { LoggerService } from "../services/LoggerService.js";
             roomId: "DIAGROOM1",
             playerId: "p1",
             currentPage: 8,
-            footerMode: "PAGE6_TIME_LEFT",
-            timerLabel: "TIME LEFT",
-            timerValue: "04:18",
+            footerMode: "PAGE6_NEUTRAL",
+            timerLabel: "—",
+            timerValue: "—",
             page6DomPresent: true,
             page6Mounted: true,
             resultSessionExpiresAt: Date.now() + 100000,
@@ -108,7 +108,7 @@ import { LoggerService } from "../services/LoggerService.js";
     const text = diagnostics.readLog("DIAGROOM1")?.toString("utf8") ?? "";
 
     assert.match(text, /\[R12\.5G ClientDiag\] INFOBAR_STATE/);
-    assert.match(text, /TIME LEFT/);
+    assert.match(text, /PAGE6_NEUTRAL/);
     assert.match(text, /page6DomPresent/);
 
     diagnostics.shutdown();

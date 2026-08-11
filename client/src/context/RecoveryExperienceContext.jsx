@@ -263,24 +263,8 @@ export function RecoveryExperienceProvider({
             }
         );
 
-        // R12.5H — WELCOME from resolve is rare; keep terminal path for safety.
-        // Expired Result Session alone no longer forces Page6 → Page1.
-        if (targetPage === APP_PAGES.WELCOME) {
-
-            destroySession();
-
-            clearIdentity();
-
-            resetToWelcomeRef.current?.("expired_page6_recovery");
-
-            setStatus(RECOVERY_UI_STATUS.COMPLETE);
-
-            scheduleOverlayHide();
-
-            return;
-
-        }
-
+        // R12.5H — openPage6 always resolves to RESULT; destroyed sessions
+        // use terminal recovery failure → Page1 (not timer-based WELCOME).
         if (!targetPage) {
 
             setStatus(RECOVERY_UI_STATUS.FAILED);

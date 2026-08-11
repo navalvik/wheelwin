@@ -122,23 +122,12 @@ export function classifyPage6InfoBarCombination({
         || infoBarCurrentPage === 7;
 
     const neutralPage6Footer = footerMode === "PAGE6_NEUTRAL"
-        || footerMode === "PAGE6_TIME_LEFT"
         || (infoBarOnResultPage && label === "—" && value === "—");
-
-    const timeLeftFooter = /^TIME LEFT$/i.test(label)
-        || /ОСТАЛОСЬ ВРЕМЕНИ/i.test(label);
 
     const resultFooter = footerMode === "PAGE5_RESULT_OR_GAMEPLAY"
         || /^RESULT$/i.test(label);
 
-    if (page6Mounted && neutralPage6Footer && infoBarOnResultPage && !timeLeftFooter) {
-
-        return "A_PAGE6_NEUTRAL";
-
-    }
-
-    // Legacy TIME LEFT on Page6 is still treated as Page6 (pre-R12.5H logs).
-    if (page6Mounted && timeLeftFooter && infoBarOnResultPage) {
+    if (page6Mounted && neutralPage6Footer && infoBarOnResultPage) {
 
         return "A_PAGE6_NEUTRAL";
 

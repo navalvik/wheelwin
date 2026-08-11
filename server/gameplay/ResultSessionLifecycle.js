@@ -5,11 +5,12 @@ import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
 const DEFAULT_RESULT_SESSION_DURATION_MS = 5 * 60 * 1000;
 
 /**
- * R6.5 — Result Session wall-clock after OPEN_PAGE6.
+ * R6.5 / R12.5I — Result Session wall-clock after OPEN_PAGE6.
  *
- * Owns the five-minute linger on Page6. Manual FINISH and automatic expiry
- * share the same RoomLobbyBridge finish path; this class only schedules and
- * emits RESULT_SESSION_EXPIRED. Does not destroy rooms or touch gameplay.
+ * Owns the authoritative server linger for room/session cleanup after Page6
+ * opens. Emits RESULT_SESSION_EXPIRED when the deadline elapses.
+ * Does not drive client Page6 → Page1 navigation (FINISH owns that).
+ * Does not destroy rooms itself — RoomLobbyBridge handles finish/close.
  */
 export class ResultSessionLifecycle {
 

@@ -1,10 +1,9 @@
 /**
- * R12.5A / R12.5B — Page6 Result Session countdown (display-only).
+ * R12.5A / R12.5I — Result Session deadline helpers (no Page6 UI countdown).
  */
 import assert from "node:assert/strict";
 
 import {
-    formatResultSessionClock,
     remainingResultSessionSeconds,
     resolveResultSessionExpiresAt
 } from "./resultSessionCountdown.js";
@@ -49,35 +48,6 @@ import {
     );
 
     console.log("  remainingResultSessionSeconds: OK");
-}
-
-{
-    assert.equal(formatResultSessionClock(299), "04:59");
-    assert.equal(formatResultSessionClock(180), "03:00");
-    assert.equal(formatResultSessionClock(61), "01:01");
-    assert.equal(formatResultSessionClock(1), "00:01");
-    assert.equal(formatResultSessionClock(0), "00:00");
-    assert.equal(formatResultSessionClock(-5), "00:00", "never negative clock");
-    assert.equal(formatResultSessionClock(null), null);
-
-    const now = 1_000_000;
-    const fiveMinAhead = now + (5 * 60 * 1000);
-
-    assert.equal(
-        formatResultSessionClock(
-            remainingResultSessionSeconds(fiveMinAhead, now)
-        ),
-        "05:00"
-    );
-
-    assert.equal(
-        formatResultSessionClock(
-            remainingResultSessionSeconds(fiveMinAhead, now + 1000)
-        ),
-        "04:59"
-    );
-
-    console.log("  formatResultSessionClock MM:SS: OK");
 }
 
 {
@@ -158,14 +128,6 @@ import {
         remainingResultSessionSeconds(expiresAt, remountNow),
         180,
         "remount recalculates remaining from absolute deadline"
-    );
-
-    assert.equal(
-        formatResultSessionClock(
-            remainingResultSessionSeconds(expiresAt, remountNow)
-        ),
-        "03:00",
-        "remount shows remaining MM:SS not full 05:00"
     );
 
     console.log("  remount does not restart lifetime: OK");
