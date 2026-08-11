@@ -4,6 +4,7 @@ import {
     logPaymentTransitionGate
 } from "../diagnostics/PaymentTransitionForensics.js";
 import { registerSetupStoragePaymentReady } from "../diagnostics/SetupSessionStorageForensics.js";
+import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { ICONS } from "../catalog/Icons.js";
@@ -2629,6 +2630,17 @@ export class RoomLobbyBridge {
         const activeSession = this._resultSessionLifecycle?.getSession(roomId);
 
         const gameId = activeSession?.gameId ?? null;
+
+        page6LifecycleDiag(this._logger, "FINISH_RESULT_SESSION", {
+            roomId,
+            gameId,
+            reason: reason ?? "result_session_finished",
+            resultSessionExpiresAt: Number.isFinite(activeSession?.expiresAt)
+                ? activeSession.expiresAt
+                : null,
+            serverNow: Date.now(),
+            roomPlayerCount: room.players?.length ?? 0
+        });
 
         this._resultSessionLifecycle?.cancel(roomId);
 
@@ -5805,6 +5817,16 @@ export class RoomLobbyBridge {
         const resultSession = this._resultSessionLifecycle?.start(roomId, {
             gameId: gameId ?? null
         }) ?? null;
+
+        page6LifecycleDiag(this._logger, "OPEN_PAGE6_DELIVER", {
+            roomId,
+            gameId: gameId ?? null,
+            openPage6: true,
+            resultSessionExpiresAt: resultSession?.expiresAt ?? null,
+            startedAt: resultSession?.startedAt ?? null,
+            durationMs: resultSession?.durationMs ?? null,
+            serverNow: Date.now()
+        });
 
         this._deliverToRoom(
             roomId,

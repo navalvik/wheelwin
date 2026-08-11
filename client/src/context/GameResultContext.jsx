@@ -18,7 +18,11 @@ import {
 
 import { resolveResultSessionExpiresAt } from "../game/result/resultSessionCountdown";
 
+import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
+
 import { useRegisterEngineModule } from "./EngineBridgeContext";
+
+import socket from "../socket/socket";
 
 const GameResultContext = createContext(null);
 
@@ -86,11 +90,27 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
 
         if (expiresAt === null) {
 
+            page6LifecycleDiag("RESULT_SESSION_STORE_SKIPPED", {
+                reason: "expiresAt_null",
+                openPage6: payload?.openPage6 === true,
+                socketConnected: socket.connected === true
+            }, { key: "RESULT_SESSION_STORE" });
+
             return;
 
         }
 
         devLog(`RESULT_SESSION expiresAt=${expiresAt}`);
+
+        page6LifecycleDiag("RESULT_SESSION_STORE", {
+            resultSessionExpiresAt: expiresAt,
+            remainingMs: expiresAt - Date.now(),
+            openPage6: payload?.openPage6 === true,
+            source: payload?.expiresAt != null
+                ? "expiresAt"
+                : "resultSessionExpiresAt",
+            socketConnected: socket.connected === true
+        }, { key: "RESULT_SESSION_STORE" });
 
         dispatch({
             type: GAME_RESULT_ACTIONS.RESULT_SESSION,
@@ -134,7 +154,32 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
         // R12.5A — restore authoritative Page6 linger deadline for countdown.
         if (snapshot?.openPage6 === true || snapshot?.resultSessionExpiresAt) {
 
+            page6LifecycleDiag("RECOVERY_APPLY_RESULT_SESSION", {
+                roomId: snapshot.roomId ?? null,
+                gameId: snapshot.gameId ?? null,
+                playerId: snapshot.playerId ?? null,
+                openPage6: snapshot.openPage6 === true,
+                resultSessionExpiresAt: Number.isFinite(snapshot.resultSessionExpiresAt)
+                    ? snapshot.resultSessionExpiresAt
+                    : null,
+                remainingMs: Number.isFinite(snapshot.resultSessionExpiresAt)
+                    ? snapshot.resultSessionExpiresAt - Date.now()
+                    : null,
+                socketConnected: socket.connected === true
+            });
+
             publishResultSession(snapshot);
+
+        } else {
+
+            page6LifecycleDiag("RECOVERY_APPLY_NO_RESULT_SESSION", {
+                roomId: snapshot?.roomId ?? null,
+                gameId: snapshot?.gameId ?? null,
+                playerId: snapshot?.playerId ?? null,
+                openPage6: snapshot?.openPage6 === true,
+                gameState: snapshot?.gameState ?? null,
+                socketConnected: socket.connected === true
+            });
 
         }
 

@@ -1,5 +1,6 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
 
 const DEFAULT_RESULT_SESSION_DURATION_MS = 5 * 60 * 1000;
 
@@ -112,6 +113,15 @@ export class ResultSessionLifecycle {
 
         this._scheduleExpiry(session);
 
+        page6LifecycleDiag(this._logger, "RESULT_SESSION_STARTED", {
+            roomId,
+            gameId: gameId ?? null,
+            startedAt: session.startedAt,
+            resultSessionExpiresAt: session.expiresAt,
+            durationMs: this._durationMs,
+            serverNow: Date.now()
+        });
+
         this._log(
             `STARTED | roomId=${roomId} | gameId=${gameId ?? "—"} | durationMs=${this._durationMs}`
         );
@@ -188,6 +198,15 @@ export class ResultSessionLifecycle {
         }
 
         this._sessions.delete(roomId);
+
+        page6LifecycleDiag(this._logger, "RESULT_SESSION_EXPIRED", {
+            roomId,
+            gameId: session.gameId ?? null,
+            startedAt: session.startedAt,
+            resultSessionExpiresAt: session.expiresAt,
+            serverNow: Date.now(),
+            reason: "result_session_expired"
+        });
 
         this._log(`EXPIRED | roomId=${roomId} | gameId=${session.gameId ?? "—"}`);
 

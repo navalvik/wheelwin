@@ -913,6 +913,34 @@ export class GameDiagnosticLogManager {
 
         });
 
+        track(EVENT_TYPES.OPEN_PAGE6, (envelope) => {
+
+            const roomId = this._resolveRoomId(envelope.payload);
+
+            this._append(roomId, "GAMEPLAY", "OPEN_PAGE6", {
+                gameId: envelope.payload?.gameId ?? null,
+                roomId,
+                timestamp: envelope.payload?.timestamp ?? Date.now()
+            });
+
+        });
+
+        track(EVENT_TYPES.RESULT_SESSION_EXPIRED, (envelope) => {
+
+            const roomId = envelope.payload?.roomId
+                ?? this._resolveRoomId(envelope.payload);
+
+            this._append(roomId, "GAMEPLAY", "RESULT_SESSION_EXPIRED", {
+                roomId,
+                gameId: envelope.payload?.gameId ?? null,
+                reason: envelope.payload?.reason ?? null,
+                expiresAt: envelope.payload?.expiresAt ?? null,
+                startedAt: envelope.payload?.startedAt ?? null,
+                timestamp: envelope.payload?.timestamp ?? Date.now()
+            });
+
+        });
+
         track(EVENT_TYPES.SESSION_FINISHED, (envelope) => {
 
             const roomId = envelope.payload?.roomId

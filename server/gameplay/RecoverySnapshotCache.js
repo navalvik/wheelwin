@@ -1,5 +1,6 @@
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
+import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
 
 /**
  * C4.3 — Recovery snapshot cache.
@@ -238,6 +239,17 @@ export class RecoverySnapshotCache {
                 live.resultSessionExpiresAt = session.expiresAt;
 
             }
+
+            page6LifecycleDiag(this._logger, "RECOVERY_CACHE_OPEN_PAGE6_STAMP", {
+                gameId,
+                roomId,
+                page6Opened: live.page6Opened === true,
+                resultSessionExpiresAt: Number.isFinite(live.resultSessionExpiresAt)
+                    ? live.resultSessionExpiresAt
+                    : null,
+                hasSnapshot: live.snapshot != null,
+                serverNow: Date.now()
+            });
 
             this._logStep(
                 `OPEN_PAGE6 stamped for ${gameId}`

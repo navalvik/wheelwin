@@ -15,6 +15,8 @@ import { shouldNavigateOnSetupSessionExpiry } from "../game/session/setupSession
 
 import { shouldNavigateOnGameplayRoomClosed } from "../game/session/gameplayTerminal";
 
+import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
+
 import { INCOMING_SOCKET_EVENTS } from "../socket/socketEvents";
 
 import socket from "../socket/socket";
@@ -196,7 +198,19 @@ export function GameSessionProvider({
 
         }
 
-        function handleRoomClosed() {
+        function handleRoomClosed(payload) {
+
+            page6LifecycleDiag("CLIENT_ROOM_CLOSED_RECEIVED", {
+                roomId: payload?.roomId ?? null,
+                reason: payload?.reason ?? null,
+                currentPage: currentPageRef.current,
+                gameStarted: preGameEndedRef.current === true,
+                socketConnected: socket.connected === true,
+                willUseGameplayTerminal: shouldNavigateOnGameplayRoomClosed(
+                    currentPageRef.current,
+                    preGameEndedRef.current
+                )
+            });
 
             if (shouldNavigateOnGameplayRoomClosed(
                 currentPageRef.current,

@@ -2,7 +2,11 @@ import { useEffect, useRef } from "react";
 
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 
+import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
+
 import { useRegisterEngineModule } from "../context/EngineBridgeContext";
+
+import socket from "../socket/socket";
 
 /**
  * R1.3D / P5.9 / R5.19 / R6.5 — Clients open Page5 / Page6 and finish sessions
@@ -58,13 +62,28 @@ export default function OpenPage5Navigator({
 
                 onArmNewGameplaySessionRef.current?.();
 
+                page6LifecycleDiag("NAV_OPEN_PAGE5", {
+                    targetPage: APP_PAGES.GAMEPLAY,
+                    socketConnected: socket.connected === true
+                });
+
                 onNavigateRef.current?.(APP_PAGES.GAMEPLAY);
 
             },
-            onOpenPage6: () => {
+            onOpenPage6: (payload) => {
 
                 // R5.19 — navigate exactly once for the live end-of-game path.
                 if (openedPage6Ref.current) {
+
+                    page6LifecycleDiag("NAV_OPEN_PAGE6_SKIPPED", {
+                        reason: "already_opened",
+                        roomId: payload?.roomId ?? null,
+                        gameId: payload?.gameId ?? null,
+                        resultSessionExpiresAt: Number.isFinite(payload?.expiresAt)
+                            ? payload.expiresAt
+                            : null,
+                        socketConnected: socket.connected === true
+                    });
 
                     return;
 
@@ -72,10 +91,32 @@ export default function OpenPage5Navigator({
 
                 openedPage6Ref.current = true;
 
+                page6LifecycleDiag("NAV_OPEN_PAGE6", {
+                    targetPage: APP_PAGES.RESULT,
+                    roomId: payload?.roomId ?? null,
+                    gameId: payload?.gameId ?? null,
+                    resultSessionExpiresAt: Number.isFinite(payload?.expiresAt)
+                        ? payload.expiresAt
+                        : null,
+                    remainingMs: Number.isFinite(payload?.expiresAt)
+                        ? payload.expiresAt - Date.now()
+                        : null,
+                    socketConnected: socket.connected === true
+                });
+
                 onNavigateRef.current?.(APP_PAGES.RESULT);
 
             },
             onSessionFinished: (payload) => {
+
+                page6LifecycleDiag("CLIENT_SESSION_FINISHED_RECEIVED", {
+                    roomId: payload?.roomId ?? null,
+                    gameId: payload?.gameId ?? null,
+                    reason: payload?.reason ?? null,
+                    socketConnected: socket.connected === true,
+                    willInvokeResetToWelcome: typeof onSessionFinishedRef.current
+                        === "function"
+                });
 
                 onSessionFinishedRef.current?.("SESSION_FINISHED", payload);
 

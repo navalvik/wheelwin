@@ -20,6 +20,7 @@ import {
     buildRecoverySnapshotMessage,
     enrichPage6RecoveryFields
 } from "./gameplayRecoveryProtocol.js";
+import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
 import {
     buildPhysicsSyncMessage
 } from "./gameplayPhysicsProtocol.js";
@@ -2011,6 +2012,48 @@ export class SocketGateway {
         }
 
         if (delivery.target === "room") {
+
+            const roomId = delivery.roomId;
+
+            const eventName = delivery.event;
+
+            if (
+                eventName === "SESSION_FINISHED"
+                || eventName === "roomClosed"
+                || eventName === "OPEN_PAGE6"
+            ) {
+
+                const room = this._io.sockets.adapter.rooms.get(roomId);
+
+                const socketIds = room ? [...room] : [];
+
+                const socketStates = socketIds.map((socketId) => {
+
+                    const sock = this._io.sockets.sockets.get(socketId);
+
+                    return {
+                        socketId,
+                        connected: sock?.connected === true
+                    };
+
+                });
+
+                page6LifecycleDiag(this._logger, "SOCKET_ROOM_EMIT", {
+                    roomId,
+                    event: eventName,
+                    reason: delivery.payload?.reason ?? null,
+                    gameId: delivery.payload?.gameId ?? null,
+                    resultSessionExpiresAt: Number.isFinite(delivery.payload?.expiresAt)
+                        ? delivery.payload.expiresAt
+                        : null,
+                    roomSocketCount: socketIds.length,
+                    connectedSocketCount: socketStates.filter((entry) => entry.connected)
+                        .length,
+                    socketIds: socketIds.join(",") || "none",
+                    serverNow: Date.now()
+                });
+
+            }
 
             this._io.to(delivery.roomId).emit(
                 delivery.event,

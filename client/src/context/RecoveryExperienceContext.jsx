@@ -22,6 +22,8 @@ import {
 
 import { normalizeSessionSnapshot } from "../game/sessionRecovery/sessionSnapshotUtils";
 
+import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
+
 import { logTerminalNav } from "../game/session/gameplayTerminal";
 
 import { RECOVERY_SOCKET_EVENTS } from "../game/sessionRecovery/sessionRecoveryEvents";
@@ -226,6 +228,23 @@ export function RecoveryExperienceProvider({
 
         const targetPage = resolveGameplayRecoveryPage(snapshot);
 
+        page6LifecycleDiag("RECOVERY_DECISION", {
+            roomId: snapshot.roomId ?? getIdentity().roomId,
+            gameId: snapshot.gameId ?? null,
+            playerId: snapshot.playerId ?? getIdentity().playerId,
+            currentPageBefore: currentPage,
+            gameState: snapshot.gameState ?? null,
+            openPage6: snapshot.openPage6 === true,
+            resultSessionExpiresAt: Number.isFinite(snapshot.resultSessionExpiresAt)
+                ? snapshot.resultSessionExpiresAt
+                : null,
+            remainingMs: Number.isFinite(snapshot.resultSessionExpiresAt)
+                ? snapshot.resultSessionExpiresAt - Date.now()
+                : null,
+            recoveryDecision: targetPage,
+            socketConnected: socket.connected === true
+        });
+
         recoveryTrace(
             `gameplay snapshot resolved`
             + ` | targetPage=${targetPage ?? "null"}`
@@ -300,6 +319,17 @@ export function RecoveryExperienceProvider({
 
             if (currentPage !== APP_PAGES.RESULT) {
 
+                page6LifecycleDiag("RECOVERY_NAVIGATE", {
+                    roomId: snapshot.roomId ?? getIdentity().roomId,
+                    playerId: snapshot.playerId ?? getIdentity().playerId,
+                    currentPageBefore: currentPage,
+                    navigationTarget: APP_PAGES.RESULT,
+                    recoveryDecision: targetPage,
+                    resolvedPage,
+                    demotionBlocked: resolvedPage !== targetPage,
+                    socketConnected: socket.connected === true
+                });
+
                 onNavigate(APP_PAGES.RESULT);
 
             }
@@ -309,6 +339,17 @@ export function RecoveryExperienceProvider({
         } else if (currentPage !== APP_PAGES.GAMEPLAY) {
 
             pendingGameplaySnapshotRef.current = snapshot;
+
+            page6LifecycleDiag("RECOVERY_NAVIGATE", {
+                roomId: snapshot.roomId ?? getIdentity().roomId,
+                playerId: snapshot.playerId ?? getIdentity().playerId,
+                currentPageBefore: currentPage,
+                navigationTarget: APP_PAGES.GAMEPLAY,
+                recoveryDecision: targetPage,
+                resolvedPage,
+                demotionBlocked: false,
+                socketConnected: socket.connected === true
+            });
 
             onNavigate(APP_PAGES.GAMEPLAY);
 
@@ -506,6 +547,14 @@ export function RecoveryExperienceProvider({
             logTerminalNav({
                 event: "visibility_recovery",
                 currentPage,
+                sessionGeneration: sessionGenerationRef.current
+            });
+
+            page6LifecycleDiag("VISIBILITY_RECOVERY", {
+                sourceEvent,
+                currentPage,
+                visibilityState: document.visibilityState,
+                socketConnected: socket.connected === true,
                 sessionGeneration: sessionGenerationRef.current
             });
 
