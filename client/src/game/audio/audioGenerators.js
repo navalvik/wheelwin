@@ -118,7 +118,7 @@ export function createPlaceholderBuffers(audioContext) {
     }
 
     return {
-        // SELF_TEST + MECHANICAL_LOOP (SPEED spin) load from .ogg assets
+        // SELF_TEST, MECHANICAL_LOOP (SPEED), BRAKE load from .ogg assets
         // in AdaptiveAudioEngine — not generated here.
         [AUDIO_TRACKS.BACKGROUND_MUSIC]: createWavBuffer(
             audioContext,
@@ -139,26 +139,6 @@ export function createPlaceholderBuffers(audioContext) {
                     sampleRate,
                     frequency: 659,
                     gain: 0.18
-                })
-            ]),
-            sampleRate
-        ),
-        [AUDIO_TRACKS.BRAKE]: createWavBuffer(
-            audioContext,
-            mixSamples([
-                renderTone({
-                    duration: 1.2,
-                    sampleRate,
-                    frequency: 70,
-                    gain: 0.12,
-                    type: "saw"
-                }),
-                renderTone({
-                    duration: 1.2,
-                    sampleRate,
-                    frequency: 110,
-                    gain: 0.08,
-                    type: "noise"
                 })
             ]),
             sampleRate

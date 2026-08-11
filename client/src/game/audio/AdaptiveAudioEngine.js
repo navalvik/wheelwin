@@ -1,5 +1,6 @@
 import { GAME_STATES } from "../GameState";
 
+import brakeLoopUrl from "../../assets/audio/wheel/brake_loop.ogg";
 import selfTestUrl from "../../assets/audio/wheel/self_test.ogg";
 import spinLoopUrl from "../../assets/audio/wheel/spin_loop.ogg";
 
@@ -85,10 +86,11 @@ export class AdaptiveAudioEngine {
 
         });
 
-        // R13.4A — real wheel assets for SELF_TEST + SPEED spin loop.
-        const [selfTestBuffer, spinLoopBuffer] = await Promise.all([
+        // R13.4A/B — real wheel assets: SELF_TEST, SPEED spin, BRAKE loop.
+        const [selfTestBuffer, spinLoopBuffer, brakeLoopBuffer] = await Promise.all([
             tryLoadAudioBuffer(this._context, selfTestUrl),
-            tryLoadAudioBuffer(this._context, spinLoopUrl)
+            tryLoadAudioBuffer(this._context, spinLoopUrl),
+            tryLoadAudioBuffer(this._context, brakeLoopUrl)
         ]);
 
         this._buffers.set(AUDIO_TRACKS.SELF_TEST, selfTestBuffer);
@@ -98,6 +100,10 @@ export class AdaptiveAudioEngine {
         this._buffers.set(AUDIO_TRACKS.MECHANICAL_LOOP, spinLoopBuffer);
 
         this._loadedTracks.push(AUDIO_TRACKS.MECHANICAL_LOOP);
+
+        this._buffers.set(AUDIO_TRACKS.BRAKE, brakeLoopBuffer);
+
+        this._loadedTracks.push(AUDIO_TRACKS.BRAKE);
 
         this._loaded = true;
 
@@ -159,13 +165,9 @@ export class AdaptiveAudioEngine {
 
     updateWheelSpeed(wheelSpeed) {
 
+        // R13.4B — rate only; BRAKE stop is owned by game-state lifecycle
+        // (leaving BRAKE / entering RESULT), not a local speed threshold.
         this.setPlaybackRate(mapWheelSpeedToPlaybackRate(wheelSpeed));
-
-        if (this._brakePlaying && Math.max(0, wheelSpeed) <= 0.5) {
-
-            this.stopBrake();
-
-        }
 
     }
 
