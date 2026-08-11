@@ -88,8 +88,11 @@ export function canRecoverPreGame(session, setup = null) {
  * Determines the gameplay destination page strictly from the authoritative
  * recovery snapshot. The client never infers gameplay state locally.
  * Page6 requires openPage6 (OPEN_PAGE6) — never gameResult alone.
+ *
+ * R12.5C — openPage6 + future resultSessionExpiresAt → Page6.
+ * openPage6 + expired/missing deadline → terminal Page1 (WELCOME).
  */
-export function resolveGameplayRecoveryPage(snapshot) {
+export function resolveGameplayRecoveryPage(snapshot, now = Date.now()) {
 
     if (!snapshot) {
 
@@ -97,10 +100,22 @@ export function resolveGameplayRecoveryPage(snapshot) {
 
     }
 
-    // Page6 only after authoritative OPEN_PAGE6.
+    // Authoritative Page6 was opened.
     if (snapshot.openPage6 === true) {
 
-        return APP_PAGES.RESULT;
+        const expiresAt = Number.isFinite(snapshot.resultSessionExpiresAt)
+            ? snapshot.resultSessionExpiresAt
+            : (Number.isFinite(snapshot.expiresAt) ? snapshot.expiresAt : null);
+
+        // Alive Result Session → restore Page6.
+        if (Number.isFinite(expiresAt) && expiresAt > now) {
+
+            return APP_PAGES.RESULT;
+
+        }
+
+        // Expired or no live deadline → terminal Page1 (not Page5).
+        return APP_PAGES.WELCOME;
 
     }
 

@@ -1,6 +1,8 @@
+/**
+ * R12.5C — recoveryFlow Page6 / Result Session recovery decisions.
+ */
 import {
     APP_PAGES,
-    RECOVERY_UI_STATUS,
     canRecoverPreGame,
     hasGameplayIdentity,
     isGameplayPage,
@@ -9,6 +11,8 @@ import {
     isTerminalRecoveryFailure,
     resolveGameplayRecoveryPage
 } from "./recoveryFlow.js";
+
+import { normalizeSessionSnapshot } from "./sessionSnapshotUtils.js";
 
 import { GAME_STATES } from "../GameState";
 
@@ -128,11 +132,13 @@ function assert(condition, message) {
 
 {
 
+    const now = 5_000_000;
+
     assert(
         resolveGameplayRecoveryPage({
             gameState: GAME_STATES.SPEED,
             wheelAngle: 45
-        }) === APP_PAGES.GAMEPLAY,
+        }, now) === APP_PAGES.GAMEPLAY,
         "active gameplay restores Page5"
     );
 
@@ -140,32 +146,64 @@ function assert(condition, message) {
         resolveGameplayRecoveryPage({
             gameState: GAME_STATES.RESULT,
             gameResult: { winner: { id: "p1" } }
-        }) === APP_PAGES.GAMEPLAY,
+        }, now) === APP_PAGES.GAMEPLAY,
         "RESULT phase restores Page5 for winner presentation"
     );
 
+    // Test A — Active Page6 recovery
     assert(
         resolveGameplayRecoveryPage({
             gameState: GAME_STATES.RESULT,
             gameResult: { winner: { id: "p1" } },
+            openPage6: true,
+            resultSessionExpiresAt: now + 120_000
+        }, now) === APP_PAGES.RESULT,
+        "TEST A: openPage6 + future expiresAt → Page6"
+    );
+
+    // Test B — Expired Page6 recovery
+    assert(
+        resolveGameplayRecoveryPage({
+            gameState: GAME_STATES.RESULT,
+            gameResult: { winner: { id: "p1" } },
+            openPage6: true,
+            resultSessionExpiresAt: now - 1000
+        }, now) === APP_PAGES.WELCOME,
+        "TEST B: openPage6 + past expiresAt → Page1"
+    );
+
+    // openPage6 without live deadline → terminal (no invented duration)
+    assert(
+        resolveGameplayRecoveryPage({
+            gameState: GAME_STATES.RESULT,
             openPage6: true
-        }) === APP_PAGES.RESULT,
-        "OPEN_PAGE6 restores Page6"
+        }, now) === APP_PAGES.WELCOME,
+        "openPage6 without expiresAt → Page1 (no invented deadline)"
     );
 
     assert(
         resolveGameplayRecoveryPage({
             gameState: GAME_STATES.BRAKE,
             gameResult: { winner: { id: "p1" } }
-        }) === APP_PAGES.GAMEPLAY,
+        }, now) === APP_PAGES.GAMEPLAY,
         "gameResult alone must not open Page6 during BRAKE"
+    );
+
+    // Test D — RESULT without OPEN_PAGE6
+    assert(
+        resolveGameplayRecoveryPage({
+            gameResult: { winner: { id: "p1" } }
+        }, now) === null,
+        "gameResult without openPage6 must not open Page6"
     );
 
     assert(
         resolveGameplayRecoveryPage({
-            gameResult: { winner: { id: "p1" } }
-        }) === null,
-        "gameResult without openPage6 must not open Page6"
+            gameState: GAME_STATES.RESULT,
+            openPage6: false,
+            resultSessionExpiresAt: now + 120_000
+        }, now) === APP_PAGES.GAMEPLAY,
+        "TEST D: RESULT without openPage6 stays Page5"
     );
 
     assert(
@@ -179,6 +217,71 @@ function assert(condition, message) {
     );
 
     console.log("  gameplay: authoritative page resolution passed");
+
+}
+
+// ---------------------------------------------------------------------------
+// R12.5C — normalizeSessionSnapshot preserves Page6 recovery fields.
+// ---------------------------------------------------------------------------
+
+{
+
+    const expiresAt = Date.now() + 180_000;
+
+    const normalized = normalizeSessionSnapshot({
+        gameId: "g1",
+        roomId: "R1",
+        playerId: "p1",
+        gameState: GAME_STATES.RESULT,
+        openPage6: true,
+        resultSessionExpiresAt: expiresAt,
+        gameResult: { winner: { id: "p1" } }
+    });
+
+    assert(
+        normalized.openPage6 === true,
+        "normalize preserves openPage6"
+    );
+
+    assert(
+        normalized.resultSessionExpiresAt === expiresAt,
+        "normalize preserves resultSessionExpiresAt"
+    );
+
+    // Regression: previously dropped fields caused Page6 → Page5.
+    assert(
+        resolveGameplayRecoveryPage(normalized) === APP_PAGES.RESULT,
+        "normalized active Page6 snapshot still routes to Page6"
+    );
+
+    const expiredNormalized = normalizeSessionSnapshot({
+        gameState: GAME_STATES.RESULT,
+        openPage6: true,
+        resultSessionExpiresAt: Date.now() - 500
+    });
+
+    assert(
+        resolveGameplayRecoveryPage(expiredNormalized) === APP_PAGES.WELCOME,
+        "normalized expired Page6 snapshot routes to Page1"
+    );
+
+    const droppedShape = normalizeSessionSnapshot({
+        gameState: GAME_STATES.RESULT,
+        openPage6: true,
+        resultSessionExpiresAt: Date.now() + 60_000
+    });
+
+    assert(
+        Object.prototype.hasOwnProperty.call(droppedShape, "openPage6"),
+        "openPage6 key always present after normalize"
+    );
+
+    assert(
+        Object.prototype.hasOwnProperty.call(droppedShape, "resultSessionExpiresAt"),
+        "resultSessionExpiresAt key always present after normalize"
+    );
+
+    console.log("  R12.5C normalize + Page6 recovery fields passed");
 
 }
 

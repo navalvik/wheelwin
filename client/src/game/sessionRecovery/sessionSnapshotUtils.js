@@ -78,6 +78,11 @@ export function normalizeSessionSnapshot(snapshot = {}) {
         phaseEndsAt: snapshot.phaseEndsAt ?? null,
         gameResult: snapshot.gameResult || null,
         payment: snapshot.payment || null,
+        // R12.5C — preserve authoritative Page6 / Result Session recovery fields.
+        openPage6: snapshot.openPage6 === true,
+        resultSessionExpiresAt: Number.isFinite(snapshot.resultSessionExpiresAt)
+            ? snapshot.resultSessionExpiresAt
+            : (Number.isFinite(snapshot.expiresAt) ? snapshot.expiresAt : null),
         resultOutcome: mapSnapshotResultOutcome(snapshot),
         timestamp: snapshot.timestamp ?? null
     };

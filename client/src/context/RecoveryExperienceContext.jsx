@@ -20,6 +20,8 @@ import {
     resolveGameplayRecoveryPage
 } from "../game/sessionRecovery/recoveryFlow";
 
+import { normalizeSessionSnapshot } from "../game/sessionRecovery/sessionSnapshotUtils";
+
 import { logTerminalNav } from "../game/session/gameplayTerminal";
 
 import { RECOVERY_SOCKET_EVENTS } from "../game/sessionRecovery/sessionRecoveryEvents";
@@ -218,7 +220,44 @@ export function RecoveryExperienceProvider({
 
         devLog("Snapshot received");
 
-        const targetPage = resolveGameplayRecoveryPage(payload);
+        // R12.5C — route from normalized snapshot so openPage6 /
+        // resultSessionExpiresAt are never dropped before the decision.
+        const snapshot = normalizeSessionSnapshot(payload);
+
+        const targetPage = resolveGameplayRecoveryPage(snapshot);
+
+        recoveryTrace(
+            `gameplay snapshot resolved`
+            + ` | targetPage=${targetPage ?? "null"}`
+            + ` | openPage6=${snapshot.openPage6 === true}`
+            + ` | resultSessionExpiresAt=${
+                Number.isFinite(snapshot.resultSessionExpiresAt)
+                    ? snapshot.resultSessionExpiresAt
+                    : "null"
+            }`
+            + ` | currentPage=${currentPage}`,
+            {
+                roomId: snapshot.roomId ?? getIdentity().roomId,
+                playerId: snapshot.playerId ?? getIdentity().playerId
+            }
+        );
+
+        // R12.5C — expired Page6 Result Session → existing terminal reset.
+        if (targetPage === APP_PAGES.WELCOME) {
+
+            destroySession();
+
+            clearIdentity();
+
+            resetToWelcomeRef.current?.("expired_page6_recovery");
+
+            setStatus(RECOVERY_UI_STATUS.COMPLETE);
+
+            scheduleOverlayHide();
+
+            return;
+
+        }
 
         if (!targetPage) {
 
@@ -234,7 +273,7 @@ export function RecoveryExperienceProvider({
 
         if (targetPage === APP_PAGES.RESULT) {
 
-            applyRecoverySnapshot(payload);
+            applyRecoverySnapshot(snapshot);
 
             if (currentPage !== APP_PAGES.RESULT) {
 
@@ -246,7 +285,7 @@ export function RecoveryExperienceProvider({
 
         } else if (currentPage !== APP_PAGES.GAMEPLAY) {
 
-            pendingGameplaySnapshotRef.current = payload;
+            pendingGameplaySnapshotRef.current = snapshot;
 
             onNavigate(APP_PAGES.GAMEPLAY);
 
@@ -267,7 +306,9 @@ export function RecoveryExperienceProvider({
         currentPage,
         onNavigate,
         scheduleOverlayHide,
-        getIdentity
+        getIdentity,
+        destroySession,
+        clearIdentity
     ]);
 
     const handleRecoveryFailed = useCallback((payload) => {
