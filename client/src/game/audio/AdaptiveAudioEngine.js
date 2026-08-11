@@ -1,6 +1,12 @@
 import { GAME_STATES } from "../GameState";
 
-import { createPlaceholderBuffers } from "./audioGenerators";
+import selfTestUrl from "../../assets/audio/wheel/self_test.ogg";
+import spinLoopUrl from "../../assets/audio/wheel/spin_loop.ogg";
+
+import {
+    createPlaceholderBuffers,
+    tryLoadAudioBuffer
+} from "./audioGenerators";
 
 import {
     AUDIO_CHANNELS,
@@ -78,6 +84,20 @@ export class AdaptiveAudioEngine {
             this._loadedTracks.push(track);
 
         });
+
+        // R13.4A — real wheel assets for SELF_TEST + SPEED spin loop.
+        const [selfTestBuffer, spinLoopBuffer] = await Promise.all([
+            tryLoadAudioBuffer(this._context, selfTestUrl),
+            tryLoadAudioBuffer(this._context, spinLoopUrl)
+        ]);
+
+        this._buffers.set(AUDIO_TRACKS.SELF_TEST, selfTestBuffer);
+
+        this._loadedTracks.push(AUDIO_TRACKS.SELF_TEST);
+
+        this._buffers.set(AUDIO_TRACKS.MECHANICAL_LOOP, spinLoopBuffer);
+
+        this._loadedTracks.push(AUDIO_TRACKS.MECHANICAL_LOOP);
 
         this._loaded = true;
 

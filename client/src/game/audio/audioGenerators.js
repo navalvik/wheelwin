@@ -93,8 +93,6 @@ export function createPlaceholderBuffers(audioContext) {
 
     const organLoop = new Float32Array(loopSampleCount);
 
-    const mechanicalLoop = new Float32Array(loopSampleCount);
-
     const organFrequencies = [196, 247, 294, 392];
 
     for (let index = 0; index < loopSampleCount; index += 1) {
@@ -117,25 +115,14 @@ export function createPlaceholderBuffers(audioContext) {
 
         organLoop[index] = organSample;
 
-        const mechanicalBase = Math.sin((Math.PI * 2) * 5.5 * time) * 0.08;
-
-        const creak = Math.sin((Math.PI * 2) * 13 * time) * 0.03;
-
-        const noise = (Math.random() * 2 - 1) * 0.015;
-
-        mechanicalLoop[index] = mechanicalBase + creak + noise;
-
     }
 
     return {
+        // SELF_TEST + MECHANICAL_LOOP (SPEED spin) load from .ogg assets
+        // in AdaptiveAudioEngine — not generated here.
         [AUDIO_TRACKS.BACKGROUND_MUSIC]: createWavBuffer(
             audioContext,
             organLoop,
-            sampleRate
-        ),
-        [AUDIO_TRACKS.MECHANICAL_LOOP]: createWavBuffer(
-            audioContext,
-            mechanicalLoop,
             sampleRate
         ),
         [AUDIO_TRACKS.COUNTDOWN_INTRO]: createWavBuffer(
@@ -152,33 +139,6 @@ export function createPlaceholderBuffers(audioContext) {
                     sampleRate,
                     frequency: 659,
                     gain: 0.18
-                })
-            ]),
-            sampleRate
-        ),
-        [AUDIO_TRACKS.SELF_TEST]: createWavBuffer(
-            audioContext,
-            mixSamples([
-                renderTone({
-                    duration: 0.85,
-                    sampleRate,
-                    frequency: 95,
-                    gain: 0.14,
-                    type: "square"
-                }),
-                renderTone({
-                    duration: 0.85,
-                    sampleRate,
-                    frequency: 180,
-                    gain: 0.08,
-                    type: "saw"
-                }),
-                renderTone({
-                    duration: 0.85,
-                    sampleRate,
-                    frequency: 42,
-                    gain: 0.1,
-                    type: "noise"
                 })
             ]),
             sampleRate
