@@ -786,6 +786,54 @@ export class SessionHistoryArchiveManager {
 
     }
 
+    /**
+     * R13.9F — Finalize pending session history before forensic packaging.
+     * Idempotent when the room is already archived.
+     */
+    finalizeIfPending(payload = {}) {
+
+        const roomId = payload?.roomId;
+
+        if (!roomId || this._archived.has(roomId)) {
+
+            return false;
+
+        }
+
+        this._finalize({
+            roomId,
+            gameId: payload?.gameId ?? null,
+            reason: payload?.reason ?? "room_destroyed",
+            playerCount: payload?.playerCount ?? null
+        });
+
+        return true;
+
+    }
+
+    /**
+     * R13.9F — Absolute paths to existing session-history JSON files for a room.
+     */
+    listRecordFilePathsForRoom(roomId) {
+
+        if (!roomId) {
+
+            return [];
+
+        }
+
+        const listed = this.listRecords({ roomId, limit: 100, sort: "newest" });
+
+        return listed.records
+            .filter((row) => row.filename)
+            .map((row) => ({
+                filename: row.filename,
+                absolutePath: join(this._directory, row.filename)
+            }))
+            .filter((row) => existsSync(row.absolutePath));
+
+    }
+
     getRecord(sessionId) {
 
         if (!sessionId) {

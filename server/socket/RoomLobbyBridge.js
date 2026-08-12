@@ -224,6 +224,14 @@ export class RoomLobbyBridge {
 
         this._initialized = false;
 
+        this._forensicArchiveService = null;
+
+    }
+
+    configureForensicArchiveService(forensicArchiveService) {
+
+        this._forensicArchiveService = forensicArchiveService ?? null;
+
     }
 
     initialize() {
@@ -2393,7 +2401,7 @@ export class RoomLobbyBridge {
 
         }
 
-        this._closeRoom(roomId, "setup_expired");
+        void this._closeRoom(roomId, "setup_expired");
 
     }
 
@@ -2546,7 +2554,7 @@ export class RoomLobbyBridge {
             console.trace("RoomLobbyBridge._removePlayerFromLobby creator_left trace");
             console.log("======================================================");
 
-            this._closeRoom(roomId, "creator_left");
+            void this._closeRoom(roomId, "creator_left");
 
             return;
 
@@ -2933,7 +2941,7 @@ export class RoomLobbyBridge {
             }
         );
 
-        this._closeRoom(roomId, reason);
+        void this._closeRoom(roomId, reason);
 
         this._finishingResultSessions.delete(roomId);
 
@@ -2956,7 +2964,7 @@ export class RoomLobbyBridge {
 
     }
 
-    _closeRoom(roomId, reason) {
+    async _closeRoom(roomId, reason) {
 
         const room = this._roomManager.getRoom(roomId);
 
@@ -3055,6 +3063,35 @@ export class RoomLobbyBridge {
                 (playerId) => Boolean(this._playerToSocket.get(playerId))
             ).length
         });
+
+        const forensicService = this._forensicArchiveService;
+
+        if (forensicService) {
+
+            try {
+
+                await forensicService.ensureArchivedAndUploaded({
+                    roomId,
+                    gameId,
+                    reason: reason ?? "room_destroyed"
+                });
+
+            } catch (error) {
+
+                this._logger.error(
+                    `FORENSIC_ARCHIVE_BLOCKED_ROOM_DESTROY | roomId=${roomId}`
+                    + ` | gameId=${gameId ?? "null"} | error=${error.message}`
+                );
+
+                if (forensicService.isBlockingEnabled()) {
+
+                    return;
+
+                }
+
+            }
+
+        }
 
         this._roomManager.destroyRoom(roomId);
 
@@ -5473,7 +5510,7 @@ export class RoomLobbyBridge {
             roomId
         });
 
-        this._closeRoom(roomId, "wallet_connection_timeout");
+        void this._closeRoom(roomId, "wallet_connection_timeout");
 
     }
 
@@ -5593,7 +5630,7 @@ export class RoomLobbyBridge {
             roomId
         });
 
-        this._closeRoom(roomId, payload?.reason ?? "payment_failed");
+        void this._closeRoom(roomId, payload?.reason ?? "payment_failed");
 
     }
 
@@ -5770,7 +5807,7 @@ export class RoomLobbyBridge {
         });
 
         // Cancel game; payment + audit records stay on the ledger.
-        this._closeRoom(roomId, payload?.reason ?? "game_start_failed");
+        void this._closeRoom(roomId, payload?.reason ?? "game_start_failed");
 
     }
 

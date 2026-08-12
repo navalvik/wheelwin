@@ -473,7 +473,7 @@ console.log("R13.1E identity recovery credential tests");
 
 }
 
-{
+void (async () => {
 
     const stack = buildStack();
 
@@ -483,7 +483,7 @@ console.log("R13.1E identity recovery credential tests");
 
         stack.roomLobbyBridge._handleSocketDisconnected("sock-a");
 
-        stack.roomLobbyBridge._closeRoom(seat.roomId, "test_terminal");
+        await stack.roomLobbyBridge._closeRoom(seat.roomId, "test_terminal");
 
         const auth = stack.roomLobbyBridge.authorizeRecoveryCredential({
             playerId: seat.playerId,
@@ -511,7 +511,7 @@ console.log("R13.1E identity recovery credential tests");
 
     }
 
-}
+})();
 
 {
 

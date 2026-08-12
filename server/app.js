@@ -132,6 +132,9 @@ import {
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
+import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
+import { GcsForensicArchiveUploader } from "./forensic/GcsForensicArchiveUploader.js";
+import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
 
 const SERVER_ROOT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -1575,6 +1578,30 @@ class WheelWinApplication {
         this._sessionHistoryArchive.rebuildIndexFromDisk();
 
         this._logger.startupLine("SessionHistoryArchiveManager");
+
+        // R13.9F — Forensic lifecycle archive (collect → ZIP → private GCS).
+        const forensicArchiveConfig = resolveForensicArchiveConfig();
+
+        const forensicArchiveUploader = new GcsForensicArchiveUploader({
+            logger: this._logger,
+            bucket: forensicArchiveConfig.bucket,
+            prefix: forensicArchiveConfig.prefix,
+            credentialsJson: forensicArchiveConfig.credentialsJson
+        });
+
+        this._forensicArchiveService = new ForensicArchiveService({
+            logger: this._logger,
+            config: forensicArchiveConfig,
+            uploader: forensicArchiveUploader,
+            sessionHistoryArchive: this._sessionHistoryArchive,
+            financialPersistence: this._financialPersistence
+        });
+
+        this._roomLobbyBridge.configureForensicArchiveService(
+            this._forensicArchiveService
+        );
+
+        this._logger.startupLine("ForensicArchiveService");
 
         // R6.1 / R7.0C — Secure Developer Access from immutable runtime config.
         this._developerAuthService = new DeveloperAuthService({

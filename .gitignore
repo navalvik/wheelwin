@@ -21,3 +21,7 @@ server/data/session-history/
 
 # R8.10 — durable TON financial persistence (runtime)
 server/data/ton-financial/
+
+# R13.9F — forensic archive staging (local ZIP before GCS upload)
+data/archive-staging/
+server/data/archive-staging/
