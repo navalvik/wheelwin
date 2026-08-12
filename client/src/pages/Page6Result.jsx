@@ -4,8 +4,6 @@ import GameLayout from "../layouts/GameLayout";
 
 import { DEV_MODE } from "../config/devMode";
 
-import { resolveWheelIcon } from "../components/game/WheelEngine/wheelUtils";
-
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameResult } from "../context/GameResultContext";
 import { useGameSession } from "../context/GameSessionContext";
@@ -66,42 +64,6 @@ function formatValue(value) {
     }
 
     return value;
-
-}
-
-function formatIcon(icon) {
-
-    if (icon === null || icon === undefined || icon === "") {
-
-        return EMPTY_VALUE;
-
-    }
-
-    return resolveWheelIcon(icon);
-
-}
-
-function formatAngle(angle) {
-
-    if (typeof angle !== "number" || Number.isNaN(angle)) {
-
-        return EMPTY_VALUE;
-
-    }
-
-    return `${angle.toFixed(2)}°`;
-
-}
-
-function formatTimestamp(timestamp) {
-
-    if (typeof timestamp !== "number" || Number.isNaN(timestamp)) {
-
-        return EMPTY_VALUE;
-
-    }
-
-    return new Date(timestamp).toISOString();
 
 }
 
@@ -175,20 +137,6 @@ function resolveYouReceived({ payment, localPlayerId, winnerPlayerId }) {
     return Number.isFinite(amount)
         ? `${amount.toFixed(2)} GRM`
         : "0.00 GRM";
-
-}
-
-function resolvePlayerFromReport(gameReport, playerId) {
-
-    if (!gameReport || playerId == null) {
-
-        return null;
-
-    }
-
-    return (gameReport.players ?? []).find(
-        (player) => String(player.playerId) === String(playerId)
-    ) ?? null;
 
 }
 
@@ -340,18 +288,6 @@ export default function Page6Result({ onFinish }) {
         return null;
 
     }, [gameReport, payment]);
-
-    function handleDownloadJson() {
-
-        if (!gameReport) {
-
-            return;
-
-        }
-
-        downloadGameReportNative(gameReport, "json");
-
-    }
 
     function handleDownloadTxt() {
 
@@ -536,209 +472,12 @@ export default function Page6Result({ onFinish }) {
                                             <button
                                                 type="button"
                                                 className="page6__downloadBtn"
-                                                onClick={handleDownloadJson}
-                                            >
-                                                Download JSON
-                                            </button>
-
-                                            <button
-                                                type="button"
-                                                className="page6__downloadBtn"
                                                 onClick={handleDownloadTxt}
                                             >
                                                 Download TXT
                                             </button>
 
                                         </div>
-
-                                    </div>
-
-                                    <div className="page6__gameReportScroll">
-
-                                        <div className="page6__reportRow">
-                                            <span>Report ID</span>
-                                            <span>{formatValue(gameReport.reportId)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Game ID</span>
-                                            <span>{formatValue(gameReport.gameId)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Room ID</span>
-                                            <span>{formatValue(gameReport.roomId)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Audit Trace ID</span>
-                                            <span>{formatValue(gameReport.auditTraceId)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Game Start</span>
-                                            <span>{formatTimestamp(gameReport.gameStartTime)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Game Finish</span>
-                                            <span>{formatTimestamp(gameReport.gameFinishTime)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Duration</span>
-                                            <span>
-                                                {Number.isFinite(gameReport.gameDurationMs)
-                                                    ? `${gameReport.gameDurationMs} ms`
-                                                    : EMPTY_VALUE}
-                                            </span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Server Timestamp</span>
-                                            <span>{formatTimestamp(gameReport.serverTimestamp)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Final Wheel Angle</span>
-                                            <span>{formatAngle(gameReport.finalWheelAngle)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Winning Sector</span>
-                                            <span>{formatValue(gameReport.winningSector?.sectorId)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Winning Color</span>
-                                            <span>{formatValue(gameReport.winningColor)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Winning Icon</span>
-                                            <span>{formatIcon(gameReport.winningIcon)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Winning Player</span>
-                                            <span>
-                                                {formatValue(
-                                                    gameReport.winningPlayer?.nickname
-                                                        ?? gameReport.winningPlayer?.playerId
-                                                )}
-                                            </span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Winner Payout</span>
-                                            <span>
-                                                {gameReport.winnerPayout == null
-                                                    ? EMPTY_VALUE
-                                                    : `${gameReport.winnerPayout} GRM`}
-                                            </span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>WheelWin Commission</span>
-                                            <span>
-                                                {gameReport.wheelWinCommission == null
-                                                    ? EMPTY_VALUE
-                                                    : `${gameReport.wheelWinCommission} GRM`}
-                                            </span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Total Prize Pool</span>
-                                            <span>
-                                                {gameReport.totalPrizePool == null
-                                                    ? EMPTY_VALUE
-                                                    : `${gameReport.totalPrizePool} GRM`}
-                                            </span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Base Stake</span>
-                                            <span>{formatValue(gameReport.baseStake)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Total Sectors</span>
-                                            <span>{formatValue(gameReport.totalSectorCount)}</span>
-                                        </div>
-
-                                        <div className="page6__reportRow">
-                                            <span>Game Version</span>
-                                            <span>{formatValue(gameReport.gameVersion)}</span>
-                                        </div>
-
-                                        {(gameReport.players ?? []).map((player) => (
-
-                                            <div
-                                                className="page6__reportPlayer"
-                                                key={player.playerId ?? player.index}
-                                            >
-
-                                                <div className="page6__reportPlayerTitle">
-                                                    Player {player.index}
-                                                    {" — "}
-                                                    {player.result}
-                                                </div>
-
-                                                <div className="page6__reportRow">
-                                                    <span>Nickname</span>
-                                                    <span>{formatValue(player.nickname)}</span>
-                                                </div>
-
-                                                <div className="page6__reportRow">
-                                                    <span>Player ID</span>
-                                                    <span>{formatValue(player.playerId)}</span>
-                                                </div>
-
-                                                <div className="page6__reportRow">
-                                                    <span>Icon</span>
-                                                    <span>{formatIcon(player.icon)}</span>
-                                                </div>
-
-                                                <div className="page6__reportRow">
-                                                    <span>Sectors</span>
-                                                    <span>{formatValue(player.sectorCount)}</span>
-                                                </div>
-
-                                                <div className="page6__reportRow">
-                                                    <span>Colors</span>
-                                                    <span>
-                                                        {Array.isArray(player.sectorColors)
-                                                            ? player.sectorColors.join(", ")
-                                                            : EMPTY_VALUE}
-                                                    </span>
-                                                </div>
-
-                                                <div className="page6__reportRow">
-                                                    <span>Paid</span>
-                                                    <span>
-                                                        {player.amountPaid == null
-                                                            ? EMPTY_VALUE
-                                                            : `${player.amountPaid} GRM`}
-                                                    </span>
-                                                </div>
-
-                                                <div className="page6__reportRow">
-                                                    <span>Wallet</span>
-                                                    <span>{formatValue(player.walletAddress)}</span>
-                                                </div>
-
-                                                <div className="page6__reportRow">
-                                                    <span>Prize</span>
-                                                    <span>
-                                                        {player.prizeReceived == null
-                                                            ? EMPTY_VALUE
-                                                            : `${player.prizeReceived} GRM`}
-                                                    </span>
-                                                </div>
-
-                                            </div>
-
-                                        ))}
 
                                     </div>
 
