@@ -158,7 +158,8 @@ function buildFixture() {
 
             return {
                 records: [{
-                    finishedAt: Date.parse("2026-08-12T10:00:00.000Z")
+                    finishedAt: Date.parse("2026-08-12T10:00:00.000Z"),
+                    lifecycleResult: "GAME_COMPLETED"
                 }]
             };
 
@@ -188,9 +189,15 @@ async function testArchiveCreation() {
     const archiveFilename = buildForensicArchiveFilename({
         roomId: fixture.roomId,
         gameId: fixture.gameId,
-        finishedAt: Date.parse("2026-08-12T10:00:00.000Z")
+        finishedAt: Date.parse("2026-08-12T10:00:00.000Z"),
+        lifecycleResult: "GAME_COMPLETED"
     });
     const zipPath = join(fixture.stagingDir, archiveFilename);
+
+    assert.equal(
+        archiveFilename,
+        "2026-08-12_ROOM_pf6e_GAME_9aafa4fd_COMPLETED.zip"
+    );
 
     const collector = new ForensicArchiveCollector({
         sessionHistoryDir: fixture.sessionHistoryDir,
@@ -220,6 +227,54 @@ async function testArchiveCreation() {
     rmSync(fixture.root, { recursive: true, force: true });
 
     console.log("  archive creation packs byte-for-byte artifacts");
+
+}
+
+function testLifecycleAwareFilenames() {
+
+    const finishedAt = Date.parse("2026-08-12T10:00:00.000Z");
+
+    assert.equal(
+        buildForensicArchiveFilename({
+            roomId: "pf6e",
+            gameId: "game_xxx",
+            finishedAt,
+            lifecycleResult: "GAME_COMPLETED"
+        }),
+        "2026-08-12_ROOM_pf6e_GAME_game_xxx_COMPLETED.zip"
+    );
+
+    assert.equal(
+        buildForensicArchiveFilename({
+            roomId: "SiMc",
+            gameId: "game_xxx",
+            finishedAt,
+            lifecycleResult: "ROOM_DESTROYED"
+        }),
+        "2026-08-12_ROOM_SiMc_GAME_game_xxx_ROOM_DESTROYED.zip"
+    );
+
+    assert.equal(
+        buildForensicArchiveFilename({
+            roomId: "Uu55",
+            gameId: "game_xxx",
+            finishedAt,
+            lifecycleResult: "PAYMENT_FAILED"
+        }),
+        "2026-08-12_ROOM_Uu55_GAME_game_xxx_FAILED.zip"
+    );
+
+    assert.equal(
+        buildForensicArchiveFilename({
+            roomId: "SiMc",
+            gameId: "game_xxx",
+            finishedAt,
+            reason: "room_destroyed"
+        }),
+        "2026-08-12_ROOM_SiMc_GAME_game_xxx_ROOM_DESTROYED.zip"
+    );
+
+    console.log("  lifecycle-aware filenames map COMPLETED / ROOM_DESTROYED / FAILED");
 
 }
 
@@ -254,12 +309,13 @@ async function testUploadSuccess() {
 
     const result = await service.ensureArchivedAndUploaded({
         roomId: fixture.roomId,
-        gameId: fixture.gameId
+        gameId: fixture.gameId,
+        reason: "result_session_finished"
     });
 
     assert.equal(result.uploaded, true);
     assert.equal(uploader.uploads.length, 1);
-    assert(uploader.uploads[0].objectName.endsWith("_LIFECYCLE_ARCHIVE.zip"));
+    assert(uploader.uploads[0].objectName.endsWith("_COMPLETED.zip"));
     assert(uploader.uploads[0].localPath.endsWith(".zip"));
     assert.equal(
         readFileSync(uploader.uploads[0].localPath).subarray(0, 2).toString("binary"),
@@ -422,6 +478,7 @@ async function testUploadFailureBlocksLifecycle() {
 async function run() {
 
     await testArchiveCreation();
+    testLifecycleAwareFilenames();
     await testUploadSuccess();
     testR2ConfigIgnoresGcsEnv();
     await testUploadFailureBlocksLifecycle();

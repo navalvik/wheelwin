@@ -7,7 +7,10 @@ import {
 import { join } from "node:path";
 
 import { ForensicArchiveCollector, writeStagingStatus } from "./ForensicArchiveCollector.js";
-import { buildForensicArchiveFilename } from "./forensicArchiveNaming.js";
+import {
+    buildForensicArchiveFilename,
+    resolveArchiveFilenameResult
+} from "./forensicArchiveNaming.js";
 import { resolveForensicArchiveConfig } from "./forensicArchiveConfig.js";
 
 const LOG = Object.freeze({
@@ -151,16 +154,20 @@ export class ForensicArchiveService {
         }
 
         const finishedAt = this._resolveFinishedAt(roomId) ?? Date.now();
+        const lifecycleResult = this._resolveLifecycleResult(roomId, reason);
         const archiveFilename = buildForensicArchiveFilename({
             roomId,
             gameId,
-            finishedAt
+            finishedAt,
+            lifecycleResult,
+            reason
         });
 
         const zipPath = join(stagingRoomDir, archiveFilename);
 
         this._logInfo(
             `${LOG.CREATE_STARTED} | roomId=${roomId} | gameId=${gameId ?? "null"}`
+            + ` | lifecycleResult=${lifecycleResult}`
             + ` | archive=${archiveFilename}`
         );
 
@@ -294,6 +301,32 @@ export class ForensicArchiveService {
         });
 
         return listed?.records?.[0]?.finishedAt ?? null;
+
+    }
+
+    /**
+     * Prefer existing session-history lifecycleResult; else map close reason.
+     * Does not invent values — only normalizes known outcomes for filenames.
+     */
+    _resolveLifecycleResult(roomId, reason) {
+
+        this._sessionHistoryArchive?.finalizeIfPending?.({
+            roomId,
+            reason
+        });
+
+        const listed = this._sessionHistoryArchive?.listRecords?.({
+            roomId,
+            limit: 1,
+            sort: "newest"
+        });
+
+        const fromHistory = listed?.records?.[0]?.lifecycleResult ?? null;
+
+        return resolveArchiveFilenameResult({
+            lifecycleResult: fromHistory,
+            reason
+        });
 
     }
 
