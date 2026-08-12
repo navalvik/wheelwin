@@ -18,7 +18,8 @@ import {
 import {
     ForensicArchiveService
 } from "../forensic/ForensicArchiveService.js";
-import { MockForensicArchiveUploader } from "../forensic/GcsForensicArchiveUploader.js";
+import { MockForensicArchiveUploader } from "../forensic/R2ForensicArchiveUploader.js";
+import { resolveForensicArchiveConfig } from "../forensic/forensicArchiveConfig.js";
 import { buildForensicArchiveFilename } from "../forensic/forensicArchiveNaming.js";
 import { SessionHistoryArchiveManager } from "../history/SessionHistoryArchiveManager.js";
 import { LoggingManager } from "../logging/LoggingManager.js";
@@ -233,13 +234,17 @@ async function testUploadSuccess() {
         config: {
             enabled: true,
             required: true,
-            bucket: "test-bucket",
+            bucket: "wheelwin-forensic-archives",
             prefix: "forensic-archives",
             stagingDir: fixture.stagingDir,
             sessionHistoryDir: fixture.sessionHistoryDir,
             diagnosticLogsDir: fixture.diagnosticLogsDir,
             tonFinancialDataDir: fixture.tonFinancialDataDir,
-            credentialsJson: "",
+            accountId: "test-account",
+            accessKeyId: "test-key",
+            secretAccessKey: "test-secret",
+            endpoint: "https://example.r2.cloudflarestorage.com",
+            r2Configured: true,
             maxUploadAttempts: 2
         },
         uploader,
@@ -255,10 +260,38 @@ async function testUploadSuccess() {
     assert.equal(result.uploaded, true);
     assert.equal(uploader.uploads.length, 1);
     assert(uploader.uploads[0].objectName.endsWith("_LIFECYCLE_ARCHIVE.zip"));
+    assert(uploader.uploads[0].localPath.endsWith(".zip"));
+    assert.equal(
+        readFileSync(uploader.uploads[0].localPath).subarray(0, 2).toString("binary"),
+        "PK",
+        "R2 uploader must receive ZIP bytes"
+    );
 
     rmSync(fixture.root, { recursive: true, force: true });
 
-    console.log("  GCS upload success records archive");
+    console.log("  R2 upload success records archive");
+
+}
+
+async function testR2ConfigIgnoresGcsEnv() {
+
+    const config = resolveForensicArchiveConfig({
+        R2_BUCKET_NAME: "wheelwin-forensic-archives",
+        R2_ACCOUNT_ID: "acct",
+        R2_ACCESS_KEY_ID: "key",
+        R2_SECRET_ACCESS_KEY: "secret",
+        R2_ENDPOINT: "https://acct.r2.cloudflarestorage.com",
+        FORENSIC_ARCHIVE_REQUIRED: "true",
+        GCS_FORENSIC_BUCKET: "legacy-gcs-bucket",
+        GCS_SERVICE_ACCOUNT_JSON: "{\"type\":\"service_account\"}"
+    });
+
+    assert.equal(config.bucket, "wheelwin-forensic-archives");
+    assert.equal(config.r2Configured, true);
+    assert.equal(config.required, true);
+    assert.equal(config.credentialsJson, undefined);
+
+    console.log("  R2 config uses Cloudflare env (not GCS)");
 
 }
 
@@ -275,13 +308,17 @@ async function testUploadFailureBlocksLifecycle() {
         config: {
             enabled: true,
             required: true,
-            bucket: "test-bucket",
+            bucket: "wheelwin-forensic-archives",
             prefix: "forensic-archives",
             stagingDir: fixture.stagingDir,
             sessionHistoryDir: fixture.sessionHistoryDir,
             diagnosticLogsDir: fixture.diagnosticLogsDir,
             tonFinancialDataDir: fixture.tonFinancialDataDir,
-            credentialsJson: "",
+            accountId: "test-account",
+            accessKeyId: "test-key",
+            secretAccessKey: "test-secret",
+            endpoint: "https://example.r2.cloudflarestorage.com",
+            r2Configured: true,
             maxUploadAttempts: 1
         },
         uploader,
@@ -361,12 +398,12 @@ async function testUploadFailureBlocksLifecycle() {
 
     await assert.rejects(
         () => service.ensureArchivedAndUploaded({ roomId, gameId: "test" }),
-        /Mock GCS upload failure/
+        /Mock R2 upload failure/
     );
 
     await bridge._closeRoom(roomId, "test_upload_failure");
 
-    assert.equal(destroyed, false, "ROOM_DESTROYED must wait for GCS success");
+    assert.equal(destroyed, false, "ROOM_DESTROYED must wait for R2 success");
     assert(roomManager.getRoom(roomId), "room must remain until upload succeeds");
 
     uploader.shouldFail = false;
@@ -386,6 +423,7 @@ async function run() {
 
     await testArchiveCreation();
     await testUploadSuccess();
+    testR2ConfigIgnoresGcsEnv();
     await testUploadFailureBlocksLifecycle();
 
     console.log("forensicArchive.test.js: all assertions passed");

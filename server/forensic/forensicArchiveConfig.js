@@ -5,22 +5,34 @@ import { fileURLToPath } from "node:url";
 const SERVER_ROOT_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
- * R13.9F — Forensic archive + GCS configuration (environment only).
+ * R13.9H — Forensic archive + Cloudflare R2 configuration (environment only).
  */
 export function resolveForensicArchiveConfig(env = process.env) {
 
     const bucket = String(
-        env.GCS_FORENSIC_BUCKET
-            || env.WHEELWIN_GCS_FORENSIC_BUCKET
+        env.R2_BUCKET_NAME
+            || env.WHEELWIN_R2_BUCKET_NAME
             || ""
     ).trim();
+
+    const accountId = String(env.R2_ACCOUNT_ID || "").trim();
+    const accessKeyId = String(env.R2_ACCESS_KEY_ID || "").trim();
+    const secretAccessKey = String(env.R2_SECRET_ACCESS_KEY || "").trim();
+    const endpoint = String(env.R2_ENDPOINT || "").trim();
+
+    const r2Configured = Boolean(
+        bucket
+        && accessKeyId
+        && secretAccessKey
+        && (endpoint || accountId)
+    );
 
     const enabled = String(env.FORENSIC_ARCHIVE_ENABLED ?? "true").toLowerCase()
         !== "false";
 
     const required = String(env.FORENSIC_ARCHIVE_REQUIRED ?? "").toLowerCase()
         === "true"
-        || (bucket.length > 0
+        || (r2Configured
             && String(env.FORENSIC_ARCHIVE_REQUIRED ?? "auto").toLowerCase()
                 !== "false");
 
@@ -45,10 +57,11 @@ export function resolveForensicArchiveConfig(env = process.env) {
             || join(SERVER_ROOT_DIR, "..", "data", "ton-financial")
     ).trim();
 
-    const prefix = String(env.GCS_FORENSIC_PREFIX || "forensic-archives")
-        .replace(/^\/+|\/+$/g, "");
-
-    const credentialsJson = String(env.GCS_SERVICE_ACCOUNT_JSON || "").trim();
+    const prefix = String(
+        env.R2_FORENSIC_PREFIX
+            || env.GCS_FORENSIC_PREFIX
+            || "forensic-archives"
+    ).replace(/^\/+|\/+$/g, "");
 
     const maxUploadAttempts = Number.parseInt(
         env.FORENSIC_ARCHIVE_MAX_UPLOAD_ATTEMPTS ?? "5",
@@ -64,7 +77,11 @@ export function resolveForensicArchiveConfig(env = process.env) {
         sessionHistoryDir,
         diagnosticLogsDir,
         tonFinancialDataDir,
-        credentialsJson,
+        accountId,
+        accessKeyId,
+        secretAccessKey,
+        endpoint,
+        r2Configured,
         maxUploadAttempts: Number.isFinite(maxUploadAttempts)
             && maxUploadAttempts > 0
             ? maxUploadAttempts

@@ -133,7 +133,7 @@ import { SessionWalletStore } from "./session/SessionWalletStore.js";
 import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
-import { GcsForensicArchiveUploader } from "./forensic/GcsForensicArchiveUploader.js";
+import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
 
 const SERVER_ROOT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -1579,14 +1579,17 @@ class WheelWinApplication {
 
         this._logger.startupLine("SessionHistoryArchiveManager");
 
-        // R13.9F — Forensic lifecycle archive (collect → ZIP → private GCS).
+        // R13.9H — Forensic lifecycle archive (collect → ZIP → private Cloudflare R2).
         const forensicArchiveConfig = resolveForensicArchiveConfig();
 
-        const forensicArchiveUploader = new GcsForensicArchiveUploader({
+        const forensicArchiveUploader = new R2ForensicArchiveUploader({
             logger: this._logger,
             bucket: forensicArchiveConfig.bucket,
             prefix: forensicArchiveConfig.prefix,
-            credentialsJson: forensicArchiveConfig.credentialsJson
+            endpoint: forensicArchiveConfig.endpoint,
+            accessKeyId: forensicArchiveConfig.accessKeyId,
+            secretAccessKey: forensicArchiveConfig.secretAccessKey,
+            accountId: forensicArchiveConfig.accountId
         });
 
         this._forensicArchiveService = new ForensicArchiveService({
@@ -1602,6 +1605,11 @@ class WheelWinApplication {
         );
 
         this._logger.startupLine("ForensicArchiveService");
+        this._logger.info(
+            `R2_FORENSIC_ARCHIVE_ENABLED | configured=${forensicArchiveUploader.isConfigured()}`
+            + ` | required=${forensicArchiveConfig.required === true}`
+            + ` | bucket=${forensicArchiveConfig.bucket ? "set" : "unset"}`
+        );
 
         // R6.1 / R7.0C — Secure Developer Access from immutable runtime config.
         this._developerAuthService = new DeveloperAuthService({

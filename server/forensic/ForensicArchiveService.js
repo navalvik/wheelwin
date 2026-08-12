@@ -13,13 +13,14 @@ import { resolveForensicArchiveConfig } from "./forensicArchiveConfig.js";
 const LOG = Object.freeze({
     CREATE_STARTED: "FORENSIC_ARCHIVE_CREATE_STARTED",
     CREATED: "FORENSIC_ARCHIVE_CREATED",
-    UPLOAD_STARTED: "GCS_UPLOAD_STARTED",
-    UPLOAD_SUCCESS: "GCS_UPLOAD_SUCCESS",
-    UPLOAD_FAILED: "GCS_UPLOAD_FAILED"
+    UPLOAD_STARTED: "R2_UPLOAD_STARTED",
+    UPLOAD_SUCCESS: "R2_UPLOAD_SUCCESS",
+    UPLOAD_FAILED: "R2_UPLOAD_FAILED",
+    ENABLED: "R2_FORENSIC_ARCHIVE_ENABLED"
 });
 
 /**
- * R13.9F — Orchestrate forensic ZIP creation + private GCS upload.
+ * R13.9H — Orchestrate forensic ZIP creation + private Cloudflare R2 upload.
  * Blocks room destruction until upload succeeds when required.
  */
 export class ForensicArchiveService {
@@ -46,6 +47,15 @@ export class ForensicArchiveService {
         });
         this._uploader = uploader;
         this._inFlight = new Map();
+
+        if (this._config.enabled && this._uploader?.isConfigured?.()) {
+
+            this._logInfo(
+                `${LOG.ENABLED} | bucket=${this._config.bucket || "unset"}`
+                + ` | required=${this._config.required === true}`
+            );
+
+        }
 
     }
 
@@ -127,13 +137,13 @@ export class ForensicArchiveService {
             if (this._config.required) {
 
                 throw new Error(
-                    "Forensic archive upload required but GCS bucket is not configured"
+                    "Forensic archive upload required but R2 bucket is not configured"
                 );
 
             }
 
             this._logInfo(
-                `FORENSIC_ARCHIVE_SKIPPED | roomId=${roomId} | reason=no_gcs_bucket`
+                `FORENSIC_ARCHIVE_SKIPPED | roomId=${roomId} | reason=no_r2_bucket`
             );
 
             return { skipped: true };
