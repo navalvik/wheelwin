@@ -3159,8 +3159,6 @@ export default function Page4Payment({ onNavigate }) {
 
                                     <div>Game Contract</div>
 
-                                    <div>{contractStatusLabel}</div>
-
                                     {gameContract?.contractAddress && (
 
                                         <div className="page4__contractAddress">
@@ -3170,6 +3168,8 @@ export default function Page4Payment({ onNavigate }) {
                                         </div>
 
                                     )}
+
+                                    <div>{contractStatusLabel}</div>
 
                                 </div>
 
