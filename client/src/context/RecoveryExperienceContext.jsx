@@ -20,6 +20,13 @@ import {
     resolveGameplayRecoveryPage
 } from "../game/sessionRecovery/recoveryFlow";
 
+import {
+    RECONNECT_CONNECT_ACTIONS,
+    RECONNECTING_MAX_MS,
+    resolvePostReconnectAction,
+    shouldResetRecoveryInFlight
+} from "../game/sessionRecovery/recoveryReconnectPolicy";
+
 import { normalizeSessionSnapshot } from "../game/sessionRecovery/sessionSnapshotUtils";
 
 import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
@@ -55,8 +62,8 @@ const OVERLAY_HIDE_MS = 2000;
 /**
  * Hard cap for COMPLETE / RESTORING overlays. Guards against a cancelled
  * soft-hide timer leaving the full-screen backdrop mounted forever.
- * Must stay above OVERLAY_HIDE_MS. Must not apply to RECONNECTING (network
- * Soft-hide after COMPLETE (recovery may take longer) or FAILED.
+ * Must stay above OVERLAY_HIDE_MS.
+ * R17.8F — RECONNECTING uses RECONNECTING_MAX_MS (separate timer).
  * R7.70C20 — no RETURN LOBBY button; terminal failures navigate via wipe path.
  */
 const OVERLAY_MAX_VISIBLE_MS = 5000;
@@ -643,6 +650,36 @@ export function RecoveryExperienceProvider({
 
     }, [status, clearOverlayTimer]);
 
+    // R17.8F — RECONNECTING must not block the lobby forever.
+    // Clears overlay UI + stale inFlight only; never wipes identity/session.
+    useEffect(() => {
+
+        if (status !== RECOVERY_UI_STATUS.RECONNECTING) {
+
+            return;
+
+        }
+
+        const reconnectingCapTimer = setTimeout(() => {
+
+            recoveryInFlightRef.current = false;
+
+            setStatus(RECOVERY_UI_STATUS.IDLE);
+
+            recoveryTrace("reconnecting timeout cleared overlay", getIdentity());
+
+            devLog("Reconnecting overlay cleared after max wait");
+
+        }, RECONNECTING_MAX_MS);
+
+        return () => {
+
+            clearTimeout(reconnectingCapTimer);
+
+        };
+
+    }, [status, getIdentity]);
+
     // Clear soft-hide timer only on provider unmount (sessionGeneration remount
     // / leave GameFlow). Do NOT clear it in the socket-subscription effect —
     // that effect re-runs when onNavigate / session / handlers change after
@@ -657,28 +694,48 @@ export function RecoveryExperienceProvider({
 
         function onConnect() {
 
-            if (!hadDisconnectRef.current) {
+            const identity = getIdentity();
+
+            const action = resolvePostReconnectAction({
+                hadDisconnect: hadDisconnectRef.current,
+                currentPage,
+                identity
+            });
+
+            if (action === RECONNECT_CONNECT_ACTIONS.NOOP) {
 
                 return;
 
             }
 
-            recoveryTrace("reconnect", getIdentity());
+            recoveryTrace("reconnect", identity);
 
             devLog("Reconnect detected");
 
-            // R6.17 — Always ask the server first (setup, payment, gameplay).
-            // Local timers must never skip SESSION_RECOVERY_REQUEST.
-            if (
-                isSetupRecoveryPage(currentPage)
-                || isGameplayPage(currentPage)
-            ) {
+            if (shouldResetRecoveryInFlight(action)) {
 
-                requestSessionRecovery();
-
-                hadDisconnectRef.current = false;
+                recoveryInFlightRef.current = false;
 
             }
+
+            hadDisconnectRef.current = false;
+
+            // R17.8F Case A — transport restored; no session claim to recover.
+            if (action === RECONNECT_CONNECT_ACTIONS.CLEAR_TRANSPORT_ONLY) {
+
+                setStatus(RECOVERY_UI_STATUS.IDLE);
+
+                recoveryTrace("reconnect cleared without identity", identity);
+
+                devLog("Reconnect cleared (no session identity)");
+
+                return;
+
+            }
+
+            // R17.8F Case B / R6.17 — identity present: authoritative reclaim.
+            // Local timers must never skip SESSION_RECOVERY_REQUEST.
+            requestSessionRecovery();
 
         }
 
