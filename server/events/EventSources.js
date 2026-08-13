@@ -37,5 +37,6 @@ export const EVENT_SOURCES = Object.freeze({
     CONTRACT_SETTLEMENT_MANAGER: "ContractSettlementManager",
     WALLET_MANAGER: "WalletManager",
     TON_FINANCIAL_RECOVERY: "TonFinancialRecovery",
-    OPERATIONAL_METRICS: "OperationalMetrics"
+    OPERATIONAL_METRICS: "OperationalMetrics",
+    ADVERTISEMENT_SCHEDULER: "AdvertisementScheduler"
 });

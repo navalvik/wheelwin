@@ -172,6 +172,8 @@ import { MaintenanceService } from "./console/maintenance/MaintenanceService.js"
 import { registerMaintenanceRoutes } from "./console/maintenance/registerMaintenanceRoutes.js";
 import { registerAdvertisementRoutes } from "./console/registerAdvertisementRoutes.js";
 import { AdvertisementManager } from "./advertisement/AdvertisementManager.js";
+import { AdvertisementSelectionEngine } from "./advertisement/AdvertisementSelectionEngine.js";
+import { AdvertisementScheduler } from "./advertisement/AdvertisementScheduler.js";
 import { ApplicationLifecycleManager } from "./lifecycle/ApplicationLifecycleManager.js";
 import { APPLICATION_LIFECYCLE } from "./lifecycle/ApplicationLifecycleStates.js";
 
@@ -1657,6 +1659,26 @@ class WheelWinApplication {
 
         this._logger.startupLine("AdvertisementManager");
 
+        // R14.4 — Server-authoritative advertisement scheduler + sync foundation.
+        this._advertisementSelectionEngine = new AdvertisementSelectionEngine({
+            advertisementManager: this._advertisementManager
+        });
+
+        this._advertisementScheduler = new AdvertisementScheduler({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            selectionEngine: this._advertisementSelectionEngine
+        });
+
+        this._advertisementScheduler.initialize();
+        this._advertisementScheduler.start();
+
+        this._socketGateway.configureAdvertisementScheduler(
+            this._advertisementScheduler
+        );
+
+        this._logger.startupLine("AdvertisementScheduler");
+
         registerDeveloperConsoleRoutes(
             this._expressApp,
             this._consoleProjectionService,
@@ -1910,6 +1932,16 @@ class WheelWinApplication {
             if (this._developerAuthService) {
 
                 this._developerAuthService.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("advertisementScheduler", () => {
+
+            if (this._advertisementScheduler) {
+
+                this._advertisementScheduler.shutdown();
 
             }
 

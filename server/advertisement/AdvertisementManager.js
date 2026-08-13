@@ -149,6 +149,17 @@ export class AdvertisementManager {
 
     }
 
+    /**
+     * R14.4 — Internal campaign list for the scheduler (no console role gate).
+     */
+    listCampaignsForScheduler() {
+
+        this._assertReady();
+
+        return this._storage.listCampaigns();
+
+    }
+
     getCampaignById(campaignId, { role = "Viewer" } = {}) {
 
         this._assertReady();

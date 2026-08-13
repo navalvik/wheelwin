@@ -54,6 +54,14 @@ import {
     buildPreGameReadyMessage,
     PRE_GAME_READY_MESSAGE_TYPES
 } from "./gameplayPreGameReadyProtocol.js";
+import {
+    ADVERTISEMENT_MESSAGE_CHANNEL,
+    ADVERTISEMENT_MESSAGE_TYPES,
+    ADVERTISEMENT_SOCKET_EVENTS,
+    buildAdvertisementChangedMessage,
+    buildAdvertisementSyncResponse,
+    buildCurrentAdMessage
+} from "../advertisement/AdvertisementSyncProtocol.js";
 
 export class SocketGateway {
 
@@ -98,6 +106,8 @@ export class SocketGateway {
         this._resultSessionLifecycle = resultSessionLifecycle;
 
         this._devMode = devMode;
+
+        this._advertisementScheduler = null;
 
         this._io = null;
 
@@ -379,6 +389,18 @@ export class SocketGateway {
             this._auditFailedHandler
         );
 
+        // R14.4 — advertisement broadcast (isolated channel; not game:message).
+        this._advertisementChangedHandler = (envelope) => {
+
+            this._handleAdvertisementChanged(envelope.payload);
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.ADVERTISEMENT_CHANGED,
+            this._advertisementChangedHandler
+        );
+
     }
 
     disconnectEventBus() {
@@ -509,6 +531,15 @@ export class SocketGateway {
 
         }
 
+        if (this._eventBus && this._advertisementChangedHandler) {
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.ADVERTISEMENT_CHANGED,
+                this._advertisementChangedHandler
+            );
+
+        }
+
         this._eventBus = null;
 
         this._testEventHandler = null;
@@ -536,6 +567,8 @@ export class SocketGateway {
         this._auditReadyHandler = null;
 
         this._auditFailedHandler = null;
+
+        this._advertisementChangedHandler = null;
 
         this._clockUpdateHandler = null;
 
@@ -641,6 +674,16 @@ export class SocketGateway {
             this._preGameReadyActivation = preGameReadyActivation;
 
         }
+
+    }
+
+    /**
+     * R14.4 — Attach advertisement scheduler for sync responses.
+     * Broadcasts still flow EventBus → ADVERTISEMENT_CHANGED.
+     */
+    configureAdvertisementScheduler(advertisementScheduler) {
+
+        this._advertisementScheduler = advertisementScheduler ?? null;
 
     }
 
@@ -890,6 +933,29 @@ export class SocketGateway {
         socket.on(GAME_MESSAGE_CHANNEL, (rawMessage) => {
 
             this._handleGameplayMessage(socket, rawMessage);
+
+        });
+
+        // R14.4 — advertisement sync (isolated from gameplay channel).
+        socket.on(
+            ADVERTISEMENT_SOCKET_EVENTS.ADVERTISEMENT_SYNC_REQUEST,
+            () => {
+
+                this._handleAdvertisementSyncRequest(socket);
+
+            }
+        );
+
+        socket.on(ADVERTISEMENT_MESSAGE_CHANNEL, (rawMessage) => {
+
+            if (
+                rawMessage?.type
+                === ADVERTISEMENT_MESSAGE_TYPES.ADVERTISEMENT_SYNC_REQUEST
+            ) {
+
+                this._handleAdvertisementSyncRequest(socket);
+
+            }
 
         });
 
@@ -1808,6 +1874,60 @@ export class SocketGateway {
         this._io.to(roomId).emit(channel, message);
 
         this._logAuditSyncStep("Audit status sent");
+
+    }
+
+    /**
+     * R14.4 — Global advertisement broadcast (default namespace, not rooms).
+     * Never emits on game:message.
+     */
+    _handleAdvertisementChanged(payload) {
+
+        if (!this._io) {
+
+            return;
+
+        }
+
+        const snapshot = payload?.snapshot ?? null;
+
+        if (!snapshot) {
+
+            return;
+
+        }
+
+        const changed = buildAdvertisementChangedMessage(snapshot);
+        const current = buildCurrentAdMessage(snapshot);
+
+        this._io.emit(ADVERTISEMENT_MESSAGE_CHANNEL, changed);
+        this._io.emit(
+            ADVERTISEMENT_SOCKET_EVENTS.ADVERTISEMENT_CHANGED,
+            changed
+        );
+        // Convenience CURRENT_AD snapshot for initial-style consumers.
+        this._io.emit(ADVERTISEMENT_MESSAGE_CHANNEL, current);
+
+    }
+
+    _handleAdvertisementSyncRequest(socket) {
+
+        if (!socket) {
+
+            return;
+
+        }
+
+        const snapshot = this._advertisementScheduler?.getCurrentSnapshot?.()
+            ?? null;
+
+        const response = buildAdvertisementSyncResponse(snapshot);
+
+        socket.emit(
+            ADVERTISEMENT_SOCKET_EVENTS.ADVERTISEMENT_SYNC_RESPONSE,
+            response
+        );
+        socket.emit(ADVERTISEMENT_MESSAGE_CHANNEL, response);
 
     }
 

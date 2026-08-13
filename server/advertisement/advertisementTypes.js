@@ -48,3 +48,26 @@ export const FORBIDDEN_URL_SCHEMES = Object.freeze([
     "vbscript:",
     "blob:"
 ]);
+
+/** R14.4 — Server-authoritative display window (seconds / ms). */
+export const ADVERTISEMENT_SLOT_DURATION_SECONDS = 20;
+
+export const ADVERTISEMENT_SLOT_DURATION_MS = ADVERTISEMENT_SLOT_DURATION_SECONDS * 1000;
+
+/**
+ * Future client pages that may render rotating ads.
+ * Other pages remain WheelWin brand banner only.
+ */
+export const ADVERTISEMENT_ELIGIBLE_PAGES = Object.freeze([
+    "WELCOME",
+    "ROOM_LOBBY",
+    "RESULT"
+]);
+
+export const ADVERTISEMENT_BRAND_ONLY_PAGES = Object.freeze([
+    "PLAYER_SETUP",
+    "MATRIX",
+    "VERIFY",
+    "PAYMENT",
+    "GAMEPLAY"
+]);
