@@ -15,11 +15,8 @@ import {
     getLocalPaymentRequest,
     hasPaymentSession,
     isGameContractDeployed,
-    mapGameContractStatusLabel,
     mapPaymentSessionRows,
     mapWalletConnectionRows,
-    shouldShowPaymentSessionWaiting,
-    shouldShowWalletConnectionWaiting,
     WALLET_CONNECTION_STATUS
 } from "../game/session";
 
@@ -770,14 +767,6 @@ export default function Page4Payment({ onNavigate }) {
 
     const inPaymentPhase = paymentConnectionReady
         || hasPaymentSession(paymentSession);
-
-    const contractStatusLabel = gameContract?.status
-        ? mapGameContractStatusLabel(gameContract.status)
-        : null;
-
-    const waiting = inPaymentPhase
-        ? shouldShowPaymentSessionWaiting(paymentSession)
-        : shouldShowWalletConnectionWaiting(walletConnection);
 
     const localPlayerId = resolveLocalPlayerId(
         identity.playerId ?? null,
@@ -3059,68 +3048,51 @@ export default function Page4Payment({ onNavigate }) {
 
                     <div className="paymentPlayers">
 
-                        {waiting ? (
+                        {players.map((player) => (
 
-                            <div
-                                className="paymentPlayersWaiting"
-                                aria-live="polite"
-                            >
+                            <PlayerPaymentRow
 
-                                {inPaymentPhase
-                                    ? "Preparing payment..."
-                                    : "Waiting for payment..."}
+                                key={player.key}
 
-                            </div>
+                                labelTitle={player.labelTitle}
 
-                        ) : (
+                                nickname={player.nickname}
 
-                            players.map((player) => (
+                                icon={player.icon}
 
-                                <PlayerPaymentRow
+                                connectionStatus={
+                                    inPaymentPhase
+                                        ? undefined
+                                        : player.status
+                                }
 
-                                    key={player.key}
+                                connectionStatusLabel={
+                                    inPaymentPhase
+                                        ? undefined
+                                        : player.statusLabel
+                                }
 
-                                    labelTitle={player.labelTitle}
+                                paymentStatus={
+                                    inPaymentPhase
+                                        ? player.status
+                                        : undefined
+                                }
 
-                                    nickname={player.nickname}
+                                paymentStatusLabel={
+                                    inPaymentPhase
+                                        ? player.statusLabel
+                                        : undefined
+                                }
 
-                                    icon={player.icon}
+                                walletRegistered={
+                                    inPaymentPhase
+                                        ? Boolean(player.wallet)
+                                        : undefined
+                                }
 
-                                    connectionStatus={
-                                        inPaymentPhase
-                                            ? undefined
-                                            : player.status
-                                    }
+                            />
 
-                                    connectionStatusLabel={
-                                        inPaymentPhase
-                                            ? undefined
-                                            : player.statusLabel
-                                    }
-
-                                    paymentStatus={
-                                        inPaymentPhase
-                                            ? player.status
-                                            : undefined
-                                    }
-
-                                    paymentStatusLabel={
-                                        inPaymentPhase
-                                            ? player.statusLabel
-                                            : undefined
-                                    }
-
-                                    walletRegistered={
-                                        inPaymentPhase
-                                            ? Boolean(player.wallet)
-                                            : undefined
-                                    }
-
-                                />
-
-                            ))
-
-                        )}
+                        ))}
 
                     </div>
 
@@ -3141,51 +3113,6 @@ export default function Page4Payment({ onNavigate }) {
 
                         <div className="page4__connectActions">
 
-                            <div
-                                className="smartContractStatus"
-                                aria-live="polite"
-                            >
-
-                                Wallet Connected
-
-                            </div>
-
-                            {contractStatusLabel && (
-
-                                <div
-                                    className="smartContractStatus"
-                                    aria-live="polite"
-                                >
-
-                                    <div>Game Contract</div>
-
-                                    {gameContract?.contractAddress && (
-
-                                        <div className="page4__contractAddress">
-
-                                            {gameContract.contractAddress}
-
-                                        </div>
-
-                                    )}
-
-                                    <div>{contractStatusLabel}</div>
-
-                                </div>
-
-                            )}
-
-                            {localPaymentRequest?.requiredGram != null
-                                && canConfirm && (
-
-                                <div className="smartContractStatus">
-
-                                    {`Pay ${localPaymentRequest.requiredGram} GRM`}
-
-                                </div>
-
-                            )}
-
                             {paymentSession?.status === "COMPLETED" ? (
 
                                 <div className="smartContractStatus">
@@ -3197,7 +3124,7 @@ export default function Page4Payment({ onNavigate }) {
                             ) : paymentSession?.status === "FAILED"
                                 || gameContract?.status === "DEPLOY_FAILED" ? (
 
-                    <div className="smartContractStatus">
+                                <div className="smartContractStatus">
 
                                     {gameContract?.status === "DEPLOY_FAILED"
                                         ? "Deployment failed"

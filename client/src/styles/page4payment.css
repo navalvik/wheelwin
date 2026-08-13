@@ -121,15 +121,6 @@
     box-sizing: border-box;
 }
 
-.page4__contractAddress {
-
-    color: #1c73d0;
-
-    text-transform: none;
-
-    word-break: break-all;
-}
-
 .page4__connectActions {
 
     display: flex;
