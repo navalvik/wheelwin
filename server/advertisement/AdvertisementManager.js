@@ -160,6 +160,37 @@ export class AdvertisementManager {
 
     }
 
+    /**
+     * R14.5 — Path-safe public asset read for client banner rendering.
+     */
+    readPublicAsset(rawFilename) {
+
+        this._assertReady();
+
+        const fileInfo = this._validator.sanitizeFilename(rawFilename);
+
+        if (!this._storage.assetExists(fileInfo.filename)) {
+
+            return null;
+
+        }
+
+        const bytes = this._storage.readAsset(fileInfo.filename);
+
+        if (!bytes) {
+
+            return null;
+
+        }
+
+        return {
+            filename: fileInfo.filename,
+            extension: fileInfo.extension,
+            bytes
+        };
+
+    }
+
     getCampaignById(campaignId, { role = "Viewer" } = {}) {
 
         this._assertReady();

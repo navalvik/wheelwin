@@ -7,7 +7,10 @@ import {
     createAdministratorAuthMiddleware,
     createDeveloperAuthMiddleware
 } from "./auth/developerAuthMiddleware.js";
-import { AdvertisementValidationError } from "../advertisement/AdvertisementValidator.js";
+import {
+    AdvertisementValidationError
+} from "../advertisement/AdvertisementValidator.js";
+import { ALLOWED_MIME_HINTS } from "../advertisement/advertisementTypes.js";
 
 function resolveRole(req, authService) {
 
@@ -365,6 +368,47 @@ export function registerAdvertisementRoutes(app, { authService, advertisementMan
             const mapped = mapValidationError(error);
 
             res.status(mapped.status).json(mapped.body);
+
+        }
+
+    });
+
+    // R14.5 — Public asset fetch for client AdvertisementSlot (isolated; no auth).
+    app.get("/advertisements/assets/:filename", (req, res) => {
+
+        try {
+
+            const asset = advertisementManager.readPublicAsset(req.params.filename);
+
+            if (!asset) {
+
+                res.status(404).json({ error: "Asset not found" });
+
+                return;
+
+            }
+
+            const mime = ALLOWED_MIME_HINTS[asset.extension] || "application/octet-stream";
+
+            res.setHeader("Content-Type", mime);
+            res.setHeader("Cache-Control", "public, max-age=300");
+            res.status(200).end(asset.bytes);
+
+        } catch (error) {
+
+            if (error instanceof AdvertisementValidationError) {
+
+                res.status(400).json({
+                    error: "Bad Request",
+                    code: error.code,
+                    message: error.message
+                });
+
+                return;
+
+            }
+
+            res.status(500).json({ error: "Internal Server Error" });
 
         }
 

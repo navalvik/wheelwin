@@ -1,6 +1,6 @@
 import { useContext } from "react";
 
-import Banner from "../components/Banner";
+import AdvertisementSlot from "../ads/AdvertisementSlot";
 import HeaderBar from "../components/HeaderBar";
 import InfoBar from "../components/InfoBar";
 
@@ -47,7 +47,7 @@ export default function GameLayout({
 
         <div className={`gameLayout${showInfoBar ? " gameLayout--withInfoBar" : ""}`}>
 
-            <Banner />
+            <AdvertisementSlot />
 
             <HeaderBar
               message={message}
