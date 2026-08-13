@@ -408,6 +408,25 @@ function CreateCampaignForm({ token, initialFilename = "", onCreated }) {
         event.preventDefault();
         setError("");
         setSuccess("");
+
+        const expiresIso = toIsoFromDatetimeLocal(expiresAt);
+
+        if (!expiresIso) {
+
+            setError("expiresAt is required.");
+
+            return;
+
+        }
+
+        if (priority === "" || !Number.isFinite(Number(priority))) {
+
+            setError("priority is required.");
+
+            return;
+
+        }
+
         setBusy(true);
 
         try {
@@ -416,8 +435,8 @@ function CreateCampaignForm({ token, initialFilename = "", onCreated }) {
                 advertiserName: advertiserName.trim(),
                 filename: filename.trim(),
                 destinationUrl: destinationUrl.trim(),
-                priority: priority === "" ? undefined : Number(priority),
-                expiresAt: toIsoFromDatetimeLocal(expiresAt)
+                priority: Number(priority),
+                expiresAt: expiresIso
             };
 
             if (file) {
@@ -527,7 +546,7 @@ function CreateCampaignForm({ token, initialFilename = "", onCreated }) {
                     step="1"
                     value={priority}
                     onChange={(event) => setPriority(event.target.value)}
-                    placeholder="From filename if omitted"
+                    required
                 />
 
             </label>
@@ -540,6 +559,7 @@ function CreateCampaignForm({ token, initialFilename = "", onCreated }) {
                     type="datetime-local"
                     value={expiresAt}
                     onChange={(event) => setExpiresAt(event.target.value)}
+                    required
                 />
 
             </label>
@@ -829,6 +849,17 @@ function CampaignLifecycleActions({ token, campaign, onChanged }) {
 
     const onEnable = useCallback(() => {
 
+        const confirmed = window.confirm(
+            `Enable campaign ${campaign.id}?\n\n`
+            + "Status will be set to ACTIVE."
+        );
+
+        if (!confirmed) {
+
+            return;
+
+        }
+
         runAction(() => updateAdvertisement(token, campaign.id, {
             status: "ACTIVE"
         }));
@@ -847,6 +878,17 @@ function CampaignLifecycleActions({ token, campaign, onChanged }) {
 
         }
 
+        const confirmed = window.confirm(
+            `Renew campaign ${campaign.id}?\n\n`
+            + `New expiration: ${expiresAt}`
+        );
+
+        if (!confirmed) {
+
+            return;
+
+        }
+
         runAction(() => renewAdvertisement(token, campaign.id, { expiresAt }));
 
     }, [campaign.id, renewExpiresAt, runAction, token]);
@@ -855,9 +897,9 @@ function CampaignLifecycleActions({ token, campaign, onChanged }) {
 
         <div className="devConsole__envSection">
 
-            <h3 className="devConsole__sectionTitle">Lifecycle Actions</h3>
+            <h3 className="devConsole__sectionTitle">Lifecycle Controls</h3>
 
-            <div className="devConsole__detailActions" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <div className="devConsole__detailActions">
 
                 {campaign.status !== "ACTIVE" && (
 
@@ -937,13 +979,19 @@ export default function AdvertisingPanel() {
     const {
         accessToken,
         authEnabled,
-        isAdministrator
+        isAdministrator,
+        status: authStatus,
+        session
     } = useDeveloperAuth();
 
     const token = authEnabled ? accessToken : null;
-    // Open-access console mode has no role session; backend treats mutations
-    // as Administrator. Viewers authenticated via auth never see these controls.
-    const canManage = !authEnabled || isAdministrator;
+    // Open-access console has no role session; backend treats mutations as
+    // Administrator. Authenticated Viewers never see management controls.
+    const canManage = !authEnabled
+        || authStatus === "open"
+        || isAdministrator
+        || session?.role === "Administrator"
+        || session?.role === "Operator";
 
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
@@ -955,7 +1003,6 @@ export default function AdvertisingPanel() {
     const [detailLoading, setDetailLoading] = useState(false);
     const [detailError, setDetailError] = useState("");
     const [uploadedFilename, setUploadedFilename] = useState("");
-    const [adminOpen, setAdminOpen] = useState(false);
 
     const refresh = useCallback(async () => {
 
@@ -1101,7 +1148,7 @@ export default function AdvertisingPanel() {
 
         return [
             { value: "all", label: "All statuses" },
-            ...statuses.map((status) => ({ value: status, label: status }))
+            ...statuses.map((entry) => ({ value: entry, label: entry }))
         ];
 
     }, [campaigns]);
@@ -1176,38 +1223,20 @@ export default function AdvertisingPanel() {
             title="Advertising"
             subtitle={
                 canManage
-                    ? "Manual owner administration — create, upload, edit, disable, renew"
+                    ? "Manual owner administration — upload, create, edit, enable, disable, renew"
                     : "Read-only campaign visibility"
             }
             actions={(
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <button
+                    type="button"
+                    className="devConsole__textButton"
+                    onClick={refresh}
+                    disabled={loading}
+                >
 
-                    {canManage && (
+                    Refresh
 
-                        <button
-                            type="button"
-                            className="devConsole__button"
-                            onClick={() => setAdminOpen((open) => !open)}
-                        >
-
-                            {adminOpen ? "Hide Admin" : "Manage Campaigns"}
-
-                        </button>
-
-                    )}
-
-                    <button
-                        type="button"
-                        className="devConsole__textButton"
-                        onClick={refresh}
-                        disabled={loading}
-                    >
-
-                        Refresh
-
-                    </button>
-
-                </div>
+                </button>
             )}
         >
 
@@ -1234,9 +1263,143 @@ export default function AdvertisingPanel() {
 
             </StatGrid>
 
-            {canManage && adminOpen && (
+            {!canManage && (
 
-                <section className="devConsole__envSection">
+                <p className="devConsole__envHint">
+
+                    Viewer accounts may inspect campaigns but cannot create,
+                    upload, edit, disable, or renew advertisements.
+
+                </p>
+
+            )}
+
+            <section className="devConsole__envSection" aria-label="Campaign List">
+
+                <h3 className="devConsole__envSectionTitle">
+
+                    Campaign List
+
+                </h3>
+
+                <Toolbar
+                    search={search}
+                    onSearchChange={setSearch}
+                    searchPlaceholder="Search id, filename, advertiser…"
+                >
+
+                    <FilterSelect
+                        label="Status"
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        options={statusOptions}
+                    />
+
+                </Toolbar>
+
+                {error && (
+
+                    <p className="devConsole__loginError" role="alert">
+
+                        {error}
+
+                    </p>
+
+                )}
+
+                {loading && !listData && !error ? (
+
+                    <EmptyState title="Loading advertisement campaigns…" />
+
+                ) : campaigns.length === 0 && !error ? (
+
+                    <EmptyState
+                        title="No advertisement campaigns"
+                        detail={
+                            canManage
+                                ? "Use Manage Campaigns below to upload a banner and create the first campaign."
+                                : "Uploaded campaigns will appear here once created on the server."
+                        }
+                    />
+
+                ) : (
+
+                    <DataTable
+                        columns={listColumns}
+                        rows={tableRows}
+                        empty="No campaigns match the current filters."
+                    />
+
+                )}
+
+                {selectedId && (
+
+                    <div className="devConsole__detailStack">
+
+                        <div className="devConsole__detailActions">
+
+                            <h3 className="devConsole__sectionTitle">
+
+                                Campaign Details
+
+                            </h3>
+
+                            <button
+                                type="button"
+                                className="devConsole__textButton"
+                                onClick={() => setSelectedId(null)}
+                            >
+
+                                Clear selection
+
+                            </button>
+
+                        </div>
+
+                        {detailLoading && !detail && !detailError && (
+
+                            <EmptyState title="Loading campaign details…" />
+
+                        )}
+
+                        {detailError && (
+
+                            <p className="devConsole__loginError" role="alert">
+
+                                {detailError}
+
+                            </p>
+
+                        )}
+
+                        {detail && (
+
+                            <KeyValueList entries={buildDetailEntries(detail)} />
+
+                        )}
+
+                    </div>
+
+                )}
+
+            </section>
+
+            {canManage && (
+
+                <section className="devConsole__envSection" aria-label="Manage Campaigns">
+
+                    <h3 className="devConsole__envSectionTitle">
+
+                        Manage Campaigns
+
+                    </h3>
+
+                    <p className="devConsole__envHint">
+
+                        Manual owner workflow: advertiser pays offline, then the
+                        owner uploads the banner and activates the campaign here.
+
+                    </p>
 
                     <UploadBannerForm
                         token={token}
@@ -1254,142 +1417,34 @@ export default function AdvertisingPanel() {
                         onCreated={onCampaignMutated}
                     />
 
-                </section>
-
-            )}
-
-            {!canManage && (
-
-                <p className="devConsole__envHint">
-
-                    Viewer accounts may inspect campaigns but cannot create,
-                    upload, edit, disable, or renew advertisements.
-
-                </p>
-
-            )}
-
-            <Toolbar
-                search={search}
-                onSearchChange={setSearch}
-                searchPlaceholder="Search id, filename, advertiser…"
-            >
-
-                <FilterSelect
-                    label="Status"
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    options={statusOptions}
-                />
-
-            </Toolbar>
-
-            {error && (
-
-                <p className="devConsole__loginError" role="alert">
-
-                    {error}
-
-                </p>
-
-            )}
-
-            {loading && !listData && !error ? (
-
-                <EmptyState title="Loading advertisement campaigns…" />
-
-            ) : campaigns.length === 0 && !error ? (
-
-                <EmptyState
-                    title="No advertisement campaigns"
-                    detail={
-                        canManage
-                            ? "Use Manage Campaigns to upload a banner and create the first campaign."
-                            : "Uploaded campaigns will appear here once created on the server."
-                    }
-                />
-
-            ) : (
-
-                <DataTable
-                    columns={listColumns}
-                    rows={tableRows}
-                    empty="No campaigns match the current filters."
-                />
-
-            )}
-
-            {selectedId && (
-
-                <div className="devConsole__detailStack">
-
-                    <div className="devConsole__detailActions">
-
-                        <h3 className="devConsole__sectionTitle">
-
-                            Campaign Details
-
-                        </h3>
-
-                        <button
-                            type="button"
-                            className="devConsole__textButton"
-                            onClick={() => setSelectedId(null)}
-                        >
-
-                            Clear selection
-
-                        </button>
-
-                    </div>
-
-                    {detailLoading && !detail && !detailError && (
-
-                        <EmptyState title="Loading campaign details…" />
-
-                    )}
-
-                    {detailError && (
-
-                        <p className="devConsole__loginError" role="alert">
-
-                            {detailError}
-
-                        </p>
-
-                    )}
-
-                    {detail && (
+                    {detail ? (
 
                         <>
 
-                            <KeyValueList entries={buildDetailEntries(detail)} />
+                            <EditCampaignForm
+                                token={token}
+                                campaign={detail}
+                                onSaved={onCampaignMutated}
+                            />
 
-                            {canManage && (
-
-                                <>
-
-                                    <EditCampaignForm
-                                        token={token}
-                                        campaign={detail}
-                                        onSaved={onCampaignMutated}
-                                    />
-
-                                    <CampaignLifecycleActions
-                                        token={token}
-                                        campaign={detail}
-                                        onChanged={onCampaignMutated}
-                                    />
-
-                                </>
-
-                            )}
+                            <CampaignLifecycleActions
+                                token={token}
+                                campaign={detail}
+                                onChanged={onCampaignMutated}
+                            />
 
                         </>
 
+                    ) : (
+
+                        <EmptyState
+                            title="Select a campaign to edit"
+                            detail="Click a row in Campaign List to edit fields or run lifecycle controls."
+                        />
+
                     )}
 
-                </div>
+                </section>
 
             )}
 
@@ -1398,3 +1453,4 @@ export default function AdvertisingPanel() {
     );
 
 }
+
