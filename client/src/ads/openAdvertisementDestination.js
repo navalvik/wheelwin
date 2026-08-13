@@ -3,6 +3,8 @@
  * Client must not open advertiser URLs directly.
  */
 
+import { resolveBackendUrl } from "../config/backendUrl.js";
+
 const FORBIDDEN_SCHEMES = [
     "javascript:",
     "data:",
@@ -130,11 +132,10 @@ function resolveOpenableUrl(url) {
 
         }
 
-        if (typeof window !== "undefined" && window.location?.origin) {
+        const base = resolveBackendUrl().replace(/\/$/, "");
+        const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 
-            return `${window.location.origin}${trimmed}`;
-
-        }
+        return `${base}${path}`;
 
     }
 

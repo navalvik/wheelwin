@@ -1670,12 +1670,6 @@ class WheelWinApplication {
 
         this._advertisementRedirectService.initialize();
 
-        registerAdvertisementRoutes(this._expressApp, {
-            authService: this._developerAuthService,
-            advertisementManager: this._advertisementManager,
-            advertisementRedirectService: this._advertisementRedirectService
-        });
-
         this._logger.startupLine("AdvertisementManager");
         this._logger.startupLine("AdvertisementHistoryService");
         this._logger.startupLine("AdvertisementRedirectService");
@@ -1707,6 +1701,13 @@ class WheelWinApplication {
         this._socketGateway.configureAdvertisementScheduler(
             this._advertisementScheduler
         );
+
+        registerAdvertisementRoutes(this._expressApp, {
+            authService: this._developerAuthService,
+            advertisementManager: this._advertisementManager,
+            advertisementRedirectService: this._advertisementRedirectService,
+            advertisementScheduler: this._advertisementScheduler
+        });
 
         this._logger.startupLine("AdvertisementLifecycleManager");
         this._logger.startupLine("AdvertisementScheduler");

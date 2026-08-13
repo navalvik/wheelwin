@@ -103,17 +103,34 @@ function toListItem(campaign) {
 
 }
 
+function refreshAdvertisementScheduler(scheduler, reason) {
+
+    try {
+
+        scheduler?.refresh?.(reason);
+
+    } catch {
+
+        // Console mutations must succeed even if scheduler refresh fails.
+
+    }
+
+}
+
 /**
  * @param {import("express").Express} app
  * @param {{
  *   authService: object,
- *   advertisementManager: import("../advertisement/AdvertisementManager.js").AdvertisementManager
+ *   advertisementManager: import("../advertisement/AdvertisementManager.js").AdvertisementManager,
+ *   advertisementRedirectService?: import("../advertisement/AdvertisementRedirectService.js").AdvertisementRedirectService|null,
+ *   advertisementScheduler?: import("../advertisement/AdvertisementScheduler.js").AdvertisementScheduler|null
  * }} deps
  */
 export function registerAdvertisementRoutes(app, {
     authService,
     advertisementManager,
-    advertisementRedirectService = null
+    advertisementRedirectService = null,
+    advertisementScheduler = null
 }) {
 
     if (!app || !advertisementManager) {
@@ -257,6 +274,11 @@ export function registerAdvertisementRoutes(app, {
                 createdBy: resolveUsername(req)
             });
 
+            refreshAdvertisementScheduler(
+                advertisementScheduler,
+                "console-create"
+            );
+
             res.status(201).json(campaign);
 
         } catch (error) {
@@ -305,6 +327,11 @@ export function registerAdvertisementRoutes(app, {
                 }
             );
 
+            refreshAdvertisementScheduler(
+                advertisementScheduler,
+                "console-update"
+            );
+
             res.json(updated);
 
         } catch (error) {
@@ -325,6 +352,11 @@ export function registerAdvertisementRoutes(app, {
                 role: resolveRole(req, authService),
                 username: resolveUsername(req)
             });
+
+            refreshAdvertisementScheduler(
+                advertisementScheduler,
+                "console-disable"
+            );
 
             res.json(disabled);
 
@@ -347,6 +379,11 @@ export function registerAdvertisementRoutes(app, {
                 username: resolveUsername(req),
                 expiresAt: req.body?.expiresAt ?? null
             });
+
+            refreshAdvertisementScheduler(
+                advertisementScheduler,
+                "console-renew"
+            );
 
             res.json(renewed);
 

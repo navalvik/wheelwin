@@ -86,7 +86,14 @@ function createFakeSocket() {
     });
 
     assert.equal(model.mode, "external");
-    assert.equal(model.src, "/advertisements/assets/1_banner.gif");
+    assert.equal(
+        model.src,
+        "http://localhost:3001/advertisements/assets/1_banner.gif"
+    );
+    assert.equal(
+        buildAdvertisementAssetUrl("1_banner.gif", "https://backend.example"),
+        "https://backend.example/advertisements/assets/1_banner.gif"
+    );
     assert.equal(model.destinationUrl, "/advertisements/click/ad_001");
     assert.equal(model.objectFit, "contain");
     assert.equal(model.advertisementId, "ad_001");

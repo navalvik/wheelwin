@@ -5,6 +5,7 @@
  */
 
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
+import { resolveBackendUrl } from "../config/backendUrl.js";
 import { buildAdvertisementClickPath } from "./openAdvertisementDestination";
 
 export const ADVERTISEMENT_MESSAGE_CHANNEL = "advertisement:message";
@@ -55,7 +56,10 @@ export function isBrandOnlyAdvertisementPage(page) {
 
 }
 
-export function buildAdvertisementAssetUrl(filename) {
+export function buildAdvertisementAssetUrl(
+    filename,
+    backendBase = resolveBackendUrl()
+) {
 
     if (typeof filename !== "string" || !filename.trim()) {
 
@@ -76,7 +80,9 @@ export function buildAdvertisementAssetUrl(filename) {
 
     }
 
-    return `${ADVERTISEMENT_ASSET_URL_PREFIX}/${encodeURIComponent(name)}`;
+    const base = String(backendBase || "").replace(/\/$/, "");
+
+    return `${base}${ADVERTISEMENT_ASSET_URL_PREFIX}/${encodeURIComponent(name)}`;
 
 }
 

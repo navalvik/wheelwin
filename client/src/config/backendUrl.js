@@ -10,7 +10,7 @@
  */
 export function resolveBackendUrl() {
 
-    const configured = import.meta.env.VITE_SOCKET_URL;
+    const configured = import.meta.env?.VITE_SOCKET_URL;
 
     if (typeof configured === "string" && configured.trim() !== "") {
 
@@ -24,7 +24,7 @@ export function resolveBackendUrl() {
             ? "https:"
             : "http:";
 
-        const port = import.meta.env.VITE_SOCKET_PORT || "3001";
+        const port = import.meta.env?.VITE_SOCKET_PORT || "3001";
 
         return `${protocol}//${window.location.hostname}:${port}`;
 
