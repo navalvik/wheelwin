@@ -110,7 +110,11 @@ function toListItem(campaign) {
  *   advertisementManager: import("../advertisement/AdvertisementManager.js").AdvertisementManager
  * }} deps
  */
-export function registerAdvertisementRoutes(app, { authService, advertisementManager }) {
+export function registerAdvertisementRoutes(app, {
+    authService,
+    advertisementManager,
+    advertisementRedirectService = null
+}) {
 
     if (!app || !advertisementManager) {
 
@@ -417,5 +421,39 @@ export function registerAdvertisementRoutes(app, { authService, advertisementMan
         }
 
     });
+
+    // R14.6 — Click redirect (record CLICK, then 302). No gameplay coupling.
+    if (advertisementRedirectService) {
+
+        app.get("/advertisements/click/:advertisementId", (req, res) => {
+
+            try {
+
+                const result = advertisementRedirectService.handleClick(
+                    req.params.advertisementId
+                );
+
+                if (result.status === 302 && result.location) {
+
+                    res.redirect(302, result.location);
+
+                    return;
+
+                }
+
+                res.status(result.status).json({
+                    error: result.error || "Click redirect failed",
+                    code: result.code || null
+                });
+
+            } catch (error) {
+
+                res.status(500).json({ error: "Internal Server Error" });
+
+            }
+
+        });
+
+    }
 
 }

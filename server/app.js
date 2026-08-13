@@ -175,6 +175,8 @@ import { AdvertisementManager } from "./advertisement/AdvertisementManager.js";
 import { AdvertisementSelectionEngine } from "./advertisement/AdvertisementSelectionEngine.js";
 import { AdvertisementScheduler } from "./advertisement/AdvertisementScheduler.js";
 import { AdvertisementLifecycleManager } from "./advertisement/AdvertisementLifecycleManager.js";
+import { AdvertisementHistoryService } from "./advertisement/AdvertisementHistoryService.js";
+import { AdvertisementRedirectService } from "./advertisement/AdvertisementRedirectService.js";
 import { ApplicationLifecycleManager } from "./lifecycle/ApplicationLifecycleManager.js";
 import { APPLICATION_LIFECYCLE } from "./lifecycle/ApplicationLifecycleStates.js";
 
@@ -1653,12 +1655,30 @@ class WheelWinApplication {
 
         this._advertisementManager.initialize();
 
+        this._advertisementHistoryService = new AdvertisementHistoryService({
+            logger: this._logger,
+            historyDir: this._advertisementManager.getHistoryDir()
+        });
+
+        this._advertisementHistoryService.initialize();
+
+        this._advertisementRedirectService = new AdvertisementRedirectService({
+            logger: this._logger,
+            advertisementManager: this._advertisementManager,
+            historyService: this._advertisementHistoryService
+        });
+
+        this._advertisementRedirectService.initialize();
+
         registerAdvertisementRoutes(this._expressApp, {
             authService: this._developerAuthService,
-            advertisementManager: this._advertisementManager
+            advertisementManager: this._advertisementManager,
+            advertisementRedirectService: this._advertisementRedirectService
         });
 
         this._logger.startupLine("AdvertisementManager");
+        this._logger.startupLine("AdvertisementHistoryService");
+        this._logger.startupLine("AdvertisementRedirectService");
 
         // R14.7 — Campaign expiration → WAITING_OWNER_RENEWAL (scheduler-driven).
         this._advertisementLifecycleManager = new AdvertisementLifecycleManager({
@@ -1668,7 +1688,7 @@ class WheelWinApplication {
 
         this._advertisementLifecycleManager.initialize();
 
-        // R14.4 — Server-authoritative advertisement scheduler + sync foundation.
+        // R14.4 / R14.6 — Scheduler + impression confirmation after full slot.
         this._advertisementSelectionEngine = new AdvertisementSelectionEngine({
             advertisementManager: this._advertisementManager
         });
@@ -1677,7 +1697,8 @@ class WheelWinApplication {
             logger: this._logger,
             eventBus: this._eventBus,
             selectionEngine: this._advertisementSelectionEngine,
-            lifecycleManager: this._advertisementLifecycleManager
+            lifecycleManager: this._advertisementLifecycleManager,
+            historyService: this._advertisementHistoryService
         });
 
         this._advertisementScheduler.initialize();
@@ -1963,6 +1984,16 @@ class WheelWinApplication {
             if (this._advertisementLifecycleManager) {
 
                 this._advertisementLifecycleManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("advertisementRedirectService", () => {
+
+            if (this._advertisementRedirectService) {
+
+                this._advertisementRedirectService.shutdown();
 
             }
 

@@ -1,8 +1,8 @@
 /**
- * R14.4 — AdvertisementScheduler (server-authoritative advertising clock).
+ * R14.4 / R14.6 / R14.7 — AdvertisementScheduler (server-authoritative advertising clock).
  *
  * Owns the global rotation timer. Clients must not select or rotate ads.
- * No display-history persistence in this stage (runtime state only).
+ * R14.6 — confirms impressions only after a full slot duration elapses.
  */
 
 import { EVENT_SOURCES } from "../events/EventSources.js";
@@ -25,6 +25,7 @@ export class AdvertisementScheduler {
         advertisementManager = null,
         selectionEngine = null,
         lifecycleManager = null,
+        historyService = null,
         slotDurationMs = ADVERTISEMENT_SLOT_DURATION_MS,
         nowFn = () => Date.now(),
         setIntervalFn = setInterval,
@@ -36,6 +37,7 @@ export class AdvertisementScheduler {
         this._selectionEngine = selectionEngine
             ?? new AdvertisementSelectionEngine({ advertisementManager });
         this._lifecycleManager = lifecycleManager;
+        this._historyService = historyService;
         this._slotDurationMs = Number(slotDurationMs) > 0
             ? Number(slotDurationMs)
             : ADVERTISEMENT_SLOT_DURATION_MS;
@@ -47,6 +49,7 @@ export class AdvertisementScheduler {
         this._running = false;
         this._timer = null;
         this._current = null;
+        this._pendingSlot = null;
         this._changeListeners = new Set();
 
     }
@@ -104,6 +107,7 @@ export class AdvertisementScheduler {
 
         this.stop();
         this._current = null;
+        this._pendingSlot = null;
         this._changeListeners.clear();
         this._initialized = false;
 
@@ -122,9 +126,6 @@ export class AdvertisementScheduler {
 
     }
 
-    /**
-     * Runtime snapshot for sync / broadcast. remainingMs is server-derived.
-     */
     getCurrentSnapshot(nowMs = this._nowFn()) {
 
         if (!this._current) {
@@ -142,9 +143,6 @@ export class AdvertisementScheduler {
 
     }
 
-    /**
-     * Test / bridge hook — synchronous listener without EventBus.
-     */
     onChanged(listener) {
 
         if (typeof listener === "function") {
@@ -158,7 +156,8 @@ export class AdvertisementScheduler {
     }
 
     /**
-     * Force an immediate reselection (e.g. after campaign mutations).
+     * Force an immediate reselection.
+     * Incomplete slots do not confirm impressions.
      */
     refresh(reason = "refresh") {
 
@@ -179,7 +178,6 @@ export class AdvertisementScheduler {
 
     _advance(reason = "tick") {
 
-        // R14.7 — reuse scheduler clock for expiration processing (no extra timer).
         try {
 
             this._lifecycleManager?.processExpirations?.(
@@ -188,16 +186,19 @@ export class AdvertisementScheduler {
 
         } catch {
 
-            // Lifecycle failures must not stop advertisement rotation / gameplay.
+            // Lifecycle failures must not stop advertisement rotation.
 
         }
+
+        const nowMs = this._nowFn();
+
+        this._maybeConfirmImpression(reason, nowMs);
 
         const previousId = this._current?.advertisementId ?? null;
         const selected = this._selectionEngine.selectNext({
             previousId
         });
 
-        const nowMs = this._nowFn();
         const duration = this.getSlotDurationSeconds();
 
         if (!selected) {
@@ -210,6 +211,7 @@ export class AdvertisementScheduler {
                 startedAt: nowMs,
                 duration
             };
+            this._pendingSlot = null;
 
         } else {
 
@@ -222,6 +224,28 @@ export class AdvertisementScheduler {
                 duration
             };
 
+            this._pendingSlot = {
+                advertisementId: selected.id,
+                filename: selected.filename ?? null,
+                startedAt: nowMs,
+                duration
+            };
+
+            try {
+
+                this._historyService?.recordAdStarted?.({
+                    advertisementId: selected.id,
+                    filename: selected.filename ?? null,
+                    startedAt: nowMs,
+                    duration
+                });
+
+            } catch {
+
+                // History failures must not stop the clock.
+
+            }
+
         }
 
         const snapshot = this.getCurrentSnapshot(nowMs);
@@ -229,6 +253,42 @@ export class AdvertisementScheduler {
         this._emitChanged(snapshot, reason);
 
         return snapshot;
+
+    }
+
+    _maybeConfirmImpression(reason, nowMs) {
+
+        if (reason !== "tick" || !this._pendingSlot?.advertisementId) {
+
+            return;
+
+        }
+
+        const startedAt = Number(this._pendingSlot.startedAt);
+        const elapsed = nowMs - startedAt;
+
+        if (elapsed + 25 < this._slotDurationMs) {
+
+            return;
+
+        }
+
+        try {
+
+            this._historyService?.confirmImpression?.({
+                advertisementId: this._pendingSlot.advertisementId,
+                filename: this._pendingSlot.filename ?? null,
+                startedAt,
+                completedAt: nowMs,
+                duration: this._pendingSlot.duration
+                    ?? this.getSlotDurationSeconds()
+            });
+
+        } catch {
+
+            // History failures must not stop the clock.
+
+        }
 
     }
 

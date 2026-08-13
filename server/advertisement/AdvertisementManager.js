@@ -758,6 +758,22 @@ export class AdvertisementManager {
 
     }
 
+    getHistoryDir() {
+
+        this._assertReady();
+
+        return this._storage.historyDir;
+
+    }
+
+    getDataDir() {
+
+        this._assertReady();
+
+        return this._storage.dataDir;
+
+    }
+
     listHistory({ role = "Viewer" } = {}) {
 
         this._assertReady();

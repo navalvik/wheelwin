@@ -87,6 +87,7 @@ function createFakeSocket() {
 
     assert.equal(model.mode, "external");
     assert.equal(model.src, "/advertisements/assets/1_banner.gif");
+    assert.equal(model.destinationUrl, "/advertisements/click/ad_001");
     assert.equal(model.objectFit, "contain");
     assert.equal(model.advertisementId, "ad_001");
     console.log("  1. Advertisement snapshot renders");
@@ -271,26 +272,31 @@ function createFakeSocket() {
 
     assert.equal(isTelegramAdvertisementUrl("https://t.me/example"), true);
     assert.equal(isSafeAdvertisementDestination("javascript:alert(1)"), false);
+    assert.equal(
+        isSafeAdvertisementDestination("/advertisements/click/ad_001"),
+        true
+    );
 
     const opened = [];
 
-    openAdvertisementDestination("https://example.com", {
+    openAdvertisementDestination("/advertisements/click/ad_001", {
         open: (url) => opened.push(url),
         telegramWebApp: null
     });
 
-    assert.deepEqual(opened, ["https://example.com"]);
+    assert.equal(opened.length, 1);
+    assert.match(opened[0], /\/advertisements\/click\/ad_001$/);
 
     const tgOpened = [];
 
-    openAdvertisementDestination("https://t.me/wheelwin", {
+    openAdvertisementDestination("/advertisements/click/ad_002", {
         open: () => {
 
-            throw new Error("should use telegram path");
+            throw new Error("should use telegram openLink");
 
         },
         telegramWebApp: {
-            openTelegramLink(url) {
+            openLink(url) {
 
                 tgOpened.push(url);
 
@@ -298,7 +304,8 @@ function createFakeSocket() {
         }
     });
 
-    assert.deepEqual(tgOpened, ["https://t.me/wheelwin"]);
+    assert.equal(tgOpened.length, 1);
+    assert.match(tgOpened[0], /\/advertisements\/click\/ad_002$/);
     console.log("  7. Missing advertisement data does not crash UI");
 
 }

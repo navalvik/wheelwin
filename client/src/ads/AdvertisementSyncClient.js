@@ -5,6 +5,7 @@
  */
 
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
+import { buildAdvertisementClickPath } from "./openAdvertisementDestination";
 
 export const ADVERTISEMENT_MESSAGE_CHANNEL = "advertisement:message";
 
@@ -147,9 +148,8 @@ export function resolveAdvertisementRenderModel({
     const src = buildAdvertisementAssetUrl(snapshot.filename)
         ?? WHEELWIN_FALLBACK_BANNER_SRC;
 
-    const destinationUrl = typeof snapshot.destinationUrl === "string"
-        ? snapshot.destinationUrl
-        : null;
+    // R14.6 — never expose advertiser destinationUrl to the client click path.
+    const destinationUrl = buildAdvertisementClickPath(snapshot.advertisementId);
 
     return Object.freeze({
         mode: src === WHEELWIN_FALLBACK_BANNER_SRC ? "fallback" : "external",
