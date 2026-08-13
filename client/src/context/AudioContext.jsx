@@ -12,7 +12,8 @@ import { BUTTON_STATES, RESULT_OUTCOMES } from "../game/centralButton";
 
 import { GAME_STATES } from "../game/GameState";
 
-import { AdaptiveAudioEngine } from "../game/audio";
+// R15.1 — temporary stub: preserve Audio Engine integration, disable playback.
+import { Page5AudioEngineStub } from "../game/page5/audio";
 
 import { WINNER_EVENTS } from "../game/winner";
 
@@ -48,7 +49,9 @@ export function AudioProvider({ children }) {
 
     useEffect(() => {
 
-        const engine = new AdaptiveAudioEngine();
+        const engine = new Page5AudioEngineStub();
+
+        engine.init();
 
         engineRef.current = engine;
 
@@ -58,9 +61,11 @@ export function AudioProvider({ children }) {
                 setStatus(nextStatus);
 
             })
-            .catch((error) => {
+            .catch(() => {
 
-                console.warn("[AudioEngine] Failed to load audio", error);
+                // Stub must never surface audio load failures.
+
+                setStatus(engine.getStatus());
 
             });
 
