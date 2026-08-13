@@ -172,6 +172,7 @@ import { MaintenanceService } from "./console/maintenance/MaintenanceService.js"
 import { registerMaintenanceRoutes } from "./console/maintenance/registerMaintenanceRoutes.js";
 import { registerAdvertisementRoutes } from "./console/registerAdvertisementRoutes.js";
 import { AdvertisementManager } from "./advertisement/AdvertisementManager.js";
+import { resolveAdvertisementR2Config } from "./advertisement/advertisementR2Config.js";
 import { AdvertisementSelectionEngine } from "./advertisement/AdvertisementSelectionEngine.js";
 import { AdvertisementScheduler } from "./advertisement/AdvertisementScheduler.js";
 import { AdvertisementLifecycleManager } from "./advertisement/AdvertisementLifecycleManager.js";
@@ -1654,6 +1655,15 @@ class WheelWinApplication {
         });
 
         this._advertisementManager.initialize();
+
+        const advertisementR2Config = resolveAdvertisementR2Config();
+
+        this._logger.info(
+            "ADVERTISEMENT_STORAGE"
+            + ` | backend=${advertisementR2Config.useR2 ? "r2" : "local"}`
+            + ` | r2Configured=${advertisementR2Config.r2Configured === true}`
+            + ` | dataDir=${this._advertisementManager.getDataDir()}`
+        );
 
         this._advertisementHistoryService = new AdvertisementHistoryService({
             logger: this._logger,

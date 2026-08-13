@@ -1,6 +1,7 @@
 /**
- * R14.2 — AdvertisementStorage.
- * File persistence for campaign metadata and banner assets only.
+ * R14.2 / R16.8 — AdvertisementStorage.
+ * Campaign metadata + banner assets (local FS or Cloudflare R2).
+ * Admin audit history remains on local filesystem.
  */
 
 import {
@@ -17,6 +18,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ADVERTISEMENT_SCHEMA_VERSION } from "./advertisementTypes.js";
+import { resolveAdvertisementR2Config } from "./advertisementR2Config.js";
+import { AdvertisementR2Storage } from "./AdvertisementR2Storage.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -38,15 +41,38 @@ function atomicWriteJson(filePath, payload) {
 
 }
 
+function sortCampaigns(campaigns) {
+
+    return campaigns.slice().sort((left, right) => {
+
+        const priorityDelta = (left.priority ?? 0) - (right.priority ?? 0);
+
+        if (priorityDelta !== 0) {
+
+            return priorityDelta;
+
+        }
+
+        return String(left.id).localeCompare(String(right.id));
+
+    });
+
+}
+
 export class AdvertisementStorage {
 
     constructor({
         logger = null,
-        dataDir = null
+        dataDir = null,
+        r2Config = null,
+        r2Storage = null
     } = {}) {
 
         this._logger = logger;
         this._dataDir = dataDir || resolveDefaultAdvertisementDataDir();
+        this._r2Config = r2Config ?? resolveAdvertisementR2Config();
+        this._r2Storage = r2Storage;
+        this._useR2 = false;
         this._initialized = false;
 
     }
@@ -57,13 +83,31 @@ export class AdvertisementStorage {
 
     }
 
+    get backend() {
+
+        return this._useR2 ? "r2" : "local";
+
+    }
+
     get campaignsDir() {
+
+        if (this._useR2 && this._r2Storage) {
+
+            return this._r2Storage.campaignsDir;
+
+        }
 
         return join(this._dataDir, "campaigns");
 
     }
 
     get assetsDir() {
+
+        if (this._useR2 && this._r2Storage) {
+
+            return this._r2Storage.assetsDir;
+
+        }
 
         return join(this._dataDir, "assets");
 
@@ -83,17 +127,51 @@ export class AdvertisementStorage {
 
         }
 
+        mkdirSync(this.historyDir, { recursive: true });
+
+        this._useR2 = this._r2Config.useR2 === true;
+
+        if (this._useR2) {
+
+            this._r2Storage = this._r2Storage
+                ?? new AdvertisementR2Storage({
+                    logger: this._logger,
+                    config: this._r2Config
+                });
+
+            const r2Info = this._r2Storage.initialize();
+
+            this._initialized = true;
+
+            this._logger?.info?.(
+                `AdvertisementStorage ready | backend=r2`
+                + ` | bucket=${r2Info.bucket}`
+                + ` | prefix=${r2Info.prefix}`
+                + ` | historyDir=${this.historyDir}`
+            );
+
+            return {
+                backend: "r2",
+                dataDir: this._dataDir,
+                campaignsDir: this.campaignsDir,
+                assetsDir: this.assetsDir,
+                historyDir: this.historyDir,
+                ...r2Info
+            };
+
+        }
+
         mkdirSync(this.campaignsDir, { recursive: true });
         mkdirSync(this.assetsDir, { recursive: true });
-        mkdirSync(this.historyDir, { recursive: true });
 
         this._initialized = true;
 
         this._logger?.info?.(
-            `AdvertisementStorage ready | dataDir=${this._dataDir}`
+            `AdvertisementStorage ready | backend=local | dataDir=${this._dataDir}`
         );
 
         return {
+            backend: "local",
             dataDir: this._dataDir,
             campaignsDir: this.campaignsDir,
             assetsDir: this.assetsDir,
@@ -114,13 +192,13 @@ export class AdvertisementStorage {
 
     _campaignPath(campaignId) {
 
-        return join(this.campaignsDir, `${campaignId}.json`);
+        return join(this._dataDir, "campaigns", `${campaignId}.json`);
 
     }
 
     _assetPath(filename) {
 
-        return join(this.assetsDir, filename);
+        return join(this._dataDir, "assets", filename);
 
     }
 
@@ -128,7 +206,15 @@ export class AdvertisementStorage {
 
         this._assertReady();
 
-        if (!existsSync(this.assetsDir)) {
+        if (this._useR2) {
+
+            return this._r2Storage.measureAssetsBytes();
+
+        }
+
+        const assetsDir = join(this._dataDir, "assets");
+
+        if (!existsSync(assetsDir)) {
 
             return 0;
 
@@ -136,9 +222,9 @@ export class AdvertisementStorage {
 
         let total = 0;
 
-        for (const name of readdirSync(this.assetsDir)) {
+        for (const name of readdirSync(assetsDir)) {
 
-            const absolute = join(this.assetsDir, name);
+            const absolute = join(assetsDir, name);
 
             try {
 
@@ -166,6 +252,12 @@ export class AdvertisementStorage {
 
         this._assertReady();
 
+        if (this._useR2) {
+
+            return this._r2Storage.assetExists(filename);
+
+        }
+
         return existsSync(this._assetPath(filename));
 
     }
@@ -180,9 +272,16 @@ export class AdvertisementStorage {
 
         }
 
+        if (this._useR2) {
+
+            return this._r2Storage.writeAsset(filename, bytes);
+
+        }
+
         const absolute = this._assetPath(filename);
         const temp = `${absolute}.tmp`;
 
+        mkdirSync(dirname(absolute), { recursive: true });
         writeFileSync(temp, bytes);
         renameSync(temp, absolute);
 
@@ -198,6 +297,14 @@ export class AdvertisementStorage {
 
         this._assertReady();
 
+        if (this._useR2) {
+
+            this._r2Storage.deleteAsset(filename);
+
+            return;
+
+        }
+
         const absolute = this._assetPath(filename);
 
         if (existsSync(absolute)) {
@@ -211,6 +318,12 @@ export class AdvertisementStorage {
     readAsset(filename) {
 
         this._assertReady();
+
+        if (this._useR2) {
+
+            return this._r2Storage.readAsset(filename);
+
+        }
 
         const absolute = this._assetPath(filename);
 
@@ -239,6 +352,12 @@ export class AdvertisementStorage {
             ...campaign
         };
 
+        if (this._useR2) {
+
+            return this._r2Storage.saveCampaign(payload);
+
+        }
+
         atomicWriteJson(this._campaignPath(campaign.id), payload);
 
         return payload;
@@ -248,6 +367,12 @@ export class AdvertisementStorage {
     loadCampaign(campaignId) {
 
         this._assertReady();
+
+        if (this._useR2) {
+
+            return this._r2Storage.loadCampaign(campaignId);
+
+        }
 
         const absolute = this._campaignPath(campaignId);
 
@@ -265,49 +390,52 @@ export class AdvertisementStorage {
 
         this._assertReady();
 
-        if (!existsSync(this.campaignsDir)) {
+        if (this._useR2) {
+
+            return this._r2Storage.listCampaigns();
+
+        }
+
+        const campaignsDir = join(this._dataDir, "campaigns");
+
+        if (!existsSync(campaignsDir)) {
 
             return [];
 
         }
 
-        return readdirSync(this.campaignsDir)
-            .filter((name) => name.endsWith(".json"))
-            .map((name) => {
+        return sortCampaigns(
+            readdirSync(campaignsDir)
+                .filter((name) => name.endsWith(".json"))
+                .map((name) => {
 
-                try {
+                    try {
 
-                    return JSON.parse(
-                        readFileSync(join(this.campaignsDir, name), "utf8")
-                    );
+                        return JSON.parse(
+                            readFileSync(join(campaignsDir, name), "utf8")
+                        );
 
-                } catch {
+                    } catch {
 
-                    return null;
+                        return null;
 
-                }
+                    }
 
-            })
-            .filter(Boolean)
-            .sort((left, right) => {
-
-                const priorityDelta = (left.priority ?? 0) - (right.priority ?? 0);
-
-                if (priorityDelta !== 0) {
-
-                    return priorityDelta;
-
-                }
-
-                return String(left.id).localeCompare(String(right.id));
-
-            });
+                })
+                .filter(Boolean)
+        );
 
     }
 
     deleteCampaign(campaignId) {
 
         this._assertReady();
+
+        if (this._useR2) {
+
+            return this._r2Storage.deleteCampaign(campaignId);
+
+        }
 
         const absolute = this._campaignPath(campaignId);
 
@@ -325,6 +453,7 @@ export class AdvertisementStorage {
 
     /**
      * Append-only history record (R14.3+). Never overwritten by campaign delete.
+     * R16.8 — always local filesystem (delivery JSONL uses AdvertisementHistoryService).
      */
     appendHistory(event) {
 
