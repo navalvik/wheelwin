@@ -25,6 +25,7 @@ import RoomsExplorerPanel from "./panels/RoomsExplorerPanel";
 import GameDetailPanel from "./panels/GameDetailPanel";
 import PlayersInspectorPanel from "./panels/PlayersInspectorPanel";
 import PaymentsPanel from "./panels/PaymentsPanel";
+import AdvertisingPanel from "./panels/AdvertisingPanel";
 import TonConnectDiagnosticsPanel from "./panels/TonConnectDiagnosticsPanel";
 import HistoryPanel from "./panels/HistoryPanel";
 import RecoveryPanel from "./panels/RecoveryPanel";
@@ -77,6 +78,9 @@ function renderSection(sectionId) {
 
         case "payments":
             return <PaymentsPanel />;
+
+        case "advertising":
+            return <AdvertisingPanel />;
 
         case "tonconnect":
             return <TonConnectDiagnosticsPanel />;

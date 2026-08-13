@@ -214,6 +214,83 @@ export async function fetchBlockchainStatus(accessToken) {
 
 }
 
+export async function listAdvertisements(accessToken) {
+
+    const response = await fetch(`${getConsoleApiBase()}/console/advertisements`, {
+        method: "GET",
+        headers: authHeaders(accessToken)
+    });
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        if (response.status === 401) {
+
+            throw new Error(
+                body?.error || "Unauthorized — sign in to view advertisements"
+            );
+
+        }
+
+        if (response.status === 403) {
+
+            throw new Error(body?.message || body?.error || "Forbidden");
+
+        }
+
+        throw new Error(
+            body?.error || body?.message || "Failed to load advertisements"
+        );
+
+    }
+
+    return body;
+
+}
+
+export async function getAdvertisement(accessToken, id) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/advertisements/${encodeURIComponent(id)}`,
+        {
+            method: "GET",
+            headers: authHeaders(accessToken)
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        if (response.status === 401) {
+
+            throw new Error(body?.error || "Unauthorized");
+
+        }
+
+        if (response.status === 404) {
+
+            throw new Error(body?.error || "Campaign not found");
+
+        }
+
+        if (response.status === 403) {
+
+            throw new Error(body?.message || body?.error || "Forbidden");
+
+        }
+
+        throw new Error(
+            body?.error || body?.message || "Failed to load campaign"
+        );
+
+    }
+
+    return body;
+
+}
+
 function authHeaders(accessToken) {
 
     const headers = { Accept: "application/json" };
