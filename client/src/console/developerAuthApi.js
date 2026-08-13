@@ -291,6 +291,152 @@ export async function getAdvertisement(accessToken, id) {
 
 }
 
+function advertisementMutationError(response, body, fallback) {
+
+    if (response.status === 401) {
+
+        return body?.error || "Unauthorized";
+
+    }
+
+    if (response.status === 403) {
+
+        return body?.message || body?.error || "Forbidden — Administrator required";
+
+    }
+
+    if (response.status === 404) {
+
+        return body?.error || "Campaign not found";
+
+    }
+
+    return body?.message || body?.error || body?.code || fallback;
+
+}
+
+export async function createAdvertisement(accessToken, payload = {}) {
+
+    const response = await fetch(`${getConsoleApiBase()}/console/advertisements`, {
+        method: "POST",
+        headers: jsonAuthHeaders(accessToken),
+        body: JSON.stringify(payload)
+    });
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(
+            advertisementMutationError(response, body, "Failed to create campaign")
+        );
+
+    }
+
+    return body;
+
+}
+
+export async function uploadAdvertisement(accessToken, payload = {}) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/advertisements/upload`,
+        {
+            method: "POST",
+            headers: jsonAuthHeaders(accessToken),
+            body: JSON.stringify(payload)
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(
+            advertisementMutationError(response, body, "Failed to upload banner")
+        );
+
+    }
+
+    return body;
+
+}
+
+export async function updateAdvertisement(accessToken, id, patch = {}) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/advertisements/${encodeURIComponent(id)}`,
+        {
+            method: "PATCH",
+            headers: jsonAuthHeaders(accessToken),
+            body: JSON.stringify(patch)
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(
+            advertisementMutationError(response, body, "Failed to update campaign")
+        );
+
+    }
+
+    return body;
+
+}
+
+export async function disableAdvertisement(accessToken, id) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/advertisements/${encodeURIComponent(id)}/disable`,
+        {
+            method: "POST",
+            headers: jsonAuthHeaders(accessToken),
+            body: JSON.stringify({})
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(
+            advertisementMutationError(response, body, "Failed to disable campaign")
+        );
+
+    }
+
+    return body;
+
+}
+
+export async function renewAdvertisement(accessToken, id, payload = {}) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/advertisements/${encodeURIComponent(id)}/renew`,
+        {
+            method: "POST",
+            headers: jsonAuthHeaders(accessToken),
+            body: JSON.stringify(payload)
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(
+            advertisementMutationError(response, body, "Failed to renew campaign")
+        );
+
+    }
+
+    return body;
+
+}
+
 function authHeaders(accessToken) {
 
     const headers = { Accept: "application/json" };
@@ -302,6 +448,15 @@ function authHeaders(accessToken) {
     }
 
     return headers;
+
+}
+
+function jsonAuthHeaders(accessToken) {
+
+    return {
+        ...authHeaders(accessToken),
+        "Content-Type": "application/json"
+    };
 
 }
 
