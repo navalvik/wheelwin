@@ -24,6 +24,7 @@ export class AdvertisementScheduler {
         eventBus = null,
         advertisementManager = null,
         selectionEngine = null,
+        lifecycleManager = null,
         slotDurationMs = ADVERTISEMENT_SLOT_DURATION_MS,
         nowFn = () => Date.now(),
         setIntervalFn = setInterval,
@@ -34,6 +35,7 @@ export class AdvertisementScheduler {
         this._eventBus = eventBus;
         this._selectionEngine = selectionEngine
             ?? new AdvertisementSelectionEngine({ advertisementManager });
+        this._lifecycleManager = lifecycleManager;
         this._slotDurationMs = Number(slotDurationMs) > 0
             ? Number(slotDurationMs)
             : ADVERTISEMENT_SLOT_DURATION_MS;
@@ -176,6 +178,19 @@ export class AdvertisementScheduler {
     }
 
     _advance(reason = "tick") {
+
+        // R14.7 — reuse scheduler clock for expiration processing (no extra timer).
+        try {
+
+            this._lifecycleManager?.processExpirations?.(
+                new Date(this._nowFn())
+            );
+
+        } catch {
+
+            // Lifecycle failures must not stop advertisement rotation / gameplay.
+
+        }
 
         const previousId = this._current?.advertisementId ?? null;
         const selected = this._selectionEngine.selectNext({

@@ -174,6 +174,7 @@ import { registerAdvertisementRoutes } from "./console/registerAdvertisementRout
 import { AdvertisementManager } from "./advertisement/AdvertisementManager.js";
 import { AdvertisementSelectionEngine } from "./advertisement/AdvertisementSelectionEngine.js";
 import { AdvertisementScheduler } from "./advertisement/AdvertisementScheduler.js";
+import { AdvertisementLifecycleManager } from "./advertisement/AdvertisementLifecycleManager.js";
 import { ApplicationLifecycleManager } from "./lifecycle/ApplicationLifecycleManager.js";
 import { APPLICATION_LIFECYCLE } from "./lifecycle/ApplicationLifecycleStates.js";
 
@@ -1659,6 +1660,14 @@ class WheelWinApplication {
 
         this._logger.startupLine("AdvertisementManager");
 
+        // R14.7 — Campaign expiration → WAITING_OWNER_RENEWAL (scheduler-driven).
+        this._advertisementLifecycleManager = new AdvertisementLifecycleManager({
+            logger: this._logger,
+            advertisementManager: this._advertisementManager
+        });
+
+        this._advertisementLifecycleManager.initialize();
+
         // R14.4 — Server-authoritative advertisement scheduler + sync foundation.
         this._advertisementSelectionEngine = new AdvertisementSelectionEngine({
             advertisementManager: this._advertisementManager
@@ -1667,7 +1676,8 @@ class WheelWinApplication {
         this._advertisementScheduler = new AdvertisementScheduler({
             logger: this._logger,
             eventBus: this._eventBus,
-            selectionEngine: this._advertisementSelectionEngine
+            selectionEngine: this._advertisementSelectionEngine,
+            lifecycleManager: this._advertisementLifecycleManager
         });
 
         this._advertisementScheduler.initialize();
@@ -1677,6 +1687,7 @@ class WheelWinApplication {
             this._advertisementScheduler
         );
 
+        this._logger.startupLine("AdvertisementLifecycleManager");
         this._logger.startupLine("AdvertisementScheduler");
 
         registerDeveloperConsoleRoutes(
@@ -1942,6 +1953,16 @@ class WheelWinApplication {
             if (this._advertisementScheduler) {
 
                 this._advertisementScheduler.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("advertisementLifecycleManager", () => {
+
+            if (this._advertisementLifecycleManager) {
+
+                this._advertisementLifecycleManager.shutdown();
 
             }
 

@@ -7,7 +7,11 @@ import {
     canAccessDeveloperConsole,
     canPerformAdministratorActions
 } from "../console/auth/developerRoles.js";
-import { ADVERTISEMENT_STATUS } from "./advertisementTypes.js";
+import {
+    ADVERTISEMENT_AUCTION_DEFAULTS,
+    ADVERTISEMENT_STATUS,
+    isAdvertisementExpired
+} from "./advertisementTypes.js";
 import { AdvertisementStorage } from "./AdvertisementStorage.js";
 import {
     AdvertisementValidationError,
@@ -79,6 +83,11 @@ function buildCampaignRecord({
     extras = {}
 }) {
 
+    const advertiserBid = normalizeAdvertiserBid(
+        extras.advertiserBid ?? extras.bid
+    );
+    const bidCurrency = normalizeBidCurrency(extras.bidCurrency);
+
     return {
         id,
         filename,
@@ -91,12 +100,58 @@ function buildCampaignRecord({
         expiresAt: expiresAt || null,
         createdBy,
         sizeBytes,
-        // Future fields (unused in R14.2).
-        bid: extras.bid ?? null,
+        // R14.7 — auction preparation metadata (no payments).
+        advertiserBid,
+        bidCurrency,
+        // Legacy alias retained for R14.4 selection compatibility.
+        bid: advertiserBid,
         clickCount: extras.clickCount ?? 0,
         impressionCount: extras.impressionCount ?? 0,
         renewalStatus: extras.renewalStatus ?? null
     };
+
+}
+
+function normalizeAdvertiserBid(value) {
+
+    if (value == null || value === "") {
+
+        return ADVERTISEMENT_AUCTION_DEFAULTS.advertiserBid;
+
+    }
+
+    const bid = Number(value);
+
+    if (!Number.isFinite(bid) || bid < 0) {
+
+        throw new AdvertisementValidationError(
+            "INVALID_ADVERTISER_BID",
+            "advertiserBid must be a non-negative number"
+        );
+
+    }
+
+    return bid;
+
+}
+
+function normalizeBidCurrency(value) {
+
+    if (value == null || value === "") {
+
+        return ADVERTISEMENT_AUCTION_DEFAULTS.bidCurrency;
+
+    }
+
+    const currency = String(value).trim().toUpperCase();
+
+    if (!currency) {
+
+        return ADVERTISEMENT_AUCTION_DEFAULTS.bidCurrency;
+
+    }
+
+    return currency;
 
 }
 
@@ -294,7 +349,14 @@ export class AdvertisementManager {
             status: input.status ?? ADVERTISEMENT_STATUS.ACTIVE,
             createdBy: actor,
             expiresAt: input.expiresAt ?? null,
-            sizeBytes: fileInfo.sizeBytes
+            sizeBytes: fileInfo.sizeBytes,
+            extras: {
+                advertiserBid: input.advertiserBid ?? input.bid,
+                bidCurrency: input.bidCurrency,
+                clickCount: input.clickCount,
+                impressionCount: input.impressionCount,
+                renewalStatus: input.renewalStatus
+            }
         });
 
         this._storage.saveCampaign(campaign);
@@ -431,13 +493,52 @@ export class AdvertisementManager {
 
         if (Object.prototype.hasOwnProperty.call(patch, "bid")) {
 
-            next.bid = patch.bid ?? null;
+            next.advertiserBid = normalizeAdvertiserBid(patch.bid);
+            next.bid = next.advertiserBid;
+
+        }
+
+        if (Object.prototype.hasOwnProperty.call(patch, "advertiserBid")) {
+
+            next.advertiserBid = normalizeAdvertiserBid(patch.advertiserBid);
+            next.bid = next.advertiserBid;
+
+        }
+
+        if (Object.prototype.hasOwnProperty.call(patch, "bidCurrency")) {
+
+            next.bidCurrency = normalizeBidCurrency(patch.bidCurrency);
 
         }
 
         if (Object.prototype.hasOwnProperty.call(patch, "renewalStatus")) {
 
             next.renewalStatus = patch.renewalStatus ?? null;
+
+        }
+
+        // Ensure auction fields exist on older campaign files without migration.
+        if (next.advertiserBid == null && next.bid != null) {
+
+            next.advertiserBid = normalizeAdvertiserBid(next.bid);
+
+        }
+
+        if (next.advertiserBid == null) {
+
+            next.advertiserBid = ADVERTISEMENT_AUCTION_DEFAULTS.advertiserBid;
+
+        }
+
+        if (next.bid == null) {
+
+            next.bid = next.advertiserBid;
+
+        }
+
+        if (!next.bidCurrency) {
+
+            next.bidCurrency = ADVERTISEMENT_AUCTION_DEFAULTS.bidCurrency;
 
         }
 
@@ -471,24 +572,130 @@ export class AdvertisementManager {
 
     }
 
+    /**
+     * R14.7 — Automatic expiration (no campaign/asset deletion).
+     */
+    markCampaignExpired(campaignId, { now = new Date() } = {}) {
+
+        this._assertReady();
+
+        const existing = this._storage.loadCampaign(campaignId);
+
+        if (!existing) {
+
+            return null;
+
+        }
+
+        if (existing.status !== ADVERTISEMENT_STATUS.ACTIVE) {
+
+            return null;
+
+        }
+
+        if (!isAdvertisementExpired(existing.expiresAt, now)) {
+
+            return null;
+
+        }
+
+        const next = {
+            ...existing,
+            status: ADVERTISEMENT_STATUS.WAITING_OWNER_RENEWAL,
+            renewalStatus: ADVERTISEMENT_STATUS.WAITING_OWNER_RENEWAL,
+            updatedAt: nowIso()
+        };
+
+        if (next.advertiserBid == null) {
+
+            next.advertiserBid = next.bid ?? ADVERTISEMENT_AUCTION_DEFAULTS.advertiserBid;
+
+        }
+
+        if (next.bid == null) {
+
+            next.bid = next.advertiserBid;
+
+        }
+
+        if (!next.bidCurrency) {
+
+            next.bidCurrency = ADVERTISEMENT_AUCTION_DEFAULTS.bidCurrency;
+
+        }
+
+        const saved = this._storage.saveCampaign(next);
+
+        this._storage.appendHistory({
+            type: "CAMPAIGN_EXPIRED",
+            advertisementId: campaignId,
+            campaignSnapshot: existing,
+            administrator: null,
+            timestamp: nowIso()
+        });
+
+        this._logAction("ADVERTISEMENT_EXPIRED", {
+            advertisementId: campaignId,
+            administrator: null
+        });
+
+        return saved;
+
+    }
+
     renewCampaign(campaignId, {
         role = "Administrator",
         username = null,
         expiresAt = null
     } = {}) {
 
-        const patch = {
-            status: ADVERTISEMENT_STATUS.ACTIVE,
-            renewalStatus: null
-        };
+        this._assertReady();
+        assertAdministrator(role);
 
-        if (expiresAt != null) {
+        if (expiresAt == null || expiresAt === "") {
 
-            patch.expiresAt = expiresAt;
+            throw new AdvertisementValidationError(
+                "INVALID_EXPIRES_AT",
+                "expiresAt is required to renew a campaign"
+            );
 
         }
 
-        return this.updateCampaign(campaignId, patch, { role, username });
+        const existing = this._storage.loadCampaign(campaignId);
+
+        if (!existing) {
+
+            throw new AdvertisementValidationError(
+                "NOT_FOUND",
+                `Campaign not found: ${campaignId}`
+            );
+
+        }
+
+        const saved = this.updateCampaign(
+            campaignId,
+            {
+                status: ADVERTISEMENT_STATUS.ACTIVE,
+                expiresAt,
+                renewalStatus: null
+            },
+            { role, username }
+        );
+
+        this._storage.appendHistory({
+            type: "CAMPAIGN_RENEWED",
+            advertisementId: campaignId,
+            campaignSnapshot: saved,
+            administrator: username ?? "Administrator",
+            timestamp: nowIso()
+        });
+
+        this._logAction("ADVERTISEMENT_RENEWED", {
+            advertisementId: campaignId,
+            administrator: username ?? "Administrator"
+        });
+
+        return saved;
 
     }
 

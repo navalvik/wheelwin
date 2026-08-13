@@ -1,10 +1,32 @@
 /**
- * R14.4 — AdvertisementSelectionEngine.
+ * R14.4 / R14.7 — AdvertisementSelectionEngine.
  * Filters ACTIVE campaigns and orders them for the authoritative scheduler.
- * Does not own timers, sockets, or display history.
+ * Auction ranking uses priority + advertiserBid (metadata only; no payments).
  */
 
 import { ADVERTISEMENT_STATUS } from "./advertisementTypes.js";
+
+function resolveAdvertiserBid(campaign) {
+
+    if (campaign?.advertiserBid != null && campaign.advertiserBid !== "") {
+
+        const bid = Number(campaign.advertiserBid);
+
+        return Number.isFinite(bid) ? bid : 0;
+
+    }
+
+    if (campaign?.bid != null && campaign.bid !== "") {
+
+        const bid = Number(campaign.bid);
+
+        return Number.isFinite(bid) ? bid : 0;
+
+    }
+
+    return 0;
+
+}
 
 function compareCampaigns(left, right) {
 
@@ -16,25 +38,12 @@ function compareCampaigns(left, right) {
 
     }
 
-    // Extension point: higher bid wins when both present (payments later).
-    const leftBid = left.bid == null ? null : Number(left.bid);
-    const rightBid = right.bid == null ? null : Number(right.bid);
+    // Higher advertiserBid ranks first (future auction extension point).
+    const bidDelta = resolveAdvertiserBid(right) - resolveAdvertiserBid(left);
 
-    if (leftBid != null && rightBid != null && leftBid !== rightBid) {
+    if (bidDelta !== 0) {
 
-        return rightBid - leftBid;
-
-    }
-
-    if (leftBid != null && rightBid == null) {
-
-        return -1;
-
-    }
-
-    if (leftBid == null && rightBid != null) {
-
-        return 1;
+        return bidDelta;
 
     }
 
@@ -98,3 +107,5 @@ export class AdvertisementSelectionEngine {
     }
 
 }
+
+export { resolveAdvertiserBid };

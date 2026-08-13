@@ -246,6 +246,8 @@ export function registerAdvertisementRoutes(app, { authService, advertisementMan
                 destinationUrl: body.destinationUrl,
                 priority: body.priority,
                 expiresAt: body.expiresAt,
+                advertiserBid: body.advertiserBid ?? body.bid,
+                bidCurrency: body.bidCurrency,
                 role: resolveRole(req, authService),
                 username: resolveUsername(req),
                 createdBy: resolveUsername(req)
@@ -277,6 +279,8 @@ export function registerAdvertisementRoutes(app, { authService, advertisementMan
                 "expiresAt",
                 "status",
                 "bid",
+                "advertiserBid",
+                "bidCurrency",
                 "renewalStatus"
             ]) {
 

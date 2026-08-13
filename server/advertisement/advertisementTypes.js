@@ -71,3 +71,45 @@ export const ADVERTISEMENT_BRAND_ONLY_PAGES = Object.freeze([
     "PAYMENT",
     "GAMEPLAY"
 ]);
+
+/** R14.7 — Auction preparation (metadata only; no TON / billing). */
+export const ADVERTISEMENT_BID_CURRENCY = Object.freeze({
+    MANUAL: "MANUAL"
+});
+
+export const ADVERTISEMENT_AUCTION_DEFAULTS = Object.freeze({
+    advertiserBid: 0,
+    bidCurrency: ADVERTISEMENT_BID_CURRENCY.MANUAL
+});
+
+/**
+ * True when expiresAt is set and strictly before `now`.
+ * Missing / invalid expiresAt means the campaign does not auto-expire.
+ */
+export function isAdvertisementExpired(expiresAt, now = new Date()) {
+
+    if (expiresAt == null || expiresAt === "") {
+
+        return false;
+
+    }
+
+    const expiresMs = Date.parse(String(expiresAt));
+
+    if (!Number.isFinite(expiresMs)) {
+
+        return false;
+
+    }
+
+    const nowMs = now instanceof Date ? now.getTime() : Date.parse(String(now));
+
+    if (!Number.isFinite(nowMs)) {
+
+        return false;
+
+    }
+
+    return expiresMs < nowMs;
+
+}
