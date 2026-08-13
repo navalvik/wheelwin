@@ -1,5 +1,5 @@
 /**
- * R6.6 / R17.5 — Supported UI languages.
+ * R6.6 / R17.6 — Supported UI languages.
  * Codes are stable; labels are display-only. Never derived from browser/OS/IP.
  * English remains the fallback language.
  */
@@ -11,7 +11,8 @@ export const SUPPORTED_LANGUAGES = Object.freeze([
     Object.freeze({ code: "en", label: "English" }),
     Object.freeze({ code: "es", label: "Español" }),
     Object.freeze({ code: "pt", label: "Português" }),
-    Object.freeze({ code: "fr", label: "Français" })
+    Object.freeze({ code: "fr", label: "Français" }),
+    Object.freeze({ code: "zh", label: "中文" })
 ]);
 
 export function getLanguageByCode(code) {

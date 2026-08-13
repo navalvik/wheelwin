@@ -1,7 +1,7 @@
 /**
- * R6.6 / R17.1 / R17.3 / R17.4 / R17.5 — UI string catalogs keyed by language code.
+ * R6.6 / R17.1 / R17.3–R17.6 — UI string catalogs keyed by language code.
  * English is the complete source of truth for player-facing UI.
- * es / pt / fr must keep the same key set as English.
+ * es / pt / fr / zh must keep the same key set as English.
  */
 export const TRANSLATIONS = Object.freeze({
     en: Object.freeze({
@@ -742,6 +742,191 @@ export const TRANSLATIONS = Object.freeze({
         "infobar.phase.SPEED": "ROTATION",
         "infobar.phase.BRAKE": "FREINAGE",
         "infobar.phase.RESULT": "RÉSULTAT"
+    }),
+
+    zh: Object.freeze({
+        "common.next": "下一步",
+        "common.back": "返回",
+        "common.finish": "完成",
+        "common.loadingDocument": "正在加载文档...",
+        "common.documentNotFound": "未找到文档。",
+        "common.language": "语言",
+        "common.waiting": "等待中",
+        "common.icon": "图标",
+        "common.status": "状态",
+        "common.wallet": "Wallet",
+        "common.copy": "复制",
+        "common.copied": "已复制",
+
+        "menu.welcome": "首页",
+        "menu.rules": "规则",
+        "menu.faq": "FAQ",
+        "menu.privacy": "隐私",
+        "menu.terms": "条款",
+        "menu.news": "新闻",
+        "menu.links": "链接",
+        "menu.changelog": "更新日志",
+
+        "welcome.testMode": "⚠️ 测试模式",
+        "welcome.testnetBody":
+            "本项目当前运行在 TON TESTNET 上。",
+        "welcome.testnetWalletsOnly":
+            "请仅使用 TESTNET GRAM (TON) Wallet。",
+        "welcome.testnetDismiss": "点击此消息任意位置以继续。",
+
+        "page.welcome.title": "欢迎来到 WHEELWIN",
+        "page.lobby.title": "创建或加入房间",
+        "page.setup.title": "玩家设置",
+        "page.matrix.title": "秘密矩阵",
+        "page.verify.title": "验证",
+        "page.payment.title": "支付",
+        "page.result.title": "游戏结束",
+
+        "room.createRoom": "创建房间",
+        "room.roomCreated": "房间已创建 ✓",
+        "room.joinRoom": "加入房间",
+        "room.roomId": "房间 ID",
+        "room.enterRoomId": "输入房间 ID",
+        "room.waitingForPlayers": "正在等待玩家...",
+        "room.playersConnected": "已连接玩家",
+        "room.connected": "已连接 ✓",
+        "room.unableToJoin": "无法加入房间。",
+        "room.closed": "房间已关闭。",
+
+        "setup.yourLanguage": "你的语言",
+        "setup.nickname": "输入你的昵称",
+        "setup.age": "你多大了？",
+        "setup.ageHint": "你的年龄必须在 {min} 到 {max} 岁之间。",
+        "setup.baseStake": "基础赌注",
+        "setup.sectors": "扇区",
+        "setup.arrangement": "布局",
+        "setup.colorSector1": "扇区 1 颜色",
+        "setup.colorSector2": "扇区 2 颜色",
+        "setup.oneGram": "1 GRAM",
+        "setup.tenGram": "10 GRAM",
+        "setup.oneSector": "1 扇区",
+        "setup.twoSectors": "2 扇区",
+        "setup.together": "相邻",
+        "setup.separate": "分开",
+
+        "matrix.title": "秘密矩阵",
+        "matrix.instruction":
+            "每位玩家在下方的 3×3 矩阵中输入私人密码。请使用字母 A–Z 和数字 0–9。三位玩家必须输入相同的密码。",
+        "matrix.sideHint":
+            "输入你的密码。\n\n另外两位好友\n必须输入相同内容。",
+        "matrix.waitingCount": "正在等待玩家… {submitted}/{required}",
+        "matrix.waitingAll":
+            "正在等待所有玩家提交相同的密码…",
+        "matrix.connectionRestored":
+            "连接已恢复。请再次按下“下一步”以提交。",
+        "matrix.mismatch": "秘密矩阵密码不一致。请重试。",
+        "matrix.incomplete":
+            "请填写完整的秘密矩阵，且仅使用 A–Z 和 0–9。",
+        "matrix.rejected": "秘密矩阵已被拒绝。请重试。",
+
+        "verify.waitingForPlayers": "正在等待玩家…",
+        "verify.waitingConfirm": "正在等待所有玩家确认…",
+        "verify.waitingContinue": "正在等待所有玩家继续…",
+        "verify.continuingToPayment":
+            "玩家已验证。正在进入支付…",
+        "verify.enterWalletToContinue":
+            "玩家已验证。请输入有效的 Wallet 以继续。",
+        "verify.baseStake": "基础赌注",
+        "verify.youNeedPayGram": "你需要支付 GRAM",
+        "verify.walletLabel":
+            "输入你的 GRAM (TON) TELEGRAM WALLET 地址",
+        "verify.invalidWallet": "TON Wallet 地址无效。",
+        "verify.youNeedPay": "你需要支付",
+
+        "player.you": "玩家 {n} — 你",
+        "player.other": "玩家 {n}",
+        "player.yourNickname": "你的昵称",
+        "player.playerNickname": "玩家昵称",
+
+        "payment.connectWallet": "连接 TELEGRAM WALLET",
+        "payment.disconnect": "断开连接",
+        "payment.confirmInWallet": "在 TELEGRAM WALLET 中确认",
+        "payment.openingWallet": "正在打开 Wallet…",
+        "payment.allConfirmed": "所有支付已确认",
+        "payment.deploymentFailed": "部署失败",
+        "payment.sessionFailed": "支付会话失败",
+        "payment.desktopConnection": "桌面连接",
+        "payment.universalLink": "Universal Link",
+        "payment.openWallet": "打开 Wallet",
+        "payment.walletMismatch":
+            "已连接的 Wallet 与 VERIFY 阶段输入的 Wallet 不一致。",
+        "payment.telegramSessionNoAddress":
+            "Telegram Wallet 会话已激活，但无法获取账户地址。"
+            + "请断开连接后重新连接。",
+        "payment.unableOpenTelegramWallet": "无法打开 Telegram Wallet。",
+        "payment.telegramNotConnected": "Telegram Wallet 未连接。",
+        "payment.unablePrepareTransaction":
+            "无法准备支付交易。",
+        "payment.walletRejected":
+            "Wallet 已拒绝或取消支付请求。",
+        "payment.walletConnected": "Wallet 已连接 ✓",
+        "payment.addressMismatch": "地址不匹配",
+        "payment.connecting": "正在连接…",
+        "payment.walletPending": "Wallet 待处理",
+        "payment.walletRegistered": "Wallet 已注册 ✓",
+        "payment.walletMissing": "缺少 Wallet",
+        "payment.paid": "已支付 ✓",
+        "payment.failed": "失败",
+        "payment.cancelled": "已取消",
+        "payment.waitingConfirmation": "等待确认",
+        "payment.waitingBlockchain": "等待区块链确认...",
+        "payment.waitingForPayments": "等待支付",
+        "payment.paymentRequested": "已请求支付",
+        "payment.paymentConfirmed": "支付已确认",
+        "payment.preparing": "正在准备支付...",
+        "payment.statusWaiting": "等待中",
+        "payment.statusConnecting": "连接中",
+        "payment.statusConnected": "已连接",
+        "payment.statusAddressMismatch": "地址不匹配",
+        "payment.creating": "创建中...",
+        "payment.created": "已创建 ✓",
+        "payment.smartContractFailed": "智能合约失败",
+        "player.age": "年龄",
+        "player.sector": "扇区",
+
+        "game.youMustWin": "你必须获胜",
+        "game.youWin": "你赢了",
+        "game.youLost": "你输了",
+        "game.waitingResult": "正在等待结果…",
+
+        "result.gameSummary": "游戏摘要",
+        "result.winningSector": "获胜扇区",
+        "result.winningColor": "获胜颜色",
+        "result.winnerPayout": "赢家奖金",
+        "result.youReceived": "你收到了",
+        "result.awaitingSettlement": "等待结算…",
+        "result.settlementInProgress": "结算进行中…",
+        "result.paymentCompleted": "支付已完成",
+        "result.paymentFailed": "支付失败",
+        "result.auditPending": "审计待处理",
+        "result.auditCompleted": "审计已完成",
+        "result.auditUnavailable": "审计不可用",
+        "result.gameReport": "游戏报告",
+        "result.downloadTxt": "下载 TXT",
+        "result.awaitingReport": "等待官方报告…",
+        "result.waitingAuthoritative":
+            "等待官方结果…",
+        "result.recoveryInformation": "恢复信息",
+        "result.playAgain": "再玩一次",
+        "result.roomReturn": "返回房间",
+        "result.zeroGrm": "0.00 GRM",
+
+        "infobar.roomId": "房间 ID",
+        "infobar.players": "玩家",
+        "infobar.timer": "计时器",
+        "infobar.gameTimer": "游戏计时器",
+        "infobar.setupTimer": "设置计时器",
+        "infobar.phase.PRE_GAME_READY": "准备中",
+        "infobar.phase.READY": "就绪",
+        "infobar.phase.SELF_TEST": "自检",
+        "infobar.phase.SPEED": "旋转中",
+        "infobar.phase.BRAKE": "制动中",
+        "infobar.phase.RESULT": "结果"
     })
 });
 
