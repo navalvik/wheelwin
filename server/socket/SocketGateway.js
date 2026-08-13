@@ -18,7 +18,8 @@ import {
     buildClientRecoveryPayload,
     buildRecoveryFailedMessage,
     buildRecoverySnapshotMessage,
-    enrichPage6RecoveryFields
+    enrichPage6RecoveryFields,
+    resolveRecoveryRoute
 } from "./gameplayRecoveryProtocol.js";
 import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
 import {
@@ -1303,22 +1304,47 @@ export class SocketGateway {
 
         const roomId = context.roomId;
 
-        if (!gameId || context.setupActive) {
+        // R17.8B — Pre-game reclaim already delivered lobby/payment sync via
+        // RoomLobbyBridge.reconnectSession. Do not call RecoveryEngine until
+        // GAME_INITIALIZED (live gameState) or RESULT cache exists.
+        const liveGameState = this._peekRecoveryGameState(gameId);
 
-            // C5.6C / R6.1 — Setup Session reconnect already delivered
-            // SETUP_SESSION_SYNC. RecoveryEngine remains gameplay-only.
-            if (context.setupActive) {
+        const cachedEntryForRoute = gameId
+            ? this._recoverySnapshotCache?.get(gameId) ?? null
+            : null;
 
-                this._logRecoveryStep(
-                    `Setup Session sync delivered | roomId=${roomId ?? "?"}`
-                );
+        const recoveryRoute = resolveRecoveryRoute({
+            setupActive: context.setupActive === true,
+            gameId,
+            gameState: liveGameState,
+            hasCachedSnapshot: cachedEntryForRoute?.snapshot != null
+        });
 
-                return;
+        if (recoveryRoute.route === "PRE_GAME_SUCCESS") {
 
-            }
+            this._logger.info(
+                `[R17.8B Recovery] RECOVERY_SKIPPED`
+                + ` | reason=${recoveryRoute.skipReason}`
+                + ` | phase=${recoveryRoute.phase}`
+                + ` | roomId=${roomId ?? "null"}`
+                + ` | playerId=${playerId ?? "null"}`
+                + ` | gameId=${gameId ?? "null"}`
+                + ` | socket.id=${socket.id}`
+            );
+
+            this._logRecoveryStep(
+                `Pre-game recovery success | phase=${recoveryRoute.phase}`
+                + ` | roomId=${roomId ?? "?"}`
+            );
+
+            return;
+
+        }
+
+        if (recoveryRoute.route === "FAIL") {
 
             this._sendRecoveryFailed(socket, {
-                reason: "No active gameplay session for recovery",
+                reason: recoveryRoute.reason,
                 playerId,
                 roomId
             });
@@ -1335,6 +1361,8 @@ export class SocketGateway {
 
         let auditStatus = null;
 
+        let snapshotError = null;
+
         try {
 
             authoritativeSnapshot = this._recoveryEngine.recoverPlayer(
@@ -1348,7 +1376,21 @@ export class SocketGateway {
 
             auditStatus = this._resolveAuditStatus(gameId);
 
-        } catch {
+        } catch (error) {
+
+            snapshotError = error?.reason
+                ?? error?.message
+                ?? String(error);
+
+            this._logger.info(
+                `[R17.8B Recovery] RECOVERY_FAILED`
+                + ` | reason=${snapshotError}`
+                + ` | phase=${recoveryRoute.phase}`
+                + ` | roomId=${roomId ?? "null"}`
+                + ` | playerId=${playerId ?? "null"}`
+                + ` | gameId=${gameId ?? "null"}`
+                + ` | attemptingCache=${true}`
+            );
 
             const cached = this._recoverySnapshotCache?.get(gameId);
 
@@ -1368,8 +1410,20 @@ export class SocketGateway {
 
         if (!authoritativeSnapshot) {
 
+            const failureReason = snapshotError
+                ?? "Recovery snapshot is unavailable";
+
+            this._logger.info(
+                `[R17.8B Recovery] RECOVERY_FAILED`
+                + ` | reason=${failureReason}`
+                + ` | phase=${recoveryRoute.phase}`
+                + ` | roomId=${roomId ?? "null"}`
+                + ` | playerId=${playerId ?? "null"}`
+                + ` | gameId=${gameId ?? "null"}`
+            );
+
             this._sendRecoveryFailed(socket, {
-                reason: "Recovery snapshot is unavailable",
+                reason: failureReason,
                 gameId,
                 playerId,
                 roomId
@@ -1453,6 +1507,31 @@ export class SocketGateway {
         socket.emit(channel, message);
 
         this._logRecoveryStep(`Recovery failed | reason=${reason}`);
+
+    }
+
+    /**
+     * R17.8B — Read-only peek: GAME_INITIALIZED produces a non-null gameState.
+     * Used only for recovery routing; does not build a snapshot.
+     */
+    _peekRecoveryGameState(gameId) {
+
+        if (!gameId || !this._recoveryEngine?.getDebugSnapshot) {
+
+            return null;
+
+        }
+
+        try {
+
+            return this._recoveryEngine.getDebugSnapshot(gameId)?.currentState
+                ?? null;
+
+        } catch {
+
+            return null;
+
+        }
 
     }
 
