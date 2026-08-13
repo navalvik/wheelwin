@@ -1,7 +1,7 @@
 /**
- * R6.6 / R17.1 — UI string catalogs keyed by language code.
+ * R6.6 / R17.1 / R17.3 — UI string catalogs keyed by language code.
  * English is the complete source of truth for player-facing UI.
- * Add a new object under TRANSLATIONS to support another language.
+ * Spanish (es) must keep the same key set as English.
  */
 export const TRANSLATIONS = Object.freeze({
     en: Object.freeze({
@@ -187,6 +187,191 @@ export const TRANSLATIONS = Object.freeze({
         "infobar.phase.SPEED": "SPINNING",
         "infobar.phase.BRAKE": "BRAKING",
         "infobar.phase.RESULT": "RESULT"
+    }),
+
+    es: Object.freeze({
+        "common.next": "SIGUIENTE",
+        "common.back": "ATRÁS",
+        "common.finish": "FINALIZAR",
+        "common.loadingDocument": "Cargando documento...",
+        "common.documentNotFound": "Documento no encontrado.",
+        "common.language": "Idioma",
+        "common.waiting": "Esperando",
+        "common.icon": "ICONO",
+        "common.status": "Estado",
+        "common.wallet": "Wallet",
+        "common.copy": "Copiar",
+        "common.copied": "Copiado",
+
+        "menu.welcome": "INICIO",
+        "menu.rules": "REGLAS",
+        "menu.faq": "FAQ",
+        "menu.privacy": "PRIVACIDAD",
+        "menu.terms": "TÉRMINOS",
+        "menu.news": "NOTICIAS",
+        "menu.links": "ENLACES",
+        "menu.changelog": "CAMBIOS",
+
+        "welcome.testMode": "⚠️ MODO DE PRUEBA",
+        "welcome.testnetBody":
+            "ESTE PROYECTO ESTÁ FUNCIONANDO ACTUALMENTE EN LA TON TESTNET.",
+        "welcome.testnetWalletsOnly":
+            "USA SOLO WALLETS DE GRAM (TON) DE TESTNET.",
+        "welcome.testnetDismiss": "Toca este mensaje en cualquier lugar para continuar.",
+
+        "page.welcome.title": "BIENVENIDO A WHEELWIN",
+        "page.lobby.title": "CREAR O UNIRSE A UNA SALA",
+        "page.setup.title": "CONFIGURACIÓN DEL JUGADOR",
+        "page.matrix.title": "MATRIZ SECRETA",
+        "page.verify.title": "VERIFICAR",
+        "page.payment.title": "PAGO",
+        "page.result.title": "JUEGO TERMINADO",
+
+        "room.createRoom": "CREAR SALA",
+        "room.roomCreated": "SALA CREADA ✓",
+        "room.joinRoom": "UNIRSE A LA SALA",
+        "room.roomId": "ID de sala",
+        "room.enterRoomId": "Ingresa el ID de sala",
+        "room.waitingForPlayers": "Esperando jugadores...",
+        "room.playersConnected": "Jugadores conectados",
+        "room.connected": "Conectado ✓",
+        "room.unableToJoin": "No se pudo unir a la sala.",
+        "room.closed": "La sala fue cerrada.",
+
+        "setup.yourLanguage": "TU IDIOMA",
+        "setup.nickname": "INGRESA TU APODO",
+        "setup.age": "¿CUÁNTOS AÑOS TIENES?",
+        "setup.ageHint": "Debes tener entre {min} y {max} años.",
+        "setup.baseStake": "APUESTA BASE",
+        "setup.sectors": "SECTORES",
+        "setup.arrangement": "DISPOSICIÓN",
+        "setup.colorSector1": "COLOR DEL SECTOR 1",
+        "setup.colorSector2": "COLOR DEL SECTOR 2",
+        "setup.oneGram": "1 GRAM",
+        "setup.tenGram": "10 GRAM",
+        "setup.oneSector": "1 SECTOR",
+        "setup.twoSectors": "2 SECTORES",
+        "setup.together": "JUNTOS",
+        "setup.separate": "SEPARADOS",
+
+        "matrix.title": "Matriz secreta",
+        "matrix.instruction":
+            "Cada jugador ingresa un código secreto privado en la matriz 3×3 de abajo. Usa letras A–Z y dígitos 0–9. Los tres jugadores deben ingresar el mismo código.",
+        "matrix.sideHint":
+            "INGRESA TU CÓDIGO SECRETO.\n\nTUS OTROS DOS AMIGOS\nDEBEN INGRESAR EL MISMO.",
+        "matrix.waitingCount": "Esperando jugadores… {submitted}/{required}",
+        "matrix.waitingAll":
+            "Esperando que todos los jugadores envíen el mismo código…",
+        "matrix.connectionRestored":
+            "Conexión restaurada. Presiona SIGUIENTE de nuevo para enviar.",
+        "matrix.mismatch": "Los códigos de la Matriz secreta no coinciden. Inténtalo de nuevo.",
+        "matrix.incomplete":
+            "Ingresa una Matriz secreta completa usando solo A–Z y 0–9.",
+        "matrix.rejected": "La Matriz secreta fue rechazada. Inténtalo de nuevo.",
+
+        "verify.waitingForPlayers": "Esperando jugadores…",
+        "verify.waitingConfirm": "Esperando que todos los jugadores confirmen…",
+        "verify.waitingContinue": "Esperando que todos los jugadores continúen…",
+        "verify.continuingToPayment":
+            "Jugadores verificados. Continuando al pago…",
+        "verify.enterWalletToContinue":
+            "Jugadores verificados. Ingresa una wallet válida para continuar.",
+        "verify.baseStake": "APUESTA BASE",
+        "verify.youNeedPayGram": "DEBES PAGAR GRAM",
+        "verify.walletLabel":
+            "INGRESA LA DIRECCIÓN DE TU WALLET DE GRAM (TON) TELEGRAM",
+        "verify.invalidWallet": "Dirección de wallet TON no válida.",
+        "verify.youNeedPay": "DEBES PAGAR",
+
+        "player.you": "JUGADOR {n} — TÚ",
+        "player.other": "JUGADOR {n}",
+        "player.yourNickname": "TU APODO",
+        "player.playerNickname": "APODO DEL JUGADOR",
+
+        "payment.connectWallet": "CONECTAR TELEGRAM WALLET",
+        "payment.disconnect": "DESCONECTAR",
+        "payment.confirmInWallet": "CONFIRMAR EN TELEGRAM WALLET",
+        "payment.openingWallet": "ABRIENDO WALLET…",
+        "payment.allConfirmed": "Todos los pagos confirmados",
+        "payment.deploymentFailed": "Error en el despliegue",
+        "payment.sessionFailed": "Error en la sesión de pago",
+        "payment.desktopConnection": "Conexión de escritorio",
+        "payment.universalLink": "Universal Link",
+        "payment.openWallet": "Abrir Wallet",
+        "payment.walletMismatch":
+            "La wallet conectada no coincide con la wallet ingresada en VERIFY.",
+        "payment.telegramSessionNoAddress":
+            "La sesión de Telegram Wallet está activa, pero no hay "
+            + "dirección de cuenta disponible. Desconecta y vuelve a conectar.",
+        "payment.unableOpenTelegramWallet": "No se pudo abrir Telegram Wallet.",
+        "payment.telegramNotConnected": "Telegram Wallet no está conectada.",
+        "payment.unablePrepareTransaction":
+            "No se pudo preparar la transacción de pago.",
+        "payment.walletRejected":
+            "La wallet rechazó o canceló la solicitud de pago.",
+        "payment.walletConnected": "Wallet conectada ✓",
+        "payment.addressMismatch": "Dirección no coincide",
+        "payment.connecting": "Conectando…",
+        "payment.walletPending": "Wallet pendiente",
+        "payment.walletRegistered": "Wallet registrada ✓",
+        "payment.walletMissing": "Wallet faltante",
+        "payment.paid": "Pagado ✓",
+        "payment.failed": "Fallido",
+        "payment.cancelled": "Cancelado",
+        "payment.waitingConfirmation": "Esperando confirmación",
+        "payment.waitingBlockchain": "Esperando la blockchain...",
+        "payment.waitingForPayments": "Esperando pagos",
+        "payment.paymentRequested": "Pago solicitado",
+        "payment.paymentConfirmed": "Pago confirmado",
+        "payment.preparing": "Preparando el pago...",
+        "payment.statusWaiting": "ESPERANDO",
+        "payment.statusConnecting": "CONECTANDO",
+        "payment.statusConnected": "CONECTADO",
+        "payment.statusAddressMismatch": "DIRECCIÓN NO COINCIDE",
+        "payment.creating": "Creando...",
+        "payment.created": "Creado ✓",
+        "payment.smartContractFailed": "Error del smart contract",
+        "player.age": "EDAD",
+        "player.sector": "SECTOR",
+
+        "game.youMustWin": "DEBES GANAR",
+        "game.youWin": "GANASTE",
+        "game.youLost": "PERDISTE",
+        "game.waitingResult": "Esperando el resultado…",
+
+        "result.gameSummary": "Resumen de la partida",
+        "result.winningSector": "Sector ganador",
+        "result.winningColor": "Color ganador",
+        "result.winnerPayout": "Pago al ganador",
+        "result.youReceived": "Recibiste",
+        "result.awaitingSettlement": "Esperando liquidación…",
+        "result.settlementInProgress": "Liquidación en curso…",
+        "result.paymentCompleted": "Pago completado",
+        "result.paymentFailed": "Pago fallido",
+        "result.auditPending": "Auditoría pendiente",
+        "result.auditCompleted": "Auditoría completada",
+        "result.auditUnavailable": "Auditoría no disponible",
+        "result.gameReport": "Informe de la partida",
+        "result.downloadTxt": "Descargar TXT",
+        "result.awaitingReport": "Esperando el informe oficial…",
+        "result.waitingAuthoritative":
+            "Esperando el resultado oficial…",
+        "result.recoveryInformation": "Información de recuperación",
+        "result.playAgain": "Jugar de nuevo",
+        "result.roomReturn": "Volver a la sala",
+        "result.zeroGrm": "0.00 GRM",
+
+        "infobar.roomId": "ID DE SALA",
+        "infobar.players": "JUGADORES",
+        "infobar.timer": "TEMPORIZADOR",
+        "infobar.gameTimer": "TEMPORIZADOR DE JUEGO",
+        "infobar.setupTimer": "TEMPORIZADOR DE CONFIGURACIÓN",
+        "infobar.phase.PRE_GAME_READY": "PREPARACIÓN",
+        "infobar.phase.READY": "LISTO",
+        "infobar.phase.SELF_TEST": "AUTOTEST",
+        "infobar.phase.SPEED": "GIRANDO",
+        "infobar.phase.BRAKE": "FRENANDO",
+        "infobar.phase.RESULT": "RESULTADO"
     })
 });
 
