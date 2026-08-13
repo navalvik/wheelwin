@@ -19,6 +19,7 @@ import {
     storeDeveloperSession,
     toClientSession
 } from "./developerAuthApi";
+import { canManageConsole, canPerformAdministratorActions } from "./developerRoles";
 
 const DeveloperAuthContext = createContext(null);
 
@@ -279,9 +280,13 @@ export function DeveloperAuthProvider({ children }) {
         status,
         error,
         isAuthenticated: status === "authenticated" || status === "open",
-        isAdministrator: session?.role === "Administrator"
-            || session?.role === "Operator",
+        isAdministrator: canPerformAdministratorActions(session?.role),
         isViewer: session?.role === "Viewer",
+        canManageConsole: canManageConsole({
+            authEnabled,
+            status,
+            session
+        }),
         // R6.2A — require login whenever open access is not active.
         requiresLogin: authEnabled && status !== "authenticated" && status !== "open",
         accessToken: session?.accessToken ?? null,

@@ -676,7 +676,7 @@ export function toClientSession(serverSession) {
         role: serverSession.user?.role,
         sessionId: serverSession.user?.sessionId ?? serverSession.sessionId ?? null,
         environment: serverSession.user?.environment,
-        readOnly: serverSession.user?.readOnly !== false
+        readOnly: serverSession.user?.readOnly === true
     };
 
 }

@@ -979,19 +979,12 @@ export default function AdvertisingPanel() {
     const {
         accessToken,
         authEnabled,
-        isAdministrator,
-        status: authStatus,
-        session
+        canManageConsole: canManage,
+        session,
+        status: authStatus
     } = useDeveloperAuth();
 
     const token = authEnabled ? accessToken : null;
-    // Open-access console has no role session; backend treats mutations as
-    // Administrator. Authenticated Viewers never see management controls.
-    const canManage = !authEnabled
-        || authStatus === "open"
-        || isAdministrator
-        || session?.role === "Administrator"
-        || session?.role === "Operator";
 
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
@@ -1263,6 +1256,95 @@ export default function AdvertisingPanel() {
 
             </StatGrid>
 
+            <div className="devConsole__envSection" role="status">
+
+                <p className="devConsole__envHint">
+
+                    {canManage
+                        ? (
+                            authStatus === "open" || !authEnabled
+                                ? "Open console access — administrator management enabled."
+                                : `Signed in as ${session?.role ?? "Administrator"}`
+                                + " — management controls are visible below."
+                        )
+                        : `Signed in as ${session?.role ?? "Viewer"}`
+                        + " — read-only access. Sign in with an Administrator account"
+                        + " to upload banners and manage campaigns."}
+
+                </p>
+
+            </div>
+
+            {canManage && (
+
+                <section className="devConsole__envSection" aria-label="Manage Campaigns">
+
+                    <h3 className="devConsole__envSectionTitle">
+
+                        Manage Campaigns
+
+                    </h3>
+
+                    <p className="devConsole__envHint">
+
+                        Manual owner workflow: advertiser pays offline, then the
+                        owner uploads the banner and activates the campaign here.
+
+                    </p>
+
+                    <UploadBannerForm
+                        token={token}
+                        onUploaded={(uploaded) => {
+
+                            setUploadedFilename(uploaded.filename);
+                            refresh();
+
+                        }}
+                    />
+
+                    <CreateCampaignForm
+                        token={token}
+                        initialFilename={uploadedFilename}
+                        onCreated={onCampaignMutated}
+                    />
+
+                    {detail ? (
+
+                        <>
+
+                            <h3 className="devConsole__sectionTitle">
+
+                                Selected Campaign Actions
+
+                            </h3>
+
+                            <EditCampaignForm
+                                token={token}
+                                campaign={detail}
+                                onSaved={onCampaignMutated}
+                            />
+
+                            <CampaignLifecycleActions
+                                token={token}
+                                campaign={detail}
+                                onChanged={onCampaignMutated}
+                            />
+
+                        </>
+
+                    ) : (
+
+                        <EmptyState
+                            title="Select a campaign for edit and lifecycle actions"
+                            detail="Choose a row in Campaign List below to edit URL, priority, status, or renew."
+                        />
+
+                    )}
+
+                </section>
+
+            )}
+
             {!canManage && (
 
                 <p className="devConsole__envHint">
@@ -1316,9 +1398,9 @@ export default function AdvertisingPanel() {
                     <EmptyState
                         title="No advertisement campaigns"
                         detail={
-                            canManage
-                                ? "Use Manage Campaigns below to upload a banner and create the first campaign."
-                                : "Uploaded campaigns will appear here once created on the server."
+                        canManage
+                            ? "Use Manage Campaigns above to upload a banner and create the first campaign."
+                            : "Uploaded campaigns will appear here once created on the server."
                         }
                     />
 
@@ -1383,70 +1465,6 @@ export default function AdvertisingPanel() {
                 )}
 
             </section>
-
-            {canManage && (
-
-                <section className="devConsole__envSection" aria-label="Manage Campaigns">
-
-                    <h3 className="devConsole__envSectionTitle">
-
-                        Manage Campaigns
-
-                    </h3>
-
-                    <p className="devConsole__envHint">
-
-                        Manual owner workflow: advertiser pays offline, then the
-                        owner uploads the banner and activates the campaign here.
-
-                    </p>
-
-                    <UploadBannerForm
-                        token={token}
-                        onUploaded={(uploaded) => {
-
-                            setUploadedFilename(uploaded.filename);
-                            refresh();
-
-                        }}
-                    />
-
-                    <CreateCampaignForm
-                        token={token}
-                        initialFilename={uploadedFilename}
-                        onCreated={onCampaignMutated}
-                    />
-
-                    {detail ? (
-
-                        <>
-
-                            <EditCampaignForm
-                                token={token}
-                                campaign={detail}
-                                onSaved={onCampaignMutated}
-                            />
-
-                            <CampaignLifecycleActions
-                                token={token}
-                                campaign={detail}
-                                onChanged={onCampaignMutated}
-                            />
-
-                        </>
-
-                    ) : (
-
-                        <EmptyState
-                            title="Select a campaign to edit"
-                            detail="Click a row in Campaign List to edit fields or run lifecycle controls."
-                        />
-
-                    )}
-
-                </section>
-
-            )}
 
         </PanelShell>
 
