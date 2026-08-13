@@ -170,6 +170,8 @@ import { AppEnvironmentService } from "./console/environment/AppEnvironmentServi
 import { registerEnvironmentControlRoutes } from "./console/environment/registerEnvironmentControlRoutes.js";
 import { MaintenanceService } from "./console/maintenance/MaintenanceService.js";
 import { registerMaintenanceRoutes } from "./console/maintenance/registerMaintenanceRoutes.js";
+import { registerAdvertisementRoutes } from "./console/registerAdvertisementRoutes.js";
+import { AdvertisementManager } from "./advertisement/AdvertisementManager.js";
 import { ApplicationLifecycleManager } from "./lifecycle/ApplicationLifecycleManager.js";
 import { APPLICATION_LIFECYCLE } from "./lifecycle/ApplicationLifecycleStates.js";
 
@@ -1640,6 +1642,20 @@ class WheelWinApplication {
             authService: this._developerAuthService,
             maintenanceService: this._maintenanceService
         });
+
+        // R14.3 — Advertisement Manager API (console-only; isolated from gameplay).
+        this._advertisementManager = new AdvertisementManager({
+            logger: this._logger
+        });
+
+        this._advertisementManager.initialize();
+
+        registerAdvertisementRoutes(this._expressApp, {
+            authService: this._developerAuthService,
+            advertisementManager: this._advertisementManager
+        });
+
+        this._logger.startupLine("AdvertisementManager");
 
         registerDeveloperConsoleRoutes(
             this._expressApp,
@@ -4194,6 +4210,27 @@ class WheelWinApplication {
 
             }
         );
+
+        // R14.3 — advertisement upload may carry base64 banner bytes (<= ~400KB).
+        app.use((req, res, next) => {
+
+            const path = req.path || "";
+
+            if (
+                req.method === "POST"
+                && (
+                    path === "/console/advertisements/upload"
+                    || path === "/console/advertisements"
+                )
+            ) {
+
+                return express.json({ limit: "512kb" })(req, res, next);
+
+            }
+
+            return next();
+
+        });
 
         // R6.1 — JSON body for Developer Auth login/refresh/logout only.
         app.use(express.json({ limit: "32kb" }));

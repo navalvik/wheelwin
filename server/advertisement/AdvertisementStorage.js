@@ -323,4 +323,63 @@ export class AdvertisementStorage {
 
     }
 
+    /**
+     * Append-only history record (R14.3+). Never overwritten by campaign delete.
+     */
+    appendHistory(event) {
+
+        this._assertReady();
+
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const id = String(event?.advertisementId || event?.id || "unknown");
+        const type = String(event?.type || "EVENT");
+        const filename = `${stamp}_${type}_${id}.json`;
+        const absolute = join(this.historyDir, filename);
+
+        atomicWriteJson(absolute, {
+            ...event,
+            recordedAt: event?.recordedAt || new Date().toISOString()
+        });
+
+        return {
+            filename,
+            absolutePath: absolute
+        };
+
+    }
+
+    listHistory() {
+
+        this._assertReady();
+
+        if (!existsSync(this.historyDir)) {
+
+            return [];
+
+        }
+
+        return readdirSync(this.historyDir)
+            .filter((name) => name.endsWith(".json"))
+            .map((name) => {
+
+                try {
+
+                    return {
+                        filename: name,
+                        ...JSON.parse(
+                            readFileSync(join(this.historyDir, name), "utf8")
+                        )
+                    };
+
+                } catch {
+
+                    return null;
+
+                }
+
+            })
+            .filter(Boolean);
+
+    }
+
 }

@@ -159,19 +159,118 @@ export class AdvertisementManager {
     }
 
     /**
-     * Create campaign + store asset bytes.
-     *
-     * @param {object} input
-     * @param {string} input.filename — client-supplied name (sanitized)
-     * @param {Buffer} input.bytes
-     * @param {string} [input.advertiserName]
-     * @param {string} [input.destinationUrl]
-     * @param {string} [input.expiresAt]
-     * @param {string} [input.status]
-     * @param {string} [input.createdBy]
-     * @param {string} [input.role] — caller role (Administrator required)
+     * Create campaign metadata.
+     * Provide either `bytes` (new asset) or an already-uploaded `filename`.
      */
     createCampaign(input = {}) {
+
+        this._assertReady();
+
+        const role = input.role ?? "Administrator";
+
+        assertAdministrator(role);
+
+        let fileInfo;
+        let bytes = input.bytes ?? null;
+
+        if (Buffer.isBuffer(bytes)) {
+
+            const currentTotalBytes = this._storage.measureAssetsBytes();
+
+            fileInfo = this._validator.validateFile({
+                filename: input.filename,
+                bytes,
+                currentTotalBytes
+            });
+
+            if (this._storage.assetExists(fileInfo.filename)) {
+
+                throw new AdvertisementValidationError(
+                    "ASSET_EXISTS",
+                    `Asset already exists: ${fileInfo.filename}`
+                );
+
+            }
+
+            this._storage.writeAsset(fileInfo.filename, bytes);
+
+        } else {
+
+            fileInfo = this._validator.sanitizeFilename(input.filename);
+
+            if (!this._storage.assetExists(fileInfo.filename)) {
+
+                throw new AdvertisementValidationError(
+                    "ASSET_MISSING",
+                    `Upload asset before creating campaign: ${fileInfo.filename}`
+                );
+
+            }
+
+            const assetBytes = this._storage.readAsset(fileInfo.filename);
+
+            fileInfo = {
+                ...fileInfo,
+                sizeBytes: assetBytes?.byteLength ?? 0
+            };
+
+        }
+
+        const destinationUrl = this._validator.validateDestinationUrl(
+            input.destinationUrl
+        );
+
+        let priority = fileInfo.priority;
+
+        if (input.priority != null && input.priority !== "") {
+
+            priority = Number.parseInt(input.priority, 10);
+
+            if (!Number.isFinite(priority) || priority < 0) {
+
+                throw new AdvertisementValidationError(
+                    "INVALID_PRIORITY",
+                    "priority must be a non-negative integer"
+                );
+
+            }
+
+        }
+
+        const existing = this._storage.listCampaigns();
+        const id = allocateCampaignId(existing);
+        const actor = input.createdBy
+            ?? input.username
+            ?? "Administrator";
+
+        const campaign = buildCampaignRecord({
+            id,
+            filename: fileInfo.filename,
+            priority,
+            advertiserName: input.advertiserName,
+            destinationUrl,
+            status: input.status ?? ADVERTISEMENT_STATUS.ACTIVE,
+            createdBy: actor,
+            expiresAt: input.expiresAt ?? null,
+            sizeBytes: fileInfo.sizeBytes
+        });
+
+        this._storage.saveCampaign(campaign);
+
+        this._logAction("ADVERTISEMENT_CREATED", {
+            advertisementId: id,
+            administrator: actor,
+            filename: fileInfo.filename
+        });
+
+        return campaign;
+
+    }
+
+    /**
+     * Upload banner bytes to assets/ (Administrator only).
+     */
+    uploadAsset(input = {}) {
 
         this._assertReady();
 
@@ -196,37 +295,27 @@ export class AdvertisementManager {
 
         }
 
-        const destinationUrl = this._validator.validateDestinationUrl(
-            input.destinationUrl
-        );
+        this._storage.writeAsset(fileInfo.filename, input.bytes);
 
-        const existing = this._storage.listCampaigns();
-        const id = allocateCampaignId(existing);
+        const actor = input.username ?? "Administrator";
 
-        const campaign = buildCampaignRecord({
-            id,
+        this._logAction("ADVERTISEMENT_UPLOADED", {
+            advertisementId: null,
+            administrator: actor,
             filename: fileInfo.filename,
-            priority: fileInfo.priority,
-            advertiserName: input.advertiserName,
-            destinationUrl,
-            status: input.status ?? ADVERTISEMENT_STATUS.ACTIVE,
-            createdBy: input.createdBy ?? "Administrator",
-            expiresAt: input.expiresAt ?? null,
             sizeBytes: fileInfo.sizeBytes
         });
 
-        this._storage.writeAsset(fileInfo.filename, input.bytes);
-        this._storage.saveCampaign(campaign);
-
-        this._logger?.info?.(
-            `Advertisement campaign created | id=${id} | file=${fileInfo.filename}`
-        );
-
-        return campaign;
+        return {
+            filename: fileInfo.filename,
+            priority: fileInfo.priority,
+            extension: fileInfo.extension,
+            sizeBytes: fileInfo.sizeBytes
+        };
 
     }
 
-    updateCampaign(campaignId, patch = {}, { role = "Administrator" } = {}) {
+    updateCampaign(campaignId, patch = {}, { role = "Administrator", username = null } = {}) {
 
         this._assertReady();
         assertAdministrator(role);
@@ -312,24 +401,59 @@ export class AdvertisementManager {
 
         next.updatedAt = nowIso();
 
-        return this._storage.saveCampaign(next);
+        const saved = this._storage.saveCampaign(next);
+
+        this._logAction("ADVERTISEMENT_UPDATED", {
+            advertisementId: campaignId,
+            administrator: username ?? "Administrator"
+        });
+
+        return saved;
 
     }
 
-    disableCampaign(campaignId, { role = "Administrator" } = {}) {
+    disableCampaign(campaignId, { role = "Administrator", username = null } = {}) {
 
-        return this.updateCampaign(
+        const saved = this.updateCampaign(
             campaignId,
             { status: ADVERTISEMENT_STATUS.DISABLED },
-            { role }
+            { role, username }
         );
+
+        this._logAction("ADVERTISEMENT_DISABLED", {
+            advertisementId: campaignId,
+            administrator: username ?? "Administrator"
+        });
+
+        return saved;
+
+    }
+
+    renewCampaign(campaignId, {
+        role = "Administrator",
+        username = null,
+        expiresAt = null
+    } = {}) {
+
+        const patch = {
+            status: ADVERTISEMENT_STATUS.ACTIVE,
+            renewalStatus: null
+        };
+
+        if (expiresAt != null) {
+
+            patch.expiresAt = expiresAt;
+
+        }
+
+        return this.updateCampaign(campaignId, patch, { role, username });
 
     }
 
     /**
-     * Remove campaign metadata and asset file.
+     * Remove campaign metadata + asset, but archive a history snapshot first.
      */
-    deleteCampaign(campaignId, { role = "Administrator" } = {}) {
+    deleteCampaign(campaignId, { role = "Administrator", username = null } = {}) {
 
         this._assertReady();
         assertAdministrator(role);
@@ -345,6 +469,14 @@ export class AdvertisementManager {
 
         }
 
+        this._storage.appendHistory({
+            type: "CAMPAIGN_DELETED",
+            advertisementId: campaignId,
+            campaignSnapshot: existing,
+            administrator: username ?? "Administrator",
+            timestamp: nowIso()
+        });
+
         this._storage.deleteCampaign(campaignId);
 
         if (existing.filename) {
@@ -353,11 +485,12 @@ export class AdvertisementManager {
 
         }
 
-        this._logger?.info?.(
-            `Advertisement campaign deleted | id=${campaignId}`
-        );
+        this._logAction("ADVERTISEMENT_DELETED", {
+            advertisementId: campaignId,
+            administrator: username ?? "Administrator"
+        });
 
-        return { deleted: true, id: campaignId };
+        return { deleted: true, id: campaignId, historyPreserved: true };
 
     }
 
@@ -370,8 +503,31 @@ export class AdvertisementManager {
             usedBytes: this._storage.measureAssetsBytes(),
             assetsDir: this._storage.assetsDir,
             campaignsDir: this._storage.campaignsDir,
-            historyDir: this._storage.historyDir
+            historyDir: this._storage.historyDir,
+            historyCount: this._storage.listHistory().length
         };
+
+    }
+
+    listHistory({ role = "Viewer" } = {}) {
+
+        this._assertReady();
+        assertReader(role);
+
+        return this._storage.listHistory();
+
+    }
+
+    _logAction(eventName, payload = {}) {
+
+        const timestamp = nowIso();
+
+        this._logger?.info?.(
+            `${eventName} | advertisementId=${payload.advertisementId ?? "null"}`
+            + ` | administrator=${payload.administrator ?? "unknown"}`
+            + ` | timestamp=${timestamp}`
+            + (payload.filename ? ` | filename=${payload.filename}` : "")
+        );
 
     }
 
