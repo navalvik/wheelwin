@@ -187,47 +187,6 @@ export const TRANSLATIONS = Object.freeze({
         "infobar.phase.SPEED": "SPINNING",
         "infobar.phase.BRAKE": "BRAKING",
         "infobar.phase.RESULT": "RESULT"
-    }),
-
-    ru: Object.freeze({
-        "common.next": "ДАЛЕЕ",
-        "common.back": "НАЗАД",
-        "common.finish": "ЗАВЕРШИТЬ",
-        "common.loadingDocument": "Загрузка документа...",
-        "common.documentNotFound": "Документ не найден.",
-
-        "menu.welcome": "ГЛАВНАЯ",
-        "menu.rules": "ПРАВИЛА",
-        "menu.faq": "FAQ",
-        "menu.privacy": "КОНФИДЕНЦИАЛЬНОСТЬ",
-        "menu.terms": "УСЛОВИЯ",
-        "menu.news": "НОВОСТИ",
-        "menu.links": "ССЫЛКИ",
-        "menu.changelog": "ИЗМЕНЕНИЯ",
-
-        "page.welcome.title": "ДОБРО ПОЖАЛОВАТЬ В WHEELWIN",
-        "page.lobby.title": "СОЗДАТЬ ИЛИ ВОЙТИ В КОМНАТУ",
-        "page.setup.title": "НАСТРОЙКА ИГРОКА",
-        "page.matrix.title": "СЕКРЕТНАЯ МАТРИЦА",
-        "page.verify.title": "ПРОВЕРКА",
-        "page.payment.title": "ОПЛАТА",
-        "page.result.title": "ИГРА ЗАВЕРШЕНА",
-
-        "setup.yourLanguage": "ВАШ ЯЗЫК",
-        "setup.nickname": "ВВЕДИТЕ НИКНЕЙМ",
-        "setup.age": "СКОЛЬКО ВАМ ЛЕТ?",
-        "setup.ageHint": "Вам должно быть от {min} до {max} лет.",
-        "setup.baseStake": "БАЗОВАЯ СТАВКА",
-        "setup.sectors": "СЕКТОРЫ",
-        "setup.arrangement": "РАСПОЛОЖЕНИЕ",
-        "setup.colorSector1": "ЦВЕТ СЕКТОРА 1",
-        "setup.colorSector2": "ЦВЕТ СЕКТОРА 2",
-        "setup.oneGram": "1 GRAM",
-        "setup.tenGram": "10 GRAM",
-        "setup.oneSector": "1 СЕКТОР",
-        "setup.twoSectors": "2 СЕКТОРА",
-        "setup.together": "ВМЕСТЕ",
-        "setup.separate": "РАЗДЕЛЬНО"
     })
 });
 
