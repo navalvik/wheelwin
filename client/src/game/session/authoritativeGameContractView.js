@@ -53,7 +53,7 @@ export function mapGameContractStatusLabel(status) {
 
         case GAME_CONTRACT_STATUS.AWAITING_PAYMENTS:
         case GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS:
-            return "Waiting for payments";
+            return "payment.waitingForPayments";
 
         case GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE:
             return "Payments complete";

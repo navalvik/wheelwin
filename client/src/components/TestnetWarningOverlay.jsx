@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { SHOW_TESTNET_WARNING } from "../config/features";
+import { useLanguage } from "../context/LanguageContext";
 
 import "../styles/testnetWarningOverlay.css";
 
@@ -12,6 +13,8 @@ const FADE_MS = 280;
  * Dismissed by clicking / tapping the warning card.
  */
 export default function TestnetWarningOverlay() {
+
+    const { t } = useLanguage();
 
     const [visible, setVisible] = useState(SHOW_TESTNET_WARNING);
 
@@ -77,25 +80,25 @@ export default function TestnetWarningOverlay() {
                     className="testnetWarningOverlay__eyebrow"
                 >
 
-                    ⚠️ TEST MODE
+                    {t("welcome.testMode")}
 
                 </div>
 
                 <p className="testnetWarningOverlay__body">
 
-                    THIS PROJECT IS CURRENTLY RUNNING ON THE TON TESTNET.
+                    {t("welcome.testnetBody")}
 
                 </p>
 
                 <p className="testnetWarningOverlay__body">
 
-                    USE TESTNET GRAM (TON) WALLETS ONLY.
+                    {t("welcome.testnetWalletsOnly")}
 
                 </p>
 
                 <p className="testnetWarningOverlay__hint">
 
-                    Tap anywhere on this message to continue.
+                    {t("welcome.testnetDismiss")}
 
                 </p>
 

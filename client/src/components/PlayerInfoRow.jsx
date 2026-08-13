@@ -1,8 +1,12 @@
 import "../styles/playerInfoRow.css";
 
+import { useLanguage } from "../context/LanguageContext";
+
 export default function PlayerInfoRow({
 
     labelTitle,
+
+    labelOrdinal = null,
 
     nickname,
 
@@ -14,13 +18,29 @@ export default function PlayerInfoRow({
 
     sectorValue,
 
-    paymentLabel = "YOU NEED PAY",
+    paymentLabel = "verify.youNeedPay",
 
     paymentDisplay = null,
 
     isLocal = false
 
 }) {
+
+    const { t } = useLanguage();
+
+    const resolvedTitle = labelTitle?.includes(".")
+        ? t(labelTitle, labelOrdinal != null ? { n: labelOrdinal } : null)
+        : labelTitle;
+
+    const resolvedSectorLabel = sectorLabel === "SECTOR"
+        || sectorLabel?.startsWith?.("player.")
+        || sectorLabel?.startsWith?.("setup.")
+        ? t(sectorLabel === "SECTOR" ? "player.sector" : sectorLabel)
+        : sectorLabel;
+
+    const resolvedPaymentLabel = paymentLabel?.includes(".")
+        ? t(paymentLabel)
+        : paymentLabel;
 
     return (
 
@@ -37,7 +57,7 @@ export default function PlayerInfoRow({
 
                 <span className="playerInfoRow__label">
 
-                    {labelTitle}
+                    {resolvedTitle}
 
                 </span>
 
@@ -53,7 +73,7 @@ export default function PlayerInfoRow({
 
                 <span className="playerInfoRow__label">
 
-                    ICON
+                    {t("common.icon")}
 
                 </span>
 
@@ -69,7 +89,7 @@ export default function PlayerInfoRow({
 
                 <span className="playerInfoRow__label">
 
-                    AGE
+                    {t("player.age")}
 
                 </span>
 
@@ -85,7 +105,7 @@ export default function PlayerInfoRow({
 
                 <span className="playerInfoRow__label">
 
-                    {sectorLabel}
+                    {resolvedSectorLabel}
 
                 </span>
 
@@ -103,7 +123,7 @@ export default function PlayerInfoRow({
 
                     <span className="playerInfoRow__label">
 
-                        {paymentLabel}
+                        {resolvedPaymentLabel}
 
                     </span>
 

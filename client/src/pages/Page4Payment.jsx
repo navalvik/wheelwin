@@ -1461,7 +1461,7 @@ export default function Page4Payment({ onNavigate }) {
             dumpHandshakeSummary("report_aborted_null_wallet");
 
             setLocalError(
-                "Connected wallet does not match the wallet entered during VERIFY."
+                t("payment.walletMismatch")
             );
 
             return;
@@ -1517,7 +1517,8 @@ export default function Page4Payment({ onNavigate }) {
         dumpHandshakeSummary,
         emitWalletSocketEvent,
         localPlayerId,
-        pushHandshakeTrace
+        pushHandshakeTrace,
+        t
     ]);
 
     useEffect(() => {
@@ -1635,7 +1636,7 @@ export default function Page4Payment({ onNavigate }) {
         if (localWalletStatus === WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH) {
 
             setLocalError(
-                "Connected wallet does not match the wallet entered during VERIFY."
+                t("payment.walletMismatch")
             );
 
             pushHandshakeTrace("ADDRESS_MISMATCH", {
@@ -1652,7 +1653,7 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-    }, [localWalletStatus, pushHandshakeTrace]);
+    }, [localWalletStatus, pushHandshakeTrace, t]);
 
     useEffect(() => {
 
@@ -2738,8 +2739,7 @@ export default function Page4Payment({ onNavigate }) {
             if (!sdkAddress) {
 
                 setLocalError(
-                    "Telegram Wallet session is active but no account address "
-                        + "is available. Disconnect and connect again."
+                    t("payment.telegramSessionNoAddress")
                 );
 
                 dumpHandshakeSummary("reuse_blocked_no_address");
@@ -2840,7 +2840,7 @@ export default function Page4Payment({ onNavigate }) {
                 LOBBY_OUTGOING_EVENTS.WALLET_DISCONNECT_REPORT
             );
 
-            setLocalError("Unable to open Telegram Wallet.");
+            setLocalError(t("payment.unableOpenTelegramWallet"));
 
         }
 
@@ -2937,7 +2937,7 @@ export default function Page4Payment({ onNavigate }) {
                     }
                 );
 
-                setLocalError("Telegram Wallet is not connected.");
+                setLocalError(t("payment.telegramNotConnected"));
 
                 return;
 
@@ -2963,7 +2963,7 @@ export default function Page4Payment({ onNavigate }) {
 
                 setLocalError(
                     error?.message
-                        || "Unable to prepare payment transaction."
+                        || t("payment.unablePrepareTransaction")
                 );
 
                 return;
@@ -3008,7 +3008,7 @@ export default function Page4Payment({ onNavigate }) {
 
                 setLocalError(
                     error?.message
-                        || "Wallet rejected or cancelled the payment request."
+                        || t("payment.walletRejected")
                 );
 
                 return;
@@ -3117,7 +3117,7 @@ export default function Page4Payment({ onNavigate }) {
 
                                 <div className="smartContractStatus">
 
-                                    All payments confirmed
+                                    {t("payment.allConfirmed")}
 
                                 </div>
 
@@ -3127,8 +3127,8 @@ export default function Page4Payment({ onNavigate }) {
                                 <div className="smartContractStatus">
 
                                     {gameContract?.status === "DEPLOY_FAILED"
-                                        ? "Deployment failed"
-                                        : "Payment session failed"}
+                                        ? t("payment.deploymentFailed")
+                                        : t("payment.sessionFailed")}
 
                                 </div>
 
@@ -3142,8 +3142,8 @@ export default function Page4Payment({ onNavigate }) {
                                 >
 
                                     {confirmingPayment
-                                        ? "OPENING WALLET…"
-                                        : "CONFIRM IN TELEGRAM WALLET"}
+                                        ? t("payment.openingWallet")
+                                        : t("payment.confirmInWallet")}
 
                                 </button>
 
@@ -3162,7 +3162,7 @@ export default function Page4Payment({ onNavigate }) {
                                 onClick={handleConnectWallet}
                             >
 
-                                CONNECT TELEGRAM WALLET
+                                {t("payment.connectWallet")}
 
                             </button>
 
@@ -3178,7 +3178,7 @@ export default function Page4Payment({ onNavigate }) {
                                     onClick={handleDisconnectWallet}
                                 >
 
-                                    DISCONNECT
+                                    {t("payment.disconnect")}
 
                                 </button>
 
@@ -3197,12 +3197,12 @@ export default function Page4Payment({ onNavigate }) {
 
                                 <div
                                     className="page4__desktopConnection"
-                                    aria-label="Desktop connection"
+                                    aria-label={t("payment.desktopConnection")}
                                 >
 
                                     <div className="page4__desktopConnectionTitle">
 
-                                        Desktop connection
+                                        {t("payment.desktopConnection")}
 
                                     </div>
 
@@ -3211,7 +3211,7 @@ export default function Page4Payment({ onNavigate }) {
                                         htmlFor="page4-tonconnect-link"
                                     >
 
-                                        Universal Link
+                                        {t("payment.universalLink")}
 
                                     </label>
 
@@ -3239,8 +3239,8 @@ export default function Page4Payment({ onNavigate }) {
                                         >
 
                                             {tonConnectLinkCopied
-                                                ? "Copied"
-                                                : "Copy"}
+                                                ? t("common.copied")
+                                                : t("common.copy")}
 
                                         </button>
 
@@ -3250,7 +3250,7 @@ export default function Page4Payment({ onNavigate }) {
                                             onClick={handleOpenTonConnectLink}
                                         >
 
-                                            Open Wallet
+                                            {t("payment.openWallet")}
 
                                         </button>
 

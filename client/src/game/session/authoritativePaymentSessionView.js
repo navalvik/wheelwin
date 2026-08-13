@@ -44,26 +44,26 @@ export function mapPaymentParticipantStatusLabel(status) {
     switch (status) {
 
         case PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED:
-            return "Payment Requested";
+            return "payment.paymentRequested";
 
         case PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION:
-            return "Waiting for Confirmation";
+            return "payment.waitingConfirmation";
 
         case PAYMENT_PARTICIPANT_STATUS.PAYMENT_SUBMITTED:
-            return "Waiting for Blockchain...";
+            return "payment.waitingBlockchain";
 
         case PAYMENT_PARTICIPANT_STATUS.BLOCKCHAIN_PENDING:
-            return "Waiting for Blockchain...";
+            return "payment.waitingBlockchain";
 
         case PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED:
-            return "Payment Confirmed";
+            return "payment.paymentConfirmed";
 
         case PAYMENT_PARTICIPANT_STATUS.PAYMENT_FAILED:
-            return "Payment failed";
+            return "result.paymentFailed";
 
         case PAYMENT_PARTICIPANT_STATUS.WAITING:
         default:
-            return "Preparing payment...";
+            return "payment.preparing";
 
     }
 
@@ -84,7 +84,9 @@ export function mapPaymentSessionRows(paymentSession, playersById = {}) {
         return {
             key: seat.playerId ?? `payment-${index}`,
             playerId: seat.playerId,
-            labelTitle: index === 0 ? "YOUR NICKNAME" : "PLAYER NICKNAME",
+            labelTitle: index === 0
+                ? "player.yourNickname"
+                : "player.playerNickname",
             nickname: roster?.nickname ?? "—",
             icon: resolveDisplayIcon(roster?.icon),
             requiredGram: seat.requiredGram ?? null,

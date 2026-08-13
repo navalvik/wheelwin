@@ -13,6 +13,7 @@ import { useCentralButton } from "../context/CentralButtonContext";
 import { useGameResult } from "../context/GameResultContext";
 import { useGameState } from "../context/GameStateContext";
 import { GAME_STATES } from "../game/GameState";
+import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
 import { usePreGameReady } from "../context/PreGameReadyContext";
@@ -34,12 +35,12 @@ import {
 
 import "../styles/page5game.css";
 
-function resolvePage5HeaderMessage(result, localPlayerId) {
+function resolvePage5HeaderMessage(result, localPlayerId, t) {
 
     if (!result) {
 
         return {
-            message: "YOU MUST WIN",
+            message: t("game.youMustWin"),
             messageClassName: ""
         };
 
@@ -54,7 +55,7 @@ function resolvePage5HeaderMessage(result, localPlayerId) {
     if (presentation.variant === "win") {
 
         return {
-            message: "YOU WIN",
+            message: t("game.youWin"),
             messageClassName: "headerMessage--win"
         };
 
@@ -63,14 +64,14 @@ function resolvePage5HeaderMessage(result, localPlayerId) {
     if (presentation.variant === "lost") {
 
         return {
-            message: "YOU LOST",
+            message: t("game.youLost"),
             messageClassName: "headerMessage--lost"
         };
 
     }
 
     return {
-        message: "YOU MUST WIN",
+        message: t("game.youMustWin"),
         messageClassName: ""
     };
 
@@ -83,6 +84,8 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     const { localConfirmed } = usePreGameReady();
 
     const { result, hasResult } = useGameResult();
+
+    const { t } = useLanguage();
 
     const { identity } = usePlayerIdentity();
 
@@ -99,9 +102,10 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     const header = useMemo(
         () => resolvePage5HeaderMessage(
             hasResult ? result : null,
-            localPlayerId
+            localPlayerId,
+            t
         ),
-        [hasResult, result, localPlayerId]
+        [hasResult, result, localPlayerId, t]
     );
 
     const isPreGameReadyPhase = gameState === GAME_STATES.PRE_GAME_READY;

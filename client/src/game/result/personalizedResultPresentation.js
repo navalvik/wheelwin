@@ -59,6 +59,7 @@ export function resolvePersonalizedResultPresentation(isWinner) {
 
         return {
             headline: "YOU WIN",
+            headlineKey: "game.youWin",
             trophy: "🏆",
             variant: "win"
         };
@@ -69,6 +70,7 @@ export function resolvePersonalizedResultPresentation(isWinner) {
 
         return {
             headline: "YOU LOST",
+            headlineKey: "game.youLost",
             trophy: null,
             variant: "lost"
         };
@@ -77,6 +79,7 @@ export function resolvePersonalizedResultPresentation(isWinner) {
 
     return {
         headline: "Waiting for result…",
+        headlineKey: "game.waitingResult",
         trophy: null,
         variant: "pending"
     };

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import socket from "../socket/socket";
 
+import { useLanguage } from "../context/LanguageContext";
+
 import "../styles/joinRoomPanel.css";
 
 function applyRoomPayload(setRoomState, data) {
@@ -32,6 +34,8 @@ export default function JoinRoomPanel({
 
 }) {
 
+    const { t } = useLanguage();
+
     const [roomId, setRoomId] = useState("");
 
     useEffect(() => {
@@ -50,13 +54,13 @@ export default function JoinRoomPanel({
 
         function handleRoomError(data) {
 
-            alert(data.message ?? "Unable to join room.");
+            alert(data.message ?? t("room.unableToJoin"));
 
         }
 
-        function handleRoomClosed(data) {
+        function handleRoomClosed() {
 
-            alert("The room was closed.");
+            alert(t("room.closed"));
 
             setRoomState((prev) => ({
 
@@ -94,7 +98,7 @@ export default function JoinRoomPanel({
 
         };
 
-    }, [setRoomState]);
+    }, [setRoomState, t]);
 
     function joinRoom() {
 
@@ -116,7 +120,7 @@ export default function JoinRoomPanel({
 
             >
 
-                JOIN ROOM
+                {t("room.joinRoom")}
 
             </button>
 
@@ -124,7 +128,7 @@ export default function JoinRoomPanel({
 
                 <label>
 
-                    Room ID
+                    {t("room.roomId")}
 
                 </label>
 
@@ -134,7 +138,7 @@ export default function JoinRoomPanel({
 
                     value={roomId}
 
-                    placeholder="Enter Room ID"
+                    placeholder={t("room.enterRoomId")}
 
                     onChange={(e) =>
                         setRoomId(
@@ -154,13 +158,13 @@ export default function JoinRoomPanel({
 
                     <p>
 
-                        Connected ✓
+                        {t("room.connected")}
 
                     </p>
 
                     <p>
 
-                        Waiting for players...
+                        {t("room.waitingForPlayers")}
 
                     </p>
 
@@ -168,7 +172,7 @@ export default function JoinRoomPanel({
 
                         <div className="playersTitle">
 
-                            Players connected
+                            {t("room.playersConnected")}
 
                         </div>
 

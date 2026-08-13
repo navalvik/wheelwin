@@ -146,7 +146,11 @@ export default function InfoBar() {
 
         footerMode = "PAGE5_RESULT_OR_GAMEPLAY";
 
-        timerLabel = resolveClockPhaseLabel(clock.phase);
+        timerLabel = clock.phase
+            ? t(`infobar.phase.${clock.phase}`, null) !== `infobar.phase.${clock.phase}`
+                ? t(`infobar.phase.${clock.phase}`)
+                : resolveClockPhaseLabel(clock.phase)
+            : "—";
 
         timerValue = formatClockSeconds(gameplayRemaining);
 
@@ -154,7 +158,9 @@ export default function InfoBar() {
 
         footerMode = "SETUP_OR_OTHER";
 
-        timerLabel = phaseTimerLabel;
+        timerLabel = phaseTimerLabel?.includes(".")
+            ? t(phaseTimerLabel)
+            : (phaseTimerLabel || t("infobar.timer"));
 
         timerValue = setupRemaining === null
             ? "—"
@@ -285,7 +291,7 @@ export default function InfoBar() {
 
                 <div className="infoBarTitle">
 
-                    ROOM ID
+                    {t("infobar.roomId")}
 
                 </div>
 
@@ -301,7 +307,7 @@ export default function InfoBar() {
 
                 <div className="infoBarTitle">
 
-                    PLAYERS
+                    {t("infobar.players")}
 
                 </div>
 

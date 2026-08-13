@@ -1,5 +1,7 @@
 import "../styles/playerPaymentRow.css";
 
+import { useLanguage } from "../context/LanguageContext";
+
 export default function PlayerPaymentRow({
 
     labelTitle,
@@ -21,19 +23,29 @@ export default function PlayerPaymentRow({
 
 }) {
 
-    const statusLabel = connectionStatusLabel
-        ?? paymentStatusLabel
-        ?? (
-            paymentStatus === "paid"
-                || paymentStatus === "PAYMENT_CONFIRMED"
-                ? "Paid ✓"
-                : paymentStatus === "failed"
-                    || paymentStatus === "PAYMENT_FAILED"
-                    ? "Failed"
-                    : paymentStatus === "cancelled"
-                        ? "Cancelled"
-                        : "Waiting"
-        );
+    const { t } = useLanguage();
+
+    const resolveMaybeKey = (value) => (
+        typeof value === "string" && value.includes(".")
+            ? t(value)
+            : value
+    );
+
+    const fallbackStatusLabel = (
+        paymentStatus === "paid"
+            || paymentStatus === "PAYMENT_CONFIRMED"
+            ? t("payment.paid")
+            : paymentStatus === "failed"
+                || paymentStatus === "PAYMENT_FAILED"
+                ? t("payment.failed")
+                : paymentStatus === "cancelled"
+                    ? t("payment.cancelled")
+                    : t("common.waiting")
+    );
+
+    const statusLabel = resolveMaybeKey(connectionStatusLabel)
+        ?? resolveMaybeKey(paymentStatusLabel)
+        ?? fallbackStatusLabel;
 
     const normalized = connectionStatus
         ?? (
@@ -54,18 +66,20 @@ export default function PlayerPaymentRow({
     const walletLabel = connectionStatus
         ? (
             normalized === "CONNECTED"
-                ? "Wallet Connected ✓"
+                ? t("payment.walletConnected")
                 : normalized === "ADDRESS_MISMATCH"
-                    ? "Address Mismatch"
+                    ? t("payment.addressMismatch")
                     : normalized === "CONNECTING"
-                        ? "Connecting…"
-                        : "Wallet Pending"
+                        ? t("payment.connecting")
+                        : t("payment.walletPending")
         )
         : (
             walletRegistered
-                ? "Wallet Registered ✓"
-                : "Wallet Missing"
+                ? t("payment.walletRegistered")
+                : t("payment.walletMissing")
         );
+
+    const resolvedTitle = resolveMaybeKey(labelTitle) ?? labelTitle;
 
     return (
 
@@ -75,7 +89,7 @@ export default function PlayerPaymentRow({
 
                 <span className="playerPaymentRow__label">
 
-                    {labelTitle}
+                    {resolvedTitle}
 
                 </span>
 
@@ -91,7 +105,7 @@ export default function PlayerPaymentRow({
 
                 <span className="playerPaymentRow__label">
 
-                    ICON
+                    {t("common.icon")}
 
                 </span>
 
@@ -107,7 +121,7 @@ export default function PlayerPaymentRow({
 
                 <span className="playerPaymentRow__label">
 
-                    Wallet
+                    {t("common.wallet")}
 
                 </span>
 
@@ -131,7 +145,7 @@ export default function PlayerPaymentRow({
 
                 <span className="playerPaymentRow__label">
 
-                    Status
+                    {t("common.status")}
 
                 </span>
 

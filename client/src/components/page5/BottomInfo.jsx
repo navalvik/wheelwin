@@ -1,4 +1,8 @@
+import { useLanguage } from "../../context/LanguageContext";
+
 export default function BottomInfo() {
+
+    const { t } = useLanguage();
 
     return (
 
@@ -8,7 +12,7 @@ export default function BottomInfo() {
 
                 <div className="bottomInfo__title">
 
-                    ROOM ID
+                    {t("infobar.roomId")}
 
                 </div>
 
@@ -24,7 +28,7 @@ export default function BottomInfo() {
 
                 <div className="bottomInfo__title">
 
-                    PLAYERS
+                    {t("infobar.players")}
 
                 </div>
 
@@ -40,7 +44,7 @@ export default function BottomInfo() {
 
                 <div className="bottomInfo__title">
 
-                    GAME TIMER
+                    {t("infobar.gameTimer")}
 
                 </div>
 

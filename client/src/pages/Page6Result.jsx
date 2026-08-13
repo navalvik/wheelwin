@@ -41,16 +41,16 @@ import {
 
 import "../styles/page6result.css";
 
-const PAYMENT_STATUS_LABEL = {
-    [PAYMENT_VIEW_STATUS.STARTED]: "Settlement in progress…",
-    [PAYMENT_VIEW_STATUS.COMPLETED]: "Payment completed",
-    [PAYMENT_VIEW_STATUS.FAILED]: "Payment failed"
+const PAYMENT_STATUS_LABEL_KEYS = {
+    [PAYMENT_VIEW_STATUS.STARTED]: "result.settlementInProgress",
+    [PAYMENT_VIEW_STATUS.COMPLETED]: "result.paymentCompleted",
+    [PAYMENT_VIEW_STATUS.FAILED]: "result.paymentFailed"
 };
 
-const AUDIT_STATUS_LABEL = {
-    [AUDIT_VIEW_STATUS.STARTED]: "Audit pending",
-    [AUDIT_VIEW_STATUS.READY]: "Audit completed",
-    [AUDIT_VIEW_STATUS.FAILED]: "Audit unavailable"
+const AUDIT_STATUS_LABEL_KEYS = {
+    [AUDIT_VIEW_STATUS.STARTED]: "result.auditPending",
+    [AUDIT_VIEW_STATUS.READY]: "result.auditCompleted",
+    [AUDIT_VIEW_STATUS.FAILED]: "result.auditUnavailable"
 };
 
 const EMPTY_VALUE = "—";
@@ -118,7 +118,7 @@ function resolveYouReceived({ payment, localPlayerId, winnerPlayerId }) {
 
     if (!isWinner) {
 
-        return "0.00 GRM";
+        return "result.zeroGrm";
 
     }
 
@@ -136,15 +136,15 @@ function resolveYouReceived({ payment, localPlayerId, winnerPlayerId }) {
 
     return Number.isFinite(amount)
         ? `${amount.toFixed(2)} GRM`
-        : "0.00 GRM";
+        : "result.zeroGrm";
 
 }
 
 // Reserved for later C4 stages — layout only, intentionally inert.
-const RESERVED_AREAS = [
-    "Recovery Information",
-    "Play Again",
-    "Room Return"
+const RESERVED_AREA_KEYS = [
+    "result.recoveryInformation",
+    "result.playAgain",
+    "result.roomReturn"
 ];
 
 export default function Page6Result({ onFinish }) {
@@ -321,7 +321,7 @@ export default function Page6Result({ onFinish }) {
 
                         <div className="page6__result">
 
-                            <section className="page6__summary" aria-label="Game summary">
+                            <section className="page6__summary" aria-label={t("result.gameSummary")}>
 
                                 <div
                                     className={
@@ -345,7 +345,7 @@ export default function Page6Result({ onFinish }) {
                                     )}
 
                                     <div className="page6__personalHeadline">
-                                        {personalizedResult.headline}
+                                        {t(personalizedResult.headlineKey)}
                                     </div>
 
                                 </div>
@@ -354,7 +354,7 @@ export default function Page6Result({ onFinish }) {
 
                                     <div className="page6__fact">
 
-                                        <dt>Winning Sector</dt>
+                                        <dt>{t("result.winningSector")}</dt>
 
                                         <dd>
 
@@ -379,7 +379,7 @@ export default function Page6Result({ onFinish }) {
 
                                     <div className="page6__fact">
 
-                                        <dt>Winning Color</dt>
+                                        <dt>{t("result.winningColor")}</dt>
 
                                         <dd>
 
@@ -402,7 +402,7 @@ export default function Page6Result({ onFinish }) {
 
                                     <div className="page6__fact">
 
-                                        <dt>Winner Payout</dt>
+                                        <dt>{t("result.winnerPayout")}</dt>
 
                                         <dd>
                                             {winnerPayoutDisplay ?? EMPTY_VALUE}
@@ -417,14 +417,19 @@ export default function Page6Result({ onFinish }) {
                                     data-status={payment?.status ?? "PENDING"}
                                 >
 
-                                    <div className="page6__label">You received</div>
+                                    <div className="page6__label">{t("result.youReceived")}</div>
 
                                     <div className="page6__youReceivedAmount">
-                                        {youReceived
+                                        {(youReceived
+                                            ? (youReceived.includes(".")
+                                                ? t(youReceived)
+                                                : youReceived)
+                                            : null)
                                             ?? (payment
-                                                ? (PAYMENT_STATUS_LABEL[payment.status]
-                                                    ?? payment.status)
-                                                : "Awaiting settlement…")}
+                                                ? (PAYMENT_STATUS_LABEL_KEYS[payment.status]
+                                                    ? t(PAYMENT_STATUS_LABEL_KEYS[payment.status])
+                                                    : payment.status)
+                                                : t("result.awaitingSettlement"))}
                                     </div>
 
                                     {payment?.status === PAYMENT_VIEW_STATUS.FAILED
@@ -447,9 +452,10 @@ export default function Page6Result({ onFinish }) {
                                     <div className="page6__auditLabel">
 
                                         {audit
-                                            ? (AUDIT_STATUS_LABEL[audit.status]
-                                                ?? audit.status)
-                                            : "Audit pending"}
+                                            ? (AUDIT_STATUS_LABEL_KEYS[audit.status]
+                                                ? t(AUDIT_STATUS_LABEL_KEYS[audit.status])
+                                                : audit.status)
+                                            : t("result.auditPending")}
 
                                     </div>
 
@@ -464,7 +470,7 @@ export default function Page6Result({ onFinish }) {
                                     <div className="page6__gameReportHeader">
 
                                         <div className="page6__gameReportTitle">
-                                            Game Report
+                                            {t("result.gameReport")}
                                         </div>
 
                                         <div className="page6__gameReportActions">
@@ -474,7 +480,7 @@ export default function Page6Result({ onFinish }) {
                                                 className="page6__downloadBtn"
                                                 onClick={handleDownloadTxt}
                                             >
-                                                Download TXT
+                                                {t("result.downloadTxt")}
                                             </button>
 
                                         </div>
@@ -488,11 +494,11 @@ export default function Page6Result({ onFinish }) {
                                 <div className="page6__gameReport page6__gameReport--pending">
 
                                     <div className="page6__gameReportTitle">
-                                        Game Report
+                                        {t("result.gameReport")}
                                     </div>
 
                                     <div className="page6__gameReportPending">
-                                        Awaiting authoritative report…
+                                        {t("result.awaitingReport")}
                                     </div>
 
                                 </div>
@@ -506,7 +512,7 @@ export default function Page6Result({ onFinish }) {
 
                         <div className="page6__waiting">
 
-                            Waiting for the authoritative result…
+                            {t("result.waitingAuthoritative")}
 
                         </div>
 
@@ -514,11 +520,11 @@ export default function Page6Result({ onFinish }) {
 
                 <div className="page6__reserved" aria-hidden="true">
 
-                    {RESERVED_AREAS.map((label) => (
+                    {RESERVED_AREA_KEYS.map((labelKey) => (
 
-                        <div className="page6__reservedSlot" key={label}>
+                        <div className="page6__reservedSlot" key={labelKey}>
 
-                            {label}
+                            {t(labelKey)}
 
                         </div>
 

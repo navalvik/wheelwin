@@ -41,17 +41,17 @@ export function mapWalletConnectionStatusLabel(status) {
     switch (status) {
 
         case WALLET_CONNECTION_STATUS.CONNECTING:
-            return "CONNECTING";
+            return "payment.statusConnecting";
 
         case WALLET_CONNECTION_STATUS.CONNECTED:
-            return "CONNECTED";
+            return "payment.statusConnected";
 
         case WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH:
-            return "ADDRESS MISMATCH";
+            return "payment.statusAddressMismatch";
 
         case WALLET_CONNECTION_STATUS.WAITING:
         default:
-            return "WAITING";
+            return "payment.statusWaiting";
 
     }
 
@@ -72,7 +72,9 @@ export function mapWalletConnectionRows(walletConnection, playersById = {}) {
         return {
             key: seat.playerId ?? `wallet-${index}`,
             playerId: seat.playerId,
-            labelTitle: index === 0 ? "YOUR NICKNAME" : "PLAYER NICKNAME",
+            labelTitle: index === 0
+                ? "player.yourNickname"
+                : "player.playerNickname",
             nickname: roster?.nickname ?? "—",
             icon: resolveDisplayIcon(roster?.icon),
             sessionWallet: seat.sessionWallet ?? null,

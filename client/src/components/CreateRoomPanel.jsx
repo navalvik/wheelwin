@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import "../styles/createRoomPanel.css";
 import socket from "../socket/socket";
 
+import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 function applyRoomPayload(setRoomState, data) {
@@ -34,6 +35,8 @@ export default function CreateRoomPanel({
 }) {
 
     const { setIdentity } = usePlayerIdentity();
+
+    const { t } = useLanguage();
 
     useEffect(() => {
 
@@ -101,9 +104,9 @@ export default function CreateRoomPanel({
 
                     roomState.roomCreated
 
-                        ? "ROOM CREATED ✓"
+                        ? t("room.roomCreated")
 
-                        : "CREATE ROOM"
+                        : t("room.createRoom")
 
                 }
 
@@ -115,7 +118,7 @@ export default function CreateRoomPanel({
 
                 <div className="roomInfo">
 
-                    <h2>Room ID</h2>
+                    <h2>{t("room.roomId")}</h2>
 
                     <div className="roomCode">
 
@@ -125,7 +128,7 @@ export default function CreateRoomPanel({
 
                     <p className="waiting">
 
-                        Waiting for players...
+                        {t("room.waitingForPlayers")}
 
                     </p>
 
@@ -133,7 +136,7 @@ export default function CreateRoomPanel({
 
                         <div className="playersTitle">
 
-                            Players connected
+                            {t("room.playersConnected")}
 
                         </div>
 

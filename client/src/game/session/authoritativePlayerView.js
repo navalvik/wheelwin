@@ -176,9 +176,10 @@ export function mapAuthoritativePlayerToInfoProp(
         key: playerId ?? `player-${index}`,
         playerId,
         isLocal,
+        labelOrdinal: ordinal,
         labelTitle: isLocal
-            ? `PLAYER ${ordinal} — YOU`
-            : (player.labelTitle ?? `PLAYER ${ordinal}`),
+            ? "player.you"
+            : "player.other",
         nickname: player.nickname ?? MISSING,
         icon: resolveDisplayIcon(player.icon),
         age: player.age ?? MISSING,
@@ -186,7 +187,7 @@ export function mapAuthoritativePlayerToInfoProp(
         sectorValue: player.sectorValue ?? MISSING,
         sectorCount,
         paymentGram,
-        paymentLabel: "YOU NEED PAY",
+        paymentLabel: "verify.youNeedPay",
         paymentDisplay: Number.isFinite(paymentGram) ? String(paymentGram) : MISSING,
         online: player.online
     };

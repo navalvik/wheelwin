@@ -9,7 +9,7 @@ import "../styles/languageSelector.css";
  */
 export default function LanguageSelector() {
 
-    const { languageCode, setLanguageCode } = useLanguage();
+    const { languageCode, setLanguageCode, t } = useLanguage();
 
     return (
 
@@ -25,7 +25,7 @@ export default function LanguageSelector() {
             <label className="languageSelector__label">
 
                 <span className="languageSelector__srOnly">
-                    Language
+                    {t("common.language")}
                 </span>
 
                 <select

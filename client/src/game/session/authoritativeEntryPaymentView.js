@@ -43,17 +43,17 @@ export function mapEntryPaymentStatusLabel(paymentStatus) {
     switch (paymentStatus) {
 
         case "paid":
-            return "Paid ✓";
+            return "payment.paid";
 
         case "failed":
-            return "Failed";
+            return "payment.failed";
 
         case "cancelled":
-            return "Cancelled";
+            return "payment.cancelled";
 
         case "waiting":
         default:
-            return "Waiting";
+            return "common.waiting";
 
     }
 
@@ -64,17 +64,17 @@ export function mapEntrySmartContractLabel(smartContractStatus) {
     switch (smartContractStatus) {
 
         case "creating":
-            return "Creating...";
+            return "payment.creating";
 
         case "created":
-            return "Created ✓";
+            return "payment.created";
 
         case "failed":
-            return "Smart Contract Failed";
+            return "payment.smartContractFailed";
 
         case "waiting":
         default:
-            return "Waiting";
+            return "common.waiting";
 
     }
 
@@ -113,7 +113,9 @@ export function mapEntryPaymentRows(entryPayment, playersById = {}) {
         return {
             key: seat.playerId ?? `entry-${index}`,
             playerId: seat.playerId,
-            labelTitle: index === 0 ? "YOUR NICKNAME" : "PLAYER NICKNAME",
+            labelTitle: index === 0
+                ? "player.yourNickname"
+                : "player.playerNickname",
             nickname: roster?.nickname ?? "—",
             icon: resolveDisplayIcon(roster?.icon),
             walletRegistered: Boolean(seat.wallet),

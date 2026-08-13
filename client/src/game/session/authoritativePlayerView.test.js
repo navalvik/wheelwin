@@ -66,8 +66,13 @@ function assert(condition, message) {
     assert(localRow.isLocal === true, "local match uses authoritative playerId");
 
     assert(
-        localRow.labelTitle === "PLAYER 1 — YOU",
+        localRow.labelTitle === "player.you",
         "local card label must identify YOU"
+    );
+
+    assert(
+        localRow.labelOrdinal === 1,
+        "local card ordinal is 1"
     );
 
     assert(
@@ -83,7 +88,7 @@ function assert(condition, message) {
     assert(otherRow.isLocal === false, "non-local player is not marked YOU");
 
     assert(
-        otherRow.labelTitle === "PLAYER 2",
+        otherRow.labelTitle === "player.other",
         "non-local label uses ordinal only"
     );
 

@@ -199,7 +199,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
             setWalletError(
                 typeof payload?.message === "string" && payload.message
                     ? payload.message
-                    : "Invalid TON wallet address."
+                    : t("verify.invalidWallet")
             );
 
         }
@@ -434,7 +434,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
         if (!isWalletValid) {
 
             setWalletError(
-                "Invalid TON wallet address."
+                t("verify.invalidWallet")
             );
 
             return;
@@ -489,6 +489,8 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                                     labelTitle={player.labelTitle}
 
+                                    labelOrdinal={player.labelOrdinal}
+
                                     nickname={player.nickname}
 
                                     icon={player.icon}
@@ -516,7 +518,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                                 aria-live="polite"
                             >
 
-                                Waiting for players…
+                                {t("verify.waitingForPlayers")}
 
                             </div>
 
@@ -531,7 +533,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                             aria-live="polite"
                         >
 
-                            Waiting for all players to confirm…
+                            {t("verify.waitingConfirm")}
 
                         </div>
 
@@ -545,10 +547,10 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                         >
 
                             {waitingForPaymentStage
-                                ? "Waiting for all players to continue…"
+                                ? t("verify.waitingContinue")
                                 : isWalletValid
-                                    ? "Players verified. Continuing to payment…"
-                                    : "Players verified. Enter a valid wallet to continue."}
+                                    ? t("verify.continuingToPayment")
+                                    : t("verify.enterWalletToContinue")}
 
                         </div>
 
@@ -573,7 +575,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                             <span className="verifyFinanceLabel">
 
-                                BASE STAKE
+                                {t("verify.baseStake")}
 
                             </span>
 
@@ -589,7 +591,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                             <span className="verifyFinanceLabel">
 
-                                YOU NEED PAY GRAM
+                                {t("verify.youNeedPayGram")}
 
                             </span>
 
@@ -610,7 +612,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                             htmlFor="verifyWalletAddress"
                         >
 
-                            ENTER YOUR GRAM (TON) TELEGRAM WALLET ADDRESS
+                            {t("verify.walletLabel")}
 
                         </label>
 

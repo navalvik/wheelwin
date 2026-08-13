@@ -117,7 +117,7 @@ export default function PageMatrix({ onNavigate }) {
             ) {
 
                 setErrorMessage(
-                    "Connection restored. Press NEXT again to submit."
+                    t("matrix.connectionRestored")
                 );
 
                 return;
@@ -131,7 +131,7 @@ export default function PageMatrix({ onNavigate }) {
             ) {
 
                 setErrorMessage(
-                    "Secret Matrix codes do not match. Try again."
+                    t("matrix.mismatch")
                 );
 
                 return;
@@ -144,7 +144,7 @@ export default function PageMatrix({ onNavigate }) {
             ) {
 
                 setErrorMessage(
-                    "Enter a complete Secret Matrix using A–Z and 0–9 only."
+                    t("matrix.incomplete")
                 );
 
             }
@@ -163,7 +163,7 @@ export default function PageMatrix({ onNavigate }) {
 
             setErrorMessage(
                 payload?.message
-                    ?? "Secret Matrix was rejected. Try again."
+                    ?? t("matrix.rejected")
             );
 
         }
@@ -184,7 +184,7 @@ export default function PageMatrix({ onNavigate }) {
 
         };
 
-    }, [onNavigate]);
+    }, [onNavigate, t]);
 
     function handleSubmit() {
 
@@ -201,8 +201,11 @@ export default function PageMatrix({ onNavigate }) {
     }
 
     const waitingLabel = matrixStatus.requiredPlayers > 0
-        ? `Waiting for players… ${matrixStatus.submittedCount}/${matrixStatus.requiredPlayers}`
-        : "Waiting for all players to submit the same code…";
+        ? t("matrix.waitingCount", {
+            submitted: matrixStatus.submittedCount,
+            required: matrixStatus.requiredPlayers
+        })
+        : t("matrix.waitingAll");
 
     return (
 
@@ -225,15 +228,13 @@ export default function PageMatrix({ onNavigate }) {
 
                     <h1 className="matrixTitle">
 
-                        Secret Matrix
+                        {t("matrix.title")}
 
                     </h1>
 
                     <p className="matrixInstruction">
 
-                        Each player enters a private secret code in the 3×3
-                        matrix below. Use letters A–Z and digits 0–9.
-                        All three players must enter the same code.
+                        {t("matrix.instruction")}
 
                     </p>
 
@@ -265,17 +266,17 @@ export default function PageMatrix({ onNavigate }) {
 
                         <div className="matrixText">
 
-                            INPUT YOUR SECRET CODE.
+                            {t("matrix.sideHint").split("\n").map((line, index, lines) => (
 
-                            <br />
+                                <span key={`matrix-hint-${index}`}>
 
-                            <br />
+                                    {line}
 
-                            YOUR OTHER TWO FRIENDS
+                                    {index < lines.length - 1 ? <br /> : null}
 
-                            <br />
+                                </span>
 
-                            MUST INPUT SAME.
+                            ))}
 
                         </div>
 

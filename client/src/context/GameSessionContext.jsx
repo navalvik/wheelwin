@@ -35,7 +35,7 @@ const INITIAL_SESSION = {
 // Pre-game shell only. AuthoritativeSession owns room, players, payment, setup
 // timer. GameClockContext owns gameplay time.
 const PHASE_TIMER_LABELS = {
-    setup: "SETUP TIMER"
+    setup: "infobar.setupTimer"
 };
 
 export function formatPhaseTime(totalSeconds) {

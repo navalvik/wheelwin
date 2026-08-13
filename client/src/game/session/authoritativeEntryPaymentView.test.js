@@ -35,27 +35,27 @@ function assert(condition, message) {
     );
 
     assert(
-        mapEntrySmartContractLabel("waiting") === "Waiting",
+        mapEntrySmartContractLabel("waiting") === "common.waiting",
         "default contract label"
     );
 
     assert(
-        mapEntryPaymentStatusLabel("waiting") === "Waiting",
+        mapEntryPaymentStatusLabel("waiting") === "common.waiting",
         "default payment label"
     );
 
     assert(
-        mapEntryPaymentStatusLabel("paid") === "Paid ✓",
+        mapEntryPaymentStatusLabel("paid") === "payment.paid",
         "paid label"
     );
 
     assert(
-        mapEntrySmartContractLabel("creating") === "Creating...",
+        mapEntrySmartContractLabel("creating") === "payment.creating",
         "creating label"
     );
 
     assert(
-        mapEntrySmartContractLabel("created") === "Created ✓",
+        mapEntrySmartContractLabel("created") === "payment.created",
         "created label"
     );
 
@@ -97,8 +97,13 @@ function assert(condition, message) {
     );
 
     assert(
-        rows.every((row) => row.paymentStatusLabel === "Waiting"),
+        rows.every((row) => row.paymentStatusLabel === "common.waiting"),
         "all payment rows Waiting"
+    );
+
+    assert(
+        rows[0].labelTitle === "player.yourNickname",
+        "first seat uses your-nickname key"
     );
 
     assert(rows[0].nickname === "Host", "roster nickname merged");
