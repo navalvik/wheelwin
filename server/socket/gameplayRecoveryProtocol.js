@@ -367,6 +367,8 @@ export function buildRecoveryFailedMessage({
  * R17.8B — Route SESSION_RECOVERY_REQUEST by lifecycle phase.
  * Pre-game (payment / TON / setup) must not call RecoveryEngine.
  * Gameplay / RESULT-cache paths keep RecoveryEngine snapshot restore.
+ *
+ * R17.8D — phase reflects live gameState when available (e.g. SPEED).
  */
 export function resolveRecoveryRoute({
     setupActive = false,
@@ -379,6 +381,7 @@ export function resolveRecoveryRoute({
 
         return Object.freeze({
             route: "PRE_GAME_SUCCESS",
+            successRoute: "PRE_GAME_SYNC",
             phase: "SETUP",
             skipReason: "SETUP_ACTIVE"
         });
@@ -389,6 +392,7 @@ export function resolveRecoveryRoute({
 
         return Object.freeze({
             route: "FAIL",
+            successRoute: null,
             phase: "NONE",
             reason: "No active gameplay session for recovery"
         });
@@ -399,7 +403,8 @@ export function resolveRecoveryRoute({
 
         return Object.freeze({
             route: "GAMEPLAY_SNAPSHOT",
-            phase: gameState != null ? "GAMEPLAY" : "RESULT_CACHE",
+            successRoute: "GAMEPLAY_SNAPSHOT",
+            phase: gameState != null ? String(gameState) : "RESULT_CACHE",
             skipReason: null
         });
 
@@ -407,6 +412,7 @@ export function resolveRecoveryRoute({
 
     return Object.freeze({
         route: "PRE_GAME_SUCCESS",
+        successRoute: "PRE_GAME_SYNC",
         phase: "ENTRY_PAYMENT",
         skipReason: "GAME_NOT_INITIALIZED"
     });

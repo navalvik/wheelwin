@@ -1332,6 +1332,15 @@ export class SocketGateway {
                 + ` | socket.id=${socket.id}`
             );
 
+            this._logger.info(
+                `[R17.8D Recovery] RECOVERY_SUCCESS`
+                + ` | route=${recoveryRoute.successRoute ?? "PRE_GAME_SYNC"}`
+                + ` | phase=${recoveryRoute.phase}`
+                + ` | roomId=${roomId ?? "null"}`
+                + ` | playerId=${playerId ?? "null"}`
+                + ` | gameId=${gameId ?? "null"}`
+            );
+
             this._logRecoveryStep(
                 `Pre-game recovery success | phase=${recoveryRoute.phase}`
                 + ` | roomId=${roomId ?? "?"}`
@@ -1461,6 +1470,19 @@ export class SocketGateway {
         );
 
         socket.emit(channel, responseMessage);
+
+        const successPhase = clientPayload.gameState
+            ?? recoveryRoute.phase
+            ?? "GAMEPLAY";
+
+        this._logger.info(
+            `[R17.8D Recovery] RECOVERY_SUCCESS`
+            + ` | route=${recoveryRoute.successRoute ?? "GAMEPLAY_SNAPSHOT"}`
+            + ` | phase=${successPhase}`
+            + ` | roomId=${roomId ?? "null"}`
+            + ` | playerId=${playerId ?? "null"}`
+            + ` | gameId=${gameId ?? "null"}`
+        );
 
         this._logger.info(
             `[R12.5D Recovery] Snapshot sent`

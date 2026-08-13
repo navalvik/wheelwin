@@ -76,9 +76,11 @@ function assertRoute(actual, expected, label) {
 
     assertRoute(route, {
         route: "GAMEPLAY_SNAPSHOT",
-        phase: "GAMEPLAY",
+        phase: "SPEED",
         skipReason: null
     }, "Case B gameplay");
+
+    assert.equal(route.successRoute, "GAMEPLAY_SNAPSHOT");
 
     console.log("  Case B gameplay RecoveryEngine path: OK");
 }
