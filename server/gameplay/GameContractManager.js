@@ -2069,7 +2069,19 @@ export class GameContractManager {
             ?? this._paymentSessionManager?.getSession?.(roomId)
             ?? null;
 
-        if (!sessionNeedsEscrowUnwind(paymentSession)) {
+        const unwindNeeded = sessionNeedsEscrowUnwind(paymentSession);
+
+        this._logger.info(
+            `requestPartialPaymentEscrowUnwind | roomId=${roomId}`
+                + ` | gameId=${paymentSession?.gameId ?? "null"}`
+                + ` | paymentSessionId=${paymentSession?.paymentSessionId ?? "null"}`
+                + ` | paymentSession.status=${paymentSession?.status ?? "null"}`
+                + ` | sessionNeedsEscrowUnwind=${unwindNeeded}`
+                + ` | timestamp=${new Date().toISOString()}`
+                + ` | reason=${reason}`
+        );
+
+        if (!unwindNeeded) {
 
             return Object.freeze({ ok: false, reason: "no_unwind_needed", skipped: true });
 
@@ -2141,6 +2153,16 @@ export class GameContractManager {
             confirmedPlayersCount,
             timestamp: Date.now()
         });
+
+        this._logger.info(
+            `EMERGENCY_CANCEL | roomId=${roomId}`
+                + ` | gameId=${gameId ?? "null"}`
+                + ` | paymentSessionId=${paymentSession?.paymentSessionId ?? "null"}`
+                + ` | paymentSession.status=${paymentSession?.status ?? "null"}`
+                + ` | contractAddress=${contractAddress}`
+                + ` | timestamp=${new Date().toISOString()}`
+                + ` | reason=${reason}`
+        );
 
         let result;
 

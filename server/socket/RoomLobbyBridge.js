@@ -2406,11 +2406,27 @@ export class RoomLobbyBridge {
 
         const contract = this._gameContractManager?.getContract?.(roomId);
 
-        if (
-            paymentSession
-            && sessionNeedsEscrowUnwind(paymentSession)
-            && contract?.contractAddress
-        ) {
+        const unwindNeeded = paymentSession
+            ? sessionNeedsEscrowUnwind(paymentSession)
+            : false;
+
+        const willFailSession = Boolean(
+            unwindNeeded && contract?.contractAddress
+        );
+
+        this._logger.info(
+            `SETUP_SESSION_EXPIRED unwind check | roomId=${roomId}`
+                + ` | gameId=${paymentSession?.gameId ?? contract?.gameId ?? payload?.gameId ?? "null"}`
+                + ` | paymentSessionId=${paymentSession?.paymentSessionId ?? "null"}`
+                + ` | paymentSession.status=${paymentSession?.status ?? "null"}`
+                + ` | sessionNeedsEscrowUnwind=${unwindNeeded}`
+                + ` | contractAddress=${contract?.contractAddress ?? "null"}`
+                + ` | timestamp=${new Date().toISOString()}`
+                + ` | reason=setup_expired`
+                + ` | nextAction=${willFailSession ? "failSession" : "_closeRoom"}`
+        );
+
+        if (willFailSession) {
 
             this._paymentSessionManager.failSession(roomId, "setup_expired");
 
