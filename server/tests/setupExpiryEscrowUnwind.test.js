@@ -388,4 +388,73 @@ console.log("R17.8O.4 setup expiry escrow unwind bridge tests");
 
 }
 
+// E — R17.8O.6C production order ends in RoomLobbyBridge cleanup.
+{
+
+    const stack = buildStack();
+
+    seedArchivedSetup(stack.setupSessionLifecycle, stack.roomId);
+
+    stack.paymentSessionManager._sessionsByRoom.set(
+        stack.roomId,
+        partialSession(stack.roomId)
+    );
+
+    await triggerSetupExpiry(stack);
+
+    await waitForAsync();
+
+    assert.equal(stack.closeRoomCalls.length, 0, "room deferred during unwind");
+    assert.equal(
+        stack.paymentSessionManager.getSession(stack.roomId).status,
+        PAYMENT_SESSION_STATUS.REFUND_PENDING
+    );
+
+    stack.paymentSessionManager._handleGameEscrowCancelConfirmed({
+        roomId: stack.roomId,
+        cancelTxHash: "cancel-tx-setup-order"
+    });
+
+    assert.equal(
+        stack.paymentSessionManager.getSession(stack.roomId).status,
+        PAYMENT_SESSION_STATUS.REFUND_PENDING
+    );
+    assert.equal(stack.closeRoomCalls.length, 0);
+
+    stack.paymentSessionManager._handleGameEscrowRefundConfirmed({
+        roomId: stack.roomId,
+        playerId: "p1",
+        transactionId: "refund-tx-1"
+    });
+
+    assert.equal(stack.closeRoomCalls.length, 0);
+
+    stack.paymentSessionManager._handleGameEscrowRefundConfirmed({
+        roomId: stack.roomId,
+        playerId: "p2",
+        transactionId: "refund-tx-2"
+    });
+
+    await waitForAsync();
+
+    assert.equal(
+        stack.closeRoomCalls.length,
+        1,
+        "PAYMENT_SESSION_FAILED must trigger RoomLobbyBridge._closeRoom"
+    );
+    assert.equal(stack.closeRoomCalls[0].roomId, stack.roomId);
+    assert.equal(stack.closeRoomCalls[0].reason, "setup_expired");
+    assert.equal(
+        stack.paymentSessionManager.getSession(stack.roomId).status,
+        PAYMENT_SESSION_STATUS.CANCELLED
+    );
+
+    stack.shutdown();
+
+    console.log(
+        "  E. cancel→refunds→PAYMENT_SESSION_FAILED→_closeRoom (prod order)"
+    );
+
+}
+
 console.log("R17.8O.4 setup expiry escrow unwind bridge tests passed");

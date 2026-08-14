@@ -386,4 +386,78 @@ console.log("R17.8O.1 partial payment escrow unwind tests");
 
 }
 
+// E — R17.8O.6C production order: CANCEL_CONFIRMED before REFUND_CONFIRMED.
+{
+
+    const harness = buildHarness();
+
+    harness.paymentSessionManager._sessionsByRoom.set(
+        "room-partial",
+        partialSession()
+    );
+
+    const failedEvents = [];
+
+    harness.eventBus.subscribe(
+        EVENT_TYPES.PAYMENT_SESSION_FAILED,
+        (envelope) => failedEvents.push(envelope.payload)
+    );
+
+    harness.paymentSessionManager.failSession("room-partial", "payment_timeout");
+
+    await waitForAsync();
+
+    assert.equal(
+        harness.paymentSessionManager.getSession("room-partial").status,
+        PAYMENT_SESSION_STATUS.REFUND_PENDING
+    );
+
+    harness.paymentSessionManager._handleGameEscrowCancelConfirmed({
+        roomId: "room-partial",
+        cancelTxHash: "cancel-tx-prod-order"
+    });
+
+    assert.equal(
+        harness.paymentSessionManager.getSession("room-partial").status,
+        PAYMENT_SESSION_STATUS.REFUND_PENDING,
+        "cancel confirmed must not leave REFUND_PENDING early"
+    );
+    assert.equal(failedEvents.length, 0, "must not emit PAYMENT_SESSION_FAILED before refunds");
+    assert.equal(
+        harness.paymentSessionManager.getSession("room-partial")
+            .recoveryMetadata?.cancelTxHash,
+        "cancel-tx-prod-order"
+    );
+
+    harness.paymentSessionManager._handleGameEscrowRefundConfirmed({
+        roomId: "room-partial",
+        playerId: "p1",
+        transactionId: "refund-tx-1"
+    });
+
+    assert.equal(failedEvents.length, 0, "still waiting for second refund");
+
+    harness.paymentSessionManager._handleGameEscrowRefundConfirmed({
+        roomId: "room-partial",
+        playerId: "p2",
+        transactionId: "refund-tx-2"
+    });
+
+    assert.equal(failedEvents.length, 1, "PAYMENT_SESSION_FAILED after all refunds");
+    assert.equal(
+        harness.paymentSessionManager.getSession("room-partial").status,
+        PAYMENT_SESSION_STATUS.CANCELLED
+    );
+    assert.equal(failedEvents[0].reason, "payment_timeout");
+
+    harness.paymentSessionManager.shutdown?.();
+    harness.gameContractManager.shutdown?.();
+    harness.eventBus.shutdown();
+
+    console.log(
+        "  E. CANCEL_CONFIRMED before REFUND_CONFIRMED → PAYMENT_SESSION_FAILED"
+    );
+
+}
+
 console.log("R17.8O.1 partial payment escrow unwind tests passed");

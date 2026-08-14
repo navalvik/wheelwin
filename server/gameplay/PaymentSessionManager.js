@@ -1431,6 +1431,13 @@ export class PaymentSessionManager {
 
     /**
      * R7.69C — Mark payment session CANCELLED after cancel confirmed on-chain.
+     *
+     * R17.8O.6C — While REFUND_PENDING, do not mark CANCELLED here.
+     * BlockchainMonitor emits GAME_ESCROW_CANCEL_CONFIRMED before per-seat
+     * GAME_ESCROW_REFUND_CONFIRMED. Premature CANCELLED blocks
+     * _finalizePartialPaymentUnwind (requires REFUND_PENDING) and leaves the
+     * room LOCKED. O.1 finalize remains the sole CANCELLED + PAYMENT_SESSION_FAILED
+     * owner for partial-payment unwind.
      */
     _handleGameEscrowCancelConfirmed(payload) {
 
@@ -1445,6 +1452,28 @@ export class PaymentSessionManager {
         const session = this._sessionsByRoom.get(roomId);
 
         if (!session || session.status === PAYMENT_SESSION_STATUS.CANCELLED) {
+
+            return;
+
+        }
+
+        if (session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING) {
+
+            const cancelTxHash = payload?.cancelTxHash
+                ?? payload?.transactionHash
+                ?? null;
+
+            if (cancelTxHash) {
+
+                this.noteEscrowCancelTx(roomId, cancelTxHash);
+
+            }
+
+            this._log(
+                `GAME_ESCROW_CANCEL_CONFIRMED keep REFUND_PENDING | roomId=${roomId} | `
+                    + `paymentSessionId=${session.paymentSessionId} | `
+                    + `nextAction=_finalizePartialPaymentUnwind after refunds`
+            );
 
             return;
 
