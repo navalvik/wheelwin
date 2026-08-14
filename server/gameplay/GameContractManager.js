@@ -26,6 +26,11 @@ import {
     PersistenceFailureError
 } from "./GameContractManagerErrors.js";
 import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
+import {
+    buildPartialPaymentRefundTargets,
+    countConfirmedParticipants,
+    sessionNeedsEscrowUnwind
+} from "./partialPaymentEscrowUnwind.js";
 
 const R711B_EMIT_EVENTS = new Set([
     EVENT_TYPES.GAME_CONTRACT_DEPLOYED,
@@ -143,6 +148,10 @@ export class GameContractManager {
 
         this._handlers = [];
 
+        this._blockchainMonitor = null;
+
+        this._escrowUnwindByRoom = new Map();
+
         this._initialized = false;
 
     }
@@ -164,6 +173,19 @@ export class GameContractManager {
         if (contractSettlementManager) {
 
             this._contractSettlementManager = contractSettlementManager;
+
+        }
+
+    }
+
+    /**
+     * R17.8O.1 — Late-bind BlockchainMonitor for partial-payment refund watches.
+     */
+    setEscrowUnwindDeps({ blockchainMonitor = null } = {}) {
+
+        if (blockchainMonitor) {
+
+            this._blockchainMonitor = blockchainMonitor;
 
         }
 
@@ -213,7 +235,17 @@ export class GameContractManager {
 
                 }
 
+                const unwind = this._escrowUnwindByRoom.get(roomId);
+
+                if (unwind?.state === "failed") {
+
+                    return;
+
+                }
+
                 this.destroyContract(roomId);
+
+                this._escrowUnwindByRoom.delete(roomId);
 
             }
         );
@@ -2009,6 +2041,213 @@ export class GameContractManager {
         this._contractsById.clear();
 
         this._operationLocks.clear();
+
+        this._escrowUnwindByRoom.clear();
+
+    }
+
+    /**
+     * R17.8O.1 — Cancel deployed GameEscrow when payment cannot complete after
+     * partial confirmation. Starts refund observation; room teardown waits for
+     * PaymentSessionManager to emit PAYMENT_SESSION_FAILED after refunds.
+     */
+    async requestPartialPaymentEscrowUnwind({
+        roomId,
+        reason = "payment_failed",
+        session = null
+    } = {}) {
+
+        this._assertInitialized();
+
+        if (!roomId) {
+
+            return Object.freeze({ ok: false, reason: "missing_room_id" });
+
+        }
+
+        const paymentSession = session
+            ?? this._paymentSessionManager?.getSession?.(roomId)
+            ?? null;
+
+        if (!sessionNeedsEscrowUnwind(paymentSession)) {
+
+            return Object.freeze({ ok: false, reason: "no_unwind_needed", skipped: true });
+
+        }
+
+        const contract = this.getContract(roomId);
+
+        const contractAddress = contract?.contractAddress ?? null;
+
+        const gameId = contract?.gameId ?? paymentSession?.gameId ?? null;
+
+        const confirmedPlayersCount = countConfirmedParticipants(paymentSession);
+
+        const existing = this._escrowUnwindByRoom.get(roomId);
+
+        if (existing?.state === "pending") {
+
+            return Object.freeze({ ok: true, reason: "already_pending" });
+
+        }
+
+        if (!contractAddress) {
+
+            this._escrowUnwindByRoom.set(roomId, {
+                state: "failed",
+                reason: "missing_contract_address"
+            });
+
+            this._emit(EVENT_TYPES.ESCROW_CANCEL_FAILED, {
+                gameId,
+                roomId,
+                contractAddress: null,
+                reason: "missing_contract_address",
+                confirmedPlayersCount,
+                timestamp: Date.now()
+            });
+
+            return Object.freeze({ ok: false, reason: "missing_contract_address" });
+
+        }
+
+        if (typeof this._deployAdapter?.cancel !== "function") {
+
+            this._escrowUnwindByRoom.set(roomId, {
+                state: "failed",
+                reason: "cancel_not_supported"
+            });
+
+            this._emit(EVENT_TYPES.ESCROW_CANCEL_FAILED, {
+                gameId,
+                roomId,
+                contractAddress,
+                reason: "cancel_not_supported",
+                confirmedPlayersCount,
+                timestamp: Date.now()
+            });
+
+            return Object.freeze({ ok: false, reason: "cancel_not_supported" });
+
+        }
+
+        this._escrowUnwindByRoom.set(roomId, { state: "pending", reason });
+
+        this._emit(EVENT_TYPES.ESCROW_CANCEL_REQUESTED, {
+            gameId,
+            roomId,
+            contractAddress,
+            reason,
+            confirmedPlayersCount,
+            timestamp: Date.now()
+        });
+
+        let result;
+
+        try {
+
+            result = await this._deployAdapter.cancel({
+                contractAddress,
+                reasonCode: 0
+            });
+
+        } catch (error) {
+
+            result = {
+                ok: false,
+                reason: error?.message ?? "cancel_failed"
+            };
+
+        }
+
+        if (!result?.ok) {
+
+            this._escrowUnwindByRoom.set(roomId, {
+                state: "failed",
+                reason: result?.reason ?? "cancel_failed"
+            });
+
+            this._emit(EVENT_TYPES.ESCROW_CANCEL_FAILED, {
+                gameId,
+                roomId,
+                contractAddress,
+                reason: result?.reason ?? "cancel_failed",
+                confirmedPlayersCount,
+                timestamp: Date.now()
+            });
+
+            this._log(
+                `ESCROW_CANCEL_FAILED | roomId=${roomId} | `
+                    + `address=${contractAddress} | reason=${result?.reason ?? "cancel_failed"}`
+            );
+
+            return Object.freeze({
+                ok: false,
+                reason: result?.reason ?? "cancel_failed"
+            });
+
+        }
+
+        this._paymentSessionManager?.noteEscrowCancelTx?.(
+            roomId,
+            result.txId ?? null
+        );
+
+        this._emit(EVENT_TYPES.ESCROW_CANCEL_CONFIRMED, {
+            gameId,
+            roomId,
+            contractAddress,
+            transactionHash: result.txId ?? null,
+            timestamp: Date.now()
+        });
+
+        const { refunds, expectedRefundMask } = buildPartialPaymentRefundTargets(
+            paymentSession
+        );
+
+        try {
+
+            this._blockchainMonitor?.watchGameEscrowRefunds?.({
+                escrowAddress: contractAddress,
+                cancelTxHash: result.txId ?? null,
+                refunds,
+                expectedRefundMask,
+                contractId: contract?.contractId ?? null,
+                roomId,
+                gameId,
+                correlationId: contract?.correlationId
+                    ?? paymentSession?.correlationId
+                    ?? null,
+                contractStatus: 9
+            });
+
+        } catch (error) {
+
+            this._logger?.warn?.(
+                `Escrow refund watch registration failed | roomId=${roomId} | `
+                    + `${error?.message ?? error}`
+            );
+
+        }
+
+        this._emit(EVENT_TYPES.ESCROW_REFUND_PENDING, {
+            gameId,
+            roomId,
+            contractAddress,
+            confirmedPlayersCount,
+            refundCount: refunds.length,
+            timestamp: Date.now()
+        });
+
+        this._log(
+            `ESCROW_CANCEL_CONFIRMED | roomId=${roomId} | `
+                + `address=${contractAddress} | tx=${result.txId ?? "null"}`
+        );
+
+        return Object.freeze({
+            ok: true,
+            cancelTxHash: result.txId ?? null
+        });
 
     }
 

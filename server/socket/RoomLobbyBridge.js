@@ -26,6 +26,7 @@ import {
     EntryPaymentSession
 } from "../models/EntryPaymentSession.js";
 import { EntryPaymentLifecycle } from "../gameplay/EntryPaymentLifecycle.js";
+import { sessionNeedsEscrowUnwind } from "../gameplay/partialPaymentEscrowUnwind.js";
 import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import {
     isValidRoomId,
@@ -2553,6 +2554,19 @@ export class RoomLobbyBridge {
             });
             console.trace("RoomLobbyBridge._removePlayerFromLobby creator_left trace");
             console.log("======================================================");
+
+            const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
+
+            if (
+                paymentSession
+                && sessionNeedsEscrowUnwind(paymentSession)
+            ) {
+
+                this._paymentSessionManager.failSession(roomId, "creator_left");
+
+                return;
+
+            }
 
             void this._closeRoom(roomId, "creator_left");
 
@@ -5594,6 +5608,18 @@ export class RoomLobbyBridge {
         const roomId = payload?.roomId;
 
         if (!roomId) {
+
+            return;
+
+        }
+
+        if (payload?.status === "REFUND_PENDING") {
+
+            this._deliverToRoom(
+                roomId,
+                LOBBY_SERVER_EVENTS.PAYMENT_SESSION_FAILED,
+                payload
+            );
 
             return;
 

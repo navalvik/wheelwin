@@ -1388,6 +1388,10 @@ class WheelWinApplication {
             contractSettlementManager: this._contractSettlementManager
         });
 
+        this._gameContractManager.setEscrowUnwindDeps({
+            blockchainMonitor: this._blockchainMonitor
+        });
+
         this._logger.startupLine("ContractSettlementManager");
 
         this._tonFinancialRecovery = new TonFinancialRecovery({

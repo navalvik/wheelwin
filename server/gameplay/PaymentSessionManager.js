@@ -26,6 +26,10 @@ import {
     UnexpectedPaymentError
 } from "./PaymentSessionManagerErrors.js";
 import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
+import {
+    allConfirmedParticipantsRefunded,
+    sessionNeedsEscrowUnwind
+} from "./partialPaymentEscrowUnwind.js";
 
 const DEFAULT_PAYMENT_SESSION_DURATION_MS = 5 * 60 * 1000;
 
@@ -1329,6 +1333,100 @@ export class PaymentSessionManager {
 
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
+        if (session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING) {
+
+            this._emit(EVENT_TYPES.ESCROW_REFUND_CONFIRMED, {
+                roomId: session.roomId,
+                gameId: session.gameId ?? null,
+                playerId: participant.playerId ?? null,
+                playerIndex: participant.playerIndex ?? null,
+                transactionHash: participant.refundTxHash,
+                timestamp: Date.now()
+            });
+
+            if (allConfirmedParticipantsRefunded(session)) {
+
+                this._finalizePartialPaymentUnwind(session);
+
+            }
+
+        }
+
+    }
+
+    noteEscrowCancelTx(roomId, cancelTxHash) {
+
+        const session = this._sessionsByRoom.get(roomId);
+
+        if (!session || !cancelTxHash) {
+
+            return;
+
+        }
+
+        session.recoveryMetadata = {
+            ...(session.recoveryMetadata ?? {}),
+            cancelTxHash
+        };
+
+        this._persistSession(session, "update");
+
+    }
+
+    _finalizePartialPaymentUnwind(session) {
+
+        if (!session || session.status !== PAYMENT_SESSION_STATUS.REFUND_PENDING) {
+
+            return;
+
+        }
+
+        const reason = session.recoveryMetadata?.unwindReason ?? "payment_failed";
+
+        try {
+
+            session.markCancelled();
+
+        } catch (error) {
+
+            this._logger?.warn?.(
+                `Partial payment unwind finalize skipped | roomId=${session.roomId} | `
+                    + `${error?.message ?? error}`
+            );
+
+            return;
+
+        }
+
+        this._clearExpiry(session.roomId);
+
+        this._blockchainMonitor?.stopRoom?.(session.roomId);
+
+        this._persistSession(session, "update");
+
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+        const failedPayload = {
+            ...session.toSnapshot(),
+            reason
+        };
+
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_FAILED, failedPayload);
+
+        this._log(
+            `PARTIAL_PAYMENT_UNWIND_COMPLETE | roomId=${session.roomId} | reason=${reason}`
+        );
+
+        this._logger.decisionTrace({
+            stage: "TERMINAL_FAILURE",
+            decision: "FAIL",
+            reason,
+            caller: "PaymentSessionManager._finalizePartialPaymentUnwind",
+            nextAction: "Room close / cleanup",
+            roomId: session.roomId,
+            gameId: session.gameId ?? null
+        });
+
     }
 
     /**
@@ -1785,9 +1883,29 @@ export class PaymentSessionManager {
 
         }
 
+        if (session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING) {
+
+            printDeployBlock("PaymentSessionManager.failSession ABORT", {
+                RoomId: roomId,
+                Reason: "escrow_unwind_in_progress",
+                WillEmitPAYMENT_SESSION_FAILED: false,
+                Timestamp: new Date().toISOString()
+            });
+
+            return session;
+
+        }
+
         this._clearExpiry(roomId);
 
         this._blockchainMonitor?.stopRoom?.(roomId);
+
+        const contract = this._gameContractManager?.getContract?.(roomId) ?? null;
+
+        const needsEscrowUnwind = sessionNeedsEscrowUnwind(session)
+            && Boolean(contract?.contractAddress)
+            && typeof this._gameContractManager?.requestPartialPaymentEscrowUnwind
+                === "function";
 
         if (reason === "payment_timeout") {
 
@@ -1798,6 +1916,51 @@ export class PaymentSessionManager {
         } else {
 
             session.markFailed();
+
+        }
+
+        if (needsEscrowUnwind) {
+
+            session.recoveryMetadata = {
+                ...(session.recoveryMetadata ?? {}),
+                unwindReason: reason,
+                escrowUnwindRequestedAt: Date.now()
+            };
+
+            session.markRefundPending();
+
+            this._persistSession(session, "update");
+
+            this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+            void this._gameContractManager.requestPartialPaymentEscrowUnwind({
+                roomId,
+                reason,
+                session
+            }).catch((error) => {
+
+                this._logger?.error?.(
+                    `Partial payment escrow unwind failed | roomId=${roomId} | `
+                        + `${error?.message ?? error}`
+                );
+
+            });
+
+            this._log(
+                `ESCROW_UNWIND_REQUESTED | roomId=${roomId} | reason=${reason}`
+            );
+
+            this._logger.decisionTrace({
+                stage: "TERMINAL_FAILURE",
+                decision: "UNWIND",
+                reason: reason ?? "payment_failed",
+                caller: "PaymentSessionManager.failSession",
+                nextAction: "GameContractManager.requestPartialPaymentEscrowUnwind",
+                roomId,
+                gameId: session.gameId ?? null
+            });
+
+            return session;
 
         }
 

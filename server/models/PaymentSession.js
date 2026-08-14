@@ -421,6 +421,20 @@ export class PaymentSession {
 
     }
 
+    markRefundPending() {
+
+        if (this.status === PAYMENT_SESSION_STATUS.REFUND_PENDING) {
+
+            return this;
+
+        }
+
+        this.transitionTo(PAYMENT_SESSION_STATUS.REFUND_PENDING);
+
+        return this;
+
+    }
+
     addReceivedPayment(payment) {
 
         this.receivedPayments.push(Object.freeze({
