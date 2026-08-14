@@ -1392,6 +1392,10 @@ class WheelWinApplication {
             blockchainMonitor: this._blockchainMonitor
         });
 
+        this._setupSessionLifecycle.setEscrowUnwindBridgeDeps({
+            paymentSessionManager: this._paymentSessionManager
+        });
+
         this._logger.startupLine("ContractSettlementManager");
 
         this._tonFinancialRecovery = new TonFinancialRecovery({

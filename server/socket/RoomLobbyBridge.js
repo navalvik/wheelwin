@@ -2402,6 +2402,22 @@ export class RoomLobbyBridge {
 
         }
 
+        const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
+
+        const contract = this._gameContractManager?.getContract?.(roomId);
+
+        if (
+            paymentSession
+            && sessionNeedsEscrowUnwind(paymentSession)
+            && contract?.contractAddress
+        ) {
+
+            this._paymentSessionManager.failSession(roomId, "setup_expired");
+
+            return;
+
+        }
+
         void this._closeRoom(roomId, "setup_expired");
 
     }

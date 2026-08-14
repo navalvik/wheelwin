@@ -11,6 +11,7 @@ import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { SetupSession } from "../models/SetupSession.js";
 import { SETUP_SESSION_STATUS } from "../models/SetupSessionStatus.js";
+import { PAYMENT_SESSION_STATUS } from "../models/PaymentSession.js";
 
 // R7.70C19 — fallback aligned with rooms.js DEFAULT_SETUP_DURATION_MS (5 min).
 const DEFAULT_SETUP_DURATION_MS = 5 * 60 * 1000;
@@ -63,6 +64,21 @@ export class SetupSessionLifecycle {
 
         /** @type {{ isAcceptingNewWork: () => boolean } | null} R7.0B */
         this._lifecycleGate = null;
+
+        this._paymentSessionManager = null;
+
+    }
+
+    /**
+     * R17.8O.4 — Late-bind payment session for setup-expiry escrow unwind deferral.
+     */
+    setEscrowUnwindBridgeDeps({ paymentSessionManager = null } = {}) {
+
+        if (paymentSessionManager) {
+
+            this._paymentSessionManager = paymentSessionManager;
+
+        }
 
     }
 
@@ -913,6 +929,19 @@ export class SetupSessionLifecycle {
         console.log("======================================================");
 
         this._sessionDelete(roomId, "SetupSessionLifecycle._onExpiry", "setup_expired");
+
+        // R17.8O.4 — Defer room destroy while O.1 escrow unwind is in progress.
+        const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
+
+        if (paymentSession?.status === PAYMENT_SESSION_STATUS.REFUND_PENDING) {
+
+            this._log(
+                `DEFER_ROOM_DESTROY | roomId=${roomId} | reason=escrow_unwind_in_progress`
+            );
+
+            return;
+
+        }
 
         // RoomManager decides destruction. Bridge may already have closed the
         // room while handling EXPIRED (sync); destroy only if still present.
