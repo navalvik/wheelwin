@@ -5,6 +5,7 @@ export const CONSOLE_SECTIONS = Object.freeze([
     Object.freeze({ id: "server-health", label: "Server Health" }),
     Object.freeze({ id: "system-info", label: "System Information" }),
     Object.freeze({ id: "blockchain-status", label: "Blockchain Status" }),
+    Object.freeze({ id: "ton-deployer-wallet", label: "TON Deployer Wallet" }),
     Object.freeze({ id: "closed-beta", label: "Closed Beta" }),
     Object.freeze({ id: "launch-readiness", label: "Launch Readiness" }),
     Object.freeze({ id: "general-availability", label: "General Availability" }),

@@ -11,6 +11,7 @@ import { buildSimulationOverview } from "./projectionBuilders/buildSimulationOve
 import { buildMetricsOverview } from "./projectionBuilders/buildMetricsOverview.js";
 import { buildSystemInformation } from "./projectionBuilders/buildSystemInformation.js";
 import { buildBlockchainStatus } from "./projectionBuilders/buildBlockchainStatus.js";
+import { buildDeployerWalletStatus as buildDeployerWalletStatusDto } from "./projectionBuilders/buildDeployerWalletStatus.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -254,6 +255,15 @@ export class DeveloperConsoleProjectionService {
             paymentSessionManager: this._paymentSessionManager,
             contractSettlementManager: this._contractSettlementManager,
             tonFinancialRecovery: this._tonFinancialRecovery
+        });
+
+    }
+
+    buildDeployerWalletStatus() {
+
+        return buildDeployerWalletStatusDto({
+            runtimeConfig: this._runtimeConfig,
+            tonService: this._tonService
         });
 
     }

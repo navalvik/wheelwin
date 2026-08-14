@@ -1729,6 +1729,7 @@ class WheelWinApplication {
                 authMiddleware: createDeveloperAuthMiddleware(
                     this._developerAuthService
                 ),
+                authService: this._developerAuthService,
                 gameDiagnosticLogManager: this._gameDiagnosticLogManager,
                 sessionHistoryArchive: this._sessionHistoryArchive
             }

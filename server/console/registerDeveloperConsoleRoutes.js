@@ -1,3 +1,5 @@
+import { createAdministratorAuthMiddleware } from "./auth/developerAuthMiddleware.js";
+
 /**
  * R6.0C / R6.1 — Read-only Developer Console HTTP routes.
  * Independent of /debug/*. Projection routes require developer auth when enabled.
@@ -7,6 +9,7 @@ export function registerDeveloperConsoleRoutes(
     projectionService,
     {
         authMiddleware = null,
+        authService = null,
         gameDiagnosticLogManager = null,
         sessionHistoryArchive = null
     } = {}
@@ -157,6 +160,36 @@ export function registerDeveloperConsoleRoutes(
         res.json(projectionService.buildBlockchainStatus());
 
     });
+
+    const requireAdministrator = authService
+        ? createAdministratorAuthMiddleware(authService)
+        : null;
+
+    /**
+     * R17.8M.1 — Live deployer wallet observability (Administrator-only).
+     */
+    app.get(
+        "/console/ton/deployer-wallet",
+        requireAdministrator ?? ((req, res, next) => next()),
+        async (req, res) => {
+
+            try {
+
+                const status = await projectionService.buildDeployerWalletStatus();
+
+                res.json(status);
+
+            } catch (error) {
+
+                res.status(500).json({
+                    error: "Failed to load deployer wallet status",
+                    message: error?.message ?? "Unknown error"
+                });
+
+            }
+
+        }
+    );
 
     /**
      * R7.0 — Immutable session lifecycle history (read-only archive).

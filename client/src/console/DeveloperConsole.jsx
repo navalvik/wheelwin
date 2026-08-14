@@ -37,6 +37,7 @@ import DeveloperLogPanel from "./panels/DeveloperLogPanel";
 import SettingsPanel from "./panels/SettingsPanel";
 import SystemInformationPanel from "./panels/SystemInformationPanel";
 import BlockchainStatusPanel from "./panels/BlockchainStatusPanel";
+import DeployerWalletPanel from "./panels/DeployerWalletPanel";
 import MaintenancePanel from "./panels/MaintenancePanel";
 
 function renderSection(sectionId) {
@@ -51,6 +52,9 @@ function renderSection(sectionId) {
 
         case "blockchain-status":
             return <BlockchainStatusPanel />;
+
+        case "ton-deployer-wallet":
+            return <DeployerWalletPanel />;
 
         case "closed-beta":
             return <ClosedBetaPanel />;

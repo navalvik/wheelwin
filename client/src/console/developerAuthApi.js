@@ -214,6 +214,37 @@ export async function fetchBlockchainStatus(accessToken) {
 
 }
 
+export async function fetchDeployerWalletStatus(accessToken) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/ton/deployer-wallet`,
+        {
+            method: "GET",
+            headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${accessToken}`
+            }
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        if (response.status === 403) {
+
+            throw new Error(body?.message || body?.error || "Forbidden");
+
+        }
+
+        throw new Error(body?.error || "Failed to load deployer wallet status");
+
+    }
+
+    return body;
+
+}
+
 export async function listAdvertisements(accessToken) {
 
     const response = await fetch(`${getConsoleApiBase()}/console/advertisements`, {
