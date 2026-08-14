@@ -148,7 +148,8 @@ export function createDeployResultDTO({
     deploymentTxId = null,
     deployedAt = null,
     snapshotHash = null,
-    reason = null
+    reason = null,
+    diagnostics = null
 }) {
 
     return Object.freeze({
@@ -157,7 +158,8 @@ export function createDeployResultDTO({
         deploymentTxId,
         deployedAt,
         snapshotHash,
-        reason
+        reason,
+        diagnostics
     });
 
 }

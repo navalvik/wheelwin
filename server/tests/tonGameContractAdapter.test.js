@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
-import { Cell, TupleReader, loadMessage } from "@ton/core";
+import { Cell, TupleReader, loadMessage, toNano } from "@ton/core";
 import { keyPairFromSeed, mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
@@ -985,6 +985,11 @@ async function main() {
                 };
 
             },
+            async getBalance() {
+
+                return toNano("0.5");
+
+            },
             async getSeqno() {
 
                 return currentSeqno;
@@ -1121,6 +1126,11 @@ async function main() {
                 return { state: "uninitialized", balance: "0" };
 
             },
+            async getBalance() {
+
+                return toNano("0.5");
+
+            },
             async getSeqno() {
 
                 return currentSeqno;
@@ -1247,7 +1257,12 @@ async function main() {
 
                 }
 
-                return { state: "active", balance: "50000000" };
+                return { state: "active", balance: "500000000" };
+
+            },
+            async getBalance() {
+
+                return toNano("0.5");
 
             },
             async getSeqno() {

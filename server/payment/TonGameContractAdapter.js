@@ -66,6 +66,7 @@ import {
     serializeSettleBocPlaceholder
 } from "./ton/gameContract/GameContractSerializer.js";
 import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
+import { checkDeployerBalancePreflight } from "./ton/checkDeployerBalancePreflight.js";
 
 const DEFAULT_ESCROW_ACTIVATION_TIMEOUT_MS = 60_000;
 const DEFAULT_DEPLOY_VALUE_TON = "0.05";
@@ -343,7 +344,8 @@ export class TonGameContractAdapter {
 
                     const result = createDeployResultDTO({
                         ok: false,
-                        reason: broadcast.reason ?? "deploy_failed"
+                        reason: broadcast.reason ?? "deploy_failed",
+                        diagnostics: broadcast.diagnostics ?? null
                     });
 
                     printDeployBlock("ADAPTER deployContract RETURN", {
@@ -1264,6 +1266,70 @@ export class TonGameContractAdapter {
     }
 
     async _broadcastDeploy(escrow) {
+
+        const preflight = await checkDeployerBalancePreflight({
+            tonConfig: this._tonConfig,
+            tonService: this._service()
+        });
+
+        pushTonDeployDebugStage("GAME_CONTRACT_DEPLOY_PREFLIGHT_STARTED", {
+            deployerAddress: preflight.deployerAddress,
+            network: preflight.network,
+            availableBalance: preflight.availableBalance,
+            requiredBalance: preflight.requiredBalance
+        });
+
+        this._logger?.info?.("GAME_CONTRACT_DEPLOY_PREFLIGHT_STARTED", {
+            deployerAddress: preflight.deployerAddress,
+            balance: preflight.availableBalance,
+            requiredBalance: preflight.requiredBalance,
+            network: preflight.network
+        });
+
+        if (!preflight.ok) {
+
+            pushTonDeployDebugStage("GAME_CONTRACT_DEPLOY_PREFLIGHT_FAILED", {
+                deployerAddress: preflight.deployerAddress,
+                network: preflight.network,
+                availableBalance: preflight.availableBalance,
+                requiredBalance: preflight.requiredBalance,
+                failureReason: preflight.reason
+            });
+
+            this._logger?.info?.("GAME_CONTRACT_DEPLOY_PREFLIGHT_FAILED", {
+                deployerAddress: preflight.deployerAddress,
+                balance: preflight.availableBalance,
+                requiredBalance: preflight.requiredBalance,
+                network: preflight.network,
+                reason: preflight.reason
+            });
+
+            return {
+                ok: false,
+                reason: preflight.reason,
+                diagnostics: Object.freeze({
+                    availableBalance: preflight.availableBalance,
+                    requiredBalance: preflight.requiredBalance,
+                    deployerAddress: preflight.deployerAddress,
+                    network: preflight.network
+                })
+            };
+
+        }
+
+        pushTonDeployDebugStage("GAME_CONTRACT_DEPLOY_PREFLIGHT_PASSED", {
+            deployerAddress: preflight.deployerAddress,
+            network: preflight.network,
+            availableBalance: preflight.availableBalance,
+            requiredBalance: preflight.requiredBalance
+        });
+
+        this._logger?.info?.("GAME_CONTRACT_DEPLOY_PREFLIGHT_PASSED", {
+            deployerAddress: preflight.deployerAddress,
+            balance: preflight.availableBalance,
+            requiredBalance: preflight.requiredBalance,
+            network: preflight.network
+        });
 
         const txId = await this._sendOracleMessage({
             operation: "DEPLOY",

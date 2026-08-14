@@ -251,7 +251,11 @@ export function pushTonDeployDebugStage(stage, fields = {}) {
         "confirmedSeqno",
         "matchedTxHash",
         "confirmationDurationMs",
-        "failureReason"
+        "failureReason",
+        // R17.8M.2 — deployer balance preflight diagnostics
+        "network",
+        "availableBalance",
+        "requiredBalance"
     ];
 
     for (const key of allowed) {
