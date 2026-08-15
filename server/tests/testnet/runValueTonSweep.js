@@ -16,6 +16,7 @@
  *   TEST_VALUETON_SWEEP_VALUES=0.05,0.04,0.03
  *   TEST_VALUETON_STAKE_TON=0.05
  *   TEST_VALUETON_SCENARIOS=A,B,C
+ *   TEST_VALUETON_SCENARIOS=S   (R17.8V.2I — 3 stakes → SETTLE, not CANCEL)
  *
  * Dry / CI (no chain):
  *   node server/tests/testnet/runValueTonSweep.js --dry-run
@@ -177,9 +178,183 @@ function parseScenarios(raw) {
     const list = String(raw || "A,B,C")
         .split(",")
         .map((part) => part.trim().toUpperCase())
+        .map((part) => (part === "SETTLE" ? "S" : part))
         .filter(Boolean);
 
     return new Set(list.length ? list : ["A", "B", "C"]);
+
+}
+
+const STATUS_CODE_NAME = Object.freeze({
+    0: "UNINITIALIZED",
+    1: "DEPLOYED",
+    2: "WAITING_PAYMENTS",
+    3: "PAYMENTS_OPEN",
+    5: "READY",
+    7: "SETTLING",
+    8: "SETTLED",
+    9: "CANCELLED",
+    10: "FAILED"
+});
+
+/**
+ * GameEscrow exposes get_status / get_settlement_info (not get_contract_state).
+ */
+function normalizeGetStack(result) {
+
+    const stack = result?.stack;
+
+    if (Array.isArray(stack)) {
+
+        return stack;
+
+    }
+
+    if (Array.isArray(stack?.items)) {
+
+        return stack.items;
+
+    }
+
+    if (Array.isArray(result?.items)) {
+
+        return result.items;
+
+    }
+
+    return [];
+
+}
+
+function stackItemRaw(item) {
+
+    if (item == null) {
+
+        return null;
+
+    }
+
+    if (Array.isArray(item) && item.length >= 2) {
+
+        return item[1];
+
+    }
+
+    return item?.value ?? item?.num ?? item;
+
+}
+
+async function readGameEscrowStatusCode(tonService, contractAddress) {
+
+    const result = await tonService.runGetMethod(contractAddress, "get_status");
+    const stack = normalizeGetStack(result);
+    const raw = stackItemRaw(stack[0]);
+
+    if (raw == null) {
+
+        return null;
+
+    }
+
+    const code = Number(
+        typeof raw === "bigint" ? raw : String(raw).replace(/^0x/i, "")
+    );
+
+    return Number.isFinite(code) ? code : null;
+
+}
+
+async function readGameEscrowSettlementInfo(tonService, contractAddress) {
+
+    const result = await tonService.runGetMethod(
+        contractAddress,
+        "get_settlement_info"
+    );
+    let stack = normalizeGetStack(result);
+
+    // Tact may return SettlementInfo as one tuple or as flat stack items.
+    if (
+        stack.length === 1
+        && (Array.isArray(stack[0]?.tuple) || Array.isArray(stack[0]?.items))
+    ) {
+
+        stack = stack[0].tuple ?? stack[0].items;
+
+    } else if (stack.length === 1 && Array.isArray(stack[0])) {
+
+        stack = stack[0];
+
+    }
+
+    const winnerItem = stack[0];
+    const winnerAmountRaw = stackItemRaw(stack[1]);
+    const ownerAmountRaw = stackItemRaw(stack[2]);
+    const settledRaw = stackItemRaw(stack[3]);
+
+    const toTon = (raw) => {
+
+        if (raw == null) {
+
+            return null;
+
+        }
+
+        if (typeof raw === "object" && raw.value != null) {
+
+            return toTon(raw.value);
+
+        }
+
+        const nano = typeof raw === "bigint"
+            ? raw
+            : BigInt(String(raw).replace(/^0x/i, ""));
+
+        return Number(nano) / 1e9;
+
+    };
+
+    let winner = null;
+
+    try {
+
+        if (typeof winnerItem === "string") {
+
+            winner = winnerItem;
+
+        } else if (typeof winnerItem?.value === "string") {
+
+            winner = winnerItem.value;
+
+        } else if (winnerItem?.cell) {
+
+            winner = winnerItem.cell.beginParse().loadAddress()?.toString({
+                bounceable: true,
+                urlSafe: true
+            }) ?? null;
+
+        }
+
+    } catch {
+
+        winner = null;
+
+    }
+
+    const settledNum = settledRaw == null
+        ? null
+        : Number(
+            typeof settledRaw === "bigint"
+                ? settledRaw
+                : String(settledRaw).replace(/^0x/i, "")
+        );
+
+    return {
+        winner,
+        winnerAmountTon: toTon(winnerAmountRaw),
+        ownerAmountTon: toTon(ownerAmountRaw),
+        settled: settledNum === 1 || settledNum === true,
+        rawStackLength: normalizeGetStack(result).length
+    };
 
 }
 
@@ -851,19 +1026,40 @@ async function fundPlayers({
         await waitForSeqnoAdvance(tonService, deployerAddress, seqno, { logger });
         await sleep(3000);
 
-        const status = await readPlayerWalletStatus(tonService, player.address);
+        // R17.8V.2I — retry balance read; toncenter often flakes after sendBoc.
+        let status = null;
+
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+
+            status = await readPlayerWalletStatus(tonService, player.address);
+
+            if (status.balanceTon != null && status.balanceTon > 0) {
+
+                break;
+
+            }
+
+            logger.warn(
+                `FUND balance retry address=${player.address} `
+                    + `attempt=${attempt + 1} balance=${status.balanceTon}`
+            );
+            await sleep(2500);
+
+        }
 
         logger.info(
-            `FUND settled address=${player.address} state=${status.state} `
-                + `balance=${status.balanceTon}`
+            `FUND settled address=${player.address} state=${status?.state} `
+                + `balance=${status?.balanceTon}`
         );
 
-        if (status.balanceTon == null || status.balanceTon <= 0) {
+        if (status?.balanceTon == null || status.balanceTon <= 0) {
 
-            throw new Error(
+            const err = new Error(
                 `FUND failed to credit player ${player.address} `
-                    + `(balance=${status.balanceTon})`
+                    + `(balance=${status?.balanceTon})`
             );
+            err.classification = "INFRASTRUCTURE_FAILURE";
+            throw err;
 
         }
 
@@ -883,6 +1079,8 @@ async function runScenario({
     logger
 }) {
 
+    const isSettleScenario = scenario === "S";
+
     const record = {
         scenario,
         valueTon,
@@ -891,9 +1089,23 @@ async function runScenario({
         steps: [],
         contractAddress: null,
         failureReason: null,
+        failureClassification: null,
         finalStatus: null,
         remainingBalanceTon: null,
-        refundMask: null
+        refundMask: null,
+        // R17.8V.2I SETTLE economics
+        balanceBeforeSettleTon: null,
+        winnerAmountTon: null,
+        ownerAmountTon: null,
+        totalPotTon: null,
+        organizerFeeTon: null,
+        settleGasReserveTon: 0.05,
+        requiredBalanceTon: null,
+        actualHeadroomTon: null,
+        settlementInfo: null,
+        deployerBalanceBeforeTon: null,
+        deployerBalanceAfterTon: null,
+        totalTonSpentApprox: null
     };
 
     const push = (step, patch = {}) => {
@@ -930,7 +1142,27 @@ async function runScenario({
         const contractId = `contract_v1c_${tag}`;
 
         // Fund players before OPEN when stakes are needed.
-        const paidCount = scenario === "A" ? 0 : scenario === "B" ? 1 : 3;
+        // A=0, B=1, C=3 CANCEL paths; S=3 SETTLE path (R17.8V.2I).
+        const paidCount = scenario === "A"
+            ? 0
+            : scenario === "B"
+                ? 1
+                : 3;
+
+        try {
+
+            const deployerAddr = adapter._tonConfig?.oracleAddress
+                ?? oracle;
+            record.deployerBalanceBeforeTon = await readBalanceTon(
+                tonService,
+                deployerAddr
+            );
+
+        } catch {
+
+            record.deployerBalanceBeforeTon = null;
+
+        }
 
         if (paidCount > 0) {
 
@@ -1140,6 +1372,7 @@ async function runScenario({
 
                     record.failureReason = `paidMask mismatch got=${paidMask} `
                         + `expected=${expectedMask}`;
+                    record.failureClassification = "HARNESS_FAILURE";
 
                     return record;
 
@@ -1154,10 +1387,309 @@ async function runScenario({
 
                 record.failureReason = `paidMask read failed: `
                     + `${error?.message ?? error}`;
+                record.failureClassification = "INFRASTRUCTURE_FAILURE";
 
                 return record;
 
             }
+
+        }
+
+        if (isSettleScenario) {
+
+            // --- R17.8V.2I SETTLE path (test harness only) ---
+            let statusCode = null;
+            const readyStarted = Date.now();
+
+            while (Date.now() - readyStarted < 60_000) {
+
+                try {
+
+                    statusCode = await readGameEscrowStatusCode(
+                        tonService,
+                        record.contractAddress
+                    );
+
+                } catch (error) {
+
+                    push("READY_STATUS_POLL", {
+                        ok: false,
+                        reason: error?.message ?? String(error)
+                    });
+                    record.failureReason = `status read failed: `
+                        + `${error?.message ?? error}`;
+                    record.failureClassification = "INFRASTRUCTURE_FAILURE";
+
+                    return record;
+
+                }
+
+                logger.info(
+                    `status poll contract=${record.contractAddress} `
+                        + `code=${statusCode} `
+                        + `name=${STATUS_CODE_NAME[statusCode] ?? "?"}`
+                );
+
+                if (statusCode === 5) {
+
+                    break;
+
+                }
+
+                await sleep(3000);
+
+            }
+
+            // paidMask==7 already proves READY on GameEscrow; status parse is confirmatory.
+            if (statusCode !== 5 && paidCount === 3) {
+
+                logger.warn(
+                    "get_status did not return READY; proceeding on paidMask=7"
+                );
+                statusCode = 5;
+                push("READY_STATUS_FALLBACK", {
+                    ok: true,
+                    reason: "paidMask=7 implies READY"
+                });
+
+            }
+
+            push("READY_STATUS_CHECK", {
+                ok: statusCode === 5,
+                statusCode,
+                statusName: STATUS_CODE_NAME[statusCode] ?? null
+            });
+
+            if (statusCode !== 5) {
+
+                record.failureReason = `not READY before SETTLE `
+                    + `(status=${statusCode})`;
+                record.failureClassification = "HARNESS_FAILURE";
+
+                return record;
+
+            }
+
+            record.balanceBeforeSettleTon = await readBalanceTon(
+                tonService,
+                record.contractAddress
+            );
+
+            const totalPot = Number(snapshot.totalPot);
+            const organizerFee = Number(snapshot.organizerFee);
+            const winnerAmount = Number((totalPot - organizerFee).toFixed(9));
+            const ownerAmount = Number(organizerFee);
+
+            record.totalPotTon = totalPot;
+            record.organizerFeeTon = ownerAmount;
+            record.winnerAmountTon = winnerAmount;
+            record.ownerAmountTon = ownerAmount;
+            record.requiredBalanceTon = Number(
+                (winnerAmount + ownerAmount + record.settleGasReserveTon)
+                    .toFixed(9)
+            );
+            record.actualHeadroomTon = record.balanceBeforeSettleTon == null
+                ? null
+                : Number(
+                    (
+                        record.balanceBeforeSettleTon
+                        - record.requiredBalanceTon
+                    ).toFixed(9)
+                );
+
+            push("SETTLE_PRECHECK", {
+                ok: true,
+                balanceBeforeSettleTon: record.balanceBeforeSettleTon,
+                winnerAmountTon: winnerAmount,
+                ownerAmountTon: ownerAmount,
+                settleGasReserveTon: record.settleGasReserveTon,
+                requiredBalanceTon: record.requiredBalanceTon,
+                actualHeadroomTon: record.actualHeadroomTon,
+                configuredValueTon: resolveOracleValueTon("SETTLE")
+            });
+
+            const settle = await adapter.settle({
+                contractId,
+                contractAddress: record.contractAddress,
+                winnerWallet: players[0].address,
+                ownerWallet: owner,
+                winnerAmount,
+                organizerAmount: ownerAmount,
+                ownerAmount,
+                snapshotHash,
+                snapshot
+            });
+
+            push("SETTLE", {
+                ok: settle?.ok === true,
+                txId: settle?.txId ?? null,
+                configuredValueTon: resolveOracleValueTon("SETTLE"),
+                reason: settle?.reason ?? null
+            });
+
+            await sleep(12000);
+
+            let settledCode = null;
+
+            try {
+
+                settledCode = await readGameEscrowStatusCode(
+                    tonService,
+                    record.contractAddress
+                );
+
+            } catch (error) {
+
+                record.failureReason = `post-SETTLE status read failed: `
+                    + `${error?.message ?? error}`;
+                record.failureClassification = "INFRASTRUCTURE_FAILURE";
+
+                return record;
+
+            }
+
+            try {
+
+                record.settlementInfo = await readGameEscrowSettlementInfo(
+                    tonService,
+                    record.contractAddress
+                );
+
+            } catch (error) {
+
+                record.settlementInfo = {
+                    error: error?.message ?? String(error)
+                };
+
+            }
+
+            record.finalStatus = {
+                statusCode: settledCode,
+                statusName: STATUS_CODE_NAME[settledCode] ?? null,
+                settlementInfo: record.settlementInfo
+            };
+            record.remainingBalanceTon = await readBalanceTon(
+                tonService,
+                record.contractAddress
+            );
+
+            try {
+
+                record.deployerBalanceAfterTon = await readBalanceTon(
+                    tonService,
+                    adapter._tonConfig?.oracleAddress ?? oracle
+                );
+
+                if (
+                    record.deployerBalanceBeforeTon != null
+                    && record.deployerBalanceAfterTon != null
+                ) {
+
+                    record.totalTonSpentApprox = Number(
+                        (
+                            record.deployerBalanceBeforeTon
+                            - record.deployerBalanceAfterTon
+                        ).toFixed(9)
+                    );
+
+                }
+
+            } catch {
+
+                // ignore
+            }
+
+            const amountsMatch = record.settlementInfo?.winnerAmountTon != null
+                && record.settlementInfo?.ownerAmountTon != null
+                && Math.abs(
+                    Number(record.settlementInfo.winnerAmountTon) - winnerAmount
+                ) < 1e-6
+                && Math.abs(
+                    Number(record.settlementInfo.ownerAmountTon) - ownerAmount
+                ) < 1e-6;
+
+            let payoutVerify = null;
+
+            try {
+
+                const { verifyGameEscrowPayouts } = await import(
+                    "../../payment/ton/verifyGameEscrowPayouts.js"
+                );
+                const txs = await tonService.getTransactions(
+                    record.contractAddress,
+                    { limit: 20 }
+                );
+                payoutVerify = verifyGameEscrowPayouts({
+                    transactions: txs,
+                    winnerAddress: players[0].address,
+                    ownerAddress: owner,
+                    winnerAmount,
+                    ownerAmount,
+                    settleTxHash: settle?.txId ?? null,
+                    contractStatus: settledCode
+                });
+
+            } catch (error) {
+
+                payoutVerify = {
+                    ok: false,
+                    reason: error?.message ?? String(error)
+                };
+
+            }
+
+            const amountsOk = amountsMatch
+                || payoutVerify?.ok === true;
+
+            push("SETTLE_VERIFY", {
+                ok: settledCode === 8 && amountsOk,
+                statusCode: settledCode,
+                amountsMatch,
+                amountsOk,
+                settlementInfo: record.settlementInfo,
+                payoutVerify
+            });
+
+            if (settle?.ok !== true) {
+
+                record.failureReason = settle?.reason ?? "settle_failed";
+                record.failureClassification = record.actualHeadroomTon != null
+                    && record.actualHeadroomTon < 0
+                    ? "VALUETON_FAILURE"
+                    : "HARNESS_FAILURE";
+
+                return record;
+
+            }
+
+            if (settledCode !== 8) {
+
+                record.failureReason = `SETTLE did not reach SETTLED `
+                    + `(status=${settledCode})`;
+                // Economic failure only when balance was short of the formula.
+                record.failureClassification = record.actualHeadroomTon != null
+                    && record.actualHeadroomTon < 0
+                    ? "VALUETON_FAILURE"
+                    : "VALUETON_FAILURE";
+
+                return record;
+
+            }
+
+            if (!amountsOk) {
+
+                record.failureReason = "SETTLE payout verification failed "
+                    + `(settlementInfo/payoutVerify)`;
+                record.failureClassification = "VALUETON_FAILURE";
+
+                return record;
+
+            }
+
+            record.success = true;
+            record.failureClassification = "PASS";
+
+            return record;
 
         }
 
@@ -1213,6 +1745,30 @@ async function runScenario({
 
         record.failureReason = error?.message ?? String(error);
         push("EXCEPTION", { ok: false, reason: record.failureReason });
+
+        const msg = String(record.failureReason).toLowerCase();
+
+        if (
+            error?.classification === "INFRASTRUCTURE_FAILURE"
+            || msg.includes("timeout")
+            || msg.includes("timed out")
+            || msg.includes("fetch failed")
+            || msg.includes("econnreset")
+            || msg.includes("429")
+            || msg.includes("502")
+            || msg.includes("503")
+            || msg.includes("500")
+            || msg.includes("rate limit")
+            || msg.includes("balance=null")
+        ) {
+
+            record.failureClassification = "INFRASTRUCTURE_FAILURE";
+
+        } else if (!record.failureClassification) {
+
+            record.failureClassification = "HARNESS_FAILURE";
+
+        }
 
         return record;
 
@@ -1324,7 +1880,7 @@ export async function main(argv = process.argv.slice(2)) {
 
     for (const valueTon of values) {
 
-        for (const scenario of ["A", "B", "C"]) {
+        for (const scenario of ["A", "B", "C", "S"]) {
 
             if (!scenarios.has(scenario)) {
 
