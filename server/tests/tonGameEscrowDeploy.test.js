@@ -157,7 +157,7 @@ async function main() {
         assert.equal(debug?.oracle, ORACLE);
         assert.equal(debug?.owner, OWNER);
         assert.equal(debug?.transactionHash, result.deploymentTxId);
-        assert.equal(debug?.valueTon, "0.05");
+        assert.equal(debug?.valueTon, "0.022");
 
         const tonDebug = getTonDeployDebug();
         assert.equal(tonDebug?.escrowAddress, result.contractAddress);

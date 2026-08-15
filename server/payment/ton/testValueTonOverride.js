@@ -1,11 +1,12 @@
 /**
- * R17.8V.1C — Test-only oracle message valueTon override.
+ * R17.8V.1C / R17.8V.2K — Oracle message valueTon resolver.
  *
- * Production default remains 0.05 TON unless TEST_VALUETON_OVERRIDE=true.
+ * Production default is 0.022 TON (R17.8V.2K; live floor validated V.2F–V.2I).
+ * TEST_VALUETON_OVERRIDE=true enables test-only per-op overrides.
  * Never enable this flag in production startup paths.
  */
 
-export const PRODUCTION_ORACLE_VALUE_TON = "0.05";
+export const PRODUCTION_ORACLE_VALUE_TON = "0.022";
 
 /** @type {Readonly<Record<string, string>>} */
 export const TEST_VALUETON_ENV_KEYS = Object.freeze({

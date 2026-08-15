@@ -335,9 +335,11 @@ async function main() {
         artifactsDir: "server/tests/testnet/artifacts/"
     };
 
-    if (report.harness.defaultPathResolvesTo !== "0.05") {
+    if (report.harness.defaultPathResolvesTo !== PRODUCTION_ORACLE_VALUE_TON) {
 
-        report.blockers.push("Production default resolver is not 0.05");
+        report.blockers.push(
+            `Production default resolver is not ${PRODUCTION_ORACLE_VALUE_TON}`
+        );
 
     }
 
