@@ -67,9 +67,11 @@ import {
 } from "./ton/gameContract/GameContractSerializer.js";
 import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
 import { checkDeployerBalancePreflight } from "./ton/checkDeployerBalancePreflight.js";
+import {
+    resolveOracleValueTon
+} from "./ton/testValueTonOverride.js";
 
 const DEFAULT_ESCROW_ACTIVATION_TIMEOUT_MS = 60_000;
-const DEFAULT_DEPLOY_VALUE_TON = "0.05";
 
 /**
  * R7.70C2.6 — Per-deployer async mutex.
@@ -269,7 +271,7 @@ export class TonGameContractAdapter {
                 this._tonConfig?.gameEscrowMode
             );
 
-            const deployValueTon = DEFAULT_DEPLOY_VALUE_TON;
+            const deployValueTon = resolveOracleValueTon("DEPLOY");
 
             const escrow = buildGameEscrowWallet({
                 contractId,
@@ -569,7 +571,7 @@ export class TonGameContractAdapter {
                     operation: "INIT_GAME",
                     to: contractAddress,
                     body,
-                    valueTon: "0.05",
+                    valueTon: resolveOracleValueTon("INIT_GAME"),
                     bounce: false,
                     resolveAccountTxHash: true
                 });
@@ -656,7 +658,7 @@ export class TonGameContractAdapter {
                     operation: "OPEN_PAYMENTS",
                     to: contractAddress,
                     body,
-                    valueTon: "0.05",
+                    valueTon: resolveOracleValueTon("OPEN_PAYMENTS"),
                     bounce: false,
                     resolveAccountTxHash: true
                 });
@@ -1059,7 +1061,7 @@ export class TonGameContractAdapter {
                 operation: "ARCHIVE",
                 to: address.friendly,
                 body: serializeArchiveBody(),
-                valueTon: "0.05"
+                valueTon: resolveOracleValueTon("ARCHIVE")
             });
 
             return createOperationResultDTO({
@@ -1102,7 +1104,7 @@ export class TonGameContractAdapter {
                 operation: "CANCEL",
                 to: address.friendly,
                 body: serializeEmergencyCancelBody({ reasonCode }),
-                valueTon: "0.05"
+                valueTon: resolveOracleValueTon("CANCEL")
             });
 
             return createOperationResultDTO({
@@ -1336,7 +1338,7 @@ export class TonGameContractAdapter {
             to: escrow.address,
             init: escrow.stateInit,
             body: beginCell().endCell(),
-            valueTon: "0.05",
+            valueTon: resolveOracleValueTon("DEPLOY"),
             bounce: false,
             // R7.70C2.6 — confirm on-chain before INIT_GAME/OPEN_PAYMENTS.
             resolveAccountTxHash: true
@@ -1374,7 +1376,7 @@ export class TonGameContractAdapter {
             operation: "SETTLE",
             to: settlementRequest.contractAddress,
             body: settlePlan.body,
-            valueTon: "0.05",
+            valueTon: resolveOracleValueTon("SETTLE"),
             bounce: settlePlan.mode === GAME_ESCROW_MODE_GAME ? false : true,
             // R7.61A — resolve real deployer account tx hash (not ton_oracle_seq_*).
             resolveAccountTxHash: true
@@ -1434,7 +1436,7 @@ export class TonGameContractAdapter {
         to,
         body,
         init = null,
-        valueTon = "0.05",
+        valueTon = resolveOracleValueTon(operation),
         bounce = true,
         resolveAccountTxHash = false
     }) {
