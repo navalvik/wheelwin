@@ -26,7 +26,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Address, beginCell, external, internal, storeMessage, toNano } from "@ton/core";
+import {
+    Address,
+    beginCell,
+    external,
+    internal,
+    SendMode,
+    storeMessage,
+    toNano
+} from "@ton/core";
 import { mnemonicToPrivateKey, keyPairFromSeed } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
@@ -274,16 +282,33 @@ async function readBalanceTon(tonService, address) {
 
 }
 
-function buildSignedBoc(wallet, keyPair, seqno, messages) {
+/**
+ * Wallet V4 defaults sendMode to NONE (0). GameEscrow STAKE requires
+ * context().value == required exactly, so gas must be paid separately.
+ */
+const PLAYER_SEND_MODE = SendMode.PAY_GAS_SEPARATELY | SendMode.IGNORE_ERRORS;
+
+function buildSignedBoc(
+    wallet,
+    keyPair,
+    seqno,
+    messages,
+    {
+        includeInit = false,
+        sendMode = PLAYER_SEND_MODE
+    } = {}
+) {
 
     const transfer = wallet.createTransfer({
         seqno,
         secretKey: keyPair.secretKey,
-        messages
+        messages,
+        sendMode
     });
 
     const externalMessage = external({
         to: wallet.address,
+        init: includeInit ? wallet.init : undefined,
         body: transfer
     });
 
@@ -292,6 +317,290 @@ function buildSignedBoc(wallet, keyPair, seqno, messages) {
         .endCell()
         .toBoc()
         .toString("base64");
+
+}
+
+function isDuplicateBocError(error) {
+
+    const text = String(error?.message ?? error ?? "").toLowerCase();
+
+    return text.includes("duplicate message")
+        || text.includes("duplicate");
+
+}
+
+function normalizeAccountState(account) {
+
+    const raw = String(
+        account?.state
+            ?? account?.account_state
+            ?? account?.status
+            ?? ""
+    ).toLowerCase();
+
+    if (raw.includes("active")) {
+
+        return "active";
+
+    }
+
+    if (raw.includes("uninit") || raw.includes("nonexist") || raw === "") {
+
+        return "uninitialized";
+
+    }
+
+    if (raw.includes("frozen")) {
+
+        return "frozen";
+
+    }
+
+    return raw || "unknown";
+
+}
+
+async function readPlayerWalletStatus(tonService, address) {
+
+    let state = "unknown";
+    let balanceTon = null;
+    let seqno = null;
+    let seqnoError = null;
+
+    try {
+
+        const account = await tonService.getAccount(address);
+        state = normalizeAccountState(account);
+
+    } catch (error) {
+
+        state = "unknown";
+        seqnoError = error?.message ?? String(error);
+
+    }
+
+    try {
+
+        balanceTon = await readBalanceTon(tonService, address);
+
+    } catch {
+
+        balanceTon = null;
+
+    }
+
+    if (state === "active") {
+
+        try {
+
+            seqno = await tonService.getSeqno(address);
+
+        } catch (error) {
+
+            seqnoError = error?.message ?? String(error);
+
+        }
+
+    } else {
+
+        // Uninitialized wallets have no seqno getter — first outbound uses 0.
+        seqno = 0;
+
+    }
+
+    return {
+        address,
+        state,
+        active: state === "active",
+        balanceTon,
+        seqno,
+        seqnoError
+    };
+
+}
+
+async function waitUntilPlayerWalletActive(tonService, address, {
+    timeoutMs = 60_000,
+    pollMs = 2000,
+    logger
+} = {}) {
+
+    const started = Date.now();
+
+    while (Date.now() - started < timeoutMs) {
+
+        const status = await readPlayerWalletStatus(tonService, address);
+
+        logger.info(
+            `player wallet wait address=${status.address} state=${status.state} `
+                + `balance=${status.balanceTon}`
+        );
+
+        if (status.active) {
+
+            return status;
+
+        }
+
+        await sleep(pollMs);
+
+    }
+
+    return readPlayerWalletStatus(tonService, address);
+
+}
+
+/**
+ * R17.8V.2C — Deploy ephemeral Wallet V4 with StateInit before STAKE.
+ */
+async function ensurePlayerWalletDeployed({
+    tonService,
+    player,
+    logger
+}) {
+
+    const wallet = WalletContractV4.create({
+        workchain: 0,
+        publicKey: player.keyPair.publicKey
+    });
+
+    const address = wallet.address.toString({
+        bounceable: true,
+        urlSafe: true
+    });
+
+    let status = await readPlayerWalletStatus(tonService, address);
+
+    logger.info(
+        `player wallet precheck label=${player.label} address=${address} `
+            + `state=${status.state} balance=${status.balanceTon}`
+    );
+
+    if (status.active) {
+
+        return {
+            ok: true,
+            address,
+            status,
+            deploymentStatus: "already_active"
+        };
+
+    }
+
+    if (status.balanceTon == null || status.balanceTon < 0.02) {
+
+        return {
+            ok: false,
+            address,
+            status,
+            deploymentStatus: "insufficient_balance_for_deploy",
+            error: `Player wallet ${address} needs balance before StateInit deploy `
+                + `(balance=${status.balanceTon})`
+        };
+
+    }
+
+    const boc = buildSignedBoc(
+        wallet,
+        player.keyPair,
+        0,
+        [
+            internal({
+                to: wallet.address,
+                value: toNano("0.001"),
+                body: beginCell().endCell(),
+                bounce: false
+            })
+        ],
+        { includeInit: true }
+    );
+
+    logger.info(`player wallet DEPLOY StateInit address=${address}`);
+
+    try {
+
+        await tonService.broadcastTransaction(boc);
+
+    } catch (error) {
+
+        // First send often lands; TonCenter retries may report duplicate.
+        if (!isDuplicateBocError(error)) {
+
+            return {
+                ok: false,
+                address,
+                status,
+                deploymentStatus: "deploy_broadcast_failed",
+                error: error?.message ?? String(error)
+            };
+
+        }
+
+        logger.info(
+            `player wallet DEPLOY duplicate ignored address=${address} `
+                + `(waiting for active)`
+        );
+
+    }
+
+    status = await waitUntilPlayerWalletActive(tonService, address, { logger });
+
+    if (!status.active) {
+
+        return {
+            ok: false,
+            address,
+            status,
+            deploymentStatus: "deploy_timeout",
+            error: `Player wallet ${address} not active after StateInit deploy`
+        };
+
+    }
+
+    // First outbound (deploy) must have consumed seqno 0.
+    if (!Number.isFinite(status.seqno) || Number(status.seqno) < 1) {
+
+        const started = Date.now();
+
+        while (Date.now() - started < 30_000) {
+
+            await sleep(1500);
+            status = await readPlayerWalletStatus(tonService, address);
+
+            if (Number.isFinite(status.seqno) && Number(status.seqno) >= 1) {
+
+                break;
+
+            }
+
+        }
+
+    }
+
+    if (!Number.isFinite(status.seqno) || Number(status.seqno) < 1) {
+
+        return {
+            ok: false,
+            address,
+            status,
+            deploymentStatus: "seqno_not_advanced",
+            error: `Player wallet ${address} active but seqno not advanced `
+                + `(seqno=${status.seqno})`
+        };
+
+    }
+
+    logger.info(
+        `player wallet ACTIVE address=${address} balance=${status.balanceTon} `
+            + `seqno=${status.seqno} sendMode=${PLAYER_SEND_MODE}`
+    );
+
+    return {
+        ok: true,
+        address,
+        status,
+        deploymentStatus: "deployed"
+    };
 
 }
 
@@ -314,7 +623,45 @@ async function sendPlayerStake({
         urlSafe: true
     });
 
-    const seqno = await tonService.getSeqno(address);
+    const status = await readPlayerWalletStatus(tonService, address);
+
+    logger.info(
+        `STAKE precheck playerIndex=${playerIndex} address=${address} `
+            + `active=${status.active} state=${status.state} `
+            + `balanceBefore=${status.balanceTon}`
+    );
+
+    if (!status.active) {
+
+        return {
+            ok: false,
+            txId: null,
+            seqno: null,
+            error: `STOP: player wallet not active before STAKE `
+                + `(address=${address} state=${status.state})`,
+            balanceBefore: status.balanceTon,
+            walletActive: false
+        };
+
+    }
+
+    if (status.balanceTon == null || status.balanceTon < Number(stakeTon)) {
+
+        return {
+            ok: false,
+            txId: null,
+            seqno: status.seqno,
+            error: `STOP: insufficient balance for STAKE `
+                + `(balance=${status.balanceTon} stake=${stakeTon})`,
+            balanceBefore: status.balanceTon,
+            walletActive: true
+        };
+
+    }
+
+    const seqno = Number.isFinite(status.seqno)
+        ? status.seqno
+        : await tonService.getSeqno(address);
 
     const body = serializeGameEscrowStakeBody({ playerIndex });
 
@@ -329,18 +676,122 @@ async function sendPlayerStake({
                 body,
                 bounce: true
             })
-        ]
+        ],
+        { includeInit: false }
     );
 
-    logger.info(`STAKE playerIndex=${playerIndex} from=${address} value=${stakeTon}`);
+    logger.info(
+        `STAKE send playerIndex=${playerIndex} from=${address} value=${stakeTon} `
+            + `seqno=${seqno} sendMode=${PLAYER_SEND_MODE}`
+    );
 
-    const result = await tonService.broadcastTransaction(boc);
+    let result;
+
+    try {
+
+        result = await tonService.broadcastTransaction(boc);
+
+    } catch (error) {
+
+        if (!isDuplicateBocError(error)) {
+
+            return {
+                ok: false,
+                txId: null,
+                seqno,
+                error: error?.message ?? String(error),
+                balanceBefore: status.balanceTon,
+                walletActive: true
+            };
+
+        }
+
+        logger.info(
+            `STAKE duplicate ignored playerIndex=${playerIndex} `
+                + `address=${address} (waiting seqno advance)`
+        );
+        result = { ok: true };
+
+    }
+
+    try {
+
+        await waitForSeqnoAdvance(tonService, address, seqno, { logger });
+
+    } catch (error) {
+
+        return {
+            ok: false,
+            txId: result?.hash ?? result?.txHash ?? null,
+            seqno,
+            error: `STAKE seqno did not advance: ${error?.message ?? error}`,
+            balanceBefore: status.balanceTon,
+            walletActive: true
+        };
+
+    }
+
+    const after = await readPlayerWalletStatus(tonService, address);
+
+    logger.info(
+        `STAKE confirmed playerIndex=${playerIndex} address=${address} `
+            + `balanceAfter=${after.balanceTon} seqno=${after.seqno}`
+    );
 
     return {
         ok: result?.ok !== false,
         txId: result?.hash ?? result?.txHash ?? null,
-        seqno
+        seqno,
+        balanceBefore: status.balanceTon,
+        balanceAfter: after.balanceTon,
+        walletActive: true
     };
+
+}
+
+async function waitForSeqnoAdvance(tonService, address, sentSeqno, {
+    timeoutMs = 45_000,
+    pollMs = 1500,
+    logger
+} = {}) {
+
+    const started = Date.now();
+    let lastSeen = sentSeqno;
+
+    while (Date.now() - started < timeoutMs) {
+
+        try {
+
+            lastSeen = await tonService.getSeqno(address);
+
+            if (Number(lastSeen) > Number(sentSeqno)) {
+
+                logger.info(
+                    `seqno advanced address=${address} sent=${sentSeqno} `
+                        + `confirmed=${lastSeen}`
+                );
+
+                return Number(lastSeen);
+
+            }
+
+        } catch (error) {
+
+            logger.warn(
+                `seqno poll failed address=${address} `
+                    + `${error?.message ?? error}`
+            );
+
+        }
+
+        await sleep(pollMs);
+
+    }
+
+    throw new Error(
+        `seqno confirmation timeout address=${address} sent=${sentSeqno} `
+            + `lastSeen=${lastSeen}`
+    );
 
 }
 
@@ -371,13 +822,19 @@ async function fundPlayers({
 
         const seqno = await tonService.getSeqno(deployerAddress);
 
+        // Non-bounceable so funds land on uninitialized accounts.
+        const nonBounceable = Address.parse(player.address).toString({
+            bounceable: false,
+            urlSafe: true
+        });
+
         const boc = buildSignedBoc(
             deployerWallet,
             keyPair,
             seqno,
             [
                 internal({
-                    to: Address.parse(player.address),
+                    to: Address.parse(nonBounceable),
                     value: toNano(String(amountTon)),
                     body: beginCell().endCell(),
                     bounce: false
@@ -385,10 +842,30 @@ async function fundPlayers({
             ]
         );
 
-        logger.info(`FUND ${player.label} → ${player.address} amount=${amountTon}`);
+        logger.info(
+            `FUND ${player.label} → ${player.address} (non-bounceable) `
+                + `amount=${amountTon} deployerSeqno=${seqno}`
+        );
 
         await tonService.broadcastTransaction(boc);
-        await sleep(8000);
+        await waitForSeqnoAdvance(tonService, deployerAddress, seqno, { logger });
+        await sleep(3000);
+
+        const status = await readPlayerWalletStatus(tonService, player.address);
+
+        logger.info(
+            `FUND settled address=${player.address} state=${status.state} `
+                + `balance=${status.balanceTon}`
+        );
+
+        if (status.balanceTon == null || status.balanceTon <= 0) {
+
+            throw new Error(
+                `FUND failed to credit player ${player.address} `
+                    + `(balance=${status.balanceTon})`
+            );
+
+        }
 
     }
 
@@ -457,7 +934,7 @@ async function runScenario({
 
         if (paidCount > 0) {
 
-            const fundEach = Number(stakeTon) + 0.05;
+            const fundEach = Number(stakeTon) + 0.08;
 
             await fundPlayers({
                 adapter,
@@ -569,6 +1046,31 @@ async function runScenario({
 
         for (let index = 0; index < paidCount; index += 1) {
 
+            const deployWallet = await ensurePlayerWalletDeployed({
+                tonService,
+                player: players[index],
+                logger
+            });
+
+            push("PLAYER_WALLET_DEPLOY", {
+                ok: deployWallet.ok === true,
+                playerIndex: index,
+                address: deployWallet.address,
+                deploymentStatus: deployWallet.deploymentStatus,
+                walletState: deployWallet.status?.state ?? null,
+                balanceTon: deployWallet.status?.balanceTon ?? null,
+                reason: deployWallet.error ?? null
+            });
+
+            if (deployWallet.ok !== true) {
+
+                record.failureReason = deployWallet.error
+                    ?? "player_wallet_deploy_failed";
+
+                return record;
+
+            }
+
             const stakeResult = await sendPlayerStake({
                 tonService,
                 player: players[index],
@@ -582,10 +1084,80 @@ async function runScenario({
                 ok: stakeResult.ok,
                 playerIndex: index,
                 txId: stakeResult.txId,
-                valueTon: stakeTon
+                valueTon: stakeTon,
+                walletActive: stakeResult.walletActive === true,
+                balanceBefore: stakeResult.balanceBefore ?? null,
+                balanceAfter: stakeResult.balanceAfter ?? null,
+                reason: stakeResult.error ?? null
             });
 
-            await sleep(8000);
+            if (stakeResult.ok !== true) {
+
+                record.failureReason = stakeResult.error ?? "stake_failed";
+
+                return record;
+
+            }
+
+        }
+
+        if (paidCount > 0 && typeof adapter.getPaidMask === "function") {
+
+            try {
+
+                const expectedMask = (1 << paidCount) - 1;
+                let paidMask = null;
+                const maskStarted = Date.now();
+
+                while (Date.now() - maskStarted < 60_000) {
+
+                    paidMask = Number(
+                        await adapter.getPaidMask(record.contractAddress)
+                    );
+
+                    logger.info(
+                        `paidMask poll contract=${record.contractAddress} `
+                            + `got=${paidMask} expected=${expectedMask}`
+                    );
+
+                    if (paidMask === expectedMask) {
+
+                        break;
+
+                    }
+
+                    await sleep(3000);
+
+                }
+
+                push("PAID_MASK_CHECK", {
+                    ok: paidMask === expectedMask,
+                    paidMask,
+                    expectedMask
+                });
+
+                if (paidMask !== expectedMask) {
+
+                    record.failureReason = `paidMask mismatch got=${paidMask} `
+                        + `expected=${expectedMask}`;
+
+                    return record;
+
+                }
+
+            } catch (error) {
+
+                push("PAID_MASK_CHECK", {
+                    ok: false,
+                    reason: error?.message ?? String(error)
+                });
+
+                record.failureReason = `paidMask read failed: `
+                    + `${error?.message ?? error}`;
+
+                return record;
+
+            }
 
         }
 
