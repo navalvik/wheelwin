@@ -524,6 +524,81 @@ body:has(.devConsole) {
     background: var(--console-panel);
 }
 
+.devConsole__navGroups {
+
+    margin: 0;
+    padding: 0;
+
+    list-style: none;
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 10px;
+}
+
+.devConsole__navGroup {
+
+    margin: 0;
+    padding: 0;
+}
+
+.devConsole__navGroupToggle {
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    width: 100%;
+
+    margin: 0 0 4px;
+    padding: 6px 8px;
+
+    border: none;
+    border-radius: 4px;
+
+    background: transparent;
+
+    color: var(--console-muted);
+
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-align: left;
+    text-transform: uppercase;
+
+    cursor: pointer;
+}
+
+.devConsole__navGroupToggle:hover {
+
+    background: #eef3f9;
+
+    color: var(--console-ink);
+}
+
+.devConsole__navGroupLabel {
+
+    min-width: 0;
+}
+
+.devConsole__navGroupChevron {
+
+    display: inline-block;
+
+    transform: rotate(-90deg);
+
+    transition: transform 0.12s ease;
+
+    font-size: 0.75rem;
+    line-height: 1;
+}
+
+.devConsole__navGroupChevron--open {
+
+    transform: rotate(0deg);
+}
+
 .devConsole__navList {
 
     margin: 0;

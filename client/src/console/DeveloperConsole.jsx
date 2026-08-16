@@ -39,87 +39,55 @@ import SystemInformationPanel from "./panels/SystemInformationPanel";
 import BlockchainStatusPanel from "./panels/BlockchainStatusPanel";
 import DeployerWalletPanel from "./panels/DeployerWalletPanel";
 import MaintenancePanel from "./panels/MaintenancePanel";
+import ConfigurationPlaceholderPanel from "./panels/ConfigurationPlaceholderPanel";
+
+/** Section id → panel factory. Kept in sync with consoleSections.js ids. */
+const SECTION_PANEL_RENDERERS = Object.freeze({
+    "server-health": () => <ServerHealthPanel />,
+    "system-info": () => <SystemInformationPanel />,
+    "blockchain-status": () => <BlockchainStatusPanel />,
+    "ton-deployer-wallet": () => <DeployerWalletPanel />,
+    "closed-beta": () => <ClosedBetaPanel />,
+    "launch-readiness": () => <LaunchReadinessPanel />,
+    "general-availability": () => <GeneralAvailabilityPanel />,
+    "post-launch-operations": () => <PostLaunchOperationsPanel />,
+    "platform-governance": () => <PlatformGovernancePanel />,
+    rooms: () => <RoomsExplorerPanel />,
+    games: () => <GameDetailPanel />,
+    players: () => <PlayersInspectorPanel />,
+    payments: () => <PaymentsPanel />,
+    advertising: () => <AdvertisingPanel />,
+    tonconnect: () => <TonConnectDiagnosticsPanel />,
+    history: () => <HistoryPanel />,
+    recovery: () => <RecoveryPanel />,
+    simulation: () => <SimulationPanel />,
+    "event-bus": () => <EventBusPanel />,
+    metrics: () => <MetricsPanel />,
+    timeline: () => <TimelinePanel />,
+    logs: () => <DeveloperLogPanel />,
+    settings: () => <SettingsPanel />,
+    maintenance: () => <MaintenancePanel />,
+    "runtime-configuration": () => (
+        <ConfigurationPlaceholderPanel
+            title="Runtime Configuration"
+            subtitle="Future stage — no runtime mutation yet"
+            detail="Runtime configuration registry will live here. Changes must not affect games already past GAME_INITIALIZED."
+        />
+    ),
+    "audio-registry": () => (
+        <ConfigurationPlaceholderPanel
+            title="Audio Registry"
+            subtitle="Future stage — audio asset mapping only"
+            detail="Client audio event → asset registry will be managed here. Playback stays presentation-only; server remains referee."
+        />
+    )
+});
 
 function renderSection(sectionId) {
 
-    switch (sectionId) {
+    const render = SECTION_PANEL_RENDERERS[sectionId];
 
-        case "server-health":
-            return <ServerHealthPanel />;
-
-        case "system-info":
-            return <SystemInformationPanel />;
-
-        case "blockchain-status":
-            return <BlockchainStatusPanel />;
-
-        case "ton-deployer-wallet":
-            return <DeployerWalletPanel />;
-
-        case "closed-beta":
-            return <ClosedBetaPanel />;
-
-        case "launch-readiness":
-            return <LaunchReadinessPanel />;
-
-        case "general-availability":
-            return <GeneralAvailabilityPanel />;
-
-        case "post-launch-operations":
-            return <PostLaunchOperationsPanel />;
-
-        case "platform-governance":
-            return <PlatformGovernancePanel />;
-
-        case "rooms":
-            return <RoomsExplorerPanel />;
-
-        case "games":
-            return <GameDetailPanel />;
-
-        case "players":
-            return <PlayersInspectorPanel />;
-
-        case "payments":
-            return <PaymentsPanel />;
-
-        case "advertising":
-            return <AdvertisingPanel />;
-
-        case "tonconnect":
-            return <TonConnectDiagnosticsPanel />;
-
-        case "history":
-            return <HistoryPanel />;
-
-        case "recovery":
-            return <RecoveryPanel />;
-
-        case "simulation":
-            return <SimulationPanel />;
-
-        case "event-bus":
-            return <EventBusPanel />;
-
-        case "metrics":
-            return <MetricsPanel />;
-
-        case "timeline":
-            return <TimelinePanel />;
-
-        case "logs":
-            return <DeveloperLogPanel />;
-
-        case "settings":
-            return <SettingsPanel />;
-
-        case "maintenance":
-            return <MaintenancePanel />;
-
-        default:
-            return <ServerHealthPanel />;
-
-    }
+    return render ? render() : <ServerHealthPanel />;
 
 }
 
