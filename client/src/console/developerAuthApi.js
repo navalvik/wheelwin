@@ -192,6 +192,34 @@ export async function fetchSystemInformation(accessToken) {
 
 }
 
+/**
+ * R17.9G — Read-only runtime configuration snapshot.
+ */
+export async function fetchRuntimeConfiguration(accessToken) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/configuration/runtime`,
+        {
+            method: "GET",
+            headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${accessToken}`
+            }
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load runtime configuration");
+
+    }
+
+    return body;
+
+}
+
 export async function fetchBlockchainStatus(accessToken) {
 
     const response = await fetch(`${getConsoleApiBase()}/console/blockchain`, {

@@ -40,6 +40,7 @@ import BlockchainStatusPanel from "./panels/BlockchainStatusPanel";
 import DeployerWalletPanel from "./panels/DeployerWalletPanel";
 import MaintenancePanel from "./panels/MaintenancePanel";
 import ConfigurationPlaceholderPanel from "./panels/ConfigurationPlaceholderPanel";
+import RuntimeConfigurationPanel from "./panels/RuntimeConfigurationPanel";
 
 /** Section id → panel factory. Kept in sync with consoleSections.js ids. */
 const SECTION_PANEL_RENDERERS = Object.freeze({
@@ -67,13 +68,7 @@ const SECTION_PANEL_RENDERERS = Object.freeze({
     logs: () => <DeveloperLogPanel />,
     settings: () => <SettingsPanel />,
     maintenance: () => <MaintenancePanel />,
-    "runtime-configuration": () => (
-        <ConfigurationPlaceholderPanel
-            title="Runtime Configuration"
-            subtitle="Future stage — no runtime mutation yet"
-            detail="Runtime configuration registry will live here. Changes must not affect games already past GAME_INITIALIZED."
-        />
-    ),
+    "runtime-configuration": () => <RuntimeConfigurationPanel />,
     "audio-registry": () => (
         <ConfigurationPlaceholderPanel
             title="Audio Registry"

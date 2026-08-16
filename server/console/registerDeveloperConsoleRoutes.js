@@ -155,6 +155,27 @@ export function registerDeveloperConsoleRoutes(
 
     });
 
+    /**
+     * R17.9G — Read-only runtime configuration (timers / financial / wallets).
+     * No POST/PUT/PATCH in this stage.
+     */
+    app.get("/console/configuration/runtime", (req, res) => {
+
+        try {
+
+            res.json(projectionService.buildRuntimeConfiguration());
+
+        } catch (error) {
+
+            res.status(500).json({
+                error: "Failed to load runtime configuration",
+                message: error?.message ?? "Unknown error"
+            });
+
+        }
+
+    });
+
     app.get("/console/blockchain", (req, res) => {
 
         res.json(projectionService.buildBlockchainStatus());

@@ -202,8 +202,7 @@ export const CONSOLE_SECTIONS = Object.freeze([
     Object.freeze({
         id: "runtime-configuration",
         label: "Runtime Configuration",
-        group: CONSOLE_GROUP_IDS.CONFIGURATION,
-        reserved: true
+        group: CONSOLE_GROUP_IDS.CONFIGURATION
     }),
     Object.freeze({
         id: "audio-registry",

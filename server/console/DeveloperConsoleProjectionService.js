@@ -12,6 +12,7 @@ import { buildMetricsOverview } from "./projectionBuilders/buildMetricsOverview.
 import { buildSystemInformation } from "./projectionBuilders/buildSystemInformation.js";
 import { buildBlockchainStatus } from "./projectionBuilders/buildBlockchainStatus.js";
 import { buildDeployerWalletStatus as buildDeployerWalletStatusDto } from "./projectionBuilders/buildDeployerWalletStatus.js";
+import { buildRuntimeConfigurationSnapshot } from "./configuration/buildRuntimeConfigurationSnapshot.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -264,6 +265,18 @@ export class DeveloperConsoleProjectionService {
         return buildDeployerWalletStatusDto({
             runtimeConfig: this._runtimeConfig,
             tonService: this._tonService
+        });
+
+    }
+
+    /**
+     * R17.9G — Read-only runtime configuration projection (no mutations).
+     */
+    buildRuntimeConfiguration() {
+
+        return buildRuntimeConfigurationSnapshot({
+            runtimeConfig: this._runtimeConfig,
+            env: process.env
         });
 
     }
