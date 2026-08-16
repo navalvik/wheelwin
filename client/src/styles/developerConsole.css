@@ -2296,4 +2296,16 @@ body:has(.devConsole) {
     font: inherit;
 }
 
+.devConsole__audioToggle {
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 6px;
+
+    font: inherit;
+}
+
+
 

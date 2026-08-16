@@ -29,7 +29,8 @@ export function resolveAudioRegistryAuditPath(env = process.env) {
  * @param {{
  *   user: string|null,
  *   role: string|null,
- *   eventId: string,
+ *   id?: string,
+ *   eventId?: string,
  *   field: string,
  *   oldValue: unknown,
  *   newValue: unknown,
@@ -45,11 +46,14 @@ export function appendAudioRegistryAudit(entry, env = process.env) {
 
     mkdirSync(dirname(auditPath), { recursive: true });
 
+    const id = entry.id ?? entry.eventId ?? null;
+
     const record = Object.freeze({
         event: "AUDIO_REGISTRY_CHANGED",
         user: entry.user ?? null,
         role: entry.role ?? null,
-        eventId: entry.eventId,
+        id,
+        eventId: id,
         field: entry.field,
         oldValue: entry.oldValue ?? null,
         newValue: entry.newValue ?? null,

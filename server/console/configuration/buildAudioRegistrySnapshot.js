@@ -1,8 +1,7 @@
 /**
- * R17.9I.2 — Build read-only Audio Registry snapshot for Developer Console.
+ * R17.9I.4 — Build Audio Registry snapshot for Developer Console.
  *
- * Presentation observability only. Never enables playback. Never throws on
- * missing assets.
+ * Presentation observability only. Never throws on missing assets.
  */
 
 import {
@@ -17,36 +16,25 @@ import {
 } from "./checkAudioAsset.js";
 
 /**
- * @param {unknown} value
- * @returns {number}
- */
-function clampVolume(value) {
-
-    const n = Number(value);
-
-    if (!Number.isFinite(n)) {
-
-        return 0.5;
-
-    }
-
-    return Math.max(0, Math.min(1, n));
-
-}
-
-/**
  * @param {object} entry
  * @returns {object}
  */
 function normalizeEntry(entry) {
 
+    const id = String(entry.id ?? entry.eventId ?? "").trim();
+    const file = String(entry.file ?? entry.audioFile ?? "")
+        .trim()
+        .replace(/\\/g, "/");
+
     return Object.freeze({
-        eventId: String(entry.eventId ?? "").trim(),
-        audioFile: String(entry.audioFile ?? "").trim().replace(/\\/g, "/"),
-        category: String(entry.category ?? "System").trim(),
-        volume: clampVolume(entry.volume),
+        id,
+        file,
+        category: String(entry.category ?? "ui").trim(),
+        enabled: entry.enabled !== false,
         loop: entry.loop === true,
-        enabled: entry.enabled !== false
+        // Compatibility aliases for older validators / helpers.
+        eventId: id,
+        audioFile: file
     });
 
 }
@@ -90,13 +78,12 @@ export function buildAudioRegistrySnapshot({
 
             const entry = normalizeEntry(raw);
 
-            if (!entry.eventId || !entry.audioFile) {
+            if (!entry.id || !entry.file) {
 
                 continue;
 
             }
 
-            // loop is required on every entry (normalized above to boolean).
             const status = checkAudioAsset(entry, {
                 assetsRoot: root,
                 logger
@@ -112,19 +99,19 @@ export function buildAudioRegistrySnapshot({
 
             }
 
-            const hasOverride = Boolean(overrideMap[entry.eventId]);
+            const hasOverride = Boolean(overrideMap[entry.id]);
 
             projected.push(Object.freeze({
                 ...entry,
                 status,
-                fileName: entry.audioFile.split("/").pop() || entry.audioFile,
+                exists: status === AUDIO_ASSET_STATUS.AVAILABLE,
+                fileName: entry.file.split("/").pop() || entry.file,
                 overridden: hasOverride,
-                editableFields: Object.freeze(["enabled", "volume", "loop"])
+                editableFields: Object.freeze(["enabled", "loop"])
             }));
 
         } catch {
 
-            // Never let a bad entry crash the registry snapshot.
             missingCount += 1;
 
         }
@@ -147,11 +134,11 @@ export function buildAudioRegistrySnapshot({
         }),
         notes: Object.freeze({
             playback:
-                "Audio Registry does not enable playback in this stage.",
+                "Playback requires enabled=true AND status=AVAILABLE; otherwise silent skip.",
             missingFiles:
                 "MISSING assets never throw, never block gameplay, never roll back state.",
-            loop: "Every entry includes loop: true | false.",
-            immutable: "eventId, audioFile, and category are code-controlled."
+            controls: "Administrator may edit enabled and loop only.",
+            immutable: "id, file, and category are code-controlled."
         }),
         entries: Object.freeze(projected)
     });

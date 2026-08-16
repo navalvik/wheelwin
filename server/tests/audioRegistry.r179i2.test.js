@@ -1,5 +1,5 @@
 /**
- * R17.9I.2 — Audio Registry unit tests.
+ * R17.9I.2 / R17.9I.4 — Audio Registry unit tests (updated for file-centric model).
  */
 
 import assert from "node:assert/strict";
@@ -21,25 +21,24 @@ test("R17.9I.2 every initial entry has required fields including loop", () => {
 
     for (const entry of INITIAL_AUDIO_REGISTRY_ENTRIES) {
 
-        assert.equal(typeof entry.eventId, "string");
-        assert.ok(entry.eventId.length > 0);
-        assert.equal(typeof entry.audioFile, "string");
-        assert.ok(entry.audioFile.length > 0);
+        assert.equal(typeof entry.id, "string");
+        assert.ok(entry.id.length > 0);
+        assert.equal(typeof entry.file, "string");
+        assert.ok(entry.file.length > 0);
         assert.equal(typeof entry.category, "string");
-        assert.equal(typeof entry.volume, "number");
         assert.equal(typeof entry.loop, "boolean");
         assert.equal(typeof entry.enabled, "boolean");
 
     }
 
     const spin = INITIAL_AUDIO_REGISTRY_ENTRIES.find(
-        (e) => e.eventId === "WHEEL_SPIN_LOOP"
+        (e) => e.id === "wheel.spin"
     );
 
     assert.equal(spin.loop, true);
 
     const winner = INITIAL_AUDIO_REGISTRY_ENTRIES.find(
-        (e) => e.eventId === "WINNER_DECLARED"
+        (e) => e.id === "result.winner"
     );
 
     assert.equal(winner.loop, false);
@@ -49,12 +48,12 @@ test("R17.9I.2 every initial entry has required fields including loop", () => {
 test("R17.9I.2 checkAudioAsset never throws and reports MISSING safely", () => {
 
     assert.equal(
-        checkAudioAsset({ audioFile: "does/not/exist.ogg" }),
+        checkAudioAsset({ file: "does/not/exist.ogg" }),
         AUDIO_ASSET_STATUS.MISSING
     );
 
     assert.equal(
-        checkAudioAsset({ audioFile: "../escape.ogg" }),
+        checkAudioAsset({ file: "../escape.ogg" }),
         AUDIO_ASSET_STATUS.MISSING
     );
 
@@ -63,7 +62,7 @@ test("R17.9I.2 checkAudioAsset never throws and reports MISSING safely", () => {
         AUDIO_ASSET_STATUS.MISSING
     );
 
-    assert.doesNotThrow(() => checkAudioAsset({ audioFile: "wheel/stop.ogg" }));
+    assert.doesNotThrow(() => checkAudioAsset({ file: "wheel/stop.ogg" }));
 
 });
 
@@ -75,7 +74,6 @@ test("R17.9I.2 snapshot marks existing files AVAILABLE and placeholders MISSING"
     mkdirSync(wheelDir, { recursive: true });
     writeFileSync(join(wheelDir, "spin_loop.ogg"), "fake-ogg");
     writeFileSync(join(wheelDir, "self_test.ogg"), "fake-ogg");
-    writeFileSync(join(wheelDir, "brake_loop.ogg"), "fake-ogg");
 
     const warnings = [];
 
@@ -90,15 +88,15 @@ test("R17.9I.2 snapshot marks existing files AVAILABLE and placeholders MISSING"
     assert.equal(snapshot.canEdit, false);
     assert.ok(snapshot.entries.length >= 10);
 
-    const spin = snapshot.entries.find((e) => e.eventId === "WHEEL_SPIN_LOOP");
-    const stop = snapshot.entries.find((e) => e.eventId === "WHEEL_STOP");
+    const spin = snapshot.entries.find((e) => e.id === "wheel.spin");
+    const stop = snapshot.entries.find((e) => e.id === "wheel.stop");
 
     assert.equal(spin.status, AUDIO_ASSET_STATUS.AVAILABLE);
     assert.equal(spin.loop, true);
     assert.equal(stop.status, AUDIO_ASSET_STATUS.MISSING);
     assert.equal(stop.loop, false);
 
-    assert.equal(snapshot.summary.available, 3);
+    assert.equal(snapshot.summary.available, 2);
     assert.ok(snapshot.summary.missing >= 1);
     assert.ok(warnings.some((w) => String(w).includes("AUDIO_MISSING_FILE")));
 
@@ -113,7 +111,7 @@ test("R17.9I.2 registry loads against real client assets without throwing", () =
         const snapshot = buildAudioRegistrySnapshot();
 
         assert.ok(snapshot.entries.length > 0);
-        assert.ok(snapshot.summary.available >= 3);
+        assert.ok(snapshot.summary.available >= 2);
         assert.ok(snapshot.summary.missing >= 1);
 
         const existing = snapshot.entries.filter(
@@ -121,7 +119,7 @@ test("R17.9I.2 registry loads against real client assets without throwing", () =
         );
 
         assert.ok(
-            existing.some((e) => e.eventId === "WHEEL_SPIN_LOOP")
+            existing.some((e) => e.id === "wheel.spin")
         );
 
     });

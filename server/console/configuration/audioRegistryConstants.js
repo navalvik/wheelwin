@@ -1,15 +1,12 @@
 /**
- * R17.9I.2 — Audio Registry categories and asset status constants.
+ * R17.9I.4 — Audio Registry categories and asset status.
  */
 
 export const AUDIO_REGISTRY_CATEGORIES = Object.freeze([
-    "UI",
-    "Lobby",
-    "Verification",
-    "Payment",
-    "Game",
-    "Result",
-    "System"
+    "wheel",
+    "ui",
+    "payment",
+    "result"
 ]);
 
 export const AUDIO_ASSET_STATUS = Object.freeze({

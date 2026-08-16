@@ -12,3 +12,10 @@ export {
     clampPlaybackRate,
     mapWheelSpeedToPlaybackRate
 } from "./audioUtils";
+
+// R17.9I.4 — registry-aware silent playback gate (does not play audio).
+export {
+    AUDIO_PLAYBACK_DENY_REASONS,
+    resolveAudioPlaybackPermission,
+    resolveAudioPlaybackPermissionById
+} from "./resolveAudioPlaybackPermission.js";

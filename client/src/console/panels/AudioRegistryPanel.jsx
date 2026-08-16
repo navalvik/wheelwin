@@ -26,7 +26,7 @@ function statusClass(status) {
 }
 
 /**
- * R17.9I.3 — Audio Registry panel with Administrator editing.
+ * R17.9I.4 — Audio Registry runtime controls (enabled / loop).
  */
 export default function AudioRegistryPanel() {
 
@@ -52,9 +52,8 @@ export default function AudioRegistryPanel() {
 
         for (const entry of next?.entries ?? []) {
 
-            nextDrafts[entry.eventId] = {
+            nextDrafts[entry.id] = {
                 enabled: entry.enabled === true,
-                volume: entry.volume,
                 loop: entry.loop === true
             };
 
@@ -88,13 +87,7 @@ export default function AudioRegistryPanel() {
 
         async function run() {
 
-            if (!isAdministrator) {
-
-                return;
-
-            }
-
-            if (!accessToken) {
+            if (!isAdministrator || !accessToken) {
 
                 return;
 
@@ -138,12 +131,12 @@ export default function AudioRegistryPanel() {
 
     }, [accessToken, isAdministrator, load]);
 
-    const updateDraft = useCallback((eventId, field, value) => {
+    const updateDraft = useCallback((id, field, value) => {
 
         setDrafts((prev) => ({
             ...prev,
-            [eventId]: {
-                ...prev[eventId],
+            [id]: {
+                ...prev[id],
                 [field]: value
             }
         }));
@@ -174,7 +167,7 @@ export default function AudioRegistryPanel() {
 
             for (const entry of registry.entries ?? []) {
 
-                const draft = drafts[entry.eventId];
+                const draft = drafts[entry.id];
 
                 if (!draft) {
 
@@ -182,7 +175,7 @@ export default function AudioRegistryPanel() {
 
                 }
 
-                const patch = { eventId: entry.eventId };
+                const patch = { id: entry.id };
                 let dirty = false;
 
                 if (draft.enabled !== entry.enabled) {
@@ -195,13 +188,6 @@ export default function AudioRegistryPanel() {
                 if (draft.loop !== entry.loop) {
 
                     patch.loop = draft.loop === true;
-                    dirty = true;
-
-                }
-
-                if (Number(draft.volume) !== Number(entry.volume)) {
-
-                    patch.volume = Number(draft.volume);
                     dirty = true;
 
                 }
@@ -264,7 +250,7 @@ export default function AudioRegistryPanel() {
 
             <PanelShell
                 title="Audio Registry"
-                subtitle="Presentation event → asset mapping"
+                subtitle="Runtime controls for game audio assets"
             >
 
                 <EmptyState
@@ -285,7 +271,7 @@ export default function AudioRegistryPanel() {
 
         <PanelShell
             title="Audio Registry"
-            subtitle="Administrator controls for enabled, volume, and loop (playback stays disabled)"
+            subtitle="Administrator runtime controls — enabled and loop only (playback stays gated)"
         >
 
             {error && (
@@ -316,11 +302,11 @@ export default function AudioRegistryPanel() {
                         {" · "}
                         Config v{registry.configVersion ?? 0}
                         {" · "}
-                        Available {summary?.available ?? 0}
+                        Exists {summary?.available ?? 0}
                         {" · "}
                         Missing {summary?.missing ?? 0}
                         {" · "}
-                        eventId / file / category are immutable
+                        id / file / category immutable
                     </p>
 
                     <div className="devConsole__tableWrap">
@@ -331,17 +317,13 @@ export default function AudioRegistryPanel() {
 
                                 <tr>
 
-                                    <th>Event ID</th>
+                                    <th>Event/File</th>
 
-                                    <th>File</th>
-
-                                    <th>Category</th>
-
-                                    <th>Loop</th>
+                                    <th>Exists</th>
 
                                     <th>Enabled</th>
 
-                                    <th>Volume</th>
+                                    <th>Loop</th>
 
                                     <th>Status</th>
 
@@ -353,70 +335,80 @@ export default function AudioRegistryPanel() {
 
                                 {entries.map((entry) => {
 
-                                    const draft = drafts[entry.eventId] ?? {
+                                    const draft = drafts[entry.id] ?? {
                                         enabled: entry.enabled,
-                                        volume: entry.volume,
                                         loop: entry.loop
                                     };
 
                                     return (
 
-                                        <tr key={entry.eventId}>
-
-                                            <td>{entry.eventId}</td>
-
-                                            <td>
-                                                {entry.fileName ?? entry.audioFile}
-                                            </td>
-
-                                            <td>{entry.category}</td>
+                                        <tr key={entry.id}>
 
                                             <td>
 
-                                                <input
-                                                    type="checkbox"
-                                                    checked={draft.loop === true}
-                                                    onChange={(event) => updateDraft(
-                                                        entry.eventId,
-                                                        "loop",
-                                                        event.target.checked
-                                                    )}
-                                                    aria-label={`${entry.eventId} loop`}
-                                                />
+                                                <div>{entry.id}</div>
+
+                                                <div className="devConsole__kvHint">
+
+                                                    {entry.fileName ?? entry.file}
+
+                                                </div>
 
                                             </td>
 
                                             <td>
 
-                                                <input
-                                                    type="checkbox"
-                                                    checked={draft.enabled === true}
-                                                    onChange={(event) => updateDraft(
-                                                        entry.eventId,
-                                                        "enabled",
-                                                        event.target.checked
-                                                    )}
-                                                    aria-label={`${entry.eventId} enabled`}
-                                                />
+                                                {entry.exists ? "YES" : "NO"}
 
                                             </td>
 
                                             <td>
 
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="1"
-                                                    step="0.01"
-                                                    value={draft.volume ?? 0}
-                                                    onChange={(event) => updateDraft(
-                                                        entry.eventId,
-                                                        "volume",
-                                                        event.target.value
-                                                    )}
-                                                    aria-label={`${entry.eventId} volume`}
-                                                    className="devConsole__audioVolumeInput"
-                                                />
+                                                <label className="devConsole__audioToggle">
+
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={draft.enabled === true}
+                                                        onChange={(event) => updateDraft(
+                                                            entry.id,
+                                                            "enabled",
+                                                            event.target.checked
+                                                        )}
+                                                        aria-label={`${entry.id} enabled`}
+                                                    />
+
+                                                    <span>
+
+                                                        {draft.enabled ? "ON" : "OFF"}
+
+                                                    </span>
+
+                                                </label>
+
+                                            </td>
+
+                                            <td>
+
+                                                <label className="devConsole__audioToggle">
+
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={draft.loop === true}
+                                                        onChange={(event) => updateDraft(
+                                                            entry.id,
+                                                            "loop",
+                                                            event.target.checked
+                                                        )}
+                                                        aria-label={`${entry.id} loop`}
+                                                    />
+
+                                                    <span>
+
+                                                        {draft.loop ? "YES" : "NO"}
+
+                                                    </span>
+
+                                                </label>
 
                                             </td>
 

@@ -1,5 +1,5 @@
 /**
- * R17.9I.3 — Durable Audio Registry overrides (survives restart).
+ * R17.9I.4 — Durable Audio Registry overrides (enabled / loop only).
  * Never stores secrets. Static defaults remain in audioRegistryEntries.js.
  */
 
@@ -42,11 +42,11 @@ function normalizeOverrides(raw) {
 
     }
 
-    for (const [eventId, patch] of Object.entries(raw)) {
+    for (const [id, patch] of Object.entries(raw)) {
 
-        const id = String(eventId ?? "").trim();
+        const key = String(id ?? "").trim();
 
-        if (!id || !patch || typeof patch !== "object") {
+        if (!key || !patch || typeof patch !== "object") {
 
             continue;
 
@@ -66,21 +66,9 @@ function normalizeOverrides(raw) {
 
         }
 
-        if (Object.prototype.hasOwnProperty.call(patch, "volume")) {
-
-            const volume = Number(patch.volume);
-
-            if (Number.isFinite(volume)) {
-
-                entry.volume = Math.max(0, Math.min(1, volume));
-
-            }
-
-        }
-
         if (Object.keys(entry).length > 0) {
 
-            overrides[id] = Object.freeze(entry);
+            overrides[key] = Object.freeze(entry);
 
         }
 
@@ -161,7 +149,7 @@ export function writeAudioRegistryState(state, env = process.env) {
 
     const overrides = {};
 
-    for (const [eventId, patch] of Object.entries(state.overrides ?? {})) {
+    for (const [id, patch] of Object.entries(state.overrides ?? {})) {
 
         const cleaned = {};
 
@@ -173,27 +161,13 @@ export function writeAudioRegistryState(state, env = process.env) {
 
             }
 
-            if (field === "volume") {
-
-                const volume = Number(patch.volume);
-
-                if (Number.isFinite(volume)) {
-
-                    cleaned.volume = Math.max(0, Math.min(1, volume));
-
-                }
-
-                continue;
-
-            }
-
             cleaned[field] = patch[field] === true;
 
         }
 
         if (Object.keys(cleaned).length > 0) {
 
-            overrides[eventId] = cleaned;
+            overrides[id] = cleaned;
 
         }
 

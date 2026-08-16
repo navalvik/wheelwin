@@ -1,8 +1,8 @@
 /**
- * R17.9I.3 — Audio Registry mutation service.
+ * R17.9I.4 — Audio Registry mutation service.
  *
- * Persists versioned overrides for enabled/volume/loop only.
- * Applies to future audio sessions — does not enable playback in this stage.
+ * Persists versioned overrides for enabled/loop only.
+ * Playback permission helpers fail silently for missing/disabled assets.
  */
 
 import { LoggingManager } from "../../logging/LoggingManager.js";
@@ -16,6 +16,10 @@ import {
 import { AUDIO_REGISTRY_EDITABLE_FIELDS } from "./audioRegistryKeys.js";
 import { validateAudioRegistryPatch } from "./validateAudioRegistryPatch.js";
 import { buildAudioRegistrySnapshot } from "./buildAudioRegistrySnapshot.js";
+import {
+    resolveAudioPlaybackPermission,
+    resolveAudioPlaybackPermissionById
+} from "./resolveAudioPlaybackPermission.js";
 
 export class AudioRegistryService {
 
@@ -82,7 +86,7 @@ export class AudioRegistryService {
 
         return INITIAL_AUDIO_REGISTRY_ENTRIES.map((entry) => {
 
-            const patch = overrides[entry.eventId];
+            const patch = overrides[entry.id];
 
             if (!patch) {
 
@@ -121,6 +125,39 @@ export class AudioRegistryService {
     }
 
     /**
+     * Runtime playback gate for future audio sessions.
+     * Never throws.
+     *
+     * @param {string} id
+     * @param {{ assetsRoot?: string }} [options]
+     */
+    resolvePlaybackPermission(id, options = {}) {
+
+        try {
+
+            const snapshot = this.buildSnapshot({
+                canEdit: false,
+                assetsRoot: options.assetsRoot
+            });
+
+            return resolveAudioPlaybackPermissionById(
+                snapshot.entries,
+                id,
+                {
+                    assetsRoot: options.assetsRoot,
+                    logger: this._logger
+                }
+            );
+
+        } catch {
+
+            return resolveAudioPlaybackPermission(null);
+
+        }
+
+    }
+
+    /**
      * @param {unknown} body
      * @param {{ username?: string|null, role?: string|null }} actor
      */
@@ -150,16 +187,16 @@ export class AudioRegistryService {
         }
 
         const baselineById = new Map(
-            this.getEffectiveEntries().map((entry) => [entry.eventId, entry])
+            this.getEffectiveEntries().map((entry) => [entry.id, entry])
         );
 
         const previousOverrides = { ...(this._state.overrides ?? {}) };
         const nextOverrides = { ...previousOverrides };
         const changes = [];
 
-        for (const [eventId, patch] of Object.entries(validation.patches)) {
+        for (const [id, patch] of Object.entries(validation.patches)) {
 
-            const baseline = baselineById.get(eventId);
+            const baseline = baselineById.get(id);
 
             if (!baseline) {
 
@@ -168,11 +205,14 @@ export class AudioRegistryService {
             }
 
             const merged = {
-                ...(previousOverrides[eventId] ?? {}),
+                ...(previousOverrides[id] ?? {}),
                 ...patch
             };
 
-            nextOverrides[eventId] = merged;
+            // Drop stale volume overrides from earlier stages.
+            delete merged.volume;
+
+            nextOverrides[id] = merged;
 
             for (const field of AUDIO_REGISTRY_EDITABLE_FIELDS) {
 
@@ -192,7 +232,7 @@ export class AudioRegistryService {
                 }
 
                 changes.push({
-                    eventId,
+                    id,
                     field,
                     oldValue,
                     newValue
@@ -232,7 +272,8 @@ export class AudioRegistryService {
             const record = appendAudioRegistryAudit({
                 user: actor.username ?? null,
                 role: actor.role ?? null,
-                eventId: change.eventId,
+                id: change.id,
+                eventId: change.id,
                 field: change.field,
                 oldValue: change.oldValue,
                 newValue: change.newValue,
@@ -275,7 +316,8 @@ export class AudioRegistryService {
                 component: "AudioRegistry",
                 user: record.user,
                 role: record.role,
-                eventId: record.eventId,
+                id: record.id ?? record.eventId,
+                eventId: record.eventId ?? record.id,
                 field: record.field,
                 oldValue: record.oldValue,
                 newValue: record.newValue,
@@ -288,7 +330,7 @@ export class AudioRegistryService {
         }
 
         this._logger?.info?.(
-            `AUDIO_REGISTRY_CHANGED | eventId=${record.eventId}`
+            `AUDIO_REGISTRY_CHANGED | id=${record.id ?? record.eventId}`
             + ` | field=${record.field}`
             + ` | old=${record.oldValue} | new=${record.newValue}`
             + ` | user=${record.user}`

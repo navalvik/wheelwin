@@ -1,20 +1,20 @@
 /**
- * R17.9I.3 — Validate Audio Registry administrator patches.
- * Only enabled / volume / loop may change.
+ * R17.9I.4 — Validate Audio Registry administrator patches.
+ * Only enabled / loop may change.
  */
 
 import { AUDIO_REGISTRY_EDITABLE_FIELDS } from "./audioRegistryKeys.js";
 import { INITIAL_AUDIO_REGISTRY_ENTRIES } from "./audioRegistryEntries.js";
 
-const KNOWN_EVENT_IDS = new Set(
-    INITIAL_AUDIO_REGISTRY_ENTRIES.map((entry) => entry.eventId)
+const KNOWN_IDS = new Set(
+    INITIAL_AUDIO_REGISTRY_ENTRIES.map((entry) => entry.id)
 );
 
 /**
  * @param {unknown} body
  * @returns {{
  *   ok: boolean,
- *   patches?: Record<string, { enabled?: boolean, volume?: number, loop?: boolean }>,
+ *   patches?: Record<string, { enabled?: boolean, loop?: boolean }>,
  *   error?: string,
  *   details?: string[]
  * }}
@@ -36,8 +36,8 @@ export function validateAudioRegistryPatch(body) {
     const list = Array.isArray(body.entries)
         ? body.entries
         : (body.patches && typeof body.patches === "object"
-            ? Object.entries(body.patches).map(([eventId, patch]) => ({
-                eventId,
+            ? Object.entries(body.patches).map(([id, patch]) => ({
+                id,
                 ...(patch && typeof patch === "object" ? patch : {})
             }))
             : null);
@@ -61,30 +61,37 @@ export function validateAudioRegistryPatch(body) {
 
         }
 
-        const eventId = String(raw.eventId ?? "").trim();
+        const id = String(raw.id ?? raw.eventId ?? "").trim();
 
-        if (!eventId) {
+        if (!id) {
 
-            details.push("eventId is required");
-
-            continue;
-
-        }
-
-        if (!KNOWN_EVENT_IDS.has(eventId)) {
-
-            details.push(`Unknown eventId: ${eventId}`);
+            details.push("id is required");
 
             continue;
 
         }
 
-        if (Object.prototype.hasOwnProperty.call(raw, "audioFile")
+        if (!KNOWN_IDS.has(id)) {
+
+            details.push(`Unknown id: ${id}`);
+
+            continue;
+
+        }
+
+        if (Object.prototype.hasOwnProperty.call(raw, "file")
+            || Object.prototype.hasOwnProperty.call(raw, "audioFile")
             || Object.prototype.hasOwnProperty.call(raw, "category")) {
 
-            details.push(
-                `${eventId}: audioFile and category are immutable`
-            );
+            details.push(`${id}: file and category are immutable`);
+
+            continue;
+
+        }
+
+        if (Object.prototype.hasOwnProperty.call(raw, "volume")) {
+
+            details.push(`${id}: volume is not editable in R17.9I.4`);
 
             continue;
 
@@ -94,7 +101,7 @@ export function validateAudioRegistryPatch(body) {
 
         for (const key of Object.keys(raw)) {
 
-            if (key === "eventId") {
+            if (key === "id" || key === "eventId") {
 
                 continue;
 
@@ -102,56 +109,34 @@ export function validateAudioRegistryPatch(body) {
 
             if (!AUDIO_REGISTRY_EDITABLE_FIELDS.includes(key)) {
 
-                details.push(`${eventId}: unsupported field ${key}`);
+                details.push(`${id}: unsupported field ${key}`);
 
                 continue;
 
             }
 
-            if (key === "enabled" || key === "loop") {
+            if (typeof raw[key] !== "boolean") {
 
-                if (typeof raw[key] !== "boolean") {
-
-                    details.push(`${eventId}.${key} must be a boolean`);
-
-                    continue;
-
-                }
-
-                patch[key] = raw[key];
+                details.push(`${id}.${key} must be a boolean`);
 
                 continue;
 
             }
 
-            if (key === "volume") {
-
-                const volume = Number(raw.volume);
-
-                if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
-
-                    details.push(`${eventId}.volume must be between 0.0 and 1.0`);
-
-                    continue;
-
-                }
-
-                patch.volume = Math.round(volume * 1000) / 1000;
-
-            }
+            patch[key] = raw[key];
 
         }
 
         if (Object.keys(patch).length === 0) {
 
-            details.push(`${eventId}: no editable fields provided`);
+            details.push(`${id}: no editable fields provided`);
 
             continue;
 
         }
 
-        patches[eventId] = {
-            ...(patches[eventId] ?? {}),
+        patches[id] = {
+            ...(patches[id] ?? {}),
             ...patch
         };
 

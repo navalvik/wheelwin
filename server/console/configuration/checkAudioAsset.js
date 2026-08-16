@@ -98,7 +98,7 @@ export function checkAudioAsset(entryOrPath, {
 
         const audioFile = typeof entryOrPath === "string"
             ? entryOrPath
-            : entryOrPath?.audioFile;
+            : (entryOrPath?.file ?? entryOrPath?.audioFile);
 
         const absolute = resolveAudioAssetPath(audioFile, assetsRoot);
 

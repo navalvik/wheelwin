@@ -1,5 +1,5 @@
 /**
- * R17.9I.3 — Audio Registry admin controls + validation tests.
+ * R17.9I.3 / R17.9I.4 — Audio Registry admin controls tests.
  */
 
 import assert from "node:assert/strict";
@@ -25,13 +25,13 @@ test("R17.9I.3 admin-only sections include R17.9 modules", () => {
 
 });
 
-test("R17.9I.3 validate rejects immutable fields and invalid volume", () => {
+test("R17.9I.3 validate rejects immutable fields and volume edits", () => {
 
     const immutable = validateAudioRegistryPatch({
         entries: [{
-            eventId: "WHEEL_SPIN_LOOP",
-            audioFile: "wheel/hacked.ogg",
-            volume: 0.2
+            id: "wheel.spin",
+            file: "wheel/hacked.ogg",
+            enabled: false
         }]
     });
 
@@ -39,8 +39,8 @@ test("R17.9I.3 validate rejects immutable fields and invalid volume", () => {
 
     const volume = validateAudioRegistryPatch({
         entries: [{
-            eventId: "WHEEL_SPIN_LOOP",
-            volume: 1.5
+            id: "wheel.spin",
+            volume: 0.25
         }]
     });
 
@@ -48,17 +48,15 @@ test("R17.9I.3 validate rejects immutable fields and invalid volume", () => {
 
     const ok = validateAudioRegistryPatch({
         entries: [{
-            eventId: "WHEEL_SPIN_LOOP",
+            id: "wheel.spin",
             enabled: false,
-            volume: 0.25,
             loop: true
         }]
     });
 
     assert.equal(ok.ok, true);
-    assert.equal(ok.patches.WHEEL_SPIN_LOOP.enabled, false);
-    assert.equal(ok.patches.WHEEL_SPIN_LOOP.volume, 0.25);
-    assert.equal(ok.patches.WHEEL_SPIN_LOOP.loop, true);
+    assert.equal(ok.patches["wheel.spin"].enabled, false);
+    assert.equal(ok.patches["wheel.spin"].loop, true);
 
 });
 
@@ -78,9 +76,8 @@ test("R17.9I.3 service persists overrides and writes AUDIO_REGISTRY_CHANGED audi
 
     const result = service.update({
         entries: [{
-            eventId: "WINNER_DECLARED",
+            id: "result.winner",
             enabled: false,
-            volume: 0.4,
             loop: false
         }]
     }, {
@@ -96,23 +93,21 @@ test("R17.9I.3 service persists overrides and writes AUDIO_REGISTRY_CHANGED audi
         readFileSync(env.AUDIO_REGISTRY_STATE_PATH, "utf8")
     );
 
-    assert.equal(persisted.overrides.WINNER_DECLARED.enabled, false);
-    assert.equal(persisted.overrides.WINNER_DECLARED.volume, 0.4);
+    assert.equal(persisted.overrides["result.winner"].enabled, false);
 
     const audit = readAudioRegistryAudit({ limit: 20 }, env);
 
     assert.ok(audit.some((row) => row.event === "AUDIO_REGISTRY_CHANGED"
-        && row.eventId === "WINNER_DECLARED"
+        && (row.id === "result.winner" || row.eventId === "result.winner")
         && row.field === "enabled"
         && row.newValue === false
         && row.user === "admin"));
 
     const snapshot = service.buildSnapshot({ canEdit: true });
 
-    const winner = snapshot.entries.find((e) => e.eventId === "WINNER_DECLARED");
+    const winner = snapshot.entries.find((e) => e.id === "result.winner");
 
     assert.equal(winner.enabled, false);
-    assert.equal(winner.volume, 0.4);
     assert.equal(snapshot.canEdit, true);
     assert.equal(snapshot.configVersion, 1);
 
