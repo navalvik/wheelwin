@@ -10,7 +10,9 @@ export const TON_FINANCIAL_RECORD_TYPES = Object.freeze({
     SNAPSHOT: "snapshot",
     RECOVERY_CHECKPOINT: "recovery_checkpoint",
     ARCHIVED_CONTRACT: "archived_contract",
-    AUDIT: "audit"
+    AUDIT: "audit",
+    // R17.8V.2P.H — immutable deploy economics fact (mutable until FROZEN).
+    DEPLOYMENT_COST_SNAPSHOT: "deployment_cost_snapshot"
 });
 
 export const TON_FINANCIAL_SCHEMA_VERSION = 1;
@@ -39,12 +41,18 @@ export const SETTLEMENT_TERMINAL_STATUSES = Object.freeze([
     "SETTLEMENT_FAILED"
 ]);
 
+/** R17.8V.2P.H — terminal statuses that freeze deployment_cost_snapshot envelopes. */
+export const DEPLOYMENT_COST_SNAPSHOT_TERMINAL_STATUSES = Object.freeze([
+    "FROZEN"
+]);
+
 export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT]: "active",
     [TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION]: "active",
     [TON_FINANCIAL_RECORD_TYPES.WALLET_SESSION]: "active",
     [TON_FINANCIAL_RECORD_TYPES.SETTLEMENT]: "active",
     [TON_FINANCIAL_RECORD_TYPES.RECOVERY_CHECKPOINT]: "active",
+    [TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT]: "active",
     [TON_FINANCIAL_RECORD_TYPES.SNAPSHOT]: "immutable",
     [TON_FINANCIAL_RECORD_TYPES.AUDIT]: "immutable",
     [TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT]: "archived"

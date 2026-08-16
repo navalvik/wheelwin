@@ -701,6 +701,39 @@ export class TonFinancialPersistence {
 
     }
 
+    /**
+     * R17.8V.2P.H — Deployment cost snapshot (active until FROZEN).
+     */
+    createDeploymentCostSnapshotRecord(payload, metadata = {}) {
+
+        return this.create(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT,
+            payload,
+            metadata
+        );
+
+    }
+
+    updateDeploymentCostSnapshotRecord(recordId, payload, metadata = {}) {
+
+        return this.update(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT,
+            recordId,
+            payload,
+            metadata
+        );
+
+    }
+
+    loadDeploymentCostSnapshotRecord(recordId) {
+
+        return this.load(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT,
+            recordId
+        );
+
+    }
+
     createRecoveryCheckpoint(payload, metadata = {}) {
 
         return this.create(

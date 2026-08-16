@@ -627,6 +627,16 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix: "Set TON_DEPLOYER_EXPECTED_ADDRESS to the expected deployer wallet friendly address."
     }),
+    // R17.8V.2P.H — Deployment cost snapshot foundation (default off; no runtime wiring yet).
+    DEPLOYMENT_COST_SNAPSHOT_ENABLED: Object.freeze({
+        key: "DEPLOYMENT_COST_SNAPSHOT_ENABLED",
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        category: "TON",
+        suggestedFix:
+            "Set DEPLOYMENT_COST_SNAPSHOT_ENABLED to true only after capture wiring. Default false."
+    }),
     // R7.68 — Mainnet readiness profile (does not enable mainnet by itself).
     TON_MAINNET_ENDPOINT: Object.freeze({
         key: "TON_MAINNET_ENDPOINT",

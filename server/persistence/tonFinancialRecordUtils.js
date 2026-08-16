@@ -7,6 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
     IMMUTABLE_ON_CREATE_TYPES,
     SETTLEMENT_TERMINAL_STATUSES,
+    DEPLOYMENT_COST_SNAPSHOT_TERMINAL_STATUSES,
     TON_FINANCIAL_RECORD_TYPES,
     TON_FINANCIAL_SCHEMA_VERSION
 } from "./TonFinancialRecordTypes.js";
@@ -97,6 +98,12 @@ export function resolveRecordId(recordType, payload, metadata = {}) {
                 ?? payload?.auditId
                 ?? randomUUID();
 
+        case TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT:
+            return metadata.recordId
+                ?? payload?.id
+                ?? payload?.deploymentTxHash
+                ?? null;
+
         default:
             return metadata.recordId ?? null;
 
@@ -147,6 +154,12 @@ export function isImmutableRecord(recordType, status = null) {
     if (recordType === TON_FINANCIAL_RECORD_TYPES.SETTLEMENT) {
 
         return SETTLEMENT_TERMINAL_STATUSES.includes(status);
+
+    }
+
+    if (recordType === TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT) {
+
+        return DEPLOYMENT_COST_SNAPSHOT_TERMINAL_STATUSES.includes(status);
 
     }
 
