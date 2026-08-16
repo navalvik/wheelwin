@@ -188,6 +188,48 @@ export class DeploymentCostSnapshotRepository {
     }
 
     /**
+     * @returns {object[]}
+     */
+    listAll() {
+
+        return this._persistence.listActive(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT
+        );
+
+    }
+
+    /**
+     * @param {string} status
+     * @returns {object[]}
+     */
+    listByStatus(status) {
+
+        const target = String(status ?? "").trim();
+
+        return this.listAll().filter(
+            (record) => record.payload?.status === target
+        );
+
+    }
+
+    /**
+     * Active game_contract rows that have a durable DEPLOY hash.
+     *
+     * @returns {object[]}
+     */
+    listDeployedGameContracts() {
+
+        return this._persistence.listActive(
+            TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT
+        ).filter((record) => {
+            const hash = String(record.payload?.deploymentTxId ?? "").trim();
+            const address = String(record.payload?.contractAddress ?? "").trim();
+            return Boolean(hash && address);
+        });
+
+    }
+
+    /**
      * Update PENDING_LOOKUP / FAILED_LOOKUP bookkeeping fields only.
      *
      * @param {string} id

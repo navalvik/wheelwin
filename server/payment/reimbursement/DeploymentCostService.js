@@ -9,6 +9,12 @@
 import { EVENT_TYPES } from "../../events/EventTypes.js";
 import { DuplicateRecordError } from "../../persistence/TonFinancialPersistence.js";
 import { isDeploymentCostSnapshotEnabled } from "./deploymentCostSnapshotConfig.js";
+import {
+    DEPLOYMENT_COST_LOOKUP_MAX_ATTEMPTS,
+    deploymentCostNextLookupAt,
+    isDeploymentCostLookupDue,
+    isDeploymentCostSnapshotStuck
+} from "./deploymentCostLookupBackoff.js";
 import { DEPLOYMENT_COST_SNAPSHOT_STATUS } from "./deploymentCostSnapshotStates.js";
 import { validateDeploymentCostSnapshotCreateInput } from "./deploymentCostSnapshotSchema.js";
 import { DEPLOYMENT_COST_SERVICE_RESULT } from "./deploymentCostServiceResults.js";
@@ -85,6 +91,8 @@ export class DeploymentCostService {
 
         this._handlers = [];
 
+        this._recoveryRunning = false;
+
         this._onCaptureRequested = (envelope) => {
 
             try {
@@ -145,8 +153,22 @@ export class DeploymentCostService {
         }
 
         this._logger?.debug?.(
-            "DeploymentCostService initialized (Stage D lookup+freeze)"
+            "DeploymentCostService initialized (Stage E recovery)"
         );
+
+        if (isDeploymentCostSnapshotEnabled(this._env)) {
+
+            void this.runBackgroundRecovery()
+                .catch((error) => {
+
+                    this._logger?.error?.(
+                        `DEPLOYMENT_COST_RECOVERY_STARTED failed | `
+                            + `${error?.message ?? error}`
+                    );
+
+                });
+
+        }
 
     }
 
@@ -542,6 +564,317 @@ export class DeploymentCostService {
     }
 
     /**
+     * Stage E — non-blocking startup recovery entry.
+     *
+     * @returns {Promise<object>}
+     */
+    async runBackgroundRecovery() {
+
+        if (!this._initialized || this._recoveryRunning) {
+
+            return {
+                ok: false,
+                skipped: true,
+                reason: this._recoveryRunning ? "already_running" : "not_initialized"
+            };
+
+        }
+
+        if (!isDeploymentCostSnapshotEnabled(this._env)) {
+
+            return {
+                ok: false,
+                skipped: true,
+                reason: "feature_disabled"
+            };
+
+        }
+
+        this._recoveryRunning = true;
+
+        this._logger?.info?.("DEPLOYMENT_COST_RECOVERY_STARTED");
+
+        try {
+
+            const missing = await this.recoverMissingSnapshots();
+            const pending = await this.retryPendingSnapshots();
+            const failed = await this.recoverFailedSnapshots();
+
+            return {
+                ok: true,
+                missing,
+                pending,
+                failed
+            };
+
+        } finally {
+
+            this._recoveryRunning = false;
+
+        }
+
+    }
+
+    /**
+     * Create PENDING_LOOKUP for deployed game_contracts missing a snapshot.
+     *
+     * @returns {Promise<{ scanned: number, created: number, skipped: number, results: object[] }>}
+     */
+    async recoverMissingSnapshots() {
+
+        const contracts = this._repository.listDeployedGameContracts();
+        let created = 0;
+        let skipped = 0;
+        const results = [];
+
+        for (const contract of contracts) {
+
+            const payload = contract.payload ?? {};
+            const deploymentTxHash = String(payload.deploymentTxId ?? "").trim();
+            const contractAddress = String(payload.contractAddress ?? "").trim();
+            const gameId = String(payload.gameId ?? contract.gameId ?? "").trim();
+            const roomId = String(payload.roomId ?? contract.roomId ?? "").trim();
+            const contractId = String(
+                payload.contractId ?? contract.contractId ?? contract.recordId ?? ""
+            ).trim();
+            const deployWallet = String(
+                payload.snapshot?.oracleWallet
+                ?? payload.oracleWallet
+                ?? ""
+            ).trim();
+
+            if (!deploymentTxHash || !contractAddress || !gameId || !deployWallet) {
+
+                skipped += 1;
+                continue;
+
+            }
+
+            const existing = this._repository.findByDeploymentTxHash(deploymentTxHash)
+                ?? this._repository.findByGameId(gameId);
+
+            if (existing) {
+
+                skipped += 1;
+                continue;
+
+            }
+
+            const capture = this.createPendingSnapshot({
+                gameId,
+                roomId,
+                contractId,
+                contractAddress,
+                deploymentTxHash,
+                deployWallet,
+                deployedAt: payload.deployedAt ?? Date.now(),
+                timestamp: Date.now()
+            });
+
+            if (capture.ok && capture.code === DEPLOYMENT_COST_SERVICE_RESULT.OK) {
+
+                created += 1;
+
+                this._logger?.info?.(
+                    `DEPLOYMENT_COST_SNAPSHOT_RECOVERED | gameId=${gameId} | `
+                        + `tx=${deploymentTxHash}`
+                );
+
+                if (this._transport) {
+
+                    const freeze = await this.lookupAndFreezeSnapshot(capture.snapshot);
+
+                    results.push({ gameId, capture, freeze });
+
+                } else {
+
+                    results.push({ gameId, capture });
+
+                }
+
+            } else if (
+                capture.ok
+                && capture.code === DEPLOYMENT_COST_SERVICE_RESULT.SNAPSHOT_DUPLICATE
+            ) {
+
+                skipped += 1;
+
+            } else {
+
+                results.push({ gameId, capture });
+
+            }
+
+        }
+
+        return {
+            scanned: contracts.length,
+            created,
+            skipped,
+            results
+        };
+
+    }
+
+    /**
+     * Retry PENDING_LOOKUP rows that are due (or stuck).
+     *
+     * @returns {Promise<{ scanned: number, attempted: number, frozen: number, results: object[] }>}
+     */
+    async retryPendingSnapshots() {
+
+        const now = Date.now();
+        const pending = this._repository.listByStatus(
+            DEPLOYMENT_COST_SNAPSHOT_STATUS.PENDING_LOOKUP
+        );
+
+        let attempted = 0;
+        let frozen = 0;
+        const results = [];
+
+        for (const snapshot of pending) {
+
+            const payload = snapshot.payload ?? {};
+
+            if (isDeploymentCostSnapshotStuck(payload, now)) {
+
+                this._logger?.warn?.(
+                    `DEPLOYMENT_COST_LOOKUP_RETRY | stuck | gameId=${payload.gameId} | `
+                        + `tx=${payload.deploymentTxHash} | `
+                        + `attempt=${payload.lookupAttempts ?? 0}`
+                );
+
+            }
+
+            if (
+                !isDeploymentCostLookupDue(payload, now)
+                && !isDeploymentCostSnapshotStuck(payload, now)
+            ) {
+
+                continue;
+
+            }
+
+            attempted += 1;
+
+            this._logger?.info?.(
+                `DEPLOYMENT_COST_LOOKUP_RETRY | gameId=${payload.gameId} | `
+                    + `tx=${payload.deploymentTxHash} | `
+                    + `attempt=${payload.lookupAttempts ?? 0} | `
+                    + `status=${payload.status}`
+            );
+
+            const result = await this.lookupAndFreezeSnapshot(snapshot);
+
+            if (
+                result.ok
+                && result.snapshot?.payload?.status
+                    === DEPLOYMENT_COST_SNAPSHOT_STATUS.FROZEN
+            ) {
+
+                frozen += 1;
+
+            }
+
+            if (!result.ok) {
+
+                this._logger?.warn?.(
+                    `DEPLOYMENT_COST_LOOKUP_FAILED | gameId=${payload.gameId} | `
+                        + `tx=${payload.deploymentTxHash} | `
+                        + `reason=${result.reason ?? result.message}`
+                );
+
+            }
+
+            results.push(result);
+
+        }
+
+        return {
+            scanned: pending.length,
+            attempted,
+            frozen,
+            results
+        };
+
+    }
+
+    /**
+     * Re-queue FAILED_LOOKUP → PENDING_LOOKUP when due, then lookup.
+     *
+     * @returns {Promise<{ scanned: number, requeued: number, frozen: number, results: object[] }>}
+     */
+    async recoverFailedSnapshots() {
+
+        const now = Date.now();
+        const failed = this._repository.listByStatus(
+            DEPLOYMENT_COST_SNAPSHOT_STATUS.FAILED_LOOKUP
+        );
+
+        let requeued = 0;
+        let frozen = 0;
+        const results = [];
+
+        for (const snapshot of failed) {
+
+            const payload = snapshot.payload ?? {};
+
+            if (!isDeploymentCostLookupDue(payload, now)) {
+
+                continue;
+
+            }
+
+            try {
+
+                this._repository.updatePendingLookup(snapshot.recordId, {
+                    status: DEPLOYMENT_COST_SNAPSHOT_STATUS.PENDING_LOOKUP,
+                    errorReason: payload.errorReason ?? "failed_lookup_retry",
+                    lookupAttempts: Number(payload.lookupAttempts ?? 0),
+                    nextLookupAt: now
+                });
+
+                requeued += 1;
+
+            } catch (error) {
+
+                results.push({
+                    ok: false,
+                    message: error?.message ?? "requeue_failed",
+                    snapshot
+                });
+
+                continue;
+
+            }
+
+            const refreshed = this._repository.findById(snapshot.recordId);
+            const result = await this.lookupAndFreezeSnapshot(refreshed);
+
+            if (
+                result.ok
+                && result.snapshot?.payload?.status
+                    === DEPLOYMENT_COST_SNAPSHOT_STATUS.FROZEN
+            ) {
+
+                frozen += 1;
+
+            }
+
+            results.push(result);
+
+        }
+
+        return {
+            scanned: failed.length,
+            requeued,
+            frozen,
+            results
+        };
+
+    }
+
+    /**
      * @param {string} hash
      * @returns {object|null}
      */
@@ -570,13 +903,28 @@ export class DeploymentCostService {
         try {
 
             const attempts = Number(snapshot.payload?.lookupAttempts ?? 0) + 1;
+            const terminal = attempts >= DEPLOYMENT_COST_LOOKUP_MAX_ATTEMPTS;
 
             this._repository.updatePendingLookup(snapshot.recordId, {
-                status: DEPLOYMENT_COST_SNAPSHOT_STATUS.PENDING_LOOKUP,
+                status: terminal
+                    ? DEPLOYMENT_COST_SNAPSHOT_STATUS.FAILED_LOOKUP
+                    : DEPLOYMENT_COST_SNAPSHOT_STATUS.PENDING_LOOKUP,
                 errorReason: reason,
                 lookupAttempts: attempts,
-                nextLookupAt: Date.now() + Math.min(60_000, 1_000 * attempts)
+                nextLookupAt: deploymentCostNextLookupAt(attempts)
             });
+
+            if (terminal) {
+
+                this._logger?.warn?.(
+                    `DEPLOYMENT_COST_LOOKUP_FAILED | terminal | `
+                        + `gameId=${snapshot.payload?.gameId} | `
+                        + `tx=${snapshot.payload?.deploymentTxHash} | `
+                        + `attempt=${attempts} | status=FAILED_LOOKUP | `
+                        + `errorReason=${reason}`
+                );
+
+            }
 
         } catch (error) {
 
