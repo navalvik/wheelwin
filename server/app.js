@@ -134,6 +134,10 @@ import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
+import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
+import { DeploymentReimbursementService } from "./payment/reimbursement/DeploymentReimbursementService.js";
+import { DeploymentReimbursementWorker } from "./payment/reimbursement/DeploymentReimbursementWorker.js";
+import { ReimbursementTransferService } from "./payment/reimbursement/ReimbursementTransferService.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
@@ -1362,6 +1366,33 @@ class WheelWinApplication {
 
         this._logger.startupLine("DeploymentCostService");
 
+        // R17.8V.2P.M — Deployment reimbursement queue foundation (no TON send).
+        this._deploymentReimbursementRepository = new DeploymentReimbursementRepository({
+            persistence: this._financialPersistence,
+            tonNetwork: this._tonConfig?.network ?? "testnet"
+        });
+
+        this._deploymentReimbursementService = new DeploymentReimbursementService({
+            repository: this._deploymentReimbursementRepository,
+            logger: this._logger,
+            env: process.env
+        });
+
+        this._deploymentReimbursementService.initialize();
+
+        this._deploymentReimbursementWorker = new DeploymentReimbursementWorker({
+            repository: this._deploymentReimbursementRepository,
+            transferService: new ReimbursementTransferService({
+                logger: this._logger
+            }),
+            logger: this._logger,
+            env: process.env
+        });
+
+        this._deploymentReimbursementWorker.initialize();
+
+        this._logger.startupLine("DeploymentReimbursementWorker");
+
         const deployerWalletAddress = await this._resolveDeployerWalletAddress();
 
         this._contractSettlementManager = new ContractSettlementManager({
@@ -1974,6 +2005,26 @@ class WheelWinApplication {
             if (this._deploymentCostService) {
 
                 this._deploymentCostService.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("deploymentReimbursementWorker", () => {
+
+            if (this._deploymentReimbursementWorker) {
+
+                this._deploymentReimbursementWorker.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("deploymentReimbursementService", () => {
+
+            if (this._deploymentReimbursementService) {
+
+                this._deploymentReimbursementService.shutdown();
 
             }
 

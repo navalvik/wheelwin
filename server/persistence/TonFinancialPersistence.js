@@ -734,6 +734,39 @@ export class TonFinancialPersistence {
 
     }
 
+    /**
+     * R17.8V.2P.M — Deployment reimbursement queue record.
+     */
+    createDeploymentReimbursementRecord(payload, metadata = {}) {
+
+        return this.create(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT,
+            payload,
+            metadata
+        );
+
+    }
+
+    updateDeploymentReimbursementRecord(recordId, payload, metadata = {}) {
+
+        return this.update(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT,
+            recordId,
+            payload,
+            metadata
+        );
+
+    }
+
+    loadDeploymentReimbursementRecord(recordId) {
+
+        return this.load(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT,
+            recordId
+        );
+
+    }
+
     createRecoveryCheckpoint(payload, metadata = {}) {
 
         return this.create(

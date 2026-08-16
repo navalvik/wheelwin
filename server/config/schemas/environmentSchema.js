@@ -637,6 +637,25 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         suggestedFix:
             "Set DEPLOYMENT_COST_SNAPSHOT_ENABLED to true only after capture wiring. Default false."
     }),
+    // R17.8V.2P.M — Deployment reimbursement worker foundation (default off; no TON send).
+    DEPLOYMENT_REIMBURSEMENT_ENABLED: Object.freeze({
+        key: "DEPLOYMENT_REIMBURSEMENT_ENABLED",
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        category: "TON",
+        suggestedFix:
+            "Set DEPLOYMENT_REIMBURSEMENT_ENABLED to true only after transfer wiring. Default false."
+    }),
+    // R17.8V.2P.M — Reimbursement wallet address pin only (never a mnemonic).
+    TON_REIMBURSEMENT_EXPECTED_ADDRESS: Object.freeze({
+        key: "TON_REIMBURSEMENT_EXPECTED_ADDRESS",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Set TON_REIMBURSEMENT_EXPECTED_ADDRESS to the reimbursement wallet friendly address (address pin only)."
+    }),
     // R7.68 — Mainnet readiness profile (does not enable mainnet by itself).
     TON_MAINNET_ENDPOINT: Object.freeze({
         key: "TON_MAINNET_ENDPOINT",
