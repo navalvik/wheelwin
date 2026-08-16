@@ -12,8 +12,14 @@ import { BUTTON_STATES, RESULT_OUTCOMES } from "../game/centralButton";
 
 import { GAME_STATES } from "../game/GameState";
 
-// R15.1 — temporary stub: preserve Audio Engine integration, disable playback.
-import { Page5AudioEngineStub } from "../game/page5/audio";
+// R17.9I.5 — registry-gated playback; stub retained as construction fallback.
+import {
+    Page5AudioEngine
+} from "../game/page5/audio/Page5AudioEngine.js";
+import {
+    Page5AudioEngineStub
+} from "../game/page5/audio/Page5AudioEngineStub.js";
+import { fetchPublicAudioRegistry } from "../game/audio/fetchPublicAudioRegistry.js";
 
 import { WINNER_EVENTS } from "../game/winner";
 
@@ -24,6 +30,20 @@ import { usePhysics } from "./PhysicsContext";
 import { useWinnerResolver } from "./WinnerResolverContext";
 
 const AudioContext = createContext(null);
+
+function createSafeAudioEngine() {
+
+    try {
+
+        return new Page5AudioEngine();
+
+    } catch {
+
+        return new Page5AudioEngineStub();
+
+    }
+
+}
 
 export function AudioProvider({ children }) {
 
@@ -49,7 +69,7 @@ export function AudioProvider({ children }) {
 
     useEffect(() => {
 
-        const engine = new Page5AudioEngineStub();
+        const engine = createSafeAudioEngine();
 
         engine.init();
 
@@ -63,11 +83,26 @@ export function AudioProvider({ children }) {
             })
             .catch(() => {
 
-                // Stub must never surface audio load failures.
+                // Audio failure must never surface into React / gameplay.
 
                 setStatus(engine.getStatus());
 
             });
+
+        // Registry overrides are presentation-only; failures stay silent.
+        void fetchPublicAudioRegistry()
+            .then((entries) => {
+
+                if (engineRef.current?.setRegistryEntries) {
+
+                    engineRef.current.setRegistryEntries(entries);
+
+                    setStatus(engineRef.current.getStatus());
+
+                }
+
+            })
+            .catch(() => {});
 
         return () => {
 

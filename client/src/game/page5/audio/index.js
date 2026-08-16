@@ -1,7 +1,8 @@
 /**
- * R15.1 — Page5 audio package.
- * Currently exports the playback-disabled stub. AdaptiveAudioEngine remains
- * available under client/src/game/audio/ for a future real implementation.
+ * R15.1 / R17.9I.5 — Page5 audio package.
+ *
+ * Stub-only barrel so Node tests can import without Vite .ogg resolution.
+ * Import Page5AudioEngine from ./Page5AudioEngine.js in the browser bundle.
  */
 
 export {

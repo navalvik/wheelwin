@@ -4727,6 +4727,53 @@ class WheelWinApplication {
 
         });
 
+        // R17.9I.5 — Public Audio Registry snapshot for game clients (read-only).
+        // Presentation only. No auth — does not expose admin edit capability.
+        app.get("/audio/registry", (req, res) => {
+
+            try {
+
+                const service = this._audioRegistryService;
+
+                if (!service?.buildSnapshot) {
+
+                    res.status(503).json({
+                        entries: [],
+                        canEdit: false,
+                        reason: "audio_registry_unavailable"
+                    });
+
+                    return;
+
+                }
+
+                const snapshot = service.buildSnapshot({ canEdit: false });
+
+                res.setHeader("Cache-Control", "no-store");
+                res.json({
+                    schemaVersion: snapshot.schemaVersion ?? 1,
+                    configVersion: snapshot.configVersion ?? 0,
+                    canEdit: false,
+                    entries: Array.isArray(snapshot.entries)
+                        ? snapshot.entries
+                        : [],
+                    updatedAt: snapshot.updatedAt ?? null
+                });
+
+            } catch {
+
+                res.status(200).json({
+                    schemaVersion: 1,
+                    configVersion: 0,
+                    canEdit: false,
+                    entries: [],
+                    updatedAt: null
+                });
+
+            }
+
+        });
+
         app.get("/health", (req, res) => {
 
             const snapshot = this._healthService.getHealthSnapshot();
