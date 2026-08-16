@@ -14,6 +14,7 @@ import {
 } from "../../persistence/TonFinancialPersistence.js";
 import { DEPLOYMENT_COST_SNAPSHOT_STATUS } from "./deploymentCostSnapshotStates.js";
 import {
+    applyDeploymentCostSnapshotFreeze,
     applyDeploymentCostSnapshotPendingPatch,
     deploymentCostSnapshotRecordId,
     generateDeploymentCostSnapshotCorrelationId,
@@ -237,6 +238,74 @@ export class DeploymentCostSnapshotRepository {
             applied.payload,
             {
                 status: applied.payload.status,
+                expectedVersion: existing.version,
+                roomId: applied.payload.roomId,
+                gameId: applied.payload.gameId,
+                contractId: applied.payload.contractId,
+                tonNetwork: existing.tonNetwork ?? this._tonNetwork,
+                correlationId: existing.correlationId
+            }
+        );
+
+    }
+
+    /**
+     * Stage D — freeze with chain economics (immutable thereafter).
+     *
+     * @param {string} id
+     * @param {{
+     *   attachedTon: string,
+     *   networkFeeTon: string,
+     *   deploymentCostTon: string,
+     *   source?: string,
+     *   frozenAt?: number
+     * }} economics
+     * @returns {object}
+     */
+    freezeFromChain(id, economics) {
+
+        const existing = this.findById(id);
+
+        if (!existing) {
+
+            throw new RecordNotFoundError(
+                TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT,
+                id
+            );
+
+        }
+
+        if (
+            existing.immutable
+            || existing.payload?.status
+                === DEPLOYMENT_COST_SNAPSHOT_STATUS.FROZEN
+        ) {
+
+            throw new ImmutableRecordError(
+                TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT,
+                existing.recordId
+            );
+
+        }
+
+        const applied = applyDeploymentCostSnapshotFreeze(
+            existing.payload,
+            economics
+        );
+
+        if (!applied.ok) {
+
+            throw new Error(
+                `Invalid deployment_cost_snapshot freeze | ${applied.errors.join(",")}`
+            );
+
+        }
+
+        return this._persistence.updateDeploymentCostSnapshotRecord(
+            existing.recordId,
+            applied.payload,
+            {
+                status: DEPLOYMENT_COST_SNAPSHOT_STATUS.FROZEN,
                 expectedVersion: existing.version,
                 roomId: applied.payload.roomId,
                 gameId: applied.payload.gameId,

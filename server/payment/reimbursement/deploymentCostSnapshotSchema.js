@@ -205,6 +205,80 @@ export function applyDeploymentCostSnapshotPendingPatch(existingPayload, patch) 
 }
 
 /**
+ * Stage D — apply chain economics and freeze.
+ *
+ * @param {object} existingPayload
+ * @param {{
+ *   attachedTon: string,
+ *   networkFeeTon: string,
+ *   deploymentCostTon: string,
+ *   source?: string,
+ *   frozenAt?: number
+ * }} economics
+ * @returns {{ ok: true, payload: object } | { ok: false, errors: string[] }}
+ */
+export function applyDeploymentCostSnapshotFreeze(existingPayload, economics) {
+
+    if (!existingPayload || typeof existingPayload !== "object") {
+
+        return { ok: false, errors: ["existing_missing"] };
+
+    }
+
+    if (existingPayload.status === DEPLOYMENT_COST_SNAPSHOT_STATUS.FROZEN) {
+
+        return { ok: false, errors: ["snapshot_frozen"] };
+
+    }
+
+    if (!economics || typeof economics !== "object") {
+
+        return { ok: false, errors: ["economics_missing"] };
+
+    }
+
+    const attachedTon = String(economics.attachedTon ?? "").trim();
+    const networkFeeTon = String(economics.networkFeeTon ?? "").trim();
+    const deploymentCostTon = String(economics.deploymentCostTon ?? "").trim();
+
+    if (!attachedTon || !networkFeeTon || !deploymentCostTon) {
+
+        return { ok: false, errors: ["economics_incomplete"] };
+
+    }
+
+    if (
+        !/^\d+(\.\d+)?$/.test(attachedTon)
+        || !/^\d+(\.\d+)?$/.test(networkFeeTon)
+        || !/^\d+(\.\d+)?$/.test(deploymentCostTon)
+    ) {
+
+        return { ok: false, errors: ["economics_format_invalid"] };
+
+    }
+
+    const payload = Object.freeze({
+        ...existingPayload,
+        status: DEPLOYMENT_COST_SNAPSHOT_STATUS.FROZEN,
+        attachedTon,
+        networkFeeTon,
+        deploymentCostTon,
+        source: economics.source ?? "chain",
+        frozenAt: Number.isFinite(Number(economics.frozenAt))
+            ? Number(economics.frozenAt)
+            : Date.now(),
+        errorReason: null,
+        lookupAttempts: Number.isFinite(Number(existingPayload.lookupAttempts))
+            ? Number(existingPayload.lookupAttempts)
+            : 0,
+        nextLookupAt: null
+    });
+
+    return { ok: true, payload };
+
+}
+
+/**
  * @returns {string}
  */
 export function generateDeploymentCostSnapshotCorrelationId() {

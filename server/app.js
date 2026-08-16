@@ -1346,13 +1346,14 @@ class WheelWinApplication {
 
         this._logger.startupLine("GameContractManager");
 
-        // R17.8V.2P.J — Deployment cost snapshot capture (flag default false).
+        // R17.8V.2P.J / R17.8V.2P.K — Deployment cost snapshot capture + freeze.
         this._deploymentCostService = new DeploymentCostService({
             repository: new DeploymentCostSnapshotRepository({
                 persistence: this._financialPersistence,
                 tonNetwork: this._tonConfig?.network ?? "testnet"
             }),
             eventBus: this._eventBus,
+            transport: this._services?.tonService?.getTransport?.() ?? null,
             logger: this._logger,
             env: process.env
         });

@@ -1,10 +1,9 @@
 /**
- * R17.8V.2P.I / R17.8V.2P.J — Deployment Cost Snapshot service.
+ * R17.8V.2P.I–K — Deployment Cost Snapshot service.
  *
  * Stage B: PENDING_LOOKUP create API.
- * Stage C: EventBus subscription for DEPLOYMENT_COST_CAPTURE_REQUESTED.
- *
- * No blockchain lookup, freeze, or reimbursement in these stages.
+ * Stage C: EventBus subscription.
+ * Stage D: TonCenter lookup + FROZEN (chain economics only).
  */
 
 import { EVENT_TYPES } from "../../events/EventTypes.js";
@@ -13,6 +12,11 @@ import { isDeploymentCostSnapshotEnabled } from "./deploymentCostSnapshotConfig.
 import { DEPLOYMENT_COST_SNAPSHOT_STATUS } from "./deploymentCostSnapshotStates.js";
 import { validateDeploymentCostSnapshotCreateInput } from "./deploymentCostSnapshotSchema.js";
 import { DEPLOYMENT_COST_SERVICE_RESULT } from "./deploymentCostServiceResults.js";
+import {
+    extractDeployCostFromTransaction,
+    transactionHashOf
+} from "./extractDeployCostFromTransaction.js";
+import { nanotonToTonString } from "./nanoton.js";
 
 /**
  * @typedef {object} DeploymentCostCaptureInput
@@ -33,6 +37,7 @@ import { DEPLOYMENT_COST_SERVICE_RESULT } from "./deploymentCostServiceResults.j
  * @property {object|null} [snapshot]
  * @property {string[]} [errors]
  * @property {string} [message]
+ * @property {string} [reason]
  */
 
 export class DeploymentCostService {
@@ -41,15 +46,19 @@ export class DeploymentCostService {
      * @param {{
      *   repository: import("./DeploymentCostSnapshotRepository.js").DeploymentCostSnapshotRepository,
      *   eventBus?: { subscribe: Function, unsubscribe: Function }|null,
+     *   transport?: { getTransactions: Function }|null,
      *   logger?: { debug?: Function, info?: Function, warn?: Function, error?: Function }|null,
-     *   env?: NodeJS.ProcessEnv
+     *   env?: NodeJS.ProcessEnv,
+     *   transactionLookupLimit?: number
      * }} options
      */
     constructor({
         repository,
         eventBus = null,
+        transport = null,
         logger = null,
-        env = process.env
+        env = process.env,
+        transactionLookupLimit = 40
     } = {}) {
 
         if (!repository) {
@@ -62,9 +71,15 @@ export class DeploymentCostService {
 
         this._eventBus = eventBus;
 
+        this._transport = transport;
+
         this._logger = logger;
 
         this._env = env;
+
+        this._transactionLookupLimit = Number.isFinite(Number(transactionLookupLimit))
+            ? Math.max(1, Number(transactionLookupLimit))
+            : 40;
 
         this._initialized = false;
 
@@ -74,7 +89,29 @@ export class DeploymentCostService {
 
             try {
 
-                this.handleDeploymentCostCaptureRequested(envelope?.payload);
+                const result = this.handleDeploymentCostCaptureRequested(
+                    envelope?.payload
+                );
+
+                if (
+                    result?.ok
+                    && result.snapshot
+                    && result.snapshot.payload?.status
+                        === DEPLOYMENT_COST_SNAPSHOT_STATUS.PENDING_LOOKUP
+                    && this._transport
+                ) {
+
+                    void this.lookupAndFreezeSnapshot(result.snapshot)
+                        .catch((error) => {
+
+                            this._logger?.error?.(
+                                `DeploymentCostService async lookup failed | `
+                                    + `${error?.message ?? error}`
+                            );
+
+                        });
+
+                }
 
             } catch (error) {
 
@@ -108,7 +145,7 @@ export class DeploymentCostService {
         }
 
         this._logger?.debug?.(
-            "DeploymentCostService initialized (Stage C EventBus capture)"
+            "DeploymentCostService initialized (Stage D lookup+freeze)"
         );
 
     }
@@ -130,8 +167,6 @@ export class DeploymentCostService {
     }
 
     /**
-     * Stage C EventBus handler — never throws into the bus.
-     *
      * @param {DeploymentCostCaptureInput|null|undefined} payload
      * @returns {DeploymentCostServiceResult}
      */
@@ -142,9 +177,6 @@ export class DeploymentCostService {
     }
 
     /**
-     * Primary entry: validate + create PENDING_LOOKUP (or return existing).
-     * Non-blocking result object — does not throw for business outcomes.
-     *
      * @param {DeploymentCostCaptureInput} input
      * @returns {DeploymentCostServiceResult}
      */
@@ -181,8 +213,6 @@ export class DeploymentCostService {
     }
 
     /**
-     * Create PENDING_LOOKUP snapshot. Idempotent on deploymentTxHash.
-     *
      * @param {DeploymentCostCaptureInput} input
      * @returns {DeploymentCostServiceResult}
      */
@@ -306,6 +336,212 @@ export class DeploymentCostService {
     }
 
     /**
+     * Stage D — load PENDING_LOOKUP, query chain, freeze.
+     *
+     * @param {object|string} snapshotOrId
+     * @returns {Promise<DeploymentCostServiceResult>}
+     */
+    async lookupAndFreezeSnapshot(snapshotOrId) {
+
+        if (!this._initialized) {
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_COST_SERVICE_RESULT.NOT_INITIALIZED,
+                snapshot: null,
+                message: "DeploymentCostService is not initialized"
+            };
+
+        }
+
+        const snapshot = typeof snapshotOrId === "string"
+            ? this._repository.findById(snapshotOrId)
+            : snapshotOrId;
+
+        if (!snapshot?.payload) {
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_COST_SERVICE_RESULT.SNAPSHOT_NOT_FOUND,
+                snapshot: null,
+                message: "Snapshot not found"
+            };
+
+        }
+
+        if (
+            snapshot.payload.status === DEPLOYMENT_COST_SNAPSHOT_STATUS.FROZEN
+        ) {
+
+            return {
+                ok: true,
+                code: DEPLOYMENT_COST_SERVICE_RESULT.ALREADY_FROZEN,
+                snapshot,
+                message: "Snapshot already FROZEN"
+            };
+
+        }
+
+        if (!this._transport?.getTransactions) {
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_COST_SERVICE_RESULT.LOOKUP_SKIPPED,
+                snapshot,
+                message: "No TonCenter transport configured"
+            };
+
+        }
+
+        const {
+            deploymentTxHash,
+            deployWallet,
+            contractAddress
+        } = snapshot.payload;
+
+        let tx = null;
+
+        try {
+
+            tx = await this.lookupDeploymentTransaction(
+                deploymentTxHash,
+                deployWallet
+            );
+
+        } catch (error) {
+
+            this._bumpLookupAttempt(snapshot, error?.message ?? "rpc_failure");
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_COST_SERVICE_RESULT.LOOKUP_PENDING,
+                snapshot: this._repository.findById(snapshot.recordId),
+                reason: "rpc_failure",
+                message: error?.message ?? "TonCenter lookup failed"
+            };
+
+        }
+
+        if (!tx) {
+
+            this._bumpLookupAttempt(snapshot, "transaction_not_found");
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_COST_SERVICE_RESULT.LOOKUP_PENDING,
+                snapshot: this._repository.findById(snapshot.recordId),
+                reason: "transaction_not_found",
+                message: "DEPLOY transaction not found yet"
+            };
+
+        }
+
+        const extracted = this.extractDeployCostFromTransaction(tx, {
+            contractAddress,
+            deploymentTxHash
+        });
+
+        if (!extracted.ok) {
+
+            this._bumpLookupAttempt(snapshot, extracted.reason);
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_COST_SERVICE_RESULT.FREEZE_REJECTED,
+                snapshot: this._repository.findById(snapshot.recordId),
+                reason: extracted.reason,
+                message: `Freeze rejected | ${extracted.reason}`
+            };
+
+        }
+
+        try {
+
+            const frozen = this._repository.freezeFromChain(snapshot.recordId, {
+                attachedTon: nanotonToTonString(extracted.attachedNanoton),
+                networkFeeTon: nanotonToTonString(extracted.networkFeeNanoton),
+                deploymentCostTon: nanotonToTonString(
+                    extracted.deploymentCostNanoton
+                ),
+                source: "chain",
+                frozenAt: Date.now()
+            });
+
+            this._logger?.info?.(
+                `DeploymentCostSnapshot FROZEN | gameId=${frozen.payload?.gameId} | `
+                    + `cost=${frozen.payload?.deploymentCostTon}`
+            );
+
+            return {
+                ok: true,
+                code: DEPLOYMENT_COST_SERVICE_RESULT.OK,
+                snapshot: frozen,
+                message: "Snapshot FROZEN from chain"
+            };
+
+        } catch (error) {
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_COST_SERVICE_RESULT.LOOKUP_FAILED,
+                snapshot: this._repository.findById(snapshot.recordId),
+                message: error?.message ?? "Freeze persistence failed"
+            };
+
+        }
+
+    }
+
+    /**
+     * @param {string} txHash
+     * @param {string} deployWallet
+     * @returns {Promise<object|null>}
+     */
+    async lookupDeploymentTransaction(txHash, deployWallet) {
+
+        const hash = String(txHash ?? "").trim();
+        const address = String(deployWallet ?? "").trim();
+
+        if (!hash || !address) {
+
+            return null;
+
+        }
+
+        const transactions = await this._transport.getTransactions(address, {
+            limit: this._transactionLookupLimit,
+            archival: true
+        });
+
+        const list = Array.isArray(transactions) ? transactions : [];
+
+        for (const tx of list) {
+
+            if (transactionHashOf(tx) === hash) {
+
+                return tx;
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    /**
+     * Public wrapper for pure extractor (test / service API).
+     *
+     * @param {object} tx
+     * @param {{ contractAddress: string, deploymentTxHash?: string|null }} options
+     */
+    extractDeployCostFromTransaction(tx, options) {
+
+        return extractDeployCostFromTransaction(tx, options);
+
+    }
+
+    /**
      * @param {string} hash
      * @returns {object|null}
      */
@@ -322,6 +558,34 @@ export class DeploymentCostService {
     getSnapshotByGameId(gameId) {
 
         return this._repository.findByGameId(gameId);
+
+    }
+
+    /**
+     * @param {object} snapshot
+     * @param {string} reason
+     */
+    _bumpLookupAttempt(snapshot, reason) {
+
+        try {
+
+            const attempts = Number(snapshot.payload?.lookupAttempts ?? 0) + 1;
+
+            this._repository.updatePendingLookup(snapshot.recordId, {
+                status: DEPLOYMENT_COST_SNAPSHOT_STATUS.PENDING_LOOKUP,
+                errorReason: reason,
+                lookupAttempts: attempts,
+                nextLookupAt: Date.now() + Math.min(60_000, 1_000 * attempts)
+            });
+
+        } catch (error) {
+
+            this._logger?.warn?.(
+                `DeploymentCostSnapshot lookup attempt bump failed | `
+                    + `${error?.message ?? error}`
+            );
+
+        }
 
     }
 
