@@ -139,6 +139,7 @@ import { DeploymentReimbursementService } from "./payment/reimbursement/Deployme
 import { DeploymentReimbursementWorker } from "./payment/reimbursement/DeploymentReimbursementWorker.js";
 import { ReimbursementTransferService } from "./payment/reimbursement/ReimbursementTransferService.js";
 import { ReimbursementWalletAdapter } from "./payment/reimbursement/ReimbursementWalletAdapter.js";
+import { ReimbursementConfirmationService } from "./payment/reimbursement/ReimbursementConfirmationService.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
@@ -1408,9 +1409,23 @@ class WheelWinApplication {
 
         await this._reimbursementTransferService.initialize();
 
+        // R17.8V.2P.P — Chain confirmation + restart recovery (no new sends).
+        this._reimbursementConfirmationService = new ReimbursementConfirmationService({
+            repository: this._deploymentReimbursementRepository,
+            transport: this._services?.tonService?.getTransport?.() ?? null,
+            eventBus: this._eventBus,
+            logger: this._logger,
+            env: process.env
+        });
+
+        this._reimbursementConfirmationService.initialize();
+
+        this._logger.startupLine("ReimbursementConfirmationService");
+
         this._deploymentReimbursementWorker = new DeploymentReimbursementWorker({
             repository: this._deploymentReimbursementRepository,
             transferService: this._reimbursementTransferService,
+            confirmationService: this._reimbursementConfirmationService,
             logger: this._logger,
             env: process.env
         });
@@ -2051,6 +2066,16 @@ class WheelWinApplication {
             if (this._reimbursementTransferService) {
 
                 this._reimbursementTransferService.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("reimbursementConfirmationService", () => {
+
+            if (this._reimbursementConfirmationService) {
+
+                this._reimbursementConfirmationService.shutdown();
 
             }
 

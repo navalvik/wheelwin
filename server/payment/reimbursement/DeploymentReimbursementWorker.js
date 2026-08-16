@@ -1,8 +1,8 @@
 /**
- * R17.8V.2P.M / O — Deployment reimbursement worker.
+ * R17.8V.2P.M / O / P — Deployment reimbursement worker.
  *
- * Polls PENDING → PROCESSING → sendReimbursement.
- * On SENT: persist txHash (stay PROCESSING). Never CONFIRMED in Stage O.
+ * Send queue: PENDING / FAILED_RETRY (no txHash) → send → markSent.
+ * Confirmation queue: PROCESSING+txHash → confirmation service (never marks CONFIRMED here).
  */
 
 import { isDeploymentReimbursementEnabled } from "./deploymentReimbursementConfig.js";
@@ -17,6 +17,7 @@ export class DeploymentReimbursementWorker {
      * @param {{
      *   repository: import("./DeploymentReimbursementRepository.js").DeploymentReimbursementRepository,
      *   transferService?: import("./ReimbursementTransferService.js").ReimbursementTransferService|null,
+     *   confirmationService?: import("./ReimbursementConfirmationService.js").ReimbursementConfirmationService|null,
      *   logger?: object|null,
      *   env?: NodeJS.ProcessEnv,
      *   pollIntervalMs?: number
@@ -25,6 +26,7 @@ export class DeploymentReimbursementWorker {
     constructor({
         repository,
         transferService = null,
+        confirmationService = null,
         logger = null,
         env = process.env,
         pollIntervalMs = 5_000
@@ -41,6 +43,8 @@ export class DeploymentReimbursementWorker {
         this._repository = repository;
 
         this._transferService = transferService;
+
+        this._confirmationService = confirmationService;
 
         this._logger = logger;
 
@@ -69,7 +73,7 @@ export class DeploymentReimbursementWorker {
         this._initialized = true;
 
         this._logger?.debug?.(
-            "DeploymentReimbursementWorker initialized (Stage O transfer integration)"
+            "DeploymentReimbursementWorker initialized (Stage P confirmation)"
         );
 
         if (isDeploymentReimbursementEnabled(this._env)) {
@@ -112,7 +116,12 @@ export class DeploymentReimbursementWorker {
     }
 
     /**
-     * @returns {Promise<{ scanned: number, claimed: number, results: object[] }>}
+     * @returns {Promise<{
+     *   scanned: number,
+     *   claimed: number,
+     *   results: object[],
+     *   confirmation?: object
+     * }>}
      */
     async processQueue() {
 
@@ -143,6 +152,19 @@ export class DeploymentReimbursementWorker {
             const results = [];
 
             for (const record of pending) {
+
+                // Guard: never send when txHash already present.
+                if (String(record.payload?.txHash ?? "").trim()) {
+
+                    results.push({
+                        ok: false,
+                        recordId: record.recordId,
+                        message: "skip_send_has_txhash"
+                    });
+
+                    continue;
+
+                }
 
                 let claimedRecord = null;
 
@@ -202,11 +224,8 @@ export class DeploymentReimbursementWorker {
                         && transfer.code === REIMBURSEMENT_TRANSFER_RESULT.SENT
                     ) {
 
-                        // Persist txHash; remain PROCESSING — confirmation is next stage.
-                        this._repository.updateStatus(claimedRecord.recordId, {
-                            status: DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING,
-                            txHash: transfer.txHash ?? null,
-                            errorReason: null,
+                        const sent = this._repository.markSent(claimedRecord.recordId, {
+                            txHash: transfer.txHash,
                             processedAt: Date.now()
                         });
 
@@ -217,17 +236,31 @@ export class DeploymentReimbursementWorker {
                             code: REIMBURSEMENT_TRANSFER_RESULT.SENT
                         });
 
+                        // Enqueue confirmation asynchronously — worker never marks CONFIRMED.
+                        if (this._confirmationService?.confirmTransaction) {
+
+                            void this._confirmationService
+                                .confirmTransaction(sent)
+                                .catch((error) => {
+
+                                    this._logger?.error?.(
+                                        `Confirmation after send failed | `
+                                            + `${error?.message ?? error}`
+                                    );
+
+                                });
+
+                        }
+
                         continue;
 
                     }
 
-                    this._repository.updateStatus(claimedRecord.recordId, {
-                        status: DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_RETRY,
+                    this._repository.markFailed(claimedRecord.recordId, {
+                        terminal: false,
                         errorReason: transfer.errorReason
                             ?? transfer.code
-                            ?? "transfer_failed",
-                        retryCount: Number(claimedRecord.payload?.retryCount ?? 0) + 1,
-                        nextRetryAt: Date.now() + 60_000
+                            ?? "transfer_failed"
                     });
 
                     results.push({
@@ -250,10 +283,20 @@ export class DeploymentReimbursementWorker {
 
             }
 
+            let confirmation = null;
+
+            if (this._confirmationService?.recoverPendingConfirmations) {
+
+                confirmation = await this._confirmationService
+                    .recoverPendingConfirmations();
+
+            }
+
             return {
                 scanned: pending.length,
                 claimed,
-                results
+                results,
+                confirmation
             };
 
         } finally {

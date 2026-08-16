@@ -48,10 +48,11 @@ export const DEPLOYMENT_COST_SNAPSHOT_TERMINAL_STATUSES = Object.freeze([
     "FROZEN"
 ]);
 
-/** R17.8V.2P.M — terminal reimbursement statuses (immutable envelopes). */
+/** R17.8V.2P.M / P — terminal reimbursement statuses (immutable envelopes). */
 export const DEPLOYMENT_REIMBURSEMENT_TERMINAL_STATUSES = Object.freeze([
     "CONFIRMED",
-    "CANCELLED"
+    "CANCELLED",
+    "FAILED_TERMINAL"
 ]);
 
 export const RECORD_STORAGE_CATEGORY = Object.freeze({

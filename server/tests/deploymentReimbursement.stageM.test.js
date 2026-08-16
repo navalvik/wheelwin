@@ -225,14 +225,34 @@ async function main() {
 
         assert.equal(confirmedCreate.ok, false);
 
-        const confirmedPatch = applyDeploymentReimbursementStatusPatch(
+        const confirmedFromPending = applyDeploymentReimbursementStatusPatch(
             ok.payload,
             { status: DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED }
         );
 
-        assert.equal(confirmedPatch.ok, false);
+        assert.equal(confirmedFromPending.ok, false);
         assert.ok(
-            confirmedPatch.errors.includes("confirmed_not_allowed_stage_m")
+            confirmedFromPending.errors.includes(
+                "confirmed_requires_processing_txhash"
+            )
+        );
+
+        const confirmedFromProcessing = applyDeploymentReimbursementStatusPatch(
+            {
+                ...ok.payload,
+                status: DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING,
+                txHash: "chain_tx_hash"
+            },
+            {
+                status: DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED,
+                confirmedAt: Date.now()
+            }
+        );
+
+        assert.equal(confirmedFromProcessing.ok, true);
+        assert.equal(
+            confirmedFromProcessing.payload.status,
+            DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED
         );
     }
 

@@ -190,12 +190,153 @@ export class DeploymentReimbursementRepository {
         return this._persistence.listActive(
             TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT
         ).filter(
+            (record) => {
+
+                const status = record.payload?.status;
+                const txHash = String(record.payload?.txHash ?? "").trim();
+
+                // Never re-send once a broadcast txHash exists (confirmation owns it).
+                if (txHash) {
+
+                    return false;
+
+                }
+
+                return status === DEPLOYMENT_REIMBURSEMENT_STATUS.PENDING
+                    || status === DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_RETRY;
+
+            }
+        );
+
+    }
+
+    /**
+     * PROCESSING records awaiting chain confirmation (have txHash).
+     *
+     * @returns {object[]}
+     */
+    listAwaitingConfirmation() {
+
+        return this._persistence.listActive(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT
+        ).filter(
             (record) => (
-                record.payload?.status === DEPLOYMENT_REIMBURSEMENT_STATUS.PENDING
-                || record.payload?.status
-                    === DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_RETRY
+                record.payload?.status
+                    === DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING
+                && String(record.payload?.txHash ?? "").trim().length > 0
             )
         );
+
+    }
+
+    /**
+     * Persist broadcast txHash; remain PROCESSING. Does not confirm.
+     *
+     * @param {string} id
+     * @param {{ txHash: string, processedAt?: number }} input
+     * @returns {object}
+     */
+    markSent(id, input) {
+
+        const txHash = String(input?.txHash ?? "").trim();
+
+        if (!txHash) {
+
+            throw new Error("markSent requires txHash");
+
+        }
+
+        return this.updateStatus(id, {
+            status: DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING,
+            txHash,
+            processedAt: Number.isFinite(Number(input?.processedAt))
+                ? Number(input.processedAt)
+                : Date.now(),
+            errorReason: null,
+            confirmationAttempts: 0,
+            nextConfirmationAt: null,
+            confirmationError: null
+        });
+
+    }
+
+    /**
+     * PROCESSING → CONFIRMED (immutable). Requires existing txHash.
+     *
+     * @param {string} id
+     * @param {{ confirmedAt?: number }} [input]
+     * @returns {object}
+     */
+    markConfirmed(id, input = {}) {
+
+        const existing = this.findById(id);
+
+        if (!existing) {
+
+            throw new RecordNotFoundError(
+                TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT,
+                id
+            );
+
+        }
+
+        return this.updateStatus(id, {
+            status: DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED,
+            txHash: existing.payload?.txHash,
+            confirmedAt: Number.isFinite(Number(input?.confirmedAt))
+                ? Number(input.confirmedAt)
+                : Date.now(),
+            errorReason: null,
+            confirmationError: null,
+            nextConfirmationAt: null
+        });
+
+    }
+
+    /**
+     * PROCESSING → FAILED_RETRY or FAILED_TERMINAL.
+     *
+     * @param {string} id
+     * @param {{
+     *   terminal?: boolean,
+     *   errorReason?: string|null,
+     *   confirmationError?: string|null,
+     *   confirmationAttempts?: number,
+     *   nextConfirmationAt?: number|null,
+     *   nextRetryAt?: number|null,
+     *   retryCount?: number
+     * }} input
+     * @returns {object}
+     */
+    markFailed(id, input = {}) {
+
+        const terminal = Boolean(input.terminal);
+        const existing = this.findById(id);
+        const retryCount = input.retryCount !== undefined
+            ? Number(input.retryCount)
+            : Number(existing?.payload?.retryCount ?? 0) + (terminal ? 0 : 1);
+
+        return this.updateStatus(id, {
+            status: terminal
+                ? DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_TERMINAL
+                : DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_RETRY,
+            errorReason: input.errorReason ?? null,
+            confirmationError: input.confirmationError ?? input.errorReason ?? null,
+            confirmationAttempts: input.confirmationAttempts !== undefined
+                ? Number(input.confirmationAttempts)
+                : existing?.payload?.confirmationAttempts,
+            nextConfirmationAt: input.nextConfirmationAt !== undefined
+                ? input.nextConfirmationAt
+                : null,
+            nextRetryAt: terminal
+                ? null
+                : (
+                    input.nextRetryAt !== undefined
+                        ? input.nextRetryAt
+                        : Date.now() + 60_000
+                ),
+            retryCount
+        });
 
     }
 

@@ -34,6 +34,7 @@ export function isDeploymentReimbursementStatus(status) {
 export function isDeploymentReimbursementTerminal(status) {
 
     return status === DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED
-        || status === DEPLOYMENT_REIMBURSEMENT_STATUS.CANCELLED;
+        || status === DEPLOYMENT_REIMBURSEMENT_STATUS.CANCELLED
+        || status === DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_TERMINAL;
 
 }

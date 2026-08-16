@@ -1,5 +1,5 @@
 /**
- * R17.8V.2P.M — Deployment reimbursement payload validation.
+ * R17.8V.2P.M / P — Deployment reimbursement payload validation.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -120,7 +120,10 @@ export function validateDeploymentReimbursementCreateInput(input) {
         txHash: null,
         retryCount: 0,
         nextRetryAt: null,
-        errorReason: null
+        errorReason: null,
+        confirmationAttempts: 0,
+        nextConfirmationAt: null,
+        confirmationError: null
     });
 
     return { ok: true, payload };
@@ -160,10 +163,21 @@ export function applyDeploymentReimbursementStatusPatch(existingPayload, patch) 
 
     }
 
-    // Stage M: never allow CONFIRMED (implies on-chain success).
+    // Stage P: CONFIRMED only from PROCESSING with an on-chain txHash.
     if (nextStatus === DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED) {
 
-        return { ok: false, errors: ["confirmed_not_allowed_stage_m"] };
+        const txHash = patch.txHash !== undefined
+            ? patch.txHash
+            : existingPayload.txHash;
+
+        if (
+            existingPayload.status !== DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING
+            || !isNonEmptyString(txHash)
+        ) {
+
+            return { ok: false, errors: ["confirmed_requires_processing_txhash"] };
+
+        }
 
     }
 
@@ -173,7 +187,13 @@ export function applyDeploymentReimbursementStatusPatch(existingPayload, patch) 
         processedAt: patch.processedAt !== undefined
             ? patch.processedAt
             : existingPayload.processedAt,
-        confirmedAt: existingPayload.confirmedAt,
+        confirmedAt: patch.confirmedAt !== undefined
+            ? patch.confirmedAt
+            : (
+                nextStatus === DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED
+                    ? (existingPayload.confirmedAt ?? Date.now())
+                    : existingPayload.confirmedAt
+            ),
         txHash: patch.txHash !== undefined
             ? patch.txHash
             : existingPayload.txHash,
@@ -185,7 +205,16 @@ export function applyDeploymentReimbursementStatusPatch(existingPayload, patch) 
             : existingPayload.nextRetryAt,
         errorReason: patch.errorReason !== undefined
             ? patch.errorReason
-            : existingPayload.errorReason
+            : existingPayload.errorReason,
+        confirmationAttempts: patch.confirmationAttempts !== undefined
+            ? Number(patch.confirmationAttempts)
+            : (existingPayload.confirmationAttempts ?? 0),
+        nextConfirmationAt: patch.nextConfirmationAt !== undefined
+            ? patch.nextConfirmationAt
+            : (existingPayload.nextConfirmationAt ?? null),
+        confirmationError: patch.confirmationError !== undefined
+            ? patch.confirmationError
+            : (existingPayload.confirmationError ?? null)
     });
 
     return { ok: true, payload };
