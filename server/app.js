@@ -132,6 +132,8 @@ import {
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
+import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
+import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
@@ -275,6 +277,8 @@ class WheelWinApplication {
         this._paymentSessionManager = null;
 
         this._gameContractManager = null;
+
+        this._deploymentCostService = null;
 
         this._gameStartAuthorization = null;
 
@@ -1342,6 +1346,21 @@ class WheelWinApplication {
 
         this._logger.startupLine("GameContractManager");
 
+        // R17.8V.2P.J — Deployment cost snapshot capture (flag default false).
+        this._deploymentCostService = new DeploymentCostService({
+            repository: new DeploymentCostSnapshotRepository({
+                persistence: this._financialPersistence,
+                tonNetwork: this._tonConfig?.network ?? "testnet"
+            }),
+            eventBus: this._eventBus,
+            logger: this._logger,
+            env: process.env
+        });
+
+        this._deploymentCostService.initialize();
+
+        this._logger.startupLine("DeploymentCostService");
+
         const deployerWalletAddress = await this._resolveDeployerWalletAddress();
 
         this._contractSettlementManager = new ContractSettlementManager({
@@ -1944,6 +1963,16 @@ class WheelWinApplication {
             if (this._gameContractManager) {
 
                 this._gameContractManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("deploymentCostService", () => {
+
+            if (this._deploymentCostService) {
+
+                this._deploymentCostService.shutdown();
 
             }
 

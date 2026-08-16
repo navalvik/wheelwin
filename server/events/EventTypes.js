@@ -205,6 +205,9 @@ export const EVENT_TYPES = Object.freeze({
     GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
     GAME_CONTRACT_READY_FOR_PAYMENTS: "GAME_CONTRACT_READY_FOR_PAYMENTS",
 
+    // R17.8V.2P.J — post-persist deployment cost capture (no chain lookup yet).
+    DEPLOYMENT_COST_CAPTURE_REQUESTED: "DEPLOYMENT_COST_CAPTURE_REQUESTED",
+
     // P6.7 — contract payments fully confirmed on-chain.
     GAME_CONTRACT_PAYMENTS_COMPLETE: "GAME_CONTRACT_PAYMENTS_COMPLETE",
 

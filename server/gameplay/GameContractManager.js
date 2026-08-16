@@ -38,7 +38,8 @@ const R711B_EMIT_EVENTS = new Set([
     EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS,
     EVENT_TYPES.CONTRACT_DEPLOYING,
     EVENT_TYPES.CONTRACT_DEPLOYED,
-    EVENT_TYPES.CONTRACT_FAILED
+    EVENT_TYPES.CONTRACT_FAILED,
+    EVENT_TYPES.DEPLOYMENT_COST_CAPTURE_REQUESTED
 ]);
 
 const REQUESTED_OR_BEYOND = new Set([
@@ -1669,6 +1670,8 @@ export class GameContractManager {
 
         this._persistContract(current);
 
+        this._emitDeploymentCostCaptureRequested(current);
+
         this._emitClientUpdate(current);
 
         this._emit(EVENT_TYPES.GAME_CONTRACT_DEPLOYED, current.toClientSnapshot());
@@ -2009,6 +2012,59 @@ export class GameContractManager {
             EVENT_TYPES.GAME_CONTRACT_UPDATED,
             contract.toClientSnapshot()
         );
+
+    }
+
+    /**
+     * R17.8V.2P.J — Announce durable DEPLOY for cost snapshot capture.
+     * Emit only after _persistContract. No cost math / RPC / wallet secrets.
+     *
+     * @param {GameContract} contract
+     */
+    _emitDeploymentCostCaptureRequested(contract) {
+
+        const deploymentTxHash = String(contract?.deploymentTxId ?? "").trim();
+        const contractAddress = String(contract?.contractAddress ?? "").trim();
+
+        if (!deploymentTxHash || !contractAddress) {
+
+            this._log(
+                `DEPLOYMENT_COST_CAPTURE skipped | missing hash or address | `
+                    + `roomId=${contract?.roomId ?? "null"}`
+            );
+
+            return;
+
+        }
+
+        const deployWallet = String(
+            contract?.snapshot?.oracleWallet
+            ?? this._deployAdapter?._tonConfig?.oracleAddress
+            ?? this._deployAdapter?._tonConfig?.deployerExpectedAddress
+            ?? ""
+        ).trim();
+
+        if (!deployWallet) {
+
+            this._log(
+                `DEPLOYMENT_COST_CAPTURE skipped | missing deployWallet | `
+                    + `roomId=${contract?.roomId ?? "null"}`
+            );
+
+            return;
+
+        }
+
+        this._emit(EVENT_TYPES.DEPLOYMENT_COST_CAPTURE_REQUESTED, Object.freeze({
+            gameId: contract.gameId,
+            roomId: contract.roomId,
+            contractId: contract.contractId,
+            contractAddress,
+            deploymentTxHash,
+            deployWallet,
+            deployedAt: contract.deployedAt ?? Date.now(),
+            timestamp: Date.now()
+        }));
 
     }
 

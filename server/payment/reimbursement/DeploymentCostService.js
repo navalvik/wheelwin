@@ -1,10 +1,13 @@
 /**
- * R17.8V.2P.I — Deployment Cost Snapshot service foundation (Stage B).
+ * R17.8V.2P.I / R17.8V.2P.J — Deployment Cost Snapshot service.
  *
- * Creates PENDING_LOOKUP snapshots via repository only.
- * No EventBus wiring, blockchain lookup, freeze, or reimbursement.
+ * Stage B: PENDING_LOOKUP create API.
+ * Stage C: EventBus subscription for DEPLOYMENT_COST_CAPTURE_REQUESTED.
+ *
+ * No blockchain lookup, freeze, or reimbursement in these stages.
  */
 
+import { EVENT_TYPES } from "../../events/EventTypes.js";
 import { DuplicateRecordError } from "../../persistence/TonFinancialPersistence.js";
 import { isDeploymentCostSnapshotEnabled } from "./deploymentCostSnapshotConfig.js";
 import { DEPLOYMENT_COST_SNAPSHOT_STATUS } from "./deploymentCostSnapshotStates.js";
@@ -37,12 +40,14 @@ export class DeploymentCostService {
     /**
      * @param {{
      *   repository: import("./DeploymentCostSnapshotRepository.js").DeploymentCostSnapshotRepository,
+     *   eventBus?: { subscribe: Function, unsubscribe: Function }|null,
      *   logger?: { debug?: Function, info?: Function, warn?: Function, error?: Function }|null,
      *   env?: NodeJS.ProcessEnv
      * }} options
      */
     constructor({
         repository,
+        eventBus = null,
         logger = null,
         env = process.env
     } = {}) {
@@ -55,23 +60,68 @@ export class DeploymentCostService {
 
         this._repository = repository;
 
+        this._eventBus = eventBus;
+
         this._logger = logger;
 
         this._env = env;
 
         this._initialized = false;
 
+        this._handlers = [];
+
+        this._onCaptureRequested = (envelope) => {
+
+            try {
+
+                this.handleDeploymentCostCaptureRequested(envelope?.payload);
+
+            } catch (error) {
+
+                this._logger?.error?.(
+                    `DeploymentCostService capture handler error | ${error?.message ?? error}`
+                );
+
+            }
+
+        };
+
     }
 
     initialize() {
 
+        if (this._initialized) {
+
+            return;
+
+        }
+
         this._initialized = true;
 
-        this._logger?.debug?.("DeploymentCostService initialized (Stage B skeleton)");
+        if (this._eventBus) {
+
+            this._subscribe(
+                EVENT_TYPES.DEPLOYMENT_COST_CAPTURE_REQUESTED,
+                this._onCaptureRequested
+            );
+
+        }
+
+        this._logger?.debug?.(
+            "DeploymentCostService initialized (Stage C EventBus capture)"
+        );
 
     }
 
     shutdown() {
+
+        for (const { event, handler } of this._handlers) {
+
+            this._eventBus?.unsubscribe?.(event, handler);
+
+        }
+
+        this._handlers = [];
 
         this._initialized = false;
 
@@ -80,7 +130,19 @@ export class DeploymentCostService {
     }
 
     /**
-     * Primary Stage B entry: validate + create PENDING_LOOKUP (or return existing).
+     * Stage C EventBus handler — never throws into the bus.
+     *
+     * @param {DeploymentCostCaptureInput|null|undefined} payload
+     * @returns {DeploymentCostServiceResult}
+     */
+    handleDeploymentCostCaptureRequested(payload) {
+
+        return this.captureDeploymentCost(payload ?? {});
+
+    }
+
+    /**
+     * Primary entry: validate + create PENDING_LOOKUP (or return existing).
      * Non-blocking result object — does not throw for business outcomes.
      *
      * @param {DeploymentCostCaptureInput} input
@@ -290,6 +352,14 @@ export class DeploymentCostService {
             deployWallet: input.deployWallet,
             createdAt
         };
+
+    }
+
+    _subscribe(event, handler) {
+
+        this._eventBus.subscribe(event, handler);
+
+        this._handlers.push({ event, handler });
 
     }
 
