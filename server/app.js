@@ -140,6 +140,10 @@ import { DeploymentReimbursementWorker } from "./payment/reimbursement/Deploymen
 import { ReimbursementTransferService } from "./payment/reimbursement/ReimbursementTransferService.js";
 import { ReimbursementWalletAdapter } from "./payment/reimbursement/ReimbursementWalletAdapter.js";
 import { ReimbursementConfirmationService } from "./payment/reimbursement/ReimbursementConfirmationService.js";
+import { ReimbursementPolicy } from "./payment/reimbursement/ReimbursementPolicy.js";
+import { ReimbursementWalletMonitor } from "./payment/reimbursement/ReimbursementWalletMonitor.js";
+import { ReimbursementTransactionScanner } from "./payment/reimbursement/ReimbursementTransactionScanner.js";
+import { isDeploymentReimbursementEnabled } from "./payment/reimbursement/deploymentReimbursementConfig.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
@@ -1390,35 +1394,76 @@ class WheelWinApplication {
 
         this._logger.startupLine("DeploymentReimbursementService");
 
-        // R17.8V.2P.O — Transfer boundary (disabled by default; no Owner mnemonic).
+        // R17.8V.2P.O / Q — Transfer boundary with production safety gates.
         const reimbursementSnapshotRepository = new DeploymentCostSnapshotRepository({
             persistence: this._financialPersistence,
             tonNetwork: this._tonConfig?.network ?? "testnet"
         });
 
+        const reimbursementAdapter = new ReimbursementWalletAdapter({
+            tonService: this._services?.tonService ?? null,
+            logger: this._logger,
+            env: process.env
+        });
+
+        const reimbursementPolicy = new ReimbursementPolicy({
+            repository: this._deploymentReimbursementRepository,
+            env: process.env,
+            eventBus: this._eventBus,
+            logger: this._logger
+        });
+
+        const reimbursementWalletMonitor = new ReimbursementWalletMonitor({
+            tonService: this._services?.tonService ?? null,
+            getAddress: () => reimbursementAdapter.getAddress(),
+            env: process.env,
+            eventBus: this._eventBus,
+            logger: this._logger
+        });
+
         this._reimbursementTransferService = new ReimbursementTransferService({
-            adapter: new ReimbursementWalletAdapter({
-                tonService: this._services?.tonService ?? null,
-                logger: this._logger,
-                env: process.env
-            }),
+            adapter: reimbursementAdapter,
             snapshotRepository: reimbursementSnapshotRepository,
+            policy: reimbursementPolicy,
+            walletMonitor: reimbursementWalletMonitor,
             logger: this._logger,
             env: process.env
         });
 
         await this._reimbursementTransferService.initialize();
 
-        // R17.8V.2P.P — Chain confirmation + restart recovery (no new sends).
+        const reimbursementTransport =
+            this._services?.tonService?.getTransport?.() ?? null;
+
+        // R17.8V.2P.P / Q — Chain confirmation + deep hash recovery (no new sends).
         this._reimbursementConfirmationService = new ReimbursementConfirmationService({
             repository: this._deploymentReimbursementRepository,
-            transport: this._services?.tonService?.getTransport?.() ?? null,
+            transport: reimbursementTransport,
+            scanner: new ReimbursementTransactionScanner({
+                transport: reimbursementTransport,
+                logger: this._logger
+            }),
             eventBus: this._eventBus,
             logger: this._logger,
             env: process.env
         });
 
         this._reimbursementConfirmationService.initialize();
+
+        if (isDeploymentReimbursementEnabled(process.env)) {
+
+            void this._reimbursementConfirmationService
+                .recoverPendingConfirmations()
+                .catch((error) => {
+
+                    this._logger?.error?.(
+                        `ReimbursementConfirmationService recovery failed | `
+                            + `${error?.message ?? error}`
+                    );
+
+                });
+
+        }
 
         this._logger.startupLine("ReimbursementConfirmationService");
 

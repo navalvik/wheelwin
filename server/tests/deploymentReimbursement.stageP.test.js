@@ -414,12 +414,11 @@ async function main() {
         // --- Retry: delayed tx (not found) then found ---
 
         {
-            let calls = 0;
+            let visible = false;
 
             const transport = {
                 async getTransactions() {
-                    calls += 1;
-                    return calls === 1 ? [] : [mockTx()];
+                    return visible ? [mockTx()] : [];
                 }
             };
 
@@ -444,6 +443,8 @@ async function main() {
                 String(pending.record.payload.confirmationError),
                 /transaction_not_found/
             );
+
+            visible = true;
 
             stack.repository.updateStatus(pending.record.recordId, {
                 status: DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING,

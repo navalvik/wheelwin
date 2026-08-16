@@ -185,18 +185,36 @@ export class DeploymentReimbursementRepository {
     /**
      * @returns {object[]}
      */
-    listPending() {
+    listActiveReimbursements() {
 
         return this._persistence.listActive(
             TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT
-        ).filter(
+        );
+
+    }
+
+    /**
+     * @returns {object[]}
+     */
+    listPending() {
+
+        return this.listActiveReimbursements().filter(
             (record) => {
 
                 const status = record.payload?.status;
                 const txHash = String(record.payload?.txHash ?? "").trim();
 
-                // Never re-send once a broadcast txHash exists (confirmation owns it).
+                // Never re-send once a broadcast txHash exists or hash recovery is pending.
                 if (txHash) {
+
+                    return false;
+
+                }
+
+                if (
+                    status
+                        === DEPLOYMENT_REIMBURSEMENT_STATUS.AWAITING_TRANSACTION_HASH
+                ) {
 
                     return false;
 
@@ -217,13 +235,27 @@ export class DeploymentReimbursementRepository {
      */
     listAwaitingConfirmation() {
 
-        return this._persistence.listActive(
-            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT
-        ).filter(
+        return this.listActiveReimbursements().filter(
             (record) => (
                 record.payload?.status
                     === DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING
                 && String(record.payload?.txHash ?? "").trim().length > 0
+            )
+        );
+
+    }
+
+    /**
+     * Broadcast accepted but real txHash not yet known.
+     *
+     * @returns {object[]}
+     */
+    listAwaitingTransactionHash() {
+
+        return this.listActiveReimbursements().filter(
+            (record) => (
+                record.payload?.status
+                    === DEPLOYMENT_REIMBURSEMENT_STATUS.AWAITING_TRANSACTION_HASH
             )
         );
 
@@ -242,7 +274,13 @@ export class DeploymentReimbursementRepository {
 
         if (!txHash) {
 
-            throw new Error("markSent requires txHash");
+            throw new Error("markSent requires real txHash");
+
+        }
+
+        if (/^reimb_seqno_/i.test(txHash)) {
+
+            throw new Error("markSent rejects synthetic txHash");
 
         }
 
@@ -261,7 +299,32 @@ export class DeploymentReimbursementRepository {
     }
 
     /**
-     * PROCESSING → CONFIRMED (immutable). Requires existing txHash.
+     * Broadcast without recoverable hash — never invent a hash.
+     *
+     * @param {string} id
+     * @param {{ processedAt?: number, seqno?: number|null }} [input]
+     * @returns {object}
+     */
+    markAwaitingTransactionHash(id, input = {}) {
+
+        return this.updateStatus(id, {
+            status: DEPLOYMENT_REIMBURSEMENT_STATUS.AWAITING_TRANSACTION_HASH,
+            txHash: null,
+            processedAt: Number.isFinite(Number(input?.processedAt))
+                ? Number(input.processedAt)
+                : Date.now(),
+            errorReason: input?.seqno != null
+                ? `awaiting_tx_hash_seqno_${input.seqno}`
+                : "awaiting_transaction_hash",
+            confirmationAttempts: 0,
+            nextConfirmationAt: null,
+            confirmationError: null
+        });
+
+    }
+
+    /**
+     * PROCESSING / AWAITING → CONFIRMED (immutable). Requires existing txHash.
      *
      * @param {string} id
      * @param {{ confirmedAt?: number }} [input]

@@ -18,6 +18,7 @@ import {
     extractReimbursementTransferFromTransaction,
     transactionHashOf
 } from "./extractReimbursementTransferFromTransaction.js";
+import { ReimbursementTransactionScanner } from "./ReimbursementTransactionScanner.js";
 
 export const REIMBURSEMENT_CONFIRMATION_RESULT = Object.freeze({
     CONFIRMED: "CONFIRMED",
@@ -29,7 +30,8 @@ export const REIMBURSEMENT_CONFIRMATION_RESULT = Object.freeze({
     NOT_INITIALIZED: "NOT_INITIALIZED",
     ALREADY_CONFIRMED: "ALREADY_CONFIRMED",
     NO_TX_HASH: "NO_TX_HASH",
-    TRANSPORT_MISSING: "TRANSPORT_MISSING"
+    TRANSPORT_MISSING: "TRANSPORT_MISSING",
+    TX_RECOVERED: "TX_RECOVERED"
 });
 
 export class ReimbursementConfirmationService {
@@ -38,6 +40,7 @@ export class ReimbursementConfirmationService {
      * @param {{
      *   repository: import("./DeploymentReimbursementRepository.js").DeploymentReimbursementRepository,
      *   transport?: { getTransactions: Function }|null,
+     *   scanner?: import("./ReimbursementTransactionScanner.js").ReimbursementTransactionScanner|null,
      *   eventBus?: { emit?: Function }|null,
      *   logger?: object|null,
      *   env?: NodeJS.ProcessEnv,
@@ -47,6 +50,7 @@ export class ReimbursementConfirmationService {
     constructor({
         repository,
         transport = null,
+        scanner = null,
         eventBus = null,
         logger = null,
         env = process.env,
@@ -63,6 +67,15 @@ export class ReimbursementConfirmationService {
 
         this._repository = repository;
         this._transport = transport;
+        this._scanner = scanner ?? (
+            transport
+                ? new ReimbursementTransactionScanner({
+                    transport,
+                    logger,
+                    pageSize: transactionLookupLimit
+                })
+                : null
+        );
         this._eventBus = eventBus;
         this._logger = logger;
         this._env = env;
@@ -86,22 +99,11 @@ export class ReimbursementConfirmationService {
         this._initialized = true;
 
         this._logger?.debug?.(
-            "ReimbursementConfirmationService initialized (Stage P)"
+            "ReimbursementConfirmationService initialized (Stage Q)"
         );
 
-        if (isDeploymentReimbursementEnabled(this._env)) {
-
-            void this.recoverPendingConfirmations()
-                .catch((error) => {
-
-                    this._logger?.error?.(
-                        `ReimbursementConfirmationService recovery failed | `
-                            + `${error?.message ?? error}`
-                    );
-
-                });
-
-        }
+        // Recovery is awaited by the worker / app startup — do not fire-and-forget
+        // here (avoids busy-lock races with explicit recoverPendingConfirmations).
 
     }
 
@@ -217,13 +219,24 @@ export class ReimbursementConfirmationService {
 
         }
 
-        let transactions;
+        let matched = null;
 
         try {
 
-            transactions = await this._transport.getTransactions(wallet, {
-                limit: this._transactionLookupLimit
+            const shallow = await this._transport.getTransactions(wallet, {
+                limit: this._transactionLookupLimit,
+                archival: true
             });
+
+            const list = Array.isArray(shallow) ? shallow : [];
+
+            matched = list.find((tx) => transactionHashOf(tx) === txHash) ?? null;
+
+            if (!matched && this._scanner?.findByTxHash) {
+
+                matched = await this._scanner.findByTxHash(wallet, txHash);
+
+            }
 
         } catch (error) {
 
@@ -235,11 +248,6 @@ export class ReimbursementConfirmationService {
             );
 
         }
-
-        const list = Array.isArray(transactions) ? transactions : [];
-        const matched = list.find(
-            (tx) => transactionHashOf(tx) === txHash
-        );
 
         if (!matched) {
 
@@ -275,9 +283,34 @@ export class ReimbursementConfirmationService {
 
         }
 
-        const confirmed = this._repository.markConfirmed(record.recordId, {
-            confirmedAt: Date.now()
-        });
+        let confirmed;
+
+        try {
+
+            confirmed = this._repository.markConfirmed(record.recordId, {
+                confirmedAt: Date.now()
+            });
+
+        } catch (error) {
+
+            const latest = this._repository.findById(record.recordId);
+
+            if (
+                latest?.payload?.status
+                    === DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED
+            ) {
+
+                return {
+                    ok: true,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.ALREADY_CONFIRMED,
+                    record: latest
+                };
+
+            }
+
+            throw error;
+
+        }
 
         this._emitAudit(EVENT_TYPES.REIMBURSEMENT_CONFIRMED, {
             gameId,
@@ -300,7 +333,7 @@ export class ReimbursementConfirmationService {
 
     /**
      * Restart / stuck recovery: confirm all PROCESSING+txHash due records.
-     * Never resends.
+     * Also recovers AWAITING_TRANSACTION_HASH via deep scan. Never resends.
      *
      * @returns {Promise<{ scanned: number, results: object[] }>}
      */
@@ -328,11 +361,13 @@ export class ReimbursementConfirmationService {
 
         try {
 
+            const hashRecovery = await this.recoverMissingTransactionHashes();
+
             const awaiting = this._repository.listAwaitingConfirmation();
             const due = awaiting.filter(
                 (record) => isReimbursementConfirmationDue(record.payload)
             );
-            const results = [];
+            const results = [...(hashRecovery.results ?? [])];
 
             for (const record of due) {
 
@@ -346,8 +381,9 @@ export class ReimbursementConfirmationService {
             }
 
             return {
-                scanned: awaiting.length,
+                scanned: awaiting.length + (hashRecovery.scanned ?? 0),
                 due: due.length,
+                hashRecovery,
                 results
             };
 
@@ -356,6 +392,131 @@ export class ReimbursementConfirmationService {
             this._running = false;
 
         }
+
+    }
+
+    /**
+     * Case 1: PROCESSING/AWAITING without txHash after broadcast — deep scan only.
+     *
+     * @returns {Promise<{ scanned: number, results: object[] }>}
+     */
+    async recoverMissingTransactionHashes() {
+
+        if (!this._initialized || !this._scanner?.findOutgoingTransfer) {
+
+            return { scanned: 0, results: [] };
+
+        }
+
+        const awaiting = this._repository.listAwaitingTransactionHash?.() ?? [];
+        const results = [];
+
+        for (const record of awaiting) {
+
+            const wallet = String(record.payload?.reimbursementWallet ?? "").trim();
+            const deployWallet = String(record.payload?.deployWallet ?? "").trim();
+            const amountTon = String(record.payload?.amountTon ?? "").trim();
+
+            if (!wallet || !deployWallet || !amountTon) {
+
+                results.push({
+                    recordId: record.recordId,
+                    ok: false,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.SKIPPED,
+                    message: "incomplete_recovery_fields"
+                });
+
+                continue;
+
+            }
+
+            let found;
+
+            try {
+
+                found = await this._scanner.findOutgoingTransfer({
+                    walletAddress: wallet,
+                    deployWallet,
+                    amountTon,
+                    processedAt: record.payload?.processedAt ?? record.payload?.createdAt
+                });
+
+            } catch (error) {
+
+                results.push({
+                    recordId: record.recordId,
+                    ok: false,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.PENDING,
+                    message: error?.message ?? "scan_failed"
+                });
+
+                continue;
+
+            }
+
+            if (!found.ok) {
+
+                results.push({
+                    recordId: record.recordId,
+                    ok: false,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.PENDING,
+                    message: found.reason
+                });
+
+                continue;
+
+            }
+
+            const sent = this._repository.markSent(record.recordId, {
+                txHash: found.txHash,
+                processedAt: record.payload?.processedAt ?? Date.now()
+            });
+
+            this._emitAudit(EVENT_TYPES.REIMBURSEMENT_TX_RECOVERED, {
+                gameId: record.payload?.gameId ?? null,
+                txHash: found.txHash,
+                attempt: Number(record.payload?.confirmationAttempts ?? 0),
+                status: DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING,
+                amount: amountTon
+            });
+
+            let confirmation;
+
+            try {
+
+                confirmation = await this.confirmTransaction(sent.recordId);
+
+            } catch (error) {
+
+                results.push({
+                    recordId: record.recordId,
+                    ok: true,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.TX_RECOVERED,
+                    recoveredTxHash: found.txHash,
+                    confirmation: {
+                        ok: false,
+                        message: error?.message ?? "confirm_after_recover_failed"
+                    }
+                });
+
+                continue;
+
+            }
+
+            results.push({
+                recordId: record.recordId,
+                ok: true,
+                code: REIMBURSEMENT_CONFIRMATION_RESULT.TX_RECOVERED,
+                recoveredTxHash: found.txHash,
+                confirmation
+            });
+
+        }
+
+        return {
+            scanned: awaiting.length,
+            results
+        };
 
     }
 
@@ -442,7 +603,9 @@ export class ReimbursementConfirmationService {
             txHash: payload?.txHash ?? null,
             attempt: payload?.attempt ?? null,
             status: payload?.status ?? null,
-            reason: payload?.reason ?? null
+            reason: payload?.reason ?? null,
+            amount: payload?.amount ?? null,
+            timestamp: payload?.timestamp ?? Date.now()
         });
 
         this._logger?.info?.(

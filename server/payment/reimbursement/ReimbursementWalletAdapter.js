@@ -253,8 +253,23 @@ export class ReimbursementWalletAdapter {
 
             const broadcast = await this._tonService.broadcastTransaction(bocBase64);
 
-            const txHash = extractBroadcastTxHash(broadcast)
-                ?? `reimb_seqno_${seqno}_${Date.now()}`;
+            const txHash = extractBroadcastTxHash(broadcast);
+
+            if (!txHash) {
+
+                this._logger?.warn?.(
+                    `ReimbursementWalletAdapter broadcast accepted without txHash | `
+                        + `to=${dest} | amount=${amount} | seqno=${seqno}`
+                );
+
+                return {
+                    ok: true,
+                    code: "AWAITING_TRANSACTION_HASH",
+                    txHash: null,
+                    seqno
+                };
+
+            }
 
             this._logger?.info?.(
                 `ReimbursementWalletAdapter SENT | to=${dest} | amount=${amount} | `

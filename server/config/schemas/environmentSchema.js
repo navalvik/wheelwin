@@ -667,6 +667,26 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         suggestedFix:
             "Set REIMBURSEMENT_MAX_TRANSFER to the max TON amount per reimbursement send."
     }),
+    // R17.8V.2P.Q — UTC daily spend cap (confirmed + in-flight).
+    REIMBURSEMENT_DAILY_LIMIT: Object.freeze({
+        key: "REIMBURSEMENT_DAILY_LIMIT",
+        type: "string",
+        required: false,
+        defaultValue: "1",
+        category: "TON",
+        suggestedFix:
+            "Set REIMBURSEMENT_DAILY_LIMIT to the max TON reimbursed per UTC day."
+    }),
+    // R17.8V.2P.Q — Leave this reserve in the reimbursement wallet after sends.
+    REIMBURSEMENT_WALLET_RESERVE: Object.freeze({
+        key: "REIMBURSEMENT_WALLET_RESERVE",
+        type: "string",
+        required: false,
+        defaultValue: "0.05",
+        category: "TON",
+        suggestedFix:
+            "Set REIMBURSEMENT_WALLET_RESERVE to TON left in the reimbursement wallet after each send."
+    }),
     // R17.8V.2P.O — Reimbursement wallet mnemonic (Railway secret; never log).
     TON_REIMBURSEMENT_MNEMONIC: Object.freeze({
         key: "TON_REIMBURSEMENT_MNEMONIC",

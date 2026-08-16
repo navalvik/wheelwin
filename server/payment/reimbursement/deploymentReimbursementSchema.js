@@ -163,7 +163,7 @@ export function applyDeploymentReimbursementStatusPatch(existingPayload, patch) 
 
     }
 
-    // Stage P: CONFIRMED only from PROCESSING with an on-chain txHash.
+    // Stage P/Q: CONFIRMED only from PROCESSING with a real on-chain txHash.
     if (nextStatus === DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED) {
 
         const txHash = patch.txHash !== undefined
@@ -173,6 +173,7 @@ export function applyDeploymentReimbursementStatusPatch(existingPayload, patch) 
         if (
             existingPayload.status !== DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING
             || !isNonEmptyString(txHash)
+            || /^reimb_seqno_/i.test(String(txHash))
         ) {
 
             return { ok: false, errors: ["confirmed_requires_processing_txhash"] };

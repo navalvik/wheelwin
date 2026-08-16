@@ -217,13 +217,32 @@ export class TonCenterTransport {
 
     }
 
-    async getTransactions(address, { limit = 20, archival = true } = {}) {
+    async getTransactions(address, {
+        limit = 20,
+        archival = true,
+        lt = null,
+        hash = null
+    } = {}) {
 
-        return this.call("getTransactions", {
+        const params = {
             address,
             limit,
             archival
-        });
+        };
+
+        if (lt != null && String(lt).trim()) {
+
+            params.lt = String(lt).trim();
+
+        }
+
+        if (hash != null && String(hash).trim()) {
+
+            params.hash = String(hash).trim();
+
+        }
+
+        return this.call("getTransactions", params);
 
     }
 

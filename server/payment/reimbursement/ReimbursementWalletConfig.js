@@ -16,9 +16,17 @@ export const TON_REIMBURSEMENT_EXPECTED_ADDRESS_ENV =
     "TON_REIMBURSEMENT_EXPECTED_ADDRESS";
 export const REIMBURSEMENT_ENABLED_ENV = "REIMBURSEMENT_ENABLED";
 export const REIMBURSEMENT_MAX_TRANSFER_ENV = "REIMBURSEMENT_MAX_TRANSFER";
+export const REIMBURSEMENT_DAILY_LIMIT_ENV = "REIMBURSEMENT_DAILY_LIMIT";
+export const REIMBURSEMENT_WALLET_RESERVE_ENV = "REIMBURSEMENT_WALLET_RESERVE";
 
 /** Conservative default; override via env for production. */
 export const DEFAULT_REIMBURSEMENT_MAX_TRANSFER_TON = "0.05";
+
+/** UTC daily spend cap across confirmed + in-flight reimbursements. */
+export const DEFAULT_REIMBURSEMENT_DAILY_LIMIT_TON = "1";
+
+/** Leave this much TON in the reimbursement wallet after each send. */
+export const DEFAULT_REIMBURSEMENT_WALLET_RESERVE_TON = "0.05";
 
 export const REIMBURSEMENT_WALLET_CONTRACT_TYPE = "WalletContractV4R2";
 export const REIMBURSEMENT_WALLET_WORKCHAIN = 0;
@@ -74,6 +82,42 @@ export function getReimbursementMaxTransferTon(env = process.env) {
     }
 
     return DEFAULT_REIMBURSEMENT_MAX_TRANSFER_TON;
+
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string}
+ */
+export function getReimbursementDailyLimitTon(env = process.env) {
+
+    const raw = String(env?.[REIMBURSEMENT_DAILY_LIMIT_ENV] ?? "").trim();
+
+    if (raw && tonStringToNanoton(raw) != null) {
+
+        return raw;
+
+    }
+
+    return DEFAULT_REIMBURSEMENT_DAILY_LIMIT_TON;
+
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string}
+ */
+export function getReimbursementWalletReserveTon(env = process.env) {
+
+    const raw = String(env?.[REIMBURSEMENT_WALLET_RESERVE_ENV] ?? "").trim();
+
+    if (raw && tonStringToNanoton(raw) != null) {
+
+        return raw;
+
+    }
+
+    return DEFAULT_REIMBURSEMENT_WALLET_RESERVE_TON;
 
 }
 
