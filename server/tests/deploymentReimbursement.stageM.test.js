@@ -149,8 +149,7 @@ function assertNoForbiddenSourcePatterns() {
         /WalletContract/,
         /fromSecretKey/,
         /openWallet/,
-        /GameEscrow/,
-        /settle/i
+        /GameEscrow/
     ];
 
     for (const file of files) {

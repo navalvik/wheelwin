@@ -1372,13 +1372,21 @@ class WheelWinApplication {
             tonNetwork: this._tonConfig?.network ?? "testnet"
         });
 
+        // R17.8V.2P.N — Settlement → reimbursement queue (async; no TON send).
         this._deploymentReimbursementService = new DeploymentReimbursementService({
             repository: this._deploymentReimbursementRepository,
+            snapshotRepository: new DeploymentCostSnapshotRepository({
+                persistence: this._financialPersistence,
+                tonNetwork: this._tonConfig?.network ?? "testnet"
+            }),
+            eventBus: this._eventBus,
             logger: this._logger,
             env: process.env
         });
 
         this._deploymentReimbursementService.initialize();
+
+        this._logger.startupLine("DeploymentReimbursementService");
 
         this._deploymentReimbursementWorker = new DeploymentReimbursementWorker({
             repository: this._deploymentReimbursementRepository,
