@@ -1,14 +1,18 @@
 /**
- * R17.9G — Read-only Runtime Configuration snapshot for Developer Console.
+ * R17.9G / R17.9G.1 — Runtime Configuration snapshot for Developer Console.
  *
- * Observes existing authoritative loaders / catalogs only.
- * Never mutates gameplay, payments, physics, or wallets.
+ * Observes authoritative loaders / catalogs + durable overrides.
  * Never returns mnemonics or private keys.
+ * Viewer responses redact editable fields.
  */
 
 import { OwnerConfiguration } from "../../config/OwnerConfiguration.js";
 import { PAYMENT_RULES } from "../../catalog/PaymentRules.js";
 import { STAKES } from "../../catalog/Stakes.js";
+import {
+    DEFAULT_SETTLEMENT_TIMEOUT_MS,
+    RUNTIME_CONFIG_EDITABLE_KEYS
+} from "./runtimeConfigurationKeys.js";
 
 /**
  * @param {number} ms
@@ -41,7 +45,30 @@ function safeAddress(address) {
 }
 
 /**
- * Build immutable runtime configuration DTO for GET /console/configuration/runtime.
+ * @param {number|null|undefined} override
+ * @param {number|null|undefined} fallback
+ * @returns {number|null}
+ */
+function pickMs(override, fallback) {
+
+    if (Number.isFinite(Number(override)) && Number(override) > 0) {
+
+        return Number(override);
+
+    }
+
+    if (Number.isFinite(Number(fallback)) && Number(fallback) > 0) {
+
+        return Number(fallback);
+
+    }
+
+    return null;
+
+}
+
+/**
+ * Build runtime configuration DTO for GET /console/configuration/runtime.
  *
  * @param {{
  *   runtimeConfig?: {
@@ -49,18 +76,27 @@ function safeAddress(address) {
  *     gameplayPhases?: object,
  *     ton?: object
  *   }|null,
- *   env?: NodeJS.ProcessEnv
+ *   env?: NodeJS.ProcessEnv,
+ *   overrides?: Record<string, number>|null,
+ *   configVersion?: number|null,
+ *   canEdit?: boolean,
+ *   settlementTimeoutMsDefault?: number|null
  * }} [options]
  * @returns {object}
  */
 export function buildRuntimeConfigurationSnapshot({
     runtimeConfig = null,
-    env = process.env
+    env = process.env,
+    overrides = null,
+    configVersion = null,
+    canEdit = false,
+    settlementTimeoutMsDefault = DEFAULT_SETTLEMENT_TIMEOUT_MS
 } = {}) {
 
     const rooms = runtimeConfig?.rooms ?? {};
     const phases = runtimeConfig?.gameplayPhases ?? {};
     const ton = runtimeConfig?.ton ?? {};
+    const ov = overrides && typeof overrides === "object" ? overrides : {};
 
     let ownerWallet = null;
 
@@ -83,28 +119,107 @@ export function buildRuntimeConfigurationSnapshot({
         env.TON_REIMBURSEMENT_EXPECTED_ADDRESS
     );
 
-    const stakes = Array.isArray(STAKES) ? [...STAKES] : [];
-    const feeRate = Number(PAYMENT_RULES.platformFeeRate);
+    const catalogStakes = Array.isArray(STAKES) ? [...STAKES] : [];
+    const stake1 = Number.isFinite(Number(ov.baseStake1Gram))
+        ? Number(ov.baseStake1Gram)
+        : (catalogStakes[0] ?? null);
+    const stake2 = Number.isFinite(Number(ov.baseStake2Gram))
+        ? Number(ov.baseStake2Gram)
+        : (catalogStakes[1] ?? null);
+
+    const catalogFeeRate = Number(PAYMENT_RULES.platformFeeRate);
+    const ownerFeePercent = Number.isFinite(Number(ov.ownerFeePercent))
+        ? Number(ov.ownerFeePercent)
+        : (Number.isFinite(catalogFeeRate)
+            ? Math.round(catalogFeeRate * 1000) / 10
+            : null);
+    const ownerFeeRate = Number.isFinite(ownerFeePercent)
+        ? ownerFeePercent / 100
+        : (Number.isFinite(catalogFeeRate) ? catalogFeeRate : null);
+
+    const setupTimeoutMs = pickMs(ov.setupTimeoutMs, rooms.setupDurationMs);
+    const paymentTimeoutMs = pickMs(
+        ov.paymentTimeoutMs,
+        rooms.paymentSessionDurationMs
+    );
+    const countdownDurationMs = pickMs(
+        ov.countdownDurationMs,
+        phases.readyDurationMs
+    );
+    const brakeDurationMs = pickMs(ov.brakeDurationMs, phases.brakeDurationMs);
+    const settlementTimeoutMs = pickMs(
+        ov.settlementTimeoutMs,
+        settlementTimeoutMsDefault
+    );
+
+    const wallets = Object.freeze({
+        ownerWallet,
+        deployWallet,
+        reimbursementWallet,
+        tonNetwork: ton.network ?? null,
+        readOnly: true,
+        secrets: Object.freeze({
+            ownerMnemonicExposed: false,
+            deployerMnemonicConfigured: Boolean(ton.deployerMnemonic),
+            reimbursementMnemonicConfigured: Boolean(
+                String(env.TON_REIMBURSEMENT_MNEMONIC ?? "").trim()
+            ),
+            note: "Mnemonics are never returned by this API."
+        })
+    });
+
+    // Viewer: hide editable values completely; wallets remain visible (read-only).
+    if (!canEdit) {
+
+        return Object.freeze({
+            schemaVersion: 1,
+            readOnly: true,
+            canEdit: false,
+            generatedAt: Date.now(),
+            configVersion: configVersion ?? null,
+            applyScope: "next_game_initialization_only",
+            notes: Object.freeze({
+                access:
+                    "Editable Runtime Configuration values require Administrator.",
+                wallets: "Wallet addresses are read-only infrastructure pins."
+            }),
+            timers: null,
+            financial: null,
+            wallets,
+            editable: Object.freeze([])
+        });
+
+    }
+
+    const stakes = [stake1, stake2].filter((n) => Number.isFinite(n));
 
     return Object.freeze({
         schemaVersion: 1,
-        readOnly: true,
+        readOnly: false,
+        canEdit: true,
         generatedAt: Date.now(),
+        configVersion: configVersion ?? null,
+        applyScope: "next_game_initialization_only",
         notes: Object.freeze({
             verifyTimeout:
                 "No separate VERIFY_DURATION_MS. VERIFY rides the Setup Timer.",
             countdown:
                 "Displayed as READY phase duration (server GameClock READY).",
-            mutation: "Editing is not available in R17.9G (read-only)."
+            settlementTimeout:
+                "SettlementTimeout applies to future settlements only.",
+            mutation:
+                "Changes apply to the next GAME_INITIALIZED snapshot only."
         }),
+        editable: Object.freeze([...RUNTIME_CONFIG_EDITABLE_KEYS]),
         timers: Object.freeze({
-            setupTimeoutMs: Number(rooms.setupDurationMs) || null,
-            setupTimeoutSec: msToSeconds(rooms.setupDurationMs),
-            verifyTimeoutMs: Number(rooms.setupDurationMs) || null,
-            verifyTimeoutSec: msToSeconds(rooms.setupDurationMs),
+            setupTimeoutMs,
+            setupTimeoutSec: msToSeconds(setupTimeoutMs),
+            verifyTimeoutMs: setupTimeoutMs,
+            verifyTimeoutSec: msToSeconds(setupTimeoutMs),
             verifyTimeoutSource: "setupTimeout",
-            paymentTimeoutMs: Number(rooms.paymentSessionDurationMs) || null,
-            paymentTimeoutSec: msToSeconds(rooms.paymentSessionDurationMs),
+            verifyEditable: false,
+            paymentTimeoutMs,
+            paymentTimeoutSec: msToSeconds(paymentTimeoutMs),
             walletConnectionTimeoutMs:
                 Number(rooms.walletConnectionDurationMs) || null,
             walletConnectionTimeoutSec: msToSeconds(
@@ -119,46 +234,35 @@ export function buildRuntimeConfigurationSnapshot({
             ),
             resultSessionTimeoutMs: Number(rooms.resultSessionDurationMs) || null,
             resultSessionTimeoutSec: msToSeconds(rooms.resultSessionDurationMs),
-            countdownDurationMs: Number(phases.readyDurationMs) || null,
-            countdownDurationSec: msToSeconds(phases.readyDurationMs),
+            countdownDurationMs,
+            countdownDurationSec: msToSeconds(countdownDurationMs),
             preGameReadyDurationMs: Number(phases.preGameReadyDurationMs) || null,
             preGameReadyDurationSec: msToSeconds(phases.preGameReadyDurationMs),
             selfTestDurationMs: Number(phases.selfTestDurationMs) || null,
             selfTestDurationSec: msToSeconds(phases.selfTestDurationMs),
             speedDurationMs: Number(phases.speedDurationMs) || null,
             speedDurationSec: msToSeconds(phases.speedDurationMs),
-            brakeDurationMs: Number(phases.brakeDurationMs) || null,
-            brakeDurationSec: msToSeconds(phases.brakeDurationMs),
+            brakeDurationMs,
+            brakeDurationSec: msToSeconds(brakeDurationMs),
+            settlementTimeoutMs,
+            settlementTimeoutSec: msToSeconds(settlementTimeoutMs),
             resultPhaseDurationMs: Number(phases.resultDurationMs) || null,
             resultPhaseDurationSec: msToSeconds(phases.resultDurationMs)
         }),
         financial: Object.freeze({
             currencyLabel: "GRAM",
             baseStakesGram: Object.freeze(stakes),
-            baseStake1Gram: stakes.includes(1) ? 1 : null,
-            baseStake10Gram: stakes.includes(10) ? 10 : null,
-            ownerFeeRate: Number.isFinite(feeRate) ? feeRate : null,
-            ownerFeePercent: Number.isFinite(feeRate)
-                ? Math.round(feeRate * 1000) / 10
-                : null,
+            baseStake1Gram: stake1,
+            baseStake2Gram: stake2,
+            // Legacy alias for R17.9G UI compatibility.
+            baseStake10Gram: stake2,
+            ownerFeeRate,
+            ownerFeePercent,
             secondSectorMultiplier: Number(PAYMENT_RULES.secondSectorMultiplier)
                 || null,
             catalogCurrency: PAYMENT_RULES.currency ?? null
         }),
-        wallets: Object.freeze({
-            ownerWallet,
-            deployWallet,
-            reimbursementWallet,
-            tonNetwork: ton.network ?? null,
-            secrets: Object.freeze({
-                ownerMnemonicExposed: false,
-                deployerMnemonicConfigured: Boolean(ton.deployerMnemonic),
-                reimbursementMnemonicConfigured: Boolean(
-                    String(env.TON_REIMBURSEMENT_MNEMONIC ?? "").trim()
-                ),
-                note: "Mnemonics are never returned by this API."
-            })
-        })
+        wallets
     });
 
 }

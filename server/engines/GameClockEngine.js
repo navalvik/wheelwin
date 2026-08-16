@@ -112,7 +112,10 @@ export class GameClockEngine {
             // P5.9 — RESULT starts only via beginResultPhase (ResultActivation).
             awaitingResultActivation: false,
             resultPhaseStarted: false,
-            history: []
+            history: [],
+            // R17.9G.1 — freeze catalog timers at clock creation so later
+            // Runtime Configuration edits cannot change this game session.
+            frozenTimers: this._snapshotCatalogTimers()
         };
 
         this._clocks.set(gameId, record);
@@ -165,9 +168,9 @@ export class GameClockEngine {
 
         record.phaseStartedAt = now;
 
-        record.phaseEndsAt = this._computePhaseEndsAt(record.currentPhase, now);
+        record.phaseEndsAt = this._computePhaseEndsAt(record, record.currentPhase, now);
 
-        record.phaseRemainingMs = this._getPhaseDuration(record.currentPhase);
+        record.phaseRemainingMs = this._getPhaseDuration(record, record.currentPhase);
 
         this._schedulePhaseTimeout(record);
 
@@ -419,9 +422,9 @@ export class GameClockEngine {
 
         record.phaseStartedAt = now;
 
-        record.phaseEndsAt = this._computePhaseEndsAt(TIMER_PHASES.READY, now);
+        record.phaseEndsAt = this._computePhaseEndsAt(record, TIMER_PHASES.READY, now);
 
-        record.phaseRemainingMs = this._getPhaseDuration(TIMER_PHASES.READY);
+        record.phaseRemainingMs = this._getPhaseDuration(record, TIMER_PHASES.READY);
 
         this._emitPhaseStarted(record);
 
@@ -479,9 +482,9 @@ export class GameClockEngine {
 
         record.phaseStartedAt = now;
 
-        record.phaseEndsAt = this._computePhaseEndsAt(TIMER_PHASES.RESULT, now);
+        record.phaseEndsAt = this._computePhaseEndsAt(record, TIMER_PHASES.RESULT, now);
 
-        record.phaseRemainingMs = this._getPhaseDuration(TIMER_PHASES.RESULT);
+        record.phaseRemainingMs = this._getPhaseDuration(record, TIMER_PHASES.RESULT);
 
         this._logger.info("RESULT Phase Started");
 
@@ -616,7 +619,7 @@ export class GameClockEngine {
 
         }
 
-        const duration = this._getPhaseDuration(record.currentPhase);
+        const duration = this._getPhaseDuration(record, record.currentPhase);
 
         if (duration === null) {
 
@@ -737,9 +740,9 @@ export class GameClockEngine {
 
         record.phaseStartedAt = now;
 
-        record.phaseEndsAt = this._computePhaseEndsAt(nextPhase, now);
+        record.phaseEndsAt = this._computePhaseEndsAt(record, nextPhase, now);
 
-        record.phaseRemainingMs = this._getPhaseDuration(nextPhase);
+        record.phaseRemainingMs = this._getPhaseDuration(record, nextPhase);
 
         this._emitPhaseStarted(record);
 
@@ -751,7 +754,7 @@ export class GameClockEngine {
 
         this._clearPhaseTimeout(record);
 
-        const duration = remainingMs ?? this._getPhaseDuration(record.currentPhase);
+        const duration = remainingMs ?? this._getPhaseDuration(record, record.currentPhase);
 
         if (!Number.isFinite(duration) || duration <= 0) {
 
@@ -777,9 +780,9 @@ export class GameClockEngine {
 
     }
 
-    _computePhaseEndsAt(phase, startedAt) {
+    _computePhaseEndsAt(record, phase, startedAt) {
 
-        const duration = this._getPhaseDuration(phase);
+        const duration = this._getPhaseDuration(record, phase);
 
         if (!Number.isFinite(duration)) {
 
@@ -798,7 +801,7 @@ export class GameClockEngine {
             phase: record.currentPhase,
             startedAt: record.phaseStartedAt,
             endsAt: record.phaseEndsAt,
-            durationMs: this._getPhaseDuration(record.currentPhase),
+            durationMs: this._getPhaseDuration(record, record.currentPhase),
             timestamp: record.phaseStartedAt
         };
 
@@ -821,9 +824,9 @@ export class GameClockEngine {
 
     }
 
-    _getPhaseDuration(phase) {
+    _getPhaseDuration(record, phase) {
 
-        const timers = this._gameCatalog.getTimers();
+        const timers = record?.frozenTimers ?? this._gameCatalog.getTimers();
 
         const definition = timers[phase];
 
@@ -834,6 +837,24 @@ export class GameClockEngine {
         }
 
         return definition.durationMs;
+
+    }
+
+    _snapshotCatalogTimers() {
+
+        const timers = this._gameCatalog.getTimers();
+        const snapshot = {};
+
+        for (const [phase, definition] of Object.entries(timers ?? {})) {
+
+            snapshot[phase] = Object.freeze({
+                phase: definition?.phase ?? phase,
+                durationMs: definition?.durationMs ?? null
+            });
+
+        }
+
+        return Object.freeze(snapshot);
 
     }
 

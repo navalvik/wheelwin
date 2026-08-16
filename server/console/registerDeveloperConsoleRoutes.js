@@ -11,7 +11,8 @@ export function registerDeveloperConsoleRoutes(
         authMiddleware = null,
         authService = null,
         gameDiagnosticLogManager = null,
-        sessionHistoryArchive = null
+        sessionHistoryArchive = null,
+        runtimeConfigurationService = null
     } = {}
 ) {
 
@@ -156,14 +157,18 @@ export function registerDeveloperConsoleRoutes(
     });
 
     /**
-     * R17.9G — Read-only runtime configuration (timers / financial / wallets).
-     * No POST/PUT/PATCH in this stage.
+     * R17.9G.1 — Runtime configuration.
+     * Administrator: full values + canEdit.
+     * Viewer: wallets only (editable values redacted).
      */
     app.get("/console/configuration/runtime", (req, res) => {
 
         try {
 
-            res.json(projectionService.buildRuntimeConfiguration());
+            const canEdit = authService?.allowsOpenAccess?.() === true
+                || authService?.isAdministrator?.(req.developer) === true;
+
+            res.json(projectionService.buildRuntimeConfiguration({ canEdit }));
 
         } catch (error) {
 
@@ -185,6 +190,67 @@ export function registerDeveloperConsoleRoutes(
     const requireAdministrator = authService
         ? createAdministratorAuthMiddleware(authService)
         : null;
+
+    /**
+     * R17.9G.1 — Administrator-only runtime configuration mutation.
+     * Applies to future GAME_INITIALIZED sessions only.
+     */
+    app.put(
+        "/console/configuration/runtime",
+        requireAdministrator ?? ((req, res, next) => next()),
+        (req, res) => {
+
+            if (!runtimeConfigurationService?.update) {
+
+                res.status(503).json({
+                    error: "Runtime configuration service unavailable"
+                });
+
+                return;
+
+            }
+
+            try {
+
+                const result = runtimeConfigurationService.update(req.body, {
+                    username: req.developer?.username ?? null,
+                    role: req.developer?.role ?? "Administrator"
+                });
+
+                if (!result.ok) {
+
+                    res.status(result.status ?? 400).json({
+                        error: result.error ?? "Update failed",
+                        details: result.details ?? undefined
+                    });
+
+                    return;
+
+                }
+
+                const canEdit = true;
+
+                res.json({
+                    ok: true,
+                    message: result.message,
+                    changes: result.changes,
+                    auditRecords: result.auditRecords,
+                    configuration: projectionService.buildRuntimeConfiguration({
+                        canEdit
+                    })
+                });
+
+            } catch (error) {
+
+                res.status(500).json({
+                    error: "Failed to update runtime configuration",
+                    message: error?.message ?? "Unknown error"
+                });
+
+            }
+
+        }
+    );
 
     /**
      * R17.8M.1 — Live deployer wallet observability (Administrator-only).

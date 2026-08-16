@@ -32,7 +32,7 @@ import {
 } from "../diagnostics/SettlementPipelineForensics.js";
 import { shouldPreserveFinancialEvidence } from "../gameplay/financialEvidenceGuards.js";
 
-const DEFAULT_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;
+export const DEFAULT_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;
 
 const PAYMENT_COMPLETE_STATUSES = new Set([
     PAYMENT_SESSION_STATUS.FULLY_PAID,
@@ -151,6 +151,34 @@ export class ContractSettlementManager {
         this._handlers = [];
 
         this._initialized = false;
+
+    }
+
+    /**
+     * R17.9G.1 — Update settlement timeout for newly started settlements only.
+     * In-flight settlements keep their already computed deadline.
+     */
+    setSettlementTimeoutMs(timeoutMs) {
+
+        const next = Number(timeoutMs);
+
+        if (!Number.isFinite(next) || next <= 0) {
+
+            throw new Error(
+                "ContractSettlementManager.setSettlementTimeoutMs requires a positive duration"
+            );
+
+        }
+
+        this._settlementTimeoutMs = next;
+
+        return this._settlementTimeoutMs;
+
+    }
+
+    getSettlementTimeoutMs() {
+
+        return this._settlementTimeoutMs;
 
     }
 

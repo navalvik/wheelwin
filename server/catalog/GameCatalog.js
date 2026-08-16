@@ -186,6 +186,48 @@ export class GameCatalog {
 
     }
 
+    /**
+     * R17.9G.1 — Replace allowed stake catalog for future game sessions.
+     * Does not mutate configurations already frozen at GAME_INITIALIZED.
+     */
+    configureStakes(stakes) {
+
+        this._assertInitialized();
+
+        if (!Array.isArray(stakes) || stakes.length === 0) {
+
+            throw new Error("GameCatalog.configureStakes requires a non-empty array");
+
+        }
+
+        validateStakes(stakes);
+
+        this._stakes = deepFreeze([...stakes]);
+
+    }
+
+    /**
+     * R17.9G.1 — Replace payment rules for future contract snapshots.
+     */
+    configurePaymentRules(paymentRules) {
+
+        this._assertInitialized();
+
+        if (!paymentRules || typeof paymentRules !== "object") {
+
+            throw new Error("GameCatalog.configurePaymentRules requires paymentRules");
+
+        }
+
+        this._paymentRules = deepFreeze({
+            ...paymentRules,
+            contributionByStake: {
+                ...(paymentRules.contributionByStake ?? {})
+            }
+        });
+
+    }
+
     getColors() {
 
         this._assertInitialized();

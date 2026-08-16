@@ -158,6 +158,24 @@ export class GameContractManager {
     }
 
     /**
+     * R17.9G.1 — Update payment rules used by future Game Contract snapshots.
+     * Existing contracts keep their frozen snapshot fee / stake amounts.
+     */
+    setPaymentRules(paymentRules) {
+
+        if (!paymentRules || typeof paymentRules !== "object") {
+
+            throw new Error("GameContractManager.setPaymentRules requires paymentRules");
+
+        }
+
+        this._paymentRules = paymentRules;
+
+        return this._paymentRules;
+
+    }
+
+    /**
      * R8.8 — Late-bind payment/settlement refs for financial retention checks.
      */
     setFinancialEvidenceDeps({

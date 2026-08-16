@@ -95,6 +95,9 @@ import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
+import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
+import { TIMER_PHASES } from "./catalog/Timers.js";
+import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
 import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
 import { TonGameContractAdapter } from "./payment/TonGameContractAdapter.js";
 import { deriveDeployerWalletIdentity } from "./payment/ton/deriveDeployerWalletIdentity.js";
@@ -293,6 +296,8 @@ class WheelWinApplication {
         this._gameStartAuthorization = null;
 
         this._contractSettlementManager = null;
+
+        this._runtimeConfigurationService = null;
 
         this._consoleProjectionService = null;
 
@@ -1536,6 +1541,20 @@ class WheelWinApplication {
 
         this._logger.startupLine("ContractSettlementManager");
 
+        // R17.9G.1 — Durable runtime configuration overrides (future sessions only).
+        this._runtimeConfigurationService = new RuntimeConfigurationService({
+            logger: this._logger,
+            env: process.env
+        });
+
+        this._runtimeConfigurationService.setApplyAdapters(
+            this._buildRuntimeConfigurationApplyAdapters()
+        );
+
+        this._runtimeConfigurationService.initialize();
+
+        this._logger.startupLine("RuntimeConfigurationService");
+
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1715,6 +1734,7 @@ class WheelWinApplication {
             walletManager: null,
             tonFinancialRecovery: this._tonFinancialRecovery,
             roomLobbyBridge: this._roomLobbyBridge,
+            runtimeConfigurationService: this._runtimeConfigurationService,
             startedAt: this._serverStartedAt
         });
 
@@ -1877,7 +1897,8 @@ class WheelWinApplication {
                 ),
                 authService: this._developerAuthService,
                 gameDiagnosticLogManager: this._gameDiagnosticLogManager,
-                sessionHistoryArchive: this._sessionHistoryArchive
+                sessionHistoryArchive: this._sessionHistoryArchive,
+                runtimeConfigurationService: this._runtimeConfigurationService
             }
         );
 
@@ -4190,6 +4211,138 @@ class WheelWinApplication {
             }
 
         }
+
+    }
+
+    /**
+     * R17.9G.1 — Adapters that push durable overrides into session defaults.
+     * Existing Setup/Payment sessions and frozen GAME_INITIALIZED snapshots
+     * are never rewritten.
+     */
+    _buildRuntimeConfigurationApplyAdapters() {
+
+        return {
+            setSetupDurationMs: (durationMs) => {
+
+                this._setupSessionLifecycle?.setDurationMs?.(durationMs);
+
+            },
+            setPaymentDurationMs: (durationMs) => {
+
+                this._paymentSessionManager?.setDurationMs?.(durationMs);
+
+            },
+            setPhaseTimerOverrides: ({
+                countdownDurationMs,
+                brakeDurationMs
+            } = {}) => {
+
+                if (!this._gameCatalog?.getTimers || !this._gameCatalog?.configurePhaseTimers) {
+
+                    return;
+
+                }
+
+                const current = this._gameCatalog.getTimers();
+                const next = {};
+
+                for (const [phase, definition] of Object.entries(current ?? {})) {
+
+                    let durationMs = definition?.durationMs;
+
+                    if (phase === TIMER_PHASES.READY
+                        && Number.isFinite(Number(countdownDurationMs))
+                        && Number(countdownDurationMs) > 0) {
+
+                        durationMs = Number(countdownDurationMs);
+
+                    }
+
+                    if (phase === TIMER_PHASES.BRAKE
+                        && Number.isFinite(Number(brakeDurationMs))
+                        && Number(brakeDurationMs) > 0) {
+
+                        durationMs = Number(brakeDurationMs);
+
+                    }
+
+                    next[phase] = Object.freeze({
+                        phase: definition?.phase ?? phase,
+                        durationMs
+                    });
+
+                }
+
+                this._gameCatalog.configurePhaseTimers(next);
+
+            },
+            setSettlementTimeoutMs: (timeoutMs) => {
+
+                this._contractSettlementManager?.setSettlementTimeoutMs?.(timeoutMs);
+
+            },
+            setFinancialOverrides: ({
+                baseStake1Gram,
+                baseStake2Gram,
+                ownerFeePercent
+            } = {}) => {
+
+                if (!this._gameCatalog?.getPaymentRules) {
+
+                    return;
+
+                }
+
+                const currentStakes = [...(this._gameCatalog.getStakes() ?? [])];
+                const stake1 = Number.isFinite(Number(baseStake1Gram))
+                    ? Number(baseStake1Gram)
+                    : currentStakes[0];
+                const stake2 = Number.isFinite(Number(baseStake2Gram))
+                    ? Number(baseStake2Gram)
+                    : currentStakes[1];
+
+                if (Number.isFinite(stake1) && Number.isFinite(stake2)) {
+
+                    this._gameCatalog.configureStakes([stake1, stake2]);
+
+                }
+
+                const currentRules = this._gameCatalog.getPaymentRules();
+                const feePercent = Number.isFinite(Number(ownerFeePercent))
+                    ? Number(ownerFeePercent)
+                    : Math.round(Number(currentRules.platformFeeRate) * 1000) / 10;
+                const platformFeeRate = Number.isFinite(feePercent)
+                    ? feePercent / 100
+                    : (PAYMENT_RULES.platformFeeRate ?? 0.05);
+
+                const contributionByStake = {};
+
+                if (Number.isFinite(stake1)) {
+
+                    contributionByStake[stake1] = stake1;
+
+                }
+
+                if (Number.isFinite(stake2)) {
+
+                    contributionByStake[stake2] = stake2;
+
+                }
+
+                const nextRules = {
+                    ...currentRules,
+                    platformFeeRate,
+                    contributionByStake: {
+                        ...(currentRules.contributionByStake ?? {}),
+                        ...contributionByStake
+                    }
+                };
+
+                this._gameCatalog.configurePaymentRules(nextRules);
+                this._gameContractManager?.setPaymentRules?.(nextRules);
+
+            }
+        };
 
     }
 

@@ -59,6 +59,7 @@ export class DeveloperConsoleProjectionService {
         walletManager = null,
         tonFinancialRecovery = null,
         roomLobbyBridge = null,
+        runtimeConfigurationService = null,
         version = packageJson.version,
         startedAt = Date.now()
     }) {
@@ -90,6 +91,7 @@ export class DeveloperConsoleProjectionService {
         this._walletManager = walletManager;
         this._tonFinancialRecovery = tonFinancialRecovery;
         this._roomLobbyBridge = roomLobbyBridge;
+        this._runtimeConfigurationService = runtimeConfigurationService;
         this._version = version;
         this._startedAt = startedAt;
 
@@ -270,13 +272,24 @@ export class DeveloperConsoleProjectionService {
     }
 
     /**
-     * R17.9G — Read-only runtime configuration projection (no mutations).
+     * R17.9G.1 — Runtime configuration projection (admin sees values; viewer redacted).
+     * @param {{ canEdit?: boolean }} [options]
      */
-    buildRuntimeConfiguration() {
+    buildRuntimeConfiguration({ canEdit = false } = {}) {
+
+        const service = this._runtimeConfigurationService;
+        const state = service?.getState?.() ?? null;
+        const settlementDefault = this._contractSettlementManager
+            ?.getSettlementTimeoutMs?.()
+            ?? undefined;
 
         return buildRuntimeConfigurationSnapshot({
             runtimeConfig: this._runtimeConfig,
-            env: process.env
+            env: process.env,
+            overrides: service?.getOverrides?.() ?? null,
+            configVersion: state?.configVersion ?? null,
+            canEdit: canEdit === true,
+            settlementTimeoutMsDefault: settlementDefault
         });
 
     }

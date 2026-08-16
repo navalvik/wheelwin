@@ -2265,3 +2265,21 @@ body:has(.devConsole) {
 
     border-color: var(--console-border);
 }
+
+/* R17.9G.1 — Runtime Configuration edit controls */
+.devConsole__runtimeEditRow {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 8px;
+}
+
+.devConsole__runtimeEditRow input {
+
+    flex: 1 1 auto;
+
+    min-width: 0;
+}
+

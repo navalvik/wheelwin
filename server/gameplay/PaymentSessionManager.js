@@ -116,6 +116,26 @@ export class PaymentSessionManager {
     }
 
     /**
+     * R17.9G.1 — Update Payment Timer for newly created sessions only.
+     * Existing sessions keep their already-scheduled deadlines.
+     */
+    setDurationMs(durationMs) {
+
+        const next = Number(durationMs);
+
+        if (!Number.isFinite(next) || next <= 0) {
+
+            throw new Error("PaymentSessionManager.setDurationMs requires a positive duration");
+
+        }
+
+        this._durationMs = next;
+
+        return this._durationMs;
+
+    }
+
+    /**
      * R8.8 — Late-bind settlement/contract refs for financial retention checks.
      */
     setFinancialEvidenceDeps({

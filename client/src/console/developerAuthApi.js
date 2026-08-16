@@ -193,7 +193,7 @@ export async function fetchSystemInformation(accessToken) {
 }
 
 /**
- * R17.9G — Read-only runtime configuration snapshot.
+ * R17.9G / R17.9G.1 — Runtime configuration snapshot (role-aware).
  */
 export async function fetchRuntimeConfiguration(accessToken) {
 
@@ -213,6 +213,42 @@ export async function fetchRuntimeConfiguration(accessToken) {
     if (!response.ok) {
 
         throw new Error(body?.error || "Failed to load runtime configuration");
+
+    }
+
+    return body;
+
+}
+
+/**
+ * R17.9G.1 — Administrator-only runtime configuration mutation.
+ */
+export async function updateRuntimeConfiguration(accessToken, values) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/configuration/runtime`,
+        {
+            method: "PUT",
+            headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`
+            },
+            body: JSON.stringify({ values })
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        const detail = Array.isArray(body?.details) && body.details.length > 0
+            ? ` (${body.details.join("; ")})`
+            : "";
+
+        throw new Error(
+            `${body?.error || "Failed to update runtime configuration"}${detail}`
+        );
 
     }
 

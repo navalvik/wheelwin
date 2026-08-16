@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { fetchRuntimeConfiguration } from "../developerAuthApi";
+import {
+    fetchRuntimeConfiguration,
+    updateRuntimeConfiguration
+} from "../developerAuthApi";
 import { useDeveloperAuth } from "../DeveloperAuthProvider";
+import EmptyState from "./shared/EmptyState";
 import PanelShell from "./shared/PanelShell";
 
 function InfoRow({ label, value, hint }) {
@@ -30,6 +34,65 @@ function InfoRow({ label, value, hint }) {
             </span>
 
         </div>
+
+    );
+
+}
+
+function EditRow({ label, value, onChange, unit, hint, readOnly = false }) {
+
+    return (
+
+        <label className="devConsole__envField">
+
+            <span>
+
+                {label}
+
+                {hint ? (
+
+                    <span className="devConsole__kvHint">
+
+                        {" "}
+                        ({hint})
+
+                    </span>
+
+                ) : null}
+
+            </span>
+
+            {readOnly ? (
+
+                <input
+                    type="text"
+                    value={value ?? ""}
+                    readOnly
+                    disabled
+                />
+
+            ) : (
+
+                <div className="devConsole__runtimeEditRow">
+
+                    <input
+                        type="number"
+                        step="any"
+                        value={value ?? ""}
+                        onChange={(event) => onChange(event.target.value)}
+                    />
+
+                    {unit ? (
+
+                        <span className="devConsole__kvHint">{unit}</span>
+
+                    ) : null}
+
+                </div>
+
+            )}
+
+        </label>
 
     );
 
@@ -75,22 +138,95 @@ function formatAddress(address) {
 
 }
 
+function msToSecInput(ms) {
+
+    if (ms == null || !Number.isFinite(Number(ms))) {
+
+        return "";
+
+    }
+
+    return String(Math.round(Number(ms) / 1000));
+
+}
+
+function secInputToMs(value) {
+
+    const n = Number(value);
+
+    if (!Number.isFinite(n) || n <= 0) {
+
+        return null;
+
+    }
+
+    return Math.round(n * 1000);
+
+}
+
 /**
- * R17.9G — Runtime Configuration panel (read-only).
+ * R17.9G.1 — Runtime Configuration panel with Administrator editing.
  */
 export default function RuntimeConfigurationPanel() {
 
-    const { accessToken } = useDeveloperAuth();
+    const { accessToken, isAdministrator } = useDeveloperAuth();
 
     const [config, setConfig] = useState(null);
 
     const [error, setError] = useState(null);
 
+    const [success, setSuccess] = useState(null);
+
+    const [busy, setBusy] = useState(false);
+
+    const [draft, setDraft] = useState(null);
+
+    const load = useCallback(async () => {
+
+        if (!accessToken) {
+
+            return;
+
+        }
+
+        const next = await fetchRuntimeConfiguration(accessToken);
+
+        setConfig(next);
+
+        if (next?.canEdit && next.timers && next.financial) {
+
+            setDraft({
+                setupTimeoutSec: msToSecInput(next.timers.setupTimeoutMs),
+                paymentTimeoutSec: msToSecInput(next.timers.paymentTimeoutMs),
+                countdownDurationSec: msToSecInput(
+                    next.timers.countdownDurationMs
+                ),
+                brakeDurationSec: msToSecInput(next.timers.brakeDurationMs),
+                settlementTimeoutSec: msToSecInput(
+                    next.timers.settlementTimeoutMs
+                ),
+                baseStake1Gram: next.financial.baseStake1Gram ?? "",
+                baseStake2Gram: next.financial.baseStake2Gram
+                    ?? next.financial.baseStake10Gram
+                    ?? "",
+                ownerFeePercent: next.financial.ownerFeePercent ?? ""
+            });
+
+        } else {
+
+            setDraft(null);
+
+        }
+
+        setError(null);
+
+    }, [accessToken]);
+
     useEffect(() => {
 
         let cancelled = false;
 
-        async function load() {
+        async function run() {
 
             if (!accessToken) {
 
@@ -100,15 +236,7 @@ export default function RuntimeConfigurationPanel() {
 
             try {
 
-                const next = await fetchRuntimeConfiguration(accessToken);
-
-                if (!cancelled) {
-
-                    setConfig(next);
-
-                    setError(null);
-
-                }
+                await load();
 
             } catch (err) {
 
@@ -122,7 +250,7 @@ export default function RuntimeConfigurationPanel() {
 
         }
 
-        load();
+        run();
 
         return () => {
 
@@ -130,7 +258,137 @@ export default function RuntimeConfigurationPanel() {
 
         };
 
-    }, [accessToken]);
+    }, [accessToken, load]);
+
+    const save = useCallback(async (event) => {
+
+        event.preventDefault();
+
+        if (!isAdministrator || !draft || !accessToken) {
+
+            return;
+
+        }
+
+        setBusy(true);
+
+        setError(null);
+
+        setSuccess(null);
+
+        try {
+
+            const values = {
+                setupTimeoutMs: secInputToMs(draft.setupTimeoutSec),
+                paymentTimeoutMs: secInputToMs(draft.paymentTimeoutSec),
+                countdownDurationMs: secInputToMs(draft.countdownDurationSec),
+                brakeDurationMs: secInputToMs(draft.brakeDurationSec),
+                settlementTimeoutMs: secInputToMs(draft.settlementTimeoutSec),
+                baseStake1Gram: Number(draft.baseStake1Gram),
+                baseStake2Gram: Number(draft.baseStake2Gram),
+                ownerFeePercent: Number(draft.ownerFeePercent)
+            };
+
+            for (const [key, value] of Object.entries(values)) {
+
+                if (value == null || !Number.isFinite(value)) {
+
+                    throw new Error(`Invalid value for ${key}`);
+
+                }
+
+            }
+
+            const result = await updateRuntimeConfiguration(accessToken, values);
+
+            setSuccess(
+                result.message
+                || "Saved. Changes apply to the next game initialization only."
+            );
+
+            if (result.configuration) {
+
+                setConfig(result.configuration);
+
+                const next = result.configuration;
+
+                setDraft({
+                    setupTimeoutSec: msToSecInput(next.timers.setupTimeoutMs),
+                    paymentTimeoutSec: msToSecInput(next.timers.paymentTimeoutMs),
+                    countdownDurationSec: msToSecInput(
+                        next.timers.countdownDurationMs
+                    ),
+                    brakeDurationSec: msToSecInput(next.timers.brakeDurationMs),
+                    settlementTimeoutSec: msToSecInput(
+                        next.timers.settlementTimeoutMs
+                    ),
+                    baseStake1Gram: next.financial.baseStake1Gram ?? "",
+                    baseStake2Gram: next.financial.baseStake2Gram ?? "",
+                    ownerFeePercent: next.financial.ownerFeePercent ?? ""
+                });
+
+            } else {
+
+                await load();
+
+            }
+
+        } catch (err) {
+
+            setError(err.message || "Failed to save runtime configuration");
+
+        } finally {
+
+            setBusy(false);
+
+        }
+
+    }, [accessToken, draft, isAdministrator, load]);
+
+    if (!isAdministrator) {
+
+        return (
+
+            <PanelShell
+                title="Runtime Configuration"
+                subtitle="Timers, financial rules, and wallet pins"
+            >
+
+                <EmptyState
+                    title="Administrator access required"
+                    detail="Viewer accounts cannot view or edit Runtime Configuration values. Sign in with an Administrator account."
+                />
+
+                {config?.wallets ? (
+
+                    <SectionCard title="Wallet Configuration (read-only)">
+
+                        <InfoRow
+                            label="Owner Wallet"
+                            value={formatAddress(config.wallets.ownerWallet)}
+                        />
+
+                        <InfoRow
+                            label="Deploy Wallet"
+                            value={formatAddress(config.wallets.deployWallet)}
+                        />
+
+                        <InfoRow
+                            label="Reimbursement Wallet"
+                            value={formatAddress(
+                                config.wallets.reimbursementWallet
+                            )}
+                        />
+
+                    </SectionCard>
+
+                ) : null}
+
+            </PanelShell>
+
+        );
+
+    }
 
     const timers = config?.timers ?? {};
     const financial = config?.financial ?? {};
@@ -140,12 +398,18 @@ export default function RuntimeConfigurationPanel() {
 
         <PanelShell
             title="Runtime Configuration"
-            subtitle="Read-only view of currently effective timers, financial rules, and wallet pins"
+            subtitle="Edit timers and financial defaults for future game sessions"
         >
 
             {error && (
 
                 <p className="devConsole__envError" role="alert">{error}</p>
+
+            )}
+
+            {success && (
+
+                <p className="devConsole__envSuccess" role="status">{success}</p>
 
             )}
 
@@ -155,89 +419,110 @@ export default function RuntimeConfigurationPanel() {
 
             )}
 
-            {config && (
+            {config && draft && (
 
-                <div className="devConsole__opsStack">
+                <form className="devConsole__opsStack" onSubmit={save}>
 
                     <p className="devConsole__placeholder">
 
-                        Mutation is disabled in this stage. Values reflect
-                        authoritative server configuration only — no gameplay
-                        engines are modified from this panel.
+                        Changes apply to the next GAME_INITIALIZED snapshot
+                        only. Running games keep their frozen configuration.
+                        Config version: {config.configVersion ?? 0}
                     </p>
 
-                    <SectionCard title="Game Timers">
+                    <SectionCard title="Game Lifecycle Timers">
 
-                        <InfoRow
+                        <EditRow
                             label="Setup Timer"
-                            value={formatSeconds(timers.setupTimeoutSec)}
+                            unit="sec"
+                            value={draft.setupTimeoutSec}
+                            onChange={(value) => setDraft((prev) => ({
+                                ...prev,
+                                setupTimeoutSec: value
+                            }))}
                         />
 
-                        <InfoRow
+                        <EditRow
                             label="Verify Timer"
-                            value={formatSeconds(timers.verifyTimeoutSec)}
-                            hint="uses Setup Timer"
+                            unit="sec"
+                            value={draft.setupTimeoutSec}
+                            hint="inherited from Setup Timer"
+                            readOnly
                         />
 
-                        <InfoRow
+                        <EditRow
                             label="Payment Timer"
-                            value={formatSeconds(timers.paymentTimeoutSec)}
+                            unit="sec"
+                            value={draft.paymentTimeoutSec}
+                            onChange={(value) => setDraft((prev) => ({
+                                ...prev,
+                                paymentTimeoutSec: value
+                            }))}
                         />
 
-                        <InfoRow
-                            label="Countdown (READY)"
-                            value={formatSeconds(timers.countdownDurationSec)}
+                        <EditRow
+                            label="Countdown Duration"
+                            unit="sec"
+                            value={draft.countdownDurationSec}
+                            hint="READY phase"
+                            onChange={(value) => setDraft((prev) => ({
+                                ...prev,
+                                countdownDurationSec: value
+                            }))}
                         />
 
-                        <InfoRow
+                        <EditRow
                             label="Brake Duration"
-                            value={formatSeconds(timers.brakeDurationSec)}
+                            unit="sec"
+                            value={draft.brakeDurationSec}
+                            onChange={(value) => setDraft((prev) => ({
+                                ...prev,
+                                brakeDurationSec: value
+                            }))}
                         />
 
-                        <InfoRow
-                            label="SPEED Duration"
-                            value={formatSeconds(timers.speedDurationSec)}
-                        />
-
-                        <InfoRow
-                            label="SELF_TEST Duration"
-                            value={formatSeconds(timers.selfTestDurationSec)}
-                        />
-
-                        <InfoRow
-                            label="Deploy Timeout"
-                            value={formatSeconds(timers.deployTimeoutSec)}
+                        <EditRow
+                            label="Settlement Timeout"
+                            unit="sec"
+                            value={draft.settlementTimeoutSec}
+                            onChange={(value) => setDraft((prev) => ({
+                                ...prev,
+                                settlementTimeoutSec: value
+                            }))}
                         />
 
                     </SectionCard>
 
                     <SectionCard title="Financial Configuration">
 
-                        <InfoRow
+                        <EditRow
                             label="Base Stake #1"
-                            value={
-                                financial.baseStake1Gram != null
-                                    ? `${financial.baseStake1Gram} GRAM`
-                                    : "—"
-                            }
+                            unit="GRAM"
+                            value={draft.baseStake1Gram}
+                            onChange={(value) => setDraft((prev) => ({
+                                ...prev,
+                                baseStake1Gram: value
+                            }))}
                         />
 
-                        <InfoRow
+                        <EditRow
                             label="Base Stake #2"
-                            value={
-                                financial.baseStake10Gram != null
-                                    ? `${financial.baseStake10Gram} GRAM`
-                                    : "—"
-                            }
+                            unit="GRAM"
+                            value={draft.baseStake2Gram}
+                            onChange={(value) => setDraft((prev) => ({
+                                ...prev,
+                                baseStake2Gram: value
+                            }))}
                         />
 
-                        <InfoRow
-                            label="Owner Fee"
-                            value={
-                                financial.ownerFeePercent != null
-                                    ? `${financial.ownerFeePercent} %`
-                                    : "—"
-                            }
+                        <EditRow
+                            label="Owner Fee Percent"
+                            unit="%"
+                            value={draft.ownerFeePercent}
+                            onChange={(value) => setDraft((prev) => ({
+                                ...prev,
+                                ownerFeePercent: value
+                            }))}
                         />
 
                     </SectionCard>
@@ -247,16 +532,19 @@ export default function RuntimeConfigurationPanel() {
                         <InfoRow
                             label="Owner Wallet"
                             value={formatAddress(wallets.ownerWallet)}
+                            hint="read-only"
                         />
 
                         <InfoRow
                             label="Deploy Wallet"
                             value={formatAddress(wallets.deployWallet)}
+                            hint="read-only"
                         />
 
                         <InfoRow
                             label="Reimbursement Wallet"
                             value={formatAddress(wallets.reimbursementWallet)}
+                            hint="read-only"
                         />
 
                         <InfoRow
@@ -266,7 +554,36 @@ export default function RuntimeConfigurationPanel() {
 
                     </SectionCard>
 
-                </div>
+                    <div>
+
+                        <button
+                            type="submit"
+                            className="devConsole__envSubmit"
+                            disabled={busy}
+                        >
+
+                            {busy ? "Saving…" : "Save Runtime Configuration"}
+
+                        </button>
+
+                    </div>
+
+                </form>
+
+            )}
+
+            {config && !draft && (
+
+                <p className="devConsole__placeholder">
+
+                    Configuration loaded but editing is unavailable.
+                    Setup={formatSeconds(timers.setupTimeoutSec)}
+                    {" · "}
+                    Fee={financial.ownerFeePercent != null
+                        ? `${financial.ownerFeePercent} %`
+                        : "—"}
+
+                </p>
 
             )}
 

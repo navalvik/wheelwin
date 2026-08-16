@@ -70,6 +70,32 @@ export class SetupSessionLifecycle {
     }
 
     /**
+     * R17.9G.1 — Update Setup Timer for newly created sessions only.
+     * Existing sessions keep their already-scheduled expiresAt.
+     */
+    setDurationMs(durationMs) {
+
+        const next = Number(durationMs);
+
+        if (!Number.isFinite(next) || next <= 0) {
+
+            throw new Error("SetupSessionLifecycle.setDurationMs requires a positive duration");
+
+        }
+
+        this._durationMs = next;
+
+        return this._durationMs;
+
+    }
+
+    getDurationMs() {
+
+        return this._durationMs;
+
+    }
+
+    /**
      * R17.8O.4 — Late-bind payment session for setup-expiry escrow unwind deferral.
      */
     setEscrowUnwindBridgeDeps({ paymentSessionManager = null } = {}) {
