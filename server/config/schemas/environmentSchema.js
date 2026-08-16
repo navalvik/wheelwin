@@ -647,6 +647,35 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         suggestedFix:
             "Set DEPLOYMENT_REIMBURSEMENT_ENABLED to true only after transfer wiring. Default false."
     }),
+    // R17.8V.2P.O — Emergency send pause (explicit false blocks transfers).
+    REIMBURSEMENT_ENABLED: Object.freeze({
+        key: "REIMBURSEMENT_ENABLED",
+        type: "boolean",
+        required: false,
+        defaultValue: true,
+        category: "TON",
+        suggestedFix:
+            "Set REIMBURSEMENT_ENABLED=false to emergency-pause reimbursement sends."
+    }),
+    // R17.8V.2P.O — Per-transfer amount cap (TON decimal string).
+    REIMBURSEMENT_MAX_TRANSFER: Object.freeze({
+        key: "REIMBURSEMENT_MAX_TRANSFER",
+        type: "string",
+        required: false,
+        defaultValue: "0.05",
+        category: "TON",
+        suggestedFix:
+            "Set REIMBURSEMENT_MAX_TRANSFER to the max TON amount per reimbursement send."
+    }),
+    // R17.8V.2P.O — Reimbursement wallet mnemonic (Railway secret; never log).
+    TON_REIMBURSEMENT_MNEMONIC: Object.freeze({
+        key: "TON_REIMBURSEMENT_MNEMONIC",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Set TON_REIMBURSEMENT_MNEMONIC in Railway secrets for the reimbursement wallet only."
+    }),
     // R17.8V.2P.M — Reimbursement wallet address pin only (never a mnemonic).
     TON_REIMBURSEMENT_EXPECTED_ADDRESS: Object.freeze({
         key: "TON_REIMBURSEMENT_EXPECTED_ADDRESS",

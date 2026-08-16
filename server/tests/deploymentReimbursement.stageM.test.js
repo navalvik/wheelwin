@@ -132,11 +132,11 @@ function createStack({ enabled = true, reimbursementWallet = REIMB_WALLET } = {}
 
 function assertNoForbiddenSourcePatterns() {
 
+    // Stage O owns transfer/adapter; Stage M scans queue foundation only.
     const files = [
         "DeploymentReimbursementService.js",
         "DeploymentReimbursementWorker.js",
         "DeploymentReimbursementRepository.js",
-        "ReimbursementTransferService.js",
         "deploymentReimbursementSchema.js",
         "deploymentReimbursementConfig.js",
         "deploymentReimbursementStates.js"
@@ -351,24 +351,28 @@ async function main() {
             assert.equal(created.ok, true);
             assert.equal(stack.repository.listPending().length, 1);
 
-            const transfer = stack.transferService.sendReimbursement(
+            const transfer = await stack.transferService.sendReimbursement(
                 created.reimbursement
             );
 
             assert.equal(transfer.ok, false);
-            assert.equal(
-                transfer.code,
-                DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.NOT_IMPLEMENTED
+            assert.ok(
+                transfer.code === "NOT_INITIALIZED"
+                || transfer.code === "FEATURE_DISABLED"
+                || transfer.code === "FAILED",
+                `expected blocked transfer code, got ${transfer.code}`
             );
+            assert.equal(transfer.txHash ?? null, null);
 
             const queue = await stack.worker.processQueue();
 
             assert.equal(queue.scanned, 1);
             assert.equal(queue.claimed, 1);
-            assert.equal(
+            assert.notEqual(
                 queue.results[0]?.code,
-                DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.NOT_IMPLEMENTED
+                DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED
             );
+            assert.equal(queue.results[0]?.ok, false);
 
             const after = stack.repository.findById(created.reimbursement.recordId);
 

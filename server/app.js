@@ -138,6 +138,7 @@ import { DeploymentReimbursementRepository } from "./payment/reimbursement/Deplo
 import { DeploymentReimbursementService } from "./payment/reimbursement/DeploymentReimbursementService.js";
 import { DeploymentReimbursementWorker } from "./payment/reimbursement/DeploymentReimbursementWorker.js";
 import { ReimbursementTransferService } from "./payment/reimbursement/ReimbursementTransferService.js";
+import { ReimbursementWalletAdapter } from "./payment/reimbursement/ReimbursementWalletAdapter.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
@@ -1388,11 +1389,28 @@ class WheelWinApplication {
 
         this._logger.startupLine("DeploymentReimbursementService");
 
+        // R17.8V.2P.O — Transfer boundary (disabled by default; no Owner mnemonic).
+        const reimbursementSnapshotRepository = new DeploymentCostSnapshotRepository({
+            persistence: this._financialPersistence,
+            tonNetwork: this._tonConfig?.network ?? "testnet"
+        });
+
+        this._reimbursementTransferService = new ReimbursementTransferService({
+            adapter: new ReimbursementWalletAdapter({
+                tonService: this._services?.tonService ?? null,
+                logger: this._logger,
+                env: process.env
+            }),
+            snapshotRepository: reimbursementSnapshotRepository,
+            logger: this._logger,
+            env: process.env
+        });
+
+        await this._reimbursementTransferService.initialize();
+
         this._deploymentReimbursementWorker = new DeploymentReimbursementWorker({
             repository: this._deploymentReimbursementRepository,
-            transferService: new ReimbursementTransferService({
-                logger: this._logger
-            }),
+            transferService: this._reimbursementTransferService,
             logger: this._logger,
             env: process.env
         });
@@ -2023,6 +2041,16 @@ class WheelWinApplication {
             if (this._deploymentReimbursementWorker) {
 
                 this._deploymentReimbursementWorker.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("reimbursementTransferService", () => {
+
+            if (this._reimbursementTransferService) {
+
+                this._reimbursementTransferService.shutdown();
 
             }
 

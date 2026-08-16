@@ -174,7 +174,9 @@ export function applyDeploymentReimbursementStatusPatch(existingPayload, patch) 
             ? patch.processedAt
             : existingPayload.processedAt,
         confirmedAt: existingPayload.confirmedAt,
-        txHash: existingPayload.txHash,
+        txHash: patch.txHash !== undefined
+            ? patch.txHash
+            : existingPayload.txHash,
         retryCount: patch.retryCount !== undefined
             ? Number(patch.retryCount)
             : existingPayload.retryCount,

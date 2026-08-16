@@ -1,12 +1,15 @@
 /**
- * R17.8V.2P.M — Deployment reimbursement worker skeleton.
+ * R17.8V.2P.M / O — Deployment reimbursement worker.
  *
- * Polls PENDING records and claims PROCESSING. Does not send TON.
+ * Polls PENDING → PROCESSING → sendReimbursement.
+ * On SENT: persist txHash (stay PROCESSING). Never CONFIRMED in Stage O.
  */
 
 import { isDeploymentReimbursementEnabled } from "./deploymentReimbursementConfig.js";
 import { DEPLOYMENT_REIMBURSEMENT_STATUS } from "./deploymentReimbursementStates.js";
-import { DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT } from "./deploymentReimbursementServiceResults.js";
+import {
+    REIMBURSEMENT_TRANSFER_RESULT
+} from "./ReimbursementTransferService.js";
 
 export class DeploymentReimbursementWorker {
 
@@ -66,7 +69,7 @@ export class DeploymentReimbursementWorker {
         this._initialized = true;
 
         this._logger?.debug?.(
-            "DeploymentReimbursementWorker initialized (Stage M skeleton)"
+            "DeploymentReimbursementWorker initialized (Stage O transfer integration)"
         );
 
         if (isDeploymentReimbursementEnabled(this._env)) {
@@ -109,8 +112,6 @@ export class DeploymentReimbursementWorker {
     }
 
     /**
-     * Claim pending items and invoke transfer boundary (NOT_IMPLEMENTED in Stage M).
-     *
      * @returns {Promise<{ scanned: number, claimed: number, results: object[] }>}
      */
     async processQueue() {
@@ -166,23 +167,74 @@ export class DeploymentReimbursementWorker {
 
                 }
 
-                const transfer = this._transferService?.sendReimbursement?.(claimedRecord)
-                    ?? {
+                let transfer;
+
+                try {
+
+                    transfer = await this._transferService?.sendReimbursement?.(
+                        claimedRecord
+                    );
+
+                } catch (error) {
+
+                    transfer = {
                         ok: false,
-                        code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.NOT_IMPLEMENTED,
-                        message: "No transfer service"
+                        code: REIMBURSEMENT_TRANSFER_RESULT.FAILED,
+                        errorReason: error?.message ?? "transfer_threw"
                     };
 
-                // Stage M: roll back to PENDING / FAILED_RETRY — never CONFIRMED.
+                }
+
+                if (!transfer) {
+
+                    transfer = {
+                        ok: false,
+                        code: REIMBURSEMENT_TRANSFER_RESULT.FAILED,
+                        errorReason: "no_transfer_service"
+                    };
+
+                }
+
                 try {
+
+                    if (
+                        transfer.ok
+                        && transfer.code === REIMBURSEMENT_TRANSFER_RESULT.SENT
+                    ) {
+
+                        // Persist txHash; remain PROCESSING — confirmation is next stage.
+                        this._repository.updateStatus(claimedRecord.recordId, {
+                            status: DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING,
+                            txHash: transfer.txHash ?? null,
+                            errorReason: null,
+                            processedAt: Date.now()
+                        });
+
+                        results.push({
+                            ok: true,
+                            recordId: claimedRecord.recordId,
+                            transfer,
+                            code: REIMBURSEMENT_TRANSFER_RESULT.SENT
+                        });
+
+                        continue;
+
+                    }
 
                     this._repository.updateStatus(claimedRecord.recordId, {
                         status: DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_RETRY,
-                        errorReason: transfer.code
-                            ?? transfer.message
-                            ?? "transfer_not_implemented",
+                        errorReason: transfer.errorReason
+                            ?? transfer.code
+                            ?? "transfer_failed",
                         retryCount: Number(claimedRecord.payload?.retryCount ?? 0) + 1,
                         nextRetryAt: Date.now() + 60_000
+                    });
+
+                    results.push({
+                        ok: false,
+                        recordId: claimedRecord.recordId,
+                        transfer,
+                        code: transfer.code ?? REIMBURSEMENT_TRANSFER_RESULT.FAILED
                     });
 
                 } catch (error) {
@@ -194,16 +246,7 @@ export class DeploymentReimbursementWorker {
                         message: error?.message ?? "status_update_failed"
                     });
 
-                    continue;
-
                 }
-
-                results.push({
-                    ok: false,
-                    recordId: claimedRecord.recordId,
-                    transfer,
-                    code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.NOT_IMPLEMENTED
-                });
 
             }
 
