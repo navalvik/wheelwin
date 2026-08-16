@@ -135,6 +135,11 @@ export const CONSOLE_SECTIONS = Object.freeze([
         label: "Payments",
         group: CONSOLE_GROUP_IDS.FINANCIAL
     }),
+    Object.freeze({
+        id: "wallet-monitoring",
+        label: "Wallet Monitoring",
+        group: CONSOLE_GROUP_IDS.FINANCIAL
+    }),
 
     // BLOCKCHAIN
     Object.freeze({

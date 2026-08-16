@@ -187,6 +187,26 @@ export function registerDeveloperConsoleRoutes(
 
     });
 
+    /**
+     * R17.9H — Read-only wallet balance monitor snapshot.
+     */
+    app.get("/console/wallets/balances", (req, res) => {
+
+        try {
+
+            res.json(projectionService.buildWalletBalances());
+
+        } catch (error) {
+
+            res.status(500).json({
+                error: "Failed to load wallet balances",
+                message: error?.message ?? "Unknown error"
+            });
+
+        }
+
+    });
+
     const requireAdministrator = authService
         ? createAdministratorAuthMiddleware(authService)
         : null;

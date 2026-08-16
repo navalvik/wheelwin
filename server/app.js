@@ -96,6 +96,7 @@ import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
+import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
 import { TIMER_PHASES } from "./catalog/Timers.js";
 import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
 import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
@@ -298,6 +299,8 @@ class WheelWinApplication {
         this._contractSettlementManager = null;
 
         this._runtimeConfigurationService = null;
+
+        this._walletBalanceMonitor = null;
 
         this._consoleProjectionService = null;
 
@@ -1705,6 +1708,19 @@ class WheelWinApplication {
         // C4.5 — expose live runtime counts through the existing HealthService.
         this._healthService.registerRuntimeProvider(() => this._collectRuntime());
 
+        // R17.9H — Read-only wallet balance monitor (30s refresh).
+        this._walletBalanceMonitor = new WalletBalanceMonitor({
+            logger: this._logger,
+            tonService: this._services?.tonService ?? null,
+            runtimeConfig: this._runtimeConfig,
+            env: process.env
+        });
+
+        await this._walletBalanceMonitor.initialize();
+        this._walletBalanceMonitor.start();
+
+        this._logger.startupLine("WalletBalanceMonitor");
+
         // R6.0C — Developer Console read-only projection layer (/console/*).
         this._consoleProjectionService = new DeveloperConsoleProjectionService({
             roomManager: this._managers.roomManager,
@@ -1735,6 +1751,7 @@ class WheelWinApplication {
             tonFinancialRecovery: this._tonFinancialRecovery,
             roomLobbyBridge: this._roomLobbyBridge,
             runtimeConfigurationService: this._runtimeConfigurationService,
+            walletBalanceMonitor: this._walletBalanceMonitor,
             startedAt: this._serverStartedAt
         });
 
@@ -2233,6 +2250,16 @@ class WheelWinApplication {
             if (this._consoleGateway) {
 
                 this._consoleGateway.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("walletBalanceMonitor", () => {
+
+            if (this._walletBalanceMonitor) {
+
+                this._walletBalanceMonitor.shutdown();
 
             }
 

@@ -60,6 +60,7 @@ export class DeveloperConsoleProjectionService {
         tonFinancialRecovery = null,
         roomLobbyBridge = null,
         runtimeConfigurationService = null,
+        walletBalanceMonitor = null,
         version = packageJson.version,
         startedAt = Date.now()
     }) {
@@ -92,6 +93,7 @@ export class DeveloperConsoleProjectionService {
         this._tonFinancialRecovery = tonFinancialRecovery;
         this._roomLobbyBridge = roomLobbyBridge;
         this._runtimeConfigurationService = runtimeConfigurationService;
+        this._walletBalanceMonitor = walletBalanceMonitor;
         this._version = version;
         this._startedAt = startedAt;
 
@@ -291,6 +293,28 @@ export class DeveloperConsoleProjectionService {
             canEdit: canEdit === true,
             settlementTimeoutMsDefault: settlementDefault
         });
+
+    }
+
+    /**
+     * R17.9H — Cached wallet balance monitor snapshot (read-only).
+     */
+    buildWalletBalances() {
+
+        if (!this._walletBalanceMonitor?.getSnapshot) {
+
+            return Object.freeze({
+                schemaVersion: 1,
+                refreshIntervalMs: 30000,
+                network: this._runtimeConfig?.ton?.network ?? null,
+                generatedAt: Date.now(),
+                wallets: Object.freeze([]),
+                error: "Wallet balance monitor unavailable"
+            });
+
+        }
+
+        return this._walletBalanceMonitor.getSnapshot();
 
     }
 

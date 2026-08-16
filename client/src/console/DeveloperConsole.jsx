@@ -25,6 +25,7 @@ import RoomsExplorerPanel from "./panels/RoomsExplorerPanel";
 import GameDetailPanel from "./panels/GameDetailPanel";
 import PlayersInspectorPanel from "./panels/PlayersInspectorPanel";
 import PaymentsPanel from "./panels/PaymentsPanel";
+import WalletMonitoringPanel from "./panels/WalletMonitoringPanel";
 import AdvertisingPanel from "./panels/AdvertisingPanel";
 import TonConnectDiagnosticsPanel from "./panels/TonConnectDiagnosticsPanel";
 import HistoryPanel from "./panels/HistoryPanel";
@@ -57,6 +58,7 @@ const SECTION_PANEL_RENDERERS = Object.freeze({
     games: () => <GameDetailPanel />,
     players: () => <PlayersInspectorPanel />,
     payments: () => <PaymentsPanel />,
+    "wallet-monitoring": () => <WalletMonitoringPanel />,
     advertising: () => <AdvertisingPanel />,
     tonconnect: () => <TonConnectDiagnosticsPanel />,
     history: () => <HistoryPanel />,

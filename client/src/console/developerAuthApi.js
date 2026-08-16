@@ -278,6 +278,34 @@ export async function fetchBlockchainStatus(accessToken) {
 
 }
 
+/**
+ * R17.9H — Read-only wallet balance monitor snapshot.
+ */
+export async function fetchWalletBalances(accessToken) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/wallets/balances`,
+        {
+            method: "GET",
+            headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${accessToken}`
+            }
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load wallet balances");
+
+    }
+
+    return body;
+
+}
+
 export async function fetchDeployerWalletStatus(accessToken) {
 
     const response = await fetch(
