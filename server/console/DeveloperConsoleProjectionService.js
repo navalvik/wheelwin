@@ -61,6 +61,7 @@ export class DeveloperConsoleProjectionService {
         tonFinancialRecovery = null,
         roomLobbyBridge = null,
         runtimeConfigurationService = null,
+        audioRegistryService = null,
         walletBalanceMonitor = null,
         version = packageJson.version,
         startedAt = Date.now()
@@ -94,6 +95,7 @@ export class DeveloperConsoleProjectionService {
         this._tonFinancialRecovery = tonFinancialRecovery;
         this._roomLobbyBridge = roomLobbyBridge;
         this._runtimeConfigurationService = runtimeConfigurationService;
+        this._audioRegistryService = audioRegistryService;
         this._walletBalanceMonitor = walletBalanceMonitor;
         this._version = version;
         this._startedAt = startedAt;
@@ -320,13 +322,21 @@ export class DeveloperConsoleProjectionService {
     }
 
     /**
-     * R17.9I.2 — Read-only Audio Registry projection (no playback).
+     * R17.9I.2 / R17.9I.3 — Audio Registry projection (Administrator-only route).
      */
-    buildAudioRegistry() {
+    buildAudioRegistry({ canEdit = true } = {}) {
+
+        if (this._audioRegistryService?.buildSnapshot) {
+
+            return this._audioRegistryService.buildSnapshot({
+                canEdit: canEdit === true
+            });
+
+        }
 
         return buildAudioRegistrySnapshot({
             env: process.env,
-            logger: null
+            canEdit: canEdit === true
         });
 
     }

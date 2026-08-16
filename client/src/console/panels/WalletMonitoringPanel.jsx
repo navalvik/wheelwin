@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { fetchWalletBalances } from "../developerAuthApi";
 import { useDeveloperAuth } from "../DeveloperAuthProvider";
+import EmptyState from "./shared/EmptyState";
 import PanelShell from "./shared/PanelShell";
 
 const WALLET_LABELS = Object.freeze({
@@ -168,15 +169,17 @@ function WalletCard({ wallet }) {
 }
 
 /**
- * R17.9H — Wallet Monitoring panel (read-only balances).
+ * R17.9H / R17.9I.3 — Wallet Monitoring panel (Administrator-only).
  */
 export default function WalletMonitoringPanel() {
 
-    const { accessToken } = useDeveloperAuth();
+    const { accessToken, isAdministrator } = useDeveloperAuth();
 
     const [snapshot, setSnapshot] = useState(null);
 
     const [error, setError] = useState(null);
+
+    const [forbidden, setForbidden] = useState(false);
 
     useEffect(() => {
 
@@ -186,7 +189,7 @@ export default function WalletMonitoringPanel() {
 
         async function load() {
 
-            if (!accessToken) {
+            if (!accessToken || !isAdministrator) {
 
                 return;
 
@@ -202,17 +205,35 @@ export default function WalletMonitoringPanel() {
 
                     setError(null);
 
+                    setForbidden(false);
+
                 }
 
             } catch (err) {
 
                 if (!cancelled) {
 
+                    if (err.status === 403) {
+
+                        setForbidden(true);
+
+                        setSnapshot(null);
+
+                        return;
+
+                    }
+
                     setError(err.message || "Failed to load wallet balances");
 
                 }
 
             }
+
+        }
+
+        if (!isAdministrator) {
+
+            return undefined;
 
         }
 
@@ -232,7 +253,27 @@ export default function WalletMonitoringPanel() {
 
         };
 
-    }, [accessToken]);
+    }, [accessToken, isAdministrator]);
+
+    if (!isAdministrator || forbidden) {
+
+        return (
+
+            <PanelShell
+                title="Wallet Monitoring"
+                subtitle="Live TON balances for Owner, Deploy, and Reimbursement wallets"
+            >
+
+                <EmptyState
+                    title="Administrator access required"
+                    detail="Viewer accounts cannot access Wallet Monitoring. Sign in with an Administrator account."
+                />
+
+            </PanelShell>
+
+        );
+
+    }
 
     const walletsByType = new Map(
         (snapshot?.wallets ?? []).map((entry) => [entry.walletType, entry])

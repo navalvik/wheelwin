@@ -12,7 +12,8 @@ export function registerDeveloperConsoleRoutes(
         authService = null,
         gameDiagnosticLogManager = null,
         sessionHistoryArchive = null,
-        runtimeConfigurationService = null
+        runtimeConfigurationService = null,
+        audioRegistryService = null
     } = {}
 ) {
 
@@ -156,19 +157,22 @@ export function registerDeveloperConsoleRoutes(
 
     });
 
+    const requireAdministrator = authService
+        ? createAdministratorAuthMiddleware(authService)
+        : null;
+
+    const adminGate = requireAdministrator ?? ((req, res, next) => next());
+
     /**
-     * R17.9G.1 — Runtime configuration.
-     * Administrator: full values + canEdit.
-     * Viewer: wallets only (editable values redacted).
+     * R17.9I.3 — Administrator-only Runtime Configuration (view + mutate).
      */
-    app.get("/console/configuration/runtime", (req, res) => {
+    app.get("/console/configuration/runtime", adminGate, (req, res) => {
 
         try {
 
-            const canEdit = authService?.allowsOpenAccess?.() === true
-                || authService?.isAdministrator?.(req.developer) === true;
-
-            res.json(projectionService.buildRuntimeConfiguration({ canEdit }));
+            res.json(projectionService.buildRuntimeConfiguration({
+                canEdit: true
+            }));
 
         } catch (error) {
 
@@ -182,14 +186,13 @@ export function registerDeveloperConsoleRoutes(
     });
 
     /**
-     * R17.9I.2 — Read-only Audio Registry (event → asset mapping).
-     * Missing files never fail this endpoint.
+     * R17.9I.3 — Administrator-only Audio Registry (view).
      */
-    app.get("/console/configuration/audio-registry", (req, res) => {
+    app.get("/console/configuration/audio-registry", adminGate, (req, res) => {
 
         try {
 
-            res.json(projectionService.buildAudioRegistry());
+            res.json(projectionService.buildAudioRegistry({ canEdit: true }));
 
         } catch (error) {
 
@@ -209,9 +212,9 @@ export function registerDeveloperConsoleRoutes(
     });
 
     /**
-     * R17.9H — Read-only wallet balance monitor snapshot.
+     * R17.9I.3 — Administrator-only wallet balance monitor.
      */
-    app.get("/console/wallets/balances", (req, res) => {
+    app.get("/console/wallets/balances", adminGate, (req, res) => {
 
         try {
 
@@ -228,17 +231,13 @@ export function registerDeveloperConsoleRoutes(
 
     });
 
-    const requireAdministrator = authService
-        ? createAdministratorAuthMiddleware(authService)
-        : null;
-
     /**
      * R17.9G.1 — Administrator-only runtime configuration mutation.
      * Applies to future GAME_INITIALIZED sessions only.
      */
     app.put(
         "/console/configuration/runtime",
-        requireAdministrator ?? ((req, res, next) => next()),
+        adminGate,
         (req, res) => {
 
             if (!runtimeConfigurationService?.update) {
@@ -269,15 +268,13 @@ export function registerDeveloperConsoleRoutes(
 
                 }
 
-                const canEdit = true;
-
                 res.json({
                     ok: true,
                     message: result.message,
                     changes: result.changes,
                     auditRecords: result.auditRecords,
                     configuration: projectionService.buildRuntimeConfiguration({
-                        canEdit
+                        canEdit: true
                     })
                 });
 
@@ -285,6 +282,65 @@ export function registerDeveloperConsoleRoutes(
 
                 res.status(500).json({
                     error: "Failed to update runtime configuration",
+                    message: error?.message ?? "Unknown error"
+                });
+
+            }
+
+        }
+    );
+
+    /**
+     * R17.9I.3 — Administrator-only Audio Registry mutation.
+     * Applies to future audio sessions only (playback still disabled).
+     */
+    app.put(
+        "/console/configuration/audio-registry",
+        adminGate,
+        (req, res) => {
+
+            if (!audioRegistryService?.update) {
+
+                res.status(503).json({
+                    error: "Audio Registry service unavailable"
+                });
+
+                return;
+
+            }
+
+            try {
+
+                const result = audioRegistryService.update(req.body, {
+                    username: req.developer?.username ?? null,
+                    role: req.developer?.role ?? "Administrator"
+                });
+
+                if (!result.ok) {
+
+                    res.status(result.status ?? 400).json({
+                        error: result.error ?? "Update failed",
+                        details: result.details ?? undefined
+                    });
+
+                    return;
+
+                }
+
+                res.json({
+                    ok: true,
+                    message: result.message,
+                    changes: result.changes,
+                    auditRecords: result.auditRecords,
+                    registry: projectionService.buildAudioRegistry({
+                        canEdit: true
+                    })
+                });
+
+            } catch (error) {
+
+                res.status(500).json({
+                    error: "Failed to update audio registry",
                     message: error?.message ?? "Unknown error"
                 });
 

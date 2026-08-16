@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { fetchAudioRegistry } from "../developerAuthApi";
+import {
+    fetchAudioRegistry,
+    updateAudioRegistry
+} from "../developerAuthApi";
 import { useDeveloperAuth } from "../DeveloperAuthProvider";
+import EmptyState from "./shared/EmptyState";
 import PanelShell from "./shared/PanelShell";
 
 function statusClass(status) {
@@ -22,21 +26,73 @@ function statusClass(status) {
 }
 
 /**
- * R17.9I.2 — Audio Registry panel (read-only event → asset map).
+ * R17.9I.3 — Audio Registry panel with Administrator editing.
  */
 export default function AudioRegistryPanel() {
 
-    const { accessToken } = useDeveloperAuth();
+    const { accessToken, isAdministrator } = useDeveloperAuth();
 
     const [registry, setRegistry] = useState(null);
 
+    const [drafts, setDrafts] = useState({});
+
     const [error, setError] = useState(null);
+
+    const [success, setSuccess] = useState(null);
+
+    const [busy, setBusy] = useState(false);
+
+    const [forbidden, setForbidden] = useState(false);
+
+    const applyRegistry = useCallback((next) => {
+
+        setRegistry(next);
+
+        const nextDrafts = {};
+
+        for (const entry of next?.entries ?? []) {
+
+            nextDrafts[entry.eventId] = {
+                enabled: entry.enabled === true,
+                volume: entry.volume,
+                loop: entry.loop === true
+            };
+
+        }
+
+        setDrafts(nextDrafts);
+
+    }, []);
+
+    const load = useCallback(async () => {
+
+        if (!accessToken || !isAdministrator) {
+
+            return;
+
+        }
+
+        const next = await fetchAudioRegistry(accessToken);
+
+        applyRegistry(next);
+
+        setError(null);
+
+        setForbidden(false);
+
+    }, [accessToken, applyRegistry, isAdministrator]);
 
     useEffect(() => {
 
         let cancelled = false;
 
-        async function load() {
+        async function run() {
+
+            if (!isAdministrator) {
+
+                return;
+
+            }
 
             if (!accessToken) {
 
@@ -46,29 +102,33 @@ export default function AudioRegistryPanel() {
 
             try {
 
-                const next = await fetchAudioRegistry(accessToken);
-
-                if (!cancelled) {
-
-                    setRegistry(next);
-
-                    setError(null);
-
-                }
+                await load();
 
             } catch (err) {
 
-                if (!cancelled) {
+                if (cancelled) {
 
-                    setError(err.message || "Failed to load audio registry");
+                    return;
 
                 }
+
+                if (err.status === 403) {
+
+                    setForbidden(true);
+
+                    setRegistry(null);
+
+                    return;
+
+                }
+
+                setError(err.message || "Failed to load audio registry");
 
             }
 
         }
 
-        load();
+        run();
 
         return () => {
 
@@ -76,7 +136,147 @@ export default function AudioRegistryPanel() {
 
         };
 
-    }, [accessToken]);
+    }, [accessToken, isAdministrator, load]);
+
+    const updateDraft = useCallback((eventId, field, value) => {
+
+        setDrafts((prev) => ({
+            ...prev,
+            [eventId]: {
+                ...prev[eventId],
+                [field]: value
+            }
+        }));
+
+        setSuccess(null);
+
+    }, []);
+
+    const save = useCallback(async (event) => {
+
+        event.preventDefault();
+
+        if (!isAdministrator || !accessToken || !registry) {
+
+            return;
+
+        }
+
+        setBusy(true);
+
+        setError(null);
+
+        setSuccess(null);
+
+        try {
+
+            const entries = [];
+
+            for (const entry of registry.entries ?? []) {
+
+                const draft = drafts[entry.eventId];
+
+                if (!draft) {
+
+                    continue;
+
+                }
+
+                const patch = { eventId: entry.eventId };
+                let dirty = false;
+
+                if (draft.enabled !== entry.enabled) {
+
+                    patch.enabled = draft.enabled === true;
+                    dirty = true;
+
+                }
+
+                if (draft.loop !== entry.loop) {
+
+                    patch.loop = draft.loop === true;
+                    dirty = true;
+
+                }
+
+                if (Number(draft.volume) !== Number(entry.volume)) {
+
+                    patch.volume = Number(draft.volume);
+                    dirty = true;
+
+                }
+
+                if (dirty) {
+
+                    entries.push(patch);
+
+                }
+
+            }
+
+            if (entries.length === 0) {
+
+                setSuccess("No changes to save.");
+
+                return;
+
+            }
+
+            const result = await updateAudioRegistry(accessToken, { entries });
+
+            setSuccess(
+                result.message
+                || "Saved. Changes apply to future audio sessions only."
+            );
+
+            if (result.registry) {
+
+                applyRegistry(result.registry);
+
+            } else {
+
+                await load();
+
+            }
+
+        } catch (err) {
+
+            setError(err.message || "Failed to save audio registry");
+
+        } finally {
+
+            setBusy(false);
+
+        }
+
+    }, [
+        accessToken,
+        applyRegistry,
+        drafts,
+        isAdministrator,
+        load,
+        registry
+    ]);
+
+    if (!isAdministrator || forbidden) {
+
+        return (
+
+            <PanelShell
+                title="Audio Registry"
+                subtitle="Presentation event → asset mapping"
+            >
+
+                <EmptyState
+                    title="Administrator access required"
+                    detail="Viewer accounts cannot access Audio Registry. Sign in with an Administrator account."
+                />
+
+            </PanelShell>
+
+        );
+
+    }
 
     const entries = registry?.entries ?? [];
     const summary = registry?.summary ?? null;
@@ -85,12 +285,18 @@ export default function AudioRegistryPanel() {
 
         <PanelShell
             title="Audio Registry"
-            subtitle="Presentation event → asset mapping (read-only; playback stays disabled)"
+            subtitle="Administrator controls for enabled, volume, and loop (playback stays disabled)"
         >
 
             {error && (
 
                 <p className="devConsole__envError" role="alert">{error}</p>
+
+            )}
+
+            {success && (
+
+                <p className="devConsole__envSuccess" role="status">{success}</p>
 
             )}
 
@@ -102,19 +308,19 @@ export default function AudioRegistryPanel() {
 
             {registry && (
 
-                <div className="devConsole__opsStack">
+                <form className="devConsole__opsStack" onSubmit={save}>
 
                     <p className="devConsole__placeholder">
 
                         Schema v{registry.schemaVersion}
                         {" · "}
-                        Total {summary?.total ?? 0}
+                        Config v{registry.configVersion ?? 0}
                         {" · "}
                         Available {summary?.available ?? 0}
                         {" · "}
                         Missing {summary?.missing ?? 0}
                         {" · "}
-                        Missing files never interrupt gameplay
+                        eventId / file / category are immutable
                     </p>
 
                     <div className="devConsole__tableWrap">
@@ -135,6 +341,8 @@ export default function AudioRegistryPanel() {
 
                                     <th>Enabled</th>
 
+                                    <th>Volume</th>
+
                                     <th>Status</th>
 
                                 </tr>
@@ -143,33 +351,90 @@ export default function AudioRegistryPanel() {
 
                             <tbody>
 
-                                {entries.map((entry) => (
+                                {entries.map((entry) => {
 
-                                    <tr key={entry.eventId}>
+                                    const draft = drafts[entry.eventId] ?? {
+                                        enabled: entry.enabled,
+                                        volume: entry.volume,
+                                        loop: entry.loop
+                                    };
 
-                                        <td>{entry.eventId}</td>
+                                    return (
 
-                                        <td>{entry.fileName ?? entry.audioFile}</td>
+                                        <tr key={entry.eventId}>
 
-                                        <td>{entry.category}</td>
+                                            <td>{entry.eventId}</td>
 
-                                        <td>{entry.loop ? "YES" : "NO"}</td>
+                                            <td>
+                                                {entry.fileName ?? entry.audioFile}
+                                            </td>
 
-                                        <td>{entry.enabled ? "ON" : "OFF"}</td>
+                                            <td>{entry.category}</td>
 
-                                        <td>
+                                            <td>
 
-                                            <span className={statusClass(entry.status)}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={draft.loop === true}
+                                                    onChange={(event) => updateDraft(
+                                                        entry.eventId,
+                                                        "loop",
+                                                        event.target.checked
+                                                    )}
+                                                    aria-label={`${entry.eventId} loop`}
+                                                />
 
-                                                {entry.status}
+                                            </td>
 
-                                            </span>
+                                            <td>
 
-                                        </td>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={draft.enabled === true}
+                                                    onChange={(event) => updateDraft(
+                                                        entry.eventId,
+                                                        "enabled",
+                                                        event.target.checked
+                                                    )}
+                                                    aria-label={`${entry.eventId} enabled`}
+                                                />
 
-                                    </tr>
+                                            </td>
 
-                                ))}
+                                            <td>
+
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="1"
+                                                    step="0.01"
+                                                    value={draft.volume ?? 0}
+                                                    onChange={(event) => updateDraft(
+                                                        entry.eventId,
+                                                        "volume",
+                                                        event.target.value
+                                                    )}
+                                                    aria-label={`${entry.eventId} volume`}
+                                                    className="devConsole__audioVolumeInput"
+                                                />
+
+                                            </td>
+
+                                            <td>
+
+                                                <span className={statusClass(entry.status)}>
+
+                                                    {entry.status}
+
+                                                </span>
+
+                                            </td>
+
+                                        </tr>
+
+                                    );
+
+                                })}
 
                             </tbody>
 
@@ -177,7 +442,21 @@ export default function AudioRegistryPanel() {
 
                     </div>
 
-                </div>
+                    <div>
+
+                        <button
+                            type="submit"
+                            className="devConsole__envSubmit"
+                            disabled={busy}
+                        >
+
+                            {busy ? "Saving…" : "Save Audio Registry"}
+
+                        </button>
+
+                    </div>
+
+                </form>
 
             )}
 

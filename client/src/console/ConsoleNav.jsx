@@ -5,6 +5,7 @@ import {
     getConsoleNavTree,
     getConsoleSection
 } from "./consoleSections";
+import { useDeveloperAuth } from "./DeveloperAuthProvider";
 
 const EXPANDED_STORAGE_KEY = "wheelwin.devConsole.navExpandedGroups";
 
@@ -83,7 +84,17 @@ export default function ConsoleNav({
     onSelectSection
 }) {
 
-    const navTree = useMemo(() => getConsoleNavTree(), []);
+    const { isAdministrator, authEnabled, status } = useDeveloperAuth();
+
+    // Open-access / unauthenticated-loading: show full nav (auth gate is elsewhere).
+    const includeAdministratorOnly = !authEnabled
+        || status === "open"
+        || isAdministrator === true;
+
+    const navTree = useMemo(
+        () => getConsoleNavTree({ includeAdministratorOnly }),
+        [includeAdministratorOnly]
+    );
 
     const [expandedByGroup, setExpandedByGroup] = useState(readExpandedGroups);
 

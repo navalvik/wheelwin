@@ -2283,3 +2283,17 @@ body:has(.devConsole) {
     min-width: 0;
 }
 
+.devConsole__audioVolumeInput {
+
+    width: 5.5rem;
+
+    padding: 6px 8px;
+
+    border: 1px solid var(--console-border);
+
+    border-radius: 6px;
+
+    font: inherit;
+}
+
+

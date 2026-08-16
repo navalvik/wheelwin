@@ -212,7 +212,14 @@ export async function fetchRuntimeConfiguration(accessToken) {
 
     if (!response.ok) {
 
-        throw new Error(body?.error || "Failed to load runtime configuration");
+        const error = new Error(
+            body?.error || "Failed to load runtime configuration"
+        );
+
+        error.status = response.status;
+        error.body = body;
+
+        throw error;
 
     }
 
@@ -221,7 +228,7 @@ export async function fetchRuntimeConfiguration(accessToken) {
 }
 
 /**
- * R17.9I.2 — Read-only Audio Registry snapshot.
+ * R17.9I.2 / R17.9I.3 — Audio Registry snapshot (Administrator-only).
  */
 export async function fetchAudioRegistry(accessToken) {
 
@@ -240,7 +247,55 @@ export async function fetchAudioRegistry(accessToken) {
 
     if (!response.ok) {
 
-        throw new Error(body?.error || "Failed to load audio registry");
+        const error = new Error(
+            body?.error || "Failed to load audio registry"
+        );
+
+        error.status = response.status;
+        error.body = body;
+
+        throw error;
+
+    }
+
+    return body;
+
+}
+
+/**
+ * R17.9I.3 — Administrator-only Audio Registry mutation.
+ */
+export async function updateAudioRegistry(accessToken, payload) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/configuration/audio-registry`,
+        {
+            method: "PUT",
+            headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`
+            },
+            body: JSON.stringify(payload)
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        const detail = Array.isArray(body?.details) && body.details.length > 0
+            ? ` (${body.details.join("; ")})`
+            : "";
+
+        const error = new Error(
+            `${body?.error || "Failed to update audio registry"}${detail}`
+        );
+
+        error.status = response.status;
+        error.body = body;
+
+        throw error;
 
     }
 
@@ -326,7 +381,12 @@ export async function fetchWalletBalances(accessToken) {
 
     if (!response.ok) {
 
-        throw new Error(body?.error || "Failed to load wallet balances");
+        const error = new Error(body?.error || "Failed to load wallet balances");
+
+        error.status = response.status;
+        error.body = body;
+
+        throw error;
 
     }
 

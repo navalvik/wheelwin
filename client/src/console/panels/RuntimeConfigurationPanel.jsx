@@ -183,7 +183,7 @@ export default function RuntimeConfigurationPanel() {
 
     const load = useCallback(async () => {
 
-        if (!accessToken) {
+        if (!accessToken || !isAdministrator) {
 
             return;
 
@@ -220,7 +220,7 @@ export default function RuntimeConfigurationPanel() {
 
         setError(null);
 
-    }, [accessToken]);
+    }, [accessToken, isAdministrator]);
 
     useEffect(() => {
 
@@ -228,7 +228,7 @@ export default function RuntimeConfigurationPanel() {
 
         async function run() {
 
-            if (!accessToken) {
+            if (!accessToken || !isAdministrator) {
 
                 return;
 
@@ -258,7 +258,7 @@ export default function RuntimeConfigurationPanel() {
 
         };
 
-    }, [accessToken, load]);
+    }, [accessToken, isAdministrator, load]);
 
     const save = useCallback(async (event) => {
 
@@ -356,33 +356,8 @@ export default function RuntimeConfigurationPanel() {
 
                 <EmptyState
                     title="Administrator access required"
-                    detail="Viewer accounts cannot view or edit Runtime Configuration values. Sign in with an Administrator account."
+                    detail="Viewer accounts cannot access Runtime Configuration. Sign in with an Administrator account."
                 />
-
-                {config?.wallets ? (
-
-                    <SectionCard title="Wallet Configuration (read-only)">
-
-                        <InfoRow
-                            label="Owner Wallet"
-                            value={formatAddress(config.wallets.ownerWallet)}
-                        />
-
-                        <InfoRow
-                            label="Deploy Wallet"
-                            value={formatAddress(config.wallets.deployWallet)}
-                        />
-
-                        <InfoRow
-                            label="Reimbursement Wallet"
-                            value={formatAddress(
-                                config.wallets.reimbursementWallet
-                            )}
-                        />
-
-                    </SectionCard>
-
-                ) : null}
 
             </PanelShell>
 

@@ -276,5 +276,8 @@ export const EVENT_TYPES = Object.freeze({
     // R17.9G.1 — Developer Console runtime configuration mutation audit.
     RUNTIME_CONFIG_CHANGED: "RUNTIME_CONFIG_CHANGED",
 
+    // R17.9I.3 — Developer Console audio registry mutation audit.
+    AUDIO_REGISTRY_CHANGED: "AUDIO_REGISTRY_CHANGED",
+
     SERVER_SHUTDOWN: "SERVER_SHUTDOWN"
 });

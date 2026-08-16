@@ -56,7 +56,10 @@ function normalizeEntry(entry) {
  *   entries?: object[],
  *   env?: NodeJS.ProcessEnv,
  *   logger?: { warn?: Function }|null,
- *   assetsRoot?: string|null
+ *   assetsRoot?: string|null,
+ *   canEdit?: boolean,
+ *   configVersion?: number|null,
+ *   overrides?: Record<string, object>|null
  * }} [options]
  * @returns {object}
  */
@@ -64,11 +67,17 @@ export function buildAudioRegistrySnapshot({
     entries = INITIAL_AUDIO_REGISTRY_ENTRIES,
     env = process.env,
     logger = null,
-    assetsRoot = null
+    assetsRoot = null,
+    canEdit = false,
+    configVersion = null,
+    overrides = null
 } = {}) {
 
     const root = assetsRoot || resolveAudioAssetsRoot(env);
     const source = Array.isArray(entries) ? entries : INITIAL_AUDIO_REGISTRY_ENTRIES;
+    const overrideMap = overrides && typeof overrides === "object"
+        ? overrides
+        : {};
 
     let availableCount = 0;
     let missingCount = 0;
@@ -103,10 +112,14 @@ export function buildAudioRegistrySnapshot({
 
             }
 
+            const hasOverride = Boolean(overrideMap[entry.eventId]);
+
             projected.push(Object.freeze({
                 ...entry,
                 status,
-                fileName: entry.audioFile.split("/").pop() || entry.audioFile
+                fileName: entry.audioFile.split("/").pop() || entry.audioFile,
+                overridden: hasOverride,
+                editableFields: Object.freeze(["enabled", "volume", "loop"])
             }));
 
         } catch {
@@ -120,9 +133,11 @@ export function buildAudioRegistrySnapshot({
 
     return Object.freeze({
         schemaVersion: AUDIO_REGISTRY_SCHEMA_VERSION,
-        readOnly: true,
-        canEdit: false,
+        readOnly: canEdit !== true,
+        canEdit: canEdit === true,
         generatedAt: Date.now(),
+        configVersion: configVersion ?? null,
+        applyScope: "future_audio_sessions_only",
         assetsRootHint: "client/src/assets/audio",
         categories: Object.freeze([...AUDIO_REGISTRY_CATEGORIES]),
         summary: Object.freeze({
@@ -131,10 +146,12 @@ export function buildAudioRegistrySnapshot({
             missing: missingCount
         }),
         notes: Object.freeze({
-            playback: "R17.9I.2 is registry observability only — playback stays disabled.",
+            playback:
+                "Audio Registry does not enable playback in this stage.",
             missingFiles:
                 "MISSING assets never throw, never block gameplay, never roll back state.",
-            loop: "Every entry includes loop: true | false."
+            loop: "Every entry includes loop: true | false.",
+            immutable: "eventId, audioFile, and category are code-controlled."
         }),
         entries: Object.freeze(projected)
     });

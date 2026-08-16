@@ -59,7 +59,8 @@ export const CONSOLE_GROUPS = Object.freeze([
  *   id: string,
  *   label: string,
  *   group: string,
- *   reserved?: boolean
+ *   reserved?: boolean,
+ *   administratorOnly?: boolean
  * }} ConsoleSectionDef
  */
 
@@ -138,7 +139,8 @@ export const CONSOLE_SECTIONS = Object.freeze([
     Object.freeze({
         id: "wallet-monitoring",
         label: "Wallet Monitoring",
-        group: CONSOLE_GROUP_IDS.FINANCIAL
+        group: CONSOLE_GROUP_IDS.FINANCIAL,
+        administratorOnly: true
     }),
 
     // BLOCKCHAIN
@@ -203,16 +205,18 @@ export const CONSOLE_SECTIONS = Object.freeze([
         reserved: true
     }),
 
-    // CONFIGURATION (placeholders for later stages)
+    // CONFIGURATION
     Object.freeze({
         id: "runtime-configuration",
         label: "Runtime Configuration",
-        group: CONSOLE_GROUP_IDS.CONFIGURATION
+        group: CONSOLE_GROUP_IDS.CONFIGURATION,
+        administratorOnly: true
     }),
     Object.freeze({
         id: "audio-registry",
         label: "Audio Registry",
-        group: CONSOLE_GROUP_IDS.CONFIGURATION
+        group: CONSOLE_GROUP_IDS.CONFIGURATION,
+        administratorOnly: true
     })
 ]);
 
@@ -227,25 +231,62 @@ export function getConsoleSection(sectionId) {
 
 /**
  * @param {string} groupId
+ * @param {{ includeAdministratorOnly?: boolean }} [options]
  * @returns {ReadonlyArray<Readonly<ConsoleSectionDef>>}
  */
-export function getConsoleSectionsInGroup(groupId) {
+export function getConsoleSectionsInGroup(groupId, {
+    includeAdministratorOnly = true
+} = {}) {
 
-    return CONSOLE_SECTIONS.filter((section) => section.group === groupId);
+    return CONSOLE_SECTIONS.filter((section) => {
+
+        if (section.group !== groupId) {
+
+            return false;
+
+        }
+
+        if (!includeAdministratorOnly && section.administratorOnly === true) {
+
+            return false;
+
+        }
+
+        return true;
+
+    });
 
 }
 
 /**
+ * @param {{ includeAdministratorOnly?: boolean }} [options]
  * @returns {ReadonlyArray<{
  *   group: Readonly<{ id: string, label: string, defaultExpanded: boolean }>,
  *   sections: ReadonlyArray<Readonly<ConsoleSectionDef>>
  * }>}
  */
-export function getConsoleNavTree() {
+export function getConsoleNavTree({
+    includeAdministratorOnly = true
+} = {}) {
 
     return CONSOLE_GROUPS.map((group) => Object.freeze({
         group,
-        sections: getConsoleSectionsInGroup(group.id)
-    }));
+        sections: getConsoleSectionsInGroup(group.id, {
+            includeAdministratorOnly
+        })
+    })).filter((node) => node.sections.length > 0);
+
+}
+
+/**
+ * R17.9I.3 — Sections introduced in R17.9 that Viewers must not access.
+ * @param {string} sectionId
+ * @returns {boolean}
+ */
+export function isAdministratorOnlySection(sectionId) {
+
+    const section = CONSOLE_SECTIONS.find((entry) => entry.id === sectionId);
+
+    return section?.administratorOnly === true;
 
 }

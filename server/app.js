@@ -96,6 +96,7 @@ import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
+import { AudioRegistryService } from "./console/configuration/AudioRegistryService.js";
 import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
 import { TIMER_PHASES } from "./catalog/Timers.js";
 import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
@@ -299,6 +300,8 @@ class WheelWinApplication {
         this._contractSettlementManager = null;
 
         this._runtimeConfigurationService = null;
+
+        this._audioRegistryService = null;
 
         this._walletBalanceMonitor = null;
 
@@ -1558,6 +1561,15 @@ class WheelWinApplication {
 
         this._logger.startupLine("RuntimeConfigurationService");
 
+        this._audioRegistryService = new AudioRegistryService({
+            logger: this._logger,
+            env: process.env
+        });
+
+        this._audioRegistryService.initialize();
+
+        this._logger.startupLine("AudioRegistryService");
+
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1751,6 +1763,7 @@ class WheelWinApplication {
             tonFinancialRecovery: this._tonFinancialRecovery,
             roomLobbyBridge: this._roomLobbyBridge,
             runtimeConfigurationService: this._runtimeConfigurationService,
+            audioRegistryService: this._audioRegistryService,
             walletBalanceMonitor: this._walletBalanceMonitor,
             startedAt: this._serverStartedAt
         });
@@ -1915,7 +1928,8 @@ class WheelWinApplication {
                 authService: this._developerAuthService,
                 gameDiagnosticLogManager: this._gameDiagnosticLogManager,
                 sessionHistoryArchive: this._sessionHistoryArchive,
-                runtimeConfigurationService: this._runtimeConfigurationService
+                runtimeConfigurationService: this._runtimeConfigurationService,
+                audioRegistryService: this._audioRegistryService
             }
         );
 

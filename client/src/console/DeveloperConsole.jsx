@@ -9,7 +9,10 @@ import {
     DeveloperAuthProvider,
     useDeveloperAuth
 } from "./DeveloperAuthProvider";
-import { getConsoleSection } from "./consoleSections";
+import {
+    getConsoleSection,
+    isAdministratorOnlySection
+} from "./consoleSections";
 import {
     readRememberedSectionId,
     rememberSectionId
@@ -122,11 +125,41 @@ function DeveloperConsoleBody() {
 
     const { setFocus } = useConsoleFocus();
 
-    const { requiresLogin } = useDeveloperAuth();
+    const { requiresLogin, isAdministrator, authEnabled, status } = useDeveloperAuth();
+
+    const includeAdministratorOnly = !authEnabled
+        || status === "open"
+        || isAdministrator === true;
+
+    useEffect(() => {
+
+        if (includeAdministratorOnly) {
+
+            return;
+
+        }
+
+        if (isAdministratorOnlySection(activeSectionId)) {
+
+            const fallback = getConsoleSection("server-health").id;
+
+            setActiveSectionId(fallback);
+
+            rememberSectionId(fallback);
+
+        }
+
+    }, [activeSectionId, includeAdministratorOnly]);
 
     const onSelectSection = useCallback((sectionId) => {
 
         const next = getConsoleSection(sectionId).id;
+
+        if (!includeAdministratorOnly && isAdministratorOnlySection(next)) {
+
+            return;
+
+        }
 
         setActiveSectionId(next);
 
@@ -138,7 +171,7 @@ function DeveloperConsoleBody() {
 
         }
 
-    }, [setFocus]);
+    }, [includeAdministratorOnly, setFocus]);
 
     useEffect(() => {
 
