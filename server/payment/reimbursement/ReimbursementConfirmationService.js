@@ -363,11 +363,16 @@ export class ReimbursementConfirmationService {
 
             const hashRecovery = await this.recoverMissingTransactionHashes();
 
+            const processingRecovery = await this.recoverProcessingWithoutHash();
+
             const awaiting = this._repository.listAwaitingConfirmation();
             const due = awaiting.filter(
                 (record) => isReimbursementConfirmationDue(record.payload)
             );
-            const results = [...(hashRecovery.results ?? [])];
+            const results = [
+                ...(hashRecovery.results ?? []),
+                ...(processingRecovery.results ?? [])
+            ];
 
             for (const record of due) {
 
@@ -381,9 +386,12 @@ export class ReimbursementConfirmationService {
             }
 
             return {
-                scanned: awaiting.length + (hashRecovery.scanned ?? 0),
+                scanned: awaiting.length
+                    + (hashRecovery.scanned ?? 0)
+                    + (processingRecovery.scanned ?? 0),
                 due: due.length,
                 hashRecovery,
+                processingRecovery,
                 results
             };
 
@@ -515,6 +523,167 @@ export class ReimbursementConfirmationService {
 
         return {
             scanned: awaiting.length,
+            results
+        };
+
+    }
+
+    /**
+     * R17.8V.2P.S — PROCESSING without txHash (orphan after claim/crash).
+     * Deep-scan Reimbursement Wallet only. Never blind resend.
+     * Found → attach hash + confirm. Miss → AWAITING_TRANSACTION_HASH.
+     *
+     * @returns {Promise<{ scanned: number, results: object[] }>}
+     */
+    async recoverProcessingWithoutHash() {
+
+        if (!this._initialized) {
+
+            return { scanned: 0, results: [] };
+
+        }
+
+        const orphans = this._repository.listProcessingWithoutHash?.() ?? [];
+        const results = [];
+
+        for (const record of orphans) {
+
+            const wallet = String(record.payload?.reimbursementWallet ?? "").trim();
+            const deployWallet = String(record.payload?.deployWallet ?? "").trim();
+            const amountTon = String(record.payload?.amountTon ?? "").trim();
+
+            if (!wallet || !deployWallet || !amountTon) {
+
+                this._repository.markAwaitingTransactionHash(record.recordId, {
+                    processedAt: record.payload?.processedAt ?? Date.now()
+                });
+
+                results.push({
+                    recordId: record.recordId,
+                    ok: false,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.SKIPPED,
+                    message: "incomplete_fields_moved_awaiting_hash",
+                    status: DEPLOYMENT_REIMBURSEMENT_STATUS.AWAITING_TRANSACTION_HASH
+                });
+
+                continue;
+
+            }
+
+            if (!this._scanner?.findOutgoingTransfer) {
+
+                this._repository.markAwaitingTransactionHash(record.recordId, {
+                    processedAt: record.payload?.processedAt ?? Date.now()
+                });
+
+                results.push({
+                    recordId: record.recordId,
+                    ok: false,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.PENDING,
+                    message: "scanner_unavailable_moved_awaiting_hash",
+                    status: DEPLOYMENT_REIMBURSEMENT_STATUS.AWAITING_TRANSACTION_HASH
+                });
+
+                continue;
+
+            }
+
+            let found;
+
+            try {
+
+                found = await this._scanner.findOutgoingTransfer({
+                    walletAddress: wallet,
+                    deployWallet,
+                    amountTon,
+                    processedAt: record.payload?.processedAt ?? record.payload?.createdAt
+                });
+
+            } catch (error) {
+
+                this._repository.markAwaitingTransactionHash(record.recordId, {
+                    processedAt: record.payload?.processedAt ?? Date.now()
+                });
+
+                results.push({
+                    recordId: record.recordId,
+                    ok: false,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.PENDING,
+                    message: error?.message ?? "scan_failed_moved_awaiting_hash",
+                    status: DEPLOYMENT_REIMBURSEMENT_STATUS.AWAITING_TRANSACTION_HASH
+                });
+
+                continue;
+
+            }
+
+            if (!found?.ok) {
+
+                this._repository.markAwaitingTransactionHash(record.recordId, {
+                    processedAt: record.payload?.processedAt ?? Date.now()
+                });
+
+                results.push({
+                    recordId: record.recordId,
+                    ok: false,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.PENDING,
+                    message: found?.reason ?? "tx_not_found_moved_awaiting_hash",
+                    status: DEPLOYMENT_REIMBURSEMENT_STATUS.AWAITING_TRANSACTION_HASH,
+                    resent: false
+                });
+
+                continue;
+
+            }
+
+            const sent = this._repository.markSent(record.recordId, {
+                txHash: found.txHash,
+                processedAt: record.payload?.processedAt ?? Date.now()
+            });
+
+            this._emitAudit(EVENT_TYPES.REIMBURSEMENT_TX_RECOVERED, {
+                gameId: record.payload?.gameId ?? null,
+                txHash: found.txHash,
+                attempt: Number(record.payload?.confirmationAttempts ?? 0),
+                status: DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING,
+                amount: amountTon
+            });
+
+            let confirmation;
+
+            try {
+
+                confirmation = await this.confirmTransaction(sent.recordId);
+
+            } catch (error) {
+
+                results.push({
+                    recordId: record.recordId,
+                    ok: true,
+                    code: REIMBURSEMENT_CONFIRMATION_RESULT.TX_RECOVERED,
+                    recoveredTxHash: found.txHash,
+                    confirmation: {
+                        ok: false,
+                        message: error?.message ?? "confirm_after_recover_failed"
+                    }
+                });
+
+                continue;
+
+            }
+
+            results.push({
+                recordId: record.recordId,
+                ok: true,
+                code: REIMBURSEMENT_CONFIRMATION_RESULT.TX_RECOVERED,
+                recoveredTxHash: found.txHash,
+                confirmation
+            });
+
+        }
+
+        return {
+            scanned: orphans.length,
             results
         };
 

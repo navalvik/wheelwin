@@ -92,6 +92,7 @@ function createStack({ enabled = true, reimbursementWallet = REIMB_WALLET } = {}
 
     const env = {
         DEPLOYMENT_REIMBURSEMENT_ENABLED: enabled ? "true" : "false",
+        REIMBURSEMENT_ENABLED: enabled ? "true" : "false",
         TON_REIMBURSEMENT_EXPECTED_ADDRESS: reimbursementWallet
     };
 

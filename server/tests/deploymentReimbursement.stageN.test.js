@@ -278,10 +278,10 @@ async function main() {
                 settlementPayload({ gameId: "game_stage_n_pending" })
             );
 
-            assert.equal(rejected.ok, false);
+            assert.equal(rejected.ok, true);
             assert.equal(
                 rejected.code,
-                DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.SNAPSHOT_NOT_FROZEN
+                DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.SNAPSHOT_AWAITING_FREEZE
             );
             assert.equal(
                 pendingOnly.repository.findByGameId("game_stage_n_pending"),

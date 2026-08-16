@@ -6,6 +6,7 @@
  * Stage D: TonCenter lookup + FROZEN (chain economics only).
  */
 
+import { EVENT_SOURCES } from "../../events/EventSources.js";
 import { EVENT_TYPES } from "../../events/EventTypes.js";
 import { DuplicateRecordError } from "../../persistence/TonFinancialPersistence.js";
 import { isDeploymentCostSnapshotEnabled } from "./deploymentCostSnapshotConfig.js";
@@ -494,6 +495,8 @@ export class DeploymentCostService {
                     + `cost=${frozen.payload?.deploymentCostTon}`
             );
 
+            this._emitSnapshotFrozen(frozen);
+
             return {
                 ok: true,
                 code: DEPLOYMENT_COST_SERVICE_RESULT.OK,
@@ -972,6 +975,41 @@ export class DeploymentCostService {
         this._eventBus.subscribe(event, handler);
 
         this._handlers.push({ event, handler });
+
+    }
+
+    /**
+     * R17.8V.2P.S — notify reimbursement deferred-create path.
+     *
+     * @param {object} frozen
+     */
+    _emitSnapshotFrozen(frozen) {
+
+        const payload = frozen?.payload ?? {};
+
+        try {
+
+            this._eventBus?.emit?.({
+                source: EVENT_SOURCES.DEPLOYMENT_COST_SERVICE,
+                type: EVENT_TYPES.DEPLOYMENT_COST_SNAPSHOT_FROZEN,
+                payload: Object.freeze({
+                    gameId: payload.gameId ?? null,
+                    roomId: payload.roomId ?? null,
+                    contractId: payload.contractId ?? null,
+                    deploymentTxHash: payload.deploymentTxHash ?? null,
+                    deploymentCostTon: payload.deploymentCostTon ?? null,
+                    timestamp: Date.now()
+                })
+            });
+
+        } catch (error) {
+
+            this._logger?.warn?.(
+                `DEPLOYMENT_COST_SNAPSHOT_FROZEN emit failed | `
+                    + `${error?.message ?? error}`
+            );
+
+        }
 
     }
 

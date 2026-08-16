@@ -369,4 +369,21 @@ export class DeploymentReimbursementWorker {
 
     }
 
+    /**
+     * R17.8V.2P.S — recover PROCESSING orphans without txHash (no blind resend).
+     *
+     * @returns {Promise<object>}
+     */
+    async recoverProcessingWithoutHash() {
+
+        if (!this._confirmationService?.recoverProcessingWithoutHash) {
+
+            return { scanned: 0, results: [], skipped: "no_confirmation_service" };
+
+        }
+
+        return this._confirmationService.recoverProcessingWithoutHash();
+
+    }
+
 }

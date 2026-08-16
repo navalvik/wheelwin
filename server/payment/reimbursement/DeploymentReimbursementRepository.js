@@ -198,6 +198,8 @@ export class DeploymentReimbursementRepository {
      */
     listPending() {
 
+        const now = Date.now();
+
         return this.listActiveReimbursements().filter(
             (record) => {
 
@@ -220,10 +222,48 @@ export class DeploymentReimbursementRepository {
 
                 }
 
-                return status === DEPLOYMENT_REIMBURSEMENT_STATUS.PENDING
-                    || status === DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_RETRY;
+                if (status === DEPLOYMENT_REIMBURSEMENT_STATUS.PENDING) {
+
+                    return true;
+
+                }
+
+                if (status === DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_RETRY) {
+
+                    const nextRetryAt = record.payload?.nextRetryAt;
+
+                    if (nextRetryAt == null || nextRetryAt === "") {
+
+                        return true;
+
+                    }
+
+                    const dueAt = Number(nextRetryAt);
+
+                    return Number.isFinite(dueAt) && dueAt <= now;
+
+                }
+
+                return false;
 
             }
+        );
+
+    }
+
+    /**
+     * PROCESSING without txHash — orphan claim / crash before markSent.
+     *
+     * @returns {object[]}
+     */
+    listProcessingWithoutHash() {
+
+        return this.listActiveReimbursements().filter(
+            (record) => (
+                record.payload?.status
+                    === DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING
+                && !String(record.payload?.txHash ?? "").trim()
+            )
         );
 
     }

@@ -1,17 +1,22 @@
 /**
- * R17.8V.2P.M / N — Deployment reimbursement service.
+ * R17.8V.2P.M / N / S — Deployment reimbursement service.
  *
  * Stage M: createFromSnapshot foundation (no TON transfer).
  * Stage N: SETTLEMENT_COMPLETED → frozen snapshot → PENDING queue item.
+ * Stage S: deferred create on DEPLOYMENT_COST_SNAPSHOT_FROZEN; deploy wallet pin.
  */
 
 import { EVENT_SOURCES } from "../../events/EventSources.js";
 import { EVENT_TYPES } from "../../events/EventTypes.js";
-import { DuplicateRecordError } from "../../persistence/TonFinancialPersistence.js";
+import {
+    DuplicateRecordError,
+    TON_FINANCIAL_RECORD_TYPES
+} from "../../persistence/TonFinancialPersistence.js";
 import { DEPLOYMENT_COST_SNAPSHOT_STATUS } from "./deploymentCostSnapshotStates.js";
 import { isDeploymentReimbursementEnabled } from "./deploymentReimbursementConfig.js";
 import { DEPLOYMENT_REIMBURSEMENT_STATUS } from "./deploymentReimbursementStates.js";
 import { DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT } from "./deploymentReimbursementServiceResults.js";
+import { reimbursementAddressesEqual } from "./ReimbursementWalletConfig.js";
 
 export class DeploymentReimbursementService {
 
@@ -19,6 +24,7 @@ export class DeploymentReimbursementService {
      * @param {{
      *   repository: import("./DeploymentReimbursementRepository.js").DeploymentReimbursementRepository,
      *   snapshotRepository?: import("./DeploymentCostSnapshotRepository.js").DeploymentCostSnapshotRepository|null,
+     *   financialPersistence?: { loadSettlement?: Function, findByGame?: Function }|null,
      *   eventBus?: { subscribe: Function, unsubscribe: Function, emit?: Function }|null,
      *   reimbursementWallet?: string|null,
      *   logger?: object|null,
@@ -28,6 +34,7 @@ export class DeploymentReimbursementService {
     constructor({
         repository,
         snapshotRepository = null,
+        financialPersistence = null,
         eventBus = null,
         reimbursementWallet = null,
         logger = null,
@@ -46,6 +53,8 @@ export class DeploymentReimbursementService {
 
         this._snapshotRepository = snapshotRepository;
 
+        this._financialPersistence = financialPersistence;
+
         this._eventBus = eventBus;
 
         const walletFromEnv = String(
@@ -63,6 +72,9 @@ export class DeploymentReimbursementService {
 
         this._handlers = [];
 
+        /** @type {Set<string>} gameIds settled while snapshot not yet FROZEN */
+        this._settledAwaitingFreeze = new Set();
+
         this._onSettlementCompleted = (envelope) => {
 
             // Non-blocking: settlement must not wait on queue creation.
@@ -76,6 +88,27 @@ export class DeploymentReimbursementService {
 
                     this._logger?.error?.(
                         `DeploymentReimbursementService settlement handler error | `
+                            + `${error?.message ?? error}`
+                    );
+
+                }
+
+            });
+
+        };
+
+        this._onSnapshotFrozen = (envelope) => {
+
+            setImmediate(() => {
+
+                try {
+
+                    this.handleSnapshotFrozen(envelope?.payload);
+
+                } catch (error) {
+
+                    this._logger?.error?.(
+                        `DeploymentReimbursementService freeze handler error | `
                             + `${error?.message ?? error}`
                     );
 
@@ -104,10 +137,15 @@ export class DeploymentReimbursementService {
                 this._onSettlementCompleted
             );
 
+            this._subscribe(
+                EVENT_TYPES.DEPLOYMENT_COST_SNAPSHOT_FROZEN,
+                this._onSnapshotFrozen
+            );
+
         }
 
         this._logger?.debug?.(
-            "DeploymentReimbursementService initialized (Stage N settlement integration)"
+            "DeploymentReimbursementService initialized (Stage S deferred create)"
         );
 
     }
@@ -122,12 +160,14 @@ export class DeploymentReimbursementService {
 
         this._handlers = [];
 
+        this._settledAwaitingFreeze.clear();
+
         this._initialized = false;
 
     }
 
     /**
-     * R17.8V.2P.N — SETTLEMENT_COMPLETED → frozen snapshot → PENDING reimbursement.
+     * R17.8V.2P.N / S — SETTLEMENT_COMPLETED → create if FROZEN, else wait for freeze.
      *
      * @param {object|null|undefined} payload
      * @returns {object}
@@ -239,13 +279,16 @@ export class DeploymentReimbursementService {
 
         if (snapshotStatus !== DEPLOYMENT_COST_SNAPSHOT_STATUS.FROZEN) {
 
+            // Durable wait: remember settlement so freeze notification can create later.
+            this._settledAwaitingFreeze.add(gameId);
+
             const reason = snapshotStatus
                 === DEPLOYMENT_COST_SNAPSHOT_STATUS.PENDING_LOOKUP
-                ? "snapshot_pending_lookup"
+                ? "snapshot_awaiting_freeze"
                 : snapshotStatus
                     === DEPLOYMENT_COST_SNAPSHOT_STATUS.FAILED_LOOKUP
                     ? "snapshot_failed_lookup"
-                    : "snapshot_not_frozen";
+                    : "snapshot_awaiting_freeze";
 
             this._emitAudit(
                 EVENT_TYPES.DEPLOYMENT_REIMBURSEMENT_SKIPPED,
@@ -259,13 +302,124 @@ export class DeploymentReimbursementService {
             );
 
             return {
-                ok: false,
-                code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.SNAPSHOT_NOT_FROZEN,
+                ok: true,
+                code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.SNAPSHOT_AWAITING_FREEZE,
                 reimbursement: null,
-                message: `Snapshot status is ${snapshotStatus}`
+                message: `Waiting for snapshot freeze | status=${snapshotStatus}`
             };
 
         }
+
+        return this._createFromFrozenSnapshot(snapshot, { gameId, roomId });
+
+    }
+
+    /**
+     * R17.8V.2P.S — DEPLOYMENT_COST_SNAPSHOT_FROZEN → create if settlement already done.
+     *
+     * @param {object|null|undefined} payload
+     * @returns {object}
+     */
+    handleSnapshotFrozen(payload) {
+
+        if (!this._initialized) {
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.NOT_INITIALIZED,
+                reimbursement: null,
+                message: "DeploymentReimbursementService is not initialized"
+            };
+
+        }
+
+        const gameId = String(payload?.gameId ?? "").trim();
+        const roomId = String(payload?.roomId ?? "").trim() || null;
+
+        if (!gameId) {
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.INVALID_PAYLOAD,
+                reimbursement: null,
+                message: "DEPLOYMENT_COST_SNAPSHOT_FROZEN payload missing gameId"
+            };
+
+        }
+
+        if (!isDeploymentReimbursementEnabled(this._env)) {
+
+            return {
+                ok: true,
+                code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.FEATURE_DISABLED,
+                reimbursement: null,
+                message: "DEPLOYMENT_REIMBURSEMENT_ENABLED is false"
+            };
+
+        }
+
+        if (!this._hasSettlementCompleted(gameId)) {
+
+            return {
+                ok: true,
+                code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.SKIPPED,
+                reimbursement: null,
+                message: "Settlement not completed yet; wait for SETTLEMENT_COMPLETED"
+            };
+
+        }
+
+        if (!this._snapshotRepository) {
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.NO_SNAPSHOT,
+                reimbursement: null,
+                message: "Snapshot repository not configured"
+            };
+
+        }
+
+        const snapshot = this._snapshotRepository.findByGameId(gameId);
+
+        if (!snapshot
+            || snapshot.payload?.status !== DEPLOYMENT_COST_SNAPSHOT_STATUS.FROZEN) {
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.SNAPSHOT_NOT_FROZEN,
+                reimbursement: null,
+                message: "Frozen snapshot not found for gameId"
+            };
+
+        }
+
+        const result = this._createFromFrozenSnapshot(snapshot, { gameId, roomId });
+
+        if (
+            result.ok
+            && (
+                result.code === DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.OK
+                || result.code === DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.DUPLICATE
+            )
+        ) {
+
+            this._settledAwaitingFreeze.delete(gameId);
+
+        }
+
+        return result;
+
+    }
+
+    /**
+     * @param {object} snapshot
+     * @param {{ gameId: string, roomId?: string|null }} context
+     * @returns {object}
+     */
+    _createFromFrozenSnapshot(snapshot, context) {
+
+        const { gameId, roomId = null } = context;
 
         const result = this.createFromSnapshot(snapshot);
 
@@ -273,6 +427,8 @@ export class DeploymentReimbursementService {
             result.ok
             && result.code === DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.OK
         ) {
+
+            this._settledAwaitingFreeze.delete(gameId);
 
             this._emitAudit(
                 EVENT_TYPES.DEPLOYMENT_REIMBURSEMENT_CREATED,
@@ -296,6 +452,8 @@ export class DeploymentReimbursementService {
             && result.code === DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.DUPLICATE
         ) {
 
+            this._settledAwaitingFreeze.delete(gameId);
+
             this._emitAudit(
                 EVENT_TYPES.DEPLOYMENT_REIMBURSEMENT_SKIPPED,
                 {
@@ -307,6 +465,15 @@ export class DeploymentReimbursementService {
                     reason: "duplicate_reimbursement"
                 }
             );
+
+            return result;
+
+        }
+
+        if (
+            result.code
+                === DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.DEPLOY_WALLET_MISMATCH
+        ) {
 
             return result;
 
@@ -391,6 +558,37 @@ export class DeploymentReimbursementService {
                 code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.INVALID_SNAPSHOT,
                 reimbursement: null,
                 message: "Frozen snapshot missing cost fields"
+            };
+
+        }
+
+        const expectedDeployWallet = String(
+            this._env?.TON_DEPLOYER_EXPECTED_ADDRESS ?? ""
+        ).trim();
+
+        if (
+            expectedDeployWallet
+            && !reimbursementAddressesEqual(deployWallet, expectedDeployWallet)
+        ) {
+
+            this._emitAudit(
+                EVENT_TYPES.DEPLOYMENT_REIMBURSEMENT_DEPLOY_WALLET_MISMATCH,
+                {
+                    gameId: payload.gameId ?? null,
+                    roomId: payload.roomId ?? null,
+                    deploymentTxHash,
+                    snapshotId: snapshotRecord.recordId ?? payload.id ?? null,
+                    reason: "deploy_wallet_mismatch",
+                    deployWallet,
+                    expectedDeployWallet
+                }
+            );
+
+            return {
+                ok: false,
+                code: DEPLOYMENT_REIMBURSEMENT_SERVICE_RESULT.DEPLOY_WALLET_MISMATCH,
+                reimbursement: null,
+                message: "snapshot.deployWallet does not match configured deployer"
             };
 
         }
@@ -502,6 +700,81 @@ export class DeploymentReimbursementService {
     }
 
     /**
+     * Settlement completed for game (in-memory wait set or persisted settlement).
+     *
+     * @param {string} gameId
+     * @returns {boolean}
+     */
+    _hasSettlementCompleted(gameId) {
+
+        const id = String(gameId ?? "").trim();
+
+        if (!id) {
+
+            return false;
+
+        }
+
+        if (this._settledAwaitingFreeze.has(id)) {
+
+            return true;
+
+        }
+
+        try {
+
+            const settlement = this._financialPersistence?.loadSettlement?.(id)
+                ?? null;
+
+            const status = String(
+                settlement?.payload?.status
+                ?? settlement?.metadata?.status
+                ?? ""
+            ).trim();
+
+            if (status === "SETTLEMENT_COMPLETED") {
+
+                return true;
+
+            }
+
+        } catch {
+
+            // ignore persistence miss
+
+        }
+
+        try {
+
+            const records = this._financialPersistence?.findByGame?.(id) ?? [];
+
+            return records.some((record) => {
+
+                if (record.recordType !== TON_FINANCIAL_RECORD_TYPES.SETTLEMENT) {
+
+                    return false;
+
+                }
+
+                const status = String(
+                    record.payload?.status
+                    ?? record.metadata?.status
+                    ?? ""
+                ).trim();
+
+                return status === "SETTLEMENT_COMPLETED";
+
+            });
+
+        } catch {
+
+            return false;
+
+        }
+
+    }
+
+    /**
      * @param {string} event
      * @param {Function} handler
      */
@@ -525,7 +798,9 @@ export class DeploymentReimbursementService {
             snapshotId: payload?.snapshotId ?? null,
             reason: payload?.reason ?? null,
             roomId: payload?.roomId ?? null,
-            amountTon: payload?.amountTon ?? null
+            amountTon: payload?.amountTon ?? null,
+            deployWallet: payload?.deployWallet ?? null,
+            expectedDeployWallet: payload?.expectedDeployWallet ?? null
         });
 
         this._logger?.info?.(

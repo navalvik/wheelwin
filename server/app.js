@@ -1385,6 +1385,7 @@ class WheelWinApplication {
                 persistence: this._financialPersistence,
                 tonNetwork: this._tonConfig?.network ?? "testnet"
             }),
+            financialPersistence: this._financialPersistence,
             eventBus: this._eventBus,
             logger: this._logger,
             env: process.env

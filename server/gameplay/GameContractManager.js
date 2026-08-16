@@ -2038,9 +2038,9 @@ export class GameContractManager {
         }
 
         const deployWallet = String(
-            contract?.snapshot?.oracleWallet
+            this._deployAdapter?._tonConfig?.deployerExpectedAddress
+            ?? contract?.snapshot?.oracleWallet
             ?? this._deployAdapter?._tonConfig?.oracleAddress
-            ?? this._deployAdapter?._tonConfig?.deployerExpectedAddress
             ?? ""
         ).trim();
 

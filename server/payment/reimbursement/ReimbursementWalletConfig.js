@@ -32,25 +32,19 @@ export const REIMBURSEMENT_WALLET_CONTRACT_TYPE = "WalletContractV4R2";
 export const REIMBURSEMENT_WALLET_WORKCHAIN = 0;
 
 /**
- * Emergency send gate. Explicit false/0/no pauses sends.
- * Unset defaults to allowed (master DEPLOYMENT_REIMBURSEMENT_ENABLED still required).
+ * Emergency send gate. Fail-closed: unset / empty defaults to blocked.
+ * Explicit true/1/yes required to allow sends (with master flag).
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {boolean}
  */
 export function isReimbursementEmergencySendAllowed(env = process.env) {
 
-    const raw = String(env?.[REIMBURSEMENT_ENABLED_ENV] ?? "true")
+    const raw = String(env?.[REIMBURSEMENT_ENABLED_ENV] ?? "false")
         .trim()
         .toLowerCase();
 
-    if (raw === "false" || raw === "0" || raw === "no") {
-
-        return false;
-
-    }
-
-    return true;
+    return raw === "true" || raw === "1" || raw === "yes";
 
 }
 

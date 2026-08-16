@@ -35,6 +35,7 @@ export const EVENT_SOURCES = Object.freeze({
     BLOCKCHAIN_MONITOR: "BlockchainMonitor",
     GAME_START_AUTHORIZATION: "GameStartAuthorization",
     CONTRACT_SETTLEMENT_MANAGER: "ContractSettlementManager",
+    DEPLOYMENT_COST_SERVICE: "DeploymentCostService",
     DEPLOYMENT_REIMBURSEMENT_SERVICE: "DeploymentReimbursementService",
     WALLET_MANAGER: "WalletManager",
     TON_FINANCIAL_RECOVERY: "TonFinancialRecovery",

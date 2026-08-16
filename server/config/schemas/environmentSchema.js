@@ -647,15 +647,15 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         suggestedFix:
             "Set DEPLOYMENT_REIMBURSEMENT_ENABLED to true only after transfer wiring. Default false."
     }),
-    // R17.8V.2P.O — Emergency send pause (explicit false blocks transfers).
+    // R17.8V.2P.O / S — Emergency send gate (default false; fail-closed).
     REIMBURSEMENT_ENABLED: Object.freeze({
         key: "REIMBURSEMENT_ENABLED",
         type: "boolean",
         required: false,
-        defaultValue: true,
+        defaultValue: false,
         category: "TON",
         suggestedFix:
-            "Set REIMBURSEMENT_ENABLED=false to emergency-pause reimbursement sends."
+            "Set REIMBURSEMENT_ENABLED=true explicitly to allow reimbursement sends (with DEPLOYMENT_REIMBURSEMENT_ENABLED)."
     }),
     // R17.8V.2P.O — Per-transfer amount cap (TON decimal string).
     REIMBURSEMENT_MAX_TRANSFER: Object.freeze({
