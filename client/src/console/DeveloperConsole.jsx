@@ -40,8 +40,8 @@ import SystemInformationPanel from "./panels/SystemInformationPanel";
 import BlockchainStatusPanel from "./panels/BlockchainStatusPanel";
 import DeployerWalletPanel from "./panels/DeployerWalletPanel";
 import MaintenancePanel from "./panels/MaintenancePanel";
-import ConfigurationPlaceholderPanel from "./panels/ConfigurationPlaceholderPanel";
 import RuntimeConfigurationPanel from "./panels/RuntimeConfigurationPanel";
+import AudioRegistryPanel from "./panels/AudioRegistryPanel";
 
 /** Section id → panel factory. Kept in sync with consoleSections.js ids. */
 const SECTION_PANEL_RENDERERS = Object.freeze({
@@ -71,13 +71,7 @@ const SECTION_PANEL_RENDERERS = Object.freeze({
     settings: () => <SettingsPanel />,
     maintenance: () => <MaintenancePanel />,
     "runtime-configuration": () => <RuntimeConfigurationPanel />,
-    "audio-registry": () => (
-        <ConfigurationPlaceholderPanel
-            title="Audio Registry"
-            subtitle="Future stage — audio asset mapping only"
-            detail="Client audio event → asset registry will be managed here. Playback stays presentation-only; server remains referee."
-        />
-    )
+    "audio-registry": () => <AudioRegistryPanel />
 });
 
 function renderSection(sectionId) {

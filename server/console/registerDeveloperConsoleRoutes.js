@@ -181,6 +181,27 @@ export function registerDeveloperConsoleRoutes(
 
     });
 
+    /**
+     * R17.9I.2 — Read-only Audio Registry (event → asset mapping).
+     * Missing files never fail this endpoint.
+     */
+    app.get("/console/configuration/audio-registry", (req, res) => {
+
+        try {
+
+            res.json(projectionService.buildAudioRegistry());
+
+        } catch (error) {
+
+            res.status(500).json({
+                error: "Failed to load audio registry",
+                message: error?.message ?? "Unknown error"
+            });
+
+        }
+
+    });
+
     app.get("/console/blockchain", (req, res) => {
 
         res.json(projectionService.buildBlockchainStatus());

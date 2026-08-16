@@ -13,6 +13,7 @@ import { buildSystemInformation } from "./projectionBuilders/buildSystemInformat
 import { buildBlockchainStatus } from "./projectionBuilders/buildBlockchainStatus.js";
 import { buildDeployerWalletStatus as buildDeployerWalletStatusDto } from "./projectionBuilders/buildDeployerWalletStatus.js";
 import { buildRuntimeConfigurationSnapshot } from "./configuration/buildRuntimeConfigurationSnapshot.js";
+import { buildAudioRegistrySnapshot } from "./configuration/buildAudioRegistrySnapshot.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -315,6 +316,18 @@ export class DeveloperConsoleProjectionService {
         }
 
         return this._walletBalanceMonitor.getSnapshot();
+
+    }
+
+    /**
+     * R17.9I.2 — Read-only Audio Registry projection (no playback).
+     */
+    buildAudioRegistry() {
+
+        return buildAudioRegistrySnapshot({
+            env: process.env,
+            logger: null
+        });
 
     }
 

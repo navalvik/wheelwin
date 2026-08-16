@@ -221,6 +221,34 @@ export async function fetchRuntimeConfiguration(accessToken) {
 }
 
 /**
+ * R17.9I.2 — Read-only Audio Registry snapshot.
+ */
+export async function fetchAudioRegistry(accessToken) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/configuration/audio-registry`,
+        {
+            method: "GET",
+            headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${accessToken}`
+            }
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(body?.error || "Failed to load audio registry");
+
+    }
+
+    return body;
+
+}
+
+/**
  * R17.9G.1 — Administrator-only runtime configuration mutation.
  */
 export async function updateRuntimeConfiguration(accessToken, values) {
