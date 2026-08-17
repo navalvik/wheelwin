@@ -31,6 +31,7 @@ export const EVENT_SOURCES = Object.freeze({
     SETUP_SESSION_LIFECYCLE: "SetupSessionLifecycle",
     RESULT_SESSION_LIFECYCLE: "ResultSessionLifecycle",
     PAYMENT_SESSION_MANAGER: "PaymentSessionManager",
+    DEPOSIT_SESSION_COORDINATOR: "DepositSessionCoordinator",
     GAME_CONTRACT_MANAGER: "GameContractManager",
     BLOCKCHAIN_MONITOR: "BlockchainMonitor",
     GAME_START_AUTHORIZATION: "GameStartAuthorization",

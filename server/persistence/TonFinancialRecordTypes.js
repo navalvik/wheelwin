@@ -14,7 +14,10 @@ export const TON_FINANCIAL_RECORD_TYPES = Object.freeze({
     // R17.8V.2P.H — immutable deploy economics fact (mutable until FROZEN).
     DEPLOYMENT_COST_SNAPSHOT: "deployment_cost_snapshot",
     // R17.8V.2P.M — operational reimbursement queue (no chain send in Stage M).
-    DEPLOYMENT_REIMBURSEMENT: "deployment_reimbursement"
+    DEPLOYMENT_REIMBURSEMENT: "deployment_reimbursement",
+    // R17.9L.3 — Deposit Security Layer records (persistence not wired yet).
+    DEPOSIT_SESSION: "deposit_session",
+    DEPLOYMENT_AUTHORIZATION: "deployment_authorization"
 });
 
 export const TON_FINANCIAL_SCHEMA_VERSION = 1;
@@ -63,6 +66,8 @@ export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.RECOVERY_CHECKPOINT]: "active",
     [TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT]: "active",
     [TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT]: "active",
+    [TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION]: "active",
+    [TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_AUTHORIZATION]: "active",
     [TON_FINANCIAL_RECORD_TYPES.SNAPSHOT]: "immutable",
     [TON_FINANCIAL_RECORD_TYPES.AUDIT]: "immutable",
     [TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT]: "archived"
