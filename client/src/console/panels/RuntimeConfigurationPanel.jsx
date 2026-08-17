@@ -8,37 +8,6 @@ import { useDeveloperAuth } from "../DeveloperAuthProvider";
 import EmptyState from "./shared/EmptyState";
 import PanelShell from "./shared/PanelShell";
 
-function InfoRow({ label, value, hint }) {
-
-    return (
-
-        <div className="devConsole__kvRow">
-
-            <span className="devConsole__kvKey">{label}</span>
-
-            <span className="devConsole__kvValue">
-
-                {value ?? "—"}
-
-                {hint ? (
-
-                    <span className="devConsole__kvHint">
-
-                        {" "}
-                        ({hint})
-
-                    </span>
-
-                ) : null}
-
-            </span>
-
-        </div>
-
-    );
-
-}
-
 function EditRow({ label, value, onChange, unit, hint, readOnly = false }) {
 
     return (
@@ -127,14 +96,6 @@ function formatSeconds(sec) {
     }
 
     return `${Number(sec)} sec`;
-
-}
-
-function formatAddress(address) {
-
-    const text = String(address ?? "").trim();
-
-    return text || "—";
 
 }
 
@@ -351,7 +312,7 @@ export default function RuntimeConfigurationPanel() {
 
             <PanelShell
                 title="Runtime Configuration"
-                subtitle="Timers, financial rules, and wallet pins"
+                subtitle="Timers and financial rules for future game sessions"
             >
 
                 <EmptyState
@@ -367,7 +328,6 @@ export default function RuntimeConfigurationPanel() {
 
     const timers = config?.timers ?? {};
     const financial = config?.financial ?? {};
-    const wallets = config?.wallets ?? {};
 
     return (
 
@@ -498,33 +458,6 @@ export default function RuntimeConfigurationPanel() {
                                 ...prev,
                                 ownerFeePercent: value
                             }))}
-                        />
-
-                    </SectionCard>
-
-                    <SectionCard title="Wallet Configuration">
-
-                        <InfoRow
-                            label="Owner Wallet"
-                            value={formatAddress(wallets.ownerWallet)}
-                            hint="read-only"
-                        />
-
-                        <InfoRow
-                            label="Deploy Wallet"
-                            value={formatAddress(wallets.deployWallet)}
-                            hint="read-only"
-                        />
-
-                        <InfoRow
-                            label="Reimbursement Wallet"
-                            value={formatAddress(wallets.reimbursementWallet)}
-                            hint="read-only"
-                        />
-
-                        <InfoRow
-                            label="TON Network"
-                            value={wallets.tonNetwork ?? "—"}
                         />
 
                     </SectionCard>
