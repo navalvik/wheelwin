@@ -8,7 +8,17 @@ import { useDeveloperAuth } from "../DeveloperAuthProvider";
 import EmptyState from "./shared/EmptyState";
 import PanelShell from "./shared/PanelShell";
 
-function EditRow({ label, value, onChange, unit, hint, readOnly = false }) {
+function EditRow({
+    label,
+    value,
+    onChange,
+    unit,
+    hint,
+    readOnly = false,
+    step = "any",
+    min = undefined,
+    max = undefined
+}) {
 
     return (
 
@@ -46,7 +56,9 @@ function EditRow({ label, value, onChange, unit, hint, readOnly = false }) {
 
                     <input
                         type="number"
-                        step="any"
+                        step={step}
+                        min={min}
+                        max={max}
                         value={value ?? ""}
                         onChange={(event) => onChange(event.target.value)}
                     />
@@ -453,6 +465,9 @@ export default function RuntimeConfigurationPanel() {
                         <EditRow
                             label="Owner Fee Percent"
                             unit="%"
+                            step="0.01"
+                            min="0"
+                            max="100"
                             value={draft.ownerFeePercent}
                             onChange={(value) => setDraft((prev) => ({
                                 ...prev,

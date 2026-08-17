@@ -196,7 +196,21 @@ export function validateRuntimeConfigurationPatch(body) {
 
             }
 
-            patch[key] = Math.round(n * 1000) / 1000;
+            // Maximum 2 decimal places (0.01% precision). Do not coerce 5.123 → 5.12.
+            const scaled = n * 100;
+            const nearest = Math.round(scaled);
+
+            if (Math.abs(scaled - nearest) > 1e-6) {
+
+                details.push(
+                    "ownerFeePercent allows at most 2 decimal places"
+                );
+
+                continue;
+
+            }
+
+            patch[key] = nearest / 100;
 
             continue;
 
