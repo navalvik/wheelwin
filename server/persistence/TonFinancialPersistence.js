@@ -727,6 +727,134 @@ export class TonFinancialPersistence {
 
     }
 
+    createDeploymentAuthorization(payload, metadata = {}) {
+
+        return this.create(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_AUTHORIZATION,
+            payload,
+            metadata
+        );
+
+    }
+
+    updateDeploymentAuthorization(authorizationId, payload, metadata = {}) {
+
+        return this.update(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_AUTHORIZATION,
+            authorizationId,
+            payload,
+            metadata
+        );
+
+    }
+
+    loadDeploymentAuthorization(authorizationId) {
+
+        return this.load(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_AUTHORIZATION,
+            authorizationId
+        );
+
+    }
+
+    saveDeploymentAuthorization(payload, metadata = {}) {
+
+        const authorizationId = resolveRecordId(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_AUTHORIZATION,
+            payload,
+            metadata
+        );
+
+        if (!authorizationId) {
+
+            throw new StorageUnavailableError(
+                "Unable to resolve deployment authorization id"
+            );
+
+        }
+
+        const key = this._recordKey(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_AUTHORIZATION,
+            authorizationId
+        );
+
+        if (this._records.has(key)) {
+
+            return this.updateDeploymentAuthorization(
+                authorizationId,
+                payload,
+                metadata
+            );
+
+        }
+
+        return this.createDeploymentAuthorization(payload, metadata);
+
+    }
+
+    listActiveDeploymentAuthorizations() {
+
+        return this.listActive(TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_AUTHORIZATION);
+
+    }
+
+    findDeploymentAuthorization(roomId, gameId) {
+
+        const matches = this.listActiveDeploymentAuthorizations().filter((record) => (
+            record.roomId === roomId && record.gameId === gameId
+        ));
+
+        if (matches.length === 0) {
+
+            return null;
+
+        }
+
+        const rank = {
+            VALID: 3,
+            CREATED: 2,
+            CONSUMED: 1,
+            REVOKED: 0
+        };
+
+        return matches.reduce((best, current) => {
+
+            const bestRank = rank[best.status] ?? 0;
+
+            const currentRank = rank[current.status] ?? 0;
+
+            if (currentRank !== bestRank) {
+
+                return currentRank > bestRank ? current : best;
+
+            }
+
+            return (current.updatedAt ?? 0) >= (best.updatedAt ?? 0) ? current : best;
+
+        });
+
+    }
+
+    consumeDeploymentAuthorization(authorizationId, payload, metadata = {}) {
+
+        return this.updateDeploymentAuthorization(authorizationId, payload, {
+            ...metadata,
+            status: payload?.status ?? payload?.state ?? "CONSUMED"
+        });
+
+    }
+
+    removeDeploymentAuthorization(authorizationId) {
+
+        this._purgeRecord(
+            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_AUTHORIZATION,
+            authorizationId
+        );
+
+        return true;
+
+    }
+
     createWalletSession(payload, metadata = {}) {
 
         return this.create(TON_FINANCIAL_RECORD_TYPES.WALLET_SESSION, payload, metadata);

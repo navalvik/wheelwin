@@ -14,6 +14,7 @@ import {
     assertFundingEvent,
     assertPlayerBindings
 } from "./depositValidation.js";
+import { computeDepositBindingHash } from "./deploymentAuthorizationHash.js";
 import {
     canTransitionDepositStatus,
     DEPOSIT_SESSION_STATUS,
@@ -180,6 +181,13 @@ export class DepositSession {
         this.transitionTo(DEPOSIT_SESSION_STATUS.PLAYER_BINDING);
 
         this.bindings = bindings.map((binding) => ({ ...binding }));
+
+        this.bindingHash = computeDepositBindingHash({
+            roomId: this.roomId,
+            gameId: this.gameId,
+            depositId: this.depositId,
+            bindings: this.bindings
+        });
 
         this.boundAt = Date.now();
 

@@ -15,7 +15,7 @@ export const TON_FINANCIAL_RECORD_TYPES = Object.freeze({
     DEPLOYMENT_COST_SNAPSHOT: "deployment_cost_snapshot",
     // R17.8V.2P.M — operational reimbursement queue (no chain send in Stage M).
     DEPLOYMENT_REIMBURSEMENT: "deployment_reimbursement",
-    // R17.9L.4 — Deposit Security Layer records (session persistence wired; authorization unused).
+    // R17.9L.4 / L.5A — Deposit Security Layer records.
     DEPOSIT_SESSION: "deposit_session",
     DEPLOYMENT_AUTHORIZATION: "deployment_authorization"
 });
@@ -63,6 +63,12 @@ export const DEPOSIT_SESSION_TERMINAL_STATUSES = Object.freeze([
     "RELEASED",
     "REIMBURSED",
     "REFUNDED"
+]);
+
+/** R17.9L.5A — terminal deployment_authorization statuses (immutable envelopes). */
+export const DEPLOYMENT_AUTHORIZATION_TERMINAL_STATUSES = Object.freeze([
+    "CONSUMED",
+    "REVOKED"
 ]);
 
 export const RECORD_STORAGE_CATEGORY = Object.freeze({

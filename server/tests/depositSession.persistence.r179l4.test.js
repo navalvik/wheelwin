@@ -165,8 +165,8 @@ test("R17.9L.4 save/load preserves state, wallets, and amounts", () => {
         assert.equal(loaded.payload.bindings[0].funded, true);
         assert.equal(loaded.payload.bindings[1].funded, false);
         assert.equal(loaded.payload.expiresAt, session.expiresAt);
+        assert.ok(loaded.payload.bindingHash);
         assert.equal(loaded.payload.depositAddress, null);
-        assert.equal(loaded.payload.bindingHash, null);
         assert.equal(loaded.payload.authorizationHash, null);
         assert.equal(loaded.payload.metadata.note, "durable");
 

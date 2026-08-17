@@ -63,6 +63,7 @@ const EMPTY_MONITOR_CHECKPOINT = Object.freeze({
  * @property {import("../managers/PlayerManager.js").PlayerManager} [playerManager]
  * @property {import("../managers/RoomManager.js").RoomManager} [roomManager]
  * @property {import("../deposit/DepositSessionCoordinator.js").DepositSessionCoordinator} [depositSessionCoordinator]
+ * @property {import("../deposit/DeploymentAuthorizationCoordinator.js").DeploymentAuthorizationCoordinator} [deploymentAuthorizationCoordinator]
  */
 
 export class TonFinancialRecovery {
@@ -79,7 +80,8 @@ export class TonFinancialRecovery {
         financialPersistence = null,
         playerManager = null,
         roomManager = null,
-        depositSessionCoordinator = null
+        depositSessionCoordinator = null,
+        deploymentAuthorizationCoordinator = null
     }) {
 
         this._logger = logger;
@@ -105,6 +107,8 @@ export class TonFinancialRecovery {
         this._roomManager = roomManager;
 
         this._depositSessionCoordinator = depositSessionCoordinator;
+
+        this._deploymentAuthorizationCoordinator = deploymentAuthorizationCoordinator;
 
         this._initialized = false;
 
@@ -216,6 +220,9 @@ export class TonFinancialRecovery {
             // R17.9L.4 — Restore durable DepositSessions without a new recovery phase
             // (does not trigger deploy, GameContract creation, or authorization).
             this._restoreDepositSessions(report);
+
+            // R17.9L.5A — Restore VALID/CONSUMED authorizations without deploying.
+            this._restoreDeploymentAuthorizations(report);
 
             this._mergePhaseResult(
                 report,
@@ -514,6 +521,32 @@ export class TonFinancialRecovery {
         }
 
         const summary = this._depositSessionCoordinator.restoreActiveSessions();
+
+        return Object.freeze({
+            ok: true,
+            restored: summary.restored ?? 0,
+            skipped: summary.skipped ?? 0,
+            summary
+        });
+
+    }
+
+    recoverDeploymentAuthorizations() {
+
+        this._assertInitialized();
+
+        if (!this._deploymentAuthorizationCoordinator?.restoreActiveAuthorizations) {
+
+            return Object.freeze({
+                ok: true,
+                restored: 0,
+                skipped: 0,
+                skippedNoCoordinator: true
+            });
+
+        }
+
+        const summary = this._deploymentAuthorizationCoordinator.restoreActiveAuthorizations();
 
         return Object.freeze({
             ok: true,
@@ -905,6 +938,33 @@ export class TonFinancialRecovery {
 
             report.errors.push(
                 `deposit_restore_failed:${error?.message ?? error}`
+            );
+
+        }
+
+    }
+
+    _restoreDeploymentAuthorizations(report) {
+
+        if (!this._deploymentAuthorizationCoordinator?.restoreActiveAuthorizations) {
+
+            return;
+
+        }
+
+        try {
+
+            const summary = this.recoverDeploymentAuthorizations();
+
+            report.warnings.push(
+                `authorization_restore:restored=${summary.restored ?? 0}`
+                    + `|skipped=${summary.skipped ?? 0}`
+            );
+
+        } catch (error) {
+
+            report.errors.push(
+                `authorization_restore_failed:${error?.message ?? error}`
             );
 
         }
