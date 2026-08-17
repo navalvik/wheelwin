@@ -20,6 +20,8 @@ import {
     resolveAudioPlaybackPermission,
     resolveAudioPlaybackPermissionById
 } from "./resolveAudioPlaybackPermission.js";
+import { writeAudioAssetUpload } from "./uploadAudioRegistryAsset.js";
+import { checkAudioAsset } from "./checkAudioAsset.js";
 
 export class AudioRegistryService {
 
@@ -299,6 +301,111 @@ export class AudioRegistryService {
             changes,
             auditRecords,
             message: "Audio Registry updated for future audio sessions"
+        };
+
+    }
+
+    /**
+     * R17.9J.2B — Write an .ogg into client/src/assets/audio for a registry id.
+     * Does not mutate enabled/loop overrides.
+     *
+     * @param {string} id
+     * @param {Buffer} buffer
+     * @param {{
+     *   originalFilename?: string|null,
+     *   username?: string|null,
+     *   role?: string|null,
+     *   assetsRoot?: string|null
+     * }} [actor]
+     */
+    uploadAsset(id, buffer, actor = {}) {
+
+        if (!this._initialized) {
+
+            return {
+                ok: false,
+                status: 503,
+                error: "Audio Registry service is not initialized"
+            };
+
+        }
+
+        const previousStatus = (() => {
+
+            try {
+
+                const entry = this.getEffectiveEntries()
+                    .find((item) => item.id === String(id ?? "").trim());
+
+                if (!entry) {
+
+                    return "MISSING";
+
+                }
+
+                return checkAudioAsset(entry, {
+                    ...(actor.assetsRoot
+                        ? { assetsRoot: actor.assetsRoot }
+                        : {}),
+                    logger: this._logger
+                });
+
+            } catch {
+
+                return "MISSING";
+
+            }
+
+        })();
+
+        const written = writeAudioAssetUpload({
+            id,
+            originalFilename: actor.originalFilename ?? null,
+            buffer,
+            env: this._env,
+            assetsRoot: actor.assetsRoot ?? null
+        });
+
+        if (!written.ok) {
+
+            return written;
+
+        }
+
+        const auditRecord = appendAudioRegistryAudit({
+            user: actor.username ?? null,
+            role: actor.role ?? null,
+            id: written.entry.id,
+            eventId: written.entry.id,
+            field: "asset",
+            oldValue: previousStatus,
+            newValue: written.assetStatus,
+            configVersion: this._state?.configVersion ?? 0
+        }, this._env);
+
+        this._emitAuditLog(auditRecord);
+
+        this._logger?.info?.(
+            `AUDIO_ASSET_UPLOADED | id=${written.entry.id}`
+            + ` | file=${written.file}`
+            + ` | user=${actor.username ?? "unknown"}`
+        );
+
+        return {
+            ok: true,
+            status: 200,
+            file: written.file,
+            assetStatus: written.assetStatus,
+            exists: true,
+            auditRecord,
+            message: "Audio asset uploaded to client assets tree",
+            // enabled / loop intentionally unchanged
+            registry: this.buildSnapshot({
+                canEdit: true,
+                ...(actor.assetsRoot
+                    ? { assetsRoot: actor.assetsRoot }
+                    : {})
+            })
         };
 
     }

@@ -304,6 +304,51 @@ export async function updateAudioRegistry(accessToken, payload) {
 }
 
 /**
+ * R17.9J.2B — Administrator-only .ogg upload into client audio assets.
+ * @param {string} accessToken
+ * @param {string} entryId
+ * @param {File|Blob} file
+ */
+export async function uploadAudioRegistryAsset(accessToken, entryId, file) {
+
+    const id = encodeURIComponent(String(entryId ?? "").trim());
+    const form = new FormData();
+
+    form.append("file", file);
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/configuration/audio-registry/${id}/upload`,
+        {
+            method: "POST",
+            headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${accessToken}`
+                // Content-Type set by browser with multipart boundary
+            },
+            body: form
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        const error = new Error(
+            body?.error || "Failed to upload audio asset"
+        );
+
+        error.status = response.status;
+        error.body = body;
+
+        throw error;
+
+    }
+
+    return body;
+
+}
+
+/**
  * R17.9G.1 — Administrator-only runtime configuration mutation.
  */
 export async function updateRuntimeConfiguration(accessToken, values) {

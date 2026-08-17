@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
     fetchAudioRegistry,
-    updateAudioRegistry
+    updateAudioRegistry,
+    uploadAudioRegistryAsset
 } from "../developerAuthApi";
 import { useDeveloperAuth } from "../DeveloperAuthProvider";
 import EmptyState from "./shared/EmptyState";
@@ -41,6 +42,8 @@ export default function AudioRegistryPanel() {
     const [success, setSuccess] = useState(null);
 
     const [busy, setBusy] = useState(false);
+
+    const [uploadingId, setUploadingId] = useState(null);
 
     const [forbidden, setForbidden] = useState(false);
 
@@ -244,6 +247,86 @@ export default function AudioRegistryPanel() {
         registry
     ]);
 
+    const uploadForEntry = useCallback(async (entry, fileList) => {
+
+        if (!isAdministrator || !accessToken || !entry?.id) {
+
+            return;
+
+        }
+
+        const file = fileList?.[0] ?? null;
+
+        if (!file) {
+
+            return;
+
+        }
+
+        const expectedName = String(entry.fileName ?? entry.file ?? "")
+            .split("/")
+            .pop();
+
+        const lower = String(file.name || "").toLowerCase();
+
+        if (!lower.endsWith(".ogg")) {
+
+            setError("Only .ogg files are allowed");
+
+            return;
+
+        }
+
+        if (expectedName
+            && lower !== String(expectedName).toLowerCase()) {
+
+            setError(`Filename must be ${expectedName}`);
+
+            return;
+
+        }
+
+        setUploadingId(entry.id);
+
+        setError(null);
+
+        setSuccess(null);
+
+        try {
+
+            const result = await uploadAudioRegistryAsset(
+                accessToken,
+                entry.id,
+                file
+            );
+
+            setSuccess(
+                result.message
+                || `Uploaded ${result.file || expectedName}. Status AVAILABLE.`
+            );
+
+            if (result.registry) {
+
+                applyRegistry(result.registry);
+
+            } else {
+
+                await load();
+
+            }
+
+        } catch (err) {
+
+            setError(err.message || "Failed to upload audio asset");
+
+        } finally {
+
+            setUploadingId(null);
+
+        }
+
+    }, [accessToken, applyRegistry, isAdministrator, load]);
+
     if (!isAdministrator || forbidden) {
 
         return (
@@ -326,6 +409,8 @@ export default function AudioRegistryPanel() {
                                     <th>Loop</th>
 
                                     <th>Status</th>
+
+                                    <th>Upload</th>
 
                                 </tr>
 
@@ -419,6 +504,44 @@ export default function AudioRegistryPanel() {
                                                     {entry.status}
 
                                                 </span>
+
+                                            </td>
+
+                                            <td>
+
+                                                <label className="devConsole__audioUpload">
+
+                                                    <input
+                                                        type="file"
+                                                        accept=".ogg,audio/ogg,audio/ogg;codecs=vorbis"
+                                                        disabled={
+                                                            busy
+                                                            || uploadingId === entry.id
+                                                        }
+                                                        aria-label={`Upload ${entry.fileName ?? entry.file}`}
+                                                        onChange={(event) => {
+
+                                                            const list = event.target.files;
+
+                                                            void uploadForEntry(
+                                                                entry,
+                                                                list
+                                                            );
+
+                                                            event.target.value = "";
+
+                                                        }}
+                                                    />
+
+                                                    <span className="devConsole__audioUploadBtn">
+
+                                                        {uploadingId === entry.id
+                                                            ? "Uploading…"
+                                                            : "Upload Audio"}
+
+                                                    </span>
+
+                                                </label>
 
                                             </td>
 

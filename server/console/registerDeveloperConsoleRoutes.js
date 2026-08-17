@@ -1,4 +1,6 @@
 import { createAdministratorAuthMiddleware } from "./auth/developerAuthMiddleware.js";
+import { readMultipartOggUpload } from "./configuration/readMultipartOggUpload.js";
+import { AUDIO_UPLOAD_MAX_BYTES } from "./configuration/uploadAudioRegistryAsset.js";
 
 /**
  * R6.0C / R6.1 — Read-only Developer Console HTTP routes.
@@ -341,6 +343,87 @@ export function registerDeveloperConsoleRoutes(
 
                 res.status(500).json({
                     error: "Failed to update audio registry",
+                    message: error?.message ?? "Unknown error"
+                });
+
+            }
+
+        }
+    );
+
+    /**
+     * R17.9J.2B — Administrator-only .ogg upload into client/src/assets/audio.
+     * Does not use server/uploads. Does not change enabled/loop.
+     */
+    app.post(
+        "/console/configuration/audio-registry/:id/upload",
+        adminGate,
+        async (req, res) => {
+
+            if (!audioRegistryService?.uploadAsset) {
+
+                res.status(503).json({
+                    error: "Audio Registry service unavailable"
+                });
+
+                return;
+
+            }
+
+            try {
+
+                const parsed = await readMultipartOggUpload(req, {
+                    fieldName: "file",
+                    maxBytes: AUDIO_UPLOAD_MAX_BYTES
+                });
+
+                if (!parsed.ok) {
+
+                    res.status(parsed.status ?? 400).json({
+                        error: parsed.error ?? "Upload failed"
+                    });
+
+                    return;
+
+                }
+
+                const result = audioRegistryService.uploadAsset(
+                    req.params.id,
+                    parsed.buffer,
+                    {
+                        originalFilename: parsed.filename,
+                        username: req.developer?.username ?? null,
+                        role: req.developer?.role ?? "Administrator"
+                    }
+                );
+
+                if (!result.ok) {
+
+                    res.status(result.status ?? 400).json({
+                        error: result.error ?? "Upload failed"
+                    });
+
+                    return;
+
+                }
+
+                res.json({
+                    ok: true,
+                    message: result.message,
+                    file: result.file,
+                    assetStatus: result.assetStatus,
+                    exists: result.exists,
+                    auditRecord: result.auditRecord,
+                    registry: result.registry
+                        ?? projectionService.buildAudioRegistry({
+                            canEdit: true
+                        })
+                });
+
+            } catch (error) {
+
+                res.status(500).json({
+                    error: "Failed to upload audio asset",
                     message: error?.message ?? "Unknown error"
                 });
 
