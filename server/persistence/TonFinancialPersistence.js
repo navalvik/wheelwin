@@ -257,6 +257,36 @@ export class TonFinancialPersistence {
 
     }
 
+    /**
+     * Typed purge for deposit_session (not in DELETABLE_RECORD_TYPES).
+     * Removes the active file without treating the type as generally deletable.
+     */
+    _purgeRecord(recordType, recordId) {
+
+        this._assertReady();
+
+        const key = this._recordKey(recordType, recordId);
+
+        if (!this._records.has(key)) {
+
+            throw new RecordNotFoundError(recordType, recordId);
+
+        }
+
+        const filePath = this._recordPath(recordType, recordId);
+
+        this._safeUnlink(filePath);
+
+        this._unindexRecord(this._records.get(key));
+
+        this._records.delete(key);
+
+        this._maybeCheckpoint("purge", recordType, recordId);
+
+        return true;
+
+    }
+
     archive(contractId, metadata = {}) {
 
         this._assertReady();
@@ -628,6 +658,72 @@ export class TonFinancialPersistence {
     loadPaymentSession(paymentSessionId) {
 
         return this.load(TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION, paymentSessionId);
+
+    }
+
+    createDepositSession(payload, metadata = {}) {
+
+        return this.create(TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION, payload, metadata);
+
+    }
+
+    updateDepositSession(depositId, payload, metadata = {}) {
+
+        return this.update(
+            TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION,
+            depositId,
+            payload,
+            metadata
+        );
+
+    }
+
+    loadDepositSession(depositId) {
+
+        return this.load(TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION, depositId);
+
+    }
+
+    saveDepositSession(payload, metadata = {}) {
+
+        const depositId = resolveRecordId(
+            TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION,
+            payload,
+            metadata
+        );
+
+        if (!depositId) {
+
+            throw new StorageUnavailableError("Unable to resolve deposit session id");
+
+        }
+
+        const key = this._recordKey(
+            TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION,
+            depositId
+        );
+
+        if (this._records.has(key)) {
+
+            return this.updateDepositSession(depositId, payload, metadata);
+
+        }
+
+        return this.createDepositSession(payload, metadata);
+
+    }
+
+    listActiveDepositSessions() {
+
+        return this.listActive(TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION);
+
+    }
+
+    removeDepositSession(depositId) {
+
+        this._purgeRecord(TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION, depositId);
+
+        return true;
 
     }
 

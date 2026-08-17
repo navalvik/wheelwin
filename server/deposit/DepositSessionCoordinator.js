@@ -1,5 +1,5 @@
 /**
- * R17.9L.3 — DepositSession coordinator (domain events, no TON, no deploy gate).
+ * R17.9L.4 — DepositSession coordinator (persist then EventBus; no TON, no deploy).
  */
 
 import { EVENT_SOURCES } from "../events/EventSources.js";
@@ -7,7 +7,10 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { DepositSession } from "./DepositSession.js";
 import { DepositSessionError } from "./DepositSessionErrors.js";
 import { assertDepositIdentity } from "./depositValidation.js";
-import { DEPOSIT_SESSION_STATUS } from "./DepositSessionStates.js";
+import {
+    DEPOSIT_SESSION_STATUS,
+    isRestorableDepositSessionStatus
+} from "./DepositSessionStates.js";
 import { InMemoryDepositPersistence } from "./DepositPersistencePort.js";
 
 export class DepositSessionCoordinator {
@@ -58,7 +61,7 @@ export class DepositSessionCoordinator {
             metadata
         });
 
-        this._store(session);
+        this._commitNew(session);
 
         this._emit(EVENT_TYPES.DEPOSIT_CREATED, session);
 
@@ -76,12 +79,14 @@ export class DepositSessionCoordinator {
 
         const previousState = session.state;
 
-        session.bindPlayers(players, {
-            roomExists: this._roomExists,
-            gameExists: this._gameExists
-        });
+        this._mutate(session, (current) => {
 
-        this._store(session);
+            current.bindPlayers(players, {
+                roomExists: this._roomExists,
+                gameExists: this._gameExists
+            });
+
+        });
 
         this._emit(EVENT_TYPES.DEPOSIT_PLAYER_BOUND, session);
 
@@ -103,13 +108,12 @@ export class DepositSessionCoordinator {
 
         const previousState = session.state;
 
-        session.applyFunding(funding);
+        this._run(depositId, (current) => current.applyFunding(funding));
 
-        this._store(session);
-
-        this._emitStateChanged(session, previousState);
-
-        if (session.state === DEPOSIT_SESSION_STATUS.DEPOSIT_FULL) {
+        if (
+            session.state === DEPOSIT_SESSION_STATUS.DEPOSIT_FULL
+            && previousState !== DEPOSIT_SESSION_STATUS.DEPOSIT_FULL
+        ) {
 
             this._emit(EVENT_TYPES.DEPOSIT_FULL, session);
 
@@ -195,9 +199,9 @@ export class DepositSessionCoordinator {
 
     }
 
-    async restoreFromPersistence(depositId) {
+    restoreFromPersistence(depositId) {
 
-        const record = await this._persistence.loadDepositSession(depositId);
+        const record = this._persistence.loadDepositSession(depositId);
 
         if (!record) {
 
@@ -213,19 +217,95 @@ export class DepositSessionCoordinator {
 
     }
 
+    /**
+     * Restore restorable sessions after restart.
+     * Does not emit DEPOSIT_FULL, authorization, or deployment events.
+     */
+    restoreActiveSessions() {
+
+        if (typeof this._persistence.listActiveDepositSessions !== "function") {
+
+            return Object.freeze({
+                restored: 0,
+                skipped: 0
+            });
+
+        }
+
+        const records = this._persistence.listActiveDepositSessions() ?? [];
+
+        let restored = 0;
+
+        let skipped = 0;
+
+        for (const record of records) {
+
+            const session = DepositSession.fromRecord(record);
+
+            if (!isRestorableDepositSessionStatus(session.state)) {
+
+                skipped += 1;
+
+                continue;
+
+            }
+
+            this._sessions.set(session.depositId, session);
+
+            restored += 1;
+
+        }
+
+        return Object.freeze({
+            restored,
+            skipped
+        });
+
+    }
+
     _run(depositId, mutate) {
 
         const session = this._require(depositId);
 
         const previousState = session.state;
 
-        mutate(session);
-
-        this._store(session);
+        this._mutate(session, mutate);
 
         this._emitStateChanged(session, previousState);
 
         return session;
+
+    }
+
+    _mutate(session, mutate) {
+
+        const snapshot = session.toRecord();
+
+        try {
+
+            mutate(session);
+
+            this._persist(session);
+
+        } catch (error) {
+
+            session.replaceFromRecord(snapshot);
+
+            this._sessions.set(session.depositId, session);
+
+            throw error;
+
+        }
+
+        this._sessions.set(session.depositId, session);
+
+    }
+
+    _commitNew(session) {
+
+        this._persist(session);
+
+        this._sessions.set(session.depositId, session);
 
     }
 
@@ -247,11 +327,31 @@ export class DepositSessionCoordinator {
 
     }
 
-    _store(session) {
+    _persist(session) {
 
-        this._sessions.set(session.depositId, session);
+        if (typeof this._persistence.saveDepositSession !== "function") {
 
-        void this._persistence.saveDepositSession(session);
+            throw new DepositSessionError(
+                "Deposit persistence is not configured",
+                "DEPOSIT_PERSISTENCE_UNAVAILABLE",
+                { depositId: session.depositId }
+            );
+
+        }
+
+        const result = this._persistence.saveDepositSession(session);
+
+        if (result != null && typeof result.then === "function") {
+
+            throw new DepositSessionError(
+                "Deposit persistence saveDepositSession must be synchronous",
+                "DEPOSIT_PERSISTENCE_ASYNC",
+                { depositId: session.depositId }
+            );
+
+        }
+
+        return result;
 
     }
 

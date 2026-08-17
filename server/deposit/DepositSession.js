@@ -41,6 +41,10 @@ export class DepositSession {
         refundStartedAt = null,
         refundedAt = null,
         fundingEventIds = [],
+        expiresAt = null,
+        depositAddress = null,
+        bindingHash = null,
+        authorizationHash = null,
         version = 1,
         correlationId = null,
         metadata = null
@@ -86,6 +90,14 @@ export class DepositSession {
 
         this.fundingEventIds = [...(fundingEventIds ?? [])];
 
+        this.expiresAt = expiresAt ?? null;
+
+        this.depositAddress = depositAddress ?? null;
+
+        this.bindingHash = bindingHash ?? null;
+
+        this.authorizationHash = authorizationHash ?? null;
+
         this.version = Number(version) || 1;
 
         this.correlationId = correlationId ?? randomUUID();
@@ -119,6 +131,10 @@ export class DepositSession {
             refundStartedAt: payload.refundStartedAt ?? null,
             refundedAt: payload.refundedAt ?? null,
             fundingEventIds: payload.fundingEventIds ?? [],
+            expiresAt: payload.expiresAt ?? null,
+            depositAddress: payload.depositAddress ?? null,
+            bindingHash: payload.bindingHash ?? null,
+            authorizationHash: payload.authorizationHash ?? null,
             version: payload.version ?? record?.version ?? 1,
             correlationId: payload.correlationId ?? record?.correlationId ?? null,
             metadata: payload.metadata ?? payload.recoveryMetadata ?? null
@@ -180,6 +196,14 @@ export class DepositSession {
         this.awaitingFundsAt = Date.now();
 
         this.updatedAt = this.awaitingFundsAt;
+
+        const timeoutMs = Number(this.metadata?.depositTimeoutMs);
+
+        if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+
+            this.expiresAt = this.awaitingFundsAt + timeoutMs;
+
+        }
 
         return this;
 
@@ -333,6 +357,67 @@ export class DepositSession {
 
     }
 
+    /**
+     * Overlay durable fields onto this instance (rollback / restore).
+     */
+    replaceFromRecord(record) {
+
+        const next = DepositSession.fromRecord(record);
+
+        this.depositId = next.depositId;
+
+        this.roomId = next.roomId;
+
+        this.gameId = next.gameId;
+
+        this.bindings = next.bindings.map((binding) => ({ ...binding }));
+
+        this.state = next.state;
+
+        this.createdAt = next.createdAt;
+
+        this.updatedAt = next.updatedAt;
+
+        this.boundAt = next.boundAt;
+
+        this.awaitingFundsAt = next.awaitingFundsAt;
+
+        this.depositFullAt = next.depositFullAt;
+
+        this.expiredAt = next.expiredAt;
+
+        this.authorizedAt = next.authorizedAt;
+
+        this.gameContractCreatedAt = next.gameContractCreatedAt;
+
+        this.releasedAt = next.releasedAt;
+
+        this.reimbursedAt = next.reimbursedAt;
+
+        this.refundStartedAt = next.refundStartedAt;
+
+        this.refundedAt = next.refundedAt;
+
+        this.fundingEventIds = [...next.fundingEventIds];
+
+        this.expiresAt = next.expiresAt;
+
+        this.depositAddress = next.depositAddress;
+
+        this.bindingHash = next.bindingHash;
+
+        this.authorizationHash = next.authorizationHash;
+
+        this.version = next.version;
+
+        this.correlationId = next.correlationId;
+
+        this.metadata = { ...next.metadata };
+
+        return this;
+
+    }
+
     toPayload() {
 
         return Object.freeze({
@@ -340,6 +425,7 @@ export class DepositSession {
             roomId: this.roomId,
             gameId: this.gameId,
             state: this.state,
+            status: this.state,
             bindings: this.bindings.map((binding) => Object.freeze({ ...binding })),
             createdAt: this.createdAt,
             updatedAt: this.updatedAt,
@@ -347,6 +433,7 @@ export class DepositSession {
             awaitingFundsAt: this.awaitingFundsAt,
             depositFullAt: this.depositFullAt,
             expiredAt: this.expiredAt,
+            expiresAt: this.expiresAt,
             authorizedAt: this.authorizedAt,
             gameContractCreatedAt: this.gameContractCreatedAt,
             releasedAt: this.releasedAt,
@@ -354,6 +441,9 @@ export class DepositSession {
             refundStartedAt: this.refundStartedAt,
             refundedAt: this.refundedAt,
             fundingEventIds: Object.freeze([...this.fundingEventIds]),
+            depositAddress: this.depositAddress,
+            bindingHash: this.bindingHash,
+            authorizationHash: this.authorizationHash,
             version: this.version,
             correlationId: this.correlationId,
             metadata: Object.freeze({ ...this.metadata })

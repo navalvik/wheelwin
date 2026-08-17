@@ -62,6 +62,7 @@ const EMPTY_MONITOR_CHECKPOINT = Object.freeze({
  * @property {import("../persistence/TonFinancialPersistence.js").TonFinancialPersistence} [financialPersistence]
  * @property {import("../managers/PlayerManager.js").PlayerManager} [playerManager]
  * @property {import("../managers/RoomManager.js").RoomManager} [roomManager]
+ * @property {import("../deposit/DepositSessionCoordinator.js").DepositSessionCoordinator} [depositSessionCoordinator]
  */
 
 export class TonFinancialRecovery {
@@ -77,7 +78,8 @@ export class TonFinancialRecovery {
         blockchainMonitor = null,
         financialPersistence = null,
         playerManager = null,
-        roomManager = null
+        roomManager = null,
+        depositSessionCoordinator = null
     }) {
 
         this._logger = logger;
@@ -101,6 +103,8 @@ export class TonFinancialRecovery {
         this._playerManager = playerManager;
 
         this._roomManager = roomManager;
+
+        this._depositSessionCoordinator = depositSessionCoordinator;
 
         this._initialized = false;
 
@@ -208,6 +212,10 @@ export class TonFinancialRecovery {
                 FINANCIAL_RECOVERY_PHASE.PAYMENTS,
                 await this.recoverPayments()
             );
+
+            // R17.9L.4 — Restore durable DepositSessions without a new recovery phase
+            // (does not trigger deploy, GameContract creation, or authorization).
+            this._restoreDepositSessions(report);
 
             this._mergePhaseResult(
                 report,
@@ -487,6 +495,32 @@ export class TonFinancialRecovery {
             });
 
         }
+
+    }
+
+    recoverDeposits() {
+
+        this._assertInitialized();
+
+        if (!this._depositSessionCoordinator?.restoreActiveSessions) {
+
+            return Object.freeze({
+                ok: true,
+                restored: 0,
+                skipped: 0,
+                skippedNoCoordinator: true
+            });
+
+        }
+
+        const summary = this._depositSessionCoordinator.restoreActiveSessions();
+
+        return Object.freeze({
+            ok: true,
+            restored: summary.restored ?? 0,
+            skipped: summary.skipped ?? 0,
+            summary
+        });
 
     }
 
@@ -845,6 +879,33 @@ export class TonFinancialRecovery {
         ) {
 
             report.blockchainWatchesRecovered += result.totalWatches ?? 0;
+
+        }
+
+    }
+
+    _restoreDepositSessions(report) {
+
+        if (!this._depositSessionCoordinator?.restoreActiveSessions) {
+
+            return;
+
+        }
+
+        try {
+
+            const summary = this.recoverDeposits();
+
+            report.warnings.push(
+                `deposit_restore:restored=${summary.restored ?? 0}`
+                    + `|skipped=${summary.skipped ?? 0}`
+            );
+
+        } catch (error) {
+
+            report.errors.push(
+                `deposit_restore_failed:${error?.message ?? error}`
+            );
 
         }
 

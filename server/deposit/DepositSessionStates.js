@@ -60,6 +60,18 @@ export const TERMINAL_DEPOSIT_SESSION_STATUSES = Object.freeze([
     DEPOSIT_SESSION_STATUS.REFUNDED
 ]);
 
+export const RESTORABLE_DEPOSIT_SESSION_STATUSES = Object.freeze([
+    DEPOSIT_SESSION_STATUS.CREATED,
+    DEPOSIT_SESSION_STATUS.PLAYER_BINDING,
+    DEPOSIT_SESSION_STATUS.AWAITING_FUNDS,
+    DEPOSIT_SESSION_STATUS.PARTIALLY_FUNDED,
+    DEPOSIT_SESSION_STATUS.DEPOSIT_FULL,
+    DEPOSIT_SESSION_STATUS.DEPLOY_AUTHORIZED,
+    DEPOSIT_SESSION_STATUS.GAME_CONTRACT_CREATED,
+    DEPOSIT_SESSION_STATUS.EXPIRED,
+    DEPOSIT_SESSION_STATUS.REFUNDING
+]);
+
 export function canTransitionDepositStatus(fromStatus, toStatus) {
 
     const allowed = DEPOSIT_SESSION_TRANSITIONS[fromStatus] ?? [];
@@ -71,5 +83,11 @@ export function canTransitionDepositStatus(fromStatus, toStatus) {
 export function isDepositSessionTerminal(status) {
 
     return TERMINAL_DEPOSIT_SESSION_STATUSES.includes(status);
+
+}
+
+export function isRestorableDepositSessionStatus(status) {
+
+    return RESTORABLE_DEPOSIT_SESSION_STATUSES.includes(status);
 
 }

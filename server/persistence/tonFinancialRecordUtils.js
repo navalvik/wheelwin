@@ -9,6 +9,7 @@ import {
     SETTLEMENT_TERMINAL_STATUSES,
     DEPLOYMENT_COST_SNAPSHOT_TERMINAL_STATUSES,
     DEPLOYMENT_REIMBURSEMENT_TERMINAL_STATUSES,
+    DEPOSIT_SESSION_TERMINAL_STATUSES,
     TON_FINANCIAL_RECORD_TYPES,
     TON_FINANCIAL_SCHEMA_VERSION
 } from "./TonFinancialRecordTypes.js";
@@ -110,6 +111,18 @@ export function resolveRecordId(recordType, payload, metadata = {}) {
                 ?? payload?.id
                 ?? null;
 
+        case TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION:
+            return metadata.depositId
+                ?? payload?.depositId
+                ?? metadata.recordId
+                ?? null;
+
+        case TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_AUTHORIZATION:
+            return metadata.authorizationId
+                ?? payload?.authorizationId
+                ?? metadata.recordId
+                ?? null;
+
         default:
             return metadata.recordId ?? null;
 
@@ -172,6 +185,12 @@ export function isImmutableRecord(recordType, status = null) {
     if (recordType === TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT) {
 
         return DEPLOYMENT_REIMBURSEMENT_TERMINAL_STATUSES.includes(status);
+
+    }
+
+    if (recordType === TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION) {
+
+        return DEPOSIT_SESSION_TERMINAL_STATUSES.includes(status);
 
     }
 

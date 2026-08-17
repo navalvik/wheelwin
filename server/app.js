@@ -137,6 +137,8 @@ import {
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
+import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
+import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
 import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
@@ -318,6 +320,8 @@ class WheelWinApplication {
         this._sessionWalletStore = null;
 
         this._financialPersistence = null;
+
+        this._depositSessionCoordinator = null;
 
         this._tonFinancialRecovery = null;
 
@@ -1578,6 +1582,13 @@ class WheelWinApplication {
 
         this._logger.startupLine("AudioRegistryService");
 
+        this._depositSessionCoordinator = new DepositSessionCoordinator({
+            eventBus: this._eventBus,
+            persistence: new TonFinancialDepositPersistence(this._financialPersistence)
+        });
+
+        this._logger.startupLine("DepositSessionCoordinator");
+
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1588,7 +1599,8 @@ class WheelWinApplication {
             blockchainMonitor: this._blockchainMonitor,
             playerManager: this._managers.playerManager,
             roomManager: this._managers.roomManager,
-            financialPersistence: this._financialPersistence
+            financialPersistence: this._financialPersistence,
+            depositSessionCoordinator: this._depositSessionCoordinator
         });
 
         this._tonFinancialRecovery.initialize();
