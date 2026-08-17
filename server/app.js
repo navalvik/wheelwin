@@ -1365,6 +1365,10 @@ class WheelWinApplication {
 
         this._gameContractManager.initialize();
 
+        this._engines.paymentEngine.setGameContractManager(
+            this._gameContractManager
+        );
+
         this._logger.startupLine("GameContractManager");
 
         // R17.8V.2P.J / R17.8V.2P.K — Deployment cost snapshot capture + freeze.

@@ -35,11 +35,13 @@ export class PrizeCalculator {
 
     }
 
-    calculate({ configuration, gameResult }) {
+    calculate({ configuration, gameResult, paymentRules = null }) {
+
+        const rules = paymentRules ?? this._paymentRules;
 
         const stake = configuration.stake;
 
-        const baseContribution = this._paymentRules.contributionByStake[stake];
+        const baseContribution = rules.contributionByStake[stake];
 
         if (!Number.isFinite(baseContribution) || baseContribution <= 0) {
 
@@ -61,7 +63,7 @@ export class PrizeCalculator {
 
         }
 
-        const secondSectorMultiplier = this._paymentRules.secondSectorMultiplier
+        const secondSectorMultiplier = rules.secondSectorMultiplier
             ?? 1.5;
 
         const playerContributions = players.map((player) => {
@@ -96,7 +98,7 @@ export class PrizeCalculator {
         );
 
         const platformFee = roundMoney(
-            totalPrize * this._paymentRules.platformFeeRate
+            totalPrize * rules.platformFeeRate
         );
 
         const winnerAmount = roundMoney(totalPrize - platformFee);
@@ -114,7 +116,7 @@ export class PrizeCalculator {
             totalPrize,
             platformFee,
             winnerAmount,
-            currency: this._paymentRules.currency,
+            currency: rules.currency,
             playerContributions
         };
 

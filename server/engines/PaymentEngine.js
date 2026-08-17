@@ -4,6 +4,7 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { deepFreezePayment } from "./payment/paymentFreeze.js";
 import { PaymentValidationError } from "./payment/PaymentValidationError.js";
 import { PrizeCalculator } from "./payment/PrizeCalculator.js";
+import { resolveGameFinancialRules } from "./payment/resolveGameFinancialRules.js";
 
 export class PaymentEngine {
 
@@ -13,6 +14,7 @@ export class PaymentEngine {
         winnerEngine,
         configurationEngine,
         gameCatalog,
+        gameContractManager = null,
         telegramWalletAdapter,
         metricsService = null
     }) {
@@ -27,6 +29,8 @@ export class PaymentEngine {
 
         this._gameCatalog = gameCatalog;
 
+        this._gameContractManager = gameContractManager;
+
         this._telegramWalletAdapter = telegramWalletAdapter;
 
         this._metricsService = metricsService;
@@ -40,6 +44,12 @@ export class PaymentEngine {
         this._infrastructureHandlers = [];
 
         this._initialized = false;
+
+    }
+
+    setGameContractManager(gameContractManager) {
+
+        this._gameContractManager = gameContractManager ?? null;
 
     }
 
@@ -103,11 +113,20 @@ export class PaymentEngine {
 
         }
 
+        if (record.paymentStatus === PAYMENT_STATUS.PREPARED && record.prizeBreakdown) {
+
+            return this._createPreparedSnapshot(record);
+
+        }
+
         const { gameResult, configuration } = this._readPaymentInputs(gameId);
+
+        const paymentRules = this._resolvePaymentRules(gameId);
 
         const prizeBreakdown = this._prizeCalculator.calculate({
             configuration,
-            gameResult
+            gameResult,
+            paymentRules
         });
 
         const preparedPayment = this._telegramWalletAdapter.preparePayment({
@@ -332,6 +351,18 @@ export class PaymentEngine {
                 ?? record.preparedPayment?.metadata
                 ?? null
         };
+
+    }
+
+    _resolvePaymentRules(gameId) {
+
+        const resolved = resolveGameFinancialRules(gameId, {
+            gameContractManager: this._gameContractManager,
+            configurationEngine: this._configurationEngine,
+            gameCatalog: this._gameCatalog
+        });
+
+        return resolved.paymentRules;
 
     }
 
