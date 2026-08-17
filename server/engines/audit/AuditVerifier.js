@@ -7,6 +7,7 @@ import { PHYSICS_SIMULATION_STATE } from "../physics/PhysicsSimulationState.js";
 import { GeometryAdapter } from "../winner/GeometryAdapter.js";
 import { PlayerResolver } from "../winner/PlayerResolver.js";
 import { PrizeCalculator } from "../payment/PrizeCalculator.js";
+import { resolveGameFinancialRules } from "../payment/resolveGameFinancialRules.js";
 import { SectorResolver } from "../winner/SectorResolver.js";
 
 function createCheckResult({ passed, errors = [], warnings = [] }) {
@@ -21,9 +22,17 @@ function createCheckResult({ passed, errors = [], warnings = [] }) {
 
 export class AuditVerifier {
 
-    constructor({ gameCatalog }) {
+    constructor({
+        gameCatalog,
+        configurationEngine = null,
+        gameContractManager = null
+    }) {
 
         this._gameCatalog = gameCatalog;
+
+        this._configurationEngine = configurationEngine;
+
+        this._gameContractManager = gameContractManager;
 
         this._prizeCalculator = new PrizeCalculator({
             paymentRules: gameCatalog.getPaymentRules()
@@ -38,6 +47,12 @@ export class AuditVerifier {
         });
 
         this._playerResolver = new PlayerResolver();
+
+    }
+
+    setGameContractManager(gameContractManager) {
+
+        this._gameContractManager = gameContractManager ?? null;
 
     }
 
@@ -443,9 +458,16 @@ export class AuditVerifier {
 
         try {
 
+            const gameId = configuration?.gameId
+                ?? winner?.gameId
+                ?? payment?.gameId;
+
+            const paymentRules = this._resolvePaymentRules(gameId);
+
             const expectedBreakdown = this._prizeCalculator.calculate({
                 configuration,
-                gameResult: winner
+                gameResult: winner,
+                paymentRules
             });
 
             if (payment.totalPrize !== expectedBreakdown.totalPrize) {
@@ -538,6 +560,18 @@ export class AuditVerifier {
             passed: errors.length === 0,
             errors
         });
+
+    }
+
+    _resolvePaymentRules(gameId) {
+
+        const resolved = resolveGameFinancialRules(gameId, {
+            gameContractManager: this._gameContractManager,
+            configurationEngine: this._configurationEngine,
+            gameCatalog: this._gameCatalog
+        });
+
+        return resolved.paymentRules;
 
     }
 

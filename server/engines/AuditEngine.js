@@ -45,13 +45,22 @@ export class AuditEngine {
 
         this._metricsService = metricsService;
 
-        this._verifier = new AuditVerifier({ gameCatalog });
+        this._verifier = new AuditVerifier({
+            gameCatalog,
+            configurationEngine
+        });
 
         this._reports = new Map();
 
         this._infrastructureHandlers = [];
 
         this._initialized = false;
+
+    }
+
+    setGameContractManager(gameContractManager) {
+
+        this._verifier.setGameContractManager(gameContractManager);
 
     }
 
