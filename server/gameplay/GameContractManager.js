@@ -25,6 +25,7 @@ import {
     InvalidContractStateTransitionError,
     PersistenceFailureError
 } from "./GameContractManagerErrors.js";
+import { MissingDeploymentAuthorizationError } from "../deposit/DeploymentAuthorizationErrors.js";
 import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
 import {
     buildPartialPaymentRefundTargets,
@@ -88,6 +89,7 @@ export class GameContractManager {
         financialPersistence = null,
         paymentSessionManager = null,
         contractSettlementManager = null,
+        deploymentAuthorizationCoordinator = null,
         tonNetwork = null,
         creatingDelayMs = 0,
         deployDelayMs = 0,
@@ -122,6 +124,8 @@ export class GameContractManager {
         this._paymentSessionManager = paymentSessionManager;
 
         this._contractSettlementManager = contractSettlementManager;
+
+        this._deploymentAuthorizationCoordinator = deploymentAuthorizationCoordinator;
 
         this._tonNetwork = tonNetwork ?? null;
 
@@ -172,6 +176,15 @@ export class GameContractManager {
         this._paymentRules = paymentRules;
 
         return this._paymentRules;
+
+    }
+
+    /**
+     * R17.9L.5B — Late-bind DeploymentAuthorization gate (fail-closed).
+     */
+    setDeploymentAuthorizationCoordinator(coordinator) {
+
+        this._deploymentAuthorizationCoordinator = coordinator ?? null;
 
     }
 
@@ -1278,7 +1291,24 @@ export class GameContractManager {
                 Timestamp: new Date(deployStage.now).toISOString()
             });
 
-            void this._beginDeploy(current.roomId);
+            void this._beginDeploy(current.roomId).catch((error) => {
+
+                printDeployBlock("BEGIN CONTRACT DEPLOY — AUTHORIZATION BLOCKED", {
+                    RoomId: current.roomId,
+                    GameId: current.gameId,
+                    ContractId: current.contractId,
+                    Reason: error?.message ?? String(error),
+                    ErrorName: error?.name ?? null,
+                    ErrorCode: error?.code ?? null,
+                    Timestamp: new Date().toISOString()
+                });
+
+                this._logger?.error?.(
+                    `DEPLOY BLOCKED | roomId=${current.roomId} | `
+                        + `gameId=${current.gameId} | ${error?.message ?? error}`
+                );
+
+            });
 
         };
 
@@ -1296,7 +1326,75 @@ export class GameContractManager {
 
     }
 
+    /**
+     * R17.9L.5B — Fail-closed gate before Ton adapter spend.
+     *
+     * Consume VALID DeploymentAuthorization, then start deploy.
+     * If the deploy transaction later fails, authorization stays CONSUMED.
+     * A new authorization is never minted here. Recovery of DEPLOYING /
+     * DEPLOY_FAILED contracts continues through existing GCM restore without
+     * requiring a new authorization.
+     */
     async _beginDeploy(roomId) {
+
+        const contract = this._contractsByRoom.get(roomId);
+
+        if (!contract) {
+
+            printDeployBlock("BEGIN CONTRACT DEPLOY — ABORT", {
+                RoomId: roomId,
+                Reason: "contract_missing_from_registry",
+                Timestamp: new Date().toISOString()
+            });
+
+            return;
+
+        }
+
+        const execute = () => this._beginDeployAuthorized(roomId);
+
+        const existingLock = this._operationLocks.get(contract.contractId);
+
+        if (existingLock === "deploy") {
+
+            return execute();
+
+        }
+
+        if (existingLock) {
+
+            throw new ContractOperationInProgressError(
+                contract.contractId,
+                existingLock
+            );
+
+        }
+
+        return this._withLock(contract.contractId, "deploy", execute);
+
+    }
+
+    _consumeDeploymentAuthorizationOrThrow(contract) {
+
+        if (!this._deploymentAuthorizationCoordinator?.consumeValidForDeploy) {
+
+            throw new MissingDeploymentAuthorizationError(
+                contract.roomId,
+                contract.gameId,
+                "coordinator_unavailable"
+            );
+
+        }
+
+        return this._deploymentAuthorizationCoordinator.consumeValidForDeploy({
+            roomId: contract.roomId,
+            gameId: contract.gameId,
+            network: this._tonNetwork
+        });
+
+    }
+
+    async _beginDeployAuthorized(roomId) {
 
         const contract = this._contractsByRoom.get(roomId);
 
@@ -1325,6 +1423,8 @@ export class GameContractManager {
             return;
 
         }
+
+        this._consumeDeploymentAuthorizationOrThrow(contract);
 
         if (!contract.transitionTo(GAME_CONTRACT_STATUS.DEPLOYING)) {
 
@@ -2411,3 +2511,5 @@ export {
     InvalidContractStateTransitionError,
     PersistenceFailureError
 } from "./GameContractManagerErrors.js";
+
+export { MissingDeploymentAuthorizationError } from "../deposit/DeploymentAuthorizationErrors.js";

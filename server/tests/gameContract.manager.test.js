@@ -23,6 +23,8 @@ import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
 import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
+import { DeploymentAuthorizationCoordinator } from "../deposit/DeploymentAuthorizationCoordinator.js";
+import { issueValidDeploymentAuthorization } from "./helpers/issueValidDeploymentAuthorization.js";
 
 function createLogger() {
 
@@ -45,7 +47,9 @@ function wait(ms) {
 function createHarness({
     shouldFail = false,
     financialPersistence = null,
-    tonNetwork = "testnet"
+    tonNetwork = "testnet",
+    authorize = true,
+    creatingDelayMs = 0
 } = {}) {
 
     OwnerConfiguration.resetForTests();
@@ -66,6 +70,20 @@ function createHarness({
         ["p2", { nickname: "B", baseStake: 10, sectorCount: 1 }],
         ["p3", { nickname: "C", baseStake: 10, sectorCount: 1 }]
     ]);
+
+    const authorizationCoordinator = new DeploymentAuthorizationCoordinator({
+        eventBus
+    });
+
+    if (authorize) {
+
+        issueValidDeploymentAuthorization(authorizationCoordinator, {
+            roomId: "room-1",
+            gameId: "game-1",
+            network: tonNetwork
+        });
+
+    }
 
     const manager = new GameContractManager({
         logger,
@@ -105,14 +123,15 @@ function createHarness({
             shouldFail
         }),
         financialPersistence,
+        deploymentAuthorizationCoordinator: authorizationCoordinator,
         tonNetwork,
-        creatingDelayMs: 0,
+        creatingDelayMs,
         devMode: false
     });
 
     manager.initialize();
 
-    return { eventBus, manager };
+    return { eventBus, manager, authorizationCoordinator };
 
 }
 
@@ -335,6 +354,19 @@ async function main() {
 
                 }
             },
+            deploymentAuthorizationCoordinator: (() => {
+
+                const coordinator = new DeploymentAuthorizationCoordinator({ eventBus });
+
+                issueValidDeploymentAuthorization(coordinator, {
+                    roomId: "room-1",
+                    gameId: "game-1",
+                    network: "testnet"
+                });
+
+                return coordinator;
+
+            })(),
             tonNetwork: "testnet",
             creatingDelayMs: 0,
             devMode: false
@@ -586,7 +618,9 @@ async function main() {
     // --- concurrent deploy lock ---
 
     {
-        const { eventBus, manager } = createHarness();
+        const { eventBus, manager } = createHarness({
+            creatingDelayMs: 60_000
+        });
 
         const slowAdapter = {
             async deploy() {

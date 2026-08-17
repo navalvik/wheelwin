@@ -46,3 +46,20 @@ export class InvalidDeploymentAuthorizationTransitionError extends DeploymentAut
     }
 
 }
+
+export class MissingDeploymentAuthorizationError extends DeploymentAuthorizationError {
+
+    constructor(roomId, gameId, reason = "missing", details = null) {
+
+        super(
+            `Deployment blocked because financial guarantee is missing | `
+                + `roomId=${roomId} | gameId=${gameId} | reason=${reason}`,
+            "MISSING_DEPLOYMENT_AUTHORIZATION",
+            { roomId, gameId, reason, ...details }
+        );
+
+        this.name = "MissingDeploymentAuthorizationError";
+
+    }
+
+}

@@ -6,8 +6,11 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { DeploymentAuthorization } from "./DeploymentAuthorization.js";
-import { DeploymentAuthorizationError } from "./DeploymentAuthorizationErrors.js";
+import {
+    DeploymentAuthorizationError
+} from "./DeploymentAuthorizationErrors.js";
 import { InMemoryDeploymentAuthorizationPersistence } from "./DeploymentAuthorizationPersistencePort.js";
+import { assertAuthorizationReadyForDeploy } from "./deploymentAuthorizationValidation.js";
 import {
     DEPLOYMENT_AUTHORIZATION_STATUS,
     isRestorableDeploymentAuthorizationStatus
@@ -161,6 +164,35 @@ export class DeploymentAuthorizationCoordinator {
         }
 
         return null;
+
+    }
+
+    /**
+     * Fail-closed consume for GameContractManager deploy.
+     * Does not inspect deposits, chain, or refunds.
+     */
+    consumeValidForDeploy({ roomId, gameId, network = null } = {}) {
+
+        const expectedRoom = String(roomId ?? "").trim();
+
+        const expectedGame = String(gameId ?? "").trim();
+
+        let authorization = this.getByRoomAndGame(expectedRoom, expectedGame)
+            ?? this._loadExisting(expectedRoom, expectedGame);
+
+        if (authorization) {
+
+            this._authorizations.set(authorization.authorizationId, authorization);
+
+        }
+
+        assertAuthorizationReadyForDeploy(authorization, {
+            roomId: expectedRoom,
+            gameId: expectedGame,
+            network
+        });
+
+        return this.consume(authorization.authorizationId);
 
     }
 

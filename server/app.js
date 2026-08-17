@@ -1602,6 +1602,10 @@ class WheelWinApplication {
 
         this._logger.startupLine("DeploymentAuthorizationCoordinator");
 
+        this._gameContractManager.setDeploymentAuthorizationCoordinator(
+            this._deploymentAuthorizationCoordinator
+        );
+
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
             eventBus: this._eventBus,

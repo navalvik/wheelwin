@@ -3,8 +3,14 @@
  */
 
 import { DEPOSIT_SESSION_STATUS } from "./DepositSessionStates.js";
-import { InvalidDeploymentAuthorizationError } from "./DeploymentAuthorizationErrors.js";
+import { DEPLOYMENT_AUTHORIZATION_STATUS } from "./DeploymentAuthorizationStates.js";
+import {
+    InvalidDeploymentAuthorizationError,
+    MissingDeploymentAuthorizationError
+} from "./DeploymentAuthorizationErrors.js";
+import { computeDeploymentAuthorizationHash } from "./deploymentAuthorizationHash.js";
 import { normalizeDepositIdPart } from "./depositValidation.js";
+import { timingSafeEqual } from "node:crypto";
 
 function assertNonEmpty(value, field, details = {}) {
 
@@ -147,5 +153,160 @@ export function assertCanCreateDeploymentAuthorization(session, options = {}) {
         depositStateSnapshot,
         network
     };
+
+}
+
+export function hashesEqual(left, right) {
+
+    const a = Buffer.from(String(left ?? ""), "utf8");
+
+    const b = Buffer.from(String(right ?? ""), "utf8");
+
+    if (a.length === 0 || a.length !== b.length) {
+
+        return false;
+
+    }
+
+    return timingSafeEqual(a, b);
+
+}
+
+/**
+ * Fail-closed checks before GameContractManager may start deploy.
+ */
+export function assertAuthorizationReadyForDeploy(authorization, {
+    roomId,
+    gameId,
+    network = null
+} = {}) {
+
+    if (!authorization) {
+
+        throw new MissingDeploymentAuthorizationError(
+            roomId,
+            gameId,
+            "missing"
+        );
+
+    }
+
+    const expectedRoom = normalizeDepositIdPart(roomId);
+    const expectedGame = normalizeDepositIdPart(gameId);
+
+    if (authorization.roomId !== expectedRoom) {
+
+        throw new InvalidDeploymentAuthorizationError(
+            "DeploymentAuthorization roomId does not match deploy request",
+            {
+                authorizationId: authorization.authorizationId,
+                expectedRoomId: expectedRoom,
+                actualRoomId: authorization.roomId
+            }
+        );
+
+    }
+
+    if (authorization.gameId !== expectedGame) {
+
+        throw new InvalidDeploymentAuthorizationError(
+            "DeploymentAuthorization gameId does not match deploy request",
+            {
+                authorizationId: authorization.authorizationId,
+                expectedGameId: expectedGame,
+                actualGameId: authorization.gameId
+            }
+        );
+
+    }
+
+    if (authorization.status === DEPLOYMENT_AUTHORIZATION_STATUS.REVOKED) {
+
+        throw new MissingDeploymentAuthorizationError(
+            expectedRoom,
+            expectedGame,
+            "revoked",
+            { authorizationId: authorization.authorizationId }
+        );
+
+    }
+
+    if (authorization.status === DEPLOYMENT_AUTHORIZATION_STATUS.CONSUMED) {
+
+        throw new MissingDeploymentAuthorizationError(
+            expectedRoom,
+            expectedGame,
+            "consumed",
+            { authorizationId: authorization.authorizationId }
+        );
+
+    }
+
+    if (authorization.status !== DEPLOYMENT_AUTHORIZATION_STATUS.VALID) {
+
+        throw new MissingDeploymentAuthorizationError(
+            expectedRoom,
+            expectedGame,
+            authorization.status ?? "invalid",
+            { authorizationId: authorization.authorizationId }
+        );
+
+    }
+
+    const expectedHash = computeDeploymentAuthorizationHash({
+        roomId: authorization.roomId,
+        gameId: authorization.gameId,
+        depositId: authorization.depositId,
+        bindingHash: authorization.bindingHash,
+        createdAt: authorization.createdAt,
+        network: authorization.network
+    });
+
+    if (!hashesEqual(expectedHash, authorization.authorizationHash)) {
+
+        throw new InvalidDeploymentAuthorizationError(
+            "DeploymentAuthorization hash is invalid",
+            {
+                authorizationId: authorization.authorizationId,
+                roomId: expectedRoom,
+                gameId: expectedGame
+            }
+        );
+
+    }
+
+    const requestedNetwork = normalizeDepositIdPart(network);
+
+    if (requestedNetwork && authorization.network !== requestedNetwork) {
+
+        throw new InvalidDeploymentAuthorizationError(
+            "DeploymentAuthorization network does not match deploy request",
+            {
+                authorizationId: authorization.authorizationId,
+                expectedNetwork: requestedNetwork,
+                actualNetwork: authorization.network
+            }
+        );
+
+    }
+
+    const expiresAt = Number(
+        authorization.metadata?.expiresAt
+        ?? authorization.expiresAt
+        ?? NaN
+    );
+
+    if (Number.isFinite(expiresAt) && Date.now() > expiresAt) {
+
+        throw new MissingDeploymentAuthorizationError(
+            expectedRoom,
+            expectedGame,
+            "expired",
+            { authorizationId: authorization.authorizationId, expiresAt }
+        );
+
+    }
+
+    return authorization;
 
 }

@@ -23,8 +23,9 @@ import { EventBus } from "../events/EventBus.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GameContractManager } from "../gameplay/GameContractManager.js";
 import { PaymentSessionManager } from "../gameplay/PaymentSessionManager.js";
+import { DeploymentAuthorizationCoordinator } from "../deposit/DeploymentAuthorizationCoordinator.js";
+import { issueValidDeploymentAuthorization } from "./helpers/issueValidDeploymentAuthorization.js";
 import { GameManager } from "../managers/GameManager.js";
-import { PlayerManager } from "../managers/PlayerManager.js";
 import {
     GAME_CONTRACT_STATUS
 } from "../models/GameContract.js";
@@ -38,6 +39,7 @@ import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.
 import { TON_FINANCIAL_RECORD_TYPES } from "../persistence/TonFinancialRecordTypes.js";
 import { TonFinancialRecovery } from "../recovery/TonFinancialRecovery.js";
 import { SessionWalletStore } from "../session/SessionWalletStore.js";
+import { PlayerManager } from "../managers/PlayerManager.js";
 
 const OWNER = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
 const WINNER_WALLET = "EQAREREREREREREREREREREREREREREREREREREREREREeYT";
@@ -221,6 +223,16 @@ function createWiredStack({ dataDir, roomId = "room-1", gameId = "game-1" }) {
 
     paymentSessionManager.initialize();
 
+    const deploymentAuthorizationCoordinator = new DeploymentAuthorizationCoordinator({
+        eventBus
+    });
+
+    issueValidDeploymentAuthorization(deploymentAuthorizationCoordinator, {
+        roomId,
+        gameId,
+        network: "testnet"
+    });
+
     const gameContractManager = new GameContractManager({
         logger,
         eventBus,
@@ -255,6 +267,7 @@ function createWiredStack({ dataDir, roomId = "room-1", gameId = "game-1" }) {
         },
         deployAdapter,
         financialPersistence,
+        deploymentAuthorizationCoordinator,
         creatingDelayMs: 0,
         tonNetwork: "testnet",
         ownerConfiguration: {
@@ -273,6 +286,20 @@ function createWiredStack({ dataDir, roomId = "room-1", gameId = "game-1" }) {
     );
 
     gameContractManager.initialize();
+
+    const authorizationCoordinator = new DeploymentAuthorizationCoordinator({
+        eventBus
+    });
+
+    issueValidDeploymentAuthorization(authorizationCoordinator, {
+        roomId,
+        gameId,
+        network: "testnet"
+    });
+
+    gameContractManager.setDeploymentAuthorizationCoordinator(
+        authorizationCoordinator
+    );
 
     const contractSettlementManager = new ContractSettlementManager({
         logger,
