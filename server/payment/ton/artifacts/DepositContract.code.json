@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "contract": "DepositContract",
+  "phase": "R17.9L.11",
+  "source": "contracts/deposit/DepositContract.tact",
+  "artifact": "server/payment/ton/artifacts/DepositContract.code.boc",
+  "bytes": 3178,
+  "sha256": "2f624c71743a3c49dee47d98ebb19ea7b9a53d358ab14e3c696b8369d3e36fde",
+  "codeHash": "f82a36a598348f8b87267777dfe6966b15949ded7a24598e3da0c9d7b7ccda76",
+  "compiledAt": "2026-08-18T09:42:19.105Z"
+}

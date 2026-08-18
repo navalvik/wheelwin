@@ -1,6 +1,6 @@
 /**
- * R7.66C — Compile GameEscrow via Blueprint/Tact and export
- * server/payment/ton/artifacts/GameEscrow.code.boc
+ * R17.9L.11 — Compile GameEscrow + DepositContract via Blueprint/Tact and export
+ * server/payment/ton/artifacts/*.code.boc
  *
  * Deterministic: same Tact source + toolchain versions → same code cell BOC.
  */
@@ -29,21 +29,45 @@ const ARTIFACT_DIR = resolve(
     "ton",
     "artifacts"
 );
-const ARTIFACT_PATH = join(ARTIFACT_DIR, "GameEscrow.code.boc");
-const META_PATH = join(ARTIFACT_DIR, "GameEscrow.code.json");
-const COMPILED_JSON = join(
-    CONTRACTS_ROOT,
-    "build",
-    "GameEscrow.compiled.json"
-);
-const TACT_CODE_BOC = join(
-    CONTRACTS_ROOT,
-    "build",
-    "GameEscrow",
-    "GameEscrow_GameEscrow.code.boc"
-);
 
-function findCodeBoc(dir, depth = 0) {
+const CONTRACT_TARGETS = Object.freeze([
+    {
+        name: "GameEscrow",
+        phase: "R7.66C",
+        source: "contracts/game_escrow/GameEscrow.tact",
+        compiledJson: join(CONTRACTS_ROOT, "build", "GameEscrow.compiled.json"),
+        preferredBocNames: [
+            "GameEscrow_GameEscrow.code.boc",
+            "GameEscrow.code.boc",
+            "tact_GameEscrow.code.boc"
+        ],
+        defaultBoc: join(
+            CONTRACTS_ROOT,
+            "build",
+            "GameEscrow",
+            "GameEscrow_GameEscrow.code.boc"
+        )
+    },
+    {
+        name: "DepositContract",
+        phase: "R17.9L.11",
+        source: "contracts/deposit/DepositContract.tact",
+        compiledJson: join(CONTRACTS_ROOT, "build", "DepositContract.compiled.json"),
+        preferredBocNames: [
+            "DepositContract_DepositContract.code.boc",
+            "DepositContract.code.boc",
+            "tact_DepositContract.code.boc"
+        ],
+        defaultBoc: join(
+            CONTRACTS_ROOT,
+            "build",
+            "DepositContract",
+            "DepositContract_DepositContract.code.boc"
+        )
+    }
+]);
+
+function findCodeBoc(dir, preferredNames, depth = 0) {
 
     if (depth > 8 || !existsSync(dir)) {
 
@@ -53,13 +77,7 @@ function findCodeBoc(dir, depth = 0) {
 
     const entries = readdirSync(dir);
 
-    const preferred = [
-        "GameEscrow_GameEscrow.code.boc",
-        "GameEscrow.code.boc",
-        "tact_GameEscrow.code.boc"
-    ];
-
-    for (const name of preferred) {
+    for (const name of preferredNames) {
 
         const full = join(dir, name);
 
@@ -81,7 +99,7 @@ function findCodeBoc(dir, depth = 0) {
 
         }
 
-        const nested = findCodeBoc(full, depth + 1);
+        const nested = findCodeBoc(full, preferredNames, depth + 1);
 
         if (nested) {
 
@@ -105,7 +123,7 @@ function findCodeBoc(dir, depth = 0) {
 
 }
 
-function runBlueprintBuild() {
+function runBlueprintBuild(contractName) {
 
     const blueprintCli = join(
         CONTRACTS_ROOT,
@@ -119,7 +137,7 @@ function runBlueprintBuild() {
 
     const result = spawnSync(
         process.execPath,
-        [blueprintCli, "build", "GameEscrow", "--all"],
+        [blueprintCli, "build", contractName, "--all"],
         {
             cwd: CONTRACTS_ROOT,
             stdio: "inherit",
@@ -131,64 +149,84 @@ function runBlueprintBuild() {
         }
     );
 
-    // Blueprint may print a non-fatal readline close error in CI after success.
-    if (
-        result.status !== 0
-        && !existsSync(TACT_CODE_BOC)
-        && !existsSync(COMPILED_JSON)
-    ) {
-
-        throw new Error(`blueprint build failed with exit ${result.status}`);
-
-    }
+    return result.status;
 
 }
 
-function resolveCodeBocPath() {
+function resolveCodeBocPath(target) {
 
-    if (existsSync(TACT_CODE_BOC)) {
+    const buildSubdir = join(CONTRACTS_ROOT, "build", target.name);
 
-        return TACT_CODE_BOC;
+    if (existsSync(buildSubdir)) {
+
+        const found = findCodeBoc(buildSubdir, target.preferredBocNames);
+
+        if (found) {
+
+            return found;
+
+        }
 
     }
 
-    const found = findCodeBoc(join(CONTRACTS_ROOT, "build"));
+    if (existsSync(target.defaultBoc)) {
 
-    if (found) {
-
-        return found;
+        return target.defaultBoc;
 
     }
 
     throw new Error(
-        "GameEscrow.code.boc not found under contracts/build. "
+        `${target.name}.code.boc not found under contracts/build/${target.name}. `
             + "Check Blueprint/Tact build output."
     );
 
 }
 
-function main() {
+function exportContractArtifact(target) {
 
-    console.log("[R7.66C] Compiling GameEscrow (Blueprint + Tact)…");
+    console.log(`[compile-contracts] Compiling ${target.name} (Blueprint + Tact)…`);
 
-    runBlueprintBuild();
+    const exitCode = runBlueprintBuild(target.name);
 
-    const codeBoc = resolveCodeBocPath();
+    if (exitCode !== 0) {
+
+        throw new Error(`blueprint build failed for ${target.name} with exit ${exitCode}`);
+
+    }
+
+    const codeBoc = resolveCodeBocPath(target);
+
+    if (!existsSync(codeBoc)) {
+
+        throw new Error(`${target.name}.code.boc not found after successful build`);
+
+    }
+
+    if (!codeBoc.includes(target.name)) {
+
+        throw new Error(
+            `Resolved BOC path does not match contract name: ${codeBoc}`
+        );
+
+    }
+
+    const artifactPath = join(ARTIFACT_DIR, `${target.name}.code.boc`);
+    const metaPath = join(ARTIFACT_DIR, `${target.name}.code.json`);
 
     mkdirSync(ARTIFACT_DIR, { recursive: true });
 
-    copyFileSync(codeBoc, ARTIFACT_PATH);
+    copyFileSync(codeBoc, artifactPath);
 
-    const bytes = readFileSync(ARTIFACT_PATH);
+    const bytes = readFileSync(artifactPath);
     const sha256 = createHash("sha256").update(bytes).digest("hex");
 
     let codeHash = null;
 
-    if (existsSync(COMPILED_JSON)) {
+    if (existsSync(target.compiledJson)) {
 
         try {
 
-            const compiled = JSON.parse(readFileSync(COMPILED_JSON, "utf8"));
+            const compiled = JSON.parse(readFileSync(target.compiledJson, "utf8"));
 
             codeHash = compiled?.hash ?? compiled?.codeHash ?? null;
 
@@ -202,23 +240,41 @@ function main() {
 
     const meta = {
         schemaVersion: 1,
-        contract: "GameEscrow",
-        phase: "R7.66C",
-        source: "contracts/game_escrow/GameEscrow.tact",
-        artifact: "server/payment/ton/artifacts/GameEscrow.code.boc",
+        contract: target.name,
+        phase: target.phase,
+        source: target.source,
+        artifact: `server/payment/ton/artifacts/${target.name}.code.boc`,
         bytes: bytes.length,
         sha256,
         codeHash,
         compiledAt: new Date().toISOString()
     };
 
-    writeFileSync(META_PATH, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
+    writeFileSync(metaPath, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
 
-    console.log(`[R7.66C] sourceBoc=${codeBoc}`);
-    console.log(`[R7.66C] Exported ${ARTIFACT_PATH}`);
-    console.log(`[R7.66C] sha256=${sha256}`);
-    console.log(`[R7.66C] bytes=${bytes.length}`);
-    console.log("[R7.66C] compile-contracts OK");
+    console.log(`[compile-contracts] sourceBoc=${codeBoc}`);
+    console.log(`[compile-contracts] Exported ${artifactPath}`);
+    console.log(`[compile-contracts] sha256=${sha256}`);
+    console.log(`[compile-contracts] bytes=${bytes.length}`);
+
+    return { artifactPath, metaPath, sha256, bytes: bytes.length };
+
+}
+
+function main() {
+
+    const results = [];
+
+    for (const target of CONTRACT_TARGETS) {
+
+        results.push({
+            name: target.name,
+            ...exportContractArtifact(target)
+        });
+
+    }
+
+    console.log("[compile-contracts] OK", results);
 
 }
 

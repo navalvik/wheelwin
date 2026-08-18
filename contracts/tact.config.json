@@ -8,6 +8,14 @@
       "options": {
         "debug": false
       }
+    },
+    {
+      "name": "DepositContract",
+      "path": "./deposit/DepositContract.tact",
+      "output": "./build/DepositContract",
+      "options": {
+        "debug": false
+      }
     }
   ]
 }
