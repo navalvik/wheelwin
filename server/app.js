@@ -144,6 +144,7 @@ import { TonFinancialDeploymentAuthorizationPersistence } from "./deposit/Deploy
 import { TonFinancialDepositObservationPersistence } from "./deposit/DepositObservationPersistencePort.js";
 import { DepositFullAuthorizationAutomation } from "./deposit/DepositFullAuthorizationAutomation.js";
 import { DepositMonitor } from "./deposit/DepositMonitor.js";
+import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
 import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
@@ -1619,6 +1620,12 @@ class WheelWinApplication {
 
         this._depositFullAuthorizationAutomation.initialize();
 
+        this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
+            logger: this._logger,
+            tonService: this._services.tonService,
+            network: this._tonConfig?.network ?? "testnet"
+        });
+
         this._depositMonitor = new DepositMonitor({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1626,10 +1633,13 @@ class WheelWinApplication {
             persistence: new TonFinancialDepositObservationPersistence(
                 this._financialPersistence
             ),
+            blockchainSource: this._tonDepositBlockchainSource,
             network: this._tonConfig?.network ?? "testnet"
         });
 
         this._depositMonitor.initialize();
+
+        this._blockchainMonitor.setDepositMonitor?.(this._depositMonitor);
 
         this._logger.startupLine("DepositMonitor");
 

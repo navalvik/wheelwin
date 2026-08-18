@@ -26,6 +26,7 @@ export class DepositObservation {
         observationStatus = DEPOSIT_OBSERVATION_STATUS.OBSERVED,
         rejectionReason = null,
         playerId = null,
+        seatIndex = null,
         createdAt = Date.now(),
         updatedAt = null
     } = {}) {
@@ -52,6 +53,8 @@ export class DepositObservation {
         this.rejectionReason = rejectionReason;
 
         this.playerId = playerId;
+
+        this.seatIndex = seatIndex == null ? null : Number(seatIndex);
 
         this.createdAt = createdAt;
 
@@ -133,7 +136,8 @@ export class DepositObservation {
             observationStatus: input.observationStatus
                 ?? DEPOSIT_OBSERVATION_STATUS.OBSERVED,
             rejectionReason: input.rejectionReason ?? null,
-            playerId: normalizeDepositIdPart(input.playerId) || null
+            playerId: normalizeDepositIdPart(input.playerId) || null,
+            seatIndex: input.seatIndex ?? input.seat ?? null
         });
 
     }
@@ -156,6 +160,7 @@ export class DepositObservation {
                 ?? DEPOSIT_OBSERVATION_STATUS.OBSERVED,
             rejectionReason: payload.rejectionReason ?? null,
             playerId: payload.playerId ?? null,
+            seatIndex: payload.seatIndex ?? null,
             createdAt: payload.createdAt ?? record?.createdAt ?? Date.now(),
             updatedAt: payload.updatedAt ?? record?.updatedAt ?? Date.now()
         });
@@ -203,6 +208,7 @@ export class DepositObservation {
             status: this.observationStatus,
             rejectionReason: this.rejectionReason,
             playerId: this.playerId,
+            seatIndex: this.seatIndex,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
         });

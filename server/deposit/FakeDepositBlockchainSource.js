@@ -146,4 +146,15 @@ export class FakeDepositBlockchainSource {
 
     }
 
+    async poll() {
+
+        return Object.freeze({
+            observed: 0,
+            skipped: 0,
+            failed: 0,
+            results: Object.freeze([])
+        });
+
+    }
+
 }

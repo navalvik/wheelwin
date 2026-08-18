@@ -241,6 +241,7 @@ export class BlockchainMonitor {
         transport = null,
         tonService = null,
         contractAdapter = null,
+        depositMonitor = null,
         auditLedger = null,
         pollIntervalMs = 2000,
         transactionTimeoutMs = 120_000,
@@ -260,6 +261,8 @@ export class BlockchainMonitor {
         this._tonService = tonService;
 
         this._contractAdapter = contractAdapter;
+
+        this._depositMonitor = depositMonitor;
 
         this._auditLedger = auditLedger;
 
@@ -1127,6 +1130,16 @@ export class BlockchainMonitor {
     }
 
     /**
+     * R17.9L.13 — Attach DepositMonitor so the global poll can pull TON
+     * deposit observations without a second timer.
+     */
+    setDepositMonitor(depositMonitor) {
+
+        this._depositMonitor = depositMonitor ?? null;
+
+    }
+
+    /**
      * R7.69B — Read authoritative GameEscrow payment state via getters.
      * Returns null when the adapter / getters are unavailable.
      */
@@ -1606,6 +1619,14 @@ export class BlockchainMonitor {
                     observed = true;
 
                 }
+
+            }
+
+            if (typeof this._depositMonitor?.poll === "function") {
+
+                await this._depositMonitor.poll();
+
+                observed = true;
 
             }
 

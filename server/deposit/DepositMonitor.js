@@ -150,6 +150,29 @@ export class DepositMonitor {
 
     }
 
+    /**
+     * Pull observations from the attached blockchain source.
+     * Fake sources have no poll(); real TON adapter implements it.
+     */
+    async poll() {
+
+        this._assertStarted();
+
+        if (typeof this._blockchainSource?.poll !== "function") {
+
+            return Object.freeze({
+                observed: 0,
+                skipped: 0,
+                failed: 0,
+                results: Object.freeze([])
+            });
+
+        }
+
+        return this._blockchainSource.poll(this.listActiveWatches());
+
+    }
+
     stopWatching(depositId) {
 
         this._assertStarted();
