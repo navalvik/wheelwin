@@ -144,6 +144,7 @@ import { TonFinancialDeploymentAuthorizationPersistence } from "./deposit/Deploy
 import { TonFinancialDepositObservationPersistence } from "./deposit/DepositObservationPersistencePort.js";
 import { DepositFullAuthorizationAutomation } from "./deposit/DepositFullAuthorizationAutomation.js";
 import { DepositMonitor } from "./deposit/DepositMonitor.js";
+import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
 import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
@@ -1632,6 +1633,20 @@ class WheelWinApplication {
 
         this._logger.startupLine("DepositMonitor");
 
+        this._depositOnChainVerification = new DepositOnChainVerificationCoordinator({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            observationPersistence: new TonFinancialDepositObservationPersistence(
+                this._financialPersistence
+            ),
+            network: this._tonConfig?.network ?? "testnet"
+        });
+
+        this._depositOnChainVerification.initialize();
+
+        this._logger.startupLine("DepositOnChainVerificationCoordinator");
+
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1660,6 +1675,8 @@ class WheelWinApplication {
         // R17.9L.6 — DepositFull → DeploymentAuthorization VALID automation.
         // No TON and no GameContractManager calls; only ensures VALID authorizations exist.
         this._depositFullAuthorizationAutomation.syncFromActiveDepositSessions();
+
+        this._depositOnChainVerification.syncFromPersistedObservations();
 
         this._gameStartAuthorization = new GameStartAuthorization({
             logger: this._logger,
