@@ -520,7 +520,7 @@ export class PaymentSessionManager {
                 caller: "PaymentSessionManager.createPaymentSession",
                 nextAction: contractAddress || contract?.contractAddress
                     ? "Activate payment requests"
-                    : "Emit PAYMENT_SESSION_UPDATED → deploy pipeline",
+                    : "Emit PAYMENT_SESSION_UPDATED for lobby observers (not a Game Contract deploy trigger)",
                 roomId,
                 gameId: resolvedGameId
             });
@@ -534,10 +534,9 @@ export class PaymentSessionManager {
 
             } else {
 
-                // P6.3/P6.5 — seats are PAYMENT_REQUESTED without a contract yet.
-                // GameContractManager listens only to PAYMENT_SESSION_UPDATED and
-                // starts deploy from that snapshot; without this emit the lobby
-                // flow never leaves CREATED (chicken-egg with activation).
+                // R17.9L.18 — seats are PAYMENT_REQUESTED without a Game Contract.
+                // PAYMENT_SESSION_UPDATED remains for lobby / session observers.
+                // GameContractManager must not start deploy from this event.
                 this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
             }

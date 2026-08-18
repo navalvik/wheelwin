@@ -16,13 +16,11 @@ import { DeploymentAuthorizationCoordinator } from "../deposit/DeploymentAuthori
 import { DEPLOYMENT_AUTHORIZATION_STATUS } from "../deposit/DeploymentAuthorizationStates.js";
 import { TonFinancialDeploymentAuthorizationPersistence } from "../deposit/DeploymentAuthorizationPersistencePort.js";
 import { EventBus } from "../events/EventBus.js";
-import { EVENT_TYPES } from "../events/EventTypes.js";
 import {
     GameContractManager,
     MissingDeploymentAuthorizationError
 } from "../gameplay/GameContractManager.js";
 import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
-import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
 import { TonFinancialRecovery } from "../recovery/TonFinancialRecovery.js";
 import { issueValidDeploymentAuthorization } from "./helpers/issueValidDeploymentAuthorization.js";
@@ -42,27 +40,6 @@ function createLogger() {
 function wait(ms) {
 
     return new Promise((resolve) => setTimeout(resolve, ms));
-
-}
-
-function emitPaymentRequested(eventBus, {
-    roomId = "room-1",
-    gameId = "game-1"
-} = {}) {
-
-    eventBus.emit({
-        source: "test",
-        type: EVENT_TYPES.PAYMENT_SESSION_UPDATED,
-        payload: {
-            roomId,
-            gameId,
-            participants: [
-                { playerId: "p1", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED },
-                { playerId: "p2", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED },
-                { playerId: "p3", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED }
-            ]
-        }
-    });
 
 }
 
@@ -176,7 +153,7 @@ test("R17.9L.5B unfunded deployment blocked without authorization", async () => 
         }
     };
 
-    emitPaymentRequested(eventBus);
+    manager.createContractRequest("room-1", { gameId: "game-1" });
 
     await wait(20);
 
@@ -219,7 +196,7 @@ test("R17.9L.5B valid authorization allows deploy", async () => {
         }
     };
 
-    emitPaymentRequested(eventBus);
+    manager.createContractRequest("room-1", { gameId: "game-1" });
 
     await wait(20);
 
@@ -373,7 +350,7 @@ test("R17.9L.5B restart with DEPOSIT_FULL does not auto-deploy", async () => {
         creatingDelayMs: 60_000
     });
 
-    emitPaymentRequested(eventBus);
+    manager.createContractRequest("room-1", { gameId: "game-1" });
 
     await wait(5);
 

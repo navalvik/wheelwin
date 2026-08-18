@@ -12,7 +12,6 @@ import {
     GAME_CONTRACT_STATUS,
     GameContract
 } from "../models/GameContract.js";
-import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 import { buildGameContractSnapshot } from "../payment/buildGameContractSnapshot.js";
 import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
 import { hashGameContractSnapshot } from "../payment/ton/buildGameEscrowStateInit.js";
@@ -41,14 +40,6 @@ const R711B_EMIT_EVENTS = new Set([
     EVENT_TYPES.CONTRACT_DEPLOYED,
     EVENT_TYPES.CONTRACT_FAILED,
     EVENT_TYPES.DEPLOYMENT_COST_CAPTURE_REQUESTED
-]);
-
-const REQUESTED_OR_BEYOND = new Set([
-    PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED,
-    PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION,
-    PAYMENT_PARTICIPANT_STATUS.PAYMENT_SUBMITTED,
-    PAYMENT_PARTICIPANT_STATUS.BLOCKCHAIN_PENDING,
-    PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
 ]);
 
 const ARCHIVEABLE_STATUSES = new Set([
@@ -237,14 +228,11 @@ export class GameContractManager {
 
     initialize() {
 
-        this._subscribe(
-            EVENT_TYPES.PAYMENT_SESSION_UPDATED,
-            (envelope) => {
-
-                this._handlePaymentSessionUpdated(envelope.payload);
-
-            }
-        );
+        // R17.9L.18 — PAYMENT_SESSION_UPDATED / PAYMENT_REQUESTED /
+        // PAYMENT_CONNECTION_READY are not Game Contract deployment authority.
+        // Do not subscribe those events as a createContractRequest / _beginDeploy
+        // trigger. Authorized deploy remains createContractRequest / deployContract
+        // after a VALID DeploymentAuthorization.
 
         this._subscribe(
             EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
@@ -432,7 +420,8 @@ export class GameContractManager {
 
     /**
      * Create contract domain record + immutable snapshot.
-     * Throws on duplicate (T2.4). Payment flow uses createContractRequest (idempotent).
+     * Throws on duplicate (T2.4). Idempotent callers use createContractRequest.
+     * Payment events must not invoke this path (R17.9L.18).
      */
     createContract(roomId, options = {}) {
 
@@ -1158,60 +1147,6 @@ export class GameContractManager {
     // -------------------------------------------------------------------------
     // Event handlers
     // -------------------------------------------------------------------------
-
-    _handlePaymentSessionUpdated(payload) {
-
-        const roomId = payload?.roomId;
-
-        const gameId = payload?.gameId;
-
-        if (!roomId || !gameId) {
-
-            return;
-
-        }
-
-        if (this._contractsByRoom.has(roomId)) {
-
-            return;
-
-        }
-
-        const participants = Array.isArray(payload.participants)
-            ? payload.participants
-            : [];
-
-        if (participants.length === 0) {
-
-            return;
-
-        }
-
-        const allRequested = participants.every(
-            (participant) => REQUESTED_OR_BEYOND.has(participant.status)
-        );
-
-        if (!allRequested) {
-
-            return;
-
-        }
-
-        const stage = markDeployStage(roomId, "PAYMENT_SESSION_UPDATED_TRIGGER");
-
-        printDeployBlock("GameContractManager._handlePaymentSessionUpdated", {
-            RoomId: roomId,
-            GameId: gameId,
-            ParticipantCount: participants.length,
-            AllRequested: allRequested,
-            Action: "createContractRequest",
-            DurationSincePreviousStageMs: stage.elapsedMs,
-            Timestamp: new Date(stage.now).toISOString()
-        });
-
-        this.createContractRequest(roomId, { gameId });
-
-    }
 
     _handlePaymentSessionCompleted(payload) {
 

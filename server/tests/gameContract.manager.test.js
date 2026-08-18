@@ -20,7 +20,6 @@ import {
     InvalidContractStateTransitionError
 } from "../gameplay/GameContractManager.js";
 import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
-import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 import { GameContractDeployAdapter } from "../payment/GameContractDeployAdapter.js";
 import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
 import { DeploymentAuthorizationCoordinator } from "../deposit/DeploymentAuthorizationCoordinator.js";
@@ -135,27 +134,9 @@ function createHarness({
 
 }
 
-function emitPaymentRequested(eventBus) {
-
-    eventBus.emit({
-        source: "test",
-        type: EVENT_TYPES.PAYMENT_SESSION_UPDATED,
-        payload: {
-            roomId: "room-1",
-            gameId: "game-1",
-            participants: [
-                { playerId: "p1", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED },
-                { playerId: "p2", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED },
-                { playerId: "p3", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED }
-            ]
-        }
-    });
-
-}
-
 async function main() {
 
-    // --- existing payment-driven create + deploy + payments complete ---
+    // --- authorized create + deploy + payments complete ---
 
     {
         const { eventBus, manager } = createHarness();
@@ -184,7 +165,7 @@ async function main() {
 
         });
 
-        emitPaymentRequested(eventBus);
+        manager.createContract("room-1", { gameId: "game-1" });
 
         await wait(10);
 
@@ -229,7 +210,7 @@ async function main() {
 
         eventBus.shutdown();
 
-        console.log("  payment-driven create + deploy: OK");
+        console.log("  authorized create + deploy: OK");
     }
 
     // --- deployment failure ---
@@ -253,7 +234,7 @@ async function main() {
 
         });
 
-        emitPaymentRequested(eventBus);
+        manager.createContract("room-1", { gameId: "game-1" });
 
         await wait(10);
 
@@ -374,7 +355,7 @@ async function main() {
 
         manager.initialize();
 
-        emitPaymentRequested(eventBus);
+        manager.createContract("room-1", { gameId: "game-1" });
 
         await wait(20);
 

@@ -395,8 +395,8 @@ async function main() {
 
         assert.equal(created.length, 1);
 
-        // R6.15 — CREATED alone is thin; UPDATED carries participants so
-        // GameContractManager can start deploy before contract address exists.
+        // R17.9L.18 — CREATED is thin; UPDATED still carries participants for
+        // lobby observers. Payment events are not a Game Contract deploy trigger.
         assert.equal(updated.length, 1);
 
         assert.equal(updated[0].participants?.length, 3);
