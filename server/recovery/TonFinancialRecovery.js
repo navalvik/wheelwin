@@ -64,6 +64,7 @@ const EMPTY_MONITOR_CHECKPOINT = Object.freeze({
  * @property {import("../managers/RoomManager.js").RoomManager} [roomManager]
  * @property {import("../deposit/DepositSessionCoordinator.js").DepositSessionCoordinator} [depositSessionCoordinator]
  * @property {import("../deposit/DeploymentAuthorizationCoordinator.js").DeploymentAuthorizationCoordinator} [deploymentAuthorizationCoordinator]
+ * @property {import("../deposit/DepositMonitor.js").DepositMonitor} [depositMonitor]
  */
 
 export class TonFinancialRecovery {
@@ -81,7 +82,8 @@ export class TonFinancialRecovery {
         playerManager = null,
         roomManager = null,
         depositSessionCoordinator = null,
-        deploymentAuthorizationCoordinator = null
+        deploymentAuthorizationCoordinator = null,
+        depositMonitor = null
     }) {
 
         this._logger = logger;
@@ -109,6 +111,8 @@ export class TonFinancialRecovery {
         this._depositSessionCoordinator = depositSessionCoordinator;
 
         this._deploymentAuthorizationCoordinator = deploymentAuthorizationCoordinator;
+
+        this._depositMonitor = depositMonitor;
 
         this._initialized = false;
 
@@ -220,6 +224,9 @@ export class TonFinancialRecovery {
             // R17.9L.4 — Restore durable DepositSessions without a new recovery phase
             // (does not trigger deploy, GameContract creation, or authorization).
             this._restoreDepositSessions(report);
+
+            // R17.9L.7 — Restore deposit address watches without mutating sessions.
+            this._restoreDepositMonitorWatches(report);
 
             // R17.9L.5A — Restore VALID/CONSUMED authorizations without deploying.
             this._restoreDeploymentAuthorizations(report);
@@ -965,6 +972,33 @@ export class TonFinancialRecovery {
 
             report.errors.push(
                 `authorization_restore_failed:${error?.message ?? error}`
+            );
+
+        }
+
+    }
+
+    _restoreDepositMonitorWatches(report) {
+
+        if (!this._depositMonitor?.restoreActiveWatches) {
+
+            return;
+
+        }
+
+        try {
+
+            const summary = this._depositMonitor.restoreActiveWatches();
+
+            report.warnings.push(
+                `deposit_monitor_restore:restored=${summary.restored ?? 0}`
+                    + `|skipped=${summary.skipped ?? 0}`
+            );
+
+        } catch (error) {
+
+            report.errors.push(
+                `deposit_monitor_restore_failed:${error?.message ?? error}`
             );
 
         }

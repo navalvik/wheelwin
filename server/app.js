@@ -141,7 +141,9 @@ import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.j
 import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
 import { DeploymentAuthorizationCoordinator } from "./deposit/DeploymentAuthorizationCoordinator.js";
 import { TonFinancialDeploymentAuthorizationPersistence } from "./deposit/DeploymentAuthorizationPersistencePort.js";
+import { TonFinancialDepositObservationPersistence } from "./deposit/DepositObservationPersistencePort.js";
 import { DepositFullAuthorizationAutomation } from "./deposit/DepositFullAuthorizationAutomation.js";
+import { DepositMonitor } from "./deposit/DepositMonitor.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
 import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
@@ -1616,6 +1618,20 @@ class WheelWinApplication {
 
         this._depositFullAuthorizationAutomation.initialize();
 
+        this._depositMonitor = new DepositMonitor({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            persistence: new TonFinancialDepositObservationPersistence(
+                this._financialPersistence
+            ),
+            network: this._tonConfig?.network ?? "testnet"
+        });
+
+        this._depositMonitor.initialize();
+
+        this._logger.startupLine("DepositMonitor");
+
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1628,7 +1644,8 @@ class WheelWinApplication {
             roomManager: this._managers.roomManager,
             financialPersistence: this._financialPersistence,
             depositSessionCoordinator: this._depositSessionCoordinator,
-            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator
+            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator,
+            depositMonitor: this._depositMonitor
         });
 
         this._tonFinancialRecovery.initialize();

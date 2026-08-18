@@ -124,6 +124,17 @@ export function resolveRecordId(recordType, payload, metadata = {}) {
                 ?? metadata.recordId
                 ?? null;
 
+        case TON_FINANCIAL_RECORD_TYPES.DEPOSIT_OBSERVATION:
+            return metadata.observationId
+                ?? payload?.observationId
+                ?? (
+                    payload?.depositId && payload?.transactionHash
+                        ? `${payload.depositId}__${payload.transactionHash}`
+                        : null
+                )
+                ?? metadata.recordId
+                ?? null;
+
         default:
             return metadata.recordId ?? null;
 

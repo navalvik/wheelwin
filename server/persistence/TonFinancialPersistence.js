@@ -798,6 +798,87 @@ export class TonFinancialPersistence {
 
     }
 
+    createDepositObservation(payload, metadata = {}) {
+
+        return this.create(
+            TON_FINANCIAL_RECORD_TYPES.DEPOSIT_OBSERVATION,
+            payload,
+            metadata
+        );
+
+    }
+
+    loadDepositObservation(observationId) {
+
+        return this.load(
+            TON_FINANCIAL_RECORD_TYPES.DEPOSIT_OBSERVATION,
+            observationId
+        );
+
+    }
+
+    saveDepositObservation(payload, metadata = {}) {
+
+        const observationId = resolveRecordId(
+            TON_FINANCIAL_RECORD_TYPES.DEPOSIT_OBSERVATION,
+            payload,
+            metadata
+        );
+
+        if (!observationId) {
+
+            throw new StorageUnavailableError("Unable to resolve deposit observation id");
+
+        }
+
+        const key = this._recordKey(
+            TON_FINANCIAL_RECORD_TYPES.DEPOSIT_OBSERVATION,
+            observationId
+        );
+
+        if (this._records.has(key)) {
+
+            throw new StorageUnavailableError(
+                "Deposit observation records are immutable"
+            );
+
+        }
+
+        return this.createDepositObservation(payload, metadata);
+
+    }
+
+    findDepositObservation(depositId, transactionHash) {
+
+        const observationId = `${depositId}__${transactionHash}`;
+
+        const key = this._recordKey(
+            TON_FINANCIAL_RECORD_TYPES.DEPOSIT_OBSERVATION,
+            observationId
+        );
+
+        if (!this._records.has(key)) {
+
+            return null;
+
+        }
+
+        return this.loadDepositObservation(observationId);
+
+    }
+
+    listDepositObservations(depositId) {
+
+        return this._listRecords((envelope) => (
+            envelope.recordType === TON_FINANCIAL_RECORD_TYPES.DEPOSIT_OBSERVATION
+            && (
+                envelope.depositId === depositId
+                || envelope.payload?.depositId === depositId
+            )
+        ));
+
+    }
+
     findDeploymentAuthorization(roomId, gameId) {
 
         const matches = this.listActiveDeploymentAuthorizations().filter((record) => (
