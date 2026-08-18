@@ -259,7 +259,32 @@ async function runWatchAndRestart({ plan, source, eventBus, logger }) {
     monitor.initialize();
     monitor.startWatching(coordinator.getSession(plan.depositId));
 
-    const firstPoll = await monitor.poll();
+    async function pollUntilOk(instance, label) {
+
+        let last = null;
+
+        for (let attempt = 1; attempt <= 5; attempt += 1) {
+
+            last = await instance.poll();
+
+            if (last.results[0]?.ok === true) {
+
+                return last;
+
+            }
+
+            process.stdout.write(
+                `${label} poll attempt ${attempt} not ok; waiting before retry\n`
+            );
+            await new Promise((resolve) => setTimeout(resolve, 8000));
+
+        }
+
+        return last;
+
+    }
+
+    const firstPoll = await pollUntilOk(monitor, "first");
 
     monitor.shutdown();
 
@@ -294,7 +319,7 @@ async function runWatchAndRestart({ plan, source, eventBus, logger }) {
         reason: "isolated DepositMonitor restart verification"
     });
 
-    const secondPoll = await restoredMonitor.poll();
+    const secondPoll = await pollUntilOk(restoredMonitor, "restart");
 
     return Object.freeze({
         firstPollOk: firstPoll.results[0]?.ok === true,
@@ -313,6 +338,7 @@ async function runWatchAndRestart({ plan, source, eventBus, logger }) {
 async function main() {
 
     const execute = process.argv.includes("--execute");
+    const verifyOnly = process.argv.includes("--verify-only");
 
     process.stdout.write("R17.9L.14B TESTNET Deposit deploy + read-only verification\n");
 
@@ -324,6 +350,7 @@ async function main() {
     logPublic("expectedCodeCellHash", FROZEN_DEPOSIT_CODE_CELL_HASH);
     logPublic("frozenExpectedAddress", FROZEN_DEPOSIT_EXPECTED_ADDRESS);
     logPublic("executeRequested", String(execute));
+    logPublic("verifyOnlyRequested", String(verifyOnly));
 
     const plan = prepareDepositTestnetDeployPlan({ env: process.env });
     const publicPlan = toPublicDeployPlan(plan);
@@ -388,7 +415,14 @@ async function main() {
     const logger = createLogger();
     const tonService = new TonService({
         logger,
-        tonConfig
+        tonConfig,
+        retryPolicy: {
+            maxAttempts: 5,
+            initialDelayMs: 1000,
+            maxDelayMs: 8000,
+            multiplier: 2,
+            timeoutMs: 30_000
+        }
     });
 
     tonService.initialize();
@@ -417,13 +451,41 @@ async function main() {
     logPublic("preDeployBalanceNano", existing.balanceNano == null ? "none" : String(existing.balanceNano));
     logPublic("preDeployLastLt", existing.lastLt ?? "none");
 
-    if (!execute) {
+    if (!execute && !verifyOnly) {
 
         process.stdout.write("Dry-run only (pass --execute to send testnet TON).\n");
         process.stdout.write("NO TRANSACTION\n");
         await tonService.shutdown();
 
         return;
+
+    }
+
+    if (verifyOnly) {
+
+        process.stdout.write("Verify-only: no deployment transaction will be sent.\n");
+        process.stdout.write("NO TRANSACTION\n");
+
+    } else {
+
+    process.stdout.write("\nNETWORK: TESTNET\n");
+    process.stdout.write(`SENDER:\n${deployer.walletAddress}\n`);
+    process.stdout.write(`TARGET:\n${plan.expectedAddress}\n`);
+    process.stdout.write("DEPLOYMENT VALUE:\n0.05 TON\n");
+    process.stdout.write(`ARTIFACT SHA256:\n${FROZEN_DEPOSIT_ARTIFACT_SHA256}\n`);
+    process.stdout.write("PRODUCTION DEPLOYER USED:\nNO\n");
+    process.stdout.write("PLAYER FUNDING:\nNO\n");
+    process.stdout.write("GAME CONTRACT:\nNO\n\n");
+
+    if (deployer.walletAddress !== "0QBSm-tvehArk8g8VybQEUpI83rI1IZozP3KUK8WdvMSjaIl"
+        || plan.expectedAddress !== FROZEN_DEPOSIT_EXPECTED_ADDRESS
+        || plan.artifactSha256 !== FROZEN_DEPOSIT_ARTIFACT_SHA256
+        || deployer.walletVersion !== "WalletContractV5R1") {
+
+        throw new DepositTestnetDeployError(
+            "Pre-broadcast confirmation values do not match frozen identity",
+            { code: "PRE_BROADCAST_CONFIRMATION_MISMATCH" }
+        );
 
     }
 
@@ -443,6 +505,8 @@ async function main() {
     logPublic("deploymentLogicalTime", deployResult.logicalTime ?? "unknown");
     logPublic("accountState", deployResult.accountState);
     logPublic("deployValueTon", deployResult.deployValueTon);
+
+    }
 
     const liveState = await source.getContractState(plan.expectedAddress);
 
@@ -476,6 +540,19 @@ async function main() {
     assertInitialMutableState(getters);
 
     logPublic("getterContractVersion", String(getters.contractVersion));
+    logPublic("getterDepositIdHash", String(getters.depositIdHash));
+    logPublic("getterRoomIdHash", String(getters.roomIdHash));
+    logPublic("getterGameIdHash", String(getters.gameIdHash));
+    logPublic("getterPlayer0", getters.player0);
+    logPublic("getterPlayer1", getters.player1);
+    logPublic("getterPlayer2", getters.player2);
+    logPublic("getterExpectedStake0", String(getters.expectedStake0));
+    logPublic("getterExpectedStake1", String(getters.expectedStake1));
+    logPublic("getterExpectedStake2", String(getters.expectedStake2));
+    logPublic("getterCreationFeePerSeat", String(getters.creationFeePerSeat));
+    logPublic("getterExpectedAmount0", String(getters.expectedAmount0));
+    logPublic("getterExpectedAmount1", String(getters.expectedAmount1));
+    logPublic("getterExpectedAmount2", String(getters.expectedAmount2));
     logPublic("getterNetworkTag", String(getters.networkTag));
     logPublic("getterStatus", String(getters.status));
     logPublic("getterPaidMask", String(getters.paidMask));
@@ -483,6 +560,8 @@ async function main() {
     logPublic("getterCredited1", String(getters.creditedAmount1));
     logPublic("getterCredited2", String(getters.creditedAmount2));
     logPublic("getterSurplus", String(getters.surplusNano));
+    logPublic("getterExpiresAt", String(getters.expiresAt));
+    logPublic("getterReleaseAuthority", getters.releaseAuthority);
     logPublic("getterRefundMask", String(getters.refundMask));
     logPublic("getterReleasedTo", getters.releasedTo);
     logPublic("getterTotalCredited", String(getters.totalCredited));
@@ -543,7 +622,7 @@ async function main() {
     }
 
     process.stdout.write("NO PLAYER FUNDING\n");
-    process.stdout.write("R17.9L.14B LIVE VERIFICATION COMPLETE\n");
+    process.stdout.write("R17.9L.14E LIVE VERIFICATION COMPLETE\n");
 
     await tonService.shutdown();
 

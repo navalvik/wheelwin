@@ -748,33 +748,18 @@ export class RealTonDepositBlockchainSource {
 
         const friendly = toFriendlyAddress(address);
 
-        const [
-            version,
-            depositIdHash,
-            roomIdHash,
-            gameIdHash,
-            paidMask,
-            status,
-            credited0,
-            credited1,
-            credited2,
-            surplusNano,
-            expiresAt,
-            networkTag
-        ] = await Promise.all([
-            this._runIntGetter(friendly, "get_version"),
-            this._runIntGetter(friendly, "get_deposit_id"),
-            this._runIntGetter(friendly, "get_room_id_hash"),
-            this._runIntGetter(friendly, "get_game_id_hash"),
-            this._runIntGetter(friendly, "get_paid_mask"),
-            this._runIntGetter(friendly, "get_status"),
-            this._runIntGetter(friendly, "get_credited_amount0"),
-            this._runIntGetter(friendly, "get_credited_amount1"),
-            this._runIntGetter(friendly, "get_credited_amount2"),
-            this._runIntGetter(friendly, "get_surplus_nano"),
-            this._runIntGetter(friendly, "get_expires_at"),
-            this._runIntGetter(friendly, "get_network_tag")
-        ]);
+        const version = await this._runIntGetter(friendly, "get_version");
+        const depositIdHash = await this._runIntGetter(friendly, "get_deposit_id");
+        const roomIdHash = await this._runIntGetter(friendly, "get_room_id_hash");
+        const gameIdHash = await this._runIntGetter(friendly, "get_game_id_hash");
+        const paidMask = await this._runIntGetter(friendly, "get_paid_mask");
+        const status = await this._runIntGetter(friendly, "get_status");
+        const credited0 = await this._runIntGetter(friendly, "get_credited_amount0");
+        const credited1 = await this._runIntGetter(friendly, "get_credited_amount1");
+        const credited2 = await this._runIntGetter(friendly, "get_credited_amount2");
+        const surplusNano = await this._runIntGetter(friendly, "get_surplus_nano");
+        const expiresAt = await this._runIntGetter(friendly, "get_expires_at");
+        const networkTag = await this._runIntGetter(friendly, "get_network_tag");
 
         return Object.freeze({
             address: friendly,

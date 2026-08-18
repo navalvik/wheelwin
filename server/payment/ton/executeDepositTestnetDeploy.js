@@ -8,6 +8,7 @@ import {
     beginCell,
     external,
     internal,
+    SendMode,
     storeMessage,
     toNano
 } from "@ton/core";
@@ -275,11 +276,28 @@ export async function executeDepositTestnetDeploy({
 
     assertSenderIsNotProductionDeployWallet(walletAddress);
 
-    const seqno = await tonService.getSeqno(walletAddress);
+    let seqno = 0;
+
+    try {
+
+        seqno = await tonService.getSeqno(walletAddress);
+
+    } catch {
+
+        seqno = 0;
+
+    }
+
+    if (!Number.isInteger(seqno) || seqno < 0) {
+
+        seqno = 0;
+
+    }
 
     const transfer = wallet.createTransfer({
         seqno,
         secretKey: keyPair.secretKey,
+        sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
         messages: [
             internal({
                 to: plan.address instanceof Address
@@ -297,6 +315,7 @@ export async function executeDepositTestnetDeploy({
 
     const externalMessage = external({
         to: wallet.address,
+        init: seqno === 0 ? wallet.init : undefined,
         body: transfer
     });
 
@@ -315,11 +334,19 @@ export async function executeDepositTestnetDeploy({
 
     while (Date.now() < seqnoDeadline) {
 
-        const nextSeqno = await tonService.getSeqno(walletAddress);
+        try {
 
-        if (nextSeqno > seqno) {
+            const nextSeqno = await tonService.getSeqno(walletAddress);
 
-            break;
+            if (nextSeqno > seqno) {
+
+                break;
+
+            }
+
+        } catch {
+
+            // Wallet may still be UNINIT until the first external is applied.
 
         }
 
