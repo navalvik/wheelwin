@@ -1,8 +1,10 @@
 /**
  * R17.9L.14 — TESTNET Deposit Contract deploy + read-only verification.
  *
+ * Uses TON_TESTNET_DEPOSIT_DEPLOYER_MNEMONIC only.
  * Does NOT use TON_DEPLOYER_MNEMONIC / WheelWin Deploy Wallet.
  * Does NOT deploy Game Contract. Does NOT send FundSeat.
+ * R17.9L.14A: configuration remains fail-closed; this script never sends TON.
  *
  * Usage:
  *   node server/scripts/r179l14_deploy_deposit_testnet.mjs
@@ -11,6 +13,7 @@
  *   TON_TESTNET_DEPOSIT_DEPLOYER_MNEMONIC
  * and explicit:
  *   --execute
+ * (execute remains reserved until R17.9L.14 live deploy is unblocked)
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -20,7 +23,6 @@ import {
     assertDedicatedTestnetDepositDeployer,
     assertTestnetNetworkConfig,
     DepositTestnetDeployError,
-    evaluateExistingDepositAccount,
     prepareDepositTestnetDeployPlan,
     TESTNET_DEPLOYMENT_CREDENTIAL_REQUIRED,
     toPublicDeployPlan
@@ -29,6 +31,10 @@ import {
     FROZEN_DEPOSIT_ARTIFACT_SHA256,
     TESTNET_DEPOSIT_DEPLOYER_MNEMONIC_ENV
 } from "../payment/ton/depositTestnetFixture.js";
+import {
+    TESTNET_DEPOSIT_DEPLOYER_CREDENTIAL_REQUIRED,
+    getTestnetDepositDeployer
+} from "../payment/ton/getTestnetDepositDeployer.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
@@ -97,6 +103,16 @@ function logPublic(label, value) {
 
 }
 
+function isMissingDedicatedCredential(error) {
+
+    return error instanceof DepositTestnetDeployError
+        && (
+            error.code === TESTNET_DEPOSIT_DEPLOYER_CREDENTIAL_REQUIRED
+            || error.code === "TESTNET_DEPLOYMENT_CREDENTIAL_REQUIRED"
+        );
+
+}
+
 async function main() {
 
     const execute = process.argv.includes("--execute");
@@ -125,15 +141,15 @@ async function main() {
 
     } catch (error) {
 
-        if (error instanceof DepositTestnetDeployError
-            && error.code === "TESTNET_DEPLOYMENT_CREDENTIAL_REQUIRED") {
+        if (isMissingDedicatedCredential(error)) {
 
             process.stdout.write(`${TESTNET_DEPLOYMENT_CREDENTIAL_REQUIRED}\n`);
+            process.stdout.write(`${TESTNET_DEPOSIT_DEPLOYER_CREDENTIAL_REQUIRED}\n`);
             process.stdout.write(
                 `Set ${TESTNET_DEPOSIT_DEPLOYER_MNEMONIC_ENV} to a TESTNET-ONLY `
-                    + "mnemonic that is not TON_DEPLOYER_MNEMONIC.\n"
+                    + "credential that is not TON_DEPLOYER_MNEMONIC.\n"
             );
-            process.stdout.write("No transaction sent.\n");
+            process.stdout.write("NO TRANSACTION\n");
             process.exitCode = 2;
 
             return;
@@ -144,21 +160,28 @@ async function main() {
 
     }
 
+    const deployer = await getTestnetDepositDeployer(process.env);
+
+    logPublic("testnetDepositDeployerRole", deployer.role);
+    logPublic("testnetDepositDeployerAddress", deployer.walletAddress);
+    logPublic("testnetDepositDeployerWalletVersion", deployer.walletVersion);
+    logPublic("testnetDepositDeployerWorkchain", String(deployer.workchain));
+
     if (!execute) {
 
         process.stdout.write(
             "Credential present. Dry-run only (pass --execute to send testnet TON).\n"
         );
-        process.stdout.write("No transaction sent.\n");
+        process.stdout.write("NO TRANSACTION\n");
 
         return;
 
     }
 
     process.stdout.write(
-        "Live execute path is reserved for a dedicated testnet deployer after credential review.\n"
+        "Live execute path is reserved until dedicated testnet deployer readiness is complete.\n"
     );
-    process.stdout.write("No transaction sent.\n");
+    process.stdout.write("NO TRANSACTION\n");
     process.exitCode = 2;
 
 }
@@ -166,6 +189,7 @@ async function main() {
 main().catch((error) => {
 
     process.stderr.write(`${error?.message ?? error}\n`);
+    process.stdout.write("NO TRANSACTION\n");
     process.exitCode = 1;
 
 });

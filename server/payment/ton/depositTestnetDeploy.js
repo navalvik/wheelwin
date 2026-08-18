@@ -21,11 +21,15 @@ import {
     DEPOSIT_TESTNET_FIXTURE,
     FROZEN_DEPOSIT_ARTIFACT_SHA256,
     PRODUCTION_DEPLOY_WALLET,
-    TESTNET_DEPOSIT_DEPLOYER_EXPECTED_ADDRESS_ENV,
-    TESTNET_DEPOSIT_DEPLOYER_MNEMONIC_ENV,
     assertFixturePlayersDistinct,
     buildDepositTestnetStateInitParams
 } from "./depositTestnetFixture.js";
+import {
+    TESTNET_DEPOSIT_DEPLOYER_CREDENTIAL_REQUIRED,
+    TESTNET_DEPOSIT_DEPLOYER_REQUIRES_TESTNET,
+    TestnetDepositDeployerError,
+    assertTestnetDepositDeployerConfig
+} from "./getTestnetDepositDeployer.js";
 
 export const TESTNET_DEPLOYMENT_CREDENTIAL_REQUIRED =
     "TESTNET DEPLOYMENT CREDENTIAL REQUIRED";
@@ -115,8 +119,8 @@ export function assertTestnetNetworkConfig(env = process.env) {
     if (network !== "testnet") {
 
         throw new DepositTestnetDeployError(
-            "R17.9L.14 requires TON_NETWORK=testnet",
-            { code: "NETWORK_NOT_TESTNET", network }
+            TESTNET_DEPOSIT_DEPLOYER_REQUIRES_TESTNET,
+            { code: TESTNET_DEPOSIT_DEPLOYER_REQUIRES_TESTNET, network }
         );
 
     }
@@ -141,52 +145,31 @@ export function assertTestnetNetworkConfig(env = process.env) {
 
 }
 
-function normalizeMnemonic(value) {
-
-    if (typeof value !== "string") {
-
-        return null;
-
-    }
-
-    const words = value.trim().split(/\s+/).filter(Boolean);
-
-    return words.length ? words.join(" ") : null;
-
-}
-
 /**
  * Dedicated TESTNET Deposit deployer only.
- * Rejects missing credential, production mnemonic reuse, and Deploy Wallet identity.
+ * Never falls back to TON_DEPLOYER_MNEMONIC.
  */
 export function assertDedicatedTestnetDepositDeployer(env = process.env) {
 
-    const dedicated = normalizeMnemonic(env[TESTNET_DEPOSIT_DEPLOYER_MNEMONIC_ENV]);
+    try {
 
-    if (!dedicated) {
+        return assertTestnetDepositDeployerConfig(env);
 
-        throw new DepositTestnetDeployError(
-            TESTNET_DEPLOYMENT_CREDENTIAL_REQUIRED,
-            { code: "TESTNET_DEPLOYMENT_CREDENTIAL_REQUIRED" }
-        );
+    } catch (error) {
 
-    }
+        if (error instanceof TestnetDepositDeployerError) {
 
-    const production = normalizeMnemonic(env.TON_DEPLOYER_MNEMONIC);
+            const message = error.code === TESTNET_DEPOSIT_DEPLOYER_CREDENTIAL_REQUIRED
+                ? TESTNET_DEPLOYMENT_CREDENTIAL_REQUIRED
+                : error.message;
 
-    if (production && dedicated === production) {
+            throw new DepositTestnetDeployError(message, { code: error.code });
 
-        throw new DepositTestnetDeployError(
-            "R17.9L.14 refuses WheelWin Deploy Wallet / TON_DEPLOYER_MNEMONIC",
-            { code: "PRODUCTION_DEPLOY_WALLET_REJECTED" }
-        );
+        }
+
+        throw error;
 
     }
-
-    return Object.freeze({
-        configured: true,
-        expectedAddress: trimOrNull(env[TESTNET_DEPOSIT_DEPLOYER_EXPECTED_ADDRESS_ENV])
-    });
 
 }
 

@@ -19,6 +19,7 @@ export const SECRET_CONFIG_KEYS = Object.freeze([
     "developer.password",
     "developer.passwordHash",
     "ton.deployerMnemonic",
+    "ton.testnetDepositDeployerMnemonic",
     "ton.reimbursementMnemonic",
     "ton.apiKey"
 ]);

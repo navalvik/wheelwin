@@ -224,7 +224,7 @@ test("R17.9L.14 Test2: production Deploy Wallet configuration rejected", () => {
             [TESTNET_DEPOSIT_DEPLOYER_MNEMONIC_ENV]: "word ".repeat(24).trim()
         }),
         (error) => error instanceof DepositTestnetDeployError
-            && error.code === "PRODUCTION_DEPLOY_WALLET_REJECTED"
+            && error.code === "TESTNET_DEPOSIT_DEPLOYER_MUST_NOT_EQUAL_PRODUCTION_DEPLOYER"
     );
 
     assert.throws(
@@ -306,7 +306,7 @@ test("R17.9L.14 Test6: deployment uses only testnet network", () => {
 
     assert.throws(
         () => assertTestnetNetworkConfig({ TON_NETWORK: "mainnet" }),
-        /requires TON_NETWORK=testnet/
+        /TESTNET_DEPOSIT_DEPLOYER_REQUIRES_TESTNET/
     );
 
     assert.throws(
