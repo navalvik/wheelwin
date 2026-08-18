@@ -281,9 +281,21 @@ test("R17.9L.14 Test5: unexpected active contract blocks deployment", () => {
 
     assert.equal(
         evaluateExistingDepositAccount({
-            state: DEPOSIT_ACCOUNT_STATE.UNINIT
+            state: DEPOSIT_ACCOUNT_STATE.UNINIT,
+            balanceNano: 1n,
+            lastLt: "1"
         }).action,
         "block"
+    );
+
+    assert.equal(
+        evaluateExistingDepositAccount({
+            state: DEPOSIT_ACCOUNT_STATE.UNINIT,
+            balanceNano: 0n,
+            lastLt: "0",
+            codeHash: null
+        }).action,
+        "deploy"
     );
 
     assert.equal(

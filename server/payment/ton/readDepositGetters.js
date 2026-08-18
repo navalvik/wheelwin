@@ -205,6 +205,89 @@ export function assertInitialMutableState(getters) {
 
 }
 
+function hexToBigInt(hex) {
+
+    return BigInt(`0x${String(hex).replace(/^0x/i, "")}`);
+
+}
+
+function sameAddress(left, right) {
+
+    const a = canonicalizeTonWalletAddress(left) || String(left ?? "").trim();
+    const b = canonicalizeTonWalletAddress(right) || String(right ?? "").trim();
+
+    return Boolean(a) && a === b;
+
+}
+
+export function assertImmutableGettersMatchPlan(getters, plan) {
+
+    const failures = [];
+    const fee = BigInt(plan.creationFeePerSeat);
+    const stake0 = BigInt(plan.expectedStake0);
+    const stake1 = BigInt(plan.expectedStake1);
+    const stake2 = BigInt(plan.expectedStake2);
+
+    const expected = {
+        contractVersion: BigInt(plan.contractVersion),
+        depositIdHash: hexToBigInt(plan.depositIdHash),
+        roomIdHash: hexToBigInt(plan.roomIdHash),
+        gameIdHash: hexToBigInt(plan.gameIdHash),
+        expectedStake0: stake0,
+        expectedStake1: stake1,
+        expectedStake2: stake2,
+        creationFeePerSeat: fee,
+        expectedAmount0: stake0 + fee,
+        expectedAmount1: stake1 + fee,
+        expectedAmount2: stake2 + fee,
+        expiresAt: BigInt(plan.expiresAt),
+        networkTag: BigInt(plan.networkTag)
+    };
+
+    for (const [field, value] of Object.entries(expected)) {
+
+        if (BigInt(getters[field]) !== value) {
+
+            failures.push(`${field}`);
+
+        }
+
+    }
+
+    if (!sameAddress(getters.player0, plan.player0)) {
+
+        failures.push("player0");
+
+    }
+
+    if (!sameAddress(getters.player1, plan.player1)) {
+
+        failures.push("player1");
+
+    }
+
+    if (!sameAddress(getters.player2, plan.player2)) {
+
+        failures.push("player2");
+
+    }
+
+    if (!sameAddress(getters.releaseAuthority, plan.releaseAuthority)) {
+
+        failures.push("releaseAuthority");
+
+    }
+
+    if (failures.length) {
+
+        throw new Error(`Immutable getter mismatch | ${failures.join(", ")}`);
+
+    }
+
+    return true;
+
+}
+
 function getZeroFriendly() {
 
     return new Address(0, Buffer.alloc(32)).toString({

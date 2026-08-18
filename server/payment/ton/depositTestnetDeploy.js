@@ -20,6 +20,8 @@ import {
 import {
     DEPOSIT_TESTNET_FIXTURE,
     FROZEN_DEPOSIT_ARTIFACT_SHA256,
+    FROZEN_DEPOSIT_CODE_CELL_HASH,
+    FROZEN_DEPOSIT_EXPECTED_ADDRESS,
     PRODUCTION_DEPLOY_WALLET,
     assertFixturePlayersDistinct,
     buildDepositTestnetStateInitParams
@@ -210,7 +212,9 @@ export function assertSenderIsNotProductionDeployWallet(senderAddress) {
 export function evaluateExistingDepositAccount({
     state,
     codeHash = null,
-    expectedCodeHash = null
+    expectedCodeHash = null,
+    balanceNano = null,
+    lastLt = null
 } = {}) {
 
     if (state === DEPOSIT_ACCOUNT_STATE.NONEXISTENT) {
@@ -223,6 +227,23 @@ export function evaluateExistingDepositAccount({
     }
 
     if (state === DEPOSIT_ACCOUNT_STATE.UNINIT) {
+
+        const emptyBalance = balanceNano == null
+            || BigInt(balanceNano) === 0n;
+        const emptyLt = lastLt == null
+            || String(lastLt) === "0"
+            || String(lastLt) === "";
+        const noCode = !codeHash;
+
+        // TON Center reports unused addresses as uninitialized (balance 0, no code).
+        if (emptyBalance && emptyLt && noCode) {
+
+            return Object.freeze({
+                action: "deploy",
+                reason: null
+            });
+
+        }
 
         return Object.freeze({
             action: "block",
@@ -290,10 +311,23 @@ export function verifyLocalDepositArtifactIdentity() {
     const code = loadDepositCodeCell({
         expectedSha256: FROZEN_DEPOSIT_ARTIFACT_SHA256
     });
+    const codeHash = code.hash().toString("hex");
+
+    if (codeHash !== FROZEN_DEPOSIT_CODE_CELL_HASH) {
+
+        throw new DepositTestnetDeployError(
+            "Deposit code cell hash mismatch",
+            {
+                code: "CODE_CELL_HASH_MISMATCH",
+                expected: FROZEN_DEPOSIT_CODE_CELL_HASH
+            }
+        );
+
+    }
 
     return Object.freeze({
         sha256: hashed.sha256,
-        codeHash: code.hash().toString("hex"),
+        codeHash,
         path: hashed.path
     });
 
@@ -348,6 +382,19 @@ export function prepareDepositTestnetDeployPlan({
         bounceable: true,
         urlSafe: true
     });
+
+    if (expectedAddress !== FROZEN_DEPOSIT_EXPECTED_ADDRESS) {
+
+        throw new DepositTestnetDeployError(
+            "Fixture Deposit address changed unexpectedly",
+            {
+                code: "UNEXPECTED_DEPOSIT_ADDRESS",
+                expected: FROZEN_DEPOSIT_EXPECTED_ADDRESS,
+                actual: expectedAddress
+            }
+        );
+
+    }
 
     const expectedAddressTestOnly = built.addressFriendly;
 

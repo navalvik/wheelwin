@@ -12,6 +12,12 @@ import {
 export const FROZEN_DEPOSIT_ARTIFACT_SHA256 =
     "2f624c71743a3c49dee47d98ebb19ea7b9a53d358ab14e3c696b8369d3e36fde";
 
+export const FROZEN_DEPOSIT_CODE_CELL_HASH =
+    "f82a36a598348f8b87267777dfe6966b15949ded7a24598e3da0c9d7b7ccda76";
+
+export const FROZEN_DEPOSIT_EXPECTED_ADDRESS =
+    "EQBKCT9nWRRpcrgBfdPCeWqZJTXC3iOh_pE_OSrP9lRmnr2A";
+
 /** Public production Deploy Wallet pin — forbidden as R17.9L.14 sender. */
 export const PRODUCTION_DEPLOY_WALLET =
     "EQB83s9XMOMseDFxyXxj4hrC0sS4FB4xhdNiUPkl_3zx3PDQ";
