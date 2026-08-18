@@ -263,6 +263,14 @@ export class DepositSessionCoordinator {
 
     }
 
+    /**
+     * In-memory snapshot of currently restored/created active sessions.
+     * Used for deployment-authorization automation (no events emitted).
+     */
+    listActiveDepositSessions() {
+        return Object.freeze([...this._sessions.values()]);
+    }
+
     _run(depositId, mutate) {
 
         const session = this._require(depositId);

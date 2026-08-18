@@ -141,6 +141,7 @@ import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.j
 import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
 import { DeploymentAuthorizationCoordinator } from "./deposit/DeploymentAuthorizationCoordinator.js";
 import { TonFinancialDeploymentAuthorizationPersistence } from "./deposit/DeploymentAuthorizationPersistencePort.js";
+import { DepositFullAuthorizationAutomation } from "./deposit/DepositFullAuthorizationAutomation.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
 import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
@@ -1606,6 +1607,15 @@ class WheelWinApplication {
             this._deploymentAuthorizationCoordinator
         );
 
+        this._depositFullAuthorizationAutomation = new DepositFullAuthorizationAutomation({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator
+        });
+
+        this._depositFullAuthorizationAutomation.initialize();
+
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1629,6 +1639,10 @@ class WheelWinApplication {
         });
 
         this._logger.startupLine("TonFinancialRecovery");
+
+        // R17.9L.6 — DepositFull → DeploymentAuthorization VALID automation.
+        // No TON and no GameContractManager calls; only ensures VALID authorizations exist.
+        this._depositFullAuthorizationAutomation.syncFromActiveDepositSessions();
 
         this._gameStartAuthorization = new GameStartAuthorization({
             logger: this._logger,
