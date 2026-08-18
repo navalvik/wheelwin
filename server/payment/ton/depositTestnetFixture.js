@@ -28,6 +28,13 @@ export const TESTNET_DEPOSIT_DEPLOYER_MNEMONIC_ENV =
 export const TESTNET_DEPOSIT_DEPLOYER_EXPECTED_ADDRESS_ENV =
     "TON_TESTNET_DEPOSIT_DEPLOYER_EXPECTED_ADDRESS";
 
+/** R17.9L.14D — Frozen dedicated W5 testnet deployer identity (public). */
+export const FROZEN_TESTNET_DEPOSIT_DEPLOYER_ADDRESS =
+    "0QBSm-tvehArk8g8VybQEUpI83rI1IZozP3KUK8WdvMSjaIl";
+
+export const FROZEN_TESTNET_DEPOSIT_DEPLOYER_ACCOUNT_ID =
+    "529beb6f7a102b93c83c5726d0114a48f37ac8d48668ccfdca50af1676f3128d";
+
 const ZERO_ADDRESS = new Address(0, Buffer.alloc(32));
 
 export function getZeroDepositAddress() {

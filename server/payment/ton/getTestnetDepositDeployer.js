@@ -7,9 +7,9 @@
  */
 import { canonicalizeTonWalletAddress } from "../../models/TonWalletAddress.js";
 import {
-    DEPLOYER_WALLET_CONTRACT_TYPE,
-    deriveDeployerWalletIdentity
-} from "./deriveDeployerWalletIdentity.js";
+    deriveTestnetDepositDeployerWalletIdentity
+} from "./deriveTestnetDepositDeployerWalletIdentity.js";
+import { deriveDeployerWalletIdentity } from "./deriveDeployerWalletIdentity.js";
 import {
     PRODUCTION_DEPLOY_WALLET,
     TESTNET_DEPOSIT_DEPLOYER_EXPECTED_ADDRESS_ENV,
@@ -162,7 +162,7 @@ export async function getTestnetDepositDeployer(env = process.env) {
 
     try {
 
-        identity = await deriveDeployerWalletIdentity({
+        identity = await deriveTestnetDepositDeployerWalletIdentity({
             mnemonic: dedicated,
             network: config.network
         });
@@ -215,10 +215,13 @@ export async function getTestnetDepositDeployer(env = process.env) {
     return Object.freeze({
         role: TESTNET_DEPOSIT_DEPLOYER_ROLE,
         network: config.network,
-        walletAddress,
-        walletVersion: identity.walletContractType || DEPLOYER_WALLET_CONTRACT_TYPE,
+        walletAddress: identity.address,
+        walletVersion: identity.walletContractType,
         workchain: identity.workchain,
-        walletId: identity.walletId
+        walletId: identity.walletId,
+        networkGlobalId: identity.networkGlobalId,
+        subwalletNumber: identity.subwalletNumber,
+        accountId: identity.accountId
     });
 
 }

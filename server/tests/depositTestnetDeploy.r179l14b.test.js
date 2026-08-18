@@ -55,7 +55,7 @@ test("R17.9L.14B Test: frozen fixture address and artifact hashes", () => {
 
 test("R17.9L.14B Test: existing ACTIVE matching contract skips send", async () => {
 
-    const words = await mnemonicNew(24);
+    const words = await mnemonicNew(12);
     const plan = prepareDepositTestnetDeployPlan({ env: TESTNET_ENV });
     const calls = [];
 
@@ -100,7 +100,7 @@ test("R17.9L.14B Test: existing ACTIVE matching contract skips send", async () =
 
 test("R17.9L.14B Test: unexpected ACTIVE contract blocks deployment", async () => {
 
-    const words = await mnemonicNew(24);
+    const words = await mnemonicNew(12);
     const plan = prepareDepositTestnetDeployPlan({ env: TESTNET_ENV });
 
     await assert.rejects(
@@ -136,7 +136,8 @@ test("R17.9L.14B Test: deploy path never uses production mnemonic or FundSeat", 
 
     assert.match(executeSrc, /getTestnetDepositDeployer/);
     assert.match(executeSrc, /TON_TESTNET_DEPOSIT_DEPLOYER_MNEMONIC/);
-    assert.doesNotMatch(executeSrc, /mnemonicToPrivateKey\([\s\S]{0,120}TON_DEPLOYER_MNEMONIC/);
+    assert.match(executeSrc, /deriveTestnetDepositDeployerSigningWallet/);
+    assert.doesNotMatch(executeSrc, /WalletContractV4\.create/);
     assert.doesNotMatch(executeSrc, /encodeFundSeatBody|FUND_SEAT_OPCODE|\$\$type:\s*"FundSeat"/);
     assert.doesNotMatch(executeSrc, /GameContractManager/);
     assert.doesNotMatch(executeSrc, /TonGameContractAdapter/);

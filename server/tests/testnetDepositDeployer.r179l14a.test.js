@@ -135,7 +135,7 @@ test("R17.9L.14A Test6: testnet accepts dedicated credential", () => {
 
 test("R17.9L.14A Test7: wallet derivation returns only public identity", async () => {
 
-    const words = await mnemonicNew(24);
+    const words = await mnemonicNew(12);
     const mnemonic = words.join(" ");
     const deployer = await getTestnetDepositDeployer({
         ...TESTNET_ENV,
@@ -145,8 +145,8 @@ test("R17.9L.14A Test7: wallet derivation returns only public identity", async (
     assert.equal(deployer.role, TESTNET_DEPOSIT_DEPLOYER_ROLE);
     assert.equal(deployer.network, "testnet");
     assert.equal(typeof deployer.walletAddress, "string");
-    assert.match(deployer.walletAddress, /^(EQ|UQ)/);
-    assert.equal(deployer.walletVersion, "WalletContractV4R2");
+    assert.match(deployer.walletAddress, /^(0Q|kQ)/);
+    assert.equal(deployer.walletVersion, "WalletContractV5R1");
     assert.equal(deployer.workchain, 0);
     assert.equal(deployer.mnemonic, undefined);
     assert.equal(deployer.privateKey, undefined);
@@ -226,7 +226,7 @@ test("R17.9L.14A Test9: deployment script cannot fall back to TON_DEPLOYER_MNEMO
 
 test("R17.9L.14A Test10: dedicated address differs from production when credentials differ", async () => {
 
-    const dedicatedWords = await mnemonicNew(24);
+    const dedicatedWords = await mnemonicNew(12);
     const productionWords = await mnemonicNew(24);
     const dedicatedMnemonic = dedicatedWords.join(" ");
     const productionMnemonic = productionWords.join(" ");

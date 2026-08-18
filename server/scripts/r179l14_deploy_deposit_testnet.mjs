@@ -43,6 +43,7 @@ import {
     FROZEN_DEPOSIT_EXPECTED_ADDRESS,
     PRODUCTION_DEPLOY_WALLET
 } from "../payment/ton/depositTestnetFixture.js";
+import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
 import { executeDepositTestnetDeploy } from "../payment/ton/executeDepositTestnetDeploy.js";
 import {
     TESTNET_DEPOSIT_DEPLOYER_CREDENTIAL_REQUIRED,
@@ -370,9 +371,18 @@ async function main() {
 
     logPublic("testnetDepositDeployerRole", deployer.role);
     logPublic("testnetDepositDeployerAddress", deployer.walletAddress);
-    logPublic("productionDeployWallet", PRODUCTION_DEPLOY_WALLET);
+    logPublic("testnetDepositDeployerAccountId", deployer.accountId);
     logPublic("testnetDepositDeployerWalletVersion", deployer.walletVersion);
+    logPublic("testnetDepositDeployerNetworkGlobalId", String(deployer.networkGlobalId));
     logPublic("testnetDepositDeployerWorkchain", String(deployer.workchain));
+    logPublic("testnetDepositDeployerSubwalletNumber", String(deployer.subwalletNumber));
+    logPublic("productionDeployWallet", PRODUCTION_DEPLOY_WALLET);
+    logPublic("addressesIdentical", String(
+        (canonicalizeTonWalletAddress(deployer.walletAddress)
+            || deployer.walletAddress)
+        === (canonicalizeTonWalletAddress(PRODUCTION_DEPLOY_WALLET)
+            || PRODUCTION_DEPLOY_WALLET)
+    ));
 
     const tonConfig = createSanitizedTestnetTonConfig(process.env);
     const logger = createLogger();

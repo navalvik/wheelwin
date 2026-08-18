@@ -11,16 +11,13 @@ import {
     storeMessage,
     toNano
 } from "@ton/core";
-import { mnemonicToPrivateKey } from "@ton/crypto";
-import { WalletContractV4 } from "@ton/ton";
-
 import { canonicalizeTonWalletAddress } from "../../models/TonWalletAddress.js";
 import {
     DEPOSIT_ACCOUNT_STATE
 } from "../../deposit/RealTonDepositBlockchainSource.js";
 import {
-    DEPLOYER_WALLET_WORKCHAIN
-} from "./deriveDeployerWalletIdentity.js";
+    deriveTestnetDepositDeployerSigningWallet
+} from "./deriveTestnetDepositDeployerWalletIdentity.js";
 import {
     DepositTestnetDeployError,
     assertDedicatedTestnetDepositDeployer,
@@ -244,13 +241,11 @@ export async function executeDepositTestnetDeploy({
     }
 
     const dedicatedMnemonic = readDedicatedMnemonic(env);
-    let keyPair;
+    let signingWallet;
 
     try {
 
-        keyPair = await mnemonicToPrivateKey(
-            dedicatedMnemonic.split(/\s+/).filter(Boolean)
-        );
+        signingWallet = await deriveTestnetDepositDeployerSigningWallet(dedicatedMnemonic);
 
     } catch {
 
@@ -261,14 +256,11 @@ export async function executeDepositTestnetDeploy({
 
     }
 
-    const wallet = WalletContractV4.create({
-        workchain: DEPLOYER_WALLET_WORKCHAIN,
-        publicKey: keyPair.publicKey
-    });
-
+    const { wallet, keyPair } = signingWallet;
     const walletAddress = wallet.address.toString({
-        bounceable: true,
-        urlSafe: true
+        bounceable: false,
+        urlSafe: true,
+        testOnly: true
     });
 
     if ((canonicalizeTonWalletAddress(walletAddress) || walletAddress)
