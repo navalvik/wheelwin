@@ -175,7 +175,8 @@ export class DepositSession {
 
         const bindings = assertPlayerBindings(rawPlayers, {
             roomId: this.roomId,
-            gameId: this.gameId
+            gameId: this.gameId,
+            reservedWallets: identityLookups?.reservedWallets ?? null
         });
 
         this.transitionTo(DEPOSIT_SESSION_STATUS.PLAYER_BINDING);

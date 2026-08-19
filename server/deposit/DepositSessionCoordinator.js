@@ -6,7 +6,10 @@ import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { DepositSession } from "./DepositSession.js";
 import { DepositSessionError } from "./DepositSessionErrors.js";
-import { assertDepositIdentity } from "./depositValidation.js";
+import {
+    assertDepositIdentity,
+    resolveReservedDepositWallets
+} from "./depositValidation.js";
 import {
     DEPOSIT_SESSION_STATUS,
     isRestorableDepositSessionStatus
@@ -19,7 +22,9 @@ export class DepositSessionCoordinator {
         eventBus = null,
         persistence = null,
         roomExists = null,
-        gameExists = null
+        gameExists = null,
+        reservedWallets = null,
+        env = null
     } = {}) {
 
         this._eventBus = eventBus;
@@ -27,6 +32,9 @@ export class DepositSessionCoordinator {
         this._persistence = persistence ?? new InMemoryDepositPersistence();
 
         this._roomExists = roomExists;
+
+        this._reservedWallets = reservedWallets
+            ?? resolveReservedDepositWallets(env ?? process.env);
 
         this._gameExists = gameExists;
 
@@ -83,7 +91,8 @@ export class DepositSessionCoordinator {
 
             current.bindPlayers(players, {
                 roomExists: this._roomExists,
-                gameExists: this._gameExists
+                gameExists: this._gameExists,
+                reservedWallets: this._reservedWallets
             });
 
         });

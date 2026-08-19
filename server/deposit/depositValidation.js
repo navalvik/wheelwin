@@ -2,6 +2,9 @@
  * R17.9L.3 — DepositSession validation helpers (no TON, no chain).
  */
 
+import { Address } from "@ton/core";
+
+import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
 import {
     InvalidDepositBindingError,
     InvalidDepositFundingError,
@@ -9,6 +12,91 @@ import {
 } from "./DepositSessionErrors.js";
 
 export const REQUIRED_DEPOSIT_PLAYER_COUNT = 3;
+
+const ZERO_ADDRESS_RAW = Buffer.alloc(32);
+
+/**
+ * Return the canonical bounceable address for the TON zero account (workchain 0,
+ * all-zeros hash). Used as a reserved identity check, not as a functional address.
+ */
+function zeroCanonical() {
+
+    return new Address(0, ZERO_ADDRESS_RAW).toString({
+        bounceable: true,
+        urlSafe: true
+    });
+
+}
+
+/**
+ * Resolve a list of reserved/system wallet addresses that must never appear as
+ * player deposit bindings. All comparisons use canonical bounceable form.
+ *
+ * Sources:
+ *  - ZERO address (hardcoded; no env dependency)
+ *  - Production deploy wallet (TON_DEPLOYER_WALLET env-derived identity)
+ *  - Testnet deposit deployer (TON_TESTNET_DEPOSIT_DEPLOYER_ADDRESS)
+ *  - Release authority / oracle (TON_TESTNET_ORACLE_ADDRESS / TON_MAINNET_ORACLE_ADDRESS)
+ */
+export function resolveReservedDepositWallets(env = process.env) {
+
+    const reserved = new Map();
+
+    reserved.set(zeroCanonical(), "ZERO_ADDRESS");
+
+    const deployWallet = env?.TON_DEPLOYER_WALLET ?? null;
+
+    if (deployWallet) {
+
+        const canonical = canonicalizeTonWalletAddress(deployWallet);
+
+        if (canonical) {
+
+            reserved.set(canonical, "PRODUCTION_DEPLOY_WALLET");
+
+        }
+
+    }
+
+    const depositDeployer = env?.TON_TESTNET_DEPOSIT_DEPLOYER_ADDRESS ?? null;
+
+    if (depositDeployer) {
+
+        const canonical = canonicalizeTonWalletAddress(depositDeployer);
+
+        if (canonical) {
+
+            reserved.set(canonical, "TESTNET_DEPOSIT_DEPLOYER");
+
+        }
+
+    }
+
+    for (const key of [
+        "TON_TESTNET_ORACLE_ADDRESS",
+        "TON_MAINNET_ORACLE_ADDRESS",
+        "TON_ORACLE_ADDRESS"
+    ]) {
+
+        const raw = env?.[key] ?? null;
+
+        if (raw) {
+
+            const canonical = canonicalizeTonWalletAddress(raw);
+
+            if (canonical) {
+
+                reserved.set(canonical, `RELEASE_AUTHORITY_${key}`);
+
+            }
+
+        }
+
+    }
+
+    return reserved;
+
+}
 
 export function normalizeDepositIdPart(value) {
 
@@ -68,7 +156,7 @@ export function assertDepositIdentity({ roomId, gameId, roomExists = null, gameE
 
 }
 
-export function assertPlayerBindings(rawPlayers, { roomId, gameId } = {}) {
+export function assertPlayerBindings(rawPlayers, { roomId, gameId, reservedWallets = null } = {}) {
 
     if (!Array.isArray(rawPlayers)) {
 
@@ -127,13 +215,35 @@ export function assertPlayerBindings(rawPlayers, { roomId, gameId } = {}) {
 
         }
 
-        if (wallets.has(wallet)) {
+        const canonicalWallet = canonicalizeTonWalletAddress(wallet) ?? wallet;
+
+        if (wallets.has(canonicalWallet)) {
 
             throw new InvalidDepositBindingError("Duplicate wallet in deposit binding", {
                 roomId,
                 gameId,
-                wallet
+                wallet: canonicalWallet
             });
+
+        }
+
+        if (reservedWallets && canonicalizeTonWalletAddress(wallet)) {
+
+            const reservedReason = reservedWallets.get(canonicalWallet);
+
+            if (reservedReason) {
+
+                throw new InvalidDepositBindingError(
+                    `Player wallet is a reserved WheelWin system address (${reservedReason})`,
+                    {
+                        roomId,
+                        gameId,
+                        playerId,
+                        rejectionReason: reservedReason
+                    }
+                );
+
+            }
 
         }
 
@@ -149,11 +259,11 @@ export function assertPlayerBindings(rawPlayers, { roomId, gameId } = {}) {
         }
 
         playerIds.add(playerId);
-        wallets.add(wallet);
+        wallets.add(canonicalWallet);
 
         bindings.push(Object.freeze({
             playerId,
-            wallet,
+            wallet: canonicalWallet,
             expectedAmount,
             receivedAmount: 0,
             funded: false,

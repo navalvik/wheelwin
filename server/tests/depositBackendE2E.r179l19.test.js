@@ -350,26 +350,23 @@ test("R17.9L.19 B: bindings + deterministic StateInit, 0 TON", () => {
 
 });
 
-test("R17.9L.19 B audit: forbidden wallets accepted at bind (documented gap)", () => {
+test("R17.9L.19 B audit: ZERO wallet rejected at bind (gap closed by L.20)", () => {
 
     const h = harness();
 
-    for (const wallet of [ZERO_WALLET, PRODUCTION_DEPLOY_WALLET, TESTNET_DEPOSIT_DEPLOYER]) {
+    const session = h.depositSessionCoordinator.createSession({
+        roomId: "room-zero-check",
+        gameId: "game-zero-check"
+    });
 
-        const session = h.depositSessionCoordinator.createSession({
-            roomId: `room-${wallet.slice(0, 8)}`,
-            gameId: `game-${wallet.slice(0, 8)}`
-        });
-
-        h.depositSessionCoordinator.bindPlayers(session.depositId, [
-            { playerId: "p0", wallet, expectedAmount: 10 },
+    assert.throws(
+        () => h.depositSessionCoordinator.bindPlayers(session.depositId, [
+            { playerId: "p0", wallet: ZERO_WALLET, expectedAmount: 10 },
             { playerId: "p1", wallet: PLAYER_WALLET_1, expectedAmount: 10 },
             { playerId: "p2", wallet: PLAYER_WALLET_2, expectedAmount: 10 }
-        ]);
-
-        assert.equal(session.bindings[0].wallet, wallet);
-
-    }
+        ]),
+        InvalidDepositBindingError
+    );
 
     h.shutdown();
 
