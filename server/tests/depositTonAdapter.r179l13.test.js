@@ -44,7 +44,7 @@ const ADAPTER_SOURCE = readFileSync(
     "utf8"
 );
 
-const WALLET_0 = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
+const WALLET_0 = "EQAGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBsDe";
 const WALLET_1 = "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j";
 const WALLET_2 = "EQACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAsoi";
 const WALLET_OTHER = "EQADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA8id";
@@ -331,7 +331,7 @@ function createWatchableSession(coordinator, {
 
     coordinator.markAwaitingFunds(session.depositId);
 
-    session.depositAddress = depositAddress;
+    coordinator.setDepositAddress(session.depositId, depositAddress); // R17.9L.21
     session.metadata = { network: "testnet" };
 
     if (depositPersistence) {
@@ -965,7 +965,7 @@ test("R17.9L.13 Test20: restart restores watch and does not duplicate", async ()
 
     const restoredSession = second.depositSessionCoordinator.getSession(session.depositId);
 
-    restoredSession.depositAddress = DEPOSIT_ADDRESS;
+    second.depositSessionCoordinator.setDepositAddress(restoredSession.depositId, DEPOSIT_ADDRESS); // R17.9L.21 idempotent
     restoredSession.metadata = { network: "testnet" };
 
     if (restoredSession.state === DEPOSIT_SESSION_STATUS.CREATED) {

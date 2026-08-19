@@ -8,7 +8,11 @@ import { randomUUID } from "node:crypto";
 import {
     TON_FINANCIAL_RECORD_TYPES
 } from "../persistence/TonFinancialRecordTypes.js";
-import { InvalidDepositStateTransitionError } from "./DepositSessionErrors.js";
+import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
+import {
+    InvalidDepositAddressError,
+    InvalidDepositStateTransitionError
+} from "./DepositSessionErrors.js";
 import {
     assertDepositIdentity,
     assertFundingEvent,
@@ -213,6 +217,65 @@ export class DepositSession {
             this.expiresAt = this.awaitingFundsAt + timeoutMs;
 
         }
+
+        return this;
+
+    }
+
+    /**
+     * Assign the authoritative on-chain Deposit Contract address.
+     * Immutable after first assignment — a second distinct address is rejected.
+     * Idempotent for the same canonical address.
+     */
+    setDepositAddress(rawAddress) {
+
+        if (rawAddress == null || (typeof rawAddress === "string" && !rawAddress.trim())) {
+
+            throw new InvalidDepositAddressError(
+                "depositAddress is required",
+                { depositId: this.depositId }
+            );
+
+        }
+
+        const canonical = canonicalizeTonWalletAddress(rawAddress);
+
+        if (!canonical) {
+
+            throw new InvalidDepositAddressError(
+                "depositAddress is not a valid TON address",
+                { depositId: this.depositId }
+            );
+
+        }
+
+        if (this.depositAddress != null) {
+
+            const existingCanonical = canonicalizeTonWalletAddress(this.depositAddress)
+                ?? this.depositAddress;
+
+            if (existingCanonical === canonical) {
+
+                return this;
+
+            }
+
+            throw new InvalidDepositAddressError(
+                "depositAddress is already assigned and cannot be changed",
+                {
+                    depositId: this.depositId,
+                    existingAddress: this.depositAddress,
+                    attemptedAddress: canonical
+                }
+            );
+
+        }
+
+        this.depositAddress = canonical;
+
+        this.updatedAt = Date.now();
+
+        this.version += 1;
 
         return this;
 

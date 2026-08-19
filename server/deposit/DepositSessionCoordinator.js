@@ -105,6 +105,16 @@ export class DepositSessionCoordinator {
 
     }
 
+    /**
+     * Assign the authoritative deposit contract address.
+     * Validates, persists atomically, then commits in-memory.
+     */
+    setDepositAddress(depositId, depositAddress) {
+
+        return this._run(depositId, (session) => session.setDepositAddress(depositAddress));
+
+    }
+
     markAwaitingFunds(depositId) {
 
         return this._run(depositId, (session) => session.markAwaitingFunds());

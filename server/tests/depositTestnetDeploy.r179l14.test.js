@@ -12,6 +12,8 @@ import { Cell, contractAddress, Address, TupleBuilder, TupleReader } from "@ton/
 
 import { DepositMonitor } from "../deposit/DepositMonitor.js";
 import { DepositSessionCoordinator } from "../deposit/DepositSessionCoordinator.js";
+import { DepositSession } from "../deposit/DepositSession.js";
+import { DEPOSIT_SESSION_STATUS } from "../deposit/DepositSessionStates.js";
 import { TonFinancialDepositPersistence } from "../deposit/DepositPersistencePort.js";
 import { TonFinancialDepositObservationPersistence } from "../deposit/DepositObservationPersistencePort.js";
 import {
@@ -637,21 +639,34 @@ test("R17.9L.14 Test14-16: restart restores watch without authorization or Game 
         persistence: depositPersistence
     });
 
-    const session = coordinator.createSession({
+    // Frozen L.14 fixture includes ZERO as player0 in on-chain StateInit.
+    // Seed bindings via persistence restore — bindPlayers rejects ZERO (L.20).
+    const now = Date.now();
+
+    const seeded = new DepositSession({
+        depositId: plan.depositId,
         roomId: plan.roomId,
-        gameId: plan.gameId
+        gameId: plan.gameId,
+        bindings: [
+            { playerId: "seat0", wallet: plan.player0, expectedAmount: Number(plan.expectedStake0), receivedAmount: 0, funded: false },
+            { playerId: "seat1", wallet: plan.player1, expectedAmount: Number(plan.expectedStake1), receivedAmount: 0, funded: false },
+            { playerId: "seat2", wallet: plan.player2, expectedAmount: Number(plan.expectedStake2), receivedAmount: 0, funded: false }
+        ],
+        state: DEPOSIT_SESSION_STATUS.AWAITING_FUNDS,
+        createdAt: now,
+        updatedAt: now,
+        boundAt: now,
+        awaitingFundsAt: now,
+        metadata: { network: "testnet" }
     });
 
-    coordinator.bindPlayers(session.depositId, [
-        { playerId: "seat0", wallet: plan.player0, expectedAmount: Number(plan.expectedStake0) },
-        { playerId: "seat1", wallet: plan.player1, expectedAmount: Number(plan.expectedStake1) },
-        { playerId: "seat2", wallet: plan.player2, expectedAmount: Number(plan.expectedStake2) }
-    ]);
+    seeded.setDepositAddress(plan.expectedAddress);
 
-    coordinator.markAwaitingFunds(session.depositId);
-    session.depositAddress = plan.expectedAddress;
-    session.metadata = { network: "testnet" };
-    depositPersistence.saveDepositSession(session);
+    depositPersistence.saveDepositSession(seeded);
+
+    coordinator.restoreFromPersistence(seeded.depositId);
+
+    const session = coordinator.getSession(seeded.depositId);
 
     const source = new RealTonDepositBlockchainSource({
         logger: createLogger(),
@@ -695,7 +710,7 @@ test("R17.9L.14 Test14-16: restart restores watch without authorization or Game 
 
     const restoredSession = restoredCoordinator.getSession(session.depositId);
 
-    restoredSession.depositAddress = plan.expectedAddress;
+    restoredCoordinator.setDepositAddress(restoredSession.depositId, plan.expectedAddress); // R17.9L.21 idempotent
     restoredSession.metadata = { network: "testnet" };
 
     const restoredMonitor = new DepositMonitor({

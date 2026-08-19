@@ -388,7 +388,7 @@ test("R17.9L.19 C: UNINIT rejected", async () => {
 
     depositSessionCoordinator.markAwaitingFunds(session.depositId);
 
-    session.depositAddress = DEPOSIT_ADDRESS_FIXTURE;
+    depositSessionCoordinator.setDepositAddress(session.depositId, DEPOSIT_ADDRESS_FIXTURE); // R17.9L.21
 
     monitor.startWatching(session);
 
@@ -415,7 +415,7 @@ test("R17.9L.19 C: wrong code hash rejected", async () => {
 
     depositSessionCoordinator.markAwaitingFunds(session.depositId);
 
-    session.depositAddress = DEPOSIT_ADDRESS_FIXTURE;
+    depositSessionCoordinator.setDepositAddress(session.depositId, DEPOSIT_ADDRESS_FIXTURE); // R17.9L.21
 
     monitor.startWatching(session);
 
@@ -445,7 +445,7 @@ test("R17.9L.19 C: ACTIVE + valid FundSeat accepted, 0 WheelWin broadcast", asyn
 
     depositSessionCoordinator.markAwaitingFunds(session.depositId);
 
-    session.depositAddress = DEPOSIT_ADDRESS_FIXTURE;
+    depositSessionCoordinator.setDepositAddress(session.depositId, DEPOSIT_ADDRESS_FIXTURE); // R17.9L.21
 
     monitor.startWatching(session);
 
@@ -677,7 +677,7 @@ test("R17.9L.19 J: wrong deposit address rejected", () => {
     const h = harness({ persistence, withGameContractManager: true });
 
     const session = createWatchableSession(h.depositSessionCoordinator, {
-        depositAddress: "EQ_deposit_D1",
+        depositAddress: DEPOSIT_ADDRESS_FIXTURE,
         depositPersistence: h.depositPersistence
     });
 
@@ -685,7 +685,7 @@ test("R17.9L.19 J: wrong deposit address rejected", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_D2",
+        depositAddress: "EQAFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBccf", // R17.9L.21 different valid addr
         senderWallet: PLAYER_WALLET_0,
         amount: 10,
         transactionHash: "tx-cross"
@@ -713,14 +713,14 @@ test("R17.9L.19 K: room-a funding cannot complete room-b", () => {
     const sessionA = createWatchableSession(h.depositSessionCoordinator, {
         roomId: "room-a",
         gameId: "game-a",
-        depositAddress: "EQ_D1",
+        depositAddress: DEPOSIT_ADDRESS_FIXTURE,
         depositPersistence: h.depositPersistence
     });
 
     const sessionB = createWatchableSession(h.depositSessionCoordinator, {
         roomId: "room-b",
         gameId: "game-b",
-        depositAddress: "EQ_D2",
+        depositAddress: "EQAFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBccf", // R17.9L.21
         depositPersistence: h.depositPersistence
     });
 
@@ -730,7 +730,7 @@ test("R17.9L.19 K: room-a funding cannot complete room-b", () => {
 
     h.source.emitFullDeposit({
         depositId: sessionA.depositId,
-        depositAddress: "EQ_D1",
+        depositAddress: DEPOSIT_ADDRESS_FIXTURE, // R17.9L.21
         players: threePlayers()
     });
 
@@ -1066,7 +1066,7 @@ test("R17.9L.19 Bot flood: 100 abandoned 0-fund rooms", () => {
 
         h.depositSessionCoordinator.markAwaitingFunds(session.depositId);
 
-        session.depositAddress = `EQ_flood_${index}`;
+        h.depositSessionCoordinator.setDepositAddress(session.depositId, DEPOSIT_ADDRESS_FIXTURE); // R17.9L.21
 
         h.depositPersistence?.saveDepositSession(session);
 
@@ -1098,7 +1098,7 @@ test("R17.9L.19 Bot flood: 100 rooms with 1 funded seat each", () => {
         const session = createWatchableSession(h.depositSessionCoordinator, {
             roomId,
             gameId,
-            depositAddress: `EQ_one_${index}`,
+            depositAddress: DEPOSIT_ADDRESS_FIXTURE, // R17.9L.21
             depositPersistence: h.depositPersistence
         });
 

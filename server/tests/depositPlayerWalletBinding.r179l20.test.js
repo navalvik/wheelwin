@@ -293,7 +293,7 @@ test("R17.9L.20 Test8: valid FundSeat from bound player accepted", () => {
 
     coordinator.markAwaitingFunds(session.depositId);
 
-    session.depositAddress = "EQ_deposit_test";
+    coordinator.setDepositAddress(session.depositId, "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg"); // R17.9L.21
 
     monitor.startWatching(session);
 
@@ -307,7 +307,7 @@ test("R17.9L.20 Test8: valid FundSeat from bound player accepted", () => {
 
     source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_test",
+        depositAddress: session.depositAddress, // R17.9L.21 must match canonical session address
         senderWallet: PLAYER_WALLET_0,
         amount: 10,
         transactionHash: "tx-test-8"
@@ -349,7 +349,7 @@ test("R17.9L.20 Test9: unknown sender rejected by DepositMonitor", () => {
 
     coordinator.markAwaitingFunds(session.depositId);
 
-    session.depositAddress = "EQ_deposit_bad";
+    coordinator.setDepositAddress(session.depositId, "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg"); // R17.9L.21
 
     monitor.startWatching(session);
 

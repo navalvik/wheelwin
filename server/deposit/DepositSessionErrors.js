@@ -54,6 +54,18 @@ export class InvalidDepositFundingError extends DepositSessionError {
 
 }
 
+export class InvalidDepositAddressError extends DepositSessionError {
+
+    constructor(reason, details = null) {
+
+        super(reason, "INVALID_DEPOSIT_ADDRESS", details);
+
+        this.name = "InvalidDepositAddressError";
+
+    }
+
+}
+
 export class InvalidDepositStateTransitionError extends DepositSessionError {
 
     constructor(depositId, fromStatus, toStatus) {

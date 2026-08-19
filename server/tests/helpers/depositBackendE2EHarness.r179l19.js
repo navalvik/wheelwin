@@ -486,7 +486,7 @@ export function createDepositBackendE2EHarness({
 export function createWatchableSession(coordinator, {
     roomId = "room-a",
     gameId = "game-a",
-    depositAddress = "EQ_deposit_fixture_D1",
+    depositAddress = "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
     players = threePlayers(),
     depositPersistence = null
 } = {}) {
@@ -501,13 +501,7 @@ export function createWatchableSession(coordinator, {
 
     coordinator.markAwaitingFunds(session.depositId);
 
-    session.depositAddress = depositAddress;
-
-    if (depositPersistence) {
-
-        depositPersistence.saveDepositSession(session);
-
-    }
+    coordinator.setDepositAddress(session.depositId, depositAddress); // R17.9L.21
 
     return session;
 

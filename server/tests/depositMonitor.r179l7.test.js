@@ -105,7 +105,7 @@ function collectEvents(eventBus, types) {
 function createWatchableSession(coordinator, {
     roomId = "room-a",
     gameId = "game-a",
-    depositAddress = "EQ_deposit_address",
+    depositAddress = "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
     depositPersistence = null
 } = {}) {
 
@@ -115,7 +115,7 @@ function createWatchableSession(coordinator, {
 
     coordinator.markAwaitingFunds(session.depositId);
 
-    session.depositAddress = depositAddress;
+    coordinator.setDepositAddress(session.depositId, depositAddress); // R17.9L.21
 
     if (depositPersistence) {
 
@@ -347,7 +347,7 @@ test("R17.9L.7 Test6: restart recovery restores active watches", () => {
         const session = createWatchableSession(firstHarness.depositSessionCoordinator, {
             roomId: "room-restart",
             gameId: "game-restart",
-            depositAddress: "EQ_restart_deposit",
+            depositAddress: "EQAFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBccf",
             depositPersistence: firstHarness.depositPersistence
         });
 

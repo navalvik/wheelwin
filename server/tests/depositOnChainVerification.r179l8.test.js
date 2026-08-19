@@ -183,7 +183,7 @@ function createHarness({ persistence = null } = {}) {
 function createWatchableSession(coordinator, {
     roomId = "room-a",
     gameId = "game-a",
-    depositAddress = "EQ_deposit_address",
+    depositAddress = "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
     depositPersistence = null
 } = {}) {
 
@@ -193,7 +193,7 @@ function createWatchableSession(coordinator, {
 
     coordinator.markAwaitingFunds(session.depositId);
 
-    session.depositAddress = depositAddress;
+    coordinator.setDepositAddress(session.depositId, depositAddress); // R17.9L.21
 
     if (depositPersistence) {
 
@@ -226,7 +226,7 @@ test("R17.9L.8 Test1: three valid observations → DEPOSIT_FULL → DeploymentAu
 
     h.source.emitFullDeposit({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         players: threePlayers()
     });
 
@@ -266,7 +266,7 @@ test("R17.9L.8 Test2: one seat missing → DEPOSIT_FULL not produced", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_1",
         amount: 10,
         transactionHash: "tx-1"
@@ -274,7 +274,7 @@ test("R17.9L.8 Test2: one seat missing → DEPOSIT_FULL not produced", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_2",
         amount: 10,
         transactionHash: "tx-2"
@@ -306,7 +306,7 @@ test("R17.9L.8 Test3: partial amount → DEPOSIT_FULL rejected", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_1",
         amount: 10,
         transactionHash: "tx-1"
@@ -314,7 +314,7 @@ test("R17.9L.8 Test3: partial amount → DEPOSIT_FULL rejected", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_2",
         amount: 10,
         transactionHash: "tx-2"
@@ -323,7 +323,7 @@ test("R17.9L.8 Test3: partial amount → DEPOSIT_FULL rejected", () => {
     // Wallet 3 sends insufficient — DepositMonitor rejects it at observation level
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_3",
         amount: 5,
         transactionHash: "tx-3"
@@ -355,7 +355,7 @@ test("R17.9L.8 Test4: unknown wallet → verification rejected", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_1",
         amount: 10,
         transactionHash: "tx-1"
@@ -363,7 +363,7 @@ test("R17.9L.8 Test4: unknown wallet → verification rejected", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_2",
         amount: 10,
         transactionHash: "tx-2"
@@ -372,7 +372,7 @@ test("R17.9L.8 Test4: unknown wallet → verification rejected", () => {
     // Unknown wallet rejected by DepositMonitor
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_unknown_wallet",
         amount: 10,
         transactionHash: "tx-3"
@@ -448,7 +448,7 @@ test("R17.9L.8 Test6: wrong roomId → verification rejected", () => {
     // Fund room-a fully
     h.source.emitFullDeposit({
         depositId: sessionA.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         players: threePlayers()
     });
 
@@ -492,7 +492,7 @@ test("R17.9L.8 Test7: wrong gameId — observations from game-a cannot fund game
 
     h.source.emitFullDeposit({
         depositId: sessionA.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         players: threePlayers()
     });
 
@@ -520,7 +520,7 @@ test("R17.9L.8 Test8: duplicate transaction → counted once", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_1",
         amount: 10,
         transactionHash: "tx-1"
@@ -531,7 +531,7 @@ test("R17.9L.8 Test8: duplicate transaction → counted once", () => {
 
         h.source.emitValidPayment({
             depositId: session.depositId,
-            depositAddress: "EQ_deposit_address",
+            depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
             senderWallet: "EQ_wallet_1",
             amount: 10,
             transactionHash: "tx-1"
@@ -543,7 +543,7 @@ test("R17.9L.8 Test8: duplicate transaction → counted once", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_2",
         amount: 10,
         transactionHash: "tx-2"
@@ -576,7 +576,7 @@ test("R17.9L.8 Test9: network mismatch → verification rejected", () => {
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_1",
         amount: 10,
         transactionHash: "tx-1",
@@ -612,7 +612,7 @@ test("R17.9L.8 Test10: duplicate DEPOSIT_FULL_ONCHAIN → one transition, one au
 
     h.source.emitFullDeposit({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         players: threePlayers()
     });
 
@@ -629,7 +629,7 @@ test("R17.9L.8 Test10: duplicate DEPOSIT_FULL_ONCHAIN → one transition, one au
             depositId: session.depositId,
             roomId: "room-a",
             gameId: "game-a",
-            depositAddress: "EQ_deposit_address",
+            depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
             fundedSeatCount: 3
         }
     });
@@ -687,7 +687,7 @@ test("R17.9L.8 Test11: persistence failure → no false DEPOSIT_FULL success eve
             depositId: session.depositId,
             roomId: "room-a",
             gameId: "game-a",
-            depositAddress: "EQ_deposit_address",
+            depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
             fundedSeatCount: 3
         }
     });
@@ -715,7 +715,7 @@ test("R17.9L.8 Test12: restart recovery — persisted observations verified afte
     // Fund all three seats
     h.source.emitFullDeposit({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         players: threePlayers()
     });
 
@@ -794,7 +794,7 @@ test("R17.9L.8 Test13: client PAYMENT_CONFIRM_INTENT cannot create DEPOSIT_FULL"
             depositId: session.depositId,
             roomId: "room-a",
             gameId: "game-a",
-            depositAddress: "EQ_deposit_address",
+            depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
             fundedSeatCount: 3
         }
     });
@@ -831,7 +831,7 @@ test("R17.9L.8 SecurityA: fake client payment cannot create DEPOSIT_FULL", () =>
             depositId: session.depositId,
             roomId: "room-a",
             gameId: "game-a",
-            depositAddress: "EQ_deposit_address",
+            depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
             fundedSeatCount: 3
         }
     });
@@ -871,7 +871,7 @@ test("R17.9L.8 SecurityB: cross-room replay — room-a evidence cannot complete 
 
     h.source.emitFullDeposit({
         depositId: sessionA.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         players: threePlayers()
     });
 
@@ -905,7 +905,7 @@ test("R17.9L.8 SecurityC: wallet substitution — old wallet evidence rejected f
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_1",
         amount: 10,
         transactionHash: "tx-1"
@@ -913,7 +913,7 @@ test("R17.9L.8 SecurityC: wallet substitution — old wallet evidence rejected f
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_2",
         amount: 10,
         transactionHash: "tx-2"
@@ -922,7 +922,7 @@ test("R17.9L.8 SecurityC: wallet substitution — old wallet evidence rejected f
     // Attacker uses a substituted wallet not in bindings
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_attacker_wallet",
         amount: 10,
         transactionHash: "tx-3"
@@ -955,7 +955,7 @@ test("R17.9L.8 SecurityD: transaction replay — same tx cannot fund two seats",
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_1",
         amount: 10,
         transactionHash: "tx-same"
@@ -966,7 +966,7 @@ test("R17.9L.8 SecurityD: transaction replay — same tx cannot fund two seats",
 
         h.source.emitValidPayment({
             depositId: session.depositId,
-            depositAddress: "EQ_deposit_address",
+            depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
             senderWallet: "EQ_wallet_2",
             amount: 10,
             transactionHash: "tx-same"
@@ -978,7 +978,7 @@ test("R17.9L.8 SecurityD: transaction replay — same tx cannot fund two seats",
 
     h.source.emitValidPayment({
         depositId: session.depositId,
-        depositAddress: "EQ_deposit_address",
+        depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
         senderWallet: "EQ_wallet_3",
         amount: 10,
         transactionHash: "tx-3"
@@ -1018,7 +1018,7 @@ test("R17.9L.8 SecurityE: fake DEPOSIT_FULL_ONCHAIN from socket cannot cause com
             depositId: session.depositId,
             roomId: "room-a",
             gameId: "game-a",
-            depositAddress: "EQ_deposit_address",
+            depositAddress: "EQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBMWg",
             fundedSeatCount: 3
         }
     });
