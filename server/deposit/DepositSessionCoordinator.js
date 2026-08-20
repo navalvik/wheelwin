@@ -148,6 +148,30 @@ export class DepositSessionCoordinator {
 
     }
 
+    /**
+     * R17.9L.23 — Persist authoritative deposit deployment package.
+     */
+    recordDepositPackage(depositId, depositPackage) {
+
+        const session = this._require(depositId);
+
+        this._mutate(session, (current) => {
+
+            current.metadata = {
+                ...current.metadata,
+                depositPackage: Object.freeze({ ...depositPackage })
+            };
+
+            current.updatedAt = Date.now();
+
+            current.version += 1;
+
+        });
+
+        return session;
+
+    }
+
     applyFunding(depositId, funding) {
 
         const session = this._require(depositId);

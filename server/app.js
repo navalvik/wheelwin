@@ -147,6 +147,8 @@ import { DepositMonitor } from "./deposit/DepositMonitor.js";
 import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
 import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
 import { DepositActivationVerificationCoordinator } from "./deposit/DepositActivationVerificationCoordinator.js";
+import { DepositOrchestrator } from "./deposit/DepositOrchestrator.js";
+import { resolveDepositOrchestrationFinancials } from "./deposit/resolveDepositOrchestrationFinancials.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
 import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
@@ -330,6 +332,8 @@ class WheelWinApplication {
         this._financialPersistence = null;
 
         this._depositSessionCoordinator = null;
+
+        this._depositOrchestrator = null;
 
         this._deploymentAuthorizationCoordinator = null;
 
@@ -1670,6 +1674,28 @@ class WheelWinApplication {
         });
 
         this._logger.startupLine("DepositActivationVerificationCoordinator");
+
+        this._depositOrchestrator = new DepositOrchestrator({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            depositActivationVerificationCoordinator: this._depositActivationVerification,
+            gameplayContextResolver: this._gameplayContextResolver,
+            roomManager: this._managers.roomManager,
+            playerManager: this._managers.playerManager,
+            sessionWalletStore: this._sessionWalletStore,
+            env: process.env,
+            resolveFinancialParameters: () => resolveDepositOrchestrationFinancials({
+                env: process.env,
+                network: this._tonConfig?.network ?? "testnet",
+                runtimeOverrides: this._runtimeConfigurationService?.getOverrides?.() ?? null,
+                paymentDurationMs: this._roomConfig?.paymentSessionDurationMs ?? null
+            })
+        });
+
+        this._depositOrchestrator.initialize();
+
+        this._logger.startupLine("DepositOrchestrator");
 
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
