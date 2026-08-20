@@ -37,6 +37,11 @@ import { EVENT_TYPES } from "../../../events/EventTypes.js";
 import { TonFinancialPersistence } from "../../../persistence/TonFinancialPersistence.js";
 import { GameplayContextResolver } from "../../../socket/GameplayContextResolver.js";
 import { L25_ERROR_CODES, L25TestError } from "./l25Errors.js";
+import {
+    isL25TransientRpcError,
+    l25Sleep,
+    l25WithRpcRetry
+} from "./l25RpcRetry.js";
 
 export function createL25Logger() {
 
@@ -59,12 +64,6 @@ export function createL25Logger() {
         debug() {},
         decisionTrace() {}
     };
-
-}
-
-function sleep(ms) {
-
-    return new Promise((resolve) => setTimeout(resolve, ms));
 
 }
 
@@ -394,7 +393,25 @@ export async function waitForDepositFullOnChain(stack, {
 
     while (Date.now() < deadline) {
 
-        await stack.depositMonitor.poll();
+        try {
+
+            await l25WithRpcRetry(
+                () => stack.depositMonitor.poll(),
+                { operationName: "depositMonitor.poll" }
+            );
+
+        } catch (error) {
+
+            if (!isL25TransientRpcError(error)) {
+
+                throw error;
+
+            }
+
+            await l25Sleep(pollMs);
+            continue;
+
+        }
 
         if (stack.fullOnChainEvents.length > 0) {
 
@@ -402,7 +419,7 @@ export async function waitForDepositFullOnChain(stack, {
 
         }
 
-        await sleep(pollMs);
+        await l25Sleep(pollMs);
 
     }
 
@@ -439,7 +456,7 @@ export async function waitForAuthorizationValid(stack, {
         }
 
         // Domain transition may already be in flight from EventBus handlers.
-        await sleep(pollMs);
+        await l25Sleep(pollMs);
 
     }
 

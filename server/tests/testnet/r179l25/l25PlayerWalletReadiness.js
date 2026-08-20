@@ -15,6 +15,7 @@ import {
     toPublicPlayerSnapshot
 } from "./l25PlayerWallets.js";
 import { L25_ERROR_CODES, L25TestError } from "./l25Errors.js";
+import { l25WithRpcRetry } from "./l25RpcRetry.js";
 
 const SECRET_PATTERN = /mnemonic|privateKey|secretKey|seed|keyPair/i;
 
@@ -62,7 +63,10 @@ async function readAccountState(tonService, address) {
 
     try {
 
-        const account = await tonService.getAccount(address);
+        const account = await l25WithRpcRetry(
+            () => tonService.getAccount(address),
+            { operationName: "getAccount/readiness" }
+        );
 
         return account?.state
             ?? account?.status
@@ -123,7 +127,10 @@ export async function runL25PlayerWalletReadiness({
     for (const wallet of wallets) {
 
         const expected = localEnv[L25_PLAYER_ADDRESS_ENV_KEYS[wallet.seatIndex]];
-        const balanceNano = await service.getBalance(wallet.addressCanonical);
+        const balanceNano = await l25WithRpcRetry(
+            () => service.getBalance(wallet.addressCanonical),
+            { operationName: "getBalance/readiness" }
+        );
         const state = await readAccountState(service, wallet.addressCanonical);
         const normalizedState = String(state).toLowerCase();
         const funded = balanceNano > 0n;

@@ -38,6 +38,7 @@ import {
     waitForDepositFullOnChain
 } from "./l25Harness.js";
 import { L25_ERROR_CODES, L25TestError } from "./l25Errors.js";
+import { l25WithRpcRetry } from "./l25RpcRetry.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
@@ -166,7 +167,7 @@ async function main() {
 
     if (!env.TON_DEPOSIT_TIMEOUT_MS) {
 
-        env.TON_DEPOSIT_TIMEOUT_MS = "600000";
+        env.TON_DEPOSIT_TIMEOUT_MS = "1200000";
 
     }
 
@@ -253,7 +254,10 @@ async function main() {
             depositPackage,
             playerWallet: playerWallets[0],
             tonService,
-            getContractState: (address) => stack.blockchainSource.getContractState(address),
+            getContractState: (address) => l25WithRpcRetry(
+                () => stack.blockchainSource.getContractState(address),
+                { operationName: "getContractState/deploy" }
+            ),
             deployValueTon: env.L25_DEPOSIT_DEPLOY_VALUE_TON
                 || L25_DEFAULT_DEPLOY_VALUE_TON,
             env

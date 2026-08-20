@@ -31,6 +31,25 @@ import {
     resolveWheelWinWatchAddresses
 } from "./testnet/r179l25/l25ZeroSpendProof.js";
 import { L25_ERROR_CODES, L25TestError } from "./testnet/r179l25/l25Errors.js";
+import {
+    isL25TransientRpcError,
+    l25WithRpcRetry,
+    L25_RPC_RETRY_POLICY
+} from "./testnet/r179l25/l25RpcRetry.js";
+import {
+    commitL25RecoverySession,
+    createL25RecoveryDepositSession,
+    fundL25RecoverySessionToFull
+} from "./testnet/r179l25/l25RecoverySession.js";
+import { computeDepositBindingHash } from "../deposit/deploymentAuthorizationHash.js";
+import { DepositSessionCoordinator } from "../deposit/DepositSessionCoordinator.js";
+import { InMemoryDepositPersistence } from "../deposit/DepositPersistencePort.js";
+import { DeploymentAuthorizationCoordinator } from "../deposit/DeploymentAuthorizationCoordinator.js";
+import { InMemoryDeploymentAuthorizationPersistence } from "../deposit/DeploymentAuthorizationPersistencePort.js";
+import { DEPLOYMENT_AUTHORIZATION_STATUS } from "../deposit/DeploymentAuthorizationStates.js";
+import { DEPOSIT_SESSION_STATUS } from "../deposit/DepositSessionStates.js";
+import { EventBus } from "../events/EventBus.js";
+import { assertCanCreateDeploymentAuthorization } from "../deposit/deploymentAuthorizationValidation.js";
 
 const PLAYER_0 = "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j";
 const PLAYER_1 = "EQACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAsoi";
@@ -258,6 +277,215 @@ test("R17.9L.25 unit: live E2E runner is not imported by FakeDepositBlockchainSo
     assert.doesNotMatch(
         walletsSrc,
         /WalletContractV4\.create\s*\(/
+    );
+    assert.match(deploySrc, /l25WithRpcRetry/);
+    assert.match(harnessSrc, /l25WithRpcRetry/);
+    assert.match(e2eSrc, /TON_DEPOSIT_TIMEOUT_MS\s*=\s*"1200000"/);
+
+});
+
+test("R17.9L.25.I.2.A unit: transient RPC classification", () => {
+
+    assert.equal(isL25TransientRpcError(new Error("TON request timed out")), true);
+    assert.equal(isL25TransientRpcError(new Error("Request failed with status code 429")), true);
+    assert.equal(isL25TransientRpcError({ message: "rate limit", status: 429 }), true);
+    assert.equal(isL25TransientRpcError(new Error("invalid address")), false);
+    assert.equal(isL25TransientRpcError(new Error("StateInit mismatch")), false);
+    assert.equal(L25_RPC_RETRY_POLICY.maxAttempts >= 5, true);
+    assert.equal(L25_RPC_RETRY_POLICY.initialDelayMs >= 2_000, true);
+
+});
+
+test("R17.9L.25.I.2.A unit: l25WithRpcRetry retries then succeeds", async () => {
+
+    let attempts = 0;
+    const logs = [];
+
+    const value = await l25WithRpcRetry(async () => {
+
+        attempts += 1;
+
+        if (attempts < 3) {
+
+            throw new Error("TON request timed out");
+
+        }
+
+        return "ok";
+
+    }, {
+        operationName: "unitTest",
+        policy: {
+            maxAttempts: 5,
+            initialDelayMs: 10,
+            maxDelayMs: 20,
+            multiplier: 2
+        },
+        logger: {
+            warn(message) {
+
+                logs.push(message);
+
+            }
+        }
+    });
+
+    assert.equal(value, "ok");
+    assert.equal(attempts, 3);
+    assert.equal(logs.length, 2);
+    assert.match(logs[0], /\[L25 RPC RETRY\]/);
+    assert.match(logs[0], /operation=unitTest/);
+
+});
+
+test("R17.9L.25.I.2.A unit: l25WithRpcRetry does not retry logic errors", async () => {
+
+    let attempts = 0;
+
+    await assert.rejects(
+        () => l25WithRpcRetry(async () => {
+
+            attempts += 1;
+            throw new Error("invalid address");
+
+        }, {
+            operationName: "logicFail",
+            policy: {
+                maxAttempts: 5,
+                initialDelayMs: 10,
+                maxDelayMs: 20,
+                multiplier: 2
+            }
+        }),
+        /invalid address/
+    );
+
+    assert.equal(attempts, 1);
+
+});
+
+function createL25RecoveryTestBus() {
+
+    const eventBus = new EventBus({
+        logger: { info() {}, warn() {}, error() {}, debug() {} },
+        eventBusConfig: { logEvents: false, showDebugPanel: false }
+    });
+
+    eventBus.initialize();
+
+    return eventBus;
+
+}
+
+test("R17.9L.25.K CaseA: recovery session creation produces bindingHash", () => {
+
+    const session = createL25RecoveryDepositSession({
+        depositId: "dep_l25k_a",
+        roomId: "room-l25k-a",
+        gameId: "game-l25k-a",
+        depositAddress: PLAYER_0,
+        players: [
+            { playerId: "p0", wallet: PLAYER_0, expectedAmount: 11_000_000 },
+            { playerId: "p1", wallet: PLAYER_1, expectedAmount: 11_000_000 },
+            { playerId: "p2", wallet: PLAYER_2, expectedAmount: 11_000_000 }
+        ],
+        metadata: { network: "testnet", creationFeePerSeat: 1_000_000 }
+    });
+
+    assert.equal(session.state, DEPOSIT_SESSION_STATUS.AWAITING_FUNDS);
+    assert.equal(typeof session.bindingHash, "string");
+    assert.ok(session.bindingHash.length > 0);
+    assert.equal(session.depositAddress, PLAYER_0);
+
+});
+
+test("R17.9L.25.K CaseB: stored bindingHash equals computeDepositBindingHash", () => {
+
+    const session = createL25RecoveryDepositSession({
+        depositId: "dep_l25k_b",
+        roomId: "room-l25k-b",
+        gameId: "game-l25k-b",
+        depositAddress: PLAYER_0,
+        players: [
+            { playerId: "p0", wallet: PLAYER_0, expectedAmount: 11_000_000 },
+            { playerId: "p1", wallet: PLAYER_1, expectedAmount: 11_000_000 },
+            { playerId: "p2", wallet: PLAYER_2, expectedAmount: 11_000_000 }
+        ]
+    });
+
+    const expected = computeDepositBindingHash({
+        roomId: session.roomId,
+        gameId: session.gameId,
+        depositId: session.depositId,
+        bindings: session.bindings
+    });
+
+    assert.equal(session.bindingHash, expected);
+
+});
+
+test("R17.9L.25.K CaseC: recovery DEPOSIT_FULL → Authorization VALID without manual hash", () => {
+
+    const eventBus = createL25RecoveryTestBus();
+    const depositSessionCoordinator = new DepositSessionCoordinator({
+        eventBus,
+        persistence: new InMemoryDepositPersistence()
+    });
+    const deploymentAuthorizationCoordinator = new DeploymentAuthorizationCoordinator({
+        eventBus,
+        persistence: new InMemoryDeploymentAuthorizationPersistence()
+    });
+
+    const session = createL25RecoveryDepositSession({
+        depositId: "dep_l25k_c",
+        roomId: "room-l25k-c",
+        gameId: "game-l25k-c",
+        depositAddress: PLAYER_0,
+        players: [
+            { playerId: "p0", wallet: PLAYER_0, expectedAmount: 11_000_000 },
+            { playerId: "p1", wallet: PLAYER_1, expectedAmount: 11_000_000 },
+            { playerId: "p2", wallet: PLAYER_2, expectedAmount: 11_000_000 }
+        ],
+        metadata: { network: "testnet" }
+    });
+
+    commitL25RecoverySession(depositSessionCoordinator, session);
+
+    const full = fundL25RecoverySessionToFull(depositSessionCoordinator, session);
+
+    assert.equal(full.state, DEPOSIT_SESSION_STATUS.DEPOSIT_FULL);
+    assert.ok(full.bindingHash);
+
+    // Fail-closed still enforced by production validation.
+    assert.doesNotThrow(() => assertCanCreateDeploymentAuthorization(full));
+
+    const created = deploymentAuthorizationCoordinator.createFromDepositSession(full);
+
+    assert.equal(created.bindingHash, full.bindingHash);
+
+    const valid = deploymentAuthorizationCoordinator.markValid(created.authorizationId);
+
+    assert.equal(valid.status, DEPLOYMENT_AUTHORIZATION_STATUS.VALID);
+    assert.equal(valid.bindingHash, full.bindingHash);
+    assert.equal(valid.depositId, "dep_l25k_c");
+
+});
+
+test("R17.9L.25.K unit: commit refuses session without bindingHash", () => {
+
+    const eventBus = createL25RecoveryTestBus();
+    const depositSessionCoordinator = new DepositSessionCoordinator({
+        eventBus,
+        persistence: new InMemoryDepositPersistence()
+    });
+
+    assert.throws(
+        () => commitL25RecoverySession(depositSessionCoordinator, {
+            depositId: "dep_missing_hash",
+            bindingHash: null
+        }),
+        (error) => error instanceof L25TestError
+            && /without bindingHash/.test(error.message)
     );
 
 });

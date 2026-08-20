@@ -18,17 +18,12 @@ import {
 import { canonicalizeTonWalletAddress } from "../../../models/TonWalletAddress.js";
 import { L25_ERROR_CODES, L25TestError } from "./l25Errors.js";
 import { assertPlayerSenderAllowed } from "./l25PlayerDepositDeploy.js";
+import { l25Sleep, l25WithRpcRetry } from "./l25RpcRetry.js";
 
 const PLAYER_SEND_MODE = SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS;
 
 const ACTIVE_WAIT_TIMEOUT_MS = 90_000;
 const ACTIVE_WAIT_INTERVAL_MS = 2_500;
-
-function sleep(ms) {
-
-    return new Promise((resolve) => setTimeout(resolve, ms));
-
-}
 
 /**
  * Resolve authoritative FundSeat nanoton amount for a seat from session/package.
@@ -218,7 +213,10 @@ export async function fundSeatAsPlayer({
 
     }
 
-    const balance = await tonService.getBalance(playerWallet.address);
+    const balance = await l25WithRpcRetry(
+        () => tonService.getBalance(playerWallet.address),
+        { operationName: "getBalance/fundSeat" }
+    );
 
     // Require amount + small gas cushion.
     const required = amount + 50_000_000n;
@@ -244,7 +242,10 @@ export async function fundSeatAsPlayer({
         testOnly: true
     });
 
-    let seqno = await tonService.getSeqno(walletAddress);
+    let seqno = await l25WithRpcRetry(
+        () => tonService.getSeqno(walletAddress),
+        { operationName: "getSeqno/fundSeat" }
+    );
 
     if (!Number.isInteger(seqno) || seqno < 0) {
 
@@ -280,7 +281,10 @@ export async function fundSeatAsPlayer({
         .toBoc()
         .toString("base64");
 
-    const broadcast = await tonService.broadcastTransaction(bocBase64);
+    const broadcast = await l25WithRpcRetry(
+        () => tonService.broadcastTransaction(bocBase64),
+        { operationName: "broadcastTransaction/fundSeat" }
+    );
     const broadcastHash = broadcast?.hash
         ?? broadcast?.result?.hash
         ?? null;
@@ -291,7 +295,10 @@ export async function fundSeatAsPlayer({
 
         try {
 
-            const nextSeqno = await tonService.getSeqno(walletAddress);
+            const nextSeqno = await l25WithRpcRetry(
+                () => tonService.getSeqno(walletAddress),
+                { operationName: "getSeqno/fundSeatConfirm" }
+            );
 
             if (nextSeqno > seqno) {
 
@@ -305,7 +312,7 @@ export async function fundSeatAsPlayer({
 
         }
 
-        await sleep(ACTIVE_WAIT_INTERVAL_MS);
+        await l25Sleep(ACTIVE_WAIT_INTERVAL_MS);
 
     }
 

@@ -26,21 +26,21 @@ import {
     PRODUCTION_DEPLOY_WALLET
 } from "../../../payment/ton/depositTestnetFixture.js";
 import { L25_ERROR_CODES, L25TestError } from "./l25Errors.js";
+import {
+    isL25TransientRpcError,
+    l25Sleep,
+    l25WithRpcRetry
+} from "./l25RpcRetry.js";
 
 export const L25_DEFAULT_DEPLOY_VALUE_TON = "0.05";
 
 export const L25_DEPLOY_MIN_SENDER_NANO = toNano("0.08");
 
-const ACTIVE_WAIT_TIMEOUT_MS = 120_000;
+/** R17.9L.25.I.2.A — longer ACTIVE wait; transient RPC no longer aborts immediately. */
+const ACTIVE_WAIT_TIMEOUT_MS = 300_000;
 const ACTIVE_WAIT_INTERVAL_MS = 3_000;
 
 const PLAYER_SEND_MODE = SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS;
-
-function sleep(ms) {
-
-    return new Promise((resolve) => setTimeout(resolve, ms));
-
-}
 
 function loadCellFromBoc(bocBase64, label) {
 
@@ -170,7 +170,26 @@ async function waitUntilActive(getContractState, address) {
 
     while (Date.now() < deadline) {
 
-        last = await getContractState(address);
+        try {
+
+            last = await l25WithRpcRetry(
+                () => getContractState(address),
+                { operationName: "getContractState/waitUntilActive" }
+            );
+
+        } catch (error) {
+
+            if (!isL25TransientRpcError(error)) {
+
+                throw error;
+
+            }
+
+            // Exhausted inner retries; keep waiting until ACTIVE deadline.
+            await l25Sleep(ACTIVE_WAIT_INTERVAL_MS);
+            continue;
+
+        }
 
         if (last.state === DEPOSIT_ACCOUNT_STATE.ACTIVE) {
 
@@ -188,7 +207,7 @@ async function waitUntilActive(getContractState, address) {
 
         }
 
-        await sleep(ACTIVE_WAIT_INTERVAL_MS);
+        await l25Sleep(ACTIVE_WAIT_INTERVAL_MS);
 
     }
 
@@ -249,7 +268,10 @@ export async function deployDepositContractAsPlayer({
 
     }
 
-    const balance = await tonService.getBalance(playerWallet.address);
+    const balance = await l25WithRpcRetry(
+        () => tonService.getBalance(playerWallet.address),
+        { operationName: "getBalance/deploy" }
+    );
 
     if (balance < L25_DEPLOY_MIN_SENDER_NANO) {
 
@@ -288,7 +310,10 @@ export async function deployDepositContractAsPlayer({
 
     try {
 
-        seqno = await tonService.getSeqno(walletAddress);
+        seqno = await l25WithRpcRetry(
+            () => tonService.getSeqno(walletAddress),
+            { operationName: "getSeqno/deploy" }
+        );
 
     } catch {
 
@@ -331,7 +356,10 @@ export async function deployDepositContractAsPlayer({
         .toBoc()
         .toString("base64");
 
-    const broadcast = await tonService.broadcastTransaction(bocBase64);
+    const broadcast = await l25WithRpcRetry(
+        () => tonService.broadcastTransaction(bocBase64),
+        { operationName: "broadcastTransaction/deploy" }
+    );
     const broadcastHash = broadcast?.hash
         ?? broadcast?.result?.hash
         ?? null;
@@ -342,7 +370,10 @@ export async function deployDepositContractAsPlayer({
 
         try {
 
-            const nextSeqno = await tonService.getSeqno(walletAddress);
+            const nextSeqno = await l25WithRpcRetry(
+                () => tonService.getSeqno(walletAddress),
+                { operationName: "getSeqno/deployConfirm" }
+            );
 
             if (nextSeqno > seqno) {
 
@@ -356,7 +387,7 @@ export async function deployDepositContractAsPlayer({
 
         }
 
-        await sleep(ACTIVE_WAIT_INTERVAL_MS);
+        await l25Sleep(ACTIVE_WAIT_INTERVAL_MS);
 
     }
 
