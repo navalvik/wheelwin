@@ -142,6 +142,8 @@ contract GameEscrow {
     }
 
     receive(msg: InitGame) {
+        // R17.9T.2.1 — only the declared oracle may claim INIT_GAME.
+        require(sender() == msg.oracle, "GameEscrow: sender is not oracle");
         require(self.status == STATUS_UNINITIALIZED, "GameEscrow: not uninitialized");
         self.oracle = msg.oracle;
         self.owner = msg.owner;

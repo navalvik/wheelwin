@@ -62,8 +62,9 @@ describe("GameEscrow stakes", () => {
     });
 
     async function initGame() {
+        // R17.9T.2.1 — INIT_GAME sender must equal msg.oracle.
         return gameEscrow.send(
-            deployer.getSender(),
+            oracle.getSender(),
             { value: toNano("0.05") },
             {
                 $$type: "InitGame",
@@ -133,6 +134,57 @@ describe("GameEscrow stakes", () => {
             }
         );
     }
+
+    // R17.9T.2.1 — INIT_GAME authorization cases
+    it("Case A: INIT_GAME accepted when sender == msg.oracle", async () => {
+        const result = await initGame();
+        expect(result.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: true
+        });
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_DEPLOYED);
+        expect(await gameEscrow.getGetSnapshotHash()).toEqual(snapshotHash);
+        expect(await gameEscrow.getGetContractIdHash()).toEqual(contractIdHash);
+    });
+
+    it("Case B: INIT_GAME rejected when sender != msg.oracle", async () => {
+        const result = await gameEscrow.send(
+            deployer.getSender(),
+            { value: toNano("0.05") },
+            {
+                $$type: "InitGame",
+                oracle: oracle.address,
+                owner: owner.address,
+                contractIdHash,
+                snapshotHash
+            }
+        );
+        expect(result.transactions).toHaveTransaction({
+            from: deployer.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_UNINITIALIZED);
+    });
+
+    it("Case C: duplicate INIT_GAME rejected after success", async () => {
+        const first = await initGame();
+        expect(first.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: true
+        });
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_DEPLOYED);
+
+        const second = await initGame();
+        expect(second.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_DEPLOYED);
+    });
 
     it("player A/B/C pay → READY → SETTLE pays winner and owner", async () => {
         await initGame();
@@ -341,8 +393,9 @@ describe("GameEscrow cancel and refunds (R7.69C)", () => {
     });
 
     async function initAndOpen() {
+        // R17.9T.2.1 — INIT_GAME sender must equal msg.oracle.
         await gameEscrow.send(
-            deployer.getSender(),
+            oracle.getSender(),
             { value: toNano("0.05") },
             {
                 $$type: "InitGame",
