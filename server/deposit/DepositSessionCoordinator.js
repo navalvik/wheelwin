@@ -5,7 +5,10 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { DepositSession } from "./DepositSession.js";
-import { DepositSessionError } from "./DepositSessionErrors.js";
+import {
+    DepositSessionError,
+    InvalidDepositAddressError
+} from "./DepositSessionErrors.js";
 import {
     assertDepositIdentity,
     resolveReservedDepositWallets
@@ -246,7 +249,8 @@ export class DepositSessionCoordinator {
 
             return Object.freeze({
                 restored: 0,
-                skipped: 0
+                skipped: 0,
+                failed: 0
             });
 
         }
@@ -257,9 +261,29 @@ export class DepositSessionCoordinator {
 
         let skipped = 0;
 
+        let failed = 0;
+
         for (const record of records) {
 
-            const session = DepositSession.fromRecord(record);
+            let session;
+
+            try {
+
+                session = DepositSession.fromRecord(record);
+
+            } catch (error) {
+
+                if (error instanceof InvalidDepositAddressError) {
+
+                    failed += 1;
+
+                    continue;
+
+                }
+
+                throw error;
+
+            }
 
             if (!isRestorableDepositSessionStatus(session.state)) {
 
@@ -277,7 +301,8 @@ export class DepositSessionCoordinator {
 
         return Object.freeze({
             restored,
-            skipped
+            skipped,
+            failed
         });
 
     }

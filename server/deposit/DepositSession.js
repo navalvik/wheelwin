@@ -25,7 +25,46 @@ import {
     isDepositSessionTerminal
 } from "./DepositSessionStates.js";
 
+/**
+ * Canonicalize a stored/assigned deposit contract address.
+ * null/undefined means "not assigned". Any other value must be a real TON address.
+ * Does not treat EQ / UQ / 0Q friendly encodings as distinct identities.
+ */
+function resolvePersistedDepositAddress(rawAddress, depositId) {
+
+    if (rawAddress == null) {
+
+        return null;
+
+    }
+
+    if (typeof rawAddress !== "string" || !rawAddress.trim()) {
+
+        throw new InvalidDepositAddressError(
+            "depositAddress is not a valid TON address",
+            { depositId }
+        );
+
+    }
+
+    const canonical = canonicalizeTonWalletAddress(rawAddress);
+
+    if (!canonical) {
+
+        throw new InvalidDepositAddressError(
+            "depositAddress is not a valid TON address",
+            { depositId }
+        );
+
+    }
+
+    return canonical;
+
+}
+
 export class DepositSession {
+
+    #depositAddress = null;
 
     constructor({
         depositId = null,
@@ -97,7 +136,10 @@ export class DepositSession {
 
         this.expiresAt = expiresAt ?? null;
 
-        this.depositAddress = depositAddress ?? null;
+        this.#depositAddress = resolvePersistedDepositAddress(
+            depositAddress ?? null,
+            this.depositId
+        );
 
         this.bindingHash = bindingHash ?? null;
 
@@ -110,6 +152,12 @@ export class DepositSession {
         this.metadata = metadata && typeof metadata === "object"
             ? { ...metadata }
             : {};
+
+    }
+
+    get depositAddress() {
+
+        return this.#depositAddress;
 
     }
 
@@ -249,12 +297,9 @@ export class DepositSession {
 
         }
 
-        if (this.depositAddress != null) {
+        if (this.#depositAddress != null) {
 
-            const existingCanonical = canonicalizeTonWalletAddress(this.depositAddress)
-                ?? this.depositAddress;
-
-            if (existingCanonical === canonical) {
+            if (this.#depositAddress === canonical) {
 
                 return this;
 
@@ -264,14 +309,14 @@ export class DepositSession {
                 "depositAddress is already assigned and cannot be changed",
                 {
                     depositId: this.depositId,
-                    existingAddress: this.depositAddress,
+                    existingAddress: this.#depositAddress,
                     attemptedAddress: canonical
                 }
             );
 
         }
 
-        this.depositAddress = canonical;
+        this.#depositAddress = canonical;
 
         this.updatedAt = Date.now();
 
@@ -474,7 +519,7 @@ export class DepositSession {
 
         this.expiresAt = next.expiresAt;
 
-        this.depositAddress = next.depositAddress;
+        this.#depositAddress = next.depositAddress;
 
         this.bindingHash = next.bindingHash;
 
