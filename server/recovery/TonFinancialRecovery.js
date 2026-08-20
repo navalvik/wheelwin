@@ -83,7 +83,8 @@ export class TonFinancialRecovery {
         roomManager = null,
         depositSessionCoordinator = null,
         deploymentAuthorizationCoordinator = null,
-        depositMonitor = null
+        depositMonitor = null,
+        depositActivationVerificationCoordinator = null
     }) {
 
         this._logger = logger;
@@ -113,6 +114,8 @@ export class TonFinancialRecovery {
         this._deploymentAuthorizationCoordinator = deploymentAuthorizationCoordinator;
 
         this._depositMonitor = depositMonitor;
+
+        this._depositActivationVerificationCoordinator = depositActivationVerificationCoordinator;
 
         this._initialized = false;
 
@@ -225,8 +228,8 @@ export class TonFinancialRecovery {
             // (does not trigger deploy, GameContract creation, or authorization).
             this._restoreDepositSessions(report);
 
-            // R17.9L.7 — Restore deposit address watches without mutating sessions.
-            this._restoreDepositMonitorWatches(report);
+            // R17.9L.22 — Re-verify chain before restoring deposit watches.
+            await this._restoreDepositMonitorWatches(report);
 
             // R17.9L.5A — Restore VALID/CONSUMED authorizations without deploying.
             this._restoreDeploymentAuthorizations(report);
@@ -978,7 +981,33 @@ export class TonFinancialRecovery {
 
     }
 
-    _restoreDepositMonitorWatches(report) {
+    async _restoreDepositMonitorWatches(report) {
+
+        if (this._depositActivationVerificationCoordinator?.syncFromActiveSessions) {
+
+            try {
+
+                const summary = await this._depositActivationVerificationCoordinator
+                    .syncFromActiveSessions();
+
+                report.warnings.push(
+                    `deposit_activation_restore:verified=${summary.verified ?? 0}`
+                        + `|waiting=${summary.waiting ?? 0}`
+                        + `|rejected=${summary.rejected ?? 0}`
+                        + `|skipped=${summary.skipped ?? 0}`
+                );
+
+            } catch (error) {
+
+                report.errors.push(
+                    `deposit_activation_restore_failed:${error?.message ?? error}`
+                );
+
+            }
+
+            return;
+
+        }
 
         if (!this._depositMonitor?.restoreActiveWatches) {
 

@@ -146,6 +146,7 @@ import { DepositFullAuthorizationAutomation } from "./deposit/DepositFullAuthori
 import { DepositMonitor } from "./deposit/DepositMonitor.js";
 import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
 import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
+import { DepositActivationVerificationCoordinator } from "./deposit/DepositActivationVerificationCoordinator.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
 import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
@@ -1634,7 +1635,8 @@ class WheelWinApplication {
                 this._financialPersistence
             ),
             blockchainSource: this._tonDepositBlockchainSource,
-            network: this._tonConfig?.network ?? "testnet"
+            network: this._tonConfig?.network ?? "testnet",
+            requireActivationVerification: true
         });
 
         this._depositMonitor.initialize();
@@ -1657,6 +1659,18 @@ class WheelWinApplication {
 
         this._logger.startupLine("DepositOnChainVerificationCoordinator");
 
+        this._depositActivationVerification = new DepositActivationVerificationCoordinator({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            depositMonitor: this._depositMonitor,
+            blockchainSource: this._tonDepositBlockchainSource,
+            tonService: this._services.tonService,
+            network: this._tonConfig?.network ?? "testnet"
+        });
+
+        this._logger.startupLine("DepositActivationVerificationCoordinator");
+
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1670,7 +1684,8 @@ class WheelWinApplication {
             financialPersistence: this._financialPersistence,
             depositSessionCoordinator: this._depositSessionCoordinator,
             deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator,
-            depositMonitor: this._depositMonitor
+            depositMonitor: this._depositMonitor,
+            depositActivationVerificationCoordinator: this._depositActivationVerification
         });
 
         this._tonFinancialRecovery.initialize();

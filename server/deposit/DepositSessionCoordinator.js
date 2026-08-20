@@ -124,6 +124,30 @@ export class DepositSessionCoordinator {
 
     }
 
+    /**
+     * R17.9L.22 — Persist activation verification metadata (not funding state).
+     */
+    recordActivationVerification(depositId, verification) {
+
+        const session = this._require(depositId);
+
+        this._mutate(session, (current) => {
+
+            current.metadata = {
+                ...current.metadata,
+                activationVerification: Object.freeze({ ...verification })
+            };
+
+            current.updatedAt = Date.now();
+
+            current.version += 1;
+
+        });
+
+        return session;
+
+    }
+
     applyFunding(depositId, funding) {
 
         const session = this._require(depositId);

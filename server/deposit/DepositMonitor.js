@@ -12,6 +12,7 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { DepositObservation } from "./DepositObservation.js";
 import {
     DepositMonitorNotStartedError,
+    DepositWatchNotAuthorizedError,
     InvalidDepositObservationError
 } from "./DepositMonitorErrors.js";
 import { InMemoryDepositObservationPersistence } from "./DepositObservationPersistencePort.js";
@@ -35,7 +36,8 @@ export class DepositMonitor {
         depositSessionCoordinator = null,
         persistence = null,
         blockchainSource = null,
-        network = "testnet"
+        network = "testnet",
+        requireActivationVerification = false
     } = {}) {
 
         this._logger = logger;
@@ -55,6 +57,10 @@ export class DepositMonitor {
         this._started = false;
 
         this._watches = new Map();
+
+        this._requireActivationVerification = requireActivationVerification === true;
+
+        this._activationAuthorized = new Set();
 
         if (this._blockchainSource?.attachMonitor) {
 
@@ -76,9 +82,35 @@ export class DepositMonitor {
 
         this._watches.clear();
 
+        this._activationAuthorized.clear();
+
         this._started = false;
 
         this._initialized = false;
+
+    }
+
+    /**
+     * R17.9L.22 — Authorization issued only after chain activation verification.
+     * Does not start a watch by itself.
+     */
+    authorizeVerifiedWatch(depositId) {
+
+        if (!depositId) {
+
+            throw new InvalidDepositObservationError("depositId is required");
+
+        }
+
+        this._activationAuthorized.add(depositId);
+
+        return true;
+
+    }
+
+    isWatchAuthorized(depositId) {
+
+        return this._activationAuthorized.has(depositId);
 
     }
 
@@ -93,6 +125,18 @@ export class DepositMonitor {
         }
 
         const depositId = depositSession.depositId;
+
+        if (this._requireActivationVerification && !this._activationAuthorized.has(depositId)) {
+
+            throw new DepositWatchNotAuthorizedError(depositId);
+
+        }
+
+        if (this._watches.has(depositId)) {
+
+            return this._watches.get(depositId);
+
+        }
 
         const depositAddress = normalizeDepositWallet(depositSession.depositAddress);
 
@@ -177,6 +221,8 @@ export class DepositMonitor {
 
         this._assertStarted();
 
+        this._activationAuthorized.delete(depositId);
+
         return this._watches.delete(depositId);
 
     }
@@ -225,6 +271,17 @@ export class DepositMonitor {
             }
 
             if (!session.depositAddress) {
+
+                skipped += 1;
+
+                continue;
+
+            }
+
+            if (
+                this._requireActivationVerification
+                && !this._activationAuthorized.has(session.depositId)
+            ) {
 
                 skipped += 1;
 

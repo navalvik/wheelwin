@@ -1,0 +1,43 @@
+/**
+ * R17.9L.22 — Classified activation verification failures (fail closed).
+ */
+
+export const DEPOSIT_ACTIVATION_ERROR_CODES = Object.freeze({
+    SESSION_NOT_FOUND: "SESSION_NOT_FOUND",
+    DEPOSIT_ADDRESS_MISSING: "DEPOSIT_ADDRESS_MISSING",
+    ADDRESS_MISMATCH: "ADDRESS_MISMATCH",
+    ACCOUNT_NOT_ACTIVE: "ACCOUNT_NOT_ACTIVE",
+    CODE_MISSING: "CODE_MISSING",
+    CODE_HASH_MISMATCH: "CODE_HASH_MISMATCH",
+    GETTER_READ_FAILED: "GETTER_READ_FAILED",
+    IMMUTABLE_BINDING_MISMATCH: "IMMUTABLE_BINDING_MISMATCH",
+    PLAYER_BINDING_MISMATCH: "PLAYER_BINDING_MISMATCH",
+    FINANCIAL_PARAMETER_MISMATCH: "FINANCIAL_PARAMETER_MISMATCH",
+    NETWORK_MISMATCH: "NETWORK_MISMATCH",
+    RELEASE_AUTHORITY_MISMATCH: "RELEASE_AUTHORITY_MISMATCH",
+    INITIAL_STATE_INVALID: "INITIAL_STATE_INVALID",
+    RPC_FAILURE: "RPC_FAILURE"
+});
+
+export const DEPOSIT_ACTIVATION_STATUS = Object.freeze({
+    VERIFIED: "VERIFIED",
+    WAITING_FOR_PLAYER_DEPLOYMENT: "WAITING_FOR_PLAYER_DEPLOYMENT",
+    REJECTED: "REJECTED",
+    ALREADY_VERIFIED: "ALREADY_VERIFIED"
+});
+
+export class DepositActivationVerificationError extends Error {
+
+    constructor(message, code, details = {}) {
+
+        super(message);
+
+        this.name = "DepositActivationVerificationError";
+
+        this.code = code;
+
+        this.details = Object.freeze({ ...details });
+
+    }
+
+}

@@ -57,3 +57,19 @@ export class DepositWatchNotFoundError extends DepositMonitorError {
     }
 
 }
+
+export class DepositWatchNotAuthorizedError extends DepositMonitorError {
+
+    constructor(depositId) {
+
+        super(
+            "DepositMonitor watch requires activation verification",
+            "ACTIVATION_NOT_VERIFIED",
+            { depositId }
+        );
+
+        this.name = "DepositWatchNotAuthorizedError";
+
+    }
+
+}

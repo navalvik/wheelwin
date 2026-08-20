@@ -17,6 +17,7 @@ import { Address, Cell, beginCell } from "@ton/core";
 import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
 import { isFailedTonTransaction } from "../payment/BlockchainMonitor.js";
 import { loadDepositCodeCell } from "../payment/ton/buildDepositStateInit.js";
+import { readFullDepositGetters } from "../payment/ton/readDepositGetters.js";
 import { assertVerifiedDepositArtifact } from "../payment/ton/verifyDepositArtifact.js";
 import {
     InvalidResponseError,
@@ -741,6 +742,16 @@ export class RealTonDepositBlockchainSource {
             lastLt: info?.last_transaction_id?.lt ?? info?.lastTransactionId?.lt ?? null,
             lastHash: info?.last_transaction_id?.hash ?? info?.lastTransactionId?.hash ?? null
         });
+
+    }
+
+    /**
+     * R17.9L.22 — Full getter snapshot for activation verification.
+     * Read-only. Does not interpret balance as funding.
+     */
+    async readActivationGetters(address) {
+
+        return readFullDepositGetters(this._tonService, toFriendlyAddress(address));
 
     }
 
