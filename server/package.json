@@ -7,6 +7,8 @@
     "start": "node app.js",
     "dev": "nodemon app.js",
     "test": "node scripts/run-tests.js",
+    "testnet:r179l25": "node scripts/run-testnet-r179l25.js",
+    "testnet:r179l25:wallets": "node scripts/run-testnet-r179l25-wallets.js",
     "compile-contracts": "npm --prefix ../contracts run compile-contracts",
     "validate:production": "node scripts/run-production-validation.js",
     "release:build": "node scripts/run-release-build.js",
