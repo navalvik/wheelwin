@@ -1,0 +1,101 @@
+# WheelWin Cline Rules
+
+## Project Context
+
+Before any code changes read:
+
+- AI_CONTEXT/WHEELWIN_MASTER_CONTEXT.md
+- AI_CONTEXT/ARCHITECTURE_RULES.md
+- AI_CONTEXT/CURRENT_STATE.md
+- AI_CONTEXT/AI_WORKING_RULES.md
+
+---
+
+## Architecture Protection
+
+WheelWin is a deterministic peer-versus-peer multiplayer game.
+
+WheelWin is NOT a casino.
+
+Never introduce:
+
+- RTP.
+- House edge.
+- Weighted probabilities.
+- Jackpot mechanics.
+- Hidden modifiers.
+
+Exactly 3 players compete against each other.
+
+---
+
+## Authority Model
+
+After GAME_INITIALIZED:
+
+Server is the single source of truth.
+
+Never move authoritative logic to the client.
+
+Client only:
+
+- renders state;
+- sends commands;
+- displays results.
+
+---
+
+## Development Rules
+
+Before coding:
+
+1. Understand ownership.
+2. Find existing module responsible.
+3. Make the smallest change.
+4. Validate behaviour.
+
+Never rewrite architecture without explicit approval.
+
+---
+
+## Domain Respect
+
+Preserve:
+
+- RoomManager.
+- PlayerManager.
+- GameManager.
+- ConfigurationEngine.
+- PaymentSessionManager.
+- GameStateEngine.
+- PhysicsEngine.
+- InputAuthority.
+- WinnerEngine.
+- RecoveryEngine.
+
+Do not create parallel implementations.
+
+---
+
+## Financial Safety
+
+Never:
+
+- fake payment completion;
+- bypass blockchain verification;
+- invent financial state;
+- skip recovery validation.
+
+Financial truth must come from authoritative sources.
+
+---
+
+## Git Discipline
+
+After completed stages:
+
+git add .
+git commit
+git push
+
+Always keep changes incremental.
