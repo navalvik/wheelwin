@@ -362,3 +362,36 @@ GIT COMMIT
 
 
 Never skip analysis before implementation.
+
+
+---
+
+# 14. Pre-Analysis Context Reading
+
+
+Before any major analysis task, Cline must read existing project context
+documents and previous Cline reports.
+
+Major analysis tasks include:
+
+- architecture analysis;
+- financial analysis;
+- payment analysis;
+- blockchain analysis;
+- recovery analysis;
+- settlement analysis.
+
+
+Required documents to read before starting analysis:
+
+- AI_CONTEXT/WHEELWIN_MASTER_CONTEXT.md
+- AI_CONTEXT/ARCHITECTURE_RULES.md
+- AI_CONTEXT/CURRENT_STATE.md
+- AI_CONTEXT/AI_WORKING_RULES.md
+- Latest files inside AI_CONTEXT/CLINE_REPORTS/
+
+
+This ensures Cline has full project history, prior findings, and
+architectural constraints before producing new analysis.
+
+Never start a major analysis with an empty context.
