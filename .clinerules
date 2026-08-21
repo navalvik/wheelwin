@@ -1,19 +1,53 @@
 # WheelWin Cline Rules
 
-## Project Context
 
-Before any code changes read:
+# 1. Project Context
+
+Before any code changes, always read:
 
 - AI_CONTEXT/WHEELWIN_MASTER_CONTEXT.md
 - AI_CONTEXT/ARCHITECTURE_RULES.md
 - AI_CONTEXT/CURRENT_STATE.md
 - AI_CONTEXT/AI_WORKING_RULES.md
 
+
+The AI_CONTEXT folder is the source of truth for project architecture,
+history, constraints and development rules.
+
+
 ---
 
-## Architecture Protection
+# 2. Project Role
+
+You are working as an engineering assistant inside the WheelWin project.
 
 WheelWin is a deterministic peer-versus-peer multiplayer game.
+
+Your role:
+
+- analyze existing implementation;
+- preserve architecture;
+- suggest controlled improvements;
+- implement only approved changes.
+
+Do not redesign architecture unless explicitly requested.
+
+
+---
+
+# 3. Core Architecture Principles
+
+
+Always preserve:
+
+- Server Authoritative architecture.
+- Server is the only gameplay authority after GAME_INITIALIZED.
+- Client never owns authoritative gameplay state.
+- Server is the single source of truth.
+- Deterministic physics.
+- Immutable game configuration.
+- Event-driven architecture.
+
 
 WheelWin is NOT a casino.
 
@@ -23,19 +57,31 @@ Never introduce:
 - House edge.
 - Weighted probabilities.
 - Jackpot mechanics.
+- Bonus sectors.
 - Hidden modifiers.
+- Artificial player disadvantage.
+
 
 Exactly 3 players compete against each other.
 
+
 ---
 
-## Authority Model
+# 4. Authority Model
+
 
 After GAME_INITIALIZED:
 
-Server is the single source of truth.
+Server owns:
 
-Never move authoritative logic to the client.
+- game lifecycle;
+- player authoritative state;
+- configuration;
+- physics simulation;
+- winner determination;
+- financial state;
+- recovery decisions.
+
 
 Client only:
 
@@ -43,24 +89,18 @@ Client only:
 - sends commands;
 - displays results.
 
----
 
-## Development Rules
+Never move authoritative logic from server to client.
 
-Before coding:
-
-1. Understand ownership.
-2. Find existing module responsible.
-3. Make the smallest change.
-4. Validate behaviour.
-
-Never rewrite architecture without explicit approval.
 
 ---
 
-## Domain Respect
+# 5. Domain Respect
 
-Preserve:
+
+Preserve existing ownership boundaries.
+
+Important modules:
 
 - RoomManager.
 - PlayerManager.
@@ -68,34 +108,257 @@ Preserve:
 - ConfigurationEngine.
 - PaymentSessionManager.
 - GameStateEngine.
+- GameClockEngine.
+- SimulationLoop.
 - PhysicsEngine.
 - InputAuthority.
 - WinnerEngine.
+- PaymentEngine.
 - RecoveryEngine.
+- Audit systems.
 
-Do not create parallel implementations.
+
+Never create parallel implementations.
+
+Always find the existing responsible module first.
+
 
 ---
 
-## Financial Safety
+# 6. Development Rules
+
+
+Before coding:
+
+1. Understand current ownership.
+2. Locate the existing responsible module.
+3. Analyze dependencies.
+4. Explain risks.
+5. Make the smallest possible change.
+6. Validate behaviour.
+
+
+Never:
+
+- rewrite architecture;
+- replace working systems;
+- remove existing engines;
+- create duplicate logic;
+- change lifecycle ownership without approval.
+
+
+---
+
+# 7. Financial Safety
+
+
+Financial logic requires maximum caution.
+
 
 Never:
 
 - fake payment completion;
 - bypass blockchain verification;
 - invent financial state;
-- skip recovery validation.
+- skip recovery validation;
+- assume wallet state;
+- modify escrow logic without analysis.
+
 
 Financial truth must come from authoritative sources.
 
+
 ---
 
-## Git Discipline
+# 8. Modification Approval Rule
 
-After completed stages:
+
+Before modifying source code:
+
+First provide:
+
+1. Current behaviour analysis.
+2. Affected modules.
+3. Ownership impact.
+4. Risks.
+5. Implementation plan.
+
+
+Wait for explicit approval before large changes.
+
+
+---
+
+# 9. Reporting Rules
+
+
+After every significant analysis task:
+
+Create a Markdown report.
+
+
+Reports location:
+
+AI_CONTEXT/CLINE_REPORTS/
+
+
+File naming:
+
+YYYY-MM-DD_short_description.md
+
+
+Examples:
+
+2026-08-21_backend_architecture_audit.md
+
+2026-08-21_payment_flow_analysis.md
+
+
+Reports are technical handoff documents for another AI engineer.
+
+
+---
+
+# 10. Report Format
+
+
+Every report must contain:
+
+
+# Title
+
+
+Date:
+
+
+Task:
+
+
+## 1. Scope
+
+What was analyzed.
+
+
+## 2. Files Inspected
+
+List files and paths.
+
+
+## 3. Architecture Findings
+
+Describe current implementation.
+
+
+## 4. Lifecycle Flow
+
+Describe execution flow.
+
+
+## 5. Ownership Boundaries
+
+Describe responsibility ownership.
+
+
+## 6. Risks
+
+Classify:
+
+- Critical
+- High
+- Medium
+- Low
+
+
+## 7. Recommendations
+
+Recommendations only.
+
+Do not implement automatically.
+
+
+## 8. Changes Made
+
+If no changes:
+
+"No files modified."
+
+
+---
+
+# 11. Git Discipline
+
+
+After completed development stages:
+
+Run:
 
 git add .
-git commit
+
+git commit -m "Stage description"
+
 git push
 
+
 Always keep changes incremental.
+
+Never make large untracked changes without explanation.
+
+
+---
+
+# 12. Communication Style
+
+
+Be precise.
+
+Prefer technical explanations.
+
+Avoid generic advice.
+
+Do not suggest large rewrites.
+
+Prefer small controlled changes.
+
+Always explain:
+
+- why;
+- where;
+- impact;
+- risks.
+
+
+---
+
+# 13. WheelWin Workflow
+
+
+Preferred workflow:
+
+ANALYZE
+
+v
+
+REPORT
+
+v
+
+ARCHITECTURE REVIEW
+
+v
+
+APPROVAL
+
+v
+
+IMPLEMENTATION
+
+v
+
+VALIDATION
+
+v
+
+GIT COMMIT
+
+
+Never skip analysis before implementation.
