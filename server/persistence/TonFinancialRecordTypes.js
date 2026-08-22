@@ -19,7 +19,9 @@ export const TON_FINANCIAL_RECORD_TYPES = Object.freeze({
     DEPOSIT_SESSION: "deposit_session",
     DEPLOYMENT_AUTHORIZATION: "deployment_authorization",
     // R17.9L.7 — immutable on-chain funding observation facts.
-    DEPOSIT_OBSERVATION: "deposit_observation"
+    DEPOSIT_OBSERVATION: "deposit_observation",
+    // R17.9T.6-C — Recovery Data Contract persistence (gameplay recovery data).
+    RECOVERY_DATA: "recovery_data"
 });
 
 export const TON_FINANCIAL_SCHEMA_VERSION = 1;
@@ -74,6 +76,23 @@ export const DEPLOYMENT_AUTHORIZATION_TERMINAL_STATUSES = Object.freeze([
     "REVOKED"
 ]);
 
+/**
+ * R17.9T.6-C — Recovery Data Contract terminal statuses.
+ *
+ * Terminal recovery records are immutable after creation. These statuses
+ * represent games that have reached a terminal state (RESULT phase with
+ * physics STOPPED, or settlement completed/failed) where the recovery
+ * record must never be modified again.
+ *
+ * Pre-game / active recovery records use status "ACTIVE" and remain mutable
+ * until the game reaches a terminal state.
+ */
+export const RECOVERY_DATA_TERMINAL_STATUSES = Object.freeze([
+    "TERMINAL",
+    "SETTLED",
+    "FAILED_CLOSED"
+]);
+
 export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT]: "active",
     [TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION]: "active",
@@ -87,5 +106,6 @@ export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.DEPOSIT_OBSERVATION]: "immutable",
     [TON_FINANCIAL_RECORD_TYPES.SNAPSHOT]: "immutable",
     [TON_FINANCIAL_RECORD_TYPES.AUDIT]: "immutable",
-    [TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT]: "archived"
+    [TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT]: "archived",
+    [TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA]: "active"
 });

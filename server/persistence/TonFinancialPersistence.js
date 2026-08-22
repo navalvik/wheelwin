@@ -1107,6 +1107,48 @@ export class TonFinancialPersistence {
     }
 
     // -------------------------------------------------------------------------
+    // R17.9T.6-C — Recovery Data Contract persistence
+    // -------------------------------------------------------------------------
+
+    createRecoveryDataRecord(payload, metadata = {}) {
+
+        return this.create(
+            TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA,
+            payload,
+            metadata
+        );
+
+    }
+
+    updateRecoveryDataRecord(recordId, payload, metadata = {}) {
+
+        return this.update(
+            TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA,
+            recordId,
+            payload,
+            metadata
+        );
+
+    }
+
+    loadRecoveryDataRecord(recordId) {
+
+        return this.load(
+            TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA,
+            recordId
+        );
+
+    }
+
+    listActiveRecoveryDataRecords() {
+
+        return this.listActive(
+            TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA
+        );
+
+    }
+
+    // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------
 
