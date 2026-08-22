@@ -902,6 +902,34 @@ export class ConfigurationEngine {
 
     }
 
+    /**
+     * R17.9T.6-D3 — Silent recovery rollback detach.
+     *
+     * Removes exactly one game's runtime configuration and economy registry
+     * entries WITHOUT emitting CONFIGURATION_REMOVED, without generating a
+     * replacement configuration, and without touching catalog/version state,
+     * persistence, or any other subsystem. Intended exclusively for
+     * RecoveryOrchestrator rollback of a partially reconstructed candidate.
+     *
+     * @param {string} gameId
+     * @returns {boolean} true when detached; false when absent.
+     */
+    detachConfiguration(gameId) {
+
+        if (!this._configurations.has(gameId)) {
+
+            return false;
+
+        }
+
+        this._configurations.delete(gameId);
+
+        this._economies.delete(gameId);
+
+        return true;
+
+    }
+
     getDebugSnapshot(gameId) {
 
         const configuration = this._configurations.get(gameId);

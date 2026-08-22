@@ -460,6 +460,64 @@ export class GameManager {
     }
 
     /**
+     * R17.9T.6-D3 — Silent recovery rollback detach.
+     *
+     * Removes exactly one game from the manager's runtime registries WITHOUT
+     * emitting GAME_DESTROYED, without status mutation, without touching any
+     * other subsystem. Intended exclusively for RecoveryOrchestrator rollback
+     * of a partially reconstructed candidate.
+     *
+     * Cleans only GameManager-owned bookkeeping directly associated with this
+     * gameId: pending activation/configuration entries that point to this
+     * game, the entry-payment activation marker, and this game's own event
+     * subscriptions (unsubscribe only — no listener callbacks are triggered).
+     *
+     * @param {string} gameId
+     * @returns {boolean} true when the game was detached; false when absent.
+     */
+    detachGame(gameId) {
+
+        const game = this._games.get(gameId);
+
+        if (!game) {
+
+            return false;
+
+        }
+
+        this._games.delete(gameId);
+
+        for (const [roomId, pendingGameId] of [...this._pendingGameplayActivation]) {
+
+            if (pendingGameId === gameId) {
+
+                this._pendingGameplayActivation.delete(roomId);
+
+            }
+
+        }
+
+        for (const [roomId, pendingGameId] of [...this._pendingConfigurationByRoom]) {
+
+            if (pendingGameId === gameId) {
+
+                this._pendingConfigurationByRoom.delete(roomId);
+
+            }
+
+        }
+
+        this._entryPaymentActivatedGames.delete(gameId);
+
+        // Remove this game's own event subscriptions without triggering any
+        // listener callbacks (unsubscribe only — no events are emitted).
+        this._clearGameListeners(gameId);
+
+        return true;
+
+    }
+
+    /**
      * R8.6 — Authoritative gameplay ownership boundary.
      * True once GAME_INITIALIZED has advanced the game past CREATED
      * (status is READY / RUNNING / FINISHED / …), until DESTROYED.

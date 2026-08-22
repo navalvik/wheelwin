@@ -487,6 +487,32 @@ export class WinnerEngine {
 
     }
 
+    /**
+     * R17.9T.6-D3 — Silent recovery rollback detach.
+     *
+     * Removes exactly one game's winner/result registry entry WITHOUT
+     * emitting GAME_RESULT_REMOVED, without recalculating a winner, and
+     * without touching configuration, physics, game state, or financial
+     * data. Intended exclusively for RecoveryOrchestrator rollback of a
+     * partially reconstructed candidate.
+     *
+     * @param {string} gameId
+     * @returns {boolean} true when detached; false when absent.
+     */
+    detachResult(gameId) {
+
+        if (!this._results.has(gameId)) {
+
+            return false;
+
+        }
+
+        this._results.delete(gameId);
+
+        return true;
+
+    }
+
     getDebugSnapshot(gameId) {
 
         const result = this._results.get(gameId);

@@ -462,6 +462,34 @@ export class PlayerManager {
 
     }
 
+    /**
+     * R17.9T.6-D3 — Silent recovery rollback detach.
+     *
+     * Removes exactly one player's identity and runtime registration WITHOUT
+     * emitting PLAYER_REMOVED and without touching any other subsystem.
+     * Intended exclusively for RecoveryOrchestrator rollback of a partially
+     * reconstructed candidate. Does not derive or alter playerIndex
+     * ownership; playerIndex is not owned by PlayerManager.
+     *
+     * @param {string} playerId
+     * @returns {boolean} true when the player was detached; false when absent.
+     */
+    detachPlayer(playerId) {
+
+        if (!playerId || !this._identities.has(playerId)) {
+
+            return false;
+
+        }
+
+        this._identities.delete(playerId);
+
+        this._runtimes.delete(playerId);
+
+        return true;
+
+    }
+
     getDebugSnapshot() {
 
         const players = [];

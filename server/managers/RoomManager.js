@@ -591,6 +591,51 @@ export class RoomManager {
 
     }
 
+    /**
+     * R17.9T.6-D3 — Silent recovery rollback detach.
+     *
+     * Removes exactly one room from the manager's runtime registries WITHOUT
+     * emitting ROOM_DESTROYED, without forensics, without Setup Session
+     * lifecycle abort, without status mutation, and without touching any
+     * other subsystem. Intended exclusively for RecoveryOrchestrator
+     * rollback of a partially reconstructed candidate.
+     *
+     * Cleans only _playerRoomIndex entries that point to THIS room; mappings
+     * belonging to other rooms are never removed.
+     *
+     * @param {string} roomId
+     * @returns {boolean} true when the room was detached; false when absent.
+     */
+    detachRoom(roomId) {
+
+        const room = this._rooms.get(roomId);
+
+        if (!room) {
+
+            return false;
+
+        }
+
+        this._rooms.delete(roomId);
+
+        for (const playerId of room.players) {
+
+            if (this._playerRoomIndex.get(playerId) === roomId) {
+
+                this._playerRoomIndex.delete(playerId);
+
+            }
+
+        }
+
+        // Remove this room's own event subscriptions without triggering any
+        // listener callbacks (unsubscribe only — no events are emitted).
+        this._clearRoomListeners(roomId);
+
+        return true;
+
+    }
+
     getActiveRoomCount() {
 
         return this._rooms.size;
