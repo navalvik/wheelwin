@@ -537,6 +537,60 @@ export class RoomManager {
 
     }
 
+    /**
+     * R17.9T.6-D1 — Recovery identity attach layer.
+     *
+     * Registers a pre-constructed Room object with an existing roomId into
+     * the manager's in-memory _rooms Map. Does NOT generate a new roomId,
+     * does NOT call createRoom(), and does NOT alter any room fields.
+     *
+     * The supplied room's existing roomId is authoritative for this operation.
+     *
+     * @param {Room} room - Pre-constructed Room with an existing roomId.
+     * @returns {Room|null} The attached Room, or null on validation/duplicate failure.
+     */
+    attachRoom(room) {
+
+        if (!room) {
+
+            this._logger.error("Room attach failed: room is required");
+
+            return null;
+
+        }
+
+        if (!room.roomId) {
+
+            this._logger.error("Room attach failed: roomId is required");
+
+            return null;
+
+        }
+
+        if (this._rooms.has(room.roomId)) {
+
+            this._logger.error(
+                `Room attach failed: roomId already exists (${room.roomId})`
+            );
+
+            return null;
+
+        }
+
+        this._rooms.set(room.roomId, room);
+
+        for (const playerId of room.players) {
+
+            this._playerRoomIndex.set(playerId, room.roomId);
+
+        }
+
+        this._logger.info(`Room Attached: ${room.roomId}`);
+
+        return room;
+
+    }
+
     getActiveRoomCount() {
 
         return this._rooms.size;

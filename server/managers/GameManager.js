@@ -412,6 +412,54 @@ export class GameManager {
     }
 
     /**
+     * R17.9T.6-D1 — Recovery identity attach layer.
+     *
+     * Registers a pre-constructed Game object with an existing gameId into
+     * the manager's in-memory _games Map. Does NOT generate a new gameId,
+     * does NOT call createGame(), and does NOT alter any game fields.
+     *
+     * The supplied game's existing gameId is authoritative for this operation.
+     *
+     * @param {Game} game - Pre-constructed Game with an existing gameId.
+     * @returns {Game|null} The attached Game, or null on validation/duplicate failure.
+     */
+    attachGame(game) {
+
+        if (!game) {
+
+            this._logger.error("Game attach failed: game is required");
+
+            return null;
+
+        }
+
+        if (!game.gameId) {
+
+            this._logger.error("Game attach failed: gameId is required");
+
+            return null;
+
+        }
+
+        if (this._games.has(game.gameId)) {
+
+            this._logger.error(
+                `Game attach failed: gameId already exists (${game.gameId})`
+            );
+
+            return null;
+
+        }
+
+        this._games.set(game.gameId, game);
+
+        this._logger.info(`Game Attached: ${game.gameId}`);
+
+        return game;
+
+    }
+
+    /**
      * R8.6 — Authoritative gameplay ownership boundary.
      * True once GAME_INITIALIZED has advanced the game past CREATED
      * (status is READY / RUNNING / FINISHED / …), until DESTROYED.

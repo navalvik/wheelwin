@@ -390,6 +390,69 @@ export class PlayerManager {
 
     }
 
+    /**
+     * R17.9T.6-D1 — Recovery identity attach layer.
+     *
+     * Registers a pre-constructed PlayerIdentity and PlayerRuntime pair
+     * (with an existing playerId) into the manager's in-memory _identities
+     * and _runtimes Maps. Does NOT generate a new playerId, does NOT call
+     * createPlayer(), and does NOT alter any identity or runtime fields.
+     *
+     * The supplied objects' existing playerId is authoritative for this
+     * operation. The playerIndex is not stored in PlayerManager (it is
+     * owned by the payment domain and room.players ordering); attachPlayer
+     * preserves it by not generating a replacement playerId.
+     *
+     * @param {PlayerIdentity} identity - Pre-constructed PlayerIdentity with an existing playerId.
+     * @param {PlayerRuntime} runtime - Pre-constructed PlayerRuntime.
+     * @returns {object|null} Player.fromParts(identity, runtime), or null on validation/duplicate failure.
+     */
+    attachPlayer(identity, runtime) {
+
+        if (!identity) {
+
+            this._logger.error("Player attach failed: identity is required");
+
+            return null;
+
+        }
+
+        if (!runtime) {
+
+            this._logger.error("Player attach failed: runtime is required");
+
+            return null;
+
+        }
+
+        if (!identity.playerId) {
+
+            this._logger.error("Player attach failed: playerId is required");
+
+            return null;
+
+        }
+
+        if (this._identities.has(identity.playerId)) {
+
+            this._logger.error(
+                `Player attach failed: playerId already exists (${identity.playerId})`
+            );
+
+            return null;
+
+        }
+
+        this._identities.set(identity.playerId, identity);
+
+        this._runtimes.set(identity.playerId, runtime);
+
+        this._logger.info(`Player Attached: ${identity.playerId}`);
+
+        return Player.fromParts(identity, runtime);
+
+    }
+
     getDebugSnapshot() {
 
         const players = [];
