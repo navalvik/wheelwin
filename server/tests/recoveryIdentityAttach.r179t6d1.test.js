@@ -257,14 +257,38 @@ eventBus.initialize();
         lastSeen: 2000
     });
 
+    const existingPlayerIndex = 2;
+
+    const player = {
+        playerId: existingPlayerId,
+        playerIndex: existingPlayerIndex,
+        identity,
+        runtime
+    };
+
     // attachPlayer registers an existing Player using its existing playerId
-    const attached = playerManager.attachPlayer(identity, runtime);
+    const attached = playerManager.attachPlayer(player);
 
     assert(attached, "attachPlayer should return a player object");
 
     assert(
+        attached === player,
+        "attachPlayer should preserve the supplied Player object"
+    );
+
+    assert(
+        attached.playerId === existingPlayerId,
+        "attachPlayer must preserve the existing direct playerId"
+    );
+
+    assert(
         attached.identity.playerId === existingPlayerId,
         "attachPlayer must preserve the existing playerId"
+    );
+
+    assert(
+        attached.playerIndex === existingPlayerIndex,
+        "attachPlayer must preserve the existing playerIndex"
     );
 
     assert(
@@ -308,8 +332,15 @@ eventBus.initialize();
 
     const dupRuntime = new PlayerRuntime({});
 
+    const duplicatePlayer = {
+        playerId: existingPlayerId,
+        playerIndex: 0,
+        identity: dupIdentity,
+        runtime: dupRuntime
+    };
+
     assert(
-        playerManager.attachPlayer(dupIdentity, dupRuntime) === null,
+        playerManager.attachPlayer(duplicatePlayer) === null,
         "duplicate playerId should be rejected safely (null)"
     );
 
@@ -319,23 +350,33 @@ eventBus.initialize();
         "duplicate attach must not overwrite the existing player identity"
     );
 
-    // attachPlayer with missing identity is rejected
+    // attachPlayer with missing Player object is rejected
     assert(
-        playerManager.attachPlayer(null, runtime) === null,
-        "attachPlayer(null, runtime) should return null"
+        playerManager.attachPlayer(null) === null,
+        "attachPlayer(null) should return null"
     );
 
     // attachPlayer with missing runtime is rejected
     assert(
-        playerManager.attachPlayer(identity, null) === null,
-        "attachPlayer(identity, null) should return null"
+        playerManager.attachPlayer({
+            playerId: existingPlayerId,
+            playerIndex: existingPlayerIndex,
+            identity,
+            runtime: null
+        }) === null,
+        "attachPlayer with null runtime should return null"
     );
 
     // attachPlayer with missing playerId is rejected
     const noIdIdentity = new PlayerIdentity({ playerId: null });
 
     assert(
-        playerManager.attachPlayer(noIdIdentity, runtime) === null,
+        playerManager.attachPlayer({
+            playerId: null,
+            playerIndex: existingPlayerIndex,
+            identity: noIdIdentity,
+            runtime
+        }) === null,
         "attachPlayer with null playerId should return null"
     );
 

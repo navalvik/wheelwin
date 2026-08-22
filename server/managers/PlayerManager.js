@@ -393,25 +393,42 @@ export class PlayerManager {
     /**
      * R17.9T.6-D1 — Recovery identity attach layer.
      *
-     * Registers a pre-constructed PlayerIdentity and PlayerRuntime pair
-     * (with an existing playerId) into the manager's in-memory _identities
-     * and _runtimes Maps. Does NOT generate a new playerId, does NOT call
-     * createPlayer(), and does NOT alter any identity or runtime fields.
+     * Registers one pre-constructed Player aggregate into the manager's
+     * existing identity/runtime Maps. Does NOT generate a new playerId,
+     * call createPlayer(), or alter playerIndex or any supplied fields.
      *
-     * The supplied objects' existing playerId is authoritative for this
-     * operation. The playerIndex is not stored in PlayerManager (it is
-     * owned by the payment domain and room.players ordering); attachPlayer
-     * preserves it by not generating a replacement playerId.
-     *
-     * @param {PlayerIdentity} identity - Pre-constructed PlayerIdentity with an existing playerId.
-     * @param {PlayerRuntime} runtime - Pre-constructed PlayerRuntime.
-     * @returns {object|null} Player.fromParts(identity, runtime), or null on validation/duplicate failure.
+     * @param {{ playerId: string, playerIndex: number, identity: PlayerIdentity, runtime: PlayerRuntime }} player
+     * @returns {object|null} The supplied player, or null on failure.
      */
-    attachPlayer(identity, runtime) {
+    attachPlayer(player) {
 
-        if (!identity) {
+        if (!player) {
 
-            this._logger.error("Player attach failed: identity is required");
+            this._logger.error("Player attach failed: player is required");
+
+            return null;
+
+        }
+
+        const playerId = player.playerId;
+
+        const identity = player.identity;
+
+        const runtime = player.runtime;
+
+        if (!playerId) {
+
+            this._logger.error("Player attach failed: playerId is required");
+
+            return null;
+
+        }
+
+        if (identity?.playerId !== playerId) {
+
+            this._logger.error(
+                `Player attach failed: identity playerId mismatch (${playerId})`
+            );
 
             return null;
 
@@ -425,31 +442,23 @@ export class PlayerManager {
 
         }
 
-        if (!identity.playerId) {
-
-            this._logger.error("Player attach failed: playerId is required");
-
-            return null;
-
-        }
-
-        if (this._identities.has(identity.playerId)) {
+        if (this._identities.has(playerId)) {
 
             this._logger.error(
-                `Player attach failed: playerId already exists (${identity.playerId})`
+                `Player attach failed: playerId already exists (${playerId})`
             );
 
             return null;
 
         }
 
-        this._identities.set(identity.playerId, identity);
+        this._identities.set(playerId, identity);
 
-        this._runtimes.set(identity.playerId, runtime);
+        this._runtimes.set(playerId, runtime);
 
-        this._logger.info(`Player Attached: ${identity.playerId}`);
+        this._logger.info(`Player Attached: ${playerId}`);
 
-        return Player.fromParts(identity, runtime);
+        return player;
 
     }
 
