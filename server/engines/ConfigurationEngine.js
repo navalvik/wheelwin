@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { resolvePlayerSetupColors } from "./configuration/colorCatalog.js";
@@ -8,6 +10,7 @@ import {
     generateWheelLayout,
     validateWheelLayout
 } from "./configuration/wheelLayoutGenerator.js";
+import { stableStringify } from "../persistence/tonFinancialRecordUtils.js";
 
 export class ConfigurationEngine {
 
@@ -640,6 +643,148 @@ export class ConfigurationEngine {
         });
 
         return configuration;
+
+    }
+
+    /**
+     * R17.9T.6-D2 — Silent immutable configuration attachment for recovery.
+     *
+     * Validates the complete persisted configuration, verifies its checksum,
+     * deep-freezes a detached copy, and attaches it WITHOUT emitting
+     * CONFIGURATION_READY or generating any random values.
+     *
+     * Duplicate behavior:
+     *   - absent gameId -> attach;
+     *   - existing equivalent configuration/hash -> idempotent success;
+     *   - existing conflicting configuration -> fail closed.
+     *
+     * @param {{ gameId: string, roomId: string, configuration: object, configurationHash: string }} input
+     * @returns {object|null} The attached frozen configuration, or null on failure.
+     */
+    attachConfiguration({ gameId, roomId, configuration, configurationHash }) {
+
+        this._assertInitialized();
+
+        if (!gameId) {
+
+            this._logger.error("Configuration attach failed: gameId is required");
+
+            return null;
+
+        }
+
+        if (!roomId) {
+
+            this._logger.error("Configuration attach failed: roomId is required");
+
+            return null;
+
+        }
+
+        if (!configuration || typeof configuration !== "object") {
+
+            this._logger.error("Configuration attach failed: configuration is required");
+
+            return null;
+
+        }
+
+        if (typeof configurationHash !== "string" || !configurationHash.trim()) {
+
+            this._logger.error("Configuration attach failed: configurationHash is required");
+
+            return null;
+
+        }
+
+        // Identity validation.
+        if (configuration.gameId !== gameId) {
+
+            this._logger.error(
+                `Configuration attach failed: configuration.gameId mismatch (${configuration.gameId})`
+            );
+
+            return null;
+
+        }
+
+        if (configuration.metadata?.roomId !== roomId) {
+
+            this._logger.error(
+                `Configuration attach failed: configuration.metadata.roomId mismatch (${configuration.metadata?.roomId})`
+            );
+
+            return null;
+
+        }
+
+        // Configuration hash validation against the complete persisted configuration.
+        const computedHash = createHash("sha256")
+            .update(stableStringify(configuration))
+            .digest("hex");
+
+        if (computedHash !== configurationHash) {
+
+            this._logger.error(
+                `Configuration attach failed: configurationHash mismatch (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        // Duplicate handling.
+        const existing = this._configurations.get(gameId);
+
+        if (existing) {
+
+            const existingHash = createHash("sha256")
+                .update(stableStringify(existing))
+                .digest("hex");
+
+            if (existingHash === configurationHash) {
+
+                this._logger.info(
+                    `Configuration attach: equivalent configuration already attached (${gameId})`
+                );
+
+                return existing;
+
+            }
+
+            this._logger.error(
+                `Configuration attach failed: conflicting configuration already exists (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        // Structural validation (respects catalog/version compatibility).
+        try {
+
+            this.validateConfiguration(configuration);
+
+        } catch (error) {
+
+            this._logger.error(
+                `Configuration attach failed: ${error?.message ?? "validation error"} (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        // Deep-freeze a detached configuration object before storing it.
+        const detached = JSON.parse(JSON.stringify(configuration));
+
+        const frozen = this.freezeConfiguration(detached);
+
+        this._configurations.set(gameId, frozen);
+
+        this._logger.info("Configuration Attached");
+
+        return frozen;
 
     }
 

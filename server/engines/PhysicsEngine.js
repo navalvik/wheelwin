@@ -901,6 +901,204 @@ export class PhysicsEngine {
 
     }
 
+    /**
+     * R17.9T.6-D2 — Silent simulation attachment for recovery.
+     *
+     * Attaches an already-authoritative simulation state WITHOUT emitting
+     * PHYSICS_STARTED / PHYSICS_UPDATED / PHYSICS_STOPPED and WITHOUT
+     * registering the game in SimulationLoop.
+     *
+     * Allowed D2 restoration shapes:
+     *   A. Proven pre-motion state: CREATED
+     *   B. Terminal RESULT state: STOPPED with authoritative final angles
+     *
+     * RUNNING / BRAKING restoration is rejected under the current contract.
+     *
+     * @param {{ gameId: string, parameters?: object, runtime: object, commandLog?: Array<object> }} input
+     * @param {{ emitEvents?: boolean }} options
+     * @returns {object|null} The attached simulation snapshot, or null on failure.
+     */
+    attachSimulation({ gameId, parameters = {}, runtime, commandLog = [] }, { emitEvents = false } = {}) {
+
+        this._assertInitialized();
+
+        if (!gameId) {
+
+            this._logger.error("Simulation attach failed: gameId is required");
+
+            return null;
+
+        }
+
+        if (!runtime || typeof runtime !== "object") {
+
+            this._logger.error("Simulation attach failed: runtime is required");
+
+            return null;
+
+        }
+
+        if (!Array.isArray(commandLog)) {
+
+            this._logger.error("Simulation attach failed: commandLog must be an array");
+
+            return null;
+
+        }
+
+        const state = runtime.state;
+
+        if (state !== PHYSICS_SIMULATION_STATE.CREATED
+            && state !== PHYSICS_SIMULATION_STATE.STOPPED) {
+
+            this._logger.error(
+                `Simulation attach failed: state ${state} is not recoverable under D2`
+            );
+
+            return null;
+
+        }
+
+        // Validate finite numeric values.
+        const numericFields = [
+            "angle",
+            "triangleAngle",
+            "angularVelocity",
+            "triangleAngularVelocity",
+            "angularAcceleration",
+            "brakeDurationMs",
+            "brakeElapsedMs",
+            "brakeStartWheelOmega",
+            "simulationTimeMs"
+        ];
+
+        for (const field of numericFields) {
+
+            const value = runtime[field];
+
+            if (value !== undefined && value !== null && !Number.isFinite(value)) {
+
+                this._logger.error(
+                    `Simulation attach failed: ${field} must be finite (${gameId})`
+                );
+
+                return null;
+
+            }
+
+        }
+
+        if (state === PHYSICS_SIMULATION_STATE.CREATED) {
+
+            // Pre-motion state: angles/velocities must be zero/default.
+            if (runtime.angle !== 0
+                || runtime.triangleAngle !== 0
+                || runtime.angularVelocity !== 0
+                || runtime.triangleAngularVelocity !== 0
+                || runtime.angularAcceleration !== 0) {
+
+                this._logger.error(
+                    `Simulation attach failed: CREATED state must have zero motion (${gameId})`
+                );
+
+                return null;
+
+            }
+
+        }
+
+        if (state === PHYSICS_SIMULATION_STATE.STOPPED) {
+
+            // Terminal state: final angles must be finite radians; motion must be zero.
+            if (!Number.isFinite(runtime.angle) || !Number.isFinite(runtime.triangleAngle)) {
+
+                this._logger.error(
+                    `Simulation attach failed: STOPPED state requires finite final angles (${gameId})`
+                );
+
+                return null;
+
+            }
+
+            if (runtime.angularVelocity !== 0
+                || runtime.triangleAngularVelocity !== 0
+                || runtime.angularAcceleration !== 0) {
+
+                this._logger.error(
+                    `Simulation attach failed: STOPPED state requires zero terminal motion (${gameId})`
+                );
+
+                return null;
+
+            }
+
+        }
+
+        // Duplicate handling.
+        if (this._simulations.has(gameId)) {
+
+            const existing = this._simulations.get(gameId);
+
+            if (existing.runtime.state === state
+                && existing.runtime.angle === (runtime.angle ?? 0)
+                && existing.runtime.triangleAngle === (runtime.triangleAngle ?? 0)) {
+
+                this._logger.info(
+                    `Simulation attach: equivalent simulation already attached (${gameId})`
+                );
+
+                return this.getSimulation(gameId);
+
+            }
+
+            this._logger.error(
+                `Simulation attach failed: conflicting simulation already exists (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        const physicsParameters = {
+            ...DEFAULT_PHYSICS_PARAMETERS,
+            ...parameters
+        };
+
+        const simulation = {
+            gameId,
+            parameters: physicsParameters,
+            runtime: {
+                angle: runtime.angle ?? 0,
+                triangleAngle: runtime.triangleAngle ?? 0,
+                angularVelocity: runtime.angularVelocity ?? 0,
+                triangleAngularVelocity: runtime.triangleAngularVelocity ?? 0,
+                angularAcceleration: runtime.angularAcceleration ?? 0,
+                state,
+                braking: runtime.braking ?? false,
+                selfTestActive: runtime.selfTestActive ?? false,
+                speedActive: runtime.speedActive ?? false,
+                brakeActive: runtime.brakeActive ?? false,
+                brakeDurationMs: runtime.brakeDurationMs ?? 0,
+                brakeElapsedMs: runtime.brakeElapsedMs ?? 0,
+                brakeStartWheelOmega: runtime.brakeStartWheelOmega ?? 0,
+                // Preserve the internal guard so a later cleanup path cannot
+                // emit a false PHYSICS_STOPPED event.
+                physicsStoppedEmitted: state === PHYSICS_SIMULATION_STATE.STOPPED
+                    ? true
+                    : (runtime.physicsStoppedEmitted ?? false),
+                simulationTimeMs: runtime.simulationTimeMs ?? 0
+            },
+            commandLog: commandLog.map((entry) => ({ ...entry }))
+        };
+
+        this._simulations.set(gameId, simulation);
+
+        this._logger.info("Simulation Attached");
+
+        return this.getSimulation(gameId);
+
+    }
+
     removeSimulation(gameId) {
 
         const simulation = this._simulations.get(gameId);

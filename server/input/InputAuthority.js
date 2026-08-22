@@ -170,6 +170,157 @@ export class InputAuthority {
 
     }
 
+    /**
+     * R17.9T.6-D2 — Atomic safe-default registry attachment for recovery.
+     *
+     * Attaches a whole input registry for an eligible pre-motion phase
+     * (PRE_GAME_READY / READY) with default player states and empty queues.
+     * Does NOT mutate PlayerManager, emit input events, or accept historical
+     * commands that are absent from authoritative persistence.
+     *
+     * @param {{ gameId: string, playerIds: string[], players?: object, speedInputClosed?: boolean, commandQueue?: Array, acceptedCommands?: Array, sequenceNumber?: number }} input
+     * @returns {object|null} The attached registry snapshot, or null on failure.
+     */
+    attachRegistry({
+        gameId,
+        playerIds,
+        players = null,
+        speedInputClosed = false,
+        commandQueue = [],
+        acceptedCommands = [],
+        sequenceNumber = 0
+    }) {
+
+        this._assertInitialized();
+
+        if (!gameId) {
+
+            this._logger.error("Registry attach failed: gameId is required");
+
+            return null;
+
+        }
+
+        if (!Array.isArray(playerIds) || playerIds.length === 0) {
+
+            this._logger.error("Registry attach failed: playerIds must be a non-empty array");
+
+            return null;
+
+        }
+
+        // Validate no duplicate player IDs.
+        const uniquePlayerIds = new Set(playerIds);
+
+        if (uniquePlayerIds.size !== playerIds.length) {
+
+            this._logger.error("Registry attach failed: duplicate playerIds are not allowed");
+
+            return null;
+
+        }
+
+        // Validate every player exists in the already-attached PlayerManager identity boundary.
+        for (const playerId of playerIds) {
+
+            if (!this._playerManager.hasPlayer(playerId)) {
+
+                this._logger.error(
+                    `Registry attach failed: player does not exist (${playerId})`
+                );
+
+                return null;
+
+            }
+
+        }
+
+        // Validate commandQueue is empty (current D2 contract provides no active input history).
+        if (!Array.isArray(commandQueue) || commandQueue.length !== 0) {
+
+            this._logger.error("Registry attach failed: commandQueue must be empty");
+
+            return null;
+
+        }
+
+        // Validate acceptedCommands is empty unless authoritative persisted data exists.
+        if (!Array.isArray(acceptedCommands) || acceptedCommands.length !== 0) {
+
+            this._logger.error("Registry attach failed: acceptedCommands must be empty");
+
+            return null;
+
+        }
+
+        // Validate sequenceNumber according to the safe default policy.
+        if (!Number.isInteger(sequenceNumber) || sequenceNumber < 0) {
+
+            this._logger.error("Registry attach failed: sequenceNumber must be a non-negative integer");
+
+            return null;
+
+        }
+
+        // Duplicate handling.
+        if (this._registries.has(gameId)) {
+
+            const existing = this._registries.get(gameId);
+
+            const existingPlayerIds = [...existing.players.keys()].sort();
+
+            const expectedPlayerIds = [...playerIds].sort();
+
+            const equivalent = existingPlayerIds.length === expectedPlayerIds.length
+                && existingPlayerIds.every((id, index) => id === expectedPlayerIds[index]);
+
+            if (equivalent) {
+
+                this._logger.info(
+                    `Registry attach: equivalent registry already attached (${gameId})`
+                );
+
+                return this._createRegistrySnapshot(existing);
+
+            }
+
+            this._logger.error(
+                `Registry attach failed: conflicting registry already exists (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        // Build the registry atomically before insertion.
+        const registry = {
+            gameId,
+            players: new Map(),
+            commandQueue: [],
+            acceptedCommands: [],
+            sequenceNumber: 0
+        };
+
+        for (const playerId of playerIds) {
+
+            registry.players.set(playerId, createDefaultPlayerInputState(playerId));
+
+        }
+
+        if (speedInputClosed) {
+
+            this._speedInputClosed.add(gameId);
+
+        }
+
+        this._registries.set(gameId, registry);
+
+        this._logger.info("Registry Attached");
+
+        return this._createRegistrySnapshot(registry);
+
+    }
+
     removePlayer(gameId, playerId) {
 
         this._assertInitialized();
@@ -747,6 +898,18 @@ export class InputAuthority {
     _removeGameRegistry(gameId) {
 
         this._registries.delete(gameId);
+
+    }
+
+    _createRegistrySnapshot(registry) {
+
+        return {
+            gameId: registry.gameId,
+            playerIds: [...registry.players.keys()],
+            commandQueueLength: registry.commandQueue.length,
+            acceptedCommandsLength: registry.acceptedCommands.length,
+            sequenceNumber: registry.sequenceNumber
+        };
 
     }
 

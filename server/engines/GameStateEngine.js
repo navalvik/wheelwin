@@ -255,6 +255,118 @@ export class GameStateEngine {
 
     }
 
+    /**
+     * R17.9T.6-D2 — Silent direct state attachment for recovery.
+     *
+     * Attaches an already-authoritative GameState record WITHOUT replaying
+     * transitions or emitting GAME_STATE_CHANGED / GAME_STATE_REJECTED.
+     *
+     * Duplicate behavior:
+     *   - absent gameId -> attach;
+     *   - existing equivalent state -> idempotent success;
+     *   - existing conflicting state -> fail closed.
+     *
+     * @param {{ gameId: string, currentState: string, enteredAt: number, previousState?: string|null, history?: Array<{state: string, enteredAt: number, reason?: string}> }} input
+     * @returns {object|null} The attached state snapshot, or null on failure.
+     */
+    attachState({ gameId, currentState, enteredAt, previousState = null, history = [] }) {
+
+        this._assertInitialized();
+
+        if (!gameId) {
+
+            this._logger.error("State attach failed: gameId is required");
+
+            return null;
+
+        }
+
+        if (!isValidGameState(currentState)) {
+
+            this._logger.error(
+                `State attach failed: invalid state (${currentState})`
+            );
+
+            return null;
+
+        }
+
+        if (!Number.isFinite(enteredAt) || enteredAt <= 0) {
+
+            this._logger.error("State attach failed: enteredAt is required");
+
+            return null;
+
+        }
+
+        if (previousState !== null && !isValidGameState(previousState)) {
+
+            this._logger.error(
+                `State attach failed: invalid previousState (${previousState})`
+            );
+
+            return null;
+
+        }
+
+        if (!Array.isArray(history)) {
+
+            this._logger.error("State attach failed: history must be an array");
+
+            return null;
+
+        }
+
+        for (const entry of history) {
+
+            if (!entry || !isValidGameState(entry.state) || !Number.isFinite(entry.enteredAt)) {
+
+                this._logger.error("State attach failed: history entry is invalid");
+
+                return null;
+
+            }
+
+        }
+
+        // Duplicate handling.
+        const existing = this._states.get(gameId);
+
+        if (existing) {
+
+            if (existing.currentState === currentState) {
+
+                this._logger.info(
+                    `State attach: equivalent state already attached (${gameId})`
+                );
+
+                return this._createSnapshot(gameId, existing);
+
+            }
+
+            this._logger.error(
+                `State attach failed: conflicting state already exists (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        const record = {
+            currentState,
+            previousState,
+            enteredAt,
+            history: history.map((entry) => ({ ...entry }))
+        };
+
+        this._states.set(gameId, record);
+
+        this._logger.info("State Attached");
+
+        return this._createSnapshot(gameId, record);
+
+    }
+
     resetState(gameId, context = {}) {
 
         this._assertInitialized();

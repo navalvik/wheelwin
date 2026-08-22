@@ -261,6 +261,201 @@ export class WinnerEngine {
 
     }
 
+    /**
+     * R17.9T.6-D2 — Silent full-result attachment for recovery.
+     *
+     * Attaches a complete authoritative winner result WITHOUT emitting
+     * WINNING_SECTOR_RESOLVED or GAME_RESULT_READY.
+     *
+     * @param {object} result
+     * @returns {object|null} The attached frozen result, or null on failure.
+     */
+    attachResult(result) {
+
+        this._assertInitialized();
+
+        if (!result || typeof result !== "object") {
+
+            this._logger.error("Result attach failed: result is required");
+
+            return null;
+
+        }
+
+        const gameId = result.gameId;
+
+        if (!gameId) {
+
+            this._logger.error("Result attach failed: gameId is required");
+
+            return null;
+
+        }
+
+        const configuration = this._configurationEngine.getConfiguration(gameId);
+
+        if (!configuration) {
+
+            this._logger.error(
+                `Result attach failed: configuration is missing (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        // Validate the result structure.
+        try {
+
+            this._validateResult(result, configuration);
+
+        } catch (error) {
+
+            this._logger.error(
+                `Result attach failed: ${error?.message ?? "validation error"} (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        // Duplicate handling.
+        if (this._results.has(gameId)) {
+
+            const existing = this._results.get(gameId);
+
+            if (existing.winnerPlayerId === result.winnerPlayerId
+                && existing.winnerSectorIndex === result.winnerSectorIndex) {
+
+                this._logger.info(
+                    `Result attach: equivalent result already attached (${gameId})`
+                );
+
+                return existing;
+
+            }
+
+            this._logger.error(
+                `Result attach failed: conflicting result already exists (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        const frozenResult = deepFreezeResult(result);
+
+        this._results.set(gameId, frozenResult);
+
+        this._logger.info("Result Attached");
+
+        return frozenResult;
+
+    }
+
+    /**
+     * R17.9T.6-D2 — Silent deterministic winner recomputation for terminal RESULT.
+     *
+     * Recomputes the winner outcome from the exact attached configuration and
+     * terminal STOPPED physics WITHOUT emitting WINNING_SECTOR_RESOLVED or
+     * GAME_RESULT_READY.
+     *
+     * NOTE: The historical resolvedAt timestamp is NOT persisted in the current
+     * recovery contract. This method does NOT invent it. The returned result
+     * exposes `resolvedAt: null` to make this limitation explicit.
+     *
+     * @param {string} gameId
+     * @returns {object|null} The recomputed frozen result, or null on failure.
+     */
+    restoreResult(gameId) {
+
+        this._assertInitialized();
+
+        if (!gameId) {
+
+            this._logger.error("Result restore failed: gameId is required");
+
+            return null;
+
+        }
+
+        // Duplicate handling.
+        if (this._results.has(gameId)) {
+
+            const existing = this._results.get(gameId);
+
+            this._logger.info(
+                `Result restore: result already attached (${gameId})`
+            );
+
+            return existing;
+
+        }
+
+        try {
+
+            const { configuration, physics } = this._readResolutionInputs(gameId);
+
+            const wheelFinalAngle = physics.runtime.angle;
+
+            const triangleFinalAngle = Number.isFinite(physics.runtime.triangleAngle)
+                ? physics.runtime.triangleAngle
+                : 0;
+
+            const triangleAngleDegrees = triangleFinalAngle * (180 / Math.PI);
+
+            const winningSector = this._sectorResolver.resolve({
+                configuration,
+                finalWheelAngleRadians: wheelFinalAngle,
+                triangleAngleDegrees
+            });
+
+            const winningPlayer = this._playerResolver.resolve({
+                configuration,
+                winningSector
+            });
+
+            const result = {
+                gameId,
+                winningSector,
+                winningPlayer,
+                winnerPlayerId: winningPlayer.playerId,
+                winnerSectorIndex: winningSector.index,
+                prize: null,
+                payout: null,
+                finalAngle: wheelFinalAngle,
+                wheelFinalAngle,
+                triangleFinalAngle,
+                // Historical resolvedAt is not persisted in the current contract.
+                resolvedAt: null,
+                traceSeed: configuration.traceSeed,
+                metadata: {
+                    configurationVersion: configuration.configurationVersion
+                }
+            };
+
+            this._validateResult(result, configuration);
+
+            const frozenResult = deepFreezeResult(result);
+
+            this._results.set(gameId, frozenResult);
+
+            this._logger.info("Result Restored");
+
+            return frozenResult;
+
+        } catch (error) {
+
+            this._logger.error(
+                `Result restore failed | gameId=${gameId} | reason=${error?.message ?? "unknown"}`
+            );
+
+            return null;
+
+        }
+
+    }
+
     getResult(gameId) {
 
         return this._results.get(gameId) ?? null;

@@ -530,6 +530,314 @@ export class GameClockEngine {
 
     }
 
+    /**
+     * R17.9T.6-D2 — Silent clock attachment for recovery (unarmed by default).
+     *
+     * Attaches an already-authoritative clock state WITHOUT creating a timeout,
+     * emitting lifecycle events, or starting the clock. The clock remains
+     * unarmed until armRecoveredClock(gameId) is called after full candidate
+     * validation.
+     *
+     * @param {object} clockState
+     * @param {{ gameId: string, currentPhase: string, startedAt: number, phaseStartedAt: number, paused: boolean, totalPausedMs: number, awaitingResultActivation: boolean, resultPhaseStarted: boolean, serverTimestampAtCheckpoint: number, frozenTimers?: object }} clockState
+     * @param {{ arm?: boolean }} options
+     * @returns {object|null} The attached clock snapshot, or null on failure.
+     */
+    attachClock(clockState, { arm = false } = {}) {
+
+        this._assertInitialized();
+
+        if (!clockState || typeof clockState !== "object") {
+
+            this._logger.error("Clock attach failed: clockState is required");
+
+            return null;
+
+        }
+
+        const {
+            gameId,
+            currentPhase,
+            startedAt,
+            phaseStartedAt,
+            paused = false,
+            totalPausedMs = 0,
+            awaitingResultActivation = false,
+            resultPhaseStarted = false,
+            serverTimestampAtCheckpoint,
+            frozenTimers = null
+        } = clockState;
+
+        if (!gameId) {
+
+            this._logger.error("Clock attach failed: gameId is required");
+
+            return null;
+
+        }
+
+        if (!CLOCK_PHASE_SEQUENCE.includes(currentPhase)) {
+
+            this._logger.error(
+                `Clock attach failed: invalid phase (${currentPhase})`
+            );
+
+            return null;
+
+        }
+
+        if (!Number.isFinite(startedAt) || startedAt <= 0) {
+
+            this._logger.error("Clock attach failed: startedAt is required");
+
+            return null;
+
+        }
+
+        if (!Number.isFinite(phaseStartedAt) || phaseStartedAt <= 0) {
+
+            this._logger.error("Clock attach failed: phaseStartedAt is required");
+
+            return null;
+
+        }
+
+        if (!Number.isFinite(serverTimestampAtCheckpoint) || serverTimestampAtCheckpoint <= 0) {
+
+            this._logger.error("Clock attach failed: serverTimestampAtCheckpoint is required");
+
+            return null;
+
+        }
+
+        if (typeof paused !== "boolean") {
+
+            this._logger.error("Clock attach failed: paused must be a boolean");
+
+            return null;
+
+        }
+
+        if (!Number.isFinite(totalPausedMs) || totalPausedMs < 0) {
+
+            this._logger.error("Clock attach failed: totalPausedMs is invalid");
+
+            return null;
+
+        }
+
+        if (typeof awaitingResultActivation !== "boolean") {
+
+            this._logger.error("Clock attach failed: awaitingResultActivation must be a boolean");
+
+            return null;
+
+        }
+
+        if (typeof resultPhaseStarted !== "boolean") {
+
+            this._logger.error("Clock attach failed: resultPhaseStarted must be a boolean");
+
+            return null;
+
+        }
+
+        // Duplicate handling.
+        if (this._clocks.has(gameId)) {
+
+            const existing = this._clocks.get(gameId);
+
+            if (existing.currentPhase === currentPhase
+                && existing.startedAt === startedAt
+                && existing.phaseStartedAt === phaseStartedAt
+                && existing.paused === paused
+                && existing.totalPausedMs === totalPausedMs) {
+
+                this._logger.info(
+                    `Clock attach: equivalent clock already attached (${gameId})`
+                );
+
+                return this._createSnapshot(existing);
+
+            }
+
+            this._logger.error(
+                `Clock attach failed: conflicting clock already exists (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        // Validate phase/configuration timer consistency.
+        const duration = this._getPhaseDuration(
+            { frozenTimers: frozenTimers ?? this._snapshotCatalogTimers() },
+            currentPhase
+        );
+
+        if (!Number.isFinite(duration) || duration <= 0) {
+
+            this._logger.error(
+                `Clock attach failed: no timer definition for phase (${currentPhase})`
+            );
+
+            return null;
+
+        }
+
+        // Expired deadline handling: never attach an expired unpaused phase as running.
+        if (!paused) {
+
+            const phaseEndsAt = phaseStartedAt + duration;
+
+            if (phaseEndsAt <= serverTimestampAtCheckpoint) {
+
+                this._logger.error(
+                    `Clock attach failed: phase deadline already expired (${gameId})`
+                );
+
+                return null;
+
+            }
+
+        }
+
+        const record = {
+            gameId,
+            currentPhase,
+            startedAt,
+            pausedAt: null,
+            elapsed: 0,
+            running: false,
+            paused,
+            phaseStartedAt,
+            phaseEndsAt: phaseStartedAt + duration,
+            phaseRemainingMs: paused ? null : Math.max(0, (phaseStartedAt + duration) - serverTimestampAtCheckpoint),
+            totalPausedMs,
+            pauseStartedAt: null,
+            timeoutHandle: null,
+            awaitingResultActivation,
+            resultPhaseStarted,
+            history: [],
+            frozenTimers: frozenTimers ?? this._snapshotCatalogTimers()
+        };
+
+        this._clocks.set(gameId, record);
+
+        this._logger.info("Clock Attached");
+
+        return this._createSnapshot(record);
+
+    }
+
+    /**
+     * R17.9T.6-D2 — Arm a previously attached recovered clock.
+     *
+     * Creates exactly one timeout for an eligible, non-expired clock.
+     * Refuses expired schedules and terminal-invalid schedules.
+     * Does NOT replay historical lifecycle events.
+     *
+     * @param {string} gameId
+     * @returns {object|null} The armed clock snapshot, or null on failure.
+     */
+    armRecoveredClock(gameId) {
+
+        this._assertInitialized();
+
+        const record = this._clocks.get(gameId);
+
+        if (!record) {
+
+            this._logger.error(
+                `Clock arming failed: clock not found (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        if (record.running) {
+
+            this._logger.error(
+                `Clock arming failed: clock is already running (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        if (record.timeoutHandle !== null) {
+
+            this._logger.error(
+                `Clock arming failed: timeout already scheduled (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        if (record.paused) {
+
+            this._logger.error(
+                `Clock arming failed: paused clock cannot be armed (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        if (record.currentPhase === TIMER_PHASES.RESULT) {
+
+            this._logger.error(
+                `Clock arming failed: RESULT phase is terminal-invalid (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        const duration = this._getPhaseDuration(record, record.currentPhase);
+
+        if (!Number.isFinite(duration) || duration <= 0) {
+
+            this._logger.error(
+                `Clock arming failed: no timer definition for phase (${record.currentPhase})`
+            );
+
+            return null;
+
+        }
+
+        const remainingMs = Math.max(0, (record.phaseStartedAt + duration) - Date.now());
+
+        if (remainingMs <= 0) {
+
+            this._logger.error(
+                `Clock arming failed: phase deadline already expired (${gameId})`
+            );
+
+            return null;
+
+        }
+
+        record.running = true;
+
+        record.phaseRemainingMs = remainingMs;
+
+        record.timeoutHandle = setTimeout(() => {
+
+            record.timeoutHandle = null;
+
+            this._handlePhaseTimeout(record);
+
+        }, remainingMs);
+
+        this._logger.info("Recovered Clock Armed");
+
+        return this._createSnapshot(record);
+
+    }
+
     removeClock(gameId) {
 
         const record = this._clocks.get(gameId);
