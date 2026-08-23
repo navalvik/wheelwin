@@ -137,6 +137,7 @@ import {
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
 import { RecoveryCheckpointManager } from "./recovery/RecoveryCheckpointManager.js";
+import { RecoveryOrchestrator } from "./recovery/RecoveryOrchestrator.js";
 import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
 import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
@@ -1786,6 +1787,101 @@ class WheelWinApplication {
         this._recoveryCheckpointManager.initialize();
 
         this._logger.startupLine("RecoveryCheckpointManager");
+
+        // R17.9T.6 — Production startup gameplay recovery.
+        //
+        // Reconstructs authoritative gameplay runtime (Room / Player / Game /
+        // configuration / state / clock / input / physics / winner) from
+        // persisted RECOVERY_DATA records BEFORE SocketGateway construction
+        // and before the HTTP server starts listening, so no client/socket
+        // access is possible until startup recovery has completed.
+        //
+        // Failure policy:
+        //   - Infrastructure-level failure (RecoveryDataPersistence or
+        //     RecoveryOrchestrator cannot be constructed, or candidate
+        //     discovery through the persistence layer fails) is STARTUP-FATAL:
+        //     the thrown error propagates out of start() and the process exits
+        //     fail-closed instead of serving clients without recovery.
+        //   - Individual candidate failure (malformed / expired / unsupported
+        //     phase / attach / validation failure) is NOT fatal: the existing
+        //     RecoveryOrchestrator per-candidate silent rollback remains the
+        //     single authority; results are logged and startup continues.
+        //   - An empty recovery store is a normal successful startup condition.
+        //
+        // No SimulationLoop registration, no financial behavior, no reconnect,
+        // and no client readiness logic are introduced here.
+        let recoveryOrchestrator;
+
+        try {
+
+            recoveryOrchestrator = new RecoveryOrchestrator({
+                logger: this._logger,
+                recoveryDataPersistence,
+                roomManager: this._managers.roomManager,
+                playerManager: this._managers.playerManager,
+                gameManager: this._managers.gameManager,
+                configurationEngine: this._engines.configurationEngine,
+                gameStateEngine: this._engines.gameStateEngine,
+                gameClockEngine: this._engines.gameClockEngine,
+                physicsEngine: this._engines.physicsEngine,
+                inputAuthority: this._inputAuthority,
+                winnerEngine: this._engines.winnerEngine
+            });
+
+        } catch (error) {
+
+            throw new LifecycleError(
+                "Startup gameplay recovery infrastructure unavailable: "
+                    + `${error?.message ?? error}`
+            );
+
+        }
+
+        const recoveryOutcome = recoveryOrchestrator.recoverAll();
+
+        if (recoveryOutcome?.summary?.discoveryFailed === true) {
+
+            throw new LifecycleError(
+                "Startup gameplay recovery failed: recovery record discovery "
+                    + `through the persistence layer failed | `
+                    + `${recoveryOutcome.summary.discoveryError ?? "unknown error"}`
+            );
+
+        }
+
+        for (const result of recoveryOutcome.results ?? []) {
+
+            const isSkipped = typeof result?.status === "string"
+                && result.status.startsWith("SKIPPED_");
+
+            if (!isSkipped
+                && result?.status !== "SUCCESS"
+                && result?.status !== "ALREADY_RECOVERED") {
+
+                this._logger.error(
+                    "STARTUP_GAMEPLAY_RECOVERY_CANDIDATE_FAILED"
+                        + ` | status=${result?.status}`
+                        + ` | gameId=${result?.gameId ?? "unknown"}`
+                        + ` | step=${result?.failedStep ?? "-"}`
+                        + ` | reason=${result?.reason ?? "-"}`
+                );
+
+            }
+
+        }
+
+        this._logger.info(
+            "STARTUP_GAMEPLAY_RECOVERY_COMPLETE"
+                + ` | discovered=${recoveryOutcome.summary?.total ?? 0}`
+                + ` | recovered=${(recoveryOutcome.summary?.success ?? 0)
+                    + (recoveryOutcome.summary?.alreadyRecovered ?? 0)}`
+                + ` | skipped=${(recoveryOutcome.summary?.skippedNotRecoverable ?? 0)
+                    + (recoveryOutcome.summary?.skippedFinancialOnly ?? 0)
+                    + (recoveryOutcome.summary?.skippedAlreadyTerminal ?? 0)}`
+                + ` | failed=${recoveryOutcome.summary?.failed ?? 0}`
+        );
+
+        this._logger.startupLine("RecoveryOrchestrator");
 
         this._socketGateway = new SocketGateway({
             logger: this._logger,
