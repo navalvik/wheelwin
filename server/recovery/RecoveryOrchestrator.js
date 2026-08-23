@@ -31,6 +31,8 @@
 
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 import { GAME_STATUS } from "../models/GameStatus.js";
+import { EVENT_TYPES } from "../events/EventTypes.js";
+import { CONNECTION_STATE } from "../models/ConnectionState.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import { PHYSICS_SIMULATION_STATE } from "../engines/physics/PhysicsSimulationState.js";
 import { Room } from "../models/Room.js";
@@ -104,6 +106,9 @@ export const RECOVERY_RESULT_STATUS = Object.freeze({
  * @property {object} physicsEngine
  * @property {object} inputAuthority
  * @property {object} winnerEngine
+ * @property {object} [eventBus] - Optional EventBus. When omitted, the bus is
+ *   resolved from the injected playerManager (the same authoritative
+ *   manager-level EventBus that emits PLAYER_CONNECTED).
  */
 
 export class RecoveryOrchestrator {
@@ -122,7 +127,8 @@ export class RecoveryOrchestrator {
         gameClockEngine,
         physicsEngine,
         inputAuthority,
-        winnerEngine
+        winnerEngine,
+        eventBus = null
     } = {}) {
 
         if (!recoveryDataPersistence) {
@@ -153,6 +159,22 @@ export class RecoveryOrchestrator {
 
         this._winnerEngine = winnerEngine;
 
+        this._injectedEventBus = eventBus;
+
+        /**
+         * R17.9T.6 OPTION B — runtime-only pending recovered-clock tracking.
+         * Keyed by gameId; NEVER persisted; NOT part of the Recovery Data
+         * Contract; NOT a gameplay state. Entries are removed once the game
+         * is armed, fails, rolls back, or becomes ineligible.
+         *
+         * @type {Map<string, {roomId: string, playerIds: string[]}>}
+         */
+        this._pendingRecoveredClocks = new Map();
+
+        this._playerConnectedHandler = null;
+
+        this._playerConnectedSubscribed = false;
+
     }
 
     // -------------------------------------------------------------------------
@@ -176,6 +198,8 @@ export class RecoveryOrchestrator {
      *     failedStep?, reason }
      */
     recoverCandidate(recoveryRecord) {
+
+        this._ensurePlayerConnectedSubscription();
 
         try {
 
@@ -214,6 +238,8 @@ export class RecoveryOrchestrator {
      * @returns {object} { results: [...], summary: {...} }
      */
     recoverAll() {
+
+        this._ensurePlayerConnectedSubscription();
 
         let records;
 
@@ -664,12 +690,36 @@ export class RecoveryOrchestrator {
 
         }
 
-        // 17. Arm eligible clock — strictly last
+        // 17. R17.9T.6 OPTION B — connectivity-aware recovered clock arming.
+        //
+        // The reconstructed PRE_GAME_READY/READY clock stays UNARMED-ATTACHED
+        // (authoritative state restored, not running, no timeout scheduled,
+        // no phase progression, no lifecycle events) and is registered as
+        // pending in runtime memory. It transitions to ARMED only when ALL 3
+        // registered players report CONNECTED — either they are already
+        // connected at reconstruction time (armed exactly once here), or
+        // later via the existing manager-level PLAYER_CONNECTED event.
+        //
+        // The original authoritative deadline is never modified; late arming
+        // uses the existing armRecoveredClock() remaining-time computation
+        // and its fail-closed expiry behavior.
         if (isPreGame) {
 
-            const armed = this._gameClockEngine.armRecoveredClock(payload.gameId);
+            this._pendingRecoveredClocks.set(payload.gameId, {
+                roomId: payload.roomId,
+                playerIds: [...orderedIds]
+            });
 
-            if (!armed) {
+            const armedNow = this._tryArmPendingRecoveredClock(payload.gameId);
+
+            if (!armedNow
+                && this._areAllRegisteredPlayersConnected(orderedIds)) {
+
+                // All players reported CONNECTED yet the existing engine
+                // refused arming (e.g. deadline elapsed between checkpoint
+                // validation and arming): preserve the pre-existing
+                // fail-closed FAILED_EXPIRED rollback behavior exactly.
+                this._pendingRecoveredClocks.delete(payload.gameId);
 
                 return fail(
                     RECOVERY_RESULT_STATUS.FAILED_EXPIRED,
@@ -687,8 +737,188 @@ export class RecoveryOrchestrator {
             classification,
             reason: isResult
                 ? "terminal_result_recovered"
-                : "pre_game_candidate_recovered_clock_armed"
+                : (this._pendingRecoveredClocks.has(payload.gameId)
+                    ? "pre_game_candidate_recovered_clock_pending_connectivity"
+                    : "pre_game_candidate_recovered_clock_armed")
         });
+
+    }
+
+    // -------------------------------------------------------------------------
+    // R17.9T.6 OPTION B — connectivity-aware recovered clock arming
+    // -------------------------------------------------------------------------
+
+    /**
+     * Resolve the authoritative EventBus. Prefers an explicitly injected bus;
+     * falls back to the same manager-level bus held by the injected
+     * PlayerManager (the source of PLAYER_CONNECTED). No socket awareness.
+     */
+    _resolveEventBus() {
+
+        if (this._injectedEventBus) {
+
+            return this._injectedEventBus;
+
+        }
+
+        try {
+
+            return this._playerManager?._eventBus ?? null;
+
+        } catch {
+
+            return null;
+
+        }
+
+    }
+
+    /**
+     * Subscribe ONCE per orchestrator instance to the existing manager-level
+     * PLAYER_CONNECTED event. Idempotent; no broad lifecycle abstraction.
+     */
+    _ensurePlayerConnectedSubscription() {
+
+        if (this._playerConnectedSubscribed) {
+
+            return;
+
+        }
+
+        const eventBus = this._resolveEventBus();
+
+        if (!eventBus || typeof eventBus.subscribe !== "function") {
+
+            return;
+
+        }
+
+        this._playerConnectedHandler = (event) => {
+
+            this._handlePlayerConnected(event);
+
+        };
+
+        eventBus.subscribe(
+            EVENT_TYPES.PLAYER_CONNECTED,
+            this._playerConnectedHandler
+        );
+
+        this._playerConnectedSubscribed = true;
+
+    }
+
+    /**
+     * PLAYER_CONNECTED consumer. Uses the existing event payload semantics
+     * ({ playerId, connectionState, runtime }) to locate affected pending
+     * recovered games, re-verifies the CURRENT authoritative connection
+     * state of all 3 registered players, and arms exactly once when the
+     * predicate holds. Duplicate events and post-arming events are safe
+     * no-ops (the pending entry is removed on successful arming).
+     */
+    _handlePlayerConnected(event) {
+
+        try {
+
+            const payload = event?.payload ?? event;
+
+            const playerId = payload?.playerId;
+
+            if (!playerId) {
+
+                return;
+
+            }
+
+            for (const gameId of [...this._pendingRecoveredClocks.keys()]) {
+
+                const entry = this._pendingRecoveredClocks.get(gameId);
+
+                if (!entry?.playerIds?.includes(playerId)) {
+
+                    continue;
+
+                }
+
+                this._tryArmPendingRecoveredClock(gameId);
+
+            }
+
+        } catch (error) {
+
+            this._logError(
+                `RecoveryOrchestrator: PLAYER_CONNECTED handling failed | `
+                    + `${error?.message ?? error}`
+            );
+
+        }
+
+    }
+
+    /**
+     * Authoritative connectivity predicate: ALL 3 REGISTERED players of the
+     * recovered game must currently report CONNECTED via the existing
+     * PlayerManager connection state.
+     */
+    _areAllRegisteredPlayersConnected(playerIds) {
+
+        return playerIds.every((playerId) =>
+
+            this._playerManager.hasPlayer(playerId)
+            && this._playerManager.getRuntime(playerId)?.connectionState
+                === CONNECTION_STATE.CONNECTED
+
+        );
+
+    }
+
+    /**
+     * Attempt to arm a pending recovered clock exactly once. Removes the
+     * pending entry on successful arming AND on refused arming (fail-closed),
+     * so stale entries never survive. Returns true only when the clock was
+     * actually armed by this call.
+     */
+    _tryArmPendingRecoveredClock(gameId) {
+
+        const entry = this._pendingRecoveredClocks.get(gameId);
+
+        if (!entry) {
+
+            return false;
+
+        }
+
+        if (!this._areAllRegisteredPlayersConnected(entry.playerIds)) {
+
+            return false;
+
+        }
+
+        const armed = this._gameClockEngine.armRecoveredClock(gameId);
+
+        // Remove the pending entry regardless of outcome: on success the
+        // game is armed (further PLAYER_CONNECTED events must be no-ops);
+        // on refusal the existing fail-closed engine behavior is final and
+        // no stale pending residue may remain.
+        this._pendingRecoveredClocks.delete(gameId);
+
+        if (!armed) {
+
+            this._logError(
+                `RecoveryOrchestrator: pending recovered clock arming refused | `
+                    + `gameId=${gameId} (existing fail-closed behavior preserved)`
+            );
+
+            return false;
+
+        }
+
+        this._logInfo(
+            `RecoveryOrchestrator: pending recovered clock armed | `
+                + `gameId=${gameId}`
+        );
+
+        return true;
 
     }
 

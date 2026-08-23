@@ -1525,6 +1525,14 @@ function buildOrchestratorGraph(prefix) {
                 + `(${result.status}: ${result.reason ?? ""})`
         );
 
+        // R17.9T.6 OPTION B (deliberate architecture change): arming gated on
+        // full-player connectivity.
+        for (const player of payload.players) {
+
+            graph.playerManager.setConnectionState(player.playerId, "CONNECTED");
+
+        }
+
         assert(
             graph.gameClockEngine.isRunning(payload.gameId),
             "V1: recovered clock must be armed"
@@ -1548,6 +1556,14 @@ function buildOrchestratorGraph(prefix) {
             `V2: orchestrator failed to consume READY record `
                 + `(${result.status}: ${result.reason ?? ""})`
         );
+
+        // R17.9T.6 OPTION B (deliberate architecture change): arming gated on
+        // full-player connectivity.
+        for (const player of payload.players) {
+
+            graph.playerManager.setConnectionState(player.playerId, "CONNECTED");
+
+        }
 
         assert(
             graph.gameClockEngine.isRunning(payload.gameId),

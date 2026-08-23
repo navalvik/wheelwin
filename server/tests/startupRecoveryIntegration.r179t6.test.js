@@ -630,12 +630,27 @@ function buildGraph() {
         "C: physics missing"
     );
 
-    // Clock armed exactly once, running.
+    // R17.9T.6 OPTION B (deliberate architecture change): the recovered
+    // clock is UNARMED-ATTACHED until ALL 3 registered players report
+    // CONNECTED; connecting them arms it exactly once.
     const clockRecord = graph.gameClockEngine._clocks.get(ids.gameId);
     assert(clockRecord != null, "C: clock missing");
+    assert(clockRecord.running === false, "C: recovered clock must start unarmed");
+
+    for (const playerId of ids.playerIds) {
+
+        graph.playerManager.setConnectionState(playerId, "CONNECTED");
+
+    }
+
     assert(clockRecord.running === true, "C: recovered clock not armed");
 
     graph.assertZeroLifecycleEvents("C");
+
+    // Remove the armed clock AFTER the isolation assertion: teardown of an
+    // armed clock legitimately emits CLOCK_STOPPED, and its phase timer
+    // would otherwise keep the test process alive.
+    graph.gameClockEngine.removeClock(ids.gameId);
 
     console.log("C. PRE_GAME_READY recovery OK");
 
@@ -659,11 +674,25 @@ function buildGraph() {
     assert(outcome.summary.success === 1, "D: expected 1 recovered");
     assert(graph.gameManager.hasGame(ids.gameId), "D: game missing");
 
+    // R17.9T.6 OPTION B (deliberate architecture change): arming gated on
+    // full-player connectivity.
     const clockRecord = graph.gameClockEngine._clocks.get(ids.gameId);
-    assert(clockRecord != null && clockRecord.running === true,
+    assert(clockRecord != null && clockRecord.running === false,
+        "D: recovered clock must start unarmed");
+
+    for (const playerId of ids.playerIds) {
+
+        graph.playerManager.setConnectionState(playerId, "CONNECTED");
+
+    }
+
+    assert(clockRecord.running === true,
         "D: recovered clock not armed");
 
     graph.assertZeroLifecycleEvents("D");
+
+    // Remove the armed clock AFTER the isolation assertion (see section C).
+    graph.gameClockEngine.removeClock(ids.gameId);
 
     console.log("D. READY recovery OK");
 
@@ -868,6 +897,16 @@ function buildGraph() {
     // Successful candidate fully reconstructed.
     assert(graph.gameManager.hasGame(okIds.gameId), "I: good game missing");
     const clockRecord = graph.gameClockEngine._clocks.get(okIds.gameId);
+    // R17.9T.6 OPTION B (deliberate architecture change): arming gated on
+    // full-player connectivity.
+    assert(clockRecord?.running === false, "I: good clock must start unarmed");
+
+    for (const playerId of okIds.playerIds) {
+
+        graph.playerManager.setConnectionState(playerId, "CONNECTED");
+
+    }
+
     assert(clockRecord?.running === true, "I: good clock not armed");
 
     // Failed candidate left no residue and did not disturb the good one.
@@ -878,6 +917,9 @@ function buildGraph() {
     );
 
     graph.assertZeroLifecycleEvents("I");
+
+    // Remove the armed clock AFTER the isolation assertion (see section C).
+    graph.gameClockEngine.removeClock(okIds.gameId);
 
     console.log("I. mixed candidates OK");
 

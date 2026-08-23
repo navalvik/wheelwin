@@ -701,12 +701,34 @@ function assertUnrelatedIntact(graph, unrelated, label) {
         "input registry should be attached"
     );
 
-    // Clock armed ONLY after validation (running with exactly one timeout)
+    // R17.9T.6 OPTION B (deliberate architecture change): the recovered
+    // clock is UNARMED-ATTACHED until ALL 3 registered players report
+    // CONNECTED. With zero connected players the clock must remain unarmed.
+    const unarmedRecord = graph.gameClockEngine._clocks.get(GAME_ID);
+
+    assert(
+        unarmedRecord && unarmedRecord.running === false,
+        "recovered clock should be attached but NOT running with zero "
+            + "connected players"
+    );
+
+    assert(
+        unarmedRecord.timeoutHandle === null,
+        "unarmed recovered clock must not schedule a timeout"
+    );
+
+    // All 3 players connect → clock arms exactly once via PLAYER_CONNECTED.
+    for (const playerId of PLAYER_IDS) {
+
+        graph.playerManager.setConnectionState(playerId, "CONNECTED");
+
+    }
+
     const clockRecord = graph.gameClockEngine._clocks.get(GAME_ID);
 
     assert(
         clockRecord && clockRecord.running === true,
-        "clock should be armed after successful validation"
+        "clock should be armed once all 3 players are CONNECTED"
     );
 
     assert(
@@ -744,9 +766,23 @@ function assertUnrelatedIntact(graph, unrelated, label) {
         `READY should succeed, got ${result.status} (${result.reason})`
     );
 
+    // R17.9T.6 OPTION B (deliberate architecture change): READY clock starts
+    // UNARMED-ATTACHED; arming happens when all 3 players are CONNECTED.
+    assert(
+        graph.gameClockEngine._clocks.get(GAME_ID)?.running === false,
+        "READY clock should be attached but NOT running with zero connected "
+            + "players"
+    );
+
+    for (const playerId of PLAYER_IDS) {
+
+        graph.playerManager.setConnectionState(playerId, "CONNECTED");
+
+    }
+
     assert(
         graph.gameClockEngine._clocks.get(GAME_ID)?.running === true,
-        "READY clock should be armed"
+        "READY clock should be armed once all 3 players are CONNECTED"
     );
 
     assert(
@@ -1300,14 +1336,6 @@ function assertUnrelatedIntact(graph, unrelated, label) {
 
             }
         },
-        {
-            name: "clock_arm",
-            inject: (graph) => {
-
-                graph.gameClockEngine.armRecoveredClock = () => null;
-
-            }
-        }
     ];
 
     for (const stage of stages) {
@@ -1343,6 +1371,62 @@ function assertUnrelatedIntact(graph, unrelated, label) {
 
         // No gameplay events emitted (including rollback)
         graph.assertZeroLifecycleEvents(`failure injection ${stage.name}`);
+
+    }
+
+    // R17.9T.6 OPTION B (deliberate architecture change): clock_arm failure
+    // injection. Arming is attempted only when all 3 registered players are
+    // CONNECTED, so the candidate first recovers into UNARMED-ATTACHED
+    // pending state; connecting all players then triggers the refused
+    // fail-closed arming attempt.
+    {
+
+        const graph = buildGraph();
+
+        const unrelated = attachUnrelatedRuntime(graph);
+
+        graph.resetEventCounts();
+
+        const payload = buildPayload();
+
+        graph.gameClockEngine.armRecoveredClock = () => null;
+
+        const recovered = graph.orchestrator.recoverCandidate(payload);
+
+        assert(
+            recovered.status === RECOVERY_RESULT_STATUS.SUCCESS,
+            `clock_arm injection: recovery should succeed into pending state, `
+                + `got ${recovered.status}`
+        );
+
+        for (const playerId of PLAYER_IDS) {
+
+            graph.playerManager.setConnectionState(playerId, "CONNECTED");
+
+        }
+
+        const record = graph.gameClockEngine._clocks.get(GAME_ID);
+
+        assert(
+            record && record.running === false,
+            "clock_arm injection: refused arming must leave clock unarmed"
+        );
+
+        assert(
+            record.timeoutHandle === null,
+            "clock_arm injection: no timeout may be scheduled"
+        );
+
+        assert(
+            !graph.orchestrator._pendingRecoveredClocks.has(GAME_ID),
+            "clock_arm injection: pending entry must be cleaned up"
+        );
+
+        assertUnrelatedIntact(graph, unrelated, "failure injection clock_arm");
+
+        graph.assertZeroLifecycleEvents("failure injection clock_arm");
+
+        graph.gameClockEngine.removeClock(GAME_ID);
 
     }
 
@@ -1449,9 +1533,18 @@ function assertUnrelatedIntact(graph, unrelated, label) {
     );
 
     // One failed candidate did not corrupt the other
+    // R17.9T.6 OPTION B (deliberate architecture change): the recovered
+    // READY clock remains UNARMED-ATTACHED while not all 3 players are
+    // CONNECTED; the sibling skip must not change that.
     assert(
-        graph.gameClockEngine.getClock(GAME_ID)?.running === true,
-        "READY candidate clock should be armed despite sibling skip"
+        graph.gameClockEngine.getClock(GAME_ID)?.running === false,
+        "READY candidate clock should remain unarmed (pending connectivity) "
+            + "despite sibling skip"
+    );
+
+    assert(
+        graph.orchestrator._pendingRecoveredClocks.has(GAME_ID),
+        "READY candidate should remain in pending recovered-clock state"
     );
 
     // No persistence mutation by recoverAll
