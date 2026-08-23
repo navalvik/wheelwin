@@ -136,6 +136,8 @@ import {
 } from "./payment/BlockchainMonitor.js";
 import { SessionWalletStore } from "./session/SessionWalletStore.js";
 import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
+import { RecoveryCheckpointManager } from "./recovery/RecoveryCheckpointManager.js";
+import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
 import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
 import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
@@ -338,6 +340,8 @@ class WheelWinApplication {
         this._deploymentAuthorizationCoordinator = null;
 
         this._tonFinancialRecovery = null;
+
+        this._recoveryCheckpointManager = null;
 
         this._tonConfig = null;
 
@@ -1750,6 +1754,38 @@ class WheelWinApplication {
         this._gameStartAuthorization.initialize();
 
         this._logger.startupLine("GameStartAuthorization");
+
+        // R17.9T.6 — Authoritative gameplay recovery checkpoint writer.
+        // Additive wiring only: constructs the single centralized
+        // RecoveryCheckpointManager on top of the existing
+        // TonFinancialPersistence-backed RecoveryDataPersistence and subscribes
+        // it to the existing EventBus lifecycle events. No startup-order,
+        // readiness, Socket.IO, or RecoveryOrchestrator integration changes.
+        const recoveryDataPersistence = new RecoveryDataPersistence({
+            financialPersistence: this._financialPersistence,
+            logger: this._logger
+        });
+
+        this._recoveryCheckpointManager = new RecoveryCheckpointManager({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            recoveryDataPersistence,
+            roomManager: this._managers.roomManager,
+            playerManager: this._managers.playerManager,
+            gameManager: this._managers.gameManager,
+            configurationEngine: this._engines.configurationEngine,
+            gameStateEngine: this._engines.gameStateEngine,
+            gameClockEngine: this._engines.gameClockEngine,
+            physicsEngine: this._engines.physicsEngine,
+            winnerEngine: this._engines.winnerEngine,
+            inputAuthority: this._inputAuthority,
+            gameContractManager: this._gameContractManager,
+            paymentSessionManager: this._paymentSessionManager
+        });
+
+        this._recoveryCheckpointManager.initialize();
+
+        this._logger.startupLine("RecoveryCheckpointManager");
 
         this._socketGateway = new SocketGateway({
             logger: this._logger,
