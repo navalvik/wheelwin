@@ -79,7 +79,8 @@ export class RoomLobbyBridge {
         entryPaymentDelays = null,
         isDevelopment = false,
         lifecycleManager = null,
-        roomConfig = null
+        roomConfig = null,
+        telegramIdentityResolver = null
     }) {
 
         this._logger = logger;
@@ -151,6 +152,18 @@ export class RoomLobbyBridge {
         this._playerToSocket = new Map();
 
         this._roomCreators = new Map();
+
+        // R17.9T.6-C — server-side trusted Telegram identity lookup.
+        // Function: (socketId) => telegramUserId | null. The identity MUST come
+        // from the authenticated socket context established by SocketGateway
+        // (socket.data.telegramUserId). Never from client payloads.
+        // Fail-closed: when no resolver is configured, CREATE_ROOM is rejected.
+        this._telegramIdentityResolver = telegramIdentityResolver;
+
+        // R17.9T.6-C — one active created room per Telegram user.
+        // telegramUserId → activeCreatedRoomId. Creation-quota only; joining is
+        // never limited by this map. Released whenever the room is destroyed.
+        this._activeRoomsByTelegramUser = new Map();
 
         // Server-owned recovery identity keyed by socket id (CSR / same-id path).
         this._recoveryOwnershipBySocket = new Map();
@@ -232,6 +245,72 @@ export class RoomLobbyBridge {
     configureForensicArchiveService(forensicArchiveService) {
 
         this._forensicArchiveService = forensicArchiveService ?? null;
+
+    }
+
+    /**
+     * R17.9T.6-C — wire the server-side Telegram identity lookup.
+     *
+     * Expected production resolver reads ONLY authenticated socket state:
+     *   (socketId) => io.sockets.sockets.get(socketId)?.data?.telegramUserId ?? null
+     *
+     * Client-supplied telegramUserId values are never accepted. When no
+     * resolver is configured the bridge fails closed: every CREATE_ROOM is
+     * rejected with ROOM_CREATION_REQUIRES_TELEGRAM.
+     */
+    configureTelegramIdentityResolver(resolver) {
+
+        this._telegramIdentityResolver =
+            typeof resolver === "function" ? resolver : null;
+
+    }
+
+    _resolveSocketTelegramUserId(socketId) {
+
+        if (!socketId || typeof this._telegramIdentityResolver !== "function") {
+
+            return null;
+
+        }
+
+        let resolved = null;
+
+        try {
+
+            resolved = this._telegramIdentityResolver(socketId);
+
+        } catch {
+
+            return null;
+
+        }
+
+        return typeof resolved === "number" || typeof resolved === "string"
+            ? resolved
+            : null;
+
+    }
+
+    _releaseTelegramQuota(roomId) {
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        for (const [telegramUserId, activeRoomId] of this
+            ._activeRoomsByTelegramUser.entries()) {
+
+            if (activeRoomId === roomId) {
+
+                this._activeRoomsByTelegramUser.delete(telegramUserId);
+
+                return;
+
+            }
+
+        }
 
     }
 
@@ -659,6 +738,8 @@ export class RoomLobbyBridge {
 
         this._roomCreators.clear();
 
+        this._activeRoomsByTelegramUser.clear();
+
         this._recoveryOwnershipBySocket.clear();
 
         this._recoveryOwnershipByPlayer.clear();
@@ -763,6 +844,59 @@ export class RoomLobbyBridge {
 
         }
 
+        // R17.9T.6-C — CREATE_ROOM requires an authenticated Telegram Mini App
+        // identity taken from the trusted server-side socket context. Web
+        // sockets (telegramUserId == null) are rejected before ANY allocation:
+        // no room, player, setup session or recovery credential is created.
+        const creatorTelegramUserId = this._resolveSocketTelegramUserId(socketId);
+
+        if (creatorTelegramUserId == null) {
+
+            this._logger.decisionTrace({
+                stage: "CREATE_ROOM_AUTHORIZATION",
+                decision: "REJECT",
+                reason: "No authenticated Telegram identity on socket",
+                caller: "RoomLobbyBridge._handleCreateRoom",
+                nextAction: "Emit roomError",
+                socketId
+            });
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_CREATION_REQUIRES_TELEGRAM
+            );
+
+            return;
+
+        }
+
+        // R17.9T.6-C — one active created room per Telegram user. Multiple
+        // sockets/devices remain allowed; only creation is limited. JOIN_ROOM
+        // is unaffected by this quota.
+        const existingActiveRoomId = this._activeRoomsByTelegramUser.get(
+            creatorTelegramUserId
+        ) ?? null;
+
+        if (existingActiveRoomId != null) {
+
+            this._logger.decisionTrace({
+                stage: "CREATE_ROOM_AUTHORIZATION",
+                decision: "REJECT",
+                reason: `Telegram user already owns active room ${existingActiveRoomId}`,
+                caller: "RoomLobbyBridge._handleCreateRoom",
+                nextAction: "Emit roomError",
+                socketId
+            });
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_CREATION_USER_LIMIT
+            );
+
+            return;
+
+        }
+
         if (this._lifecycleManager
             && this._lifecycleManager.isAcceptingNewWork() !== true) {
 
@@ -817,6 +951,8 @@ export class RoomLobbyBridge {
                 currentGameStage: "ROOM"
             });
 
+            this._releaseTelegramQuota(room.roomId);
+
             this._roomManager.destroyRoom(room.roomId);
 
             this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
@@ -851,6 +987,8 @@ export class RoomLobbyBridge {
                 currentGameStage: "ROOM"
             });
 
+            this._releaseTelegramQuota(room.roomId);
+
             this._roomManager.destroyRoom(room.roomId);
 
             this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
@@ -864,6 +1002,12 @@ export class RoomLobbyBridge {
         });
 
         this._roomCreators.set(room.roomId, playerId);
+
+        // R17.9T.6-C — occupy the Telegram creation quota for this room.
+        this._activeRoomsByTelegramUser.set(
+            creatorTelegramUserId,
+            room.roomId
+        );
 
         const recoveryCredential = this.issueRecoveryCredential(
             playerId,
@@ -2392,6 +2536,8 @@ export class RoomLobbyBridge {
 
             this._roomCreators.delete(roomId);
 
+            this._releaseTelegramQuota(roomId);
+
             this._startedRooms.delete(roomId);
 
             this._clearVerifyBarrier(roomId);
@@ -2782,6 +2928,8 @@ export class RoomLobbyBridge {
 
             this._roomCreators.delete(roomId);
 
+            this._releaseTelegramQuota(roomId);
+
             return;
 
         }
@@ -3142,6 +3290,8 @@ export class RoomLobbyBridge {
         this._roomManager.destroyRoom(roomId);
 
         this._roomCreators.delete(roomId);
+
+        this._releaseTelegramQuota(roomId);
 
         this._startedRooms.delete(roomId);
 

@@ -82,6 +82,10 @@ export const LOBBY_ERROR_CODES = Object.freeze({
     INVALID_ROOM_ID: "INVALID_ROOM_ID",
     PLAYER_ALREADY_CONNECTED: "PLAYER_ALREADY_CONNECTED",
     ROOM_CREATION_LIMIT: "ROOM_CREATION_LIMIT",
+    // R17.9T.6-C — CREATE_ROOM requires authenticated Telegram Mini App identity.
+    ROOM_CREATION_REQUIRES_TELEGRAM: "ROOM_CREATION_REQUIRES_TELEGRAM",
+    // R17.9T.6-C — one active created room per Telegram user.
+    ROOM_CREATION_USER_LIMIT: "ROOM_CREATION_USER_LIMIT",
     SERVER_DRAINING: "SERVER_DRAINING",
     INVALID_SECRET_MATRIX: "INVALID_SECRET_MATRIX",
     SECRET_MATRIX_MISMATCH: "SECRET_MATRIX_MISMATCH",
@@ -102,6 +106,10 @@ export const LOBBY_ERROR_MESSAGES = Object.freeze({
         "You are already connected to a room.",
     [LOBBY_ERROR_CODES.ROOM_CREATION_LIMIT]:
         "The server is not accepting new rooms right now. Please try again later.",
+    [LOBBY_ERROR_CODES.ROOM_CREATION_REQUIRES_TELEGRAM]:
+        "Room creation is only available in the Telegram Mini App.",
+    [LOBBY_ERROR_CODES.ROOM_CREATION_USER_LIMIT]:
+        "You already have an active room. Finish or close it before creating another.",
     [LOBBY_ERROR_CODES.SERVER_DRAINING]:
         "The server is shutting down and is not accepting new rooms.",
     [LOBBY_ERROR_CODES.INVALID_SECRET_MATRIX]:

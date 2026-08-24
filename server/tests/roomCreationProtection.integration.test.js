@@ -76,12 +76,37 @@ function buildProtectionHarness({
 
     roomManager.attachSetupSessionLifecycle(setupSessionLifecycle);
 
+    // R17.9T.6-C — the bridge now requires authenticated Telegram identity for
+    // CREATE_ROOM. This legacy DOS-protection harness simulates one distinct
+    // authenticated Telegram user per "socket-*" id so its original scenarios
+    // (duplicate socket, capacity limit, expiry cleanup) keep testing the
+    // capacity/duplicate protections they were written for.
     const roomLobbyBridge = new RoomLobbyBridge({
         logger,
         eventBus,
         roomManager,
         playerManager,
-        setupSessionLifecycle
+        setupSessionLifecycle,
+        telegramIdentityResolver: (socketId) => {
+
+            if (typeof socketId !== "string"
+                || !socketId.startsWith("socket-")) {
+
+                return null;
+
+            }
+
+            let hash = 7;
+
+            for (const character of socketId) {
+
+                hash = ((hash * 31) + character.charCodeAt(0)) >>> 0;
+
+            }
+
+            return hash;
+
+        }
     });
 
     roomLobbyBridge.initialize();
