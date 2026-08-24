@@ -1944,6 +1944,22 @@ class WheelWinApplication {
 
         this._roomLobbyBridge.initialize();
 
+        // R17.9T.6-D — production wiring of the trusted Telegram identity
+        // resolver. The identity is read ONLY from the authenticated Socket.IO
+        // socket context established by SocketGateway Telegram authentication
+        // (socket.data.telegramUserId). Never from client payloads.
+        // Fail-closed: any missing socket / data / identity returns null, which
+        // keeps CREATE_ROOM rejected with ROOM_CREATION_REQUIRES_TELEGRAM.
+        // Startup order is safe here: SocketGateway was constructed and
+        // initialized above (getIO() available), and the bridge exists.
+        this._roomLobbyBridge.configureTelegramIdentityResolver(
+            (socketId) =>
+                this._socketGateway.getIO()
+                    ?.sockets?.sockets
+                    ?.get(socketId)
+                    ?.data?.telegramUserId ?? null
+        );
+
         this._managers.gameManager.configureGameplayBootstrap({
             roomManager: this._managers.roomManager,
             playerManager: this._managers.playerManager,
