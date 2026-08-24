@@ -1,9 +1,13 @@
 /**
  * R6.0C / R7.0E — High-level operational metrics only.
+ * R17.9T.8-completion — exposes MonitoringManager registry gauges (including
+ * the R17.9T.8 room-pool gauges) to the Developer Console Metrics panel.
+ * Read-only passthrough; no calculations changed.
  */
 export function buildMetricsOverview({
     metricsService,
     healthService = null,
+    monitoringManager = null,
     roomManager,
     gameManager,
     playerManager,
@@ -23,9 +27,32 @@ export function buildMetricsOverview({
         ?? health?.monitoring
         ?? null;
 
+    // R17.9T.8-completion — registry gauges from the monitoring snapshot.
+    const monitoringSnapshot = monitoringManager?.getSnapshot?.() ?? null;
+
+    const gauges = {
+        ...(monitoringSnapshot?.gauges ?? {})
+    };
+
+    const gaugeOrNull = (name) =>
+        Number.isFinite(gauges[name]) ? gauges[name] : null;
+
+    const roomPool = Object.freeze({
+        max: gaugeOrNull("gameplay.room_pool_max"),
+        utilization: gaugeOrNull("gameplay.room_pool_utilization"),
+        nearCapacity: gaugeOrNull("gameplay.room_pool_near_capacity"),
+        createdPerMin: gaugeOrNull("gameplay.rooms_created_per_min"),
+        limitRejectionsPerMin:
+            gaugeOrNull("gameplay.rooms_creation_limit_rejected_per_min"),
+        createdTotal: gaugeOrNull("gameplay.rooms_created_total"),
+        limitTotal: gaugeOrNull("gameplay.rooms_creation_limit_total")
+    });
+
     return Object.freeze({
         enabled: metricsSnapshot.enabled === true
             || monitoring?.enabled === true,
+        gauges: Object.freeze(gauges),
+        roomPool,
         counters: Object.freeze({ ...(metricsSnapshot.counters ?? {}) }),
         timings: Object.freeze(
             Object.fromEntries(

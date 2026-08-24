@@ -2068,6 +2068,7 @@ class WheelWinApplication {
             socketGateway: this._socketGateway,
             metricsService: this._metricsService,
             healthService: this._healthService,
+            monitoringManager: MonitoringManager.getInstance(),
             lifecycleManager: this._lifecycleManager,
             gameplayContextResolver: this._gameplayContextResolver,
             runtimeConfig: this._runtimeConfig,

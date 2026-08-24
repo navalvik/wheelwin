@@ -52,6 +52,7 @@ export class DeveloperConsoleProjectionService {
         socketGateway = null,
         metricsService = null,
         healthService = null,
+        monitoringManager = null,
         lifecycleManager = null,
         gameplayContextResolver = null,
         runtimeConfig = null,
@@ -86,6 +87,8 @@ export class DeveloperConsoleProjectionService {
         this._socketGateway = socketGateway;
         this._metricsService = metricsService;
         this._healthService = healthService;
+        // R17.9T.8-completion — read-only access to monitoring registry gauges.
+        this._monitoringManager = monitoringManager;
         this._lifecycleManager = lifecycleManager;
         this._gameplayContextResolver = gameplayContextResolver;
         this._runtimeConfig = runtimeConfig;
@@ -232,6 +235,7 @@ export class DeveloperConsoleProjectionService {
         return buildMetricsOverview({
             metricsService: this._metricsService,
             healthService: this._healthService,
+            monitoringManager: this._monitoringManager,
             roomManager: this._roomManager,
             gameManager: this._gameManager,
             playerManager: this._playerManager,

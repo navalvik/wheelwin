@@ -4,6 +4,7 @@ import PanelShell from "./shared/PanelShell";
 import { StatCard, StatGrid } from "./shared/StatGrid";
 import { DataTable } from "./shared/DataTable";
 import EmptyState from "./shared/EmptyState";
+import { buildRoomPoolRows } from "./metricsRoomPool";
 
 function timingAverage(timings, key) {
 
@@ -97,6 +98,21 @@ export default function MetricsPanel() {
                 />
 
             </StatGrid>
+
+            <h3 className="devConsole__sectionTitle">
+
+                Room pool (R17.9T.8)
+
+            </h3>
+
+            <DataTable
+                empty="Room pool gauges unavailable."
+                columns={[
+                    { key: "name", label: "Gauge" },
+                    { key: "value", label: "Value" }
+                ]}
+                rows={buildRoomPoolRows(metrics.roomPool)}
+            />
 
             <h3 className="devConsole__sectionTitle">
 
