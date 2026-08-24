@@ -55,6 +55,7 @@ import {
     buildPreGameReadyMessage,
     PRE_GAME_READY_MESSAGE_TYPES
 } from "./gameplayPreGameReadyProtocol.js";
+import { validateTelegramInitData } from "../auth/telegramInitDataValidator.js";
 import {
     ADVERTISEMENT_MESSAGE_CHANNEL,
     ADVERTISEMENT_MESSAGE_TYPES,
@@ -79,6 +80,7 @@ export class SocketGateway {
         auditEngine = null,
         roomLobbyBridge = null,
         resultSessionLifecycle = null,
+        telegramAuth = null,
         devMode = false
     }) {
 
@@ -105,6 +107,11 @@ export class SocketGateway {
         this._roomLobbyBridge = roomLobbyBridge;
 
         this._resultSessionLifecycle = resultSessionLifecycle;
+
+        // R17.9T.6-B — Telegram socket authentication configuration.
+        // Shape: { botToken: string|null, maxAgeSeconds?: number }
+        // botToken is a server secret: never logged, never sent to clients.
+        this._telegramAuth = telegramAuth ?? null;
 
         this._devMode = devMode;
 
@@ -606,6 +613,56 @@ export class SocketGateway {
         }
 
         this._io = new Server(httpServer, socketOptions);
+
+        // R17.9T.6-B — Socket.IO connection-level authentication middleware.
+        //
+        // Runs BEFORE the CONNECTION handler. Authentication is OPTIONAL:
+        // - Web sockets without initData are accepted as guests
+        //   (socket.data.telegramUserId = null) so JOIN_ROOM keeps working.
+        // - Sockets presenting Telegram initData MUST present VALID initData:
+        //   invalid credentials are rejected (never downgraded to guest).
+        //
+        // Raw initData is never logged; only a non-sensitive failure category
+        // is logged on rejection.
+        this._io.use((socket, next) => {
+
+            const rawInitData = socket.handshake?.auth?.telegramInitData;
+
+            if (typeof rawInitData !== "string" || rawInitData.length === 0) {
+
+                // Web client (or Telegram client without initData): accept as guest.
+                socket.data.telegramUserId = null;
+
+                next();
+
+                return;
+
+            }
+
+            const result = validateTelegramInitData({
+                initData: rawInitData,
+                botToken: this._telegramAuth?.botToken ?? null,
+                maxAgeSeconds: this._telegramAuth?.maxAgeSeconds
+            });
+
+            if (!result.valid) {
+
+                // Non-sensitive failure category only. Never log raw initData.
+                this._logger.warn(
+                    `Socket Telegram auth rejected | reason=${result.reason}`
+                );
+
+                next(new Error("TELEGRAM_AUTH_FAILED"));
+
+                return;
+
+            }
+
+            socket.data.telegramUserId = result.telegramUserId;
+
+            next();
+
+        });
 
         this._io.on(SOCKET_EVENTS.CONNECTION, (socket) => {
 

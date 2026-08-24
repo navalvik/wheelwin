@@ -1883,12 +1883,40 @@ class WheelWinApplication {
 
         this._logger.startupLine("RecoveryOrchestrator");
 
+        // R17.9T.6-B — Telegram socket authentication configuration.
+        // Dependency flow: environment → app.js → SocketGateway → validator.
+        // botToken is a server secret: never logged, never sent to clients.
+        const telegramAuthConfig = {
+            botToken:
+                String(process.env.TELEGRAM_BOT_TOKEN ?? "").trim() || null,
+            maxAgeSeconds: (() => {
+
+                const raw = String(
+                    process.env.TELEGRAM_INIT_DATA_MAX_AGE_SECONDS ?? ""
+                ).trim();
+
+                if (!raw) {
+
+                    return undefined;
+
+                }
+
+                const parsed = Number(raw);
+
+                return Number.isFinite(parsed) && parsed > 0
+                    ? Math.floor(parsed)
+                    : undefined;
+
+            })()
+        };
+
         this._socketGateway = new SocketGateway({
             logger: this._logger,
             socketConfig,
             eventBus: this._eventBus,
             inputAuthority: this._inputAuthority,
             gameplayContextResolver: this._gameplayContextResolver,
+            telegramAuth: telegramAuthConfig,
             devMode: this._productionConfig.isDevelopment
         });
 
