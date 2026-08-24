@@ -10,6 +10,14 @@ export class GameplayMetricsCollector extends MetricCollector {
 
         super({ name: "gameplay", intervalMs });
 
+        // R17.9T.8 — Attack E velocity tracking (observational only).
+        // Deltas of monotonic MetricsService counters over elapsed wall time.
+        this._prevRoomsCreated = null;
+
+        this._prevRoomsCreateLimitRejected = null;
+
+        this._lastCollectAt = null;
+
     }
 
     collect({ registry, providers }) {
@@ -42,6 +50,76 @@ export class GameplayMetricsCollector extends MetricCollector {
             ?? null;
 
         registry.setGauge("gameplay.active_rooms", rooms);
+
+        // R17.9T.8 — room-pool utilization visibility (single source of truth:
+        // RoomManager live getters; no second room registry).
+        const maxRooms = providers?.roomManager?.getMaxConcurrentRooms?.() ?? 0;
+
+        const utilization = maxRooms > 0 ? rooms / maxRooms : 0;
+
+        registry.setGauge("gameplay.room_pool_max", maxRooms);
+
+        registry.setGauge(
+            "gameplay.room_pool_utilization",
+            Number(utilization.toFixed(4))
+        );
+
+        // Near-capacity flag (>= 75% utilization) for quick saturation scan.
+        registry.setGauge(
+            "gameplay.room_pool_near_capacity",
+            utilization >= 0.75 ? 1 : 0
+        );
+
+        // R17.9T.8 — CREATE_ROOM velocity gauges from monotonic counters.
+        const roomsCreated = metrics?.counters?.["rooms.created"] ?? 0;
+
+        const roomsCreateLimitRejected
+            = metrics?.counters?.["rooms.create_rejected_room_limit"] ?? 0;
+
+        const now = Date.now();
+
+        if (
+            this._prevRoomsCreated !== null
+            && this._lastCollectAt !== null
+        ) {
+
+            const elapsedMin = Math.max(
+                1 / 60,
+                (now - this._lastCollectAt) / 60000
+            );
+
+            registry.setGauge(
+                "gameplay.rooms_created_per_min",
+                Math.max(0, (roomsCreated - this._prevRoomsCreated) / elapsedMin)
+            );
+
+            registry.setGauge(
+                "gameplay.rooms_creation_limit_rejected_per_min",
+                Math.max(
+                    0,
+                    (roomsCreateLimitRejected - this._prevRoomsCreateLimitRejected)
+                        / elapsedMin
+                )
+            );
+
+        }
+
+        this._prevRoomsCreated = roomsCreated;
+
+        this._prevRoomsCreateLimitRejected = roomsCreateLimitRejected;
+
+        this._lastCollectAt = now;
+
+        // Saturation observability: cumulative ROOM_CREATION_LIMIT occurrences.
+        registry.setCounter(
+            "gameplay.rooms_created_total",
+            roomsCreated
+        );
+
+        registry.setCounter(
+            "gameplay.rooms_creation_limit_total",
+            roomsCreateLimitRejected
+        );
 
         registry.setGauge("gameplay.active_games", games);
 

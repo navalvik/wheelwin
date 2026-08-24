@@ -642,6 +642,16 @@ export class RoomManager {
 
     }
 
+    /**
+     * R17.9T.8 — configured global concurrent-room maximum (read-only view of
+     * roomConfig for monitoring/observability; no behavior change).
+     */
+    getMaxConcurrentRooms() {
+
+        return this._resolveMaxConcurrentRooms();
+
+    }
+
     isAtCapacity() {
 
         return this.getActiveRoomCount() >= this._resolveMaxConcurrentRooms();

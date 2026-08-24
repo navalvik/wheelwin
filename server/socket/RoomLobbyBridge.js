@@ -80,7 +80,8 @@ export class RoomLobbyBridge {
         isDevelopment = false,
         lifecycleManager = null,
         roomConfig = null,
-        telegramIdentityResolver = null
+        telegramIdentityResolver = null,
+        metricsService = null
     }) {
 
         this._logger = logger;
@@ -107,6 +108,11 @@ export class RoomLobbyBridge {
 
         // R7.0B — drain awareness for lobby create-room.
         this._lifecycleManager = lifecycleManager;
+
+        // R17.9T.8 — passive Attack E observability. Optional MetricsService
+        // for monotonic CREATE_ROOM counters (rooms.created / rejections).
+        // Never gates behavior; increment() no-ops when disabled/absent.
+        this._metricsService = metricsService;
 
         // R7.24 — post-ARCHIVED stage timers (wallet connection barrier).
         this._walletConnectionDurationMs = Number.isFinite(
@@ -860,7 +866,6 @@ export class RoomLobbyBridge {
                 nextAction: "Emit roomError",
                 socketId
             });
-
             this._emitRoomError(
                 socketId,
                 LOBBY_ERROR_CODES.ROOM_CREATION_REQUIRES_TELEGRAM
@@ -885,8 +890,13 @@ export class RoomLobbyBridge {
                 reason: `Telegram user already owns active room ${existingActiveRoomId}`,
                 caller: "RoomLobbyBridge._handleCreateRoom",
                 nextAction: "Emit roomError",
-                socketId
+                socketId,
+                // R17.9T.8 — safe numeric identity marker for aggregation.
+                // Never initData, tokens, or HMAC values.
+                telegramUserId: creatorTelegramUserId
             });
+
+            this._metricsService?.increment("rooms.create_rejected_user_limit");
 
             this._emitRoomError(
                 socketId,
@@ -910,6 +920,21 @@ export class RoomLobbyBridge {
         }
 
         if (this._roomManager.isAtCapacity()) {
+
+            // R17.9T.8 — saturation observability: structured trace + counter
+            // for ROOM_CREATION_LIMIT occurrences (passive; rejection unchanged).
+            this._logger.decisionTrace({
+                stage: "CREATE_ROOM_SATURATION",
+                decision: "REJECT",
+                reason: "Global concurrent room limit reached",
+                caller: "RoomLobbyBridge._handleCreateRoom",
+                nextAction: "Emit roomError",
+                socketId,
+                activeRooms: this._roomManager.getActiveRoomCount(),
+                maxRooms: this._roomManager.getMaxConcurrentRooms()
+            });
+
+            this._metricsService?.increment("rooms.create_rejected_room_limit");
 
             this._emitRoomError(
                 socketId,
@@ -1016,7 +1041,11 @@ export class RoomLobbyBridge {
 
         this._logger.info(
             `Lobby room created | roomId=${room.roomId} | playerId=${playerId}`
+            + ` | tgId=${creatorTelegramUserId}`
         );
+
+        // R17.9T.8 — passive creation counter (velocity derivable from deltas).
+        this._metricsService?.increment("rooms.created");
 
         this._emitPlayerJoined(room.roomId, playerId);
 
