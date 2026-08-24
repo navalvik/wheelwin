@@ -49,9 +49,13 @@ export function loadServerConfig(env = process.env) {
     const corsOrigin = createCorsOriginValidator(clientOrigin, nodeEnv);
 
     // Shared by Express (app.use(cors)) and Socket.IO — do not duplicate.
+    // R18.0-prep — DELETE/PATCH/PUT are required by the Developer Console
+    // cross-origin API (advertisement delete, runtime/audio configuration,
+    // campaign edit). Without them the browser blocks preflights for these
+    // methods ("Failed to fetch").
     const cors = Object.freeze({
         origin: corsOrigin,
-        methods: Object.freeze(["GET", "POST"])
+        methods: Object.freeze(["GET", "POST", "DELETE", "PATCH", "PUT"])
     });
 
     return {
