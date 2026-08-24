@@ -21,7 +21,7 @@ import {
 
 const panelDir = dirname(fileURLToPath(import.meta.url));
 
-// --- Test 1: full data → exact rows ------------------------------------------
+// --- Test 1: full data → exact rows in DataTable contract ---------------------
 
 {
 
@@ -35,17 +35,53 @@ const panelDir = dirname(fileURLToPath(import.meta.url));
         limitTotal: 1
     });
 
-    const byId = Object.fromEntries(rows.map((row) => [row.id, row.value]));
+    const expectedIds = [
+        "gameplay.room_pool_max",
+        "gameplay.room_pool_utilization",
+        "gameplay.room_pool_near_capacity",
+        "gameplay.rooms_created_per_min",
+        "gameplay.rooms_creation_limit_rejected_per_min",
+        "gameplay.rooms_created_total",
+        "gameplay.rooms_creation_limit_total"
+    ];
 
-    assert.equal(byId["gameplay.room_pool_max"], "64");
-    assert.equal(byId["gameplay.room_pool_utilization"], "50%");
-    assert.equal(byId["gameplay.room_pool_near_capacity"], "no");
-    assert.equal(byId["gameplay.rooms_created_per_min"], "2.3");
-    assert.equal(byId["gameplay.rooms_creation_limit_rejected_per_min"], "0");
-    assert.equal(byId["gameplay.rooms_created_total"], "9");
-    assert.equal(byId["gameplay.rooms_creation_limit_total"], "1");
+    const expectedValues = {
+        "gameplay.room_pool_max": "64",
+        "gameplay.room_pool_utilization": "50%",
+        "gameplay.room_pool_near_capacity": "no",
+        "gameplay.rooms_created_per_min": "2.3",
+        "gameplay.rooms_creation_limit_rejected_per_min": "0",
+        "gameplay.rooms_created_total": "9",
+        "gameplay.rooms_creation_limit_total": "1"
+    };
 
-    console.log("  test 1 (seven gauge rows formatted) passed");
+    assert.equal(rows.length, 7, "exactly seven room-pool rows");
+
+    assert.deepEqual(
+        rows.map((row) => row.id),
+        expectedIds,
+        "the seven expected gauge IDs must be preserved in order"
+    );
+
+    // DataTable contract regression: { id, data: { name, value } }.
+    for (const row of rows) {
+
+        assert.ok(row.id, `row ${row?.id} must have id`);
+        assert.ok(row.data, `row ${row.id} must have data object`);
+        assert.ok(row.data.name, `row ${row.id} must have data.name`);
+        assert.ok(
+            typeof row.data.value === "string",
+            `row ${row.id} must have string data.value`
+        );
+        assert.equal(
+            row.data.value,
+            expectedValues[row.id],
+            `row ${row.id} value must match`
+        );
+
+    }
+
+    console.log("  test 1 (seven rows in DataTable contract) passed");
 
 }
 
@@ -82,7 +118,13 @@ const panelDir = dirname(fileURLToPath(import.meta.url));
 
         for (const row of rows) {
 
-            assert.equal(row.value, "—", "missing values must render as dash");
+            assert.ok(row.data, "row must keep DataTable data object");
+
+            assert.equal(
+                row.data.value,
+                "—",
+                "missing values must render as dash"
+            );
 
         }
 

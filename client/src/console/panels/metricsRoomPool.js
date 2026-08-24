@@ -44,44 +44,39 @@ export function buildRoomPoolRows(roomPool) {
 
     const pool = roomPool ?? {};
 
+    // DataTable contract: { id, data: { name, value } } — matches existing
+    // timing/counter row shapes in MetricsPanel.
     const total = (value) =>
         Number.isFinite(value) ? value.toString() : "—";
 
     return [
         {
             id: "gameplay.room_pool_max",
-            name: "Room pool max",
-            value: total(pool.max)
+            data: { name: "Room pool max", value: total(pool.max) }
         },
         {
             id: "gameplay.room_pool_utilization",
-            name: "Room pool utilization",
-            value: formatUtilization(pool.utilization)
+            data: { name: "Room pool utilization", value: formatUtilization(pool.utilization) }
         },
         {
             id: "gameplay.room_pool_near_capacity",
-            name: "Near capacity",
-            value: formatNearCapacity(pool.nearCapacity)
+            data: { name: "Near capacity", value: formatNearCapacity(pool.nearCapacity) }
         },
         {
             id: "gameplay.rooms_created_per_min",
-            name: "Rooms created / min",
-            value: formatPerMinute(pool.createdPerMin)
+            data: { name: "Rooms created / min", value: formatPerMinute(pool.createdPerMin) }
         },
         {
             id: "gameplay.rooms_creation_limit_rejected_per_min",
-            name: "Limit rejections / min",
-            value: formatPerMinute(pool.limitRejectionsPerMin)
+            data: { name: "Limit rejections / min", value: formatPerMinute(pool.limitRejectionsPerMin) }
         },
         {
             id: "gameplay.rooms_created_total",
-            name: "Rooms created (total)",
-            value: total(pool.createdTotal)
+            data: { name: "Rooms created (total)", value: total(pool.createdTotal) }
         },
         {
             id: "gameplay.rooms_creation_limit_total",
-            name: "Limit rejections (total)",
-            value: total(pool.limitTotal)
+            data: { name: "Limit rejections (total)", value: total(pool.limitTotal) }
         }
     ];
 
