@@ -668,6 +668,36 @@ export async function disableAdvertisement(accessToken, id) {
 
 }
 
+/**
+ * R18.0-prep — permanently delete an advertising campaign and its banner
+ * asset via the existing administrator-only console endpoint
+ * (DELETE /console/advertisements/:id). History snapshot is preserved
+ * server-side.
+ */
+export async function deleteAdvertisement(accessToken, id) {
+
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/advertisements/${encodeURIComponent(id)}`,
+        {
+            method: "DELETE",
+            headers: jsonAuthHeaders(accessToken)
+        }
+    );
+
+    const body = await parseJson(response);
+
+    if (!response.ok) {
+
+        throw new Error(
+            advertisementMutationError(response, body, "Failed to delete campaign")
+        );
+
+    }
+
+    return body;
+
+}
+
 export async function renewAdvertisement(accessToken, id, payload = {}) {
 
     const response = await fetch(

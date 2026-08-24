@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDeveloperAuth } from "../DeveloperAuthProvider";
 import {
     createAdvertisement,
+    deleteAdvertisement,
     disableAdvertisement,
     getAdvertisement,
     listAdvertisements,
@@ -798,14 +799,14 @@ function EditCampaignForm({ token, campaign, onSaved }) {
 
 }
 
-function CampaignLifecycleActions({ token, campaign, onChanged }) {
+function CampaignLifecycleActions({ token, campaign, onChanged, onDeleted }) {
 
     const [renewExpiresAt, setRenewExpiresAt] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
 
-    const runAction = useCallback(async (action) => {
+    const runAction = useCallback(async (action, successMessage = "Campaign updated.") => {
 
         setError("");
         setSuccess("");
@@ -815,7 +816,7 @@ function CampaignLifecycleActions({ token, campaign, onChanged }) {
 
             const result = await action();
 
-            setSuccess("Campaign updated.");
+            setSuccess(successMessage);
             onChanged?.(result);
 
         } catch (err) {
@@ -893,6 +894,43 @@ function CampaignLifecycleActions({ token, campaign, onChanged }) {
 
     }, [campaign.id, renewExpiresAt, runAction, token]);
 
+    const onDelete = useCallback(async () => {
+
+        const confirmed = window.confirm(
+            `Delete campaign ${campaign.id}?\n\n`
+            + "The campaign and its banner asset will be permanently removed."
+            + " A history snapshot is preserved on the server."
+        );
+
+        if (!confirmed) {
+
+            return;
+
+        }
+
+        setError("");
+        setSuccess("");
+        setBusy(true);
+
+        try {
+
+            await deleteAdvertisement(token, campaign.id);
+
+            setSuccess("Campaign deleted.");
+            onDeleted?.();
+
+        } catch (err) {
+
+            setError(err.message || "Delete failed");
+
+        } finally {
+
+            setBusy(false);
+
+        }
+
+    }, [campaign.id, onDeleted, token]);
+
     return (
 
         <div className="devConsole__envSection">
@@ -930,6 +968,17 @@ function CampaignLifecycleActions({ token, campaign, onChanged }) {
                     </button>
 
                 )}
+
+                <button
+                    type="button"
+                    className="devConsole__textButton"
+                    disabled={busy}
+                    onClick={onDelete}
+                >
+
+                    Delete
+
+                </button>
 
             </div>
 
@@ -1210,6 +1259,15 @@ export default function AdvertisingPanel() {
 
     }, [refresh, refreshDetail]);
 
+    // R18.0-prep — after deletion: refresh list, clear the deleted selection.
+    const onCampaignDeleted = useCallback(async () => {
+
+        setSelectedId(null);
+        setDetail(null);
+        await refresh();
+
+    }, [refresh]);
+
     return (
 
         <PanelShell
@@ -1328,6 +1386,7 @@ export default function AdvertisingPanel() {
                                 token={token}
                                 campaign={detail}
                                 onChanged={onCampaignMutated}
+                                onDeleted={onCampaignDeleted}
                             />
 
                         </>
