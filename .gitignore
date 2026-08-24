@@ -1,3 +1,8 @@
+# Environment secrets (real .env files are local-only; examples stay trackable)
+.env
+.env.*
+!.env.example
+
 #
 # R7.69E - local investigation scratch (never commit)
 _audit_tmp/
