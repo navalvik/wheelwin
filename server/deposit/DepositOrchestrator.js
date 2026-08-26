@@ -138,12 +138,30 @@ export class DepositOrchestrator {
 
             void this.handlePaymentConnectionReady(envelope?.payload ?? {}).catch((error) => {
 
+                // R18.0B — preserve exact failure details in the message itself.
+                // The session-history developerLog persists only {at, level,
+                // source, message}, so structured fields alone are lost.
+                const errorCode = error?.code ?? null;
+                const errorName = error?.name ?? null;
+                const errorMessage = error?.message ?? String(error);
+                const errorDetails = error?.details ?? null;
+
                 this._logger.error?.(
-                    "DepositOrchestrator PAYMENT_CONNECTION_READY failed",
+                    "DepositOrchestrator PAYMENT_CONNECTION_READY failed"
+                    + ` | stage=PAYMENT_CONNECTION_READY`
+                    + ` | code=${errorCode ?? "UNKNOWN"}`
+                    + ` | errorName=${errorName ?? "UNKNOWN"}`
+                    + ` | error=${errorMessage}`
+                    + (errorDetails != null
+                        ? ` | details=${JSON.stringify(errorDetails)}`
+                        : ""),
                     {
                         roomId: envelope?.payload?.roomId ?? null,
-                        code: error?.code ?? null,
-                        message: error?.message ?? String(error)
+                        stage: "PAYMENT_CONNECTION_READY",
+                        code: errorCode,
+                        errorName,
+                        errorMessage,
+                        details: errorDetails
                     }
                 );
 
