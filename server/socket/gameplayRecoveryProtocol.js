@@ -121,7 +121,8 @@ export function buildClientRecoveryPayload({
     roomId,
     paymentStatus = null,
     payment = null,
-    auditStatus = null
+    auditStatus = null,
+    deposit = null
 }) {
 
     const gameId = snapshot?.gameId ?? null;
@@ -198,7 +199,7 @@ export function buildClientRecoveryPayload({
         snapshot?.recoveredAt
     );
 
-    return {
+    const result = {
         gameId,
         roomId: roomId ?? snapshot?.configuration?.roomId ?? null,
         playerId: playerId ?? null,
@@ -277,6 +278,17 @@ export function buildClientRecoveryPayload({
         timestamp: snapshot?.recoveredAt ?? Date.now(),
         traceSeed: snapshot?.metadata?.traceSeed ?? null
     };
+
+    // R18 / S1 — additive, optional requester-scoped Deposit projection.
+    // Only set when explicitly supplied by the authoritative caller;
+    // preserves full backward compatibility when deposit is null/unset.
+    if (deposit !== null && deposit !== undefined) {
+
+        result.deposit = deposit;
+
+    }
+
+    return result;
 
 }
 
