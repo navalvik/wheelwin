@@ -72,7 +72,9 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     SETTLEMENT_FAILED: "SETTLEMENT_FAILED",
     // R6.5 — completed result session closed (FINISH or timeout).
     SESSION_FINISHED: "SESSION_FINISHED",
-    WALLET_REJECTED: "WALLET_REJECTED"
+    WALLET_REJECTED: "WALLET_REJECTED",
+    // R18 S3 — requester-scoped Deposit package published (informational only).
+    DEPOSIT_PACKAGE_PUBLISHED: "DEPOSIT_PACKAGE_PUBLISHED"
 });
 
 export const LOBBY_ERROR_CODES = Object.freeze({

@@ -1940,7 +1940,8 @@ class WheelWinApplication {
             isDevelopment: this._productionConfig.isDevelopment,
             lifecycleManager: this._lifecycleManager,
             roomConfig: this._roomConfig,
-            metricsService: this._metricsService
+            metricsService: this._metricsService,
+            depositSessionCoordinator: this._depositSessionCoordinator
         });
 
         this._roomLobbyBridge.initialize();

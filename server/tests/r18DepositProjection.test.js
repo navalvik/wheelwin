@@ -19,6 +19,9 @@ import {
 import { DEPOSIT_SESSION_STATUS } from "../deposit/DepositSessionStates.js";
 import { LOBBY_SERVER_EVENTS } from "../socket/lobbyProtocol.js";
 import { RoomLobbyBridge } from "../socket/RoomLobbyBridge.js";
+import { EventBus } from "../events/EventBus.js";
+import { EVENT_SOURCES } from "../events/EventSources.js";
+import { EVENT_TYPES } from "../events/EventTypes.js";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -412,4 +415,476 @@ test("S2.g missing session source fails closed without throwing", () => {
     assert.equal(out, null);
 
 });
+
+// ─── S3 — DEPOSIT_PACKAGE_PUBLISHED client-facing bridge ──────────────────────
+
+function makeEventBus() {
+
+    return new EventBus({ logger: stubLogger(), eventBusConfig: {} });
+
+}
+
+function makeDepositSessionCoordinator(session) {
+
+    return {
+        getByRoomAndGame(roomId, gameId) {
+
+            return session?.roomId === roomId && session?.gameId === gameId
+                ? session
+                : null;
+
+        }
+    };
+
+}
+
+function makeS3Bridge({ eventBus, roomPlayers, creatorId, depositSessionCoordinator } = {}) {
+
+    const players = roomPlayers ?? ["p-creator", "p-two", "p-three"];
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+
+    const playerToSocket = new Map();
+    const socketToPlayer = new Map();
+
+    for (let i = 0; i < players.length; i++) {
+
+        const playerId = players[i];
+        const socketId = `socket-${playerId}`;
+
+        playerToSocket.set(playerId, socketId);
+        socketToPlayer.set(socketId, playerId);
+
+    }
+
+    const roomManager = {
+        getRoom(id) {
+
+            return id === roomId
+                ? { roomId, players, maxPlayers: players.length }
+                : null;
+
+        }
+    };
+
+    const bridge = new RoomLobbyBridge({
+        logger: stubLogger(),
+        eventBus,
+        roomManager,
+        playerManager: {},
+        depositSessionCoordinator
+    });
+
+    bridge.initialize();
+
+    bridge._playerToSocket = playerToSocket;
+    bridge._socketToPlayer = socketToPlayer;
+    bridge._roomCreators = new Map([[roomId, creatorId ?? players[0]]]);
+
+    return { bridge, roomId, gameId, players, playerToSocket };
+
+}
+
+test("S3.1 RoomLobbyBridge subscribes to DEPOSIT_PACKAGE_PUBLISHED", () => {
+
+    const eventBus = makeEventBus();
+    const bridge = new RoomLobbyBridge({
+        logger: stubLogger(),
+        eventBus,
+        roomManager: { getRoom() { return null; } },
+        playerManager: {},
+        depositSessionCoordinator: {}
+    });
+
+    bridge.initialize();
+
+    assert.equal(
+        eventBus.hasSubscribers(EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED),
+        true
+    );
+
+});
+
+test("S3.2 Event handler executes when DEPOSIT_PACKAGE_PUBLISHED is emitted", () => {
+
+    const eventBus = makeEventBus();
+    const { bridge, roomId, gameId } = makeS3Bridge({ eventBus });
+
+    const session = makeSession({ roomId, gameId });
+
+    const coordinator = makeDepositSessionCoordinator(session);
+
+    const { bridge: wiredBridge } = makeS3Bridge({
+        eventBus,
+        depositSessionCoordinator: coordinator
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ORCHESTRATOR,
+        type: EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            depositId: session.depositId,
+            roomId,
+            gameId,
+            depositAddress: session.depositAddress,
+            package: session.metadata.depositPackage
+        }
+    });
+
+    assert.equal(deliveries.length, 3);
+
+});
+
+test("S3.3 handler calls projectDepositForPlayer for each room player", () => {
+
+    const eventBus = makeEventBus();
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+    const players = ["p-creator", "p-two", "p-three"];
+    const session = makeSession({ roomId, gameId });
+
+    const coordinator = makeDepositSessionCoordinator(session);
+
+    let projectionCalls = [];
+
+    const originalProject = projectDepositForPlayer;
+
+    const { bridge } = makeS3Bridge({
+        eventBus,
+        roomPlayers: players,
+        creatorId: "p-creator",
+        depositSessionCoordinator: coordinator
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ORCHESTRATOR,
+        type: EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            depositId: session.depositId,
+            roomId,
+            gameId,
+            depositAddress: session.depositAddress,
+            package: session.metadata.depositPackage
+        }
+    });
+
+    assert.equal(deliveries.length, 3);
+
+    const socketIds = deliveries.map((d) => d.socketId).sort();
+
+    assert.deepEqual(socketIds, [
+        "socket-p-creator",
+        "socket-p-two",
+        "socket-p-three"
+    ]);
+
+});
+
+test("S3.4 each player receives their own requester-scoped projection", () => {
+
+    const eventBus = makeEventBus();
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+    const session = makeSession({ roomId, gameId });
+
+    const coordinator = makeDepositSessionCoordinator(session);
+
+    const { bridge } = makeS3Bridge({
+        eventBus,
+        roomPlayers: ["p-creator", "p-two", "p-three"],
+        creatorId: "p-creator",
+        depositSessionCoordinator: coordinator
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ORCHESTRATOR,
+        type: EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            depositId: session.depositId,
+            roomId,
+            gameId,
+            depositAddress: session.depositAddress,
+            package: session.metadata.depositPackage
+        }
+    });
+
+    assert.equal(deliveries.length, 3);
+
+    const bySocket = new Map(deliveries.map((d) => [d.socketId, d.payload]));
+
+    const creatorProjection = bySocket.get("socket-p-creator")?.deposit;
+    const twoProjection = bySocket.get("socket-p-two")?.deposit;
+    const threeProjection = bySocket.get("socket-p-three")?.deposit;
+
+    assert.equal(creatorProjection.mySeatIndex, 0);
+    assert.equal(creatorProjection.isCreator, true);
+    assert.equal(twoProjection.mySeatIndex, 1);
+    assert.equal(twoProjection.isCreator, false);
+    assert.equal(threeProjection.mySeatIndex, 2);
+    assert.equal(threeProjection.isCreator, false);
+
+    assert.notEqual(
+        creatorProjection.myExpectedAmountNanotons,
+        twoProjection.myExpectedAmountNanotons
+    );
+
+});
+
+test("S3.5 no cross-player financial leakage in delivered projections", () => {
+
+    const eventBus = makeEventBus();
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+    const session = makeSession({ roomId, gameId });
+
+    const coordinator = makeDepositSessionCoordinator(session);
+
+    const { bridge } = makeS3Bridge({
+        eventBus,
+        roomPlayers: ["p-creator", "p-two", "p-three"],
+        creatorId: "p-creator",
+        depositSessionCoordinator: coordinator
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ORCHESTRATOR,
+        type: EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            depositId: session.depositId,
+            roomId,
+            gameId,
+            depositAddress: session.depositAddress,
+            package: session.metadata.depositPackage
+        }
+    });
+
+    for (const delivery of deliveries) {
+
+        const raw = JSON.stringify(delivery.payload.deposit);
+
+        assert.equal(raw.includes("w1"), false);
+        assert.equal(raw.includes("w2"), false);
+        assert.equal(raw.includes("w3"), false);
+        assert.equal(raw.includes("100000000000"), false);
+
+    }
+
+});
+
+test("S3.6 delivery uses existing authenticated player/socket mapping", () => {
+
+    const eventBus = makeEventBus();
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+    const session = makeSession({ roomId, gameId });
+
+    const coordinator = makeDepositSessionCoordinator(session);
+
+    const { bridge, playerToSocket } = makeS3Bridge({
+        eventBus,
+        roomPlayers: ["p-creator", "p-two", "p-three"],
+        creatorId: "p-creator",
+        depositSessionCoordinator: coordinator
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ORCHESTRATOR,
+        type: EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            depositId: session.depositId,
+            roomId,
+            gameId,
+            depositAddress: session.depositAddress,
+            package: session.metadata.depositPackage
+        }
+    });
+
+    assert.equal(deliveries.length, 3);
+
+    for (const delivery of deliveries) {
+
+        const expectedSocketId = playerToSocket.get(
+            delivery.payload.deposit.playerId ?? delivery.socketId.replace("socket-", "")
+        );
+
+        assert.equal(delivery.socketId, expectedSocketId);
+
+    }
+
+});
+
+test("S3.7 processing DEPOSIT_PACKAGE_PUBLISHED does not call GameContractManager", () => {
+
+    const eventBus = makeEventBus();
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+    const session = makeSession({ roomId, gameId });
+
+    const coordinator = makeDepositSessionCoordinator(session);
+
+    const gameContractManager = {
+        deployContract() {},
+        getContract() { return null; }
+    };
+
+    const { bridge } = makeS3Bridge({
+        eventBus,
+        roomPlayers: ["p-creator", "p-two", "p-three"],
+        creatorId: "p-creator",
+        depositSessionCoordinator: coordinator
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ORCHESTRATOR,
+        type: EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            depositId: session.depositId,
+            roomId,
+            gameId,
+            depositAddress: session.depositAddress,
+            package: session.metadata.depositPackage
+        }
+    });
+
+    assert.equal(deliveries.length, 3);
+
+});
+
+test("S3.8 missing projection or identity fails closed without throwing", () => {
+
+    const eventBus = makeEventBus();
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+    const session = makeSession({ roomId, gameId });
+
+    const coordinator = makeDepositSessionCoordinator(session);
+
+    const { bridge } = makeS3Bridge({
+        eventBus,
+        roomPlayers: ["p-creator", "p-two", "p-three"],
+        creatorId: "p-creator",
+        depositSessionCoordinator: coordinator
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ORCHESTRATOR,
+        type: EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            depositId: session.depositId,
+            roomId,
+            gameId,
+            depositAddress: session.depositAddress,
+            package: session.metadata.depositPackage
+        }
+    });
+
+    assert.equal(deliveries.length, 3);
+
+    const bySocket = new Map(deliveries.map((d) => [d.socketId, d.payload.deposit]));
+
+    const strangerProjection = projectDepositForPlayer({
+        playerId: "p-stranger",
+        roomId,
+        gameId,
+        session,
+        roomLobbyBridge: bridge
+    });
+
+    assert.equal(strangerProjection === null || strangerProjection.mySeatIndex === null, true);
+
+});
+
+test("S3.9 missing depositSessionCoordinator fails closed without throwing", () => {
+
+    const eventBus = makeEventBus();
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+
+    const { bridge } = makeS3Bridge({
+        eventBus,
+        roomPlayers: ["p-creator", "p-two", "p-three"],
+        creatorId: "p-creator",
+        depositSessionCoordinator: null
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ORCHESTRATOR,
+        type: EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            depositId: "dep_missing",
+            roomId,
+            gameId,
+            depositAddress: null,
+            package: null
+        }
+    });
+
+    assert.equal(deliveries.length, 0);
+
+});
+
 });

@@ -59,6 +59,9 @@ import { SessionWalletStore } from "../session/SessionWalletStore.js";
 import {
     RecoveryCredentialStore
 } from "../gameplay/RecoveryCredentialStore.js";
+import {
+    projectDepositForPlayer
+} from "../deposit/projectDepositForPlayer.js";
 
 export class RoomLobbyBridge {
 
@@ -81,7 +84,8 @@ export class RoomLobbyBridge {
         lifecycleManager = null,
         roomConfig = null,
         telegramIdentityResolver = null,
-        metricsService = null
+        metricsService = null,
+        depositSessionCoordinator = null
     }) {
 
         this._logger = logger;
@@ -113,6 +117,10 @@ export class RoomLobbyBridge {
         // for monotonic CREATE_ROOM counters (rooms.created / rejections).
         // Never gates behavior; increment() no-ops when disabled/absent.
         this._metricsService = metricsService;
+
+        // R18 S3 — authoritative DepositSession source for requester-scoped
+        // client-facing projections. Optional; bridge fails closed when absent.
+        this._depositSessionCoordinator = depositSessionCoordinator;
 
         // R7.24 — post-ARCHIVED stage timers (wallet connection barrier).
         this._walletConnectionDurationMs = Number.isFinite(
@@ -657,6 +665,15 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleGameStartFailed(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
+            (envelope) => {
+
+                this._deliverDepositPackagePublished(envelope.payload);
 
             }
         );
@@ -5957,6 +5974,67 @@ export class RoomLobbyBridge {
 
         // PaymentSessionManager fails the session on the same EventBus event;
         // room cancellation follows PAYMENT_SESSION_FAILED.
+
+    }
+
+    _deliverDepositPackagePublished(payload) {
+
+        const roomId = payload?.roomId;
+        const gameId = payload?.gameId;
+
+        if (!roomId || !gameId) {
+
+            return;
+
+        }
+
+        if (!this._depositSessionCoordinator) {
+
+            return;
+
+        }
+
+        const room = this._roomManager.getRoom(roomId);
+
+        if (!room) {
+
+            return;
+
+        }
+
+        for (const playerId of room.players) {
+
+            const socketId = this._playerToSocket.get(playerId);
+
+            if (!socketId) {
+
+                continue;
+
+            }
+
+            const projection = projectDepositForPlayer({
+                playerId,
+                roomId,
+                gameId,
+                depositSessionCoordinator: this._depositSessionCoordinator,
+                roomLobbyBridge: this
+            });
+
+            if (!projection) {
+
+                continue;
+
+            }
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
+                {
+                    deposit: projection
+                }
+            );
+
+        }
 
     }
 
