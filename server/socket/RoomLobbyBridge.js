@@ -2331,6 +2331,41 @@ export class RoomLobbyBridge {
 
         }
 
+        // R18 S4 — restore the requester-scoped Deposit snapshot. projectDepositForPlayer
+        // is the single authority on whether the package is still exposed (it applies
+        // lifecycle/terminal/funding rules) and scopes the projection strictly to this
+        // authenticated player. This never constructs the projection server-side by
+        // hand, never regenerates StateInit, and never triggers a deposit/deployment or
+        // chain transaction. Reachable independently of the paymentStageReady barrier so
+        // the Deposit-only flow is covered too.
+        const depositTargetGameId = gameId
+            ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
+            ?? null;
+
+        if (depositTargetGameId && this._depositSessionCoordinator) {
+
+            const depositProjection = projectDepositForPlayer({
+                playerId,
+                roomId,
+                gameId: depositTargetGameId,
+                depositSessionCoordinator: this._depositSessionCoordinator,
+                roomLobbyBridge: this
+            });
+
+            if (depositProjection) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
+                    {
+                        deposit: depositProjection
+                    }
+                );
+
+            }
+
+        }
+
         this._clearRecoveryOwnershipForPlayer(playerId);
 
         this._logger.info(

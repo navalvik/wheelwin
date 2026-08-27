@@ -1,4 +1,5 @@
 import { SocketSyncLayer } from "./SocketSyncLayer.js";
+import { EngineBridge } from "./EngineBridge.js";
 import { INCOMING_SOCKET_EVENTS, SOCKET_MESSAGE_CHANNEL } from "./socketEvents.js";
 
 function assert(condition, message) {
@@ -268,6 +269,103 @@ function createFakeSocket() {
     );
 
     console.log("  dispatch: payment events routed to presentation passed");
+
+}
+
+// R18 S4 — DEPOSIT_PACKAGE_PUBLISHED must belong to the incoming socket protocol.
+{
+    assert(
+        INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED === "DEPOSIT_PACKAGE_PUBLISHED",
+        "INCOMING_SOCKET_EVENTS must expose DEPOSIT_PACKAGE_PUBLISHED"
+    );
+
+    console.log("  socketEvents: DEPOSIT_PACKAGE_PUBLISHED present passed");
+
+}
+
+// R18 S4 — SocketSyncLayer receives DEPOSIT_PACKAGE_PUBLISHED and routes it
+// through the existing single dispatcher (no second listener architecture).
+{
+    const socket = createFakeSocket();
+
+    const received = [];
+
+    const engineBridge = {
+        createDispatcherHandlers() {
+
+            return {
+                [INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED]: (payload) => {
+
+                    received.push(payload);
+
+                }
+            };
+
+        }
+    };
+
+    const layer = new SocketSyncLayer(socket, { engineBridge, devMode: false });
+
+    layer.connect();
+
+    layer.dispatchLocal({
+        type: INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            deposit: {
+                phase: "AWAITING_FUNDS",
+                mySeatIndex: 0
+            }
+        }
+    });
+
+    assert(
+        received.length === 1,
+        "DEPOSIT_PACKAGE_PUBLISHED should be dispatched exactly once"
+    );
+
+    assert(
+        received[0].deposit.phase === "AWAITING_FUNDS",
+        "the deposit payload should reach the dispatcher unchanged"
+    );
+
+    console.log("  dispatch: DEPOSIT_PACKAGE_PUBLISHED routed via dispatcher passed");
+
+}
+
+// R18 S4 — EngineBridge fans DEPOSIT_PACKAGE_PUBLISHED out to authoritativeSession.
+{
+    const bridge = new EngineBridge();
+
+    let sessionReceived = null;
+
+    bridge.register("authoritativeSession", {
+        onDepositPackagePublished(payload) {
+
+            sessionReceived = payload;
+
+        }
+    });
+
+    const handlers = bridge.createDispatcherHandlers();
+
+    const depositPayload = {
+        deposit: {
+            phase: "AWAITING_FUNDS",
+            depositId: "dep_1",
+            mySeatIndex: 2
+        }
+    };
+
+    handlers[INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED](depositPayload);
+
+    assert(
+        sessionReceived !== null
+            && sessionReceived.deposit.depositId === "dep_1"
+            && sessionReceived.deposit.mySeatIndex === 2,
+        "EngineBridge must forward DEPOSIT_PACKAGE_PUBLISHED to authoritativeSession"
+    );
+
+    console.log("  EngineBridge: DEPOSIT_PACKAGE_PUBLISHED -> authoritativeSession passed");
 
 }
 

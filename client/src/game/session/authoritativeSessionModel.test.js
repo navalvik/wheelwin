@@ -604,4 +604,188 @@ function assert(condition, message) {
 
 }
 
+// R18 S4 — deposit projection mirrors the server payload verbatim (no local
+// seat/creator/amount derivation, no funding inference).
+{
+    const state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+            payload: {
+                deposit: {
+                    phase: "AWAITING_FUNDS",
+                    depositId: "dep_1",
+                    depositAddress: "EQD_TEST_DEPOSIT",
+                    network: "testnet",
+                    package: { baseStake: "10", depositAmount: "1000000000" },
+                    mySeatIndex: 0,
+                    isCreator: true,
+                    mySeatStatus: "PENDING",
+                    myExpectedAmountNanotons: 1000000000,
+                    confirmedSeats: 0
+                }
+            }
+        }
+    );
+
+    assert(state.deposit !== null, "deposit must be stored");
+
+    assert(state.deposit.phase === "AWAITING_FUNDS", "phase mirrored");
+
+    assert(state.deposit.depositId === "dep_1", "depositId mirrored");
+
+    assert(state.deposit.mySeatIndex === 0, "seat index mirrored (server-derived)");
+
+    assert(state.deposit.isCreator === true, "creator flag mirrored (server-derived)");
+
+    assert(
+        state.deposit.myExpectedAmountNanotons === 1000000000,
+        "expected amount mirrored (server-derived)"
+    );
+
+    assert(
+        state.deposit.package.baseStake === "10",
+        "package payload mirrored"
+    );
+
+    assert(Object.isFrozen(state.deposit), "deposit must be frozen");
+
+    assert(
+        state.deposit.mySeatStatus === "PENDING"
+            && state.deposit.confirmedSeats === 0,
+        "seat status / confirmed seats mirrored"
+    );
+
+    console.log("  DEPOSIT_PACKAGE_PUBLISHED requester-scoped mirror passed");
+
+}
+
+// R18 S4 — store dispatch exercises the exact AuthoritativeSessionContext path
+// (context.onDepositPackagePublished → store.dispatch). Reducer is the same.
+{
+    const store = createAuthoritativeSessionStore();
+
+    const payload = {
+        deposit: {
+            phase: "AWAITING_FUNDS",
+            depositId: "dep_store",
+            mySeatIndex: 1,
+            isCreator: false,
+            confirmedSeats: 2
+        }
+    };
+
+    const byContext = store.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+        payload
+    });
+
+    assert(
+        byContext.deposit.depositId === "dep_store"
+            && byContext.deposit.isCreator === false,
+        "store dispatch stores the requester-scoped projection"
+    );
+
+    console.log("  store dispatch (context path) passed");
+
+}
+
+// R18 S4 — invalid / missing payload fails closed (existing deposit unchanged).
+{
+    const seeded = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+            payload: { deposit: { depositId: "dep_keep" } }
+        }
+    );
+
+    const afterNullPayload = authoritativeSessionReducer(seeded, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: null
+    });
+
+    assert(
+        afterNullPayload.deposit.depositId === "dep_keep",
+        "null payload must leave existing deposit untouched"
+    );
+
+    const afterMissingDeposit = authoritativeSessionReducer(seeded, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: { foo: "bar" }
+    });
+
+    assert(
+        afterMissingDeposit.deposit.depositId === "dep_keep",
+        "missing deposit key must fail closed"
+    );
+
+    const afterInvalidDeposit = authoritativeSessionReducer(seeded, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: { deposit: "not-an-object" }
+    });
+
+    assert(
+        afterInvalidDeposit.deposit.depositId === "dep_keep",
+        "non-object deposit must fail closed"
+    );
+
+    console.log("  DEPOSIT_PACKAGE_PUBLISHED invalid payload fail-closed passed");
+
+}
+
+// R18 S4 — RESET clears the deposit mirror; existing payment/gameContract stays
+// untouched by the deposit action and is properly reset too.
+{
+    let state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_UPDATED,
+            payload: {
+                paymentSessionId: "ps_1",
+                status: "ACTIVE",
+                participants: []
+            }
+        }
+    );
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED,
+        payload: {
+            contractId: "contract_1",
+            status: "AWAITING_PAYMENTS"
+        }
+    });
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: { deposit: { depositId: "dep_1", phase: "AWAITING_FUNDS" } }
+    });
+
+    assert(state.deposit.depositId === "dep_1", "deposit set pre-reset");
+
+    // The deposit action must never clobber the payment/game-contract mirrors.
+    assert(
+        state.paymentSession?.status === "ACTIVE",
+        "payment session unchanged by deposit action"
+    );
+
+    assert(
+        state.gameContract?.status === "AWAITING_PAYMENTS",
+        "game contract unchanged by deposit action"
+    );
+
+    const reset = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.RESET
+    });
+
+    assert(reset.deposit === null, "RESET clears deposit state");
+
+    assert(reset.gameContract === null, "RESET clears existing game-contract state");
+
+    assert(reset.paymentSession === null, "RESET clears existing payment-session state");
+
+    console.log("  RESET clears deposit (payment/game-contract preserved until reset) passed");
+}
+
 console.log("authoritativeSessionModel.test.js: all assertions passed");

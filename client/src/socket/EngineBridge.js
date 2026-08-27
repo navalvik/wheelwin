@@ -253,6 +253,12 @@ export class EngineBridge {
                 session()?.onGameContractDeployFailed?.(payload);
 
             },
+            // R18 S4 — requester-scoped Deposit package (informational mirror).
+            [INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED]: (payload) => {
+
+                session()?.onDepositPackagePublished?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED]: (payload) => {
 
                 session()?.onGameStartAuthorized?.(payload);

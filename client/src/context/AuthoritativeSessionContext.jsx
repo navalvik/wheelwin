@@ -374,6 +374,16 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        // R18 S4 — store the requester-scoped Deposit projection (mirror only).
+        onDepositPackagePublished: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+                payload
+            });
+
+        },
+
         onGameStartAuthorized: (payload) => {
 
             store.dispatch({

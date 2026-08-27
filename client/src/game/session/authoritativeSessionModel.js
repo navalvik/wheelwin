@@ -50,6 +50,8 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     GAME_CONTRACT_UPDATED: "GAME_CONTRACT_UPDATED",
     GAME_CONTRACT_DEPLOYED: "GAME_CONTRACT_DEPLOYED",
     GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
+    // R18 S4 — requester-scoped Deposit package (informational mirror only).
+    DEPOSIT_PACKAGE_PUBLISHED: "DEPOSIT_PACKAGE_PUBLISHED",
     GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
     GAME_INITIALIZING: "GAME_INITIALIZING",
     SETTLEMENT_STARTED: "SETTLEMENT_STARTED",
@@ -75,6 +77,8 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     walletConnection: null,
     paymentSession: null,
     gameContract: null,
+    // R18 S4 — requester-scoped Deposit projection mirror (informational only).
+    deposit: null,
     audit: null,
     winner: null,
     recovery: null,
@@ -764,6 +768,50 @@ export function authoritativeSessionReducer(state, action) {
                     deployedAt: payload.deployedAt ?? null,
                     paymentsCompletedAt: payload.paymentsCompletedAt ?? null,
                     deployError: payload.deployError ?? null
+                })
+            }, action.type);
+
+        }
+
+        // R18 S4 — requester-scoped Deposit projection mirror. The payload is
+        // shipped already requester-scoped by the server (projectDepositForPlayer).
+        // This reducer never derives seat/creator/amount and never infers funding —
+        // it stores the received projection verbatim (frozen).
+        case AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED: {
+
+            if (!payload || typeof payload !== "object") {
+
+                // Fail closed — no projection, no change.
+                return state;
+
+            }
+
+            const deposit = payload.deposit;
+
+            if (!deposit || typeof deposit !== "object") {
+
+                // Fail closed — never invent a Deposit projection.
+                return state;
+
+            }
+
+            const pkg = deposit.package && typeof deposit.package === "object"
+                ? Object.freeze({ ...deposit.package })
+                : null;
+
+            return stamp({
+                ...state,
+                deposit: Object.freeze({
+                    phase: deposit.phase ?? null,
+                    depositId: deposit.depositId ?? null,
+                    depositAddress: deposit.depositAddress ?? null,
+                    network: deposit.network ?? null,
+                    ...(pkg ? { package: pkg } : {}),
+                    mySeatIndex: deposit.mySeatIndex ?? null,
+                    isCreator: deposit.isCreator ?? null,
+                    mySeatStatus: deposit.mySeatStatus ?? null,
+                    myExpectedAmountNanotons: deposit.myExpectedAmountNanotons ?? null,
+                    confirmedSeats: deposit.confirmedSeats ?? null
                 })
             }, action.type);
 

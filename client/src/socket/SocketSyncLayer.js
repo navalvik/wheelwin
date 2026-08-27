@@ -386,6 +386,16 @@ export class SocketSyncLayer {
 
         };
 
+        // R18 S4 — requester-scoped Deposit package (informational mirror).
+        this._handleDepositPackagePublished = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
+                payload
+            });
+
+        };
+
         this._handleGameStartAuthorized = (payload) => {
 
             this._handleIncoming({
@@ -577,6 +587,11 @@ export class SocketSyncLayer {
         );
 
         this._socket.on(
+            INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
+            this._handleDepositPackagePublished
+        );
+
+        this._socket.on(
             INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED,
             this._handleGameStartAuthorized
         );
@@ -736,6 +751,11 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
             this._handleGameContractDeployFailed
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
+            this._handleDepositPackagePublished
         );
 
         this._socket.off(
