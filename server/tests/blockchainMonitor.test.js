@@ -1061,6 +1061,44 @@ async function main() {
         console.log("  R7.70C13 paidMask confirm + negative gate: OK");
     }
 
+    // R18-S15 — DepositMonitor.poll is only driven by start() → _pollGlobal.
+    {
+        let pollCalls = 0;
+
+        const { monitor, eventBus } = createMonitor({ pollIntervalMs: 40 });
+
+        monitor.setDepositMonitor({
+            async poll() {
+
+                pollCalls += 1;
+
+            }
+        });
+
+        await wait(90);
+
+        assert.equal(
+            pollCalls,
+            0,
+            "initialize-only must not poll DepositMonitor"
+        );
+
+        await monitor.start();
+
+        await wait(90);
+
+        assert.ok(
+            pollCalls >= 1,
+            `start() must poll DepositMonitor, got ${pollCalls}`
+        );
+
+        monitor.shutdown();
+
+        eventBus.shutdown();
+
+        console.log("  R18-S15 start() polls attached DepositMonitor: OK");
+    }
+
     console.log("blockchainMonitor.test.js: all assertions passed");
 }
 

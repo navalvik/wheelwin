@@ -1654,6 +1654,10 @@ class WheelWinApplication {
 
         this._logger.startupLine("DepositMonitor");
 
+        await this._blockchainMonitor.start();
+
+        this._logger.startupLine("BlockchainMonitor started");
+
         this._depositOnChainVerification = new DepositOnChainVerificationCoordinator({
             logger: this._logger,
             eventBus: this._eventBus,
