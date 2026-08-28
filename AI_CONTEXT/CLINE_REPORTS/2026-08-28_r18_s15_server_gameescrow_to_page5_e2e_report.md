@@ -159,11 +159,19 @@ createContractRequest                 [wired + unit/E2E proven]
 
 ## 12. Commit SHA
 
-Recorded after commit/push in §13.
+```
+efb394b1cba333b23850042243b831f8af54d5f6
+efb394b R18-S15 wire deployment authorization to GameContractManager
+```
 
 ## 13. Final Git state
 
-Recorded after commit/push.
+```
+HEAD: efb394b (main)
+message: R18-S15 wire deployment authorization to GameContractManager
+```
+
+Pushed to `origin/main`. Working tree still contains unrelated pre-existing untracked/modified user files; those were not part of this commit.
 
 ## 14. Single next server-side action
 
