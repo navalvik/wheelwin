@@ -2527,5 +2527,324 @@ c1ec4a2 R18-S15 prune stale recovered Deposit watches to stop TonCenter 429
 
 `c1ec4a2` remains intact. No production activation-gate commit. Report file updated in the working tree.
 
+---
+
+# LIVE TESTNET — GAMEESCROW READY TO PRODUCTION PAGE5
+
+Date: 2026-08-28  
+Classification of **this** continuation: **R18_S15_BLOCKED** at `GAME_CONTRACT_DEPLOYED`  
+This section is a new fresh TESTNET run. It does **not** reuse GLSi / PNyS / wMCC evidence.
+
+## 1. Starting HEAD
+
+**SOURCE VERIFIED**
+
+```
+adcc0876f7c33caca0f5e682532f6da8189d236b
+adcc087 docs: record R18-S15 Deposit activation ordering and OPEN_PAGE5
+1d41480 R18-S15 wait for Deposit activation VERIFIED before E2E FundSeat
+c1ec4a2 R18-S15 prune stale recovered Deposit watches to stop TonCenter 429
+40a2f8b R18-S15 start BlockchainMonitor so DepositMonitor poll runs
+```
+
+`40a2f8b`, `c1ec4a2`, and `1d41480` remain intact. No reset, rebase, force-push, or amend.
+
+## 2. Starting Git status
+
+**SOURCE VERIFIED**
+
+Dirty tree at start of this continuation: modified `server/scripts/_r18s15_production_page5.mjs` (in-progress READY-to-Page5 runner wait), plus pre-existing untracked reports, probes, banners, and session artifacts. Production `app.js` / Page4 / Page5 / DepositContract / GameEscrow FunC were not modified.
+
+## 3. Exact reason the previous runner stopped at READY
+
+**SOURCE VERIFIED** (historical; not this run)
+
+Two different stop reasons existed:
+
+1. Earlier S15 getter/STAKE runners treated on-chain `get_status = READY` as the terminal proof and exited without waiting on the production lobby/game-start EventBus.
+2. The production `app.js` lobby runner that reached room `GLSi` **did** subscribe to `OPEN_PAGE5`, but after STAKE it called `get_paid_mask` / `get_status` **before** awaiting that socket event. An uncaught TonCenter HTTP 429 aborted the process (`exit 1`) so `page5Reached=true` was never logged. Production `RoomLobbyBridge` had already delivered `OPEN_PAGE5` for `GLSi` (see the previous section). That GLSi evidence is **not** reused as proof for this fresh run.
+
+The actual gap for the READY-to-Page5 milestone was therefore the **E2E runner**, not a missing second architecture.
+
+## 4. Production component responsible for the next transition after GameEscrow READY
+
+**SOURCE VERIFIED**
+
+`BlockchainMonitor` observes GameEscrow STAKE and emits `GAME_ESCROW_STAKE_CONFIRMED`.  
+`PaymentSessionManager` consumes that observation, marks the session completed, and emits `PAYMENT_SESSION_COMPLETED`.
+
+No new event was invented. No parallel EventBus or manager copies were created.
+
+## 5. Exact event/handoff discovered
+
+**SOURCE VERIFIED**
+
+Real source → consumer (existing production composition in `app.js`):
+
+| Event | Source | Consumer |
+|---|---|---|
+| `GAME_ESCROW_STAKE_CONFIRMED` | `BlockchainMonitor` | `PaymentSessionManager` (`_handlePaymentTransactionConfirmed`) |
+| `PAYMENT_SESSION_COMPLETED` | `PaymentSessionManager` | `GameContractManager._handlePaymentSessionCompleted`; `GameStartAuthorization._evaluate`; `RoomLobbyBridge` (socket delivery) |
+| `GAME_CONTRACT_PAYMENTS_COMPLETE` | `GameContractManager.markPaymentsComplete` | `GameStartAuthorization._evaluate` |
+| `GAME_START_AUTHORIZED` | `GameStartAuthorization._authorizeAndBootstrap` | `RoomLobbyBridge._deliverGameStartAuthorized` |
+| `GAME_INITIALIZING` | `GameStartAuthorization._authorizeAndBootstrap` | `RoomLobbyBridge._deliverGameInitializing` |
+| `GAME_START_BOOTSTRAP_READY` | `GameStartAuthorization._authorizeAndBootstrap` | `RoomLobbyBridge._handleGameStartBootstrapReady` |
+| `ENTRY_PAYMENT_COMPLETED` | `RoomLobbyBridge._completeEntryPayment` | gameplay bootstrap; then `_deliverOpenPage5` |
+| `OPEN_PAGE5` | `RoomLobbyBridge._deliverOpenPage5` | lobby sockets `{ roomId }` |
+
+`GameStartAuthorization` also records audit type `OPEN_PAGE5` internally; the authoritative client signal is the socket event from `RoomLobbyBridge`. The runner does **not** call `_deliverOpenPage5` and does **not** emit these events.
+
+## 6. E2E runner change
+
+**SOURCE VERIFIED**
+
+File: `server/scripts/_r18s15_production_page5.mjs`
+
+- After STAKE, phase `WAIT_PRODUCTION_PAGE5`. GameEscrow READY getters are **not** terminal.
+- Socket waits for `OPEN_PAGE5` / `PAYMENT_SESSION_COMPLETED` / `GAME_START_AUTHORIZED` / `GAME_INITIALIZING` / `ENTRY_PAYMENT_COMPLETED` require `payload.roomId ===` the live room.
+- Production log observation for the same events starts **before** STAKE broadcasts and correlates `EventName` + `roomId`.
+- `await openPage5` runs **before** optional on-chain getters, so a TonCenter 429 on `get_paid_mask` / `get_status` cannot abort the Page5 wait.
+- Getter failures are caught; they do not `process.exit`.
+
+## 7. Production source change
+
+**SOURCE VERIFIED**
+
+None. The READY-to-Page5 production chain already exists. This continuation did not modify Page4, Page5, DepositContract, GameEscrow, PaymentSessionManager, GameStartAuthorization, RoomLobbyBridge, or GameContractManager.
+
+## 8. Focused test results
+
+**AUTOMATED TEST VERIFIED** (commands actually executed)
+
+```
+node --test tests/r18s15.page5Continuation.r18s15.test.js
+  passed=2  failed=0  skipped=0
+```
+
+Combined `node --test` of:
+
+- `tests/r18s15.page5Continuation.r18s15.test.js`
+- `tests/depositActivationOrdering.r18s15.test.js`
+- `tests/gameContract.deployAuthorizationHandoff.r18s15.test.js`
+- `tests/blockchainMonitor.productionStart.r18s15.test.js`
+
+```
+passed=16  failed=0  skipped=0
+```
+
+(the 16 includes the 2 continuation tests)
+
+```
+node tests/gameStartAuthorization.test.js
+  passed (script: "gameStartAuthorization.test.js passed")
+  failed=0  skipped=0
+```
+
+```
+node tests/paymentSession.manager.test.js
+  passed (script: "paymentSession.manager.test.js: all assertions passed")
+  failed=0  skipped=0
+```
+
+```
+node tests/gameContract.manager.test.js
+  passed (script: "gameContract.manager.test.js: all assertions passed")
+  failed=0  skipped=0
+  (process left open handles after assertions; not a failed assertion)
+```
+
+```
+node tests/roomLobby.integration.test.js
+  passed=0  failed=1  skipped=0
+  Error: Timed out waiting for roomCreated
+```
+
+`roomLobby.integration.test.js` uses a harness socket **without** Telegram `initData`. Production `RoomLobbyBridge._handleCreateRoom` rejects web sockets (`ROOM_CREATION_REQUIRES_TELEGRAM`). That failure is pre-existing relative to this runner change. It was not used as READY-to-Page5 proof. The Telegram-authenticated production runner is the E2E below.
+
+## 9. Fresh roomId
+
+**SERVER RUNTIME VERIFIED**
+
+`pyzv`  
+Not PNyS / wMCC / GLSi.
+
+## 10. Fresh gameId
+
+**SERVER RUNTIME VERIFIED**
+
+`game_d12083ca-02da-4d4a-86d9-5db748fc3604`
+
+## 11. Fresh PaymentSession
+
+**SERVER RUNTIME VERIFIED**
+
+`pay_294144b3-1be3-4d70-b53d-7a9f5200db59`
+
+## 12. Fresh Deposit
+
+**SERVER RUNTIME VERIFIED** / **REAL TESTNET VERIFIED**
+
+- `depositId=dep_61b126c3-dd8e-4ed5-b97c-4b728fde5d5e`
+- `depositAddress=EQCGxOkujyANhwe_FzbXlyqhKH3BEjYPJDUXOwXhe0P9H0ye`
+- deploy BOC success on `https://testnet.toncenter.com/api/v2/jsonRPC`
+- `depositDeployTx=9twJOKZvPJBVj+ATrympnM/tWvsUd90DP9SCoQ2T9oE=`
+- `depositDeploySender=EQC9qwKAy72kX1oPtryX-g5y44B2mYZEB2HVdJAeJprla_Le`
+
+Network at start of runner:
+
+```
+tonNetwork=testnet
+tonEndpoint=https://testnet.toncenter.com/api/v2/jsonRPC
+deployMode=live
+```
+
+`TON_MAINNET_READINESS` logged `status: FAIL` / `activeNetwork: testnet`. No MAINNET broadcast.
+
+## 13. Deposit activation
+
+**SERVER RUNTIME VERIFIED**
+
+- EventBus `DEPOSIT_ACTIVATION_WAITING` at `2026-08-28T21:35:04.451Z` (driver `depositActivationWaitingAt=1787952911902`)
+- `DEPOSIT_ACTIVATION_VERIFIED` EventBus `2026-08-28T21:35:22.691Z` from `DepositActivationVerificationCoordinator`
+- verified identities: `depositId=dep_61b126c3-...` `roomId=pyzv` `gameId=game_d12083ca-...`
+- FundSeat started only after that matching VERIFIED (`fundSeatAfterVerified=true`)
+
+A transient `DEPOSIT_ACTIVATION_REJECTED` / `activation retry failed` 429 occurred at `21:35:14.707Z` and was **not** treated as success. VERIFIED followed at `21:35:22.691Z`.
+
+## 14. FundSeat results
+
+**REAL TESTNET VERIFIED**
+
+All three seats `valueNano=11000000` via TESTNET `sendBoc`:
+
+| Seat | bocHash |
+|---|---|
+| 0 | `e5a212a34dbe287e06ad668a5f779d1fbf89f6509c97e48b771803cccc71a2a9` |
+| 1 | `3d806039207063719291fc8994cfabecbb8127445541e3639cf4f4a45d758145` |
+| 2 | `9efff1b2d7606577aa42ac92f601eae3074129baf66fa0781fe81baecf560e37` |
+
+Driver `transactionHash` fields were null (hash is in the BOC logs above).
+
+## 15. Deposit full state
+
+**SERVER RUNTIME VERIFIED**
+
+`DEPOSIT_FULL_ONCHAIN` / `DEPOSIT_FULL` at `2026-08-28T21:35:46.122Z`–`21:35:46.156Z`.
+
+## 16. Deployment authorization
+
+**SERVER RUNTIME VERIFIED**
+
+`DEPLOY_AUTHORIZATION_VALID` at `2026-08-28T21:35:46.176Z`.  
+`GameContractManager.createContractRequest` then `_beginDeploy` for `contract_51c420c9-0d04-487f-ac94-71b25c13e190` / room `pyzv`.
+
+## 17. Fresh GameEscrow address
+
+**NOT VERIFIED** / **BLOCKED**
+
+No GameEscrow address was produced for `pyzv`. Deploy failed before broadcast completed.
+
+## 18. INIT_GAME
+
+**NOT VERIFIED** — blocked before GameEscrow deploy success.
+
+## 19. OPEN_PAYMENTS
+
+**NOT VERIFIED** — blocked before GameEscrow deploy success.
+
+## 20. STAKE × 3
+
+**NOT VERIFIED** — blocked before GameEscrow deploy success.
+
+## 21. GameEscrow paidMask
+
+**NOT VERIFIED**
+
+## 22. GameEscrow READY
+
+**NOT VERIFIED**
+
+This fresh run did not reach on-chain READY. Historical GLSi `paidMask=7` / `get_status=5` is **not** counted here.
+
+## 23. PAYMENT_SESSION_COMPLETED
+
+**NOT VERIFIED** for `pyzv`.
+
+Observed instead: socket `PAYMENT_SESSION_FAILED` for `roomId=pyzv` / `gameId=game_d12083ca-...` / `pay_294144b3-...` after deploy failure (`status: PAYMENT_FAILED`).
+
+## 24. GAME_CONTRACT_PAYMENTS_COMPLETE
+
+**NOT VERIFIED**
+
+## 25. GAME_START_AUTHORIZED
+
+**NOT VERIFIED**
+
+## 26. GAME_START_BOOTSTRAP_READY
+
+**NOT VERIFIED**
+
+## 27. ENTRY_PAYMENT_COMPLETED
+
+**NOT VERIFIED**
+
+## 28. OPEN_PAGE5
+
+**NOT VERIFIED** / **BLOCKED**
+
+Driver exit 9:
+
+```
+status=BLOCKED
+lastVerified=DEPLOY_AUTHORIZATION_VALID
+nextExpected=GAME_CONTRACT_DEPLOYED
+reason=timeout waiting for GAME_CONTRACT_DEPLOYED
+```
+
+## 29. Exact first blocker if Page5 was not reached
+
+```
+LAST VERIFIED STATE: DEPLOY_AUTHORIZATION_VALID
+EXPECTED NEXT STATE: GAME_CONTRACT_DEPLOYED
+EXACT OPERATION: TonGameContractAdapter._broadcastDeploy → _sendOracleMessage → getSeqno
+EXACT ERROR: AxiosError HTTP 429 from TESTNET TonCenter during deployer seqno read
+RELEVANT FILE/FUNCTION: server/payment/TonGameContractAdapter.js (_sendOracleMessage ~1486; _broadcastDeploy ~1336); server/payment/ton/gameContract/legacyTonServiceShim.js getSeqno
+EVENT THAT WAS EXPECTED: GAME_CONTRACT_DEPLOYED (then INIT_GAME / OPEN_PAYMENTS / STAKE / READY / PAYMENT_SESSION_COMPLETED / OPEN_PAGE5)
+EVENT THAT WAS ACTUALLY OBSERVED: GAME_CONTRACT_DEPLOY_FAILED + PAYMENT_SESSION_FAILED for room pyzv
+ROOM/GAME/SESSION ID: roomId=pyzv gameId=game_d12083ca-02da-4d4a-86d9-5db748fc3604 paymentSessionId=pay_294144b3-1be3-4d70-b53d-7a9f5200db59 depositId=dep_61b126c3-dd8e-4ed5-b97c-4b728fde5d5e contractId=contract_51c420c9-0d04-487f-ac94-71b25c13e190
+BLOCKER CATEGORY: TonCenter rate limit on GameEscrow deploy seqno (not PaymentSessionManager, not GameStartAuthorization, not RoomLobbyBridge, not Page4/Page5)
+```
+
+Production log:
+
+```
+TON_DEPLOY_EXCEPTION_DETAILS
+AxiosError: Request failed with status code 429
+    at async Object.getSeqno (.../legacyTonServiceShim.js:57)
+    at async TonGameContractAdapter._sendOracleMessage (.../TonGameContractAdapter.js:1486)
+    at async TonGameContractAdapter._broadcastDeploy (.../TonGameContractAdapter.js:1336)
+TON GameContract deploy failed | Request failed with status code 429
+Stage: DEPLOY_RESULT | Decision: FAILED | Reason: Adapter Result failed; reason=deploy_failed
+Next Action: GAME_CONTRACT_DEPLOY_FAILED
+```
+
+This is **not** a READY-to-lobby handoff defect. The production Page5 chain was never entered because GameEscrow never deployed. Per task rules, 429 was not re-audited or redesigned in this continuation.
+
+DepositMonitor already classified live-deposit 429 as `kind=rate_limited` and stopped remaining watches that cycle; the deploy path `getSeqno` is a **separate** call and is fail-closed today.
+
+## 30. Final Git state
+
+Recorded after the commit of this continuation (see §31). Working tree besides the committed runner/test/report remains dirty with unrelated untracked files.
+
+## 31. Commit SHA if a commit was created
+
+Pending at report-write time; filled after `git commit` of:
+
+- `server/scripts/_r18s15_production_page5.mjs`
+- `server/tests/r18s15.page5Continuation.r18s15.test.js`
+- `AI_CONTEXT/CLINE_REPORTS/2026-08-28_r18_s15_server_gameescrow_to_page5_e2e_report.md`
+
+No production lifecycle source in this commit. No secrets, `.env`, or probe files.
+
 
 

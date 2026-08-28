@@ -61,6 +61,7 @@ const TRACKED_EVENTS = Object.freeze([
     "PAYMENT_REQUEST",
     "PAYMENT_SESSION_COMPLETED",
     "PAYMENT_SESSION_FAILED",
+    "GAME_CONTRACT_PAYMENTS_COMPLETE",
     "GAME_START_AUTHORIZED",
     "GAME_START_BOOTSTRAP_READY",
     "GAME_INITIALIZING",
@@ -497,6 +498,72 @@ async function waitForEventBusType(scanner, eventType, timeoutMs) {
     }
 
     throw new Error(`timeout waiting for ${eventType}`);
+
+}
+
+function logHasEventForRoom(text, eventType, roomId) {
+
+    if (!text || !eventType || !roomId) {
+
+        return false;
+
+    }
+
+    if (text.includes(`${eventType} | roomId=${roomId}`)) {
+
+        return true;
+
+    }
+
+    const needle = `EventName: ${eventType}`;
+    let from = 0;
+
+    while (from < text.length) {
+
+        const index = text.indexOf(needle, from);
+
+        if (index === -1) {
+
+            break;
+
+        }
+
+        const window = text.slice(index, index + 2500);
+
+        if (
+            window.includes(`"roomId": "${roomId}"`)
+            || window.includes(`RoomId: ${roomId}`)
+        ) {
+
+            return true;
+
+        }
+
+        from = index + needle.length;
+
+    }
+
+    return false;
+
+}
+
+async function waitForProductionHandoffLog(scanner, eventType, roomId, timeoutMs) {
+
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+
+        if (logHasEventForRoom(scanner.snapshot(), eventType, roomId)) {
+
+            return { eventType, roomId, at: Date.now() };
+
+        }
+
+        await l25Sleep(250);
+
+    }
+
+    throw new Error(`timeout waiting for ${eventType} roomId=${roomId}`);
 
 }
 
@@ -1121,15 +1188,70 @@ async function main() {
 
     publicLog("phase", "STAKE");
 
-    const openPage5 = waitFor(sockets[0], "OPEN_PAGE5", 180_000);
-    const paymentCompleted = waitFor(sockets[0], "PAYMENT_SESSION_COMPLETED", 180_000)
-        .catch(() => null);
-    const startAuthorized = waitFor(sockets[0], "GAME_START_AUTHORIZED", 180_000)
-        .catch(() => null);
-    const bootstrapReady = waitFor(sockets[0], "GAME_INITIALIZING", 180_000)
-        .catch(() => null);
-    const entryCompleted = waitFor(sockets[0], "ENTRY_PAYMENT_COMPLETED", 180_000)
-        .catch(() => null);
+    const liveRoom = created.roomId;
+    const handoffTimeoutMs = 240_000;
+
+    const openPage5 = waitFor(
+        sockets[0],
+        "OPEN_PAGE5",
+        handoffTimeoutMs,
+        (payload) => payload?.roomId === liveRoom
+    );
+    const paymentCompleted = waitFor(
+        sockets[0],
+        "PAYMENT_SESSION_COMPLETED",
+        handoffTimeoutMs,
+        (payload) => payload?.roomId === liveRoom
+    ).catch(() => null);
+    const startAuthorized = waitFor(
+        sockets[0],
+        "GAME_START_AUTHORIZED",
+        handoffTimeoutMs,
+        (payload) => payload?.roomId === liveRoom
+    ).catch(() => null);
+    const bootstrapReady = waitFor(
+        sockets[0],
+        "GAME_INITIALIZING",
+        handoffTimeoutMs,
+        (payload) => payload?.roomId === liveRoom
+    ).catch(() => null);
+    const entryCompleted = waitFor(
+        sockets[0],
+        "ENTRY_PAYMENT_COMPLETED",
+        handoffTimeoutMs,
+        (payload) => payload?.roomId === liveRoom
+    ).catch(() => null);
+
+    const paymentsCompleteLog = waitForProductionHandoffLog(
+        appLogScanner,
+        "GAME_CONTRACT_PAYMENTS_COMPLETE",
+        liveRoom,
+        handoffTimeoutMs
+    ).catch(() => null);
+    const paymentSessionCompletedLog = waitForProductionHandoffLog(
+        appLogScanner,
+        "PAYMENT_SESSION_COMPLETED",
+        liveRoom,
+        handoffTimeoutMs
+    ).catch(() => null);
+    const gameStartAuthorizedLog = waitForProductionHandoffLog(
+        appLogScanner,
+        "GAME_START_AUTHORIZED",
+        liveRoom,
+        handoffTimeoutMs
+    ).catch(() => null);
+    const bootstrapReadyLog = waitForProductionHandoffLog(
+        appLogScanner,
+        "GAME_START_BOOTSTRAP_READY",
+        liveRoom,
+        handoffTimeoutMs
+    ).catch(() => null);
+    const entryCompletedLog = waitForProductionHandoffLog(
+        appLogScanner,
+        "ENTRY_PAYMENT_COMPLETED",
+        liveRoom,
+        handoffTimeoutMs
+    ).catch(() => null);
 
     const stakeResults = [];
 
@@ -1169,45 +1291,128 @@ async function main() {
 
     await l25Sleep(15_000);
 
+    publicLog("phase", "WAIT_PRODUCTION_PAGE5");
+    publicLog(
+        "note",
+        "GameEscrow READY is not terminal; continue through production PaymentSession / GameStartAuthorization / RoomLobbyBridge"
+    );
+
     const escrow = deployedEvent.contractAddress;
-    const paidMask = await readIntGetter(tonService, escrow, "get_paid_mask");
-    const status = await readIntGetter(tonService, escrow, "get_status");
-
-    publicLog("onChainPaidMask", paidMask);
-    publicLog("onChainStatus", status);
-
-    const completed = await paymentCompleted;
-    const authorized = await startAuthorized;
-    const initializing = await bootstrapReady;
-    const entry = await entryCompleted;
-
-    publicLog("PAYMENT_SESSION_COMPLETED", Boolean(completed));
-    publicLog("GAME_START_AUTHORIZED", Boolean(authorized));
-    publicLog("GAME_INITIALIZING", Boolean(initializing));
-    publicLog("ENTRY_PAYMENT_COMPLETED", Boolean(entry));
-
     let page5 = null;
 
     try {
 
         page5 = await openPage5;
 
+        publicLog("OPEN_PAGE5", page5);
+        publicLog("page5Reached", true);
+        publicLog("OPEN_PAGE5_ROOM", page5?.roomId ?? liveRoom);
+
     } catch (error) {
+
+        const logs = appLogScanner.snapshot();
 
         publicLog("status", "BLOCKED");
         publicLog("page5Reached", false);
-        publicLog("lastVerified", paidMask === 7 ? "on-chain paidMask=7" : "STAKE broadcast");
+        publicLog("lastVerified", "STAKE broadcast");
         publicLog("nextExpected", "OPEN_PAGE5");
         publicLog("reason", error.message);
+        publicLog("PAYMENT_SESSION_COMPLETED_LOG", logHasEventForRoom(logs, "PAYMENT_SESSION_COMPLETED", liveRoom));
+        publicLog("GAME_CONTRACT_PAYMENTS_COMPLETE", logHasEventForRoom(logs, "GAME_CONTRACT_PAYMENTS_COMPLETE", liveRoom));
+        publicLog("GAME_START_AUTHORIZED_LOG", logHasEventForRoom(logs, "GAME_START_AUTHORIZED", liveRoom));
+        publicLog("GAME_START_BOOTSTRAP_READY", logHasEventForRoom(logs, "GAME_START_BOOTSTRAP_READY", liveRoom));
+        publicLog("ENTRY_PAYMENT_COMPLETED_LOG", logHasEventForRoom(logs, "ENTRY_PAYMENT_COMPLETED", liveRoom));
+        publicLog("finalRoomId", liveRoom);
+        publicLog("finalGameId", gameId);
         shutdown();
         process.exit(12);
 
     }
 
+    let paidMask = null;
+    let status = null;
+
+    try {
+
+        paidMask = await l25WithRpcRetry(
+            () => readIntGetter(tonService, escrow, "get_paid_mask"),
+            { operationName: "get_paid_mask/gameEscrow" }
+        );
+        status = await l25WithRpcRetry(
+            () => readIntGetter(tonService, escrow, "get_status"),
+            { operationName: "get_status/gameEscrow" }
+        );
+        publicLog("onChainPaidMask", paidMask);
+        publicLog("onChainStatus", status);
+        publicLog("gameEscrowReady", Number(status) === 5);
+
+    } catch (error) {
+
+        publicLog("onChainPaidMask", "NOT VERIFIED");
+        publicLog("onChainStatus", "NOT VERIFIED");
+        publicLog("onChainGetterError", error.message);
+
+    }
+
+    const [
+        paymentsComplete,
+        paymentSessionCompletedObserved,
+        gameStartAuthorizedObserved,
+        bootstrapReadyObserved,
+        entryCompletedObserved,
+        completed,
+        authorized,
+        initializing,
+        entry
+    ] = await Promise.all([
+        paymentsCompleteLog,
+        paymentSessionCompletedLog,
+        gameStartAuthorizedLog,
+        bootstrapReadyLog,
+        entryCompletedLog,
+        paymentCompleted,
+        startAuthorized,
+        bootstrapReady,
+        entryCompleted
+    ]);
+
+    publicLog("GAME_CONTRACT_PAYMENTS_COMPLETE", Boolean(paymentsComplete));
+    publicLog("PAYMENT_SESSION_COMPLETED_LOG", Boolean(paymentSessionCompletedObserved));
+    publicLog("GAME_START_AUTHORIZED_LOG", Boolean(gameStartAuthorizedObserved));
+    publicLog("GAME_START_BOOTSTRAP_READY", Boolean(bootstrapReadyObserved));
+    publicLog("ENTRY_PAYMENT_COMPLETED_LOG", Boolean(entryCompletedObserved));
+
+    publicLog("PAYMENT_SESSION_COMPLETED", Boolean(completed));
+    publicLog("PAYMENT_SESSION_COMPLETED_ROOM", completed?.roomId ?? null);
+    publicLog("GAME_START_AUTHORIZED", Boolean(authorized));
+    publicLog("GAME_START_AUTHORIZED_ROOM", authorized?.roomId ?? null);
+    publicLog("GAME_INITIALIZING", Boolean(initializing));
+    publicLog("ENTRY_PAYMENT_COMPLETED", Boolean(entry));
+    publicLog("ENTRY_PAYMENT_COMPLETED_ROOM", entry?.roomId ?? null);
+
+    if (page5?.roomId && page5.roomId !== liveRoom) {
+
+        publicLog("status", "BLOCKED");
+        publicLog("page5Reached", false);
+        publicLog("reason", "OPEN_PAGE5 roomId mismatch");
+        publicLog("expectedRoomId", liveRoom);
+        publicLog("observedRoomId", page5.roomId);
+        shutdown();
+        process.exit(13);
+
+    }
+
     publicLog("OPEN_PAGE5", page5);
     publicLog("page5Reached", true);
-    publicLog("finalRoomId", created.roomId);
+    publicLog("finalRoomId", liveRoom);
     publicLog("finalGameId", gameId);
+    publicLog("finalPaymentSessionId",
+        paymentSessionCreated?.paymentSessionId
+            ?? paymentSessionCreated?.session?.paymentSessionId
+            ?? null
+    );
+    publicLog("finalDepositId", deposit.depositId);
+    publicLog("finalGameEscrowAddress", escrow);
     publicLog("status", "OPEN_PAGE5");
 
     for (const socket of sockets) {
