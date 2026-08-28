@@ -228,7 +228,8 @@ function createStack({
     roomManager = null,
     activateGame = true,
     financialParameters = null,
-    tonService = null
+    tonService = null,
+    activationRetryIntervalMs = 60_000
 } = {}) {
 
     resetDepositCodeCellCacheForTests();
@@ -346,7 +347,8 @@ function createStack({
         playerManager: playerManager ?? createPlayerManager(),
         sessionWalletStore: sessionWalletStore ?? createSessionWalletStore(),
         financialParameters: financialParameters ?? testFinancials(),
-        env: FINANCIAL_ENV
+        env: FINANCIAL_ENV,
+        activationRetryIntervalMs
     });
 
     return {
@@ -651,6 +653,42 @@ test("R17.9L.23 TestI: UNINIT → WAITING_FOR_PLAYER_DEPLOYMENT, authorizeVerifi
     assert.equal(monitorSpies.authorizeVerifiedWatchCalls, 0);
     assert.equal(monitorSpies.startWatchingCalls, 0);
     assert.equal(depositMonitor.listActiveWatches().length, 0);
+
+    orchestrator.shutdown();
+
+});
+
+test("R18-S15: DEPOSIT_ACTIVATION_WAITING retries existing verifyActivation", async () => {
+
+    const stack = createStack({ activationRetryIntervalMs: 20 });
+    let verifyCalls = 0;
+    const originalVerify = stack.depositActivationVerification.verifyActivation
+        .bind(stack.depositActivationVerification);
+
+    stack.depositActivationVerification.verifyActivation = async (...args) => {
+
+        verifyCalls += 1;
+
+        return originalVerify(...args);
+
+    };
+
+    stack.orchestrator.initialize();
+
+    const result = await stack.orchestrator.handlePaymentConnectionReady({ roomId: ROOM_ID });
+
+    assert.equal(result.activationStatus, DEPOSIT_ACTIVATION_STATUS.WAITING_FOR_PLAYER_DEPLOYMENT);
+    assert.equal(verifyCalls, 1);
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.ok(
+        verifyCalls >= 2,
+        `expected retry of verifyActivation, got ${verifyCalls}`
+    );
+    assert.equal(stack.monitorSpies.authorizeVerifiedWatchCalls, 0);
+
+    stack.orchestrator.shutdown();
 
 });
 

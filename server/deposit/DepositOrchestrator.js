@@ -106,7 +106,9 @@ export class DepositOrchestrator {
         sessionWalletStore = null,
         financialParameters = null,
         resolveFinancialParameters = null,
-        env = process.env
+        env = process.env,
+        activationRetryIntervalMs = 3_000,
+        activationRetryMaxMs = 300_000
     } = {}) {
 
         this._logger = logger ?? { info() {}, warn() {}, error() {}, debug() {} };
@@ -133,6 +135,34 @@ export class DepositOrchestrator {
         this._env = env;
 
         this._initialized = false;
+
+        this._activationRetryIntervalMs = Number(activationRetryIntervalMs) > 0
+            ? Number(activationRetryIntervalMs)
+            : 3_000;
+
+        this._activationRetryMaxMs = Number(activationRetryMaxMs) > 0
+            ? Number(activationRetryMaxMs)
+            : 300_000;
+
+        this._activationRetryTimers = new Map();
+
+        this._activationRetryStartedAt = new Map();
+
+        this._boundActivationWaitingHandler = (envelope) => {
+
+            const depositId = typeof envelope?.payload?.depositId === "string"
+                ? envelope.payload.depositId.trim()
+                : "";
+
+            if (!depositId) {
+
+                return;
+
+            }
+
+            this._scheduleActivationRetry(depositId);
+
+        };
 
         this._boundHandler = (envelope) => {
 
@@ -186,6 +216,11 @@ export class DepositOrchestrator {
                 this._boundHandler
             );
 
+            this._eventBus.subscribe(
+                EVENT_TYPES.DEPOSIT_ACTIVATION_WAITING,
+                this._boundActivationWaitingHandler
+            );
+
         }
 
         this._initialized = true;
@@ -194,11 +229,18 @@ export class DepositOrchestrator {
 
     shutdown() {
 
+        this._clearActivationRetries();
+
         if (this._eventBus?.unsubscribe && this._initialized) {
 
             this._eventBus.unsubscribe(
                 EVENT_TYPES.PAYMENT_CONNECTION_READY,
                 this._boundHandler
+            );
+
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.DEPOSIT_ACTIVATION_WAITING,
+                this._boundActivationWaitingHandler
             );
 
         }
@@ -553,6 +595,117 @@ export class DepositOrchestrator {
             activationStatus: activation.status,
             watchStarted: activation.watchStarted === true
         });
+
+    }
+
+    _clearActivationRetries() {
+
+        for (const timer of this._activationRetryTimers.values()) {
+
+            clearTimeout(timer);
+
+        }
+
+        this._activationRetryTimers.clear();
+        this._activationRetryStartedAt.clear();
+
+    }
+
+    _scheduleActivationRetry(depositId) {
+
+        if (this._activationRetryTimers.has(depositId)) {
+
+            return;
+
+        }
+
+        if (!this._activationRetryStartedAt.has(depositId)) {
+
+            this._activationRetryStartedAt.set(depositId, Date.now());
+
+        }
+
+        const elapsed = Date.now() - this._activationRetryStartedAt.get(depositId);
+
+        if (elapsed >= this._activationRetryMaxMs) {
+
+            this._logger.warn?.(
+                "DepositOrchestrator activation retry timed out"
+                + ` | depositId=${depositId}`
+            );
+            this._activationRetryStartedAt.delete(depositId);
+
+            return;
+
+        }
+
+        const timer = setTimeout(() => {
+
+            this._activationRetryTimers.delete(depositId);
+            void this._retryActivation(depositId);
+
+        }, this._activationRetryIntervalMs);
+
+        this._activationRetryTimers.set(depositId, timer);
+
+    }
+
+    async _retryActivation(depositId) {
+
+        const session = this._depositSessionCoordinator?.getSession?.(depositId) ?? null;
+
+        if (!session || isDepositSessionTerminal(session.state)) {
+
+            this._activationRetryStartedAt.delete(depositId);
+
+            return;
+
+        }
+
+        if (!this._depositActivationVerificationCoordinator?.verifyActivation) {
+
+            this._activationRetryStartedAt.delete(depositId);
+
+            return;
+
+        }
+
+        try {
+
+            const result = await this._depositActivationVerificationCoordinator
+                .verifyActivation(depositId);
+
+            if (
+                result.status === DEPOSIT_ACTIVATION_STATUS.VERIFIED
+                || result.status === DEPOSIT_ACTIVATION_STATUS.ALREADY_VERIFIED
+            ) {
+
+                this._activationRetryStartedAt.delete(depositId);
+
+                return;
+
+            }
+
+            if (result.status === DEPOSIT_ACTIVATION_STATUS.WAITING_FOR_PLAYER_DEPLOYMENT) {
+
+                this._scheduleActivationRetry(depositId);
+
+                return;
+
+            }
+
+            this._activationRetryStartedAt.delete(depositId);
+
+        } catch (error) {
+
+            this._logger.warn?.(
+                "DepositOrchestrator activation retry failed"
+                + ` | depositId=${depositId}`
+                + ` | error=${error?.message ?? String(error)}`
+            );
+            this._scheduleActivationRetry(depositId);
+
+        }
 
     }
 
