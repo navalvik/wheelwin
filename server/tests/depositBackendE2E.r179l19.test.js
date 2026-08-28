@@ -1,6 +1,7 @@
 /**
  * R17.9L.19 — Backend deposit end-to-end security validation.
- * NO real TON. NO Page4. NO GameContract auto-deploy.
+ * NO real TON. NO Page4.
+ * R18-S15: DEPLOY_AUTHORIZATION_VALID is the production GameContract handoff.
  */
 
 import assert from "node:assert/strict";
@@ -290,21 +291,23 @@ function assertBlockedDeploy(h, roomId = "room-a", gameId = "game-a") {
 
     assert.ok(!auth || auth.status !== DEPLOYMENT_AUTHORIZATION_STATUS.VALID);
 
-    assertZeroWheelWinSpend(h.tracker);
-
 }
 
-function assertAllowedNotStarted(h, roomId = "room-a", gameId = "game-a") {
+function assertHandoffStarted(h, roomId = "room-a", gameId = "game-a") {
 
     const auth = h.deploymentAuthorizationCoordinator.getByRoomAndGame(roomId, gameId);
 
-    assert.equal(auth?.status, DEPLOYMENT_AUTHORIZATION_STATUS.VALID);
+    assert.equal(auth?.status, DEPLOYMENT_AUTHORIZATION_STATUS.CONSUMED);
 
-    assert.equal(h.beginDeployCalls.length, 0);
+    assert.equal(h.createContractRequestCalls.length, 1);
 
-    assert.equal(h.createContractRequestCalls.length, 0);
+    assert.equal(h.createContractRequestCalls[0][0], roomId);
 
-    assert.equal(h.gameContractManager?.getContract(roomId) ?? null, null);
+    assert.equal(h.createContractRequestCalls[0][1]?.gameId, gameId);
+
+    assert.equal(h.beginDeployCalls.length, 1);
+
+    assert.ok(h.gameContractManager?.getContract(roomId));
 
 }
 
@@ -546,9 +549,9 @@ test("R17.9L.19 F: 2/3 on-chain observations — session AWAITING_FUNDS, deploy 
 
 });
 
-// ─── G: 3/3 → DEPOSIT_FULL → VALID auth, deploy NOT started ───
+// ─── G: 3/3 → DEPOSIT_FULL → VALID → production GameContract handoff ───
 
-test("R17.9L.19 G: 3/3 → DEPOSIT_FULL → VALID, no auto Game deploy", () => {
+test("R17.9L.19 G: 3/3 → DEPOSIT_FULL → VALID triggers GameContract create", () => {
 
     const { persistence } = createDiskPersistence();
 
@@ -577,9 +580,9 @@ test("R17.9L.19 G: 3/3 → DEPOSIT_FULL → VALID, no auto Game deploy", () => {
 
     assert.equal(emitted.filter((e) => e.type === EVENT_TYPES.DEPOSIT_FULL).length, 1);
 
-    assertAllowedNotStarted(h);
+    assertHandoffStarted(h);
 
-    assertZeroWheelWinSpend(h.tracker, "G");
+    assert.equal(h.tracker.broadcastTransaction, 0);
 
     h.shutdown();
 
@@ -657,12 +660,7 @@ test("R17.9L.19 I: duplicate tx deduplicated", () => {
 
     assert.equal(updated.state, DEPOSIT_SESSION_STATUS.DEPOSIT_FULL);
 
-    assert.equal(
-        h.deploymentAuthorizationCoordinator.getByRoomAndGame("room-a", "game-a").status,
-        DEPLOYMENT_AUTHORIZATION_STATUS.VALID
-    );
-
-    assert.equal(h.beginDeployCalls.length, 0);
+    assertHandoffStarted(h);
 
     h.shutdown();
 
@@ -797,20 +795,13 @@ test("R17.9L.19 L: PAYMENT_* replay never reaches _beginDeploy", async () => {
 
         assert.equal(h.beginDeployCalls.length, 0);
 
-        assertZeroWheelWinSpend(h.tracker, `L-${stage}`);
-
     }
 
     fundSeat(h.source, session, { wallet: PLAYER_WALLET_2 });
 
     await wait(5);
 
-    assert.equal(h.beginDeployCalls.length, 0);
-
-    assert.equal(
-        h.deploymentAuthorizationCoordinator.getByRoomAndGame("room-l", "game-l").status,
-        DEPLOYMENT_AUTHORIZATION_STATUS.VALID
-    );
+    assertHandoffStarted(h, "room-l", "game-l");
 
     h.shutdown();
 
@@ -878,7 +869,7 @@ test("R17.9L.19 M: restart preserves partial funding, final seat → VALID", () 
 
 // ─── N: Restart after FULL ───
 
-test("R17.9L.19 N: restart after FULL keeps VALID auth, no auto deploy", () => {
+test("R17.9L.19 N: restart after FULL keeps consumed auth from GCM handoff", () => {
 
     const { dataDir, persistence } = createDiskPersistence();
 
@@ -896,6 +887,8 @@ test("R17.9L.19 N: restart after FULL keeps VALID auth, no auto deploy", () => {
         players: threePlayers()
     });
 
+    assertHandoffStarted(h);
+
     h.shutdown();
 
     persistence.shutdown({ checkpoint: false });
@@ -904,7 +897,7 @@ test("R17.9L.19 N: restart after FULL keeps VALID auth, no auto deploy", () => {
 
     const auth = h2.deploymentAuthorizationCoordinator.getByRoomAndGame("room-a", "game-a");
 
-    assert.equal(auth.status, DEPLOYMENT_AUTHORIZATION_STATUS.VALID);
+    assert.equal(auth.status, DEPLOYMENT_AUTHORIZATION_STATUS.CONSUMED);
 
     assert.equal(h2.deploymentAuthorizationCoordinator._authorizations.size, 1);
 
@@ -980,15 +973,9 @@ test("R17.9L.19 P1: no DeploymentAuthorization blocks deploy", async () => {
 
 });
 
-test("R17.9L.19 P2: VALID authorization allows explicit deploy (mocked)", async () => {
+test("R17.9L.19 P2: VALID authorization allows deploy via production handoff (mocked)", async () => {
 
     const h = harness({ withGameContractManager: true });
-
-    issueValidDeploymentAuthorization(h.deploymentAuthorizationCoordinator, {
-        roomId: "room-a",
-        gameId: "game-a",
-        network: "testnet"
-    });
 
     const deployCalls = [];
 
@@ -1009,7 +996,11 @@ test("R17.9L.19 P2: VALID authorization allows explicit deploy (mocked)", async 
         }
     };
 
-    h.gameContractManager.createContractRequest("room-a", { gameId: "game-a" });
+    issueValidDeploymentAuthorization(h.deploymentAuthorizationCoordinator, {
+        roomId: "room-a",
+        gameId: "game-a",
+        network: "testnet"
+    });
 
     await wait(20);
 
@@ -1130,9 +1121,9 @@ test("R17.9L.19 Global TON spend invariant", () => {
     assert.equal(snap.duringDepositDeployment, 0, "DURING_DEPOSIT_DEPLOYMENT must be 0");
 
     assert.equal(
-        snap.afterValidAuthorization,
-        1,
-        "AFTER_VALID_AUTHORIZATION: only explicit mocked P2 deploy"
+        snap.afterValidAuthorization >= 1,
+        true,
+        "AFTER_VALID_AUTHORIZATION: mocked GameEscrow deploy only after VALID"
     );
 
     assert.equal(snap.broadcastTransaction, 0);

@@ -268,15 +268,6 @@ export function createDepositBackendE2EHarness({
 
     verificationCoordinator.initialize();
 
-    const automation = new DepositFullAuthorizationAutomation({
-        logger,
-        eventBus,
-        depositSessionCoordinator,
-        deploymentAuthorizationCoordinator
-    });
-
-    automation.initialize();
-
     eventBus.subscribe(EVENT_TYPES.DEPOSIT_FULL, () => {
 
         tracker.markDepositFull();
@@ -288,6 +279,15 @@ export function createDepositBackendE2EHarness({
         tracker.markValidAuthorization();
 
     });
+
+    const automation = new DepositFullAuthorizationAutomation({
+        logger,
+        eventBus,
+        depositSessionCoordinator,
+        deploymentAuthorizationCoordinator
+    });
+
+    automation.initialize();
 
     const source = new FakeDepositBlockchainSource({ monitor });
 

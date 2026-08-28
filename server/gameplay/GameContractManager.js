@@ -25,6 +25,7 @@ import {
     PersistenceFailureError
 } from "./GameContractManagerErrors.js";
 import { MissingDeploymentAuthorizationError } from "../deposit/DeploymentAuthorizationErrors.js";
+import { DEPLOYMENT_AUTHORIZATION_STATUS } from "../deposit/DeploymentAuthorizationStates.js";
 import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
 import {
     buildPartialPaymentRefundTargets,
@@ -231,8 +232,18 @@ export class GameContractManager {
         // R17.9L.18 — PAYMENT_SESSION_UPDATED / PAYMENT_REQUESTED /
         // PAYMENT_CONNECTION_READY are not Game Contract deployment authority.
         // Do not subscribe those events as a createContractRequest / _beginDeploy
-        // trigger. Authorized deploy remains createContractRequest / deployContract
-        // after a VALID DeploymentAuthorization.
+        // trigger.
+        // R18-S15 — DEPLOY_AUTHORIZATION_VALID is the production handoff into
+        // createContractRequest. consumeValidForDeploy remains inside _beginDeploy.
+
+        this._subscribe(
+            EVENT_TYPES.DEPLOY_AUTHORIZATION_VALID,
+            (envelope) => {
+
+                this._handleDeploymentAuthorizationValid(envelope.payload);
+
+            }
+        );
 
         this._subscribe(
             EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
@@ -1159,6 +1170,78 @@ export class GameContractManager {
         }
 
         this.markPaymentsComplete(roomId);
+
+    }
+
+    /**
+     * R18-S15 — Production handoff from VALID DeploymentAuthorization.
+     * Does not consume authorization. createContractRequest is idempotent.
+     * consumeValidForDeploy remains the _beginDeploy spend gate.
+     */
+    _handleDeploymentAuthorizationValid(payload) {
+
+        const roomId = String(payload?.roomId ?? "").trim();
+
+        const gameId = String(payload?.gameId ?? "").trim();
+
+        if (!roomId || !gameId) {
+
+            this._logger?.error?.(
+                "GameContract create skipped | reason=authorization_identity_missing"
+            );
+
+            return;
+
+        }
+
+        const authorization = this._deploymentAuthorizationCoordinator
+            ?.getByRoomAndGame?.(roomId, gameId)
+            ?? null;
+
+        if (!authorization
+            || authorization.status !== DEPLOYMENT_AUTHORIZATION_STATUS.VALID) {
+
+            this._logger?.error?.(
+                `GameContract create skipped | roomId=${roomId} | gameId=${gameId} | `
+                    + "reason=authorization_not_valid"
+            );
+
+            return;
+
+        }
+
+        const resolvedNetwork = this._resolveTonNetwork();
+
+        if (
+            resolvedNetwork
+            && authorization.network
+            && authorization.network !== resolvedNetwork
+        ) {
+
+            this._logger?.error?.(
+                `GameContract create skipped | roomId=${roomId} | gameId=${gameId} | `
+                    + "reason=authorization_network_mismatch"
+            );
+
+            return;
+
+        }
+
+        try {
+
+            this.createContractRequest(roomId, {
+                gameId,
+                correlationId: payload?.authorizationId ?? null
+            });
+
+        } catch (error) {
+
+            this._logger?.error?.(
+                `GameContract create from authorization failed | roomId=${roomId} | `
+                    + `gameId=${gameId} | ${error?.message ?? error}`
+            );
+
+        }
 
     }
 

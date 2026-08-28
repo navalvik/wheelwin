@@ -4,7 +4,8 @@
  * Payment events must not invoke GameContractManager._beginDeploy at all.
  * Authorization throwing after a legacy trigger is NOT acceptable.
  * VALID DeploymentAuthorization → createContractRequest remains the
- * legitimate mocked deploy path. No real TON.
+ * legitimate mocked deploy path (R18-S15: via DEPLOY_AUTHORIZATION_VALID).
+ * No real TON.
  */
 
 import assert from "node:assert/strict";
@@ -539,11 +540,9 @@ test("R17.9L.18 valid DeploymentAuthorization still deploys via GCM path", async
         network: "testnet"
     });
 
-    const contract = stack.gameContractManager.createContractRequest("room-1", {
-        gameId: "game-1"
-    });
-
     await wait(20);
+
+    const contract = stack.gameContractManager.getContract("room-1");
 
     assert.ok(contract);
 
