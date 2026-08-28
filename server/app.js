@@ -1645,7 +1645,8 @@ class WheelWinApplication {
             ),
             blockchainSource: this._tonDepositBlockchainSource,
             network: this._tonConfig?.network ?? "testnet",
-            requireActivationVerification: true
+            requireActivationVerification: true,
+            roomManager: this._managers.roomManager
         });
 
         this._depositMonitor.initialize();
@@ -1679,7 +1680,8 @@ class WheelWinApplication {
             depositMonitor: this._depositMonitor,
             blockchainSource: this._tonDepositBlockchainSource,
             tonService: this._services.tonService,
-            network: this._tonConfig?.network ?? "testnet"
+            network: this._tonConfig?.network ?? "testnet",
+            roomManager: this._managers.roomManager
         });
 
         this._logger.startupLine("DepositActivationVerificationCoordinator");

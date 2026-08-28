@@ -425,7 +425,35 @@ function isBouncedOrFailed(tx) {
 
 }
 
+function isRateLimitedPollError(error) {
+
+    const status = Number(
+        error?.status
+        ?? error?.response?.status
+        ?? error?.details?.status
+        ?? NaN
+    );
+
+    if (status === 429) {
+
+        return true;
+
+    }
+
+    const message = String(error?.message ?? "").toLowerCase();
+
+    return message.includes("429")
+        || message.includes("too many requests");
+
+}
+
 function classifyPollError(error) {
+
+    if (isRateLimitedPollError(error)) {
+
+        return "rate_limited";
+
+    }
 
     if (isInfrastructureFailure(error)
         || error instanceof NetworkUnavailableError
@@ -504,7 +532,20 @@ export class RealTonDepositBlockchainSource {
 
         for (const watch of list) {
 
-            results.push(await this.pollWatch(watch));
+            const result = await this.pollWatch(watch);
+
+            results.push(result);
+
+            if (result.reason === "rate_limited") {
+
+                this._logWarn(
+                    "Deposit TON poll stopping remaining watches after rate limit"
+                    + ` | depositId=${watch?.depositId ?? "unknown"}`
+                );
+
+                break;
+
+            }
 
         }
 

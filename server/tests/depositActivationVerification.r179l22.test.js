@@ -313,7 +313,8 @@ function createStack({
     getters = null,
     fail = null,
     assignDerivedAddress = true,
-    persistence = null
+    persistence = null,
+    roomManager = null
 } = {}) {
 
     const logger = createLogger();
@@ -387,7 +388,8 @@ function createStack({
         depositSessionCoordinator,
         blockchainSource,
         network: "testnet",
-        requireActivationVerification: true
+        requireActivationVerification: true,
+        roomManager
     });
 
     monitor.initialize();
@@ -403,7 +405,8 @@ function createStack({
         expectedArtifactSha256: FROZEN_DEPOSIT_ARTIFACT_SHA256,
         env: TEST_ENV,
         gameContractManager,
-        deploymentAuthorizationCoordinator
+        deploymentAuthorizationCoordinator,
+        roomManager
     });
 
     return {
@@ -929,5 +932,57 @@ test("R17.9L.22 missing depositAddress fails closed", async () => {
     );
 
     assert.equal(monitor.listActiveWatches().length, 0);
+
+});
+
+test("R18-S15: syncFromActiveSessions skips deposits whose room is no longer live", async () => {
+
+    const { activation, tonService } = createStack({
+        roomManager: {
+            getRoom() {
+
+                return null;
+
+            }
+        }
+    });
+
+    const callsBefore = tonService.calls.length;
+    const summary = await activation.syncFromActiveSessions();
+
+    assert.equal(summary.scanned, 1);
+    assert.equal(summary.skipped, 1);
+    assert.equal(summary.verified, 0);
+    assert.equal(tonService.calls.length, callsBefore);
+
+});
+
+test("R18-S15: live-room deposit still reaches DEPOSIT_ACTIVATION_VERIFIED", async () => {
+
+    const { activation, session, monitor, eventBus } = createStack({
+        roomManager: {
+            getRoom(roomId) {
+
+                return roomId === "room-l22" ? { roomId } : null;
+
+            }
+        }
+    });
+
+    const verified = [];
+
+    eventBus.subscribe(EVENT_TYPES.DEPOSIT_ACTIVATION_VERIFIED, (envelope) => {
+
+        verified.push(envelope.payload);
+
+    });
+
+    const result = await activation.verifyActivation(session.depositId);
+
+    assert.equal(result.status, DEPOSIT_ACTIVATION_STATUS.VERIFIED);
+    assert.equal(result.watchStarted, true);
+    assert.equal(monitor.listActiveWatches().length, 1);
+    assert.equal(verified.length, 1);
+    assert.equal(verified[0].depositId, session.depositId);
 
 });

@@ -25,3 +25,16 @@ test("R18-S15: app.js starts BlockchainMonitor after setDepositMonitor", () => {
     );
 
 });
+
+test("R18-S15: app.js passes RoomManager into DepositMonitor and activation coordinator", () => {
+
+    assert.match(
+        APP_SOURCE,
+        /new DepositMonitor\(\{[\s\S]*?roomManager:\s*this\._managers\.roomManager/
+    );
+    assert.match(
+        APP_SOURCE,
+        /new DepositActivationVerificationCoordinator\(\{[\s\S]*?roomManager:\s*this\._managers\.roomManager/
+    );
+
+});

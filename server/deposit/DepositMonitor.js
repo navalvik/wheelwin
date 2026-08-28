@@ -37,7 +37,8 @@ export class DepositMonitor {
         persistence = null,
         blockchainSource = null,
         network = "testnet",
-        requireActivationVerification = false
+        requireActivationVerification = false,
+        roomManager = null
     } = {}) {
 
         this._logger = logger;
@@ -59,6 +60,8 @@ export class DepositMonitor {
         this._watches = new Map();
 
         this._requireActivationVerification = requireActivationVerification === true;
+
+        this._roomManager = roomManager;
 
         this._activationAuthorized = new Set();
 
@@ -202,6 +205,8 @@ export class DepositMonitor {
 
         this._assertStarted();
 
+        this._pruneWatchesWithoutLiveRooms();
+
         if (typeof this._blockchainSource?.poll !== "function") {
 
             return Object.freeze({
@@ -224,6 +229,52 @@ export class DepositMonitor {
         this._activationAuthorized.delete(depositId);
 
         return this._watches.delete(depositId);
+
+    }
+
+    _isAssociatedRoomLive(roomId) {
+
+        if (typeof this._roomManager?.getRoom !== "function") {
+
+            return true;
+
+        }
+
+        if (!roomId) {
+
+            return true;
+
+        }
+
+        return Boolean(this._roomManager.getRoom(roomId));
+
+    }
+
+    _pruneWatchesWithoutLiveRooms() {
+
+        if (typeof this._roomManager?.getRoom !== "function") {
+
+            return;
+
+        }
+
+        for (const [depositId, watch] of [...this._watches.entries()]) {
+
+            if (this._isAssociatedRoomLive(watch.roomId)) {
+
+                continue;
+
+            }
+
+            this._logger?.warn?.(
+                "DepositMonitor dropping watch for room that is no longer live"
+                + ` | depositId=${depositId}`
+                + ` | roomId=${watch.roomId ?? "none"}`
+            );
+
+            this.stopWatching(depositId);
+
+        }
 
     }
 
@@ -271,6 +322,14 @@ export class DepositMonitor {
             }
 
             if (!session.depositAddress) {
+
+                skipped += 1;
+
+                continue;
+
+            }
+
+            if (!this._isAssociatedRoomLive(session.roomId)) {
 
                 skipped += 1;
 

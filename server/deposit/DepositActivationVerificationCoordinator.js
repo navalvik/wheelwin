@@ -112,7 +112,8 @@ export class DepositActivationVerificationCoordinator {
         expectedArtifactSha256 = null,
         env = process.env,
         gameContractManager = null,
-        deploymentAuthorizationCoordinator = null
+        deploymentAuthorizationCoordinator = null,
+        roomManager = null
     } = {}) {
 
         this._logger = logger ?? { info() {}, warn() {}, error() {}, debug() {} };
@@ -136,6 +137,8 @@ export class DepositActivationVerificationCoordinator {
         this._gameContractManager = gameContractManager;
 
         this._deploymentAuthorizationCoordinator = deploymentAuthorizationCoordinator;
+
+        this._roomManager = roomManager;
 
         this._processing = new Set();
 
@@ -170,6 +173,14 @@ export class DepositActivationVerificationCoordinator {
             summary.scanned += 1;
 
             if (!session?.depositId || !session.depositAddress) {
+
+                summary.skipped += 1;
+
+                continue;
+
+            }
+
+            if (!this._isAssociatedRoomLive(session.roomId)) {
 
                 summary.skipped += 1;
 
@@ -217,6 +228,24 @@ export class DepositActivationVerificationCoordinator {
         }
 
         return Object.freeze(summary);
+
+    }
+
+    _isAssociatedRoomLive(roomId) {
+
+        if (typeof this._roomManager?.getRoom !== "function") {
+
+            return true;
+
+        }
+
+        if (!roomId) {
+
+            return true;
+
+        }
+
+        return Boolean(this._roomManager.getRoom(roomId));
 
     }
 
