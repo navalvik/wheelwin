@@ -2834,11 +2834,26 @@ DepositMonitor already classified live-deposit 429 as `kind=rate_limited` and st
 
 ## 30. Final Git state
 
-Recorded after the commit of this continuation (see §31). Working tree besides the committed runner/test/report remains dirty with unrelated untracked files.
+**SOURCE VERIFIED**
+
+```
+HEAD = 38169b9e5fe00cf85fc65a6996f2d842e0957ac3
+38169b9 R18-S15 wait for production OPEN_PAGE5 after GameEscrow READY
+adcc087 docs: record R18-S15 Deposit activation ordering and OPEN_PAGE5
+1d41480 R18-S15 wait for Deposit activation VERIFIED before E2E FundSeat
+c1ec4a2 R18-S15 prune stale recovered Deposit watches to stop TonCenter 429
+40a2f8b R18-S15 start BlockchainMonitor so DepositMonitor poll runs
+```
+
+`40a2f8b`, `c1ec4a2`, and `1d41480` remain intact. Unrelated untracked probes, banners, and session artifacts were not committed.
 
 ## 31. Commit SHA if a commit was created
 
-Pending at report-write time; filled after `git commit` of:
+**SOURCE VERIFIED**
+
+`38169b9e5fe00cf85fc65a6996f2d842e0957ac3`
+
+Files:
 
 - `server/scripts/_r18s15_production_page5.mjs`
 - `server/tests/r18s15.page5Continuation.r18s15.test.js`
