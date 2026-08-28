@@ -294,7 +294,13 @@ No new permanent diagnostic logging was added. Existing `/debug` and repository 
 
 ## 16. GIT COMMIT SHA
 
-Recorded after commit in this task (see git section below / final status).
+**SOURCE VERIFIED** after push to `origin/main`:
+
+```text
+4fbf4598df2836bcefb390f2e7b7d3624af62356
+Adapt Page4 to R18-S16 payment lifecycle
+parent 7453a9e715204c6ca61a021c85c0a8f3e55b50af
+```
 
 ## 17. FINAL STATUS
 
