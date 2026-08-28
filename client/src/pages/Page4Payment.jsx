@@ -23,6 +23,8 @@ import {
 import { resolveLocalPlayerId } from "../game/session";
 
 import { buildTonConnectPaymentTransaction } from "../payment/buildTonConnectPaymentTransaction";
+import { buildFundDepositTransaction } from "../payment/buildFundDepositTransaction";
+import { buildDepositDeploymentTransaction } from "../payment/buildDepositDeploymentTransaction";
 
 import {
     beginTonConnectAutopsySession,
@@ -702,6 +704,94 @@ export default function Page4Payment({ onNavigate }) {
     // P6.2 — wallet connection; P6.3 — authoritative Payment Session after READY.
     // P6.7 — Page4 stays open until server OPEN_PAGE5 (never local navigation).
     const authoritative = useAuthoritativeSession();
+
+    // R18-S11 — Deposit projection mirror (from R18-S4 transport).
+    const depositProjection = authoritative?.deposit ?? null;
+
+    // R18-S11 — deposit submission state.
+    const [depositSubmitting, setDepositSubmitting] = useState(false);
+    const [depositSubmitError, setDepositSubmitError] = useState("");
+
+    // R18-S11 — handle CONFIRM IN TELEGRAM WALLET for Deposit flow.
+    // Selects FundSeat (non-Creator) or deployment (Creator) builder.
+    // Does NOT set FUNDED, does NOT increment confirmedSeats, does NOT navigate.
+    const handleConfirmInTelegramWallet = useCallback(async () => {
+        if (depositSubmitting) {
+            return;
+        }
+        if (!tonConnectUI) {
+            setDepositSubmitError("TonConnect UI unavailable");
+            return;
+        }
+        if (!tonWallet?.account?.address && !tonConnectUI?.account?.address) {
+            setDepositSubmitError(t("payment.walletNotConnected"));
+            return;
+        }
+        if (!depositProjection) {
+            setDepositSubmitError("Authoritative deposit projection missing");
+            return;
+        }
+        if (depositProjection.isCreator !== true && depositProjection.isCreator !== false) {
+            setDepositSubmitError("isCreator authority missing");
+            return;
+        }
+
+        setDepositSubmitting(true);
+        setDepositSubmitError("");
+
+        try {
+            let transactionObject;
+
+            if (depositProjection.isCreator === true) {
+                // CREATOR: use S6 deployment builder.
+                if (!depositProjection.package
+                    || !depositProjection.package.stateInit
+                    || !depositProjection.package.stateInit.codeBoc
+                    || !depositProjection.package.stateInit.dataBoc
+                    || depositProjection.package.deployValueNanotons == null) {
+                    setDepositSubmitError("Authoritative deployment data missing");
+                    setDepositSubmitting(false);
+                    return;
+                }
+                transactionObject = buildDepositDeploymentTransaction({
+                    depositPackage: {
+                        stateInit: {
+                            codeBoc: depositProjection.package.stateInit.codeBoc,
+                            dataBoc: depositProjection.package.stateInit.dataBoc
+                        },
+                        deployValueNanotons: depositProjection.package.deployValueNanotons,
+                        depositAddress: depositProjection.depositAddress
+                    },
+                    depositAddress: depositProjection.depositAddress,
+                    isCreator: true,
+                    network: depositProjection.network
+                });
+            } else {
+                // NON-CREATOR: use S5 FundSeat builder.
+                if (depositProjection.mySeatIndex == null
+                    || depositProjection.myExpectedAmountNanotons == null) {
+                    setDepositSubmitError("Authoritative FundSeat data missing");
+                    setDepositSubmitting(false);
+                    return;
+                }
+                transactionObject = buildFundDepositTransaction({
+                    depositAddress: depositProjection.depositAddress,
+                    mySeatIndex: depositProjection.mySeatIndex,
+                    myExpectedAmountNanotons: depositProjection.myExpectedAmountNanotons,
+                    network: depositProjection.network
+                });
+            }
+
+            // Submit via existing TonConnect integration.
+            // Wallet success does NOT set FUNDED — wait for server projection.
+            await tonConnectUI.sendTransaction(transactionObject);
+        } catch (error) {
+            console.error("[Page4Payment] Deposit wallet submit failed:", error);
+            setDepositSubmitError(error?.message ?? "Wallet submission failed");
+        } finally {
+            setDepositSubmitting(false);
+        }
+    }, [depositProjection, depositSubmitting, t, tonConnectUI, tonWallet]);
 
     const { t } = useLanguage();
 
