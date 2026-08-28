@@ -619,6 +619,15 @@ export class DepositOrchestrator {
 
         }
 
+        const session = this._depositSessionCoordinator?.getSession?.(depositId) ?? null;
+
+        if (session?.roomId && this._roomManager?.getRoom
+            && !this._roomManager.getRoom(session.roomId)) {
+
+            return;
+
+        }
+
         if (!this._activationRetryStartedAt.has(depositId)) {
 
             this._activationRetryStartedAt.set(depositId, Date.now());
@@ -655,6 +664,15 @@ export class DepositOrchestrator {
         const session = this._depositSessionCoordinator?.getSession?.(depositId) ?? null;
 
         if (!session || isDepositSessionTerminal(session.state)) {
+
+            this._activationRetryStartedAt.delete(depositId);
+
+            return;
+
+        }
+
+        if (session.roomId && this._roomManager?.getRoom
+            && !this._roomManager.getRoom(session.roomId)) {
 
             this._activationRetryStartedAt.delete(depositId);
 
