@@ -1,0 +1,19 @@
+/**
+ * Client mirror of server/deposit/DepositSessionStates.js names only.
+ * Do not invent additional Deposit phases here.
+ */
+
+export const DEPOSIT_SESSION_STATUS = Object.freeze({
+    CREATED: "CREATED",
+    PLAYER_BINDING: "PLAYER_BINDING",
+    AWAITING_FUNDS: "AWAITING_FUNDS",
+    PARTIALLY_FUNDED: "PARTIALLY_FUNDED",
+    DEPOSIT_FULL: "DEPOSIT_FULL",
+    DEPLOY_AUTHORIZED: "DEPLOY_AUTHORIZED",
+    GAME_CONTRACT_CREATED: "GAME_CONTRACT_CREATED",
+    RELEASED: "RELEASED",
+    REIMBURSED: "REIMBURSED",
+    EXPIRED: "EXPIRED",
+    REFUNDING: "REFUNDING",
+    REFUNDED: "REFUNDED"
+});

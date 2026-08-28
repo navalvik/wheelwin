@@ -384,6 +384,15 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
+        onDepositActivationVerified: (payload) => {
+
+            store.dispatch({
+                type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_ACTIVATION_VERIFIED,
+                payload
+            });
+
+        },
+
         onGameStartAuthorized: (payload) => {
 
             store.dispatch({

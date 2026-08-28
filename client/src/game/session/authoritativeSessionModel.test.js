@@ -660,6 +660,75 @@ function assert(condition, message) {
 
 }
 
+// R18-S16 — activationStatus is mirrored from the server projection; VERIFIED
+// stamps lifecycle.depositActivationVerified without inventing a deposit.
+{
+    const withStatus = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+            payload: {
+                deposit: {
+                    phase: "AWAITING_FUNDS",
+                    depositId: "dep_act",
+                    activationStatus: "VERIFIED",
+                    mySeatIndex: 1,
+                    isCreator: false,
+                    confirmedSeats: 0
+                }
+            }
+        }
+    );
+
+    assert(
+        withStatus.deposit.activationStatus === "VERIFIED",
+        "activationStatus mirrored from projection"
+    );
+
+    assert(
+        withStatus.lifecycle.depositActivationVerified === true,
+        "VERIFIED projection stamps lifecycle.depositActivationVerified"
+    );
+
+    const viaEvent = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_ACTIVATION_VERIFIED,
+            payload: {
+                depositId: "dep_act",
+                roomId: "room-1",
+                status: "VERIFIED"
+            }
+        }
+    );
+
+    assert(
+        viaEvent.lifecycle.depositActivationVerified === true,
+        "DEPOSIT_ACTIVATION_VERIFIED stamps lifecycle without inventing deposit"
+    );
+
+    assert(
+        viaEvent.deposit === null,
+        "activation event must not invent a deposit projection"
+    );
+
+    const rejected = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_ACTIVATION_VERIFIED,
+            payload: { status: "REJECTED" }
+        }
+    );
+
+    assert(
+        rejected.lifecycle.depositActivationVerified === false,
+        "non-verified activation status must not open the FundSeat gate"
+    );
+
+    console.log("  DEPOSIT_ACTIVATION_VERIFIED mirror passed");
+
+}
+
 // R18 S4 — store dispatch exercises the exact AuthoritativeSessionContext path
 // (context.onDepositPackagePublished → store.dispatch). Reducer is the same.
 {

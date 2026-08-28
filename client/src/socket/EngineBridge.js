@@ -259,6 +259,11 @@ export class EngineBridge {
                 session()?.onDepositPackagePublished?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED]: (payload) => {
+
+                session()?.onDepositActivationVerified?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED]: (payload) => {
 
                 session()?.onGameStartAuthorized?.(payload);

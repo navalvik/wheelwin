@@ -396,6 +396,15 @@ export class SocketSyncLayer {
 
         };
 
+        this._handleDepositActivationVerified = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
+                payload
+            });
+
+        };
+
         this._handleGameStartAuthorized = (payload) => {
 
             this._handleIncoming({
@@ -592,6 +601,11 @@ export class SocketSyncLayer {
         );
 
         this._socket.on(
+            INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
+            this._handleDepositActivationVerified
+        );
+
+        this._socket.on(
             INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED,
             this._handleGameStartAuthorized
         );
@@ -756,6 +770,11 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
             this._handleDepositPackagePublished
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
+            this._handleDepositActivationVerified
         );
 
         this._socket.off(

@@ -74,7 +74,9 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     SESSION_FINISHED: "SESSION_FINISHED",
     WALLET_REJECTED: "WALLET_REJECTED",
     // R18 S3 — requester-scoped Deposit package published (informational only).
-    DEPOSIT_PACKAGE_PUBLISHED: "DEPOSIT_PACKAGE_PUBLISHED"
+    DEPOSIT_PACKAGE_PUBLISHED: "DEPOSIT_PACKAGE_PUBLISHED",
+    // R18-S16 — existing activation EventBus name, delivered to Page4 sockets.
+    DEPOSIT_ACTIVATION_VERIFIED: "DEPOSIT_ACTIVATION_VERIFIED"
 });
 
 export const LOBBY_ERROR_CODES = Object.freeze({

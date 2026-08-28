@@ -369,4 +369,90 @@ function createFakeSocket() {
 
 }
 
+// R18-S16 — DEPOSIT_ACTIVATION_VERIFIED belongs to the incoming socket protocol.
+{
+    assert(
+        INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED === "DEPOSIT_ACTIVATION_VERIFIED",
+        "INCOMING_SOCKET_EVENTS must expose DEPOSIT_ACTIVATION_VERIFIED"
+    );
+
+    console.log("  socketEvents: DEPOSIT_ACTIVATION_VERIFIED present passed");
+
+}
+
+{
+    const socket = createFakeSocket();
+
+    const received = [];
+
+    const engineBridge = {
+        createDispatcherHandlers() {
+
+            return {
+                [INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED]: (payload) => {
+
+                    received.push(payload);
+
+                }
+            };
+
+        }
+    };
+
+    const layer = new SocketSyncLayer(socket, { engineBridge, devMode: false });
+
+    layer.connect();
+
+    layer.dispatchLocal({
+        type: INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
+        payload: {
+            depositId: "dep_1",
+            roomId: "room-1",
+            status: "VERIFIED"
+        }
+    });
+
+    assert(
+        received.length === 1,
+        "DEPOSIT_ACTIVATION_VERIFIED should be dispatched exactly once"
+    );
+
+    assert(
+        received[0].status === "VERIFIED",
+        "the activation payload should reach the dispatcher unchanged"
+    );
+
+    console.log("  dispatch: DEPOSIT_ACTIVATION_VERIFIED routed via dispatcher passed");
+
+}
+
+{
+    const bridge = new EngineBridge();
+
+    let sessionReceived = null;
+
+    bridge.register("authoritativeSession", {
+        onDepositActivationVerified(payload) {
+
+            sessionReceived = payload;
+
+        }
+    });
+
+    const handlers = bridge.createDispatcherHandlers();
+
+    handlers[INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED]({
+        depositId: "dep_1",
+        status: "VERIFIED"
+    });
+
+    assert(
+        sessionReceived !== null && sessionReceived.status === "VERIFIED",
+        "EngineBridge must forward DEPOSIT_ACTIVATION_VERIFIED to authoritativeSession"
+    );
+
+    console.log("  EngineBridge: DEPOSIT_ACTIVATION_VERIFIED -> authoritativeSession passed");
+
+}
+
 console.log("socketSyncLayer.test.js: all assertions passed");

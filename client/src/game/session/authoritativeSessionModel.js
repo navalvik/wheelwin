@@ -52,6 +52,8 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
     // R18 S4 — requester-scoped Deposit package (informational mirror only).
     DEPOSIT_PACKAGE_PUBLISHED: "DEPOSIT_PACKAGE_PUBLISHED",
+    // R18-S16 — existing server activation event, mirrored for Page4 gating.
+    DEPOSIT_ACTIVATION_VERIFIED: "DEPOSIT_ACTIVATION_VERIFIED",
     GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
     GAME_INITIALIZING: "GAME_INITIALIZING",
     SETTLEMENT_STARTED: "SETTLEMENT_STARTED",
@@ -91,6 +93,7 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
         paymentStageReady: false,
         entryPaymentCompleted: false,
         paymentConnectionReady: false,
+        depositActivationVerified: false,
         gameStartAuthorized: false,
         gameInitializing: false,
         settlementCompleted: false,
@@ -799,6 +802,15 @@ export function authoritativeSessionReducer(state, action) {
                 ? Object.freeze({ ...deposit.package })
                 : null;
 
+            const incomingActivation = deposit.activationStatus ?? null;
+            const previousActivation = state.deposit?.activationStatus ?? null;
+            const activationStatus = incomingActivation != null
+                ? incomingActivation
+                : previousActivation ?? null;
+            const depositActivationVerified = activationStatus === "VERIFIED"
+                || activationStatus === "ALREADY_VERIFIED"
+                || state.lifecycle?.depositActivationVerified === true;
+
             return stamp({
                 ...state,
                 deposit: Object.freeze({
@@ -811,7 +823,40 @@ export function authoritativeSessionReducer(state, action) {
                     isCreator: deposit.isCreator ?? null,
                     mySeatStatus: deposit.mySeatStatus ?? null,
                     myExpectedAmountNanotons: deposit.myExpectedAmountNanotons ?? null,
-                    confirmedSeats: deposit.confirmedSeats ?? null
+                    confirmedSeats: deposit.confirmedSeats ?? null,
+                    activationStatus
+                }),
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    depositActivationVerified
+                })
+            }, action.type);
+
+        }
+
+        case AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_ACTIVATION_VERIFIED: {
+
+            const status = payload?.status ?? null;
+
+            if (status !== "VERIFIED" && status !== "ALREADY_VERIFIED") {
+
+                return state;
+
+            }
+
+            const nextDeposit = state.deposit
+                ? Object.freeze({
+                    ...state.deposit,
+                    activationStatus: status
+                })
+                : state.deposit;
+
+            return stamp({
+                ...state,
+                deposit: nextDeposit,
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    depositActivationVerified: true
                 })
             }, action.type);
 

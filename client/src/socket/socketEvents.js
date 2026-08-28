@@ -53,6 +53,8 @@ export const INCOMING_SOCKET_EVENTS = Object.freeze({
     GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
     // R18 S4 — requester-scoped Deposit package (informational mirror only).
     DEPOSIT_PACKAGE_PUBLISHED: "DEPOSIT_PACKAGE_PUBLISHED",
+    // R18-S16 — existing activation EventBus name, delivered to Page4.
+    DEPOSIT_ACTIVATION_VERIFIED: "DEPOSIT_ACTIVATION_VERIFIED",
     // P6.7 — server-owned start gate (Page4 waits; Page5 only on OPEN_PAGE5).
     GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
     GAME_INITIALIZING: "GAME_INITIALIZING",

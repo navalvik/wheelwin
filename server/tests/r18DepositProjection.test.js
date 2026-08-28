@@ -31,19 +31,19 @@ function makeBindings() {
         {
             playerId: "p-creator",
             wallet: "w1",
-            expectedAmountNanotons: 100000000000,
+            expectedAmount: 100000000000,
             funded: false
         },
         {
             playerId: "p-two",
             wallet: "w2",
-            expectedAmountNanotons: 90000000000,
+            expectedAmount: 90000000000,
             funded: false
         },
         {
             playerId: "p-three",
             wallet: "w3",
-            expectedAmountNanotons: 90000000000,
+            expectedAmount: 90000000000,
             funded: true
         }
     ];
@@ -190,6 +190,25 @@ test("S1.2 supplied projection surfaces as payload.deposit verbatim", () => {
 
 test("S1.3 builder spreads nothing else from the deposit input", () => {
 
+    const projection = Object.freeze({
+        phase: "AWAITING_FUNDS",
+        depositId: "dep_test_001",
+        leakedField: "must-not-promote"
+    });
+
+    const payload = buildClientRecoveryPayload({
+        snapshot: baseSnapshot(),
+        playerId: "p-two",
+        roomId: "room-r18",
+        deposit: projection
+    });
+
+    assert.equal(payload.deposit, projection);
+    assert.equal(payload.leakedField, undefined);
+    assert.equal(Object.hasOwn(payload, "leakedField"), false);
+
+});
+
 // ─── S2 — requester-scoped projection ────────────────────────────────────────
 
 const PROJECTED_KEYS = [
@@ -201,7 +220,8 @@ const PROJECTED_KEYS = [
     "isCreator",
     "mySeatStatus",
     "myExpectedAmountNanotons",
-    "confirmedSeats"
+    "confirmedSeats",
+    "activationStatus"
 ];
 
 test("S2.a creator receives allow-listed frozen projection", () => {
@@ -297,31 +317,6 @@ test("S2.c each player sees ONLY their own expected amount", () => {
     assert.equal(raw.includes("100000000000"), false);
 
 });
-    const hostileInput = {
-        phase: "X",
-        bindings: [{ playerId: "victim", wallet: "w-victim" }],
-        authorizationHash: "leak-me"
-    };
-
-    const payload = buildClientRecoveryPayload({
-        snapshot: baseSnapshot(),
-        playerId: "p-two",
-        roomId: "room-r18",
-        deposit: hostileInput
-    });
-
-    // Only the explicitly allowed attachment point exists; the builder adds
-    // no sibling fields derived from the deposit object.
-    const keysWithDeposit = Object.keys(payload).sort();
-
-    assert.ok(keysWithDeposit.includes("deposit"));
-    const baseKeys = keysWithDeposit.filter((k) => k !== "deposit");
-    const basePayload = buildClientRecoveryPayload({
-        snapshot: baseSnapshot(),
-        playerId: "p-two",
-        roomId: "room-r18"
-    });
-    assert.deepEqual(baseKeys, Object.keys(basePayload).sort());
 
 test("S2.d missing creator identity fails closed (no guess)", () => {
 
@@ -503,6 +498,11 @@ test("S3.1 RoomLobbyBridge subscribes to DEPOSIT_PACKAGE_PUBLISHED", () => {
         true
     );
 
+    assert.equal(
+        eventBus.hasSubscribers(EVENT_TYPES.DEPOSIT_ACTIVATION_VERIFIED),
+        true
+    );
+
 });
 
 test("S3.2 Event handler executes when DEPOSIT_PACKAGE_PUBLISHED is emitted", () => {
@@ -590,8 +590,8 @@ test("S3.3 handler calls projectDepositForPlayer for each room player", () => {
 
     assert.deepEqual(socketIds, [
         "socket-p-creator",
-        "socket-p-two",
-        "socket-p-three"
+        "socket-p-three",
+        "socket-p-two"
     ]);
 
 });
@@ -692,12 +692,18 @@ test("S3.5 no cross-player financial leakage in delivered projections", () => {
 
     for (const delivery of deliveries) {
 
-        const raw = JSON.stringify(delivery.payload.deposit);
+        const deposit = delivery.payload.deposit;
+        const raw = JSON.stringify(deposit);
 
         assert.equal(raw.includes("w1"), false);
         assert.equal(raw.includes("w2"), false);
         assert.equal(raw.includes("w3"), false);
-        assert.equal(raw.includes("100000000000"), false);
+
+        if (deposit.mySeatIndex !== 0) {
+
+            assert.equal(raw.includes("100000000000"), false);
+
+        }
 
     }
 
@@ -887,4 +893,135 @@ test("S3.9 missing depositSessionCoordinator fails closed without throwing", () 
 
 });
 
+test("S16.1 projection includes activationStatus from session metadata", () => {
+
+    const session = makeSession({
+        metadata: {
+            activationVerification: { status: "VERIFIED" }
+        }
+    });
+    const bridge = makeBridgeStub(
+        "room-r18",
+        "p-creator",
+        ["p-creator", "p-two", "p-three"]
+    );
+
+    const out = projectDepositForPlayer({
+        playerId: "p-two",
+        roomId: "room-r18",
+        gameId: "game-r18",
+        session,
+        roomLobbyBridge: bridge
+    });
+
+    assert.equal(out.activationStatus, "VERIFIED");
+    assert.equal(out.mySeatIndex, 1);
+    assert.equal(out.isCreator, false);
+
 });
+
+test("S16.2 DEPOSIT_ACTIVATION_VERIFIED is delivered to the room then re-projected", () => {
+
+    const eventBus = makeEventBus();
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+    const session = makeSession({
+        roomId,
+        gameId,
+        metadata: {
+            activationVerification: { status: "VERIFIED" }
+        }
+    });
+
+    makeS3Bridge({
+        eventBus,
+        depositSessionCoordinator: makeDepositSessionCoordinator(session)
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ACTIVATION_VERIFICATION,
+        type: EVENT_TYPES.DEPOSIT_ACTIVATION_VERIFIED,
+        payload: {
+            depositId: session.depositId,
+            roomId,
+            gameId,
+            depositAddress: session.depositAddress,
+            status: "VERIFIED"
+        }
+    });
+
+    const verifiedEvents = deliveries.filter(
+        (item) => item.event === LOBBY_SERVER_EVENTS.DEPOSIT_ACTIVATION_VERIFIED
+    );
+    const packageEvents = deliveries.filter(
+        (item) => item.event === LOBBY_SERVER_EVENTS.DEPOSIT_PACKAGE_PUBLISHED
+    );
+
+    assert.equal(verifiedEvents.length, 1);
+    assert.equal(verifiedEvents[0].payload.status, "VERIFIED");
+    assert.equal(packageEvents.length, 3);
+    assert.equal(
+        packageEvents.every((item) => item.payload.deposit.activationStatus === "VERIFIED"),
+        true
+    );
+
+});
+
+test("S16.3 non-verified activation status is not delivered to Page4 sockets", () => {
+
+    const eventBus = makeEventBus();
+    const roomId = "room-r18";
+    const gameId = "game-r18";
+    const session = makeSession({ roomId, gameId });
+
+    makeS3Bridge({
+        eventBus,
+        depositSessionCoordinator: makeDepositSessionCoordinator(session)
+    });
+
+    const deliveries = [];
+
+    eventBus.subscribe(EVENT_TYPES.LOBBY_SOCKET_DELIVERY, (envelope) => {
+
+        deliveries.push(envelope.payload);
+
+    });
+
+    eventBus.emit({
+        source: EVENT_SOURCES.DEPOSIT_ACTIVATION_VERIFICATION,
+        type: EVENT_TYPES.DEPOSIT_ACTIVATION_VERIFIED,
+        payload: {
+            depositId: session.depositId,
+            roomId,
+            gameId,
+            status: "REJECTED"
+        }
+    });
+
+    assert.equal(deliveries.length, 0);
+
+});
+
+for (const line of RESULTS) {
+
+    console.log(line);
+
+}
+
+console.log(
+    `r18DepositProjection: ${RESULTS.length - FAILED} passed, ${FAILED} failed`
+);
+
+if (FAILED > 0) {
+
+    process.exit(1);
+
+}

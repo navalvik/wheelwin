@@ -12,11 +12,19 @@ import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import {
     canConfirmLocalPayment,
+    canDeployDeposit,
+    canFundSeat,
     getLocalPaymentRequest,
-    hasPaymentSession,
+    isDepositActivationVerified,
     isGameContractDeployed,
     mapPaymentSessionRows,
     mapWalletConnectionRows,
+    PAGE4_PAYMENT_PHASE,
+    resolvePage4PaymentPhase,
+    shouldShowDepositAction,
+    shouldShowPaymentSessionRows,
+    shouldShowStakeAction,
+    shouldShowWalletActions,
     WALLET_CONNECTION_STATUS
 } from "../game/session";
 
@@ -703,56 +711,107 @@ export default function Page4Payment({ onNavigate }) {
 
     // P6.2 — wallet connection; P6.3 — authoritative Payment Session after READY.
     // P6.7 — Page4 stays open until server OPEN_PAGE5 (never local navigation).
+    // R18-S16 — DepositContract phase before GameEscrow STAKE.
     const authoritative = useAuthoritativeSession();
 
-    // R18-S11 — Deposit projection mirror (from R18-S4 transport).
+    const { t } = useLanguage();
+
+    const { identity } = usePlayerIdentity();
+
+    const [tonConnectUI] = useTonConnectUI();
+
+    const tonWallet = useTonWallet();
+
     const depositProjection = authoritative?.deposit ?? null;
 
-    // R18-S11 — deposit submission state.
     const [depositSubmitting, setDepositSubmitting] = useState(false);
     const [depositSubmitError, setDepositSubmitError] = useState("");
 
-    // R18-S11 — handle CONFIRM IN TELEGRAM WALLET for Deposit flow.
-    // Selects FundSeat (non-Creator) or deployment (Creator) builder.
-    // Does NOT set FUNDED, does NOT increment confirmedSeats, does NOT navigate.
+    // R18-S11/S16 — Deposit deploy or FundSeat. Server remains authoritative.
+    // Creator uses isCreator from the projection, never a local seatIndex === 0 test.
     const handleConfirmInTelegramWallet = useCallback(async () => {
+
         if (depositSubmitting) {
+
             return;
+
         }
+
         if (!tonConnectUI) {
-            setDepositSubmitError("TonConnect UI unavailable");
+
+            setDepositSubmitError(t("payment.serverStateMismatch"));
+
             return;
+
         }
+
         if (!tonWallet?.account?.address && !tonConnectUI?.account?.address) {
-            setDepositSubmitError(t("payment.walletNotConnected"));
+
+            setDepositSubmitError(t("payment.telegramNotConnected"));
+
             return;
+
         }
+
         if (!depositProjection) {
-            setDepositSubmitError("Authoritative deposit projection missing");
+
+            setDepositSubmitError(t("payment.serverStateMismatch"));
+
             return;
+
         }
+
         if (depositProjection.isCreator !== true && depositProjection.isCreator !== false) {
-            setDepositSubmitError("isCreator authority missing");
+
+            setDepositSubmitError(t("payment.serverStateMismatch"));
+
             return;
+
+        }
+
+        const lifecycle = authoritative?.lifecycle ?? null;
+        const mayDeploy = canDeployDeposit(depositProjection, lifecycle);
+        const mayFund = canFundSeat(depositProjection, lifecycle);
+
+        if (!mayDeploy && !mayFund) {
+
+            if (!isDepositActivationVerified(depositProjection, lifecycle)) {
+
+                setDepositSubmitError(t("payment.depositActivationNotVerified"));
+
+                return;
+
+            }
+
+            setDepositSubmitError(t("payment.serverStateMismatch"));
+
+            return;
+
         }
 
         setDepositSubmitting(true);
         setDepositSubmitError("");
 
+        const depositAction = mayDeploy ? "deploy" : "fund";
+
         try {
+
             let transactionObject;
 
-            if (depositProjection.isCreator === true) {
-                // CREATOR: use S6 deployment builder.
+            if (mayDeploy) {
+
                 if (!depositProjection.package
                     || !depositProjection.package.stateInit
                     || !depositProjection.package.stateInit.codeBoc
                     || !depositProjection.package.stateInit.dataBoc
                     || depositProjection.package.deployValueNanotons == null) {
-                    setDepositSubmitError("Authoritative deployment data missing");
+
+                    setDepositSubmitError(t("payment.serverStateMismatch"));
                     setDepositSubmitting(false);
                     return;
+
                 }
+
                 transactionObject = buildDepositDeploymentTransaction({
                     depositPackage: {
                         stateInit: {
@@ -766,40 +825,54 @@ export default function Page4Payment({ onNavigate }) {
                     isCreator: true,
                     network: depositProjection.network
                 });
+
             } else {
-                // NON-CREATOR: use S5 FundSeat builder.
+
                 if (depositProjection.mySeatIndex == null
                     || depositProjection.myExpectedAmountNanotons == null) {
-                    setDepositSubmitError("Authoritative FundSeat data missing");
+
+                    setDepositSubmitError(t("payment.serverStateMismatch"));
                     setDepositSubmitting(false);
                     return;
+
                 }
+
                 transactionObject = buildFundDepositTransaction({
                     depositAddress: depositProjection.depositAddress,
                     mySeatIndex: depositProjection.mySeatIndex,
                     myExpectedAmountNanotons: depositProjection.myExpectedAmountNanotons,
                     network: depositProjection.network
                 });
+
             }
 
-            // Submit via existing TonConnect integration.
-            // Wallet success does NOT set FUNDED — wait for server projection.
             await tonConnectUI.sendTransaction(transactionObject);
+
         } catch (error) {
+
             console.error("[Page4Payment] Deposit wallet submit failed:", error);
-            setDepositSubmitError(error?.message ?? "Wallet submission failed");
+
+            setDepositSubmitError(
+                error?.message
+                    || (depositAction === "deploy"
+                        ? t("payment.depositDeployFailed")
+                        : t("payment.fundSeatFailed"))
+            );
+
         } finally {
+
             setDepositSubmitting(false);
+
         }
-    }, [depositProjection, depositSubmitting, t, tonConnectUI, tonWallet]);
 
-    const { t } = useLanguage();
-
-    const { identity } = usePlayerIdentity();
-
-    const [tonConnectUI] = useTonConnectUI();
-
-    const tonWallet = useTonWallet();
+    }, [
+        authoritative.lifecycle,
+        depositProjection,
+        depositSubmitting,
+        t,
+        tonConnectUI,
+        tonWallet
+    ]);
 
     const [localError, setLocalError] = useState("");
 
@@ -855,9 +928,6 @@ export default function Page4Payment({ onNavigate }) {
     const paymentConnectionReady = authoritative.lifecycle
         ?.paymentConnectionReady === true;
 
-    const inPaymentPhase = paymentConnectionReady
-        || hasPaymentSession(paymentSession);
-
     const localPlayerId = resolveLocalPlayerId(
         identity.playerId ?? null,
         authoritative.players,
@@ -865,6 +935,74 @@ export default function Page4Payment({ onNavigate }) {
             verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted)
         }
     );
+
+    const paymentPhase = resolvePage4PaymentPhase({
+        deposit: depositProjection,
+        paymentSession,
+        gameContract,
+        localPlayerId,
+        paymentConnectionReady,
+        lifecycle: authoritative.lifecycle
+    });
+
+    const walletPhase = shouldShowWalletActions(paymentPhase);
+    const showPaymentRows = shouldShowPaymentSessionRows(paymentPhase);
+    const showDepositAction = shouldShowDepositAction(paymentPhase);
+    const showStakeAction = shouldShowStakeAction(paymentPhase);
+    const inPostWalletPhase = paymentPhase !== PAGE4_PAYMENT_PHASE.WALLET;
+
+    const depositActionEnabled = (
+        paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_DEPLOY
+            ? canDeployDeposit(depositProjection, authoritative.lifecycle)
+            : paymentPhase === PAGE4_PAYMENT_PHASE.FUND_SEAT
+                ? canFundSeat(depositProjection, authoritative.lifecycle)
+                : false
+    );
+
+    const confirmedSeatCount = Number(depositProjection?.confirmedSeats);
+
+    const depositStatusParts = [];
+
+    if (
+        Number.isFinite(confirmedSeatCount)
+        && inPostWalletPhase
+        && !showPaymentRows
+    ) {
+
+        depositStatusParts.push(
+            t("payment.depositSeatsProgress", { funded: confirmedSeatCount })
+        );
+
+    }
+
+    if (paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
+
+        depositStatusParts.push(t("payment.waitingDepositActivation"));
+
+    } else if (
+        paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_WAIT_FULL
+        || paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_FULL
+    ) {
+
+        depositStatusParts.push(t("payment.waitingDepositFull"));
+
+        if (depositProjection?.mySeatStatus === "FUNDED") {
+
+            depositStatusParts.push(t("payment.mySeatFunded"));
+
+        }
+
+    } else if (paymentPhase === PAGE4_PAYMENT_PHASE.FUND_SEAT) {
+
+        depositStatusParts.push(
+            depositProjection?.mySeatStatus === "FUNDED"
+                ? t("payment.mySeatFunded")
+                : t("payment.mySeatPending")
+        );
+
+    }
+
+    const depositStatusText = depositStatusParts.join(" · ");
 
     const walletPlayers = useMemo(
         () => mapWalletConnectionRows(
@@ -882,7 +1020,7 @@ export default function Page4Payment({ onNavigate }) {
         [paymentSession, authoritative.players]
     );
 
-    const players = inPaymentPhase ? paymentPlayers : walletPlayers;
+    const players = showPaymentRows ? paymentPlayers : walletPlayers;
 
     const localWalletSeat = useMemo(
         () => walletPlayers.find(
@@ -897,7 +1035,7 @@ export default function Page4Payment({ onNavigate }) {
     // R7.26 — gate Connect on server seat + SDK. ADDRESS_MISMATCH requires
     // Disconnect before a new connect() is allowed. SDK-connected + WAITING
     // still enables Connect (reuse path, no openModal).
-    const canConnect = !inPaymentPhase
+    const canConnect = walletPhase
         && localWalletStatus !== WALLET_CONNECTION_STATUS.CONNECTED
         && localWalletStatus !== WALLET_CONNECTION_STATUS.CONNECTING
         && localWalletStatus !== WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH
@@ -1626,7 +1764,7 @@ export default function Page4Payment({ onNavigate }) {
             previousAddress: prevAddress,
             nextAddress,
             localWalletStatus,
-            inPaymentPhase,
+            inPostWalletPhase,
             sdkConnected: isTonConnectSdkConnected(tonConnectUI, tonWallet),
             timestamp: Date.now()
         });
@@ -1653,7 +1791,7 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-        if (inPaymentPhase) {
+        if (inPostWalletPhase) {
 
             return;
 
@@ -1716,7 +1854,7 @@ export default function Page4Payment({ onNavigate }) {
         tonWallet,
         tonConnectUI,
         localWalletStatus,
-        inPaymentPhase,
+        inPostWalletPhase,
         reportConnectedWallet,
         pushHandshakeTrace
     ]);
@@ -2770,7 +2908,7 @@ export default function Page4Payment({ onNavigate }) {
             walletRequested: "telegram",
             canConnect,
             currentStatus: localWalletStatus,
-            paymentPhase: inPaymentPhase,
+            paymentPhase,
             callingOpenModal: mayInitiateConnect,
             hasTonConnectUI: Boolean(tonConnectUI),
             alreadyConnected: sdkConnected,
@@ -2792,7 +2930,7 @@ export default function Page4Payment({ onNavigate }) {
                 "[TonConnect TRACE] EARLY RETURN | reason=canConnect == false",
                 {
                     localWalletStatus,
-                    inPaymentPhase,
+                    inPostWalletPhase,
                     connecting
                 }
             );
@@ -2800,7 +2938,7 @@ export default function Page4Payment({ onNavigate }) {
             pushHandshakeTrace("CONNECT_BLOCKED", {
                 reason: "canConnect_false",
                 localWalletStatus,
-                inPaymentPhase,
+                inPostWalletPhase,
                 connecting
             });
 
@@ -2990,7 +3128,15 @@ export default function Page4Payment({ onNavigate }) {
 
     async function handleConfirmPayment() {
 
-        if (!canConfirm || confirmingPayment) {
+        if (confirmingPayment) {
+
+            return;
+
+        }
+
+        if (!showStakeAction || !canConfirm) {
+
+            setLocalError(t("payment.stakeUnavailable"));
 
             return;
 
@@ -3098,7 +3244,7 @@ export default function Page4Payment({ onNavigate }) {
 
                 setLocalError(
                     error?.message
-                        || t("payment.walletRejected")
+                        || t("payment.stakeFailed")
                 );
 
                 return;
@@ -3122,7 +3268,7 @@ export default function Page4Payment({ onNavigate }) {
 
             message={t("page.payment.title")}
 
-            backEnabled={!inPaymentPhase}
+            backEnabled={walletPhase}
 
             onBack={() => onNavigate(5)}
 
@@ -3151,31 +3297,31 @@ export default function Page4Payment({ onNavigate }) {
                                 icon={player.icon}
 
                                 connectionStatus={
-                                    inPaymentPhase
+                                    showPaymentRows
                                         ? undefined
                                         : player.status
                                 }
 
                                 connectionStatusLabel={
-                                    inPaymentPhase
+                                    showPaymentRows
                                         ? undefined
                                         : player.statusLabel
                                 }
 
                                 paymentStatus={
-                                    inPaymentPhase
+                                    showPaymentRows
                                         ? player.status
                                         : undefined
                                 }
 
                                 paymentStatusLabel={
-                                    inPaymentPhase
+                                    showPaymentRows
                                         ? player.statusLabel
                                         : undefined
                                 }
 
                                 walletRegistered={
-                                    inPaymentPhase
+                                    showPaymentRows
                                         ? Boolean(player.wallet)
                                         : undefined
                                 }
@@ -3199,11 +3345,35 @@ export default function Page4Payment({ onNavigate }) {
 
                     )}
 
-                    {inPaymentPhase ? (
+                    {!walletPhase ? (
 
                         <div className="page4__connectActions">
 
-                            {paymentSession?.status === "COMPLETED" ? (
+                            {depositSubmitError && (
+
+                                <div
+                                    className="paymentPlayersWaiting"
+                                    aria-live="assertive"
+                                >
+
+                                    {depositSubmitError}
+
+                                </div>
+
+                            )}
+
+                            {depositStatusText ? (
+
+                                <div className="smartContractStatus">
+
+                                    {depositStatusText}
+
+                                </div>
+
+                            ) : null}
+
+                            {paymentPhase === PAGE4_PAYMENT_PHASE.WAITING_PAGE5
+                                || paymentSession?.status === "COMPLETED" ? (
 
                                 <div className="smartContractStatus">
 
@@ -3222,7 +3392,7 @@ export default function Page4Payment({ onNavigate }) {
 
                                 </div>
 
-                            ) : (
+                            ) : showStakeAction ? (
 
                                 <button
                                     type="button"
@@ -3237,7 +3407,22 @@ export default function Page4Payment({ onNavigate }) {
 
                                 </button>
 
-                            )}
+                            ) : showDepositAction ? (
+
+                                <button
+                                    type="button"
+                                    className="page4__connectButton"
+                                    disabled={!depositActionEnabled || depositSubmitting}
+                                    onClick={handleConfirmInTelegramWallet}
+                                >
+
+                                    {depositSubmitting
+                                        ? t("payment.openingWallet")
+                                        : t("payment.confirmInWallet")}
+
+                                </button>
+
+                            ) : null}
 
                         </div>
 

@@ -283,6 +283,8 @@ export function projectDepositForPlayer({
     const phase = depositSession.state ?? null;
     const depositId = depositSession.depositId ?? null;
     const depositAddress = depositSession.depositAddress ?? null;
+    const activationStatus = depositSession?.metadata?.activationVerification?.status
+        ?? null;
 
     // --- Package: only while the creator still needs to deploy ---
     let pkg = null;
@@ -329,7 +331,8 @@ export function projectDepositForPlayer({
             isCreator: null,
             mySeatStatus: "PENDING",
             myExpectedAmountNanotons: null,
-            confirmedSeats
+            confirmedSeats,
+            activationStatus
         });
     }
 
@@ -345,6 +348,7 @@ export function projectDepositForPlayer({
         isCreator,
         mySeatStatus: mapSeatStatus(seat?.funded),
         myExpectedAmountNanotons: toNanotonNumber(seat?.expectedAmount),
-        confirmedSeats
+        confirmedSeats,
+        activationStatus
     });
 }

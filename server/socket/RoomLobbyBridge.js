@@ -679,6 +679,33 @@ export class RoomLobbyBridge {
         );
 
         this._subscribe(
+            EVENT_TYPES.DEPOSIT_ACTIVATION_VERIFIED,
+            (envelope) => {
+
+                this._deliverDepositActivationVerified(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.DEPOSIT_SEAT_FUNDED,
+            (envelope) => {
+
+                this._deliverDepositPackagePublished(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.DEPOSIT_FULL_ONCHAIN,
+            (envelope) => {
+
+                this._deliverDepositPackagePublished(envelope.payload);
+
+            }
+        );
+
+        this._subscribe(
             EVENT_TYPES.SETTLEMENT_STARTED,
             (envelope) => {
 
@@ -2361,6 +2388,25 @@ export class RoomLobbyBridge {
                         deposit: depositProjection
                     }
                 );
+
+                if (
+                    depositProjection.activationStatus === "VERIFIED"
+                    || depositProjection.activationStatus === "ALREADY_VERIFIED"
+                ) {
+
+                    this._deliverToSocket(
+                        socketId,
+                        LOBBY_SERVER_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
+                        {
+                            depositId: depositProjection.depositId,
+                            roomId,
+                            gameId: depositTargetGameId,
+                            depositAddress: depositProjection.depositAddress,
+                            status: depositProjection.activationStatus
+                        }
+                    );
+
+                }
 
             }
 
@@ -6070,6 +6116,39 @@ export class RoomLobbyBridge {
             );
 
         }
+
+    }
+
+    _deliverDepositActivationVerified(payload) {
+
+        const roomId = payload?.roomId;
+        const status = payload?.status ?? null;
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        if (status !== "VERIFIED" && status !== "ALREADY_VERIFIED") {
+
+            return;
+
+        }
+
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
+            {
+                depositId: payload.depositId ?? null,
+                roomId,
+                gameId: payload.gameId ?? null,
+                depositAddress: payload.depositAddress ?? null,
+                status
+            }
+        );
+
+        this._deliverDepositPackagePublished(payload);
 
     }
 

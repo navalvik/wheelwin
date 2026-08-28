@@ -63,3 +63,17 @@ export {
     isGameContractDeployed,
     mapGameContractStatusLabel
 } from "./authoritativeGameContractView.js";
+
+export {
+    PAGE4_PAYMENT_PHASE,
+    canDeployDeposit,
+    canFundSeat,
+    canStakeGameEscrow,
+    isDepositActivationVerified,
+    isDepositFull,
+    resolvePage4PaymentPhase,
+    shouldShowDepositAction,
+    shouldShowPaymentSessionRows,
+    shouldShowStakeAction,
+    shouldShowWalletActions
+} from "./page4PaymentPhase.js";
