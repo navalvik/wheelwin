@@ -19,7 +19,13 @@
  * the authoritative depositAddress.
  */
 
-import { Address, Cell, contractAddress } from "@ton/core";
+import {
+    Address,
+    beginCell,
+    Cell,
+    contractAddress,
+    storeStateInit
+} from "@ton/core";
 
 const DEFAULT_VALID_UNTIL_SECONDS = 600;
 const SUPPORTED_NETWORKS = Object.freeze(["testnet", "mainnet"]);
@@ -69,9 +75,21 @@ function reconstructAndVerifyStateInit(depositPackage) {
             + ", derivedAddress=" + addressFriendly
         );
     }
+    // Serialize the authoritative StateInit into the TonConnect wire format:
+    // a single-cell BOC, base64-encoded. This is pure TRANSFORMATION of the
+    // already-authoritative code/data cells — no new authority is created.
+    // Required shape per @tonconnect/protocol: stateInit?: string =
+    // "one-cell BoC StateInit, base64-encoded".
+    const stateInitBocBase64 = beginCell()
+        .store(storeStateInit(stateInit))
+        .endCell()
+        .toBoc()
+        .toString("base64");
+
     return Object.freeze({
         code, data, stateInit, address, addressFriendly,
-        addressCanonical: derivedCanonical
+        addressCanonical: derivedCanonical,
+        stateInitBocBase64
     });
 }
 
@@ -168,9 +186,11 @@ export function buildDepositDeploymentTransaction({
 
     // --- Build the TonConnect transaction request ---
     // The deployment message targets the DepositContract address derived from
-    // StateInit, carrying the deployment value (gas) and the init cells.
-    // The TonConnect SDK / wallet handles the wallet transfer + external
-    // message encoding when broadcasting.
+    // StateInit, carrying the deployment value (gas) and the serialized
+    // StateInit (single-cell BOC, base64 string — TonConnect wire format).
+    // No payload/body is attached: the authoritative DepositContract
+    // deployment protocol (testnet reference l25PlayerDepositDeploy.js) sends
+    // the deployment internal message with init only, no body.
 
     return {
         validUntil: Math.floor(Number(nowMs) / 1000) + ttl,
@@ -178,10 +198,7 @@ export function buildDepositDeploymentTransaction({
             {
                 address: reconstructed.addressFriendly,
                 amount: deployValueNanotons,
-                stateInit: {
-                    code: depositPackage.stateInit.codeBoc,
-                    data: depositPackage.stateInit.dataBoc
-                }
+                stateInit: reconstructed.stateInitBocBase64
             }
         ]
     };
