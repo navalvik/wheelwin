@@ -1,4 +1,5 @@
 import "./polyfills/browserPolyfills";
+import "./tonconnect/installTelegramMiniAppGramWalletHandoff.js";
 
 import React from "react";
 import ReactDOM from "react-dom/client";

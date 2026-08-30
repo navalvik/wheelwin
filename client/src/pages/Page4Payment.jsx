@@ -58,6 +58,7 @@ import socket from "../socket/socket";
 import { LOBBY_OUTGOING_EVENTS } from "../socket/socketEvents";
 
 import { resolveBackendUrl } from "../config/backendUrl.js";
+import { launchGramWalletHandoff } from "../tonconnect/telegramMiniAppGramWalletHandoff.js";
 
 import "../styles/page4payment.css";
 
@@ -2827,12 +2828,9 @@ export default function Page4Payment({ onNavigate }) {
 
     }
 
-    // R6.11A — Open SDK Universal Link for desktop/browser wallet launch.
-    // Approach (mirrors @tonconnect/ui openLinkBlank): window.open with
-    // noopener,noreferrer on the exact SDK-generated string — works for
-    // https:// universal links. If open is blocked or the scheme is custom
-    // (e.g. tc://), fall back to an ephemeral <a target="_blank"> click so
-    // the OS/browser can hand off without hardcoding any wallet domain.
+    // R6.11A / R18-S16 — Open the SDK Universal Link.
+    // Telegram Mini App + Gram Wallet: Telegram.WebApp.openLink (Mini App
+    // stays open). Ordinary browser: window.open / <a target="_blank">.
     function handleOpenTonConnectLink() {
 
         const link = tonConnectUniversalLink;
@@ -2843,43 +2841,27 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-        try {
+        launchGramWalletHandoff(link, {
+            createAnchorClick: (href) => {
 
-            const opened = window.open(link, "_blank", "noopener,noreferrer");
+                const anchor = document.createElement("a");
 
-            if (opened) {
+                anchor.href = href;
 
-                return;
+                anchor.target = "_blank";
+
+                anchor.rel = "noopener noreferrer";
+
+                anchor.style.display = "none";
+
+                document.body.appendChild(anchor);
+
+                anchor.click();
+
+                document.body.removeChild(anchor);
 
             }
-
-        } catch {
-
-            // Fall through to anchor handoff.
-        }
-
-        try {
-
-            const anchor = document.createElement("a");
-
-            anchor.href = link;
-
-            anchor.target = "_blank";
-
-            anchor.rel = "noopener noreferrer";
-
-            anchor.style.display = "none";
-
-            document.body.appendChild(anchor);
-
-            anchor.click();
-
-            document.body.removeChild(anchor);
-
-        } catch {
-
-            // Presentation-only: never throw into Page4 / QR flow.
-        }
+        });
 
     }
 
