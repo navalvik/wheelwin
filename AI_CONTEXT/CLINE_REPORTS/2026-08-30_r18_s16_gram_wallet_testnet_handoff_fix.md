@@ -231,7 +231,24 @@ Files: 5 (handoff module, installer, unit test, `main.jsx`, `Page4Payment.jsx` h
 
 ## 10. VERCEL DEPLOYMENT
 
-**NOT VERIFIED** at report authoring of this section (filled after push). See post-push note at the end of this file if updated in the same working session.
+**SOURCE VERIFIED.**
+
+Pushed `509c4df..a562e7c` to `origin/main`. Live client `https://wheelwin-nine.vercel.app/` serves:
+
+```text
+/assets/index-DhDCRC5Y.js
+```
+
+That bundle contains:
+
+```text
+WHEELWIN_GRAM_WALLET_HANDOFF
+telegram_openLink
+gramwallet-tc
+connect.gramwallet.io
+```
+
+Previous production hash `index-DvP3rIAL.js` is no longer the HTML entry. Vercel Vite hash differs from the local `index-E2msSIhK.js` (injected `VITE_SOCKET_URL`), which is expected.
 
 ---
 
@@ -326,9 +343,12 @@ If `pagehide_beforeunload` still follows immediately after the Gram link, record
 ## 23. FINAL GIT STATE
 
 ```text
-HEAD  3f990b28446ec8f8ec7f1eb0a0f658d59f0f33c4
-      Fix Gram Wallet Telegram Mini App handoff
+a562e7c docs: record R18-S16 Gram Wallet Mini App handoff fix
+3f990b2 Fix Gram Wallet Telegram Mini App handoff
+509c4df docs: record R18-S16 Page4 TESTNET validation blocker
 ```
+
+Production fix SHA: `3f990b28446ec8f8ec7f1eb0a0f658d59f0f33c4`.
 
 Unrelated dirty files (banners, probes, other reports) were not committed.
 
@@ -341,7 +361,7 @@ Unrelated dirty files (banners, probes, other reports) were not committed.
 1. This agent cannot open a signed Mini App (`initData` length 0 in ordinary browser).
 2. Full Page4 financial E2E therefore cannot run here.
 
-Production fix is in git; Vercel must serve `3f990b2` (or a later docs commit) before the operator retest.
+Production fix is on Vercel (`index-DhDCRC5Y.js`). Operator must retest in a real Telegram Mini App with Gram Wallet (fresh room, not `MtJn`).
 
 ---
 
