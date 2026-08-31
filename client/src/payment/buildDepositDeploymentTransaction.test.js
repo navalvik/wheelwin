@@ -73,6 +73,16 @@ describe("R18-S6 buildDepositDeploymentTransaction", () => {
         assert.strictEqual(tx.messages.length, 1, "must have exactly one message");
     });
 
+    it("R18-S16: authoritative 10000000 nanoTON attach is used as amount", () => {
+        const pkg = buildValidDepositPackage({ deployValueNanotons: "10000000" });
+        const tx = buildDepositDeploymentTransaction(buildValidParams({
+            depositPackage: pkg
+        }));
+        assert.strictEqual(tx.messages[0].amount, "10000000");
+        assert.notStrictEqual(tx.messages[0].amount, "11000000");
+        assert.notStrictEqual(tx.messages[0].amount, "1000000");
+    });
+
     it("Test A2: deployment value equals authoritative deployValueNanotons", () => {
         const params = buildValidParams();
         const tx = buildDepositDeploymentTransaction(params);

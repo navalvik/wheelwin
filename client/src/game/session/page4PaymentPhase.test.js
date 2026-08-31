@@ -315,9 +315,10 @@ test("R18-S16: creator deploy proceeds only from authoritative package deployVal
         isCreator: true,
         mySeatIndex: 0,
         activationStatus: "WAITING_FOR_PLAYER_DEPLOYMENT",
+        myExpectedAmountNanotons: 11000000,
         package: {
             stateInit: { codeBoc: "code", dataBoc: "data" },
-            deployValueNanotons: 50000000
+            deployValueNanotons: 10000000
         }
     });
 
@@ -329,8 +330,18 @@ test("R18-S16: creator deploy proceeds only from authoritative package deployVal
     assert.equal(shouldShowDepositAction(phase), true);
     assert.equal(
         withDeployValue.package.deployValueNanotons,
-        50000000,
+        10000000,
         "amount must remain the package field, not a client reconstruction"
+    );
+    assert.notEqual(
+        withDeployValue.package.deployValueNanotons,
+        withDeployValue.myExpectedAmountNanotons,
+        "deploy attach must not equal FundSeat expectedAmount"
+    );
+    assert.notEqual(
+        withDeployValue.package.deployValueNanotons,
+        1000000,
+        "deploy attach must not equal creationFeePerSeat"
     );
 
 });

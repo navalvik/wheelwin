@@ -61,6 +61,13 @@ function serializeStateInitCells(stateInit) {
 
 }
 
+/**
+ * Role A — DepositContract StateInit deployment attach.
+ * Proven TESTNET value for deploy + activation + 3 × FundSeat.
+ * Independent of creationFeePerSeat (B), stake (C), and FundSeat expectedAmount (D).
+ */
+const DEPOSIT_CONTRACT_DEPLOY_VALUE_NANOTONS = "10000000";
+
 function freezeDepositPackage({
     session,
     built,
@@ -85,6 +92,7 @@ function freezeDepositPackage({
         stateInit,
         bindings: Object.freeze(enrichedBindings),
         creationFeePerSeat: financials.creationFeePerSeat.toString(),
+        deployValueNanotons: DEPOSIT_CONTRACT_DEPLOY_VALUE_NANOTONS,
         network: financials.network,
         expiresAt: Number(contractExpiresAt),
         contractExpiresAt: Number(contractExpiresAt),

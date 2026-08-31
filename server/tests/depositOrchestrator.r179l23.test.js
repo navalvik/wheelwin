@@ -403,6 +403,78 @@ test("R17.9L.23 TestA: PAYMENT_CONNECTION_READY → package → WAITING_FOR_PLAY
 
 });
 
+test("R18-S16: freezeDepositPackage publishes deployValueNanotons=10000000 independent of B/C/D", async () => {
+
+    const { orchestrator, depositSessionCoordinator, eventBus } = createStack();
+
+    const packageEvents = [];
+
+    eventBus.subscribe(EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED, (envelope) => {
+
+        packageEvents.push(envelope);
+
+    });
+
+    const result = await orchestrator.handlePaymentConnectionReady({ roomId: ROOM_ID });
+    const session = depositSessionCoordinator.getSession(result.depositId);
+    const frozen = session.metadata.depositPackage;
+    const published = packageEvents[0].payload.package;
+
+    assert.equal(frozen.deployValueNanotons, "10000000");
+    assert.equal(published.deployValueNanotons, "10000000");
+    assert.equal(frozen.creationFeePerSeat, "1000000");
+    assert.equal(session.metadata.creationFeePerSeat, 1000000);
+    assert.equal(session.metadata.expectedStake0, 10000000);
+    assert.equal(session.metadata.expectedStake1, 10000000);
+    assert.equal(session.metadata.expectedStake2, 10000000);
+    assert.equal(session.bindings[0].expectedAmount, 11000000);
+    assert.equal(session.bindings[1].expectedAmount, 11000000);
+    assert.equal(session.bindings[2].expectedAmount, 11000000);
+    assert.equal(frozen.bindings[0].expectedStake, 10000000);
+    assert.equal(
+        String(session.metadata.expectedStake0),
+        "10000000",
+        "1:1 C remains 10000000 from the stake map, not from deployValueNanotons"
+    );
+    assert.notEqual(
+        frozen.deployValueNanotons,
+        String(frozen.creationFeePerSeat),
+        "A must not equal B (creationFeePerSeat)"
+    );
+    assert.notEqual(
+        frozen.deployValueNanotons,
+        String(session.bindings[0].expectedAmount),
+        "A must not equal D (FundSeat expectedAmount)"
+    );
+    assert.notEqual(
+        frozen.deployValueNanotons,
+        String(Number(frozen.creationFeePerSeat) * session.bindings.length),
+        "A must not equal seats × creationFeePerSeat"
+    );
+    assert.ok(frozen.stateInit?.codeBoc);
+    assert.ok(frozen.stateInit?.dataBoc);
+    assert.ok(frozen.depositId);
+    assert.ok(frozen.depositAddress);
+
+    assert.match(
+        ORCHESTRATOR_SOURCE,
+        /const DEPOSIT_CONTRACT_DEPLOY_VALUE_NANOTONS = "10000000"/
+    );
+    assert.doesNotMatch(
+        ORCHESTRATOR_SOURCE,
+        /deployValueNanotons:\s*financials/
+    );
+    assert.doesNotMatch(
+        ORCHESTRATOR_SOURCE,
+        /deployValueNanotons:\s*.*expectedAmount/
+    );
+    assert.doesNotMatch(
+        ORCHESTRATOR_SOURCE,
+        /deployValueNanotons:\s*.*creationFee/
+    );
+
+});
+
 // ─── B. Duplicate event ───
 
 test("R17.9L.23 TestB: duplicate PAYMENT_CONNECTION_READY is idempotent", async () => {

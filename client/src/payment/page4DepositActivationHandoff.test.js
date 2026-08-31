@@ -41,7 +41,9 @@ const DEPOSIT_ADDRESS = derivedAddress.toString({
 });
 const CODE_BOC = testCode.toBoc().toString("base64");
 const DATA_BOC = testData.toBoc().toString("base64");
-const DEPLOY_VALUE_NANOTONS = "50000000";
+const DEPLOY_VALUE_NANOTONS = "10000000";
+const CREATION_FEE_NANOTONS = 1000000;
+const FUNDSEAT_EXPECTED_AMOUNT_NANOTONS = 11000000;
 
 function publishDeposit(packageOverrides = {}) {
 
@@ -66,7 +68,7 @@ function publishDeposit(packageOverrides = {}) {
                     mySeatIndex: 0,
                     isCreator: true,
                     mySeatStatus: "PENDING",
-                    myExpectedAmountNanotons: 11000000,
+                    myExpectedAmountNanotons: FUNDSEAT_EXPECTED_AMOUNT_NANOTONS,
                     confirmedSeats: 0,
                     activationStatus: "WAITING_FOR_PLAYER_DEPLOYMENT"
                 }
@@ -88,7 +90,7 @@ describe("R18-S16 Page4 deposit activation wallet handoff", () => {
         assert.equal(state.deposit?.package?.stateInit?.codeBoc, CODE_BOC);
         assert.equal(state.deposit?.package?.stateInit?.dataBoc, DATA_BOC);
         assert.equal(state.deposit?.package?.deployValueNanotons, null);
-        assert.equal(state.deposit?.myExpectedAmountNanotons, 11000000);
+        assert.equal(state.deposit?.myExpectedAmountNanotons, FUNDSEAT_EXPECTED_AMOUNT_NANOTONS);
 
     });
 
@@ -151,6 +153,9 @@ describe("R18-S16 Page4 deposit activation wallet handoff", () => {
 
         assert.equal(msg.address, DEPOSIT_ADDRESS);
         assert.equal(msg.amount, DEPLOY_VALUE_NANOTONS);
+        assert.equal(msg.amount, "10000000");
+        assert.notEqual(msg.amount, String(FUNDSEAT_EXPECTED_AMOUNT_NANOTONS));
+        assert.notEqual(msg.amount, String(CREATION_FEE_NANOTONS));
         assert.equal(typeof msg.stateInit, "string");
 
         const loaded = loadStateInit(

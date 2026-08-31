@@ -171,9 +171,7 @@ function projectPackage(depositPackage) {
     }
 
     // deployValueNanotons is exposed ONLY if the frozen package itself
-    // carries it. The frozen package does not embed a deploy value today
-    // (creation fees live inside each binding's expectedAmount); we never
-    // substitute or recalculate another field into it.
+    // carries it. Never substitute creationFee, stake, or FundSeat amount.
     const deployValueNanotons = depositPackage.deployValueNanotons != null
         ? Number(depositPackage.deployValueNanotons)
         : null;

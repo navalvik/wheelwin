@@ -224,6 +224,68 @@ const PROJECTED_KEYS = [
     "activationStatus"
 ];
 
+test("R18-S16: projection forwards frozen deployValueNanotons=10000000 without substituting B/C/D", () => {
+
+    const session = makeSession({
+        metadata: {
+            depositPackage: {
+                stateInit: {
+                    codeBoc: "code-boc",
+                    dataBoc: "data-boc"
+                },
+                deployValueNanotons: "10000000",
+                creationFeePerSeat: "1000000"
+            }
+        },
+        bindings: [
+            {
+                playerId: "p-creator",
+                wallet: "w1",
+                expectedAmount: 11000000,
+                expectedStake: 10000000,
+                funded: false
+            },
+            {
+                playerId: "p-two",
+                wallet: "w2",
+                expectedAmount: 11000000,
+                expectedStake: 10000000,
+                funded: false
+            },
+            {
+                playerId: "p-three",
+                wallet: "w3",
+                expectedAmount: 11000000,
+                expectedStake: 10000000,
+                funded: false
+            }
+        ]
+    });
+    const bridge = makeBridgeStub(
+        "room-r18",
+        "p-creator",
+        ["p-creator", "p-two", "p-three"]
+    );
+
+    const out = projectDepositForPlayer({
+        playerId: "p-creator",
+        roomId: "room-r18",
+        gameId: "game-r18",
+        session,
+        roomLobbyBridge: bridge
+    });
+
+    assert.equal(out.package.deployValueNanotons, 10000000);
+    assert.equal(out.package.stateInit.codeBoc, "code-boc");
+    assert.equal(out.package.stateInit.dataBoc, "data-boc");
+    assert.equal(out.myExpectedAmountNanotons, 11000000);
+    assert.notEqual(out.package.deployValueNanotons, out.myExpectedAmountNanotons);
+    assert.notEqual(out.package.deployValueNanotons, 1000000);
+    assert.equal(out.package.creationFeePerSeat, undefined);
+    assert.equal(Object.hasOwn(out.package, "expectedStakeNanotons"), false);
+
+});
+
 test("S2.a creator receives allow-listed frozen projection", () => {
 
     const session = makeSession();
