@@ -13,6 +13,7 @@ import {
     isDepositFull,
     PAGE4_PAYMENT_PHASE,
     resolvePage4PaymentPhase,
+    shouldShowDepositAction,
     shouldShowWalletActions
 } from "./page4PaymentPhase.js";
 
@@ -279,3 +280,58 @@ test("R18-S16: reconnect restores phase from deposit activationStatus", () => {
     );
 
 });
+
+test("R18-S16 tSPj: production package without deployValueNanotons stays in DEPOSIT_ACTIVATION", () => {
+
+    const tspjShaped = depositFixture({
+        isCreator: true,
+        mySeatIndex: 0,
+        activationStatus: "WAITING_FOR_PLAYER_DEPLOYMENT",
+        myExpectedAmountNanotons: 11000000,
+        confirmedSeats: 0,
+        package: {
+            stateInit: { codeBoc: "code", dataBoc: "data" },
+            deployValueNanotons: null
+        }
+    });
+
+    assert.equal(canDeployDeposit(tspjShaped), false);
+    assert.equal(canFundSeat(tspjShaped), false);
+
+    const phase = resolvePage4PaymentPhase({
+        deposit: tspjShaped,
+        paymentConnectionReady: true
+    });
+
+    assert.equal(phase, PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION);
+    assert.equal(shouldShowDepositAction(phase), false);
+    assert.equal(shouldShowWalletActions(phase), false);
+
+});
+
+test("R18-S16: creator deploy proceeds only from authoritative package deployValueNanotons", () => {
+
+    const withDeployValue = depositFixture({
+        isCreator: true,
+        mySeatIndex: 0,
+        activationStatus: "WAITING_FOR_PLAYER_DEPLOYMENT",
+        package: {
+            stateInit: { codeBoc: "code", dataBoc: "data" },
+            deployValueNanotons: 50000000
+        }
+    });
+
+    assert.equal(canDeployDeposit(withDeployValue), true);
+
+    const phase = resolvePage4PaymentPhase({ deposit: withDeployValue });
+
+    assert.equal(phase, PAGE4_PAYMENT_PHASE.DEPOSIT_DEPLOY);
+    assert.equal(shouldShowDepositAction(phase), true);
+    assert.equal(
+        withDeployValue.package.deployValueNanotons,
+        50000000,
+        "amount must remain the package field, not a client reconstruction"
+    );
+
+});
+
