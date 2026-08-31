@@ -1,5 +1,5 @@
-// R7.70C19 — Setup Timer restored to 5 minutes (was TEMP 20 min / pre-temp 10 min).
-const DEFAULT_SETUP_DURATION_MS = 5 * 60 * 1000;
+// R18-S16 — Setup Timer 8 minutes (was R7.70C19 5 min). Isolated from Payment/Wallet/Result timers.
+const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
 
 /** R6.5 — Page6 result linger before authoritative SESSION_FINISHED. */
 // R7.70C19A — restored from C7 TEMP 10 min → 5 min.

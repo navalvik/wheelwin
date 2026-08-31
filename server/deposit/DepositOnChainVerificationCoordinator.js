@@ -1,14 +1,19 @@
 /**
- * R17.9L.8 — On-Chain Deposit Verification → DepositSession Integration.
+ * R17.9L.8 / R18-S16 — On-Chain Deposit Verification → DepositSession Integration.
  *
- * Dedicated verification boundary: the ONLY path from
- * DEPOSIT_FULL_ONCHAIN → DepositSession DEPOSIT_FULL.
+ * Applies each validated DEPOSIT_SEAT_FUNDED observation to the authoritative
+ * DepositSession immediately, then still accepts DEPOSIT_FULL_ONCHAIN as the
+ * 3-of-3 completion path (idempotent if seats were already applied).
  *
  * NO real TON. NO GameContractManager. NO client input.
  */
 
 import { DEPOSIT_SESSION_STATUS } from "./DepositSessionStates.js";
 import { DEPOSIT_OBSERVATION_STATUS } from "./DepositObservationStates.js";
+import {
+    InvalidDepositFundingError,
+    InvalidDepositStateTransitionError
+} from "./DepositSessionErrors.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 
@@ -55,6 +60,8 @@ export class DepositOnChainVerificationCoordinator {
 
         this._boundHandler = null;
 
+        this._boundSeatHandler = null;
+
         this._processing = new Set();
 
     }
@@ -67,7 +74,11 @@ export class DepositOnChainVerificationCoordinator {
 
         }
 
+        this._boundSeatHandler = (envelope) => this._handleDepositSeatFunded(envelope);
+
         this._boundHandler = (envelope) => this._handleDepositFullOnChain(envelope);
+
+        this._eventBus.subscribe(EVENT_TYPES.DEPOSIT_SEAT_FUNDED, this._boundSeatHandler);
 
         this._eventBus.subscribe(EVENT_TYPES.DEPOSIT_FULL_ONCHAIN, this._boundHandler);
 
@@ -75,11 +86,29 @@ export class DepositOnChainVerificationCoordinator {
 
     shutdown() {
 
-        if (this._boundHandler && this._eventBus?.unsubscribe) {
+        if (this._eventBus?.unsubscribe) {
 
-            this._eventBus.unsubscribe(EVENT_TYPES.DEPOSIT_FULL_ONCHAIN, this._boundHandler);
+            if (this._boundSeatHandler) {
+
+                this._eventBus.unsubscribe(
+                    EVENT_TYPES.DEPOSIT_SEAT_FUNDED,
+                    this._boundSeatHandler
+                );
+
+            }
+
+            if (this._boundHandler) {
+
+                this._eventBus.unsubscribe(
+                    EVENT_TYPES.DEPOSIT_FULL_ONCHAIN,
+                    this._boundHandler
+                );
+
+            }
 
         }
+
+        this._boundSeatHandler = null;
 
         this._boundHandler = null;
 
@@ -140,6 +169,118 @@ export class DepositOnChainVerificationCoordinator {
         }
 
         return Object.freeze({ scanned, verified, skipped });
+
+    }
+
+    _handleDepositSeatFunded(envelope) {
+
+        const payload = envelope?.payload ?? {};
+
+        const depositId = payload.depositId;
+
+        if (!depositId) {
+
+            this._logger.warn(
+                "DepositOnChainVerificationCoordinator: DEPOSIT_SEAT_FUNDED missing depositId"
+            );
+
+            return null;
+
+        }
+
+        if (envelope.source !== EVENT_SOURCES.DEPOSIT_MONITOR) {
+
+            this._logger.warn(
+                "DepositOnChainVerificationCoordinator: rejected DEPOSIT_SEAT_FUNDED from untrusted source",
+                { source: envelope.source, depositId }
+            );
+
+            return null;
+
+        }
+
+        const status = payload.observationStatus ?? payload.status ?? null;
+
+        if (status !== DEPOSIT_OBSERVATION_STATUS.VALIDATED) {
+
+            return null;
+
+        }
+
+        try {
+
+            return this._applyIncrementalFunding(depositId, payload);
+
+        } catch (error) {
+
+            if (
+                error instanceof InvalidDepositFundingError
+                || error instanceof InvalidDepositStateTransitionError
+            ) {
+
+                return { applied: false, reason: "already_applied", depositId };
+
+            }
+
+            this._logger.error(
+                "DepositOnChainVerificationCoordinator: incremental funding failed",
+                { depositId, error: error.message }
+            );
+
+            return null;
+
+        }
+
+    }
+
+    _applyIncrementalFunding(depositId, payload) {
+
+        const session = this._depositSessionCoordinator.getSession(depositId);
+
+        if (!session) {
+
+            throw new DepositOnChainVerificationError(
+                "DepositSession not found",
+                { depositId }
+            );
+
+        }
+
+        if (session.state === DEPOSIT_SESSION_STATUS.DEPOSIT_FULL) {
+
+            return { applied: false, reason: "already_full", depositId };
+
+        }
+
+        if (!FUNDABLE_STATES.includes(session.state)) {
+
+            throw new DepositOnChainVerificationError(
+                "DepositSession in non-fundable state",
+                { depositId, state: session.state }
+            );
+
+        }
+
+        const wallet = payload.senderWallet ?? payload.wallet ?? null;
+
+        const alreadyFunded = session.bindings.some(
+            (binding) => binding.funded === true
+                && (binding.wallet === wallet || binding.fundingEventId === payload.observationId)
+        );
+
+        if (alreadyFunded) {
+
+            return { applied: false, reason: "already_funded", depositId };
+
+        }
+
+        this._depositSessionCoordinator.applyFunding(depositId, {
+            wallet,
+            amount: payload.amount,
+            fundingEventId: payload.observationId
+        });
+
+        return { applied: true, depositId };
 
     }
 

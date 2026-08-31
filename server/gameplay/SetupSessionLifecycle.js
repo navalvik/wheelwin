@@ -13,8 +13,8 @@ import { SetupSession } from "../models/SetupSession.js";
 import { SETUP_SESSION_STATUS } from "../models/SetupSessionStatus.js";
 import { PAYMENT_SESSION_STATUS } from "../models/PaymentSession.js";
 
-// R7.70C19 — fallback aligned with rooms.js DEFAULT_SETUP_DURATION_MS (5 min).
-const DEFAULT_SETUP_DURATION_MS = 5 * 60 * 1000;
+// R7.70C19 — fallback aligned with rooms.js DEFAULT_SETUP_DURATION_MS (8 min).
+const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
 
 /**
  * C5.6C — Setup Session lifecycle coordinator.

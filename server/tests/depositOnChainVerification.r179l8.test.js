@@ -282,6 +282,13 @@ test("R17.9L.8 Test2: one seat missing → DEPOSIT_FULL not produced", () => {
 
     const updated = h.depositSessionCoordinator.getSession(session.depositId);
 
+    assert.equal(updated.state, DEPOSIT_SESSION_STATUS.PARTIALLY_FUNDED);
+    assert.equal(updated.bindings[0].funded, true);
+    assert.equal(updated.bindings[0].receivedAmount, 10);
+    assert.equal(updated.bindings[1].funded, true);
+    assert.equal(updated.bindings[1].receivedAmount, 10);
+    assert.equal(updated.bindings[2].funded, false);
+    assert.equal(updated.bindings[2].receivedAmount, 0);
     assert.notEqual(updated.state, DEPOSIT_SESSION_STATUS.DEPOSIT_FULL);
 
     assert.equal(emitted.length, 0);
