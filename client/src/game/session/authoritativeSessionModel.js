@@ -275,6 +275,10 @@ export function authoritativeSessionReducer(state, action) {
                 walletConnection: null,
                 paymentSession: null,
                 gameContract: null,
+                // R18-S16 — game-scoped Deposit mirror. A new GAME_START must
+                // not keep the previous game's depositAddress / VERIFIED flag
+                // (dvgw funded the stale sZqc contract).
+                deposit: null,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     gameStarted: true,
@@ -283,7 +287,8 @@ export function authoritativeSessionReducer(state, action) {
                     verifyCompleted: false,
                     paymentStageReady: false,
                     entryPaymentCompleted: false,
-                    paymentConnectionReady: false
+                    paymentConnectionReady: false,
+                    depositActivationVerified: false
                 })
             }, action.type);
 

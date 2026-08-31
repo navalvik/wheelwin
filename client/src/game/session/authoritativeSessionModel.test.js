@@ -70,6 +70,17 @@ function assert(condition, message) {
 
     assert(state.payment === null, "must not invent payment");
 
+    assert(state.deposit === null, "GAME_START must not invent deposit");
+
+    assert(
+        state.lifecycle.depositActivationVerified === false,
+        "GAME_START must not invent depositActivationVerified"
+    );
+
+    assert(state.paymentSession === null, "GAME_START must not invent paymentSession");
+
+    assert(state.gameContract === null, "GAME_START must not invent gameContract");
+
     console.log("  GAME_START mirror passed");
 
 }
