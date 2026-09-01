@@ -30,7 +30,9 @@ const DEPLOY_VALUE_NANOTONS = "10000000";
 const CREATION_FEE_PER_SEAT = "1000000";
 const EXPECTED_STAKE = 10000000;
 const FUNDSEAT_AMOUNT = 11000000;
+const BOB_SOCKET_ID = "sock_bob_r18s16_iso";
 const LENA_SOCKET_ID = "c0QikAAlyHNBuzbvAAFc";
+const OLGA_SOCKET_ID = "sock_olga_r18s16_iso";
 
 function stubCoordinator(session) {
 
@@ -608,6 +610,415 @@ test("R18-S16: bound_recovery restore emits RESTORE_ATTEMPT and live projection 
             false,
             "bound=true must skip reconnectSession reclaim"
         );
+
+    } finally {
+
+        stack.shutdown();
+
+    }
+
+});
+
+function makeIsolationSession({ roomId, playerIds, fundedBySeat }) {
+
+    const [bobId, lenaId, olgaId] = playerIds;
+    const funded = fundedBySeat ?? [false, true, false];
+
+    return {
+        depositId: "dep_isolation_r18s16",
+        roomId,
+        gameId: GAME_ID,
+        state: DEPOSIT_SESSION_STATUS.PARTIALLY_FUNDED,
+        depositAddress: DEPOSIT_ADDRESS,
+        bindings: [
+            {
+                playerId: bobId,
+                wallet: "EQ_ISO_BOB_WALLET_00000000000000000000000000",
+                expectedAmount: FUNDSEAT_AMOUNT,
+                receivedAmount: funded[0] ? FUNDSEAT_AMOUNT : 0,
+                funded: funded[0] === true
+            },
+            {
+                playerId: lenaId,
+                wallet: "EQ_ISO_LENA_WALLET_0000000000000000000000000",
+                expectedAmount: FUNDSEAT_AMOUNT,
+                receivedAmount: funded[1] ? FUNDSEAT_AMOUNT : 0,
+                funded: funded[1] === true
+            },
+            {
+                playerId: olgaId,
+                wallet: "EQ_ISO_OLGA_WALLET_0000000000000000000000000",
+                expectedAmount: FUNDSEAT_AMOUNT,
+                receivedAmount: funded[2] ? FUNDSEAT_AMOUNT : 0,
+                funded: funded[2] === true
+            }
+        ],
+        metadata: {
+            network: "testnet",
+            creationFeePerSeat: Number(CREATION_FEE_PER_SEAT),
+            depositPackage: {
+                network: "testnet",
+                deployValueNanotons: DEPLOY_VALUE_NANOTONS,
+                stateInit: {
+                    codeBoc: "te6ccgECCQAj/RASTl3GZs",
+                    dataBoc: "abc123data"
+                },
+                bindings: [
+                    {
+                        playerId: bobId,
+                        funded: false,
+                        receivedAmount: 0,
+                        expectedAmount: FUNDSEAT_AMOUNT,
+                        expectedStake: EXPECTED_STAKE
+                    },
+                    {
+                        playerId: lenaId,
+                        funded: false,
+                        receivedAmount: 0,
+                        expectedAmount: FUNDSEAT_AMOUNT,
+                        expectedStake: EXPECTED_STAKE
+                    },
+                    {
+                        playerId: olgaId,
+                        funded: false,
+                        receivedAmount: 0,
+                        expectedAmount: FUNDSEAT_AMOUNT,
+                        expectedStake: EXPECTED_STAKE
+                    }
+                ]
+            },
+            activationVerification: {
+                status: "VERIFIED",
+                depositAddress: DEPOSIT_ADDRESS
+            }
+        }
+    };
+
+}
+
+function arrangeIsolationRoom(stack) {
+
+    const room = stack.roomManager.createRoom();
+    const sockets = [BOB_SOCKET_ID, LENA_SOCKET_ID, OLGA_SOCKET_ID];
+    const playerIds = [];
+
+    for (const [index, nickname] of ["Bob", "Lena", "Olga"].entries()) {
+
+        const player = stack.playerManager.createPlayer({ nickname });
+        const playerId = player.identity.playerId;
+
+        playerIds.push(playerId);
+        stack.roomManager.addPlayer(room.roomId, playerId);
+        stack.playerManager.updateRuntime(playerId, {
+            roomId: room.roomId,
+            gameId: GAME_ID
+        });
+        stack.roomLobbyBridge._registerSocketPlayer(sockets[index], playerId);
+        stack.roomLobbyBridge._attachSocketToRoom(sockets[index], room.roomId);
+        stack.playerManager.setConnectionState(playerId, CONNECTION_STATE.CONNECTED);
+
+    }
+
+    stack.roomLobbyBridge._roomCreators.set(room.roomId, playerIds[0]);
+    stack.roomLobbyBridge._startedRooms.add(room.roomId);
+    stack.gameplayContextResolver.activateRoomGame(room.roomId, GAME_ID);
+
+    const session = makeIsolationSession({
+        roomId: room.roomId,
+        playerIds,
+        fundedBySeat: [false, true, false]
+    });
+
+    stack.roomLobbyBridge._depositSessionCoordinator = stubCoordinator(session);
+
+    return {
+        room,
+        session,
+        seats: [
+            {
+                label: "Bob",
+                playerId: playerIds[0],
+                socketId: BOB_SOCKET_ID,
+                mySeatIndex: 0,
+                isCreator: true,
+                mySeatStatus: "PENDING"
+            },
+            {
+                label: "Lena",
+                playerId: playerIds[1],
+                socketId: LENA_SOCKET_ID,
+                mySeatIndex: 1,
+                isCreator: false,
+                mySeatStatus: "FUNDED"
+            },
+            {
+                label: "Olga",
+                playerId: playerIds[2],
+                socketId: OLGA_SOCKET_ID,
+                mySeatIndex: 2,
+                isCreator: false,
+                mySeatStatus: "PENDING"
+            }
+        ]
+    };
+
+}
+
+function fakeSocketWithId(socketId) {
+
+    return {
+        id: socketId,
+        connected: true,
+        on() {},
+        emit() {}
+    };
+
+}
+
+function depositPublishedSince(stack, before) {
+
+    return stack.deliveries
+        .slice(before)
+        .filter((delivery) =>
+            delivery.event === LOBBY_SERVER_EVENTS.DEPOSIT_PACKAGE_PUBLISHED
+        );
+
+}
+
+function assertRecoveryOwnershipIndependent(bridge, seats, roomId) {
+
+    const byPlayer = bridge._recoveryOwnershipByPlayer;
+    const bySocket = bridge._recoveryOwnershipBySocket;
+
+    assert.equal(byPlayer.size, 3, "three distinct player recovery entries");
+    assert.equal(bySocket.size, 3, "three distinct socket recovery entries");
+
+    const playerIds = seats.map((seat) => seat.playerId);
+    const socketIds = seats.map((seat) => seat.socketId);
+
+    assert.equal(new Set(playerIds).size, 3, "playerIds must be distinct");
+    assert.equal(new Set(socketIds).size, 3, "socketIds must be distinct");
+
+    for (const seat of seats) {
+
+        const owned = byPlayer.get(seat.playerId);
+
+        assert.ok(owned, `${seat.label} missing from _recoveryOwnershipByPlayer`);
+        assert.equal(owned.socketId, seat.socketId, `${seat.label} player map must keep own socket`);
+        assert.equal(owned.roomId, roomId, `${seat.label} player map must keep room`);
+
+        const stashed = bySocket.get(seat.socketId);
+
+        assert.ok(stashed, `${seat.label} missing from _recoveryOwnershipBySocket`);
+        assert.equal(stashed.playerId, seat.playerId, `${seat.label} socket map must keep own player`);
+        assert.equal(stashed.roomId, roomId, `${seat.label} socket map must keep room`);
+
+        assert.equal(
+            bridge._playerToSocket.get(seat.playerId),
+            seat.socketId,
+            `${seat.label} _playerToSocket must remain 1:1`
+        );
+        assert.equal(
+            bridge._socketToPlayer.get(seat.socketId),
+            seat.playerId,
+            `${seat.label} _socketToPlayer must remain 1:1`
+        );
+
+    }
+
+    const mappedSockets = [...byPlayer.values()].map((entry) => entry.socketId);
+    const mappedPlayers = [...bySocket.values()].map((entry) => entry.playerId);
+
+    assert.equal(new Set(mappedSockets).size, 3, "player ownership must not collapse onto one socket");
+    assert.equal(new Set(mappedPlayers).size, 3, "socket ownership must not collapse onto one player");
+
+}
+
+function runProtectedIsolationSequence(stack, seats, restoreOrder) {
+
+    const gateway = createGateway(stack);
+    const lines = captureInfo(stack);
+    const restoreResults = [];
+
+    for (const seat of restoreOrder) {
+
+        const before = stack.deliveries.length;
+        const logBefore = lines.length;
+
+        gateway._handleConnection(fakeSocketWithId(seat.socketId));
+
+        const published = depositPublishedSince(stack, before);
+        const attempts = restoreLogsMatching(
+            lines.slice(logBefore),
+            "RESTORE_ATTEMPT",
+            "protected_connect"
+        );
+        const results = restoreLogsMatching(
+            lines.slice(logBefore),
+            "RESTORE_RESULT",
+            "protected_connect"
+        );
+
+        assert.equal(attempts.length, 1, `${seat.label} must log one RESTORE_ATTEMPT`);
+        assert.match(attempts[0], new RegExp(`playerId=${seat.playerId}`));
+        assert.match(attempts[0], new RegExp(`socketId=${seat.socketId}`));
+
+        assert.equal(results.length, 1, `${seat.label} must log one RESTORE_RESULT`);
+        assert.match(results[0], /restored=true/);
+        assert.match(results[0], new RegExp(`playerId=${seat.playerId}`));
+        assert.match(results[0], new RegExp(`socketId=${seat.socketId}`));
+        assert.match(results[0], new RegExp(`mySeatStatus=${seat.mySeatStatus}`));
+
+        assert.equal(
+            published.length,
+            1,
+            `${seat.label} restore must emit exactly one DEPOSIT_PACKAGE_PUBLISHED`
+        );
+        assert.equal(
+            published[0].socketId,
+            seat.socketId,
+            `${seat.label} projection must go only to own socket`
+        );
+
+        const foreign = published.filter((delivery) => delivery.socketId !== seat.socketId);
+        assert.equal(foreign.length, 0, `${seat.label} must not deliver to another socket`);
+
+        const others = seats.filter((other) => other.socketId !== seat.socketId);
+
+        for (const other of others) {
+
+            assert.equal(
+                published.some((delivery) => delivery.socketId === other.socketId),
+                false,
+                `${seat.label} must not send projection to ${other.label}`
+            );
+
+        }
+
+        const projection = published[0].payload.deposit;
+
+        assert.equal(projection.mySeatIndex, seat.mySeatIndex, `${seat.label} mySeatIndex`);
+        assert.equal(projection.isCreator, seat.isCreator, `${seat.label} isCreator`);
+        assert.equal(projection.mySeatStatus, seat.mySeatStatus, `${seat.label} mySeatStatus`);
+        assert.equal(projection.myExpectedAmountNanotons, FUNDSEAT_AMOUNT, `${seat.label} own FundSeat`);
+        assert.equal(projection.depositAddress, DEPOSIT_ADDRESS);
+        assert.equal(projection.confirmedSeats, 1);
+
+        restoreResults.push({
+            label: seat.label,
+            playerId: seat.playerId,
+            socketId: seat.socketId,
+            projection
+        });
+
+    }
+
+    return restoreResults;
+
+}
+
+function assertEarlierRestoresUnchanged(restoreResults, seats) {
+
+    for (const restored of restoreResults) {
+
+        const seat = seats.find((entry) => entry.playerId === restored.playerId);
+
+        assert.equal(restored.projection.mySeatIndex, seat.mySeatIndex);
+        assert.equal(restored.projection.isCreator, seat.isCreator);
+        assert.equal(restored.projection.mySeatStatus, seat.mySeatStatus);
+        assert.equal(restored.socketId, seat.socketId);
+
+    }
+
+    assert.notEqual(restoreResults[0].playerId, restoreResults[1].playerId);
+    assert.notEqual(restoreResults[1].playerId, restoreResults[2].playerId);
+    assert.notEqual(restoreResults[0].playerId, restoreResults[2].playerId);
+
+}
+
+test("R18-S16: three players independently restore without identity collision", () => {
+
+    const stack = buildStack();
+
+    try {
+
+        const { room, seats } = arrangeIsolationRoom(stack);
+
+        assert.notEqual(seats[0].playerId, seats[1].playerId);
+        assert.notEqual(seats[1].playerId, seats[2].playerId);
+        assert.notEqual(seats[0].playerId, seats[2].playerId);
+        assert.notEqual(seats[0].socketId, seats[1].socketId);
+        assert.notEqual(seats[1].socketId, seats[2].socketId);
+        assert.notEqual(seats[0].socketId, seats[2].socketId);
+
+        for (const seat of seats) {
+
+            stack.roomLobbyBridge._handleSocketDisconnected(seat.socketId, "transport close");
+            assert.equal(
+                stack.gameplayContextResolver.resolve(seat.socketId).ok,
+                true,
+                `${seat.label} must stay bound after protected soft disconnect`
+            );
+
+        }
+
+        const restoreOrder = [seats[0], seats[1], seats[2]];
+        const restoreResults = runProtectedIsolationSequence(stack, seats, restoreOrder);
+
+        assert.equal(restoreResults.length, 3);
+        assert.equal(restoreResults[0].label, "Bob");
+        assert.equal(restoreResults[1].label, "Lena");
+        assert.equal(restoreResults[2].label, "Olga");
+
+        assertEarlierRestoresUnchanged(restoreResults, seats);
+        assertRecoveryOwnershipIndependent(stack.roomLobbyBridge, seats, room.roomId);
+
+        const lastPlayerOwnership = stack.roomLobbyBridge._recoveryOwnershipByPlayer.get(
+            seats[2].playerId
+        );
+        const bobOwnership = stack.roomLobbyBridge._recoveryOwnershipByPlayer.get(
+            seats[0].playerId
+        );
+        const lenaOwnership = stack.roomLobbyBridge._recoveryOwnershipByPlayer.get(
+            seats[1].playerId
+        );
+
+        assert.equal(bobOwnership.socketId, BOB_SOCKET_ID);
+        assert.equal(lenaOwnership.socketId, LENA_SOCKET_ID);
+        assert.equal(lastPlayerOwnership.socketId, OLGA_SOCKET_ID);
+        assert.notEqual(bobOwnership.socketId, lastPlayerOwnership.socketId);
+        assert.notEqual(lenaOwnership.socketId, lastPlayerOwnership.socketId);
+
+    } finally {
+
+        stack.shutdown();
+
+    }
+
+});
+
+test("R18-S16: three-player restore isolation does not depend on restore order", () => {
+
+    const stack = buildStack();
+
+    try {
+
+        const { room, seats } = arrangeIsolationRoom(stack);
+
+        for (const seat of seats) {
+
+            stack.roomLobbyBridge._handleSocketDisconnected(seat.socketId, "ping timeout");
+
+        }
+
+        const restoreOrder = [seats[2], seats[0], seats[1]];
+        const restoreResults = runProtectedIsolationSequence(stack, seats, restoreOrder);
+
+        assert.equal(restoreResults[0].label, "Olga");
+        assert.equal(restoreResults[1].label, "Bob");
+        assert.equal(restoreResults[2].label, "Lena");
+        assertEarlierRestoresUnchanged(restoreResults, seats);
+        assertRecoveryOwnershipIndependent(stack.roomLobbyBridge, seats, room.roomId);
 
     } finally {
 
