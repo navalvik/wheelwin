@@ -49,11 +49,11 @@ test("all player locale catalogs have matching key coverage", () => {
     assert.equal(TRANSLATIONS.ru, undefined);
 
     const enKeys = Object.keys(TRANSLATIONS.en).sort();
-    assert.equal(enKeys.length, 166);
+    assert.equal(enKeys.length, 170);
 
     for (const code of LOCALE_CODES) {
         const keys = Object.keys(TRANSLATIONS[code]).sort();
-        assert.equal(keys.length, 166, `${code} key count`);
+        assert.equal(keys.length, 170, `${code} key count`);
         assert.deepEqual(keys, enKeys, `${code} key parity`);
     }
 

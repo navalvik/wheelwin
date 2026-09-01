@@ -92,11 +92,13 @@ Completed migrations:
 
 Current work is related to:
 
-TON financial integration and recovery architecture.
+TON financial integration and one-wallet player entry.
 
 Main area:
 
-PaymentSession lifecycle and GameEscrow interaction.
+GameEscrow is deployed when the Deposit package is ready so each player
+can confirm one TonConnect transaction covering FundSeat and GameEscrow STAKE.
+Game start still requires Deposit FULL plus all STAKE.
 
 ---
 

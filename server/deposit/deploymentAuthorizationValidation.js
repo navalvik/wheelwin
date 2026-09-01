@@ -156,6 +156,94 @@ export function assertCanCreateDeploymentAuthorization(session, options = {}) {
 
 }
 
+const ENTRY_DEPLOYMENT_AUTHORIZATION_STATES = Object.freeze([
+    DEPOSIT_SESSION_STATUS.AWAITING_FUNDS,
+    DEPOSIT_SESSION_STATUS.PARTIALLY_FUNDED,
+    DEPOSIT_SESSION_STATUS.DEPOSIT_FULL
+]);
+
+/**
+ * R18-S16 — GameEscrow may be authorized once the Deposit package exists
+ * (wallets bound, StateInit published). Does not require DEPOSIT_FULL.
+ */
+export function assertCanCreateEntryDeploymentAuthorization(session, options = {}) {
+
+    if (!session || typeof session !== "object") {
+
+        throw new InvalidDeploymentAuthorizationError(
+            "DepositSession is required",
+            { session: null }
+        );
+
+    }
+
+    const depositId = assertNonEmpty(session.depositId, "depositId", {
+        depositId: session.depositId ?? null
+    });
+
+    const roomId = assertNonEmpty(session.roomId, "roomId", { depositId });
+
+    const gameId = assertNonEmpty(session.gameId, "gameId", { depositId, roomId });
+
+    if (typeof options.roomExists === "function" && !options.roomExists(roomId)) {
+
+        throw new InvalidDeploymentAuthorizationError("roomId does not exist", {
+            depositId,
+            roomId
+        });
+
+    }
+
+    if (typeof options.gameExists === "function" && !options.gameExists(gameId)) {
+
+        throw new InvalidDeploymentAuthorizationError("gameId does not exist", {
+            depositId,
+            gameId
+        });
+
+    }
+
+    if (!ENTRY_DEPLOYMENT_AUTHORIZATION_STATES.includes(session.state)) {
+
+        throw new InvalidDeploymentAuthorizationError(
+            "Entry DeploymentAuthorization requires a fundable DepositSession",
+            {
+                depositId,
+                roomId,
+                gameId,
+                state: session.state
+            }
+        );
+
+    }
+
+    assertNonEmpty(session.depositAddress, "depositAddress", {
+        depositId,
+        roomId,
+        gameId
+    });
+
+    const bindingHash = assertNonEmpty(session.bindingHash, "bindingHash", {
+        depositId,
+        roomId,
+        gameId
+    });
+
+    const depositStateSnapshot = captureDepositStateSnapshot(session);
+
+    const network = resolveAuthorizationNetwork(session, options);
+
+    return {
+        depositId,
+        roomId,
+        gameId,
+        bindingHash,
+        depositStateSnapshot,
+        network
+    };
+
+}
+
 export function hashesEqual(left, right) {
 
     const a = Buffer.from(String(left ?? ""), "utf8");

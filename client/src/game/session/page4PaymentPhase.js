@@ -1,7 +1,7 @@
 /**
  * R18-S16 — Page4 payment-phase coordinator (pure).
- * Mirrors server-authoritative Deposit / GameEscrow state. Does not invent
- * funding, activation, or Page5 navigation.
+ * One wallet action covers Deposit deploy (creator), FundSeat, and GameEscrow STAKE.
+ * Does not invent funding, activation, or Page5 navigation.
  */
 
 import {
@@ -19,6 +19,7 @@ export const PAGE4_PAYMENT_PHASE = Object.freeze({
     DEPOSIT_WAIT_FULL: "DEPOSIT_WAIT_FULL",
     DEPOSIT_FULL: "DEPOSIT_FULL",
     GAMEESCROW_STAKE: "GAMEESCROW_STAKE",
+    ENTRY_PAYMENT: "ENTRY_PAYMENT",
     WAITING_PAGE5: "WAITING_PAGE5"
 });
 
@@ -118,15 +119,136 @@ export function canStakeGameEscrow({
 
 }
 
+function hasFundSeatInputs(deposit = null) {
+
+    if (deposit?.mySeatStatus === "FUNDED") {
+
+        return false;
+
+    }
+
+    if (deposit?.mySeatIndex == null) {
+
+        return false;
+
+    }
+
+    const seatIndex = Number(deposit.mySeatIndex);
+
+    return Number.isInteger(seatIndex)
+        && seatIndex >= 0
+        && seatIndex <= 2
+        && deposit?.myExpectedAmountNanotons != null
+        && Boolean(deposit?.depositAddress);
+
+}
+
 /**
- * PAYMENT_CONNECTION_READY must not select GAMEESCROW_STAKE.
- * GameEscrow STAKE only after the GameEscrow is deployed.
+ * Creator may FundSeat in the same wallet tx as StateInit deployment.
+ * Players 2/3 still require verified deposit activation.
+ */
+export function canIncludeFundSeatInEntry(deposit = null, lifecycle = null) {
+
+    if (!hasFundSeatInputs(deposit)) {
+
+        return false;
+
+    }
+
+    if (deposit?.isCreator === true && canDeployDeposit(deposit, lifecycle)) {
+
+        return true;
+
+    }
+
+    return canFundSeat(deposit, lifecycle);
+
+}
+
+export function resolveEntryPaymentComponents({
+    deposit = null,
+    paymentSession = null,
+    gameContract = null,
+    localPlayerId = null,
+    lifecycle = null
+} = {}) {
+
+    const includeDeploy = canDeployDeposit(deposit, lifecycle);
+    const includeFund = canIncludeFundSeatInEntry(deposit, lifecycle);
+    const includeStake = canStakeGameEscrow({
+        paymentSession,
+        gameContract,
+        localPlayerId
+    });
+
+    return Object.freeze({
+        includeDeploy,
+        includeFund,
+        includeStake
+    });
+
+}
+
+export function canSubmitEntryPayment({
+    deposit = null,
+    paymentSession = null,
+    gameContract = null,
+    localPlayerId = null,
+    lifecycle = null
+} = {}) {
+
+    if (!isGameContractDeployed(gameContract)) {
+
+        return false;
+
+    }
+
+    const components = resolveEntryPaymentComponents({
+        deposit,
+        paymentSession,
+        gameContract,
+        localPlayerId,
+        lifecycle
+    });
+
+    if (deposit?.mySeatStatus !== "FUNDED" && !components.includeFund) {
+
+        return false;
+
+    }
+
+    if (!components.includeStake) {
+
+        return false;
+
+    }
+
+    if (
+        deposit?.isCreator === true
+        && !isDepositActivationVerified(deposit, lifecycle)
+        && !components.includeDeploy
+    ) {
+
+        return false;
+
+    }
+
+    return components.includeDeploy
+        || components.includeFund
+        || components.includeStake;
+
+}
+
+/**
+ * PAYMENT_CONNECTION_READY must not select GAMEESCROW_STAKE / ENTRY_PAYMENT.
+ * One-wallet entry only after GameEscrow is deployed and OPEN for STAKE.
  */
 export function resolvePage4PaymentPhase({
     deposit = null,
     paymentSession = null,
     gameContract = null,
     paymentConnectionReady = false,
+    localPlayerId = null,
     lifecycle = null
 } = {}) {
 
@@ -136,9 +258,27 @@ export function resolvePage4PaymentPhase({
 
     }
 
+    if (canSubmitEntryPayment({
+        deposit,
+        paymentSession,
+        gameContract,
+        localPlayerId,
+        lifecycle
+    })) {
+
+        return PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
+
+    }
+
     if (isGameContractDeployed(gameContract)) {
 
-        return PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE;
+        if (deposit?.mySeatStatus === "FUNDED") {
+
+            return PAGE4_PAYMENT_PHASE.DEPOSIT_WAIT_FULL;
+
+        }
+
+        return PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION;
 
     }
 
@@ -162,7 +302,7 @@ export function resolvePage4PaymentPhase({
 
     if (canDeployDeposit(deposit, lifecycle)) {
 
-        return PAGE4_PAYMENT_PHASE.DEPOSIT_DEPLOY;
+        return PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION;
 
     }
 
@@ -184,20 +324,26 @@ export function shouldShowWalletActions(phase) {
 
 export function shouldShowPaymentSessionRows(phase) {
 
-    return phase === PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE
+    return phase === PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT
+        || phase === PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE
         || phase === PAGE4_PAYMENT_PHASE.WAITING_PAGE5;
 
 }
 
 export function shouldShowDepositAction(phase) {
 
-    return phase === PAGE4_PAYMENT_PHASE.DEPOSIT_DEPLOY
-        || phase === PAGE4_PAYMENT_PHASE.FUND_SEAT;
+    return phase === PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
 
 }
 
 export function shouldShowStakeAction(phase) {
 
-    return phase === PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE;
+    return phase === PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
+
+}
+
+export function shouldShowEntryAction(phase) {
+
+    return phase === PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
 
 }

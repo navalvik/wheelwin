@@ -75,6 +75,44 @@ export class DeploymentAuthorizationCoordinator {
 
     }
 
+    createFromEntryReady(session, options = {}) {
+
+        const authorization = DeploymentAuthorization.fromEntryReady(session, {
+            ...options,
+            roomExists: options.roomExists ?? this._roomExists,
+            gameExists: options.gameExists ?? this._gameExists
+        });
+
+        const existing = this.getByRoomAndGame(authorization.roomId, authorization.gameId)
+            ?? this._loadExisting(authorization.roomId, authorization.gameId);
+
+        if (
+            existing
+            && existing.status !== DEPLOYMENT_AUTHORIZATION_STATUS.REVOKED
+        ) {
+
+            throw new DeploymentAuthorizationError(
+                `DeploymentAuthorization already exists | roomId=${authorization.roomId} | `
+                    + `gameId=${authorization.gameId}`,
+                "DEPLOYMENT_AUTHORIZATION_ALREADY_EXISTS",
+                {
+                    roomId: authorization.roomId,
+                    gameId: authorization.gameId,
+                    authorizationId: existing.authorizationId,
+                    status: existing.status
+                }
+            );
+
+        }
+
+        this._commitNew(authorization);
+
+        this._emit(EVENT_TYPES.DEPLOY_AUTHORIZATION_CREATED, authorization);
+
+        return authorization;
+
+    }
+
     markValid(authorizationId) {
 
         const authorization = this._run(authorizationId, (current) => current.markValid());

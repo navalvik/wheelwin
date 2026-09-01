@@ -146,6 +146,7 @@ import { DeploymentAuthorizationCoordinator } from "./deposit/DeploymentAuthoriz
 import { TonFinancialDeploymentAuthorizationPersistence } from "./deposit/DeploymentAuthorizationPersistencePort.js";
 import { TonFinancialDepositObservationPersistence } from "./deposit/DepositObservationPersistencePort.js";
 import { DepositFullAuthorizationAutomation } from "./deposit/DepositFullAuthorizationAutomation.js";
+import { EntryDeploymentAuthorizationAutomation } from "./deposit/EntryDeploymentAuthorizationAutomation.js";
 import { DepositMonitor } from "./deposit/DepositMonitor.js";
 import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
 import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
@@ -1630,6 +1631,17 @@ class WheelWinApplication {
 
         this._depositFullAuthorizationAutomation.initialize();
 
+        this._entryDeploymentAuthorizationAutomation = new EntryDeploymentAuthorizationAutomation({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator
+        });
+
+        this._entryDeploymentAuthorizationAutomation.initialize();
+
+        this._logger.startupLine("EntryDeploymentAuthorizationAutomation");
+
         this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
             logger: this._logger,
             tonService: this._services.tonService,
@@ -1755,7 +1767,8 @@ class WheelWinApplication {
             recoveryEngine: this._recoveryEngine,
             auditLedger: this._entryPaymentAuditLedger,
             roomConfig: this._roomConfig,
-            devMode: this._productionConfig.isDevelopment
+            devMode: this._productionConfig.isDevelopment,
+            depositSessionCoordinator: this._depositSessionCoordinator
         });
 
         this._gameStartAuthorization.initialize();

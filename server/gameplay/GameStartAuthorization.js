@@ -6,6 +6,7 @@ import {
     PAYMENT_SESSION_STATUS
 } from "../models/PaymentSession.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
+import { DEPOSIT_SESSION_STATUS } from "../deposit/DepositSessionStates.js";
 
 /**
  * P6.7 — Authoritative gameplay start after blockchain payment confirmation.
@@ -38,7 +39,8 @@ export class GameStartAuthorization {
         recoveryEngine = null,
         auditLedger = null,
         roomConfig = null,
-        devMode = false
+        devMode = false,
+        depositSessionCoordinator = null
     }) {
 
         this._logger = logger;
@@ -77,6 +79,8 @@ export class GameStartAuthorization {
 
         this._devMode = devMode;
 
+        this._depositSessionCoordinator = depositSessionCoordinator;
+
         // roomId → { phase, gameId, authorizedAt, initializingAt, openPage5At }
         this._lifecycleByRoom = new Map();
 
@@ -102,6 +106,15 @@ export class GameStartAuthorization {
 
         this._subscribe(
             EVENT_TYPES.GAME_CONTRACT_PAYMENTS_COMPLETE,
+            (envelope) => {
+
+                this._evaluate(envelope.payload?.roomId);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.DEPOSIT_FULL,
             (envelope) => {
 
                 this._evaluate(envelope.payload?.roomId);
@@ -353,6 +366,21 @@ export class GameStartAuthorization {
         if (unpaid) {
 
             return { ok: false, reason: "seat_not_confirmed" };
+
+        }
+
+        if (this._depositSessionCoordinator) {
+
+            const deposit = this._depositSessionCoordinator.getByRoomAndGame?.(
+                roomId,
+                session.gameId
+            ) ?? null;
+
+            if (!isDepositLayerComplete(deposit)) {
+
+                return { ok: false, reason: "deposit_not_full", gameId: session.gameId };
+
+            }
 
         }
 
@@ -725,5 +753,24 @@ export class GameStartAuthorization {
         this._logger.info(`[GameStartAuthorization] ${message}`);
 
     }
+
+}
+
+const DEPOSIT_LAYER_COMPLETE_STATES = Object.freeze([
+    DEPOSIT_SESSION_STATUS.DEPOSIT_FULL,
+    DEPOSIT_SESSION_STATUS.DEPLOY_AUTHORIZED,
+    DEPOSIT_SESSION_STATUS.GAME_CONTRACT_CREATED,
+    DEPOSIT_SESSION_STATUS.RELEASED
+]);
+
+function isDepositLayerComplete(session) {
+
+    if (!session) {
+
+        return false;
+
+    }
+
+    return DEPOSIT_LAYER_COMPLETE_STATES.includes(session.state);
 
 }

@@ -30,7 +30,8 @@ function createHarness({
     validateThrows = false,
     recoveryPending = false,
     simulationMissing = false,
-    clockMissing = false
+    clockMissing = false,
+    depositSessionCoordinator = null
 } = {}) {
 
     const logger = createLogger();
@@ -178,7 +179,8 @@ function createHarness({
             }
         },
         auditLedger,
-        roomConfig: { maxPlayers: 3 }
+        roomConfig: { maxPlayers: 3 },
+        depositSessionCoordinator
     });
 
     auth.initialize();
@@ -330,6 +332,54 @@ function createHarness({
     );
 
     console.log("  GameStartAuthorization payment gate passed");
+
+    harness.auth.shutdown();
+
+}
+
+{
+    const harness = createHarness({
+        depositSessionCoordinator: {
+            getByRoomAndGame() {
+
+                return { state: "AWAITING_FUNDS" };
+
+            }
+        }
+    });
+
+    harness.emitPaymentsComplete();
+
+    assert.equal(
+        harness.collected.length,
+        0,
+        "deposit not FULL blocks game start even when STAKE is complete"
+    );
+
+    console.log("  GameStartAuthorization deposit FULL gate passed");
+
+    harness.auth.shutdown();
+
+}
+
+{
+    const harness = createHarness({
+        depositSessionCoordinator: {
+            getByRoomAndGame() {
+
+                return { state: "DEPOSIT_FULL" };
+
+            }
+        }
+    });
+
+    harness.emitPaymentsComplete();
+
+    assert.equal(
+        harness.auth.getLifecycle("room-1")?.phase,
+        GAME_START_PHASE.OPENED,
+        "DEPOSIT_FULL plus confirmed STAKE authorizes game start"
+    );
 
     harness.auth.shutdown();
 

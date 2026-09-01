@@ -233,8 +233,10 @@ export class GameContractManager {
         // PAYMENT_CONNECTION_READY are not Game Contract deployment authority.
         // Do not subscribe those events as a createContractRequest / _beginDeploy
         // trigger.
-        // R18-S15 — DEPLOY_AUTHORIZATION_VALID is the production handoff into
-        // createContractRequest. consumeValidForDeploy remains inside _beginDeploy.
+        // R18-S16 — DEPLOY_AUTHORIZATION_VALID is issued at deposit-package
+        // ready (one-wallet entry) or at DEPOSIT_FULL (legacy). createContractRequest
+        // remains the production handoff. consumeValidForDeploy remains inside
+        // _beginDeploy.
 
         this._subscribe(
             EVENT_TYPES.DEPLOY_AUTHORIZATION_VALID,

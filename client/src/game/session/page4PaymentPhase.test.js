@@ -9,11 +9,13 @@ import {
     canDeployDeposit,
     canFundSeat,
     canStakeGameEscrow,
+    canSubmitEntryPayment,
     isDepositActivationVerified,
     isDepositFull,
     PAGE4_PAYMENT_PHASE,
     resolvePage4PaymentPhase,
     shouldShowDepositAction,
+    shouldShowEntryAction,
     shouldShowWalletActions
 } from "./page4PaymentPhase.js";
 
@@ -62,8 +64,8 @@ test("R18-S16: Page4 declares language/TonConnect hooks before Deposit handler",
     );
     assert.match(PAGE4_SOURCE, /nextEnabled=\{false\}/);
     assert.match(PAGE4_SOURCE, /resolvePage4PaymentPhase/);
-    assert.match(PAGE4_SOURCE, /canDeployDeposit/);
-    assert.match(PAGE4_SOURCE, /canFundSeat/);
+    assert.match(PAGE4_SOURCE, /canSubmitEntryPayment/);
+    assert.match(PAGE4_SOURCE, /buildEntryPaymentTransaction/);
     assert.doesNotMatch(PAGE4_SOURCE, /onNavigate\(7\)/);
     assert.doesNotMatch(PAGE4_SOURCE, /setTimeout\s*\([^)]*onNavigate/);
     assert.doesNotMatch(PAGE4_SOURCE, /hasPaid\s*=/);
@@ -212,7 +214,8 @@ test("R18-S16: GameEscrow STAKE only after GameEscrow deployed", () => {
         localPlayerId: "p1"
     });
 
-    assert.equal(stakePhase, PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE);
+    assert.equal(stakePhase, PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT);
+    assert.equal(shouldShowEntryAction(stakePhase), true);
     assert.equal(
         canStakeGameEscrow({
             paymentSession: {
@@ -353,8 +356,9 @@ test("R18-S16: creator deploy proceeds only from authoritative package deployVal
 
     const phase = resolvePage4PaymentPhase({ deposit: withDeployValue });
 
-    assert.equal(phase, PAGE4_PAYMENT_PHASE.DEPOSIT_DEPLOY);
-    assert.equal(shouldShowDepositAction(phase), true);
+    assert.equal(phase, PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION);
+    assert.equal(shouldShowDepositAction(phase), false);
+    assert.equal(canDeployDeposit(withDeployValue), true);
     assert.equal(
         withDeployValue.package.deployValueNanotons,
         10000000,
@@ -370,6 +374,121 @@ test("R18-S16: creator deploy proceeds only from authoritative package deployVal
         1000000,
         "deploy attach must not equal creationFeePerSeat"
     );
+
+});
+
+function paymentReady(playerId, playerIndex) {
+
+    return {
+        status: "WAITING_FOR_PAYMENTS",
+        participants: [{
+            playerId,
+            status: "AWAITING_PLAYER_CONFIRMATION",
+            playerIndex,
+            requiredGram: 0.01,
+            contractAddress: "EQG"
+        }]
+    };
+
+}
+
+const gameEscrowReady = {
+    status: "AWAITING_PLAYER_PAYMENTS",
+    contractAddress: "EQG"
+};
+
+test("R18-S16: creator one-wallet entry after GameEscrow is deployed", () => {
+
+    const deposit = depositFixture({
+        isCreator: true,
+        mySeatIndex: 0,
+        activationStatus: "WAITING_FOR_PLAYER_DEPLOYMENT",
+        myExpectedAmountNanotons: 11000000,
+        package: {
+            stateInit: { codeBoc: "code", dataBoc: "data" },
+            deployValueNanotons: 10000000
+        }
+    });
+
+    assert.equal(
+        canSubmitEntryPayment({
+            deposit,
+            paymentSession: paymentReady("p0", 0),
+            gameContract: gameEscrowReady,
+            localPlayerId: "p0"
+        }),
+        true
+    );
+
+    const phase = resolvePage4PaymentPhase({
+        deposit,
+        paymentSession: paymentReady("p0", 0),
+        gameContract: gameEscrowReady,
+        localPlayerId: "p0"
+    });
+
+    assert.equal(phase, PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT);
+    assert.equal(shouldShowEntryAction(phase), true);
+
+});
+
+test("R18-S16: player 2/3 one-wallet entry requires verified deposit", () => {
+
+    const unverified = depositFixture({
+        isCreator: false,
+        mySeatIndex: 1,
+        activationStatus: null
+    });
+
+    assert.equal(
+        canSubmitEntryPayment({
+            deposit: unverified,
+            paymentSession: paymentReady("p1", 1),
+            gameContract: gameEscrowReady,
+            localPlayerId: "p1"
+        }),
+        false
+    );
+
+    const verified = depositFixture({
+        isCreator: false,
+        mySeatIndex: 2,
+        activationStatus: "VERIFIED"
+    });
+
+    assert.equal(
+        canSubmitEntryPayment({
+            deposit: verified,
+            paymentSession: paymentReady("p2", 2),
+            gameContract: gameEscrowReady,
+            localPlayerId: "p2"
+        }),
+        true
+    );
+
+    assert.equal(
+        resolvePage4PaymentPhase({
+            deposit: verified,
+            paymentSession: paymentReady("p2", 2),
+            gameContract: gameEscrowReady,
+            localPlayerId: "p2"
+        }),
+        PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT
+    );
+
+});
+
+test("R18-S16: Page4 entry handler sends one TonConnect transaction", () => {
+
+    const sendMatches = PAGE4_SOURCE.match(/tonConnectUI\.sendTransaction/g) ?? [];
+
+    assert.equal(
+        sendMatches.length,
+        1,
+        "Page4 must have exactly one sendTransaction call"
+    );
+    assert.match(PAGE4_SOURCE, /buildEntryPaymentTransaction/);
+    assert.match(PAGE4_SOURCE, /PAYMENT_CONFIRM_INTENT/);
 
 });
 

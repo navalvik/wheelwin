@@ -16,7 +16,8 @@ import {
     InvalidDeploymentAuthorizationTransitionError
 } from "./DeploymentAuthorizationErrors.js";
 import {
-    assertCanCreateDeploymentAuthorization
+    assertCanCreateDeploymentAuthorization,
+    assertCanCreateEntryDeploymentAuthorization
 } from "./deploymentAuthorizationValidation.js";
 import {
     canTransitionDeploymentAuthorizationStatus,
@@ -109,6 +110,28 @@ export class DeploymentAuthorization {
             network: validated.network,
             createdAt,
             metadata: options.metadata ?? null
+        });
+
+    }
+
+    static fromEntryReady(session, options = {}) {
+
+        const validated = assertCanCreateEntryDeploymentAuthorization(session, options);
+
+        const createdAt = Date.now();
+
+        return new DeploymentAuthorization({
+            roomId: validated.roomId,
+            gameId: validated.gameId,
+            depositId: validated.depositId,
+            depositStateSnapshot: validated.depositStateSnapshot,
+            bindingHash: validated.bindingHash,
+            network: validated.network,
+            createdAt,
+            metadata: {
+                ...(options.metadata ?? {}),
+                entryReady: true
+            }
         });
 
     }
