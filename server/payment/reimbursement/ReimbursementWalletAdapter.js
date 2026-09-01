@@ -226,7 +226,27 @@ export class ReimbursementWalletAdapter {
 
             }
 
-            const seqno = await this._tonService.getSeqno(this._address);
+            // Uninitialized V4 wallets have no code. runGetMethod("seqno") then
+            // fails with TonClient "Unable to execute get method. Got exit_code: -13".
+            // First outbound must attach WalletContractV4 StateInit (same pattern as
+            // executeDepositTestnetDeploy). After that, seqno advances normally.
+            let seqno = 0;
+
+            try {
+
+                seqno = await this._tonService.getSeqno(this._address);
+
+            } catch {
+
+                seqno = 0;
+
+            }
+
+            if (!Number.isInteger(seqno) || seqno < 0) {
+
+                seqno = 0;
+
+            }
 
             const transfer = wallet.createTransfer({
                 seqno,
@@ -242,6 +262,7 @@ export class ReimbursementWalletAdapter {
 
             const externalMessage = external({
                 to: wallet.address,
+                init: seqno === 0 ? wallet.init : undefined,
                 body: transfer
             });
 

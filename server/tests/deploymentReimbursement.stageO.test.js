@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Cell, loadMessage } from "@ton/core";
 import { mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
@@ -29,6 +30,7 @@ import {
 } from "../payment/reimbursement/ReimbursementWalletConfig.js";
 import { DEPLOYMENT_COST_SNAPSHOT_STATUS } from "../payment/reimbursement/deploymentCostSnapshotStates.js";
 import { DEPLOYMENT_REIMBURSEMENT_STATUS } from "../payment/reimbursement/deploymentReimbursementStates.js";
+import { ReimbursementWalletAdapter } from "../payment/reimbursement/ReimbursementWalletAdapter.js";
 import { SECRET_ENV_KEYS } from "../config/secrets.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -240,6 +242,10 @@ async function main() {
 
             assert.ok(adapterSrc.includes("TON_REIMBURSEMENT") || adapterSrc.includes("loadReimbursementWalletConfig"));
             assert.ok(adapterSrc.includes("WalletContractV4"));
+            assert.ok(
+                adapterSrc.includes("init: seqno === 0 ? wallet.init : undefined"),
+                "uninit reimbursement wallet must attach V4 StateInit"
+            );
         }
 
         // --- Validation: disabled flag blocks send ---
@@ -504,6 +510,97 @@ async function main() {
 
             worker.shutdown();
             transfer.shutdown();
+        }
+
+        // --- Uninit reimbursement wallet: seqno get-method exit_code -13 ---
+
+        {
+            let capturedBoc = null;
+            const adapter = new ReimbursementWalletAdapter({
+                tonService: {
+                    async getBalance() {
+                        return 2_000_000_000n;
+                    },
+                    async getSeqno() {
+                        throw new Error(
+                            "Unable to execute get method. Got exit_code: -13"
+                        );
+                    },
+                    async broadcastTransaction(boc) {
+                        capturedBoc = boc;
+                        return { hash: "uninit_seqno_broadcast_hash" };
+                    }
+                },
+                env: {
+                    TON_REIMBURSEMENT_MNEMONIC: TEST_MNEMONIC,
+                    TON_REIMBURSEMENT_EXPECTED_ADDRESS: reimbAddress
+                }
+            });
+
+            const result = await adapter.sendTransfer({
+                destination:
+                    "EQB83s9XMOMseDFxyXxj4hrC0sS4FB4xhdNiUPkl_3zx3PDQ",
+                amountTon: "0.023878622"
+            });
+
+            assert.equal(result.ok, true);
+            assert.equal(result.code, "SENT");
+            assert.equal(result.txHash, "uninit_seqno_broadcast_hash");
+            assert.equal(typeof capturedBoc, "string");
+            assert.ok(capturedBoc.length > 0);
+
+            const msg = loadMessage(
+                Cell.fromBase64(capturedBoc).beginParse()
+            );
+
+            assert.ok(
+                msg.init,
+                "first send against uninit wallet must include StateInit"
+            );
+
+            adapter.shutdown();
+        }
+
+        {
+            let capturedBoc = null;
+            const adapter = new ReimbursementWalletAdapter({
+                tonService: {
+                    async getBalance() {
+                        return 2_000_000_000n;
+                    },
+                    async getSeqno() {
+                        return 4;
+                    },
+                    async broadcastTransaction(boc) {
+                        capturedBoc = boc;
+                        return { hash: "active_seqno_broadcast_hash" };
+                    }
+                },
+                env: {
+                    TON_REIMBURSEMENT_MNEMONIC: TEST_MNEMONIC,
+                    TON_REIMBURSEMENT_EXPECTED_ADDRESS: reimbAddress
+                }
+            });
+
+            const result = await adapter.sendTransfer({
+                destination:
+                    "EQB83s9XMOMseDFxyXxj4hrC0sS4FB4xhdNiUPkl_3zx3PDQ",
+                amountTon: "0.023878622"
+            });
+
+            assert.equal(result.ok, true);
+            assert.equal(result.txHash, "active_seqno_broadcast_hash");
+
+            const msg = loadMessage(
+                Cell.fromBase64(capturedBoc).beginParse()
+            );
+
+            assert.ok(
+                !msg.init,
+                "active wallet seqno>0 must not re-attach StateInit"
+            );
+
+            adapter.shutdown();
         }
 
         // --- Safety: no real TonService broadcast in these tests ---
