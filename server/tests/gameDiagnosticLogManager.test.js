@@ -585,6 +585,67 @@ const directory = mkdtempSync(join(tmpdir(), "wheelwin-diag-r62c-"));
 
 }
 
+// ---------------------------------------------------------------------------
+// R18-S16 DepositChain lines are copied into the room log without
+// changing recovery attempt SUCCESS/FAILED accounting.
+// ---------------------------------------------------------------------------
+
+{
+
+    const harness = createHarness(directory);
+
+    const { diagnostics, eventBus, loggingManager } = harness;
+
+    const roomId = "DEPCHAIN1";
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.SETUP_SESSION_STARTED,
+        payload: { roomId, expiresAt: Date.now() + 60_000 }
+    });
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.ROOM_CREATED,
+        payload: { roomId, status: "CREATED", maxPlayers: 3, playerCount: 0 }
+    });
+
+    loggingManager.write({
+        level: LOG_LEVELS.INFO,
+        service: "test",
+        message: "[R18-S16 DepositChain] event=CHAIN_OBSERVED | roomId=DEPCHAIN1 | depositId=dep_1 | depositAddress=EQD_TEST | accountState=uninit | lastLt=null | lastHash=null | activationStatus=WAITING_FOR_PLAYER_DEPLOYMENT",
+        fields: { roomId }
+    });
+
+    loggingManager.write({
+        level: LOG_LEVELS.INFO,
+        service: "test",
+        message: "[R18-S16 DepositChain] event=DEPOSIT_ACTIVE | roomId=DEPCHAIN1 | depositId=dep_1 | depositAddress=EQD_TEST | accountState=active | activationStatus=VERIFIED",
+        fields: { roomId }
+    });
+
+    loggingManager.flushSync();
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.ROOM_DESTROYED,
+        payload: { roomId, status: "DESTROYED", maxPlayers: 3, playerCount: 0 }
+    });
+
+    const text = diagnostics.readLog(roomId).toString("utf8");
+
+    assert(text.includes("event=CHAIN_OBSERVED"), "DepositChain CHAIN_OBSERVED must appear in room log");
+    assert(text.includes("event=DEPOSIT_ACTIVE"), "DepositChain DEPOSIT_ACTIVE must appear in room log");
+    assert(text.includes("accountState=uninit"), "UNINIT observation must appear");
+    assert(text.includes("accountState=active"), "ACTIVE observation must appear");
+    assert(text.includes("Recovery attempts:\n0"), "DepositChain must not open a recovery attempt");
+
+    teardown(harness);
+
+    console.log("  R18-S16 DepositChain diagnostic ingest passed");
+
+}
+
 rmSync(directory, { recursive: true, force: true });
 
 console.log("gameDiagnosticLogManager.test.js: all assertions passed");

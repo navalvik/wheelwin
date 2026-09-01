@@ -2044,6 +2044,12 @@ export class GameDiagnosticLogManager {
 
             event = message.replace(/^\[R18-S16 DepositRestore\]\s*/, "");
 
+        } else if (message.includes("[R18-S16 DepositChain]")) {
+
+            section = "GENERAL";
+
+            event = message.replace(/^\[R18-S16 DepositChain\]\s*/, "");
+
         } else if (record.level === LOG_LEVELS.ERROR
             || record.level === LOG_LEVELS.FATAL) {
 

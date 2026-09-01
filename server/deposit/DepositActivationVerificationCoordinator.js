@@ -12,6 +12,7 @@ import { Address } from "@ton/core";
 
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { formatDepositChainLog } from "../diagnostics/depositChainDiagnostics.js";
 import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
 import {
     buildDepositStateInit,
@@ -346,6 +347,16 @@ export class DepositActivationVerificationCoordinator {
 
         }
 
+        this._logger.info(formatDepositChainLog({
+            event: "CHAIN_OBSERVED",
+            roomId: session.roomId,
+            depositId,
+            depositAddress: persistedAddress,
+            accountState: contractState.state,
+            lastLt: contractState.lastLt,
+            lastHash: contractState.lastHash
+        }));
+
         if (contractState.state !== DEPOSIT_ACCOUNT_STATE.ACTIVE) {
 
             throw this._reject(
@@ -430,6 +441,18 @@ export class DepositActivationVerificationCoordinator {
         this._persistVerification(depositId, verification);
 
         this._verified.add(depositId);
+
+        this._logger.info(formatDepositChainLog({
+            event: "DEPOSIT_ACTIVE",
+            roomId: session.roomId,
+            depositId,
+            depositAddress: persistedAddress,
+            accountState: contractState.state,
+            lastLt: contractState.lastLt,
+            lastHash: contractState.lastHash,
+            activationStatus: verification.status,
+            codeHash: contractState.codeHash
+        }));
 
         this._emit(EVENT_TYPES.DEPOSIT_ACTIVATION_VERIFIED, session, verification);
 
@@ -813,6 +836,24 @@ export class DepositActivationVerificationCoordinator {
     }
 
     _waiting(session, contractState) {
+
+        const previous = session.metadata?.activationVerification?.status
+            ?? null;
+
+        if (previous !== DEPOSIT_ACTIVATION_STATUS.WAITING_FOR_PLAYER_DEPLOYMENT) {
+
+            this._logger.info(formatDepositChainLog({
+                event: "CHAIN_OBSERVED",
+                roomId: session.roomId,
+                depositId: session.depositId,
+                depositAddress: session.depositAddress,
+                accountState: contractState.state,
+                lastLt: contractState.lastLt,
+                lastHash: contractState.lastHash,
+                activationStatus: DEPOSIT_ACTIVATION_STATUS.WAITING_FOR_PLAYER_DEPLOYMENT
+            }));
+
+        }
 
         const verification = {
             status: DEPOSIT_ACTIVATION_STATUS.WAITING_FOR_PLAYER_DEPLOYMENT,

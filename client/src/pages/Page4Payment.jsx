@@ -33,6 +33,11 @@ import { resolveLocalPlayerId } from "../game/session";
 import { buildTonConnectPaymentTransaction } from "../payment/buildTonConnectPaymentTransaction";
 import { buildFundDepositTransaction } from "../payment/buildFundDepositTransaction";
 import { buildDepositDeploymentTransaction } from "../payment/buildDepositDeploymentTransaction";
+import {
+    classifyDepositWalletError,
+    describeTonConnectResult,
+    logPage4DepositDeploy
+} from "../payment/page4DepositDeployDiagnostics";
 
 import {
     beginTonConnectAutopsySession,
@@ -774,6 +779,14 @@ export default function Page4Payment({ onNavigate }) {
         const mayDeploy = canDeployDeposit(depositProjection, lifecycle);
         const mayFund = canFundSeat(depositProjection, lifecycle);
 
+        logPage4DepositDeploy("GATE", {
+            canDeploy: mayDeploy,
+            canFund: mayFund,
+            action: mayDeploy ? "deploy" : (mayFund ? "fund" : "blocked"),
+            deployValueNanotons: depositProjection?.package?.deployValueNanotons,
+            depositAddress: depositProjection?.depositAddress
+        });
+
         if (!mayDeploy && !mayFund) {
 
             if (!isDepositActivationVerified(depositProjection, lifecycle)) {
@@ -794,6 +807,7 @@ export default function Page4Payment({ onNavigate }) {
         setDepositSubmitError("");
 
         const depositAction = mayDeploy ? "deploy" : "fund";
+        let sendAttempted = false;
 
         try {
 
@@ -806,6 +820,14 @@ export default function Page4Payment({ onNavigate }) {
                     || !depositProjection.package.stateInit.codeBoc
                     || !depositProjection.package.stateInit.dataBoc
                     || depositProjection.package.deployValueNanotons == null) {
+
+                    logPage4DepositDeploy("BUILD", {
+                        action: "deploy",
+                        outcome: "TRANSACTION_BUILD_FAILURE",
+                        deployValueNanotons: depositProjection?.package?.deployValueNanotons,
+                        depositAddress: depositProjection?.depositAddress,
+                        hasStateInit: Boolean(depositProjection?.package?.stateInit?.codeBoc)
+                    });
 
                     setDepositSubmitError(t("payment.serverStateMismatch"));
                     setDepositSubmitting(false);
@@ -847,9 +869,48 @@ export default function Page4Payment({ onNavigate }) {
 
             }
 
-            await tonConnectUI.sendTransaction(transactionObject);
+            const builtAmount = transactionObject?.messages?.[0]?.amount ?? null;
+
+            logPage4DepositDeploy("BUILD", {
+                action: depositAction,
+                amount: builtAmount,
+                packageDeployValueNanotons: depositAction === "deploy"
+                    ? depositProjection.package.deployValueNanotons
+                    : undefined,
+                depositAddress: transactionObject?.messages?.[0]?.address
+                    ?? depositProjection.depositAddress,
+                hasStateInit: Boolean(transactionObject?.messages?.[0]?.stateInit)
+            });
+
+            logPage4DepositDeploy("SEND", {
+                action: depositAction,
+                amount: builtAmount,
+                validUntil: transactionObject?.validUntil
+            });
+
+            sendAttempted = true;
+
+            const walletResult = await tonConnectUI.sendTransaction(transactionObject);
+            const described = describeTonConnectResult(walletResult);
+
+            logPage4DepositDeploy("WALLET_RESULT", {
+                action: depositAction,
+                outcome: "USER_CONFIRMED",
+                amount: builtAmount,
+                ...described
+            });
 
         } catch (error) {
+
+            logPage4DepositDeploy("WALLET_RESULT", {
+                action: depositAction,
+                outcome: sendAttempted
+                    ? classifyDepositWalletError(error)
+                    : "TRANSACTION_BUILD_FAILURE",
+                errorName: error?.name,
+                errorCode: error?.code ?? error?.errorCode,
+                errorMessage: error?.message
+            });
 
             console.error("[Page4Payment] Deposit wallet submit failed:", error);
 
