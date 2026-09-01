@@ -772,11 +772,18 @@ export class TonService {
 
         }
 
-        if (message.includes("TonCenter HTTP")) {
+        if (
+            message.includes("TonCenter HTTP")
+            || message.includes("status code 429")
+            || message.toLowerCase().includes("too many requests")
+        ) {
 
-            return new RPCError(message, { operation }, {
-                retryable: message.includes("HTTP 429")
-            });
+            const retryable = message.includes("HTTP 429")
+                || message.includes("status code 429")
+                || message.toLowerCase().includes("too many requests")
+                || message.includes("HTTP 5");
+
+            return new RPCError(message, { operation }, { retryable });
 
         }
 

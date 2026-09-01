@@ -18,6 +18,19 @@ export const DEFAULT_TON_RETRY_POLICY = Object.freeze({
     timeoutMs: 10_000
 });
 
+export function readHttpStatus(error) {
+
+    const status = Number(
+        error?.status
+            ?? error?.response?.status
+            ?? error?.details?.status
+            ?? NaN
+    );
+
+    return Number.isFinite(status) ? status : null;
+
+}
+
 export function isInfrastructureFailure(error) {
 
     if (!error) {
@@ -48,6 +61,19 @@ export function isInfrastructureFailure(error) {
 
     }
 
+    const status = readHttpStatus(error);
+
+    if (
+        status === 429
+        || status === 502
+        || status === 503
+        || status === 504
+    ) {
+
+        return true;
+
+    }
+
     const message = String(error?.message ?? error).toLowerCase();
 
     return message.includes("network")
@@ -55,7 +81,9 @@ export function isInfrastructureFailure(error) {
         || message.includes("econn")
         || message.includes("fetch failed")
         || message.includes("http 5")
-        || message.includes("http 429");
+        || message.includes("http 429")
+        || message.includes("status code 429")
+        || message.includes("too many requests");
 
 }
 

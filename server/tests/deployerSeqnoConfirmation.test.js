@@ -24,6 +24,7 @@ import {
     resetDeployerSendLocksForTests,
     TonGameContractAdapter
 } from "../payment/TonGameContractAdapter.js";
+import { isInfrastructureFailure } from "../services/ton/TonServiceRetry.js";
 import { serializeGameEscrowInitGameBody } from "../payment/ton/gameContract/GameContractSerializer.js";
 import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
 
@@ -251,6 +252,24 @@ async function main() {
             null
         );
         console.log("  parseWalletV4SeqnoFromTransaction: OK");
+    }
+
+    {
+        const axios429 = new Error("Request failed with status code 429");
+        axios429.name = "AxiosError";
+        axios429.status = 429;
+
+        assert.equal(isInfrastructureFailure(axios429), true);
+        assert.equal(
+            isInfrastructureFailure(new Error("TonCenter HTTP 429")),
+            true
+        );
+        assert.equal(
+            isInfrastructureFailure(new Error("BOC was not accepted")),
+            false
+        );
+
+        console.log("  isInfrastructureFailure axios 429: OK");
     }
 
     // --- Test 1: Sequential DEPLOY / INIT_GAME / OPEN_PAYMENTS seqnos ---
@@ -729,6 +748,177 @@ async function main() {
 
         assert.equal(match?.hash, "no-body-hash");
         console.log("  destination-only fixture fallback: OK");
+    }
+
+    // --- crLz: INIT_GAME broadcast SUCCESS + seqno confirmed + HTTP 429 lookup ---
+
+    {
+        resetDeployerSendLocksForTests();
+        resetTonDeployDebugForTests();
+
+        const escrow = friendlyAddress("escrow-429");
+        const deployerAddress = await resolveDeployerAddress();
+        let currentSeqno = 317;
+        let broadcastCount = 0;
+        let lookupCalls = 0;
+
+        const initBody = await buildWalletV4InMsgBody(317, escrow);
+
+        function axios429() {
+
+            const error = new Error("Request failed with status code 429");
+            error.name = "AxiosError";
+            error.status = 429;
+            error.response = { status: 429 };
+            return error;
+
+        }
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            isConnected: () => true,
+            async broadcastTransaction() {
+
+                broadcastCount += 1;
+                currentSeqno = 318;
+                return { "@type": "ok" };
+
+            },
+            async getAccount() {
+
+                return { state: "active", balance: "0" };
+
+            },
+            async getSeqno() {
+
+                return currentSeqno;
+
+            },
+            async getTransactions() {
+
+                lookupCalls += 1;
+
+                if (lookupCalls <= 2) {
+
+                    throw axios429();
+
+                }
+
+                return [
+                    {
+                        utime: Math.floor(Date.now() / 1000) + 5,
+                        transaction_id: {
+                            hash: "2+hWJWNViLl1eEhN5OviIgZ5JK6I4da8G2GrekNdz3Y=",
+                            lt: "4291"
+                        },
+                        in_msg: {
+                            source: "",
+                            destination: deployerAddress,
+                            msg_data: {
+                                "@type": "msg.dataRaw",
+                                body: initBody
+                            }
+                        },
+                        out_msgs: [{ destination: escrow }]
+                    }
+                ];
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        }, {
+            settlementTxLookupTimeoutMs: 2000,
+            settlementTxLookupPollMs: 30
+        });
+
+        const init = await adapter.initGame({
+            contractAddress: escrow,
+            oracle: ORACLE,
+            owner: OWNER,
+            contractIdHash: HASH_A,
+            snapshotHash: HASH_B
+        });
+
+        assert.equal(init.ok, true, "INIT_GAME must succeed after 429 retry");
+        assert.equal(
+            init.txId,
+            "2+hWJWNViLl1eEhN5OviIgZ5JK6I4da8G2GrekNdz3Y="
+        );
+        assert.equal(broadcastCount, 1, "must not rebroadcast after 429");
+        assert.ok(lookupCalls >= 3, "confirmation lookup must retry");
+
+        const debug = getTonDeployDebug();
+
+        assert.notEqual(debug.currentStage, "FAILED");
+        assert.equal(debug.broadcastResult, "SUCCESS");
+        assert.equal(debug.confirmationStatus, "TX_HASH_MATCHED");
+        assert.equal(debug.confirmedSeqno, 318);
+        assert.equal(
+            debug.matchedTxHash,
+            "2+hWJWNViLl1eEhN5OviIgZ5JK6I4da8G2GrekNdz3Y="
+        );
+        assert.ok(debug.stage.includes("TX_LOOKUP_TRANSIENT"));
+        assert.equal(debug.stage.includes("FAILED"), false);
+
+        console.log("  crLz INIT_GAME 429 confirmation retry: OK");
+    }
+
+    // --- Broadcast failure remains FAILED, no confirmation success ---
+
+    {
+        resetDeployerSendLocksForTests();
+        resetTonDeployDebugForTests();
+
+        const escrow = friendlyAddress("escrow-broadcast-fail");
+        let broadcastCount = 0;
+
+        const adapter = createAdapter({
+            getActiveNetwork: () => "testnet",
+            isConnected: () => true,
+            async broadcastTransaction() {
+
+                broadcastCount += 1;
+                throw new Error("BOC was not accepted");
+
+            },
+            async getSeqno() {
+
+                return 10;
+
+            },
+            async getTransactions() {
+
+                return [];
+
+            },
+            async runGetMethod() {
+
+                return { stack: [] };
+
+            }
+        });
+
+        const init = await adapter.initGame({
+            contractAddress: escrow,
+            oracle: ORACLE,
+            owner: OWNER,
+            contractIdHash: HASH_A,
+            snapshotHash: HASH_B
+        });
+
+        assert.equal(init.ok, false);
+        assert.equal(init.reason, "init_game_failed");
+        assert.equal(broadcastCount, 1);
+
+        const debug = getTonDeployDebug();
+
+        assert.equal(debug.currentStage, "FAILED");
+        assert.notEqual(debug.broadcastResult, "SUCCESS");
+
+        console.log("  INIT_GAME genuine broadcast failure: OK");
     }
 
     console.log("R7.70C2.6 deployer seqno confirmation: all assertions passed");

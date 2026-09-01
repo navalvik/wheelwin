@@ -67,6 +67,7 @@ import {
 } from "./ton/gameContract/GameContractSerializer.js";
 import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
 import { checkDeployerBalancePreflight } from "./ton/checkDeployerBalancePreflight.js";
+import { isInfrastructureFailure } from "../services/ton/TonServiceRetry.js";
 import {
     resolveOracleValueTon
 } from "./ton/testValueTonOverride.js";
@@ -1784,7 +1785,37 @@ export class TonGameContractAdapter {
 
             pollCount += 1;
 
-            lastSeen = await this._service().getSeqno(deployerAddress);
+            try {
+
+                lastSeen = await this._service().getSeqno(deployerAddress);
+
+            } catch (error) {
+
+                if (!isTransientConfirmationError(error)) {
+
+                    throw error;
+
+                }
+
+                console.log(
+                    "[R7.70C2.6 DEPLOYER CONFIRM]\n"
+                        + "stage=SEQNO_WAIT_TRANSIENT\n"
+                        + `operation=${operation}\n`
+                        + `error=${error?.message ?? String(error)}\n`
+                        + `polls=${pollCount}`
+                );
+                pushTonDeployDebugStage("SEQNO_WAIT_TRANSIENT", {
+                    operation,
+                    confirmationStatus: "TRANSIENT_RPC",
+                    failureReason: error?.message ?? String(error),
+                    tonCenterStatus: readTonHttpStatus(error)
+                });
+
+                await delay(pollMs);
+
+                continue;
+
+            }
 
             if (Number(lastSeen) > Number(sentSeqno)) {
 
@@ -1874,10 +1905,42 @@ export class TonGameContractAdapter {
                     + `poll=${pollCount}`
             );
 
-            const transactions = await this._service().getTransactions(
-                deployerAddress,
-                { limit: 20 }
-            );
+            let transactions;
+
+            try {
+
+                transactions = await this._service().getTransactions(
+                    deployerAddress,
+                    { limit: 20 }
+                );
+
+            } catch (error) {
+
+                if (!isTransientConfirmationError(error)) {
+
+                    throw error;
+
+                }
+
+                console.log(
+                    "[R7.61 SETTLEMENT TX]\n"
+                        + "stage=SETTLEMENT_TX_LOOKUP_TRANSIENT\n"
+                        + `operation=${operation}\n`
+                        + `error=${error?.message ?? String(error)}\n`
+                        + `poll=${pollCount}`
+                );
+                pushTonDeployDebugStage("TX_LOOKUP_TRANSIENT", {
+                    operation,
+                    confirmationStatus: "TRANSIENT_RPC",
+                    failureReason: error?.message ?? String(error),
+                    tonCenterStatus: readTonHttpStatus(error)
+                });
+
+                await delay(pollMs);
+
+                continue;
+
+            }
 
             const match = this._findSettlementDeployerTx(
                 transactions,
@@ -2054,6 +2117,29 @@ function delay(ms) {
         setTimeout(resolve, ms);
 
     });
+
+}
+
+function readTonHttpStatus(error) {
+
+    const status = Number(
+        error?.status
+            ?? error?.response?.status
+            ?? error?.details?.status
+            ?? NaN
+    );
+
+    return Number.isFinite(status) ? status : null;
+
+}
+
+/**
+ * Transient TON Center / TonClient RPC failures during confirmation.
+ * AxiosError "Request failed with status code 429" is retryable.
+ */
+function isTransientConfirmationError(error) {
+
+    return isInfrastructureFailure(error);
 
 }
 
