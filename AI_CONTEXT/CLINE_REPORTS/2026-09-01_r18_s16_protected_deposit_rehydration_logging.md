@@ -292,13 +292,18 @@ Commit includes only this logging task’s production, test, and report files. F
 
 ## 14. Commit SHA
 
-Pending — filled after `git commit` / `git push`.
+```text
+dbaa5ff test(recovery): instrument protected deposit rehydration
+```
 
 ---
 
 ## 15. Push Result
 
-Pending — filled after `git push origin main`.
+```text
+To https://github.com/navalvik/wheelwin.git
+   b70e393..dbaa5ff  main -> main
+```
 
 ---
 
