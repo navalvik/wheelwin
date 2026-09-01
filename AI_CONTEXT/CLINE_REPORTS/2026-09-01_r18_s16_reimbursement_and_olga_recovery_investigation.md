@@ -466,7 +466,13 @@ Unrelated modified/untracked files (forensic extracts, other reports, banners, p
 
 ## 15. Push Result
 
-Filled after `git push origin main`.
+```text
+git push origin main
+83c80a5..01fc6ec  main -> main
+https://github.com/navalvik/wheelwin.git
+```
+
+`main` tracks `origin/main` after this push. Railway live confirmation of the reimbursement send is still **NOT PROVEN**.
 
 ---
 
