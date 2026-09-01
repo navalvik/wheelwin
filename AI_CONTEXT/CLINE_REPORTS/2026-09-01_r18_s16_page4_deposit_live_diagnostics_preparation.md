@@ -409,7 +409,12 @@ Intended files only (plus this report). Unrelated forensic extracts and older re
 
 ## 22. Push Result
 
----
+```text
+To https://github.com/navalvik/wheelwin.git
+   add5c1b..a1bbe56  main -> main
+```
+
+`0460602` (diagnostics) and `a1bbe56` (this report) are on `origin/main`.
 
 ## 23. FACT
 
