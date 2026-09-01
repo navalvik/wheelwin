@@ -1,3 +1,5 @@
+import { logClientDepositRestore } from "./clientDepositRestoreDiagnostics.js";
+
 /**
  * C5.2 — Authoritative Session Model (foundation).
  *
@@ -807,6 +809,16 @@ export function authoritativeSessionReducer(state, action) {
                 ? Object.freeze({ ...deposit.package })
                 : null;
 
+            logClientDepositRestore("DEPOSIT_PACKAGE_RECEIVED", {
+                roomId: state.roomId,
+                depositId: deposit.depositId,
+                depositAddress: deposit.depositAddress,
+                state: deposit.phase,
+                confirmedSeats: deposit.confirmedSeats,
+                mySeatStatus: deposit.mySeatStatus,
+                deployValueNanotons: pkg?.deployValueNanotons
+            });
+
             const incomingActivation = deposit.activationStatus ?? null;
             const previousActivation = state.deposit?.activationStatus ?? null;
             const activationStatus = incomingActivation != null
@@ -816,21 +828,32 @@ export function authoritativeSessionReducer(state, action) {
                 || activationStatus === "ALREADY_VERIFIED"
                 || state.lifecycle?.depositActivationVerified === true;
 
+            const appliedDeposit = Object.freeze({
+                phase: deposit.phase ?? null,
+                depositId: deposit.depositId ?? null,
+                depositAddress: deposit.depositAddress ?? null,
+                network: deposit.network ?? null,
+                ...(pkg ? { package: pkg } : {}),
+                mySeatIndex: deposit.mySeatIndex ?? null,
+                isCreator: deposit.isCreator ?? null,
+                mySeatStatus: deposit.mySeatStatus ?? null,
+                myExpectedAmountNanotons: deposit.myExpectedAmountNanotons ?? null,
+                confirmedSeats: deposit.confirmedSeats ?? null,
+                activationStatus
+            });
+
+            logClientDepositRestore("DEPOSIT_STATE_APPLIED", {
+                roomId: state.roomId,
+                depositId: appliedDeposit.depositId,
+                depositAddress: appliedDeposit.depositAddress,
+                state: appliedDeposit.phase,
+                confirmedSeats: appliedDeposit.confirmedSeats,
+                mySeatStatus: appliedDeposit.mySeatStatus
+            });
+
             return stamp({
                 ...state,
-                deposit: Object.freeze({
-                    phase: deposit.phase ?? null,
-                    depositId: deposit.depositId ?? null,
-                    depositAddress: deposit.depositAddress ?? null,
-                    network: deposit.network ?? null,
-                    ...(pkg ? { package: pkg } : {}),
-                    mySeatIndex: deposit.mySeatIndex ?? null,
-                    isCreator: deposit.isCreator ?? null,
-                    mySeatStatus: deposit.mySeatStatus ?? null,
-                    myExpectedAmountNanotons: deposit.myExpectedAmountNanotons ?? null,
-                    confirmedSeats: deposit.confirmedSeats ?? null,
-                    activationStatus
-                }),
+                deposit: appliedDeposit,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     depositActivationVerified

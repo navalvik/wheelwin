@@ -2003,7 +2003,8 @@ export class GameDiagnosticLogManager {
         const message = String(record.message ?? "");
 
         const socketId = record.socketId
-            ?? extractFromMessage(message, SOCKET_ID_IN_MESSAGE);
+            ?? extractFromMessage(message, SOCKET_ID_IN_MESSAGE)
+            ?? extractFromMessage(message, /(?:^|\|\s*)socketId=([^\s|]+)/i);
 
         const playerId = record.playerId
             ?? extractFromMessage(message, PLAYER_ID_IN_MESSAGE);
@@ -2035,6 +2036,13 @@ export class GameDiagnosticLogManager {
                 section = "ERRORS";
 
             }
+
+        } else if (message.includes("[R18-S16 DepositRestore]")) {
+
+            // Observability only. Does not open, complete, or fail recovery attempts.
+            section = "RECOVERY";
+
+            event = message.replace(/^\[R18-S16 DepositRestore\]\s*/, "");
 
         } else if (record.level === LOG_LEVELS.ERROR
             || record.level === LOG_LEVELS.FATAL) {

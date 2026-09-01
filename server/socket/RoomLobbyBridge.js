@@ -1,3 +1,4 @@
+import { formatDepositRestoreLog } from "../diagnostics/depositRestoreDiagnostics.js";
 import { registerRoomDestroyContext } from "../diagnostics/RoomDestroyForensics.js";
 import {
     logPaymentStageReady,
@@ -2411,7 +2412,24 @@ export class RoomLobbyBridge {
 
         const context = this._getSocketContext(socketId);
 
+        this._logger.info(formatDepositRestoreLog({
+            event: "RESTORE_ATTEMPT",
+            roomId: context?.roomId ?? null,
+            playerId: context?.playerId ?? null,
+            socketId,
+            reason
+        }));
+
         if (!context?.playerId || !context?.roomId) {
+
+            this._logger.info(formatDepositRestoreLog({
+                event: "RESTORE_RESULT",
+                roomId: context?.roomId ?? null,
+                playerId: context?.playerId ?? null,
+                socketId,
+                reason,
+                restored: false
+            }));
 
             return {
                 restored: false,
@@ -2434,13 +2452,32 @@ export class RoomLobbyBridge {
             ?? this._playerManager.getRuntime(playerId)?.gameId
             ?? null;
 
-        return this._deliverDepositProjectionToSocket({
+        const result = this._deliverDepositProjectionToSocket({
             socketId,
             playerId,
             roomId,
             gameId,
             reason
         });
+
+        this._logger.info(formatDepositRestoreLog({
+            event: "RESTORE_RESULT",
+            roomId,
+            playerId,
+            socketId,
+            reason,
+            restored: result?.restored === true,
+            ...(result?.restored === true
+                ? {
+                    depositAddress: result.depositAddress ?? null,
+                    state: result.state ?? null,
+                    confirmedSeats: result.confirmedSeats ?? null,
+                    mySeatStatus: result.mySeatStatus ?? null
+                }
+                : {})
+        }));
+
+        return result;
 
     }
 
@@ -6121,6 +6158,18 @@ export class RoomLobbyBridge {
             }
         );
 
+        this._logger.info(formatDepositRestoreLog({
+            event: "PROJECTION_EMITTED",
+            roomId,
+            playerId,
+            socketId,
+            reason,
+            depositAddress: depositProjection.depositAddress ?? null,
+            state: depositProjection.phase ?? null,
+            confirmedSeats: depositProjection.confirmedSeats ?? null,
+            mySeatStatus: depositProjection.mySeatStatus ?? null
+        }));
+
         if (
             depositProjection.activationStatus === "VERIFIED"
             || depositProjection.activationStatus === "ALREADY_VERIFIED"
@@ -6155,6 +6204,8 @@ export class RoomLobbyBridge {
             restored: true,
             reason,
             depositId: depositProjection.depositId ?? null,
+            depositAddress: depositProjection.depositAddress ?? null,
+            state: depositProjection.phase ?? null,
             confirmedSeats: depositProjection.confirmedSeats ?? null,
             mySeatStatus: depositProjection.mySeatStatus ?? null
         };

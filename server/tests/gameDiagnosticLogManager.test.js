@@ -523,6 +523,68 @@ const directory = mkdtempSync(join(tmpdir(), "wheelwin-diag-r62c-"));
 
 }
 
+// ---------------------------------------------------------------------------
+// R18-S16 DepositRestore lines are copied into the room log without
+// changing recovery attempt SUCCESS/FAILED accounting.
+// ---------------------------------------------------------------------------
+
+{
+
+    const harness = createHarness(directory);
+
+    const { diagnostics, eventBus, loggingManager } = harness;
+
+    const roomId = "DEPLOG1";
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.SETUP_SESSION_STARTED,
+        payload: { roomId, expiresAt: Date.now() + 60_000 }
+    });
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.ROOM_CREATED,
+        payload: { roomId, status: "CREATED", maxPlayers: 3, playerCount: 0 }
+    });
+
+    loggingManager.write({
+        level: LOG_LEVELS.INFO,
+        service: "test",
+        message: "[R18-S16 DepositRestore] event=RESTORE_ATTEMPT | roomId=DEPLOG1 | playerId=player_lena | socketId=sock-lena | reason=protected_connect",
+        fields: { roomId, playerId: "player_lena", socketId: "sock-lena" }
+    });
+
+    loggingManager.write({
+        level: LOG_LEVELS.INFO,
+        service: "test",
+        message: "[R18-S16 DepositRestore] event=RESTORE_RESULT | roomId=DEPLOG1 | playerId=player_lena | socketId=sock-lena | reason=protected_connect | restored=true | depositAddress=EQD_TEST | state=PARTIALLY_FUNDED | confirmedSeats=2 | mySeatStatus=FUNDED",
+        fields: { roomId, playerId: "player_lena", socketId: "sock-lena" }
+    });
+
+    loggingManager.flushSync();
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.ROOM_DESTROYED,
+        payload: { roomId, status: "DESTROYED", maxPlayers: 3, playerCount: 0 }
+    });
+
+    const text = diagnostics.readLog(roomId).toString("utf8");
+
+    assert(text.includes("event=RESTORE_ATTEMPT"), "DepositRestore ATTEMPT must appear in room log");
+    assert(text.includes("event=RESTORE_RESULT"), "DepositRestore RESULT must appear in room log");
+    assert(text.includes("reason=protected_connect"), "restore reason must appear");
+    assert(text.includes("Recovery attempts:\n0"), "DepositRestore must not open a recovery attempt");
+    assert(!text.includes("Successful recoveries:\n1"), "DepositRestore must not count SUCCESS");
+    assert(!/Attempt #1\s+FAILED/.test(text), "DepositRestore must not create a FAILED attempt");
+
+    teardown(harness);
+
+    console.log("  R18-S16 DepositRestore diagnostic ingest passed");
+
+}
+
 rmSync(directory, { recursive: true, force: true });
 
 console.log("gameDiagnosticLogManager.test.js: all assertions passed");

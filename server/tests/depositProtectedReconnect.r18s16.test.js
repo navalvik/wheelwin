@@ -476,6 +476,144 @@ test("R18-S16: financial constants and setup timeout remain unchanged", () => {
     assert.equal(Number(DEPLOY_VALUE_NANOTONS), 10000000);
     assert.equal(Number(CREATION_FEE_PER_SEAT), 1000000);
     assert.equal(EXPECTED_STAKE, 10000000);
-    assert.equal(FUNDSEAT_AMOUNT, 11000000);
+        assert.equal(FUNDSEAT_AMOUNT, 11000000);
 
 });
+
+function captureInfo(stack) {
+
+    const lines = [];
+    const original = stack.logger.info.bind(stack.logger);
+
+    stack.logger.info = (message, ...args) => {
+
+        lines.push(String(message ?? ""));
+
+        return original(message, ...args);
+
+    };
+
+    return lines;
+
+}
+
+function restoreLogsMatching(lines, event, reason) {
+
+    return lines.filter((line) =>
+        line.includes("[R18-S16 DepositRestore]")
+        && line.includes(`event=${event}`)
+        && (reason == null || line.includes(`reason=${reason}`))
+    );
+
+}
+
+test("R18-S16: protected_connect restore emits RESTORE_ATTEMPT and RESTORE_RESULT", () => {
+
+    const stack = buildStack();
+
+    try {
+
+        const { session, lenaId } = arrangeKeahRoom(stack);
+
+        stack.roomLobbyBridge._handleSocketDisconnected(LENA_SOCKET_ID, "ping timeout");
+        fundBobAndLena(session);
+
+        const lines = captureInfo(stack);
+        const gateway = createGateway(stack);
+
+        gateway._handleConnection(fakeSocket());
+
+        const attempts = restoreLogsMatching(lines, "RESTORE_ATTEMPT", "protected_connect");
+        const results = restoreLogsMatching(lines, "RESTORE_RESULT", "protected_connect");
+        const emitted = restoreLogsMatching(lines, "PROJECTION_EMITTED", "protected_connect");
+
+        assert.equal(attempts.length, 1, "protected_connect must log RESTORE_ATTEMPT");
+        assert.match(attempts[0], new RegExp(`playerId=${lenaId}`));
+        assert.match(attempts[0], new RegExp(`socketId=${LENA_SOCKET_ID}`));
+
+        assert.equal(results.length, 1, "protected_connect must log RESTORE_RESULT");
+        assert.match(results[0], /restored=true/);
+        assert.match(results[0], new RegExp(`depositAddress=${DEPOSIT_ADDRESS}`));
+        assert.match(results[0], /state=PARTIALLY_FUNDED/);
+        assert.match(results[0], /confirmedSeats=2/);
+        assert.match(results[0], /mySeatStatus=FUNDED/);
+
+        assert.equal(emitted.length, 1, "protected_connect must log PROJECTION_EMITTED");
+        assert.match(emitted[0], new RegExp(`depositAddress=${DEPOSIT_ADDRESS}`));
+        assert.match(emitted[0], /state=PARTIALLY_FUNDED/);
+        assert.match(emitted[0], /confirmedSeats=2/);
+        assert.match(emitted[0], /mySeatStatus=FUNDED/);
+
+        assert.equal(
+            lines.some((line) => /reclaim success/i.test(line)),
+            false,
+            "bound protected_connect must not reclaim"
+        );
+
+    } finally {
+
+        stack.shutdown();
+
+    }
+
+});
+
+test("R18-S16: bound_recovery restore emits RESTORE_ATTEMPT and live projection logs", () => {
+
+    const stack = buildStack();
+
+    try {
+
+        const { session, lenaId } = arrangeKeahRoom(stack);
+
+        stack.roomLobbyBridge._handleSocketDisconnected(LENA_SOCKET_ID, "transport close");
+        fundBobAndLena(session);
+
+        const bound = stack.gameplayContextResolver.resolve(LENA_SOCKET_ID);
+
+        assert.equal(bound.ok, true);
+
+        const lines = captureInfo(stack);
+        const gateway = createGateway(stack);
+
+        gateway._handleRecoveryRequest(fakeSocket(), {
+            type: RECOVERY_SOCKET_MESSAGE_TYPES.SESSION_RECOVERY_REQUEST,
+            payload: {
+                roomId: bound.roomId,
+                playerId: lenaId
+            }
+        });
+
+        const attempts = restoreLogsMatching(lines, "RESTORE_ATTEMPT", "bound_recovery");
+        const results = restoreLogsMatching(lines, "RESTORE_RESULT", "bound_recovery");
+        const emitted = restoreLogsMatching(lines, "PROJECTION_EMITTED", "bound_recovery");
+
+        assert.equal(attempts.length, 1, "bound_recovery must log RESTORE_ATTEMPT");
+        assert.match(attempts[0], new RegExp(`playerId=${lenaId}`));
+        assert.match(attempts[0], new RegExp(`socketId=${LENA_SOCKET_ID}`));
+
+        assert.equal(results.length, 1, "bound_recovery must log RESTORE_RESULT");
+        assert.match(results[0], /restored=true/);
+        assert.match(results[0], new RegExp(`depositAddress=${DEPOSIT_ADDRESS}`));
+        assert.match(results[0], /confirmedSeats=2/);
+        assert.match(results[0], /mySeatStatus=FUNDED/);
+
+        assert.equal(emitted.length, 1, "bound_recovery must log the emitted projection");
+        assert.match(emitted[0], /confirmedSeats=2/);
+        assert.match(emitted[0], /mySeatStatus=FUNDED/);
+        assert.match(emitted[0], new RegExp(`depositAddress=${DEPOSIT_ADDRESS}`));
+
+        assert.equal(
+            lines.some((line) => /reclaim success/i.test(line)),
+            false,
+            "bound=true must skip reconnectSession reclaim"
+        );
+
+    } finally {
+
+        stack.shutdown();
+
+    }
+
+});
+
