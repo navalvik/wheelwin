@@ -443,19 +443,30 @@ After this commit is on `origin/main`, Railway may auto-deploy. Whether the exis
 
 ## 13. Git Status
 
-See section 14–15 after commit. Only the three files in section 6 are intended for this commit. Forensic extracts and unrelated dirty files stay untracked/uncommitted.
+Committed only:
+
+```text
+server/payment/reimbursement/ReimbursementWalletAdapter.js
+server/tests/deploymentReimbursement.stageO.test.js
+AI_CONTEXT/CLINE_REPORTS/2026-09-01_r18_s16_reimbursement_and_olga_recovery_investigation.md
+```
+
+Unrelated modified/untracked files (forensic extracts, other reports, banners, probe scripts) were not staged.
 
 ---
 
 ## 14. Commit Hash
 
-Filled after commit.
+```text
+67ef8fa3e516f652d50641562a7f23d71922ecbf
+67ef8fa fix(reimbursement): attach Wallet V4 StateInit when seqno get-method fails on an uninitialized reimbursement wallet
+```
 
 ---
 
 ## 15. Push Result
 
-Filled after push.
+Filled after `git push origin main`.
 
 ---
 
