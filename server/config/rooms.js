@@ -6,8 +6,8 @@ const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
 const DEFAULT_RESULT_SESSION_DURATION_MS = 5 * 60 * 1000;
 
 /** P6.3 — Payment Session wall-clock before authoritative failure. */
-// R7.70C19A — restored from C7 TEMP 10 min → 5 min.
-const DEFAULT_PAYMENT_SESSION_DURATION_MS = 5 * 60 * 1000;
+// R18-S16 — 8 minutes (was R7.70C19A 5 min). Isolated from Wallet/Result/Deploy timers.
+const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 * 60 * 1000;
 
 /**
  * R7.24 — Wallet connection barrier after PAYMENT_STAGE_READY.

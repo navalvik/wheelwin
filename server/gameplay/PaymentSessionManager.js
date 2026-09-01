@@ -31,7 +31,7 @@ import {
     sessionNeedsEscrowUnwind
 } from "./partialPaymentEscrowUnwind.js";
 
-const DEFAULT_PAYMENT_SESSION_DURATION_MS = 5 * 60 * 1000;
+const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 * 60 * 1000;
 
 const PAYMENT_READY_CONTRACT_STATUSES = new Set([
     GAME_CONTRACT_STATUS.DEPLOYED,

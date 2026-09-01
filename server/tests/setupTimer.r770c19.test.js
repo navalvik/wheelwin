@@ -26,8 +26,8 @@ const FIVE_MIN_MS = 5 * 60 * 1000;
     );
     assert.equal(
         config.paymentSessionDurationMs,
-        FIVE_MIN_MS,
-        "R7.70C19A Payment Session default must be 5 minutes"
+        EIGHT_MIN_MS,
+        "R18-S16 Payment Session default must be 8 minutes"
     );
     assert.equal(
         config.walletConnectionDurationMs,

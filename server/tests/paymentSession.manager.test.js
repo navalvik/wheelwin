@@ -1110,6 +1110,23 @@ async function main() {
         console.log("  wallet validation failure: OK");
     }
 
+    {
+        const manager = new PaymentSessionManager({
+            logger: createLogger(),
+            eventBus: { subscribe() {}, emit() {} },
+            playerManager: {},
+            roomManager: {}
+        });
+
+        assert.equal(
+            manager.getDurationMs(),
+            8 * 60 * 1000,
+            "PaymentSessionManager fallback default must be 8 minutes"
+        );
+
+        console.log("  default duration 8 minutes: OK");
+    }
+
     console.log("paymentSession.manager.test.js: all assertions passed");
 
 }

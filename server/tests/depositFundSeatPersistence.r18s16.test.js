@@ -375,12 +375,12 @@ test("R18-S16: untrusted DEPOSIT_SEAT_FUNDED does not mutate DepositSession", ()
 
 });
 
-test("R18-S16: setup timeout default is 8 minutes; unrelated timers stay 5 minutes", () => {
+test("R18-S16: setup and PaymentSession timeouts are independently 8 minutes", () => {
 
     const config = loadRoomConfig({ ROOM_MAX_PLAYERS: "3" });
 
     assert.equal(config.setupDurationMs, EIGHT_MIN_MS);
-    assert.equal(config.paymentSessionDurationMs, FIVE_MIN_MS);
+    assert.equal(config.paymentSessionDurationMs, EIGHT_MIN_MS);
     assert.equal(config.walletConnectionDurationMs, FIVE_MIN_MS);
     assert.equal(config.resultSessionDurationMs, FIVE_MIN_MS);
     assert.equal(config.gameContractDeployTimeoutMs, 2 * 60 * 1000);
@@ -409,6 +409,20 @@ test("R18-S16: established financial constants remain unchanged", () => {
     );
     assert.match(
         rooms,
+        /const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 \* 60 \* 1000/
+    );
+
+    const paymentManager = readFileSync(
+        join(SERVER_ROOT, "..", "gameplay", "PaymentSessionManager.js"),
+        "utf8"
+    );
+
+    assert.match(
+        paymentManager,
+        /const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 \* 60 \* 1000/
+    );
+    assert.doesNotMatch(
+        paymentManager,
         /const DEFAULT_PAYMENT_SESSION_DURATION_MS = 5 \* 60 \* 1000/
     );
     assert.doesNotMatch(

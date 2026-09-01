@@ -472,7 +472,7 @@ test("R18-S16: financial constants and setup timeout remain unchanged", () => {
     const config = loadRoomConfig({ ROOM_MAX_PLAYERS: "3" });
 
     assert.equal(config.setupDurationMs, 480000);
-    assert.equal(config.paymentSessionDurationMs, 300000);
+    assert.equal(config.paymentSessionDurationMs, 480000);
     assert.equal(Number(DEPLOY_VALUE_NANOTONS), 10000000);
     assert.equal(Number(CREATION_FEE_PER_SEAT), 1000000);
     assert.equal(EXPECTED_STAKE, 10000000);
