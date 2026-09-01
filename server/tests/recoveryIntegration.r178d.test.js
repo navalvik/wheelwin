@@ -155,6 +155,8 @@ function createGatewayFixture({
 
     let recoverPlayerCalls = 0;
 
+    let restoreDepositCalls = 0;
+
     const physicsAngleBefore = recoverSnapshot?.physics?.angle ?? 0.5;
 
     const recoveryEngine = {
@@ -239,6 +241,10 @@ function createGatewayFixture({
         roomLobbyBridge: {
             reconnectGameplaySession() {
                 assert.fail("reclaim should not run when socket already bound");
+            },
+            restoreDepositProjectionForSocket() {
+                restoreDepositCalls += 1;
+                return { restored: true, reason: "bound_recovery" };
             }
         },
         devMode: true
@@ -250,6 +256,9 @@ function createGatewayFixture({
         log,
         get recoverPlayerCalls() {
             return recoverPlayerCalls;
+        },
+        get restoreDepositCalls() {
+            return restoreDepositCalls;
         },
         physicsAngleBefore,
         runRecovery() {
@@ -323,6 +332,12 @@ function assertNoRecoveryFailure(socket) {
         fixture.recoverPlayerCalls,
         0,
         "Test A: RecoveryEngine must NOT be called"
+    );
+
+    assert.equal(
+        fixture.restoreDepositCalls,
+        1,
+        "Test A: bound recovery must restore Deposit projection"
     );
 
     assertNoRecoveryFailure(fixture.socket);

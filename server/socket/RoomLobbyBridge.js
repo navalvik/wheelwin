@@ -2358,59 +2358,14 @@ export class RoomLobbyBridge {
 
         }
 
-        // R18 S4 — restore the requester-scoped Deposit snapshot. projectDepositForPlayer
-        // is the single authority on whether the package is still exposed (it applies
-        // lifecycle/terminal/funding rules) and scopes the projection strictly to this
-        // authenticated player. This never constructs the projection server-side by
-        // hand, never regenerates StateInit, and never triggers a deposit/deployment or
-        // chain transaction. Reachable independently of the paymentStageReady barrier so
-        // the Deposit-only flow is covered too.
-        const depositTargetGameId = gameId
-            ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
-            ?? null;
-
-        if (depositTargetGameId && this._depositSessionCoordinator) {
-
-            const depositProjection = projectDepositForPlayer({
-                playerId,
-                roomId,
-                gameId: depositTargetGameId,
-                depositSessionCoordinator: this._depositSessionCoordinator,
-                roomLobbyBridge: this
-            });
-
-            if (depositProjection) {
-
-                this._deliverToSocket(
-                    socketId,
-                    LOBBY_SERVER_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
-                    {
-                        deposit: depositProjection
-                    }
-                );
-
-                if (
-                    depositProjection.activationStatus === "VERIFIED"
-                    || depositProjection.activationStatus === "ALREADY_VERIFIED"
-                ) {
-
-                    this._deliverToSocket(
-                        socketId,
-                        LOBBY_SERVER_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
-                        {
-                            depositId: depositProjection.depositId,
-                            roomId,
-                            gameId: depositTargetGameId,
-                            depositAddress: depositProjection.depositAddress,
-                            status: depositProjection.activationStatus
-                        }
-                    );
-
-                }
-
-            }
-
-        }
+        // R18 S4 / R18-S16 — requester-scoped live Deposit snapshot.
+        this._deliverDepositProjectionToSocket({
+            socketId,
+            playerId,
+            roomId,
+            gameId,
+            reason: "reconnect_session"
+        });
 
         this._clearRecoveryOwnershipForPlayer(playerId);
 
@@ -2438,6 +2393,54 @@ export class RoomLobbyBridge {
     reconnectGameplaySession(socketId, claim = null) {
 
         return this.reconnectSession(socketId, claim);
+
+    }
+
+    /**
+     * R18-S16 — Restore the live Deposit projection to an already-bound socket.
+     *
+     * Protected same-id reconnect keeps GameplayContextResolver + lobby maps.
+     * SESSION_RECOVERY_REQUEST therefore skips reconnectSession (credential
+     * rebind is not required). Soft-disconnect also leaves the Socket.IO room.
+     * This path re-joins the room and re-sends the CURRENT DepositSession
+     * projection without a second projector and without weakening identity.
+     *
+     * Idempotent. Fail-closed when the socket is unbound or no session exists.
+     */
+    restoreDepositProjectionForSocket(socketId, { reason = "bound_reconnect" } = {}) {
+
+        const context = this._getSocketContext(socketId);
+
+        if (!context?.playerId || !context?.roomId) {
+
+            return {
+                restored: false,
+                reason: "unbound"
+            };
+
+        }
+
+        const { playerId, roomId } = context;
+
+        this._playerManager.setConnectionState(
+            playerId,
+            CONNECTION_STATE.CONNECTED
+        );
+
+        this._attachSocketToRoom(socketId, roomId);
+
+        const gameId = this._gameplayContextResolver?.resolve(socketId)?.gameId
+            ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
+            ?? this._playerManager.getRuntime(playerId)?.gameId
+            ?? null;
+
+        return this._deliverDepositProjectionToSocket({
+            socketId,
+            playerId,
+            roomId,
+            gameId,
+            reason
+        });
 
     }
 
@@ -6055,6 +6058,106 @@ export class RoomLobbyBridge {
 
         // PaymentSessionManager fails the session on the same EventBus event;
         // room cancellation follows PAYMENT_SESSION_FAILED.
+
+    }
+
+    /**
+     * R18 S4 / R18-S16 — single requester-scoped Deposit restore.
+     * Reads live DepositSession via projectDepositForPlayer. Never uses the
+     * frozen publish-time metadata.depositPackage.bindings for funded counts.
+     */
+    _deliverDepositProjectionToSocket({
+        socketId = null,
+        playerId = null,
+        roomId = null,
+        gameId = null,
+        reason = "deposit_restore"
+    } = {}) {
+
+        const depositTargetGameId = gameId
+            ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
+            ?? null;
+
+        if (!socketId || !playerId || !roomId || !depositTargetGameId) {
+
+            return {
+                restored: false,
+                reason: "missing_context"
+            };
+
+        }
+
+        if (!this._depositSessionCoordinator) {
+
+            return {
+                restored: false,
+                reason: "no_coordinator"
+            };
+
+        }
+
+        const depositProjection = projectDepositForPlayer({
+            playerId,
+            roomId,
+            gameId: depositTargetGameId,
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            roomLobbyBridge: this
+        });
+
+        if (!depositProjection) {
+
+            return {
+                restored: false,
+                reason: "no_session"
+            };
+
+        }
+
+        this._deliverToSocket(
+            socketId,
+            LOBBY_SERVER_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
+            {
+                deposit: depositProjection
+            }
+        );
+
+        if (
+            depositProjection.activationStatus === "VERIFIED"
+            || depositProjection.activationStatus === "ALREADY_VERIFIED"
+        ) {
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
+                {
+                    depositId: depositProjection.depositId,
+                    roomId,
+                    gameId: depositTargetGameId,
+                    depositAddress: depositProjection.depositAddress,
+                    status: depositProjection.activationStatus
+                }
+            );
+
+        }
+
+        this._logger.info(
+            `[R18-S16 Recovery] deposit projection restored`
+            + ` | playerId=${playerId}`
+            + ` | socket.id=${socketId}`
+            + ` | gameId=${depositTargetGameId}`
+            + ` | depositId=${depositProjection.depositId ?? "null"}`
+            + ` | confirmedSeats=${depositProjection.confirmedSeats ?? "null"}`
+            + ` | mySeatStatus=${depositProjection.mySeatStatus ?? "null"}`
+            + ` | reason=${reason}`
+        );
+
+        return {
+            restored: true,
+            reason,
+            depositId: depositProjection.depositId ?? null,
+            confirmedSeats: depositProjection.confirmedSeats ?? null,
+            mySeatStatus: depositProjection.mySeatStatus ?? null
+        };
 
     }
 

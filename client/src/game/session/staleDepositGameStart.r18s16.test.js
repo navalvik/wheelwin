@@ -204,3 +204,74 @@ test("R18-S16: new DEPOSIT_PACKAGE_PUBLISHED becomes authoritative after GAME_ST
     assert.equal(canFundSeat(state.deposit, state.lifecycle), true);
 
 });
+
+test("R18-S16: GAME_START still clears deposit; live 2/3 rehydrate disables FundSeat", () => {
+
+    let state = seedGameAVerified();
+
+    assert.equal(state.deposit?.depositAddress, OLD_DEPOSIT_ADDRESS);
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START,
+        payload: {
+            roomId: "Keah",
+            gameId: "game_3f076a0f-76b2-402e-b402-fcc062b8d421",
+            players: [
+                { playerId: "olga" },
+                { playerId: "bob" },
+                { playerId: "lena" }
+            ]
+        }
+    });
+
+    assert.equal(state.deposit, null);
+    assert.equal(state.lifecycle.depositActivationVerified, false);
+    assert.equal(canFundSeat(state.deposit, state.lifecycle), false);
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            deposit: {
+                phase: "AWAITING_FUNDS",
+                depositId: "dep_keah_initial",
+                depositAddress: NEW_DEPOSIT_ADDRESS,
+                network: "testnet",
+                mySeatIndex: 2,
+                isCreator: false,
+                mySeatStatus: "PENDING",
+                myExpectedAmountNanotons: FUNDSEAT_AMOUNT_NANOTONS,
+                confirmedSeats: 0,
+                activationStatus: "VERIFIED"
+            }
+        }
+    });
+
+    assert.equal(canFundSeat(state.deposit, state.lifecycle), true);
+    assert.equal(state.deposit.confirmedSeats, 0);
+
+    state = authoritativeSessionReducer(state, {
+        type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
+        payload: {
+            deposit: {
+                phase: "PARTIALLY_FUNDED",
+                depositId: "dep_keah_initial",
+                depositAddress: NEW_DEPOSIT_ADDRESS,
+                network: "testnet",
+                mySeatIndex: 2,
+                isCreator: false,
+                mySeatStatus: "FUNDED",
+                myExpectedAmountNanotons: FUNDSEAT_AMOUNT_NANOTONS,
+                confirmedSeats: 2,
+                activationStatus: "VERIFIED"
+            }
+        }
+    });
+
+    assert.equal(state.deposit.confirmedSeats, 2);
+    assert.equal(state.deposit.mySeatStatus, "FUNDED");
+    assert.equal(state.deposit.depositAddress, NEW_DEPOSIT_ADDRESS);
+    assert.notEqual(state.deposit.depositAddress, OLD_DEPOSIT_ADDRESS);
+    assert.equal(canFundSeat(state.deposit, state.lifecycle), false);
+
+});
+

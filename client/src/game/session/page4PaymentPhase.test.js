@@ -257,6 +257,33 @@ test("R18-S16: COMPLETED waits for OPEN_PAGE5 and does not imply local navigatio
 
 });
 
+test("R18-S16: rehydrated 2/3 FUNDED projection disables canFundSeat", () => {
+
+    const staleZeroOfThree = depositFixture({
+        activationStatus: "VERIFIED",
+        mySeatStatus: "PENDING",
+        confirmedSeats: 0,
+        myExpectedAmountNanotons: 11000000
+    });
+
+    assert.equal(canFundSeat(staleZeroOfThree), true);
+
+    const rehydrated = depositFixture({
+        activationStatus: "VERIFIED",
+        mySeatStatus: "FUNDED",
+        confirmedSeats: 2,
+        myExpectedAmountNanotons: 11000000,
+        phase: "PARTIALLY_FUNDED"
+    });
+
+    assert.equal(canFundSeat(rehydrated), false);
+    assert.equal(
+        resolvePage4PaymentPhase({ deposit: rehydrated }),
+        PAGE4_PAYMENT_PHASE.DEPOSIT_WAIT_FULL
+    );
+
+});
+
 test("R18-S16: reconnect restores phase from deposit activationStatus", () => {
 
     assert.equal(

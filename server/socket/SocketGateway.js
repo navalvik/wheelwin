@@ -803,6 +803,18 @@ export class SocketGateway {
             + ` | socket.id=${socket.id}`
         );
 
+        // R18-S16 — same-id protected reconnect can skip SESSION_RECOVERY_REQUEST
+        // (Keah 05:55:53Z). The binding already identifies the player; restore
+        // the live Deposit projection without a new auth flow or unbind.
+        if (bound?.ok === true) {
+
+            this._roomLobbyBridge?.restoreDepositProjectionForSocket?.(
+                socket.id,
+                { reason: "protected_connect" }
+            );
+
+        }
+
         socket.on(LOBBY_CLIENT_EVENTS.CREATE_ROOM, () => {
 
             this._emitLobbyRequest(EVENT_TYPES.LOBBY_CREATE_ROOM_REQUEST, {
@@ -1362,8 +1374,21 @@ export class SocketGateway {
         const roomId = context.roomId;
 
         // R17.8B — Pre-game reclaim already delivered lobby/payment sync via
-        // RoomLobbyBridge.reconnectSession. Do not call RecoveryEngine until
-        // GAME_INITIALIZED (live gameState) or RESULT cache exists.
+        // RoomLobbyBridge.reconnectSession when the socket was unbound.
+        // R18-S16 — protected same-id reconnect keeps the gameplay binding
+        // (bound=true), so reconnectSession is skipped. Still restore the live
+        // Deposit projection; identity is the existing server binding.
+        if (context?.ok === true) {
+
+            this._roomLobbyBridge?.restoreDepositProjectionForSocket?.(
+                socket.id,
+                { reason: "bound_recovery" }
+            );
+
+        }
+
+        // Do not call RecoveryEngine until GAME_INITIALIZED (live gameState)
+        // or RESULT cache exists.
         const liveGameState = this._peekRecoveryGameState(gameId);
 
         const cachedEntryForRoute = gameId
