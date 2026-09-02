@@ -262,6 +262,48 @@ describe("R18-S16 buildEntryPaymentTransaction", () => {
 
     });
 
+    it("strips totalNanotons before TonConnect sendTransaction and keeps 1.021 TON creator total", () => {
+
+        const STAKE_VALUE = "1000000000";
+        const builtTransaction = buildEntryPaymentTransaction({
+            isCreator: true,
+            includeDeploy: true,
+            includeFund: true,
+            includeStake: true,
+            depositPackage: depositPackage(),
+            depositAddress: VALID_DEPOSIT_ADDRESS,
+            mySeatIndex: 0,
+            myExpectedAmountNanotons: FUND_VALUE,
+            network: "testnet",
+            gameEscrowAddress: ESCROW_ADDRESS,
+            requiredGram: 1,
+            playerIndex: 0,
+            nowMs
+        });
+
+        const { totalNanotons, ...sentTransaction } = builtTransaction;
+
+        assert.equal(sentTransaction.totalNanotons, undefined);
+        assert.equal(sentTransaction.validUntil, builtTransaction.validUntil);
+        assert.equal(sentTransaction.messages, builtTransaction.messages);
+        assert.deepEqual(Object.keys(sentTransaction).sort(), ["messages", "validUntil"]);
+
+        assert.equal(builtTransaction.messages.length, 3);
+        assert.ok(builtTransaction.messages[0].stateInit);
+        assert.equal(builtTransaction.messages[0].amount, DEPLOY_VALUE);
+        assert.equal(builtTransaction.messages[1].amount, FUND_VALUE);
+        assert.equal(builtTransaction.messages[2].amount, STAKE_VALUE);
+        assert.equal(builtTransaction.messages[2].payload, buildGameEscrowStakePayload(0));
+
+        assert.equal(totalNanotons, "1021000000");
+        assert.equal(nanotonsToTonDisplay(totalNanotons), "1.021");
+        assert.equal(
+            nanotonsToTonDisplay(builtTransaction.totalNanotons),
+            "1.021"
+        );
+
+    });
+
     it("wallet confirmation success is not encoded as blockchain payment complete", () => {
 
         const tx = buildEntryPaymentTransaction({
