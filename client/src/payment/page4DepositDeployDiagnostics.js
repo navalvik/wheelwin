@@ -20,7 +20,11 @@ const FIELD_ORDER = [
     "resultType",
     "errorName",
     "errorCode",
-    "errorMessage"
+    "errorMessage",
+    "requestTopLevelKeys",
+    "hasTotalNanotons",
+    "messageTopLevelKeys",
+    "validationError"
 ];
 
 export function formatPage4DepositDeployLog(event, fields = {}) {
@@ -68,6 +72,63 @@ export function classifyDepositWalletError(error) {
     }
 
     return "TONCONNECT_SEND_FAILURE";
+
+}
+
+/**
+ * Observational keys of the object about to be passed to
+ * tonConnectUI.sendTransaction(). Does not clone payloads, amounts, or
+ * addresses. Does not mutate the request.
+ */
+export function describeTonConnectSendRequestDiagnostics(request) {
+
+    if (request == null || typeof request !== "object") {
+
+        return {
+            sendTransactionCallCount: 1,
+            requestIsObject: false,
+            requestTopLevelKeys: [],
+            hasTotalNanotons: false,
+            messageCount: 0,
+            messageTopLevelKeys: []
+        };
+
+    }
+
+    const requestTopLevelKeys = Object.keys(request);
+    const messageKeySet = new Set();
+
+    if (Array.isArray(request.messages)) {
+
+        for (const message of request.messages) {
+
+            if (message != null && typeof message === "object") {
+
+                for (const key of Object.keys(message)) {
+
+                    messageKeySet.add(key);
+
+                }
+
+            }
+
+        }
+
+    }
+
+    return {
+        sendTransactionCallCount: 1,
+        requestIsObject: true,
+        requestTopLevelKeys,
+        hasTotalNanotons: Object.prototype.hasOwnProperty.call(
+            request,
+            "totalNanotons"
+        ),
+        messageCount: Array.isArray(request.messages)
+            ? request.messages.length
+            : 0,
+        messageTopLevelKeys: Array.from(messageKeySet)
+    };
 
 }
 
