@@ -32,6 +32,7 @@ import { requiredGramToNanotonString } from "../payment/buildTonConnectPaymentTr
 import {
     classifyDepositWalletError,
     describeTonConnectResult,
+    describeTonConnectSendRequestDiagnostics,
     logPage4DepositDeploy
 } from "../payment/page4DepositDeployDiagnostics";
 
@@ -821,6 +822,7 @@ export default function Page4Payment({ onNavigate }) {
         setDepositSubmitError("");
 
         let sendAttempted = false;
+        let tonConnectRuntimeDiagnostics = null;
 
         try {
 
@@ -856,6 +858,10 @@ export default function Page4Payment({ onNavigate }) {
 
             const { totalNanotons, ...tonConnectTransaction } = transactionObject;
 
+            tonConnectRuntimeDiagnostics = describeTonConnectSendRequestDiagnostics(
+                tonConnectTransaction
+            );
+
             logPage4DepositDeploy("BUILD", {
                 action: "entry",
                 amount: totalNanotons,
@@ -871,8 +877,40 @@ export default function Page4Payment({ onNavigate }) {
                 action: "entry",
                 amount: totalNanotons,
                 validUntil: tonConnectTransaction.validUntil,
-                messageCount: tonConnectTransaction.messages.length
+                messageCount: tonConnectTransaction.messages.length,
+                requestTopLevelKeys:
+                    tonConnectRuntimeDiagnostics.requestTopLevelKeys.join(","),
+                hasTotalNanotons:
+                    tonConnectRuntimeDiagnostics.hasTotalNanotons,
+                messageTopLevelKeys:
+                    tonConnectRuntimeDiagnostics.messageTopLevelKeys.join(",")
             });
+
+            try {
+
+                ensureTonConnectAutopsy({
+                    roomId: authoritative?.roomId ?? null,
+                    playerId: localPlayerId
+                });
+                pushAutopsyTimeline({
+                    event: "PAGE4_SEND_TRANSACTION_REQUEST",
+                    payloadSummary: {
+                        requestTopLevelKeys:
+                            tonConnectRuntimeDiagnostics.requestTopLevelKeys,
+                        hasTotalNanotons:
+                            tonConnectRuntimeDiagnostics.hasTotalNanotons,
+                        messageCount: tonConnectRuntimeDiagnostics.messageCount,
+                        messageTopLevelKeys:
+                            tonConnectRuntimeDiagnostics.messageTopLevelKeys,
+                        sendTransactionCallCount:
+                            tonConnectRuntimeDiagnostics.sendTransactionCallCount
+                    }
+                });
+
+            } catch {
+
+                // diagnostics only
+            }
 
             sendAttempted = true;
 
@@ -891,6 +929,8 @@ export default function Page4Payment({ onNavigate }) {
 
         } catch (error) {
 
+            const validationError = String(error?.message ?? "").slice(0, 240);
+
             logPage4DepositDeploy("WALLET_RESULT", {
                 action: "entry",
                 outcome: sendAttempted
@@ -898,8 +938,34 @@ export default function Page4Payment({ onNavigate }) {
                     : "TRANSACTION_BUILD_FAILURE",
                 errorName: error?.name,
                 errorCode: error?.code ?? error?.errorCode,
-                errorMessage: error?.message
+                errorMessage: error?.message,
+                requestTopLevelKeys:
+                    tonConnectRuntimeDiagnostics?.requestTopLevelKeys?.join(",")
+                    ?? "",
+                hasTotalNanotons:
+                    tonConnectRuntimeDiagnostics?.hasTotalNanotons,
+                validationError
             });
+
+            try {
+
+                pushAutopsyTimeline({
+                    event: "PAGE4_SEND_TRANSACTION_VALIDATION",
+                    payloadSummary: {
+                        requestTopLevelKeys:
+                            tonConnectRuntimeDiagnostics?.requestTopLevelKeys
+                            ?? [],
+                        hasTotalNanotons:
+                            tonConnectRuntimeDiagnostics?.hasTotalNanotons
+                            ?? false,
+                        validationError
+                    }
+                });
+
+            } catch {
+
+                // diagnostics only
+            }
 
             console.error("[Page4Payment] Entry wallet submit failed:", error);
 

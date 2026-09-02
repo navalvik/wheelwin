@@ -9,6 +9,7 @@ import { test } from "node:test";
 import {
     classifyDepositWalletError,
     describeTonConnectResult,
+    describeTonConnectSendRequestDiagnostics,
     formatPage4DepositDeployLog
 } from "./page4DepositDeployDiagnostics.js";
 
@@ -96,6 +97,58 @@ test("classifyDepositWalletError maps user reject vs send failure", () => {
         classifyDepositWalletError({ message: "bridge timeout" }),
         "TONCONNECT_SEND_FAILURE"
     );
+
+});
+
+test("describeTonConnectSendRequestDiagnostics records keys without mutating the request", () => {
+
+    const sentTransaction = {
+        validUntil: 1_700_000_600,
+        messages: [
+            { address: "EQD1", amount: "10000000", stateInit: "te6c" },
+            { address: "EQD1", amount: "11000000", payload: "te6c" }
+        ]
+    };
+    const before = JSON.stringify(sentTransaction);
+    const diag = describeTonConnectSendRequestDiagnostics(sentTransaction);
+
+    assert.equal(before, JSON.stringify(sentTransaction));
+    assert.deepEqual(diag.requestTopLevelKeys, ["validUntil", "messages"]);
+    assert.equal(diag.hasTotalNanotons, false);
+    assert.equal(diag.messageCount, 2);
+    assert.deepEqual(diag.messageTopLevelKeys.sort(), [
+        "address",
+        "amount",
+        "payload",
+        "stateInit"
+    ]);
+    assert.equal("totalNanotons" in sentTransaction, false);
+
+    const built = {
+        validUntil: 1,
+        messages: [{ address: "EQ", amount: "1" }],
+        totalNanotons: "1021000000"
+    };
+    const { totalNanotons, ...tonConnectTransaction } = built;
+    const stripped = describeTonConnectSendRequestDiagnostics(
+        tonConnectTransaction
+    );
+
+    assert.equal(totalNanotons, "1021000000");
+    assert.equal(stripped.hasTotalNanotons, false);
+    assert.deepEqual(stripped.requestTopLevelKeys.sort(), [
+        "messages",
+        "validUntil"
+    ]);
+    assert.equal(tonConnectTransaction.totalNanotons, undefined);
+
+    const logLine = formatPage4DepositDeployLog("SEND", {
+        requestTopLevelKeys: stripped.requestTopLevelKeys.join(","),
+        hasTotalNanotons: stripped.hasTotalNanotons
+    });
+    assert.match(logLine, /requestTopLevelKeys=messages,validUntil|requestTopLevelKeys=validUntil,messages/);
+    assert.match(logLine, /hasTotalNanotons=false/);
+    assert.doesNotMatch(logLine, /1021000000/);
 
 });
 
