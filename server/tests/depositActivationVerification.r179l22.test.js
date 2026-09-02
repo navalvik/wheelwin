@@ -986,3 +986,71 @@ test("R18-S15: live-room deposit still reaches DEPOSIT_ACTIVATION_VERIFIED", asy
     assert.equal(verified[0].depositId, session.depositId);
 
 });
+
+function creatorFundSeatNanotons(plan) {
+
+    return BigInt(plan.creationFeePerSeat) + BigInt(plan.bindings[0].expectedAmount);
+
+}
+
+test("R18-S16: creator one-wallet PARTIALLY_FUNDED FundSeat → VERIFIED", async () => {
+
+    const stack = createStack();
+    const credit = creatorFundSeatNanotons(stack.plan);
+
+    stack.tonService.getters = matchingGetters(stack.plan, {
+        get_status: intGetter(DEPOSIT_ONCHAIN_STATUS.PARTIALLY_FUNDED),
+        get_paid_mask: intGetter(1),
+        get_credited_amount0: intGetter(credit),
+        get_total_credited: intGetter(credit)
+    });
+
+    const result = await stack.activation.verifyActivation(stack.session.depositId);
+
+    assert.equal(result.status, DEPOSIT_ACTIVATION_STATUS.VERIFIED);
+    assert.equal(stack.monitor.listActiveWatches().length, 1);
+
+});
+
+test("R18-S16: PARTIALLY_FUNDED with non-creator credit → REJECT", async () => {
+
+    const stack = createStack();
+    const credit = creatorFundSeatNanotons(stack.plan);
+
+    stack.tonService.getters = matchingGetters(stack.plan, {
+        get_status: intGetter(DEPOSIT_ONCHAIN_STATUS.PARTIALLY_FUNDED),
+        get_paid_mask: intGetter(2),
+        get_credited_amount1: intGetter(credit),
+        get_total_credited: intGetter(credit)
+    });
+
+    await expectReject(
+        stack.activation,
+        stack.session.depositId,
+        DEPOSIT_ACTIVATION_ERROR_CODES.INITIAL_STATE_INVALID
+    );
+
+    assert.equal(stack.monitor.listActiveWatches().length, 0);
+
+});
+
+test("R18-S16: PARTIALLY_FUNDED with wrong creator credit → REJECT", async () => {
+
+    const stack = createStack();
+
+    stack.tonService.getters = matchingGetters(stack.plan, {
+        get_status: intGetter(DEPOSIT_ONCHAIN_STATUS.PARTIALLY_FUNDED),
+        get_paid_mask: intGetter(1),
+        get_credited_amount0: intGetter(BigInt(stack.plan.bindings[0].expectedAmount)),
+        get_total_credited: intGetter(BigInt(stack.plan.bindings[0].expectedAmount))
+    });
+
+    await expectReject(
+        stack.activation,
+        stack.session.depositId,
+        DEPOSIT_ACTIVATION_ERROR_CODES.INITIAL_STATE_INVALID
+    );
+
+    assert.equal(stack.monitor.listActiveWatches().length, 0);
+
+});

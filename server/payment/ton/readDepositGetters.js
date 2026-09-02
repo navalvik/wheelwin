@@ -154,9 +154,98 @@ export async function readFullDepositGetters(tonService, address) {
 
 }
 
-export function assertInitialMutableState(getters) {
+/**
+ * First bound Deposit seat is the Room Creator (projectDepositForPlayer).
+ * paidMask bit 0 is that seat. Not a player nickname or wallet.
+ */
+export const CREATOR_SEAT_INDEX = 0;
+export const CREATOR_SEAT_PAID_MASK = 1 << CREATOR_SEAT_INDEX;
 
-    const zero = getZeroFriendly();
+function toNanoBigInt(value) {
+
+    if (value == null || value === "") {
+
+        return null;
+
+    }
+
+    if (typeof value === "bigint") {
+
+        return value;
+
+    }
+
+    if (typeof value === "number") {
+
+        if (!Number.isFinite(value) || !Number.isInteger(value)) {
+
+            return null;
+
+        }
+
+        return BigInt(value);
+
+    }
+
+    if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+
+        return BigInt(value.trim());
+
+    }
+
+    return null;
+
+}
+
+/**
+ * Creator FundSeat nanotons from the authoritative activation plan:
+ * expectedStake of seat 0 + creationFeePerSeat. Not a hardcoded amount.
+ */
+export function creatorFundSeatNanotonsFromPlan(plan) {
+
+    if (!plan || typeof plan !== "object") {
+
+        throw new Error("activation plan is required for creator FundSeat amount");
+
+    }
+
+    const fee = toNanoBigInt(plan.creationFeePerSeat);
+
+    if (fee == null || fee <= 0n) {
+
+        throw new Error("creationFeePerSeat is required for creator FundSeat amount");
+
+    }
+
+    const stake0 = toNanoBigInt(
+        plan.bindings?.[CREATOR_SEAT_INDEX]?.expectedStake
+            ?? plan.bindings?.[CREATOR_SEAT_INDEX]?.expectedAmount
+            ?? plan.expectedStake0
+    );
+
+    if (stake0 == null || stake0 <= 0n) {
+
+        throw new Error("creator expectedStake is required for creator FundSeat amount");
+
+    }
+
+    return stake0 + fee;
+
+}
+
+function isReleasedToZero(releasedTo) {
+
+    if (!releasedTo) {
+
+        return true;
+
+    }
+
+    return releasedTo === getZeroFriendly();
+
+}
+
+export function assertInitialMutableState(getters) {
 
     const failures = [];
 
@@ -189,7 +278,7 @@ export function assertInitialMutableState(getters) {
 
     }
 
-    if (getters.releasedTo && getters.releasedTo !== zero) {
+    if (!isReleasedToZero(getters.releasedTo)) {
 
         failures.push(`releasedTo=${getters.releasedTo}`);
 
@@ -202,6 +291,102 @@ export function assertInitialMutableState(getters) {
     }
 
     return true;
+
+}
+
+/**
+ * Legitimate creator one-wallet FundSeat after deploy:
+ * PARTIALLY_FUNDED, only creator seat paid, creditedAmount0 == plan FundSeat.
+ * Other partial/funded shapes remain invalid.
+ */
+export function isCreatorOneWalletFundSeatMutableState(getters, plan) {
+
+    if (!getters || typeof getters !== "object" || !plan) {
+
+        return false;
+
+    }
+
+    let expectedCredit;
+
+    try {
+
+        expectedCredit = creatorFundSeatNanotonsFromPlan(plan);
+
+    } catch {
+
+        return false;
+
+    }
+
+    if (Number(getters.status) !== 2) {
+
+        return false;
+
+    }
+
+    if (Number(getters.paidMask) !== CREATOR_SEAT_PAID_MASK) {
+
+        return false;
+
+    }
+
+    const credited0 = toNanoBigInt(getters.creditedAmount0);
+    const credited1 = toNanoBigInt(getters.creditedAmount1) ?? 0n;
+    const credited2 = toNanoBigInt(getters.creditedAmount2) ?? 0n;
+    const total = toNanoBigInt(getters.totalCredited);
+    const surplus = toNanoBigInt(getters.surplusNano) ?? 0n;
+    const refundMask = Number(getters.refundMask);
+
+    if (credited0 !== expectedCredit) {
+
+        return false;
+
+    }
+
+    if (credited1 !== 0n || credited2 !== 0n) {
+
+        return false;
+
+    }
+
+    if (total !== expectedCredit) {
+
+        return false;
+
+    }
+
+    if (surplus !== 0n || refundMask !== 0) {
+
+        return false;
+
+    }
+
+    return isReleasedToZero(getters.releasedTo);
+
+}
+
+/**
+ * Mutable state that may become VERIFIED: empty AWAITING_FUNDS, or the
+ * creator one-wallet FundSeat shape derived from the activation plan.
+ */
+export function assertActivableMutableState(getters, plan) {
+
+    try {
+
+        return assertInitialMutableState(getters);
+
+    } catch (emptyError) {
+
+        if (isCreatorOneWalletFundSeatMutableState(getters, plan)) {
+
+            return true;
+
+        }
+
+        throw emptyError;
+
+    }
 
 }
 
