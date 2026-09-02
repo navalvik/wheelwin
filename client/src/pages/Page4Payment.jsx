@@ -854,9 +854,11 @@ export default function Page4Payment({ onNavigate }) {
                 playerIndex
             });
 
+            const { totalNanotons, ...tonConnectTransaction } = transactionObject;
+
             logPage4DepositDeploy("BUILD", {
                 action: "entry",
-                amount: transactionObject.totalNanotons,
+                amount: totalNanotons,
                 messageCount: transactionObject.messages.length,
                 packageDeployValueNanotons: components.includeDeploy
                     ? depositProjection.package.deployValueNanotons
@@ -867,20 +869,20 @@ export default function Page4Payment({ onNavigate }) {
 
             logPage4DepositDeploy("SEND", {
                 action: "entry",
-                amount: transactionObject.totalNanotons,
-                validUntil: transactionObject.validUntil,
-                messageCount: transactionObject.messages.length
+                amount: totalNanotons,
+                validUntil: tonConnectTransaction.validUntil,
+                messageCount: tonConnectTransaction.messages.length
             });
 
             sendAttempted = true;
 
-            const walletResult = await tonConnectUI.sendTransaction(transactionObject);
+            const walletResult = await tonConnectUI.sendTransaction(tonConnectTransaction);
             const described = describeTonConnectResult(walletResult);
 
             logPage4DepositDeploy("WALLET_RESULT", {
                 action: "entry",
                 outcome: "USER_CONFIRMED",
-                amount: transactionObject.totalNanotons,
+                amount: totalNanotons,
                 messageCount: transactionObject.messages.length,
                 ...described
             });

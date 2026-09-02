@@ -489,6 +489,18 @@ test("R18-S16: Page4 entry handler sends one TonConnect transaction", () => {
     );
     assert.match(PAGE4_SOURCE, /buildEntryPaymentTransaction/);
     assert.match(PAGE4_SOURCE, /PAYMENT_CONFIRM_INTENT/);
+    assert.match(
+        PAGE4_SOURCE,
+        /const \{ totalNanotons, \.\.\.tonConnectTransaction \} = transactionObject/
+    );
+    assert.match(
+        PAGE4_SOURCE,
+        /tonConnectUI\.sendTransaction\(tonConnectTransaction\)/
+    );
+    assert.doesNotMatch(
+        PAGE4_SOURCE,
+        /tonConnectUI\.sendTransaction\(transactionObject\)/
+    );
 
 });
 
