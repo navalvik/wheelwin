@@ -25,7 +25,7 @@ import {
     hashRoomId,
     bufferToUint256
 } from "../payment/ton/depositContractHashes.js";
-import { assertInitialMutableState } from "../payment/ton/readDepositGetters.js";
+import { assertActivableMutableState } from "../payment/ton/readDepositGetters.js";
 import { assertVerifiedDepositArtifact } from "../payment/ton/verifyDepositArtifact.js";
 import {
     InvalidResponseError,
@@ -414,7 +414,7 @@ export class DepositActivationVerificationCoordinator {
 
         try {
 
-            assertInitialMutableState(getters);
+            assertActivableMutableState(getters, plan);
 
         } catch (error) {
 

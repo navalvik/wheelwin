@@ -476,7 +476,13 @@ test("R18-S16: player 2/3 one-wallet entry requires verified deposit", () => {
         PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT
     );
 
+    assert.equal(
+        shouldShowEntryAction(PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT),
+        true
+    );
+
 });
+
 
 test("R18-S16: Page4 entry handler sends one TonConnect transaction", () => {
 
