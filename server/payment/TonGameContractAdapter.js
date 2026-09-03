@@ -386,7 +386,10 @@ export class TonGameContractAdapter {
                 });
 
                 const activation = await this._waitUntilEscrowActive(
-                    contractAddress
+                    contractAddress,
+                    {
+                        expectedCodeHash: gameEscrowDebug.codeHash
+                    }
                 );
 
                 printDeployBlock("ADAPTER RPC — waitUntilEscrowActive RESPONSE", {
@@ -410,6 +413,16 @@ export class TonGameContractAdapter {
                     });
 
                     return result;
+
+                }
+
+                if (activation.deploymentTxId) {
+
+                    deploymentTxId = activation.deploymentTxId;
+
+                    setGameEscrowDeployDebug({
+                        transactionHash: deploymentTxId
+                    });
 
                 }
 
@@ -1467,10 +1480,14 @@ export class TonGameContractAdapter {
     }
 
     /**
-     * Poll until escrow account is active on-chain (live broadcast path only).
+     * Poll until the expected GameEscrow is actually deployed on-chain.
+     * Account `active` + expected code + a successful deployment transaction
+     * are required. Deploy-wallet seqno is not used as proof here.
      * Transient RPC errors are retried until timeout.
      */
-    async _waitUntilEscrowActive(contractAddress) {
+    async _waitUntilEscrowActive(contractAddress, {
+        expectedCodeHash = null
+    } = {}) {
 
         const expected = String(contractAddress ?? "").trim();
 
@@ -1499,20 +1516,62 @@ export class TonGameContractAdapter {
             : DEFAULT_ESCROW_ACTIVATION_TIMEOUT_MS;
 
         const deadline = Date.now() + timeoutMs;
+        const normalizedExpectedCode = normalizeHex(expectedCodeHash);
 
         while (Date.now() < deadline) {
 
             try {
 
-                const active = await this.contractExists(expected);
+                const account = await this._service().getAccount(expected);
+                const evaluation = evaluateEscrowDeployAccount(account, {
+                    expectedCodeHash: normalizedExpectedCode
+                });
 
-                if (active === true) {
+                if (evaluation.terminal === true) {
 
-                    this._logInfo(
-                        `TON escrow active | address=${expected}`
+                    this._logError(
+                        `TON escrow deploy rejected | address=${expected} | `
+                            + `reason=${evaluation.reason}`
                     );
 
-                    return { ok: true };
+                    return {
+                        ok: false,
+                        reason: evaluation.reason
+                    };
+
+                }
+
+                if (evaluation.accountReady === true) {
+
+                    const deployTx = await this._findEscrowDeploymentTx(expected);
+
+                    if (deployTx.ok === true) {
+
+                        this._logInfo(
+                            `TON escrow deployed | address=${expected} | `
+                                + `tx=${deployTx.deploymentTxId}`
+                        );
+
+                        return {
+                            ok: true,
+                            deploymentTxId: deployTx.deploymentTxId
+                        };
+
+                    }
+
+                    if (evaluation.deploymentTxId) {
+
+                        this._logInfo(
+                            `TON escrow deployed | address=${expected} | `
+                                + `tx=${evaluation.deploymentTxId}`
+                        );
+
+                        return {
+                            ok: true,
+                            deploymentTxId: evaluation.deploymentTxId
+                        };
+
+                    }
 
                 }
 
@@ -1546,6 +1605,64 @@ export class TonGameContractAdapter {
             ok: false,
             reason: "escrow_activation_timeout"
         };
+
+    }
+
+    async _findEscrowDeploymentTx(contractAddress) {
+
+        if (typeof this._service().getTransactions !== "function") {
+
+            return { ok: false };
+
+        }
+
+        try {
+
+            const transactions = await this._service().getTransactions(
+                contractAddress,
+                { limit: 20, archival: true }
+            );
+            const list = Array.isArray(transactions)
+                ? transactions
+                : (transactions?.transactions ?? []);
+            const match = list.find((tx) => isSuccessfulEscrowDeployTx(tx));
+
+            if (!match) {
+
+                return { ok: false };
+
+            }
+
+            const hash = match?.transaction_id?.hash
+                ?? match?.txHash
+                ?? match?.hash
+                ?? null;
+
+            if (!hash) {
+
+                return { ok: false };
+
+            }
+
+            return {
+                ok: true,
+                deploymentTxId: String(hash)
+            };
+
+        } catch (error) {
+
+            if (!isTransientConfirmationError(error)) {
+
+                this._logError(
+                    `TON escrow deploy tx lookup error | address=${contractAddress} | `
+                        + `${error?.message ?? error}`
+                );
+
+            }
+
+            return { ok: false };
+
+        }
 
     }
 
@@ -1615,16 +1732,42 @@ export class TonGameContractAdapter {
             network: preflight.network
         });
 
-        const txId = await this._sendOracleMessage({
-            operation: "DEPLOY",
-            to: escrow.address,
-            init: escrow.stateInit,
-            body: beginCell().endCell(),
-            valueTon: resolveOracleValueTon("DEPLOY"),
-            bounce: false,
-            // R7.70C2.6 — confirm on-chain before INIT_GAME/OPEN_PAYMENTS.
-            resolveAccountTxHash: true
-        });
+        let txId = null;
+
+        try {
+
+            txId = await this._sendOracleMessage({
+                operation: "DEPLOY",
+                to: escrow.address,
+                init: escrow.stateInit,
+                body: beginCell().endCell(),
+                valueTon: resolveOracleValueTon("DEPLOY"),
+                bounce: false,
+                // R7.70C2.6 — seqno/tx lookup remain auxiliary. GameEscrow
+                // account confirmation in _waitUntilEscrowActive is authoritative.
+                resolveAccountTxHash: true
+            });
+
+        } catch (error) {
+
+            if (!isPostBroadcastDeployConfirmationError(error)) {
+
+                throw error;
+
+            }
+
+            pushTonDeployDebugStage("DEPLOY_AUXILIARY_CONFIRMATION_MISS", {
+                operation: "DEPLOY",
+                confirmationStatus: "AUXILIARY_MISS",
+                failureReason: error?.message ?? String(error)
+            });
+
+            this._logError(
+                "TON DEPLOY sendBoc accepted; auxiliary seqno/tx confirmation "
+                    + `missed | ${error?.message ?? error}`
+            );
+
+        }
 
         return {
             ok: true,
@@ -2421,6 +2564,228 @@ function readTonHttpStatus(error) {
 function isTransientConfirmationError(error) {
 
     return isInfrastructureFailure(error);
+
+}
+
+/**
+ * sendBoc already succeeded. Seqno/tx-hash lookup timed out — not proof that
+ * GameEscrow was never deployed. Caller must confirm the destination account.
+ */
+function isPostBroadcastDeployConfirmationError(error) {
+
+    const message = String(error?.message ?? error);
+
+    return message.includes("deployer_seqno_confirmation_timeout")
+        || message.includes("settlement_tx_lookup_timeout");
+
+}
+
+const ZERO_TX_HASH = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+function normalizeHex(value) {
+
+    if (typeof value !== "string") {
+
+        return null;
+
+    }
+
+    const trimmed = value.trim().toLowerCase();
+
+    return trimmed || null;
+
+}
+
+function accountCodeHashHex(account) {
+
+    const code = account?.code;
+
+    if (!code) {
+
+        return null;
+
+    }
+
+    if (typeof code.hash === "function") {
+
+        try {
+
+            return code.hash().toString("hex");
+
+        } catch {
+
+            return null;
+
+        }
+
+    }
+
+    if (typeof code !== "string" || !code.trim()) {
+
+        return null;
+
+    }
+
+    try {
+
+        const cells = Cell.fromBoc(Buffer.from(code.trim(), "base64"));
+
+        if (cells[0] && typeof cells[0].hash === "function") {
+
+            return cells[0].hash().toString("hex");
+
+        }
+
+    } catch {
+
+        // TonCenter may return a raw cell BOC; fall through to Cell.fromBase64.
+
+    }
+
+    try {
+
+        return Cell.fromBase64(code.trim()).hash().toString("hex");
+
+    } catch {
+
+        return null;
+
+    }
+
+}
+
+function readLastTransactionId(account) {
+
+    const id = account?.last_transaction_id
+        ?? account?.lastTransactionId
+        ?? null;
+
+    if (!id || typeof id !== "object") {
+
+        return {
+            lt: null,
+            hash: null,
+            present: false
+        };
+
+    }
+
+    const lt = id.lt == null ? null : String(id.lt);
+    const hash = id.hash == null ? null : String(id.hash);
+    const hashAbsent = !hash
+        || hash === ZERO_TX_HASH
+        || /^A+=*$/i.test(hash);
+    const ltAbsent = !lt || lt === "0";
+
+    return {
+        lt,
+        hash,
+        present: !ltAbsent || !hashAbsent
+    };
+
+}
+
+function evaluateEscrowDeployAccount(account, { expectedCodeHash = null } = {}) {
+
+    const state = String(account?.state ?? account?.status ?? "")
+        .trim()
+        .toLowerCase();
+
+    if (state === "frozen") {
+
+        return {
+            accountReady: false,
+            terminal: true,
+            reason: "escrow_frozen"
+        };
+
+    }
+
+    if (state !== "active") {
+
+        return {
+            accountReady: false,
+            terminal: false,
+            reason: "escrow_not_active"
+        };
+
+    }
+
+    const onChainCodeHash = normalizeHex(accountCodeHashHex(account));
+
+    if (expectedCodeHash) {
+
+        if (!onChainCodeHash) {
+
+            return {
+                accountReady: false,
+                terminal: false,
+                reason: "escrow_code_missing"
+            };
+
+        }
+
+        if (onChainCodeHash !== expectedCodeHash) {
+
+            return {
+                accountReady: false,
+                terminal: true,
+                reason: "escrow_code_mismatch"
+            };
+
+        }
+
+    }
+
+    const lastTx = readLastTransactionId(account);
+
+    return {
+        accountReady: true,
+        terminal: false,
+        deploymentTxId: lastTx.present ? (lastTx.hash || `lt_${lastTx.lt}`) : null
+    };
+
+}
+
+function isSuccessfulEscrowDeployTx(tx) {
+
+    if (!tx || typeof tx !== "object") {
+
+        return false;
+
+    }
+
+    if (tx.aborted === true) {
+
+        return false;
+
+    }
+
+    const compute = tx.compute_ph ?? tx.description?.computePhase ?? null;
+
+    if (compute && compute.success === false) {
+
+        return false;
+
+    }
+
+    if (tx.success === false) {
+
+        return false;
+
+    }
+
+    const exitCode = compute?.exit_code ?? compute?.exitCode;
+
+    if (exitCode != null && Number(exitCode) !== 0 && Number(exitCode) !== 1) {
+
+        return false;
+
+    }
+
+    const inMsg = tx.in_msg ?? tx.inMessage ?? null;
+
+    return Boolean(inMsg);
 
 }
 

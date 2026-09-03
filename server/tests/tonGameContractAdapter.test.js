@@ -35,7 +35,10 @@ import {
     serializeSettleBody,
     serializeSweepResidualBody
 } from "../payment/ton/gameContract/GameContractSerializer.js";
-import { buildGameEscrowWallet } from "../payment/ton/buildGameEscrowStateInit.js";
+import {
+    buildGameEscrowWallet,
+    loadGameEscrowCodeCell
+} from "../payment/ton/buildGameEscrowStateInit.js";
 import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
 import { ContractNotFoundError } from "../payment/TonGameContractAdapter.js";
 
@@ -138,6 +141,21 @@ function createMockTonService({
             return client.runMethod(address, method);
 
         }
+    };
+
+}
+
+function deployedGameEscrowAccount(overrides = {}) {
+
+    return {
+        state: "active",
+        balance: "500000000",
+        code: loadGameEscrowCodeCell().toBoc().toString("base64"),
+        last_transaction_id: {
+            lt: "1",
+            hash: "escrow-deploy-tx"
+        },
+        ...overrides
     };
 
 }
@@ -984,10 +1002,17 @@ async function main() {
 
                 accountCalls += 1;
 
-                return {
-                    state: accountCalls >= 2 ? "active" : "uninitialized",
-                    balance: "0"
-                };
+                return accountCalls >= 2
+                    ? deployedGameEscrowAccount()
+                    : {
+                        state: "uninitialized",
+                        balance: "0",
+                        code: "",
+                        last_transaction_id: {
+                            lt: "0",
+                            hash: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+                        }
+                    };
 
             },
             async getBalance() {
@@ -1014,6 +1039,7 @@ async function main() {
 
         const adapter = createAdapter(tonService, {
             deployerMnemonic: TEST_MNEMONIC,
+            gameEscrowMode: "game",
             pollIntervalMs: 200,
             escrowActivationTimeoutMs: 3000,
             settlementTxLookupTimeoutMs: 2000,
@@ -1155,6 +1181,7 @@ async function main() {
 
         const adapter = createAdapter(tonService, {
             deployerMnemonic: TEST_MNEMONIC,
+            gameEscrowMode: "game",
             pollIntervalMs: 200,
             escrowActivationTimeoutMs: 400,
             settlementTxLookupTimeoutMs: 2000,
@@ -1262,7 +1289,7 @@ async function main() {
 
                 }
 
-                return { state: "active", balance: "500000000" };
+                return deployedGameEscrowAccount();
 
             },
             async getBalance() {
@@ -1289,6 +1316,7 @@ async function main() {
 
         const adapter = createAdapter(tonService, {
             deployerMnemonic: TEST_MNEMONIC,
+            gameEscrowMode: "game",
             pollIntervalMs: 200,
             escrowActivationTimeoutMs: 3000,
             settlementTxLookupTimeoutMs: 2000,

@@ -19,6 +19,7 @@ import {
     DEPLOYER_MIN_BALANCE_REQUIRED_TON
 } from "../payment/ton/deployerBalancePolicy.js";
 import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
+import { loadGameEscrowCodeCell } from "../payment/ton/buildGameEscrowStateInit.js";
 
 const TEST_MNEMONIC = [
     "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
@@ -91,9 +92,28 @@ function createDeployTonService({
 
                 accountCalls += 1;
 
+                if (accountCalls < 2) {
+
+                    return {
+                        state: "uninitialized",
+                        balance: String(balanceNano),
+                        code: "",
+                        last_transaction_id: {
+                            lt: "0",
+                            hash: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+                        }
+                    };
+
+                }
+
                 return {
-                    state: accountCalls >= 2 ? "active" : "uninitialized",
-                    balance: String(balanceNano)
+                    state: "active",
+                    balance: String(balanceNano),
+                    code: loadGameEscrowCodeCell().toBoc().toString("base64"),
+                    last_transaction_id: {
+                        lt: "1",
+                        hash: "preflight-escrow-tx"
+                    }
                 };
 
             },
@@ -235,6 +255,7 @@ async function runDeployAdapterTests() {
                 apiKey: null,
                 deployerMnemonic: TEST_MNEMONIC,
                 network: "testnet",
+                gameEscrowMode: "game",
                 pollIntervalMs: 200,
                 escrowActivationTimeoutMs: 3000
             },
