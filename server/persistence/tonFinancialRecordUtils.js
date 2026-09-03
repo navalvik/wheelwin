@@ -182,6 +182,43 @@ export function buildRecordEnvelope({
 
 }
 
+/**
+ * Narrow exception: a terminal SETTLEMENT_FAILED envelope may move to
+ * SETTLEMENT_COMPLETED only when a confirmed on-chain hash is attached and
+ * the original failure is preserved on recoveryMetadata.
+ */
+export function isFailedSettlementOnChainRecovery(existing, payload = {}, metadata = {}) {
+
+    if (existing?.recordType !== TON_FINANCIAL_RECORD_TYPES.SETTLEMENT) {
+
+        return false;
+
+    }
+
+    if (existing.status !== "SETTLEMENT_FAILED") {
+
+        return false;
+
+    }
+
+    const nextStatus = metadata.status ?? payload.status;
+
+    if (nextStatus !== "SETTLEMENT_COMPLETED") {
+
+        return false;
+
+    }
+
+    const hash = payload.settlementTransactionHash
+        ?? payload.settlementTxHash
+        ?? null;
+
+    const originalStatus = payload.recoveryMetadata?.originalStatus ?? null;
+
+    return Boolean(hash) && originalStatus === "SETTLEMENT_FAILED";
+
+}
+
 export function isImmutableRecord(recordType, status = null) {
 
     if (IMMUTABLE_ON_CREATE_TYPES.includes(recordType)) {

@@ -346,6 +346,91 @@ async function main() {
         console.log("  settlement immutability: OK");
     }
 
+    // --- SETTLEMENT_FAILED may complete only with confirmed hash + original failure ---
+
+    {
+        const persistence = createPersistence(dataDir);
+
+        persistence.createSettlementRecord(
+            {
+                gameId: "game-failed-recover",
+                contractId: "contract-1",
+                status: "SETTLEMENT_FAILED",
+                winnerId: "p1",
+                winnerAmount: 2.85,
+                organizerAmount: 0.15,
+                settlementTransactionHash: null,
+                reason: "settle_failed"
+            },
+            createMetadata({
+                gameId: "game-failed-recover",
+                status: "SETTLEMENT_FAILED"
+            })
+        );
+
+        assert.throws(
+            () => persistence.updateSettlementRecord(
+                "game-failed-recover",
+                {
+                    status: "SETTLEMENT_COMPLETED",
+                    settlementTransactionHash: "5kHLAKPh04SYY8LlOh18gESVSqHzLdTSCmMXy8tEQxs="
+                },
+                createMetadata({
+                    gameId: "game-failed-recover",
+                    status: "SETTLEMENT_COMPLETED"
+                })
+            ),
+            ImmutableRecordError,
+            "FAILED→COMPLETED without recoveryMetadata must stay immutable"
+        );
+
+        const recovered = persistence.updateSettlementRecord(
+            "game-failed-recover",
+            {
+                gameId: "game-failed-recover",
+                contractId: "contract-1",
+                status: "SETTLEMENT_COMPLETED",
+                winnerId: "p1",
+                winnerAmount: 2.85,
+                organizerAmount: 0.15,
+                settlementTransactionHash: "5kHLAKPh04SYY8LlOh18gESVSqHzLdTSCmMXy8tEQxs=",
+                settlementTxHash: "5kHLAKPh04SYY8LlOh18gESVSqHzLdTSCmMXy8tEQxs=",
+                reason: "settle_failed",
+                recoveryMetadata: {
+                    originalStatus: "SETTLEMENT_FAILED"
+                }
+            },
+            createMetadata({
+                gameId: "game-failed-recover",
+                status: "SETTLEMENT_COMPLETED"
+            })
+        );
+
+        assert.equal(recovered.status, "SETTLEMENT_COMPLETED");
+        assert.equal(recovered.immutable, true);
+        assert.equal(
+            recovered.payload.settlementTransactionHash,
+            "5kHLAKPh04SYY8LlOh18gESVSqHzLdTSCmMXy8tEQxs="
+        );
+        assert.equal(
+            recovered.payload.recoveryMetadata.originalStatus,
+            "SETTLEMENT_FAILED"
+        );
+
+        assert.throws(
+            () => persistence.updateSettlementRecord(
+                "game-failed-recover",
+                { status: "SETTLEMENT_FAILED" },
+                createMetadata({ gameId: "game-failed-recover" })
+            ),
+            ImmutableRecordError
+        );
+
+        persistence.shutdown();
+
+        console.log("  settlement failed on-chain recovery: OK");
+    }
+
     // --- archive record ---
 
     {

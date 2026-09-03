@@ -94,7 +94,10 @@ import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
-import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
+import {
+    ContractSettlementManager,
+    DU4W_RECOVERED_ON_CHAIN_SETTLEMENT
+} from "./payment/ContractSettlementManager.js";
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
 import { AudioRegistryService } from "./console/configuration/AudioRegistryService.js";
 import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
@@ -1745,6 +1748,10 @@ class WheelWinApplication {
         });
 
         this._logger.startupLine("TonFinancialRecovery");
+
+        await this._contractSettlementManager.reconcileRecoveredOnChainSettlement(
+            DU4W_RECOVERED_ON_CHAIN_SETTLEMENT
+        );
 
         // R17.9L.6 — DepositFull → DeploymentAuthorization VALID automation.
         // No TON and no GameContractManager calls; only ensures VALID authorizations exist.

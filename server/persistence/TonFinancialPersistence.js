@@ -35,6 +35,7 @@ import {
 import {
     buildRecordEnvelope,
     cloneEnvelopeForUpdate,
+    isFailedSettlementOnChainRecovery,
     resolveRecordId,
     validateRecordEnvelope
 } from "./tonFinancialRecordUtils.js";
@@ -187,7 +188,11 @@ export class TonFinancialPersistence {
 
         if (existing.immutable) {
 
-            throw new ImmutableRecordError(recordType, recordId);
+            if (!isFailedSettlementOnChainRecovery(existing, payload, metadata)) {
+
+                throw new ImmutableRecordError(recordType, recordId);
+
+            }
 
         }
 

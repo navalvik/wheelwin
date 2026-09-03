@@ -888,7 +888,8 @@ export class GameContractManager {
 
         }
 
-        if (contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_CONFIRMED) {
+        if (contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_CONFIRMED
+            || contract.status === GAME_CONTRACT_STATUS.SETTLEMENT_FAILED) {
 
             return this._transitionContract(
                 contract,

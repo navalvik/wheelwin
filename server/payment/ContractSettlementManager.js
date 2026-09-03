@@ -46,6 +46,25 @@ export const ON_CHAIN_SETTLEMENT_PROBE_STATUS = Object.freeze({
     UNKNOWN: "UNKNOWN"
 });
 
+/**
+ * One-game facts for the already-recovered du4w on-chain settlement.
+ * Does not broadcast. Uses the confirmed escrow payout hash only.
+ */
+export const DU4W_RECOVERED_ON_CHAIN_SETTLEMENT = Object.freeze({
+    roomId: "du4w",
+    gameId: "game_edee03be-c042-4cf5-befb-5dfcd684f36c",
+    winnerId: "player_0a1506f0-26f2-48d1-9660-8ae862b82182",
+    winnerPayoutGram: 2.85,
+    ownerPayoutGram: 0.15,
+    escrowAddress: "EQBWeMKZpNcixJiG-JOLE-9qpQ1hp6HXyEiLxgkoCew3914p",
+    settlementTransactionHash: "5kHLAKPh04SYY8LlOh18gESVSqHzLdTSCmMXy8tEQxs=",
+    originalStatus: SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED,
+    originalFailure: "TonCenter HTTP 429",
+    originalReason: "settle_failed",
+    probeStatus: "READY",
+    onChainStatus: "SETTLED"
+});
+
 const ON_CHAIN_EXPLICITLY_NOT_SETTLED = new Set([
     GAME_CONTRACT_ON_CHAIN_STATUS.UNINITIALIZED,
     GAME_CONTRACT_ON_CHAIN_STATUS.DEPLOYED,
@@ -296,6 +315,210 @@ export class ContractSettlementManager {
     getSettlementSession(gameId) {
 
         return this._byGameId.get(gameId) ?? null;
+
+    }
+
+    /**
+     * Record a confirmed on-chain settlement after SETTLEMENT_FAILED.
+     * Preserves the original failure on the same record. Does not broadcast.
+     */
+    async reconcileRecoveredOnChainSettlement(facts = {}) {
+
+        const gameId = facts.gameId;
+
+        const settlementTransactionHash = facts.settlementTransactionHash ?? null;
+
+        if (!gameId || !settlementTransactionHash) {
+
+            return null;
+
+        }
+
+        let session = this._byGameId.get(gameId) ?? null;
+
+        if (!session) {
+
+            const record = this._tryLoadSettlementRecord(gameId);
+
+            if (!record) {
+
+                this._log(
+                    `Settlement reconcile skipped — no persisted session | `
+                        + `gameId=${gameId}`
+                );
+
+                return null;
+
+            }
+
+            session = SettlementSession.fromRecord(record);
+
+        }
+
+        if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED) {
+
+            if (
+                session.settlementTransactionHash
+                && session.settlementTransactionHash !== settlementTransactionHash
+            ) {
+
+                this._logger.error(
+                    `Settlement reconcile refused — hash mismatch | `
+                        + `gameId=${gameId} | `
+                        + `existing=${session.settlementTransactionHash} | `
+                        + `given=${settlementTransactionHash}`
+                );
+
+                return session;
+
+            }
+
+            this._rememberRecoveredSettlement(session, settlementTransactionHash);
+
+            return session;
+
+        }
+
+        if (session.status !== SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED) {
+
+            this._logger.error(
+                `Settlement reconcile refused — status=${session.status} | `
+                    + `gameId=${gameId}`
+            );
+
+            return session;
+
+        }
+
+        const winnerAmount = facts.winnerPayoutGram ?? session.prizeAmount;
+        const organizerAmount = facts.ownerPayoutGram ?? session.organizerAmount;
+        const originalReason = session.reason ?? facts.originalReason ?? null;
+        const originalFailedAt = session.failedAt ?? null;
+
+        if (winnerAmount != null) {
+
+            session.prizeAmount = winnerAmount;
+
+        }
+
+        if (organizerAmount != null) {
+
+            session.organizerAmount = organizerAmount;
+
+        }
+
+        if (facts.winnerId && !session.winnerId) {
+
+            session.winnerId = facts.winnerId;
+
+        }
+
+        session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED, {
+            settlementTransactionHash,
+            completedAt: Date.now(),
+            recoveryMetadata: Object.freeze({
+                originalStatus: SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED,
+                originalReason,
+                originalFailedAt,
+                originalFailure: facts.originalFailure ?? "TonCenter HTTP 429",
+                httpStatus: 429,
+                recoveredBy: "on_chain_settlement_recovery",
+                probeStatus: facts.probeStatus ?? "READY",
+                onChainStatus: facts.onChainStatus ?? "SETTLED",
+                winnerAmount,
+                organizerAmount,
+                settlementTransactionHash
+            })
+        });
+
+        this._rememberRecoveredSettlement(session, settlementTransactionHash);
+
+        this._persistSession(session, "update");
+
+        try {
+
+            this._gameContractManager.completeContract?.(session.roomId);
+
+        } catch (error) {
+
+            this._logger.error(
+                `Settlement reconcile contract complete skipped | `
+                    + `gameId=${gameId} | ${error?.message ?? error}`
+            );
+
+        }
+
+        this._clearExpiry(gameId);
+
+        this._lastSettlementAt = Date.now();
+
+        this._audit(session.roomId, {
+            type: "SETTLEMENT_RECOVERED",
+            gameId,
+            contractId: session.contractId,
+            originalStatus: SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED,
+            originalReason,
+            originalFailure: facts.originalFailure ?? "TonCenter HTTP 429",
+            httpStatus: 429,
+            probeStatus: facts.probeStatus ?? "READY",
+            settlementTxHash: settlementTransactionHash,
+            winnerAmount,
+            organizerAmount,
+            at: Date.now()
+        });
+
+        this._audit(session.roomId, {
+            type: "SETTLEMENT_COMPLETED",
+            gameId,
+            contractId: session.contractId,
+            winnerId: session.winnerId,
+            winnerWallet: session.winnerWallet,
+            ownerWalletMasked: session.ownerWallet
+                ? maskWalletAddress(session.ownerWallet)
+                : null,
+            totalPot: session.totalPot,
+            winnerAmount: session.prizeAmount,
+            organizerAmount: session.organizerAmount,
+            settlementTxHash: session.settlementTransactionHash,
+            recovered: true,
+            at: session.completedAt,
+            finalStatus: SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED
+        });
+
+        this._emitDomain(EVENT_TYPES.SETTLEMENT_RECOVERED, session, {
+            originalStatus: SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED,
+            originalReason,
+            probeStatus: facts.probeStatus ?? "READY",
+            transactionHash: settlementTransactionHash
+        });
+
+        this._emitDomain(EVENT_TYPES.SETTLEMENT_COMPLETED, session, {
+            winnerAmount: session.prizeAmount,
+            organizerAmount: session.organizerAmount,
+            transactionHash: session.settlementTransactionHash,
+            recovered: true
+        });
+
+        this._emit(EVENT_TYPES.SETTLEMENT_COMPLETED, {
+            gameId: session.gameId,
+            roomId: session.roomId,
+            contractId: session.contractId,
+            status: SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED,
+            winnerId: session.winnerId,
+            winnerAmount: session.prizeAmount,
+            organizerAmount: session.organizerAmount,
+            settlementTxHash: session.settlementTransactionHash,
+            recovered: true,
+            timestamp: session.completedAt
+        });
+
+        this._log(
+            `SETTLEMENT_COMPLETED recovered | gameId=${gameId} | `
+                + `tx=${settlementTransactionHash} | `
+                + `original=${originalReason ?? "SETTLEMENT_FAILED"}`
+        );
+
+        return session;
 
     }
 
@@ -1324,20 +1547,32 @@ export class ContractSettlementManager {
 
         }
 
-        const existing = this._byGameId.get(gameId);
+        if (this._hasAuthoritativeSettledRecord(gameId)) {
 
-        if (existing?.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED) {
+            const settled = this._byGameId.get(gameId)
+                ?? SettlementSession.fromRecord(
+                    this._tryLoadSettlementRecord(gameId)
+                );
 
-            this._audit(existing.roomId, {
-                type: "SETTLEMENT_DUPLICATE_IGNORED",
-                gameId,
-                contractId: existing.contractId,
-                at: Date.now()
-            });
+            if (settled) {
+
+                this._byGameId.set(gameId, settled);
+
+                this._audit(settled.roomId, {
+                    type: "SETTLEMENT_DUPLICATE_IGNORED",
+                    gameId,
+                    contractId: settled.contractId,
+                    settlementTxHash: settled.settlementTransactionHash,
+                    at: Date.now()
+                });
+
+            }
 
             return;
 
         }
+
+        const existing = this._byGameId.get(gameId);
 
         if (existing?.isInProgress() || this._inFlight.has(gameId)) {
 
@@ -1425,7 +1660,7 @@ export class ContractSettlementManager {
             traceSeed
         } = ctx;
 
-        if (this._byGameId.has(gameId)) {
+        if (this._byGameId.has(gameId) || this._hasAuthoritativeSettledRecord(gameId)) {
 
             throw new SettlementAlreadyExistsError(gameId, roomId);
 
@@ -2604,6 +2839,63 @@ export class ContractSettlementManager {
         }
 
         return this._gameContractManager.getContractById?.(contractId)?.gameId ?? null;
+
+    }
+
+    _tryLoadSettlementRecord(gameId) {
+
+        if (!gameId || !this._financialPersistence?.loadSettlementRecord) {
+
+            return null;
+
+        }
+
+        try {
+
+            return this._financialPersistence.loadSettlementRecord(gameId);
+
+        } catch (error) {
+
+            if (error?.name === "RecordNotFoundError") {
+
+                return null;
+
+            }
+
+            throw error;
+
+        }
+
+    }
+
+    _hasAuthoritativeSettledRecord(gameId) {
+
+        const existing = this._byGameId.get(gameId);
+
+        if (existing?.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED) {
+
+            return true;
+
+        }
+
+        const record = this._tryLoadSettlementRecord(gameId);
+        const status = record?.payload?.status ?? record?.status;
+
+        return status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED;
+
+    }
+
+    _rememberRecoveredSettlement(session, settlementTransactionHash) {
+
+        this._byGameId.set(session.gameId, session);
+
+        if (session.settlementSessionId && settlementTransactionHash) {
+
+            this._confirmedTxHashes.add(
+                `${session.settlementSessionId}:${settlementTransactionHash}`
+            );
+
+        }
 
     }
 
