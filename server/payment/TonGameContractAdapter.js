@@ -47,7 +47,8 @@ import {
     decodeSettlementState,
     decodeTotalPaid,
     decodeWinner,
-    decodeNetwork
+    decodeNetwork,
+    decodeResidualSwept
 } from "./ton/gameContract/GameContractDeserializer.js";
 import {
     createDeployResultDTO,
@@ -56,14 +57,19 @@ import {
 import {
     ContractNotFoundError
 } from "./ton/gameContract/GameContractErrors.js";
-import { GAME_CONTRACT_GET_METHODS } from "./ton/gameContract/GameContractOpcodes.js";
+import {
+    GAME_CONTRACT_GET_METHODS,
+    GAME_CONTRACT_ON_CHAIN_STATUS,
+    GAME_ESCROW_SETTLE_GAS_RESERVE_TON
+} from "./ton/gameContract/GameContractOpcodes.js";
 import {
     serializeArchiveBody,
     serializeDeployBocPlaceholder,
     serializeEmergencyCancelBody,
     serializeGameEscrowInitGameBody,
     serializeGameEscrowOpenPaymentsBody,
-    serializeSettleBocPlaceholder
+    serializeSettleBocPlaceholder,
+    serializeSweepResidualBody
 } from "./ton/gameContract/GameContractSerializer.js";
 import { createLegacyTonServiceShim } from "./ton/gameContract/legacyTonServiceShim.js";
 import { checkDeployerBalancePreflight } from "./ton/checkDeployerBalancePreflight.js";
@@ -1129,6 +1135,163 @@ export class TonGameContractAdapter {
 
     }
 
+    async getResidualSwept(contractAddress) {
+
+        const address = this._parseAddress(contractAddress);
+
+        const stack = await this._runContractMethod(
+            address.friendly,
+            GAME_CONTRACT_GET_METHODS.RESIDUAL_SWEPT
+        );
+
+        return decodeResidualSwept(stack);
+
+    }
+
+    /**
+     * Post-SETTLE residual sweep to the existing Deploy Wallet (testnet only).
+     * Does not alter SETTLE ABI or payouts. Idempotent via get_residual_swept.
+     */
+    async sweepSettledResidual({ contractAddress }) {
+
+        if (!contractAddress) {
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "invalid_sweep_request"
+            });
+
+        }
+
+        if (!this._isTestnetNetwork()) {
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "sweep_testnet_only"
+            });
+
+        }
+
+        const recipientCheck = await this._resolveSweepRecipient();
+
+        if (!recipientCheck.ok) {
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: recipientCheck.reason
+            });
+
+        }
+
+        if (!this._canBroadcast()) {
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "sweep_broadcast_unavailable"
+            });
+
+        }
+
+        try {
+
+            const address = this._parseAddress(contractAddress);
+            const state = await this.getContractState(address.friendly);
+
+            if (state.status !== GAME_CONTRACT_ON_CHAIN_STATUS.SETTLED) {
+
+                return createOperationResultDTO({
+                    ok: false,
+                    reason: "escrow_not_settled",
+                    recipient: recipientCheck.recipient
+                });
+
+            }
+
+            let alreadySwept;
+
+            try {
+
+                alreadySwept = await this.getResidualSwept(address.friendly);
+
+            } catch (error) {
+
+                this._logError(
+                    `TON GameEscrow residual getter failed | ${error?.message ?? error}`
+                );
+
+                return createOperationResultDTO({
+                    ok: false,
+                    reason: "residual_swept_unsupported"
+                });
+
+            }
+
+            if (alreadySwept === true) {
+
+                return createOperationResultDTO({
+                    ok: true,
+                    alreadySwept: true,
+                    txId: null,
+                    recipient: recipientCheck.recipient,
+                    reserveTon: GAME_ESCROW_SETTLE_GAS_RESERVE_TON,
+                    completedAt: Date.now()
+                });
+
+            }
+
+            const balancesBefore = await this.getBalances(address.friendly);
+
+            const txId = await this._sendOracleMessage({
+                operation: "SWEEP",
+                to: address.friendly,
+                body: serializeSweepResidualBody(),
+                valueTon: resolveOracleValueTon("SWEEP"),
+                bounce: false
+            });
+
+            const confirmed = await this._waitResidualSwept(address.friendly);
+
+            if (confirmed !== true) {
+
+                return createOperationResultDTO({
+                    ok: false,
+                    reason: "sweep_unconfirmed",
+                    txId,
+                    recipient: recipientCheck.recipient
+                });
+
+            }
+
+            const balancesAfter = await this.getBalances(address.friendly);
+
+            return createOperationResultDTO({
+                ok: true,
+                alreadySwept: false,
+                txId,
+                recipient: recipientCheck.recipient,
+                residualAmountBefore: balancesBefore?.tonBalance?.toString?.()
+                    ?? null,
+                residualAmountAfter: balancesAfter?.tonBalance?.toString?.()
+                    ?? null,
+                reserveTon: GAME_ESCROW_SETTLE_GAS_RESERVE_TON,
+                completedAt: Date.now()
+            });
+
+        } catch (error) {
+
+            this._logError(
+                `TON GameEscrow residual sweep failed | ${error?.message ?? error}`
+            );
+
+            return createOperationResultDTO({
+                ok: false,
+                reason: "sweep_failed"
+            });
+
+        }
+
+    }
+
     // -------------------------------------------------------------------------
     // Internal
     // -------------------------------------------------------------------------
@@ -1182,6 +1345,124 @@ export class TonGameContractAdapter {
     _canBroadcast() {
 
         return Boolean(this._tonConfig?.deployerMnemonic);
+
+    }
+
+    _isTestnetNetwork() {
+
+        return String(this._tonConfig?.network ?? "").trim().toLowerCase() === "testnet";
+
+    }
+
+    async _deriveDeployWalletAddress() {
+
+        const mnemonic = this._tonConfig?.deployerMnemonic;
+
+        if (!mnemonic) {
+
+            return null;
+
+        }
+
+        const keyPair = await mnemonicToPrivateKey(
+            mnemonic.split(/\s+/).filter(Boolean)
+        );
+
+        return WalletContractV4.create({
+            workchain: 0,
+            publicKey: keyPair.publicKey
+        }).address.toString({
+            bounceable: true,
+            urlSafe: true
+        });
+
+    }
+
+    async _resolveSweepRecipient() {
+
+        const deployWallet = await this._deriveDeployWalletAddress();
+        const canonicalDeploy = canonicalizeTonWalletAddress(deployWallet);
+
+        if (!canonicalDeploy) {
+
+            return {
+                ok: false,
+                reason: "deploy_wallet_unavailable"
+            };
+
+        }
+
+        const oracle = canonicalizeTonWalletAddress(
+            this._tonConfig?.oracleAddress ?? null
+        );
+        const expected = canonicalizeTonWalletAddress(
+            this._tonConfig?.deployerExpectedAddress ?? null
+        );
+
+        if (oracle && oracle !== canonicalDeploy) {
+
+            return {
+                ok: false,
+                reason: "deploy_wallet_oracle_mismatch"
+            };
+
+        }
+
+        if (expected && expected !== canonicalDeploy) {
+
+            return {
+                ok: false,
+                reason: "deploy_wallet_expected_mismatch"
+            };
+
+        }
+
+        return {
+            ok: true,
+            recipient: canonicalDeploy
+        };
+
+    }
+
+    async _waitResidualSwept(contractAddress) {
+
+        const timeoutMs = Number.isFinite(this._tonConfig?.settlementTxLookupTimeoutMs)
+            ? this._tonConfig.settlementTxLookupTimeoutMs
+            : 30_000;
+        const pollMs = Number.isFinite(this._tonConfig?.settlementTxLookupPollMs)
+            ? Math.max(50, this._tonConfig.settlementTxLookupPollMs)
+            : 1_000;
+        const deadline = Date.now() + timeoutMs;
+
+        while (Date.now() < deadline) {
+
+            try {
+
+                if (await this.getResidualSwept(contractAddress) === true) {
+
+                    return true;
+
+                }
+
+            } catch {
+
+                return false;
+
+            }
+
+            await sleep(pollMs);
+
+        }
+
+        try {
+
+            return await this.getResidualSwept(contractAddress) === true;
+
+        } catch {
+
+            return false;
+
+        }
 
     }
 

@@ -8,6 +8,7 @@ export {
     storeStake,
     storeSettle,
     storeEmergencyCancel,
+    storeSweepResidual,
     STATUS_UNINITIALIZED,
     STATUS_DEPLOYED,
     STATUS_WAITING_PAYMENTS,
@@ -28,6 +29,7 @@ export type {
     Stake,
     Settle,
     EmergencyCancel,
+    SweepResidual,
     SettlementInfo,
     PlayerPaymentInfo,
     CancelStatus

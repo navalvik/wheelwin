@@ -274,6 +274,24 @@ export function decodeSettlementState(address, stackResult) {
 
 }
 
+export function decodeResidualSwept(stackResult) {
+
+    const stack = normalizeStack(stackResult);
+    const item = stack[0];
+    const value = item?.value ?? item;
+
+    if (value === true || value === false) {
+
+        return value === true;
+
+    }
+
+    const numeric = readInt(stack, 0, GAME_CONTRACT_GET_METHODS.RESIDUAL_SWEPT);
+
+    return numeric === 1 || numeric === -1;
+
+}
+
 export function decodeBalances(address, stackResult) {
 
     const stack = normalizeStack(stackResult);

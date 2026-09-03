@@ -168,14 +168,51 @@ export function createOperationResultDTO({
     ok,
     txId = null,
     completedAt = null,
-    reason = null
+    reason = null,
+    alreadySwept = null,
+    recipient = null,
+    residualAmountBefore = null,
+    residualAmountAfter = null,
+    reserveTon = null
 }) {
 
-    return Object.freeze({
+    const dto = {
         ok: ok === true,
         txId,
         completedAt,
         reason
-    });
+    };
+
+    if (alreadySwept != null) {
+
+        dto.alreadySwept = alreadySwept === true;
+
+    }
+
+    if (recipient != null) {
+
+        dto.recipient = recipient;
+
+    }
+
+    if (residualAmountBefore != null) {
+
+        dto.residualAmountBefore = residualAmountBefore;
+
+    }
+
+    if (residualAmountAfter != null) {
+
+        dto.residualAmountAfter = residualAmountAfter;
+
+    }
+
+    if (reserveTon != null) {
+
+        dto.reserveTon = reserveTon;
+
+    }
+
+    return Object.freeze(dto);
 
 }

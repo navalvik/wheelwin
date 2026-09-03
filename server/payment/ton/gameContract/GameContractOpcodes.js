@@ -12,8 +12,16 @@ export const GAME_CONTRACT_OPCODES = Object.freeze({
     OPEN_PAYMENTS: 0x4F50454E,
     STAKE: 0x5354414B,
     EMERGENCY_CANCEL: 0x43414e43,
-    ARCHIVE: 0x41524348
+    ARCHIVE: 0x41524348,
+    // Post-SETTLED residual sweep (not SETTLE ABI).
+    SWEEP_RESIDUAL: 0x53574550
 });
+
+/**
+ * Matches GameEscrow.tact SETTLE_GAS_RESERVE.
+ * Residual sweep must leave this on-chain so get_status remains callable.
+ */
+export const GAME_ESCROW_SETTLE_GAS_RESERVE_TON = "0.05";
 
 export const GAME_CONTRACT_GET_METHODS = Object.freeze({
     CONTRACT_STATE: "get_contract_state",
@@ -29,7 +37,8 @@ export const GAME_CONTRACT_GET_METHODS = Object.freeze({
     SETTLEMENT_STATE: "get_settlement_state",
     BALANCES: "get_balances",
     NETWORK: "get_network",
-    ARCHIVE_STATE: "get_archive_state"
+    ARCHIVE_STATE: "get_archive_state",
+    RESIDUAL_SWEPT: "get_residual_swept"
 });
 
 export const GAME_CONTRACT_ON_CHAIN_STATUS = Object.freeze({

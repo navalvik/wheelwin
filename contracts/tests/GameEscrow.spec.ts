@@ -121,6 +121,22 @@ describe("GameEscrow stakes", () => {
         );
     }
 
+    async function fundReady() {
+        await initGame();
+        await openPayments();
+        await stake(playerA, 0, stakeA);
+        await stake(playerB, 1, stakeB);
+        await stake(playerC, 2, stakeC);
+    }
+
+    async function sweepFrom(sender: SandboxContract<TreasuryContract>) {
+        return gameEscrow.send(
+            sender.getSender(),
+            { value: toNano("0.05") },
+            { $$type: "SweepResidual" }
+        );
+    }
+
     async function emergencyCancel(
         sender: SandboxContract<TreasuryContract>,
         reasonCode = 1n
@@ -353,6 +369,99 @@ describe("GameEscrow stakes", () => {
             success: false
         });
         expect(await gameEscrow.getGetStatus()).toEqual(STATUS_PAYMENTS_OPEN);
+    });
+
+    it("sweep after SETTLED sends residual to oracle and keeps reserve", async () => {
+        await fundReady();
+        await settleFrom(oracle);
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
+        expect(await gameEscrow.getGetResidualSwept()).toEqual(false);
+
+        const reserve = toNano("0.05");
+        const before = (await blockchain.getContract(gameEscrow.address)).balance;
+        expect(before).toBeGreaterThan(reserve);
+
+        const oracleBefore = (await blockchain.getContract(oracle.address)).balance;
+        const sweep = await sweepFrom(oracle);
+
+        expect(sweep.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: true
+        });
+        expect(sweep.transactions).toHaveTransaction({
+            from: gameEscrow.address,
+            to: oracle.address,
+            success: true
+        });
+        expect(sweep.transactions).not.toHaveTransaction({
+            from: gameEscrow.address,
+            to: winner.address
+        });
+        expect(sweep.transactions).not.toHaveTransaction({
+            from: gameEscrow.address,
+            to: owner.address
+        });
+
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
+        expect(await gameEscrow.getGetResidualSwept()).toEqual(true);
+
+        const after = (await blockchain.getContract(gameEscrow.address)).balance;
+        expect(after).toBeGreaterThan(0n);
+        expect(after).toBeLessThanOrEqual(reserve);
+
+        const oracleGain =
+            (await blockchain.getContract(oracle.address)).balance - oracleBefore;
+        expect(oracleGain).toBeGreaterThan(0n);
+    });
+
+    it("sweep rejected before SETTLED", async () => {
+        await fundReady();
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_READY);
+
+        const early = await sweepFrom(oracle);
+        expect(early.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetResidualSwept()).toEqual(false);
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_READY);
+    });
+
+    it("sweep rejected from non-oracle", async () => {
+        await fundReady();
+        await settleFrom(oracle);
+
+        const bad = await sweepFrom(owner);
+        expect(bad.transactions).toHaveTransaction({
+            from: owner.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetResidualSwept()).toEqual(false);
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
+    });
+
+    it("second sweep rejected", async () => {
+        await fundReady();
+        await settleFrom(oracle);
+        const first = await sweepFrom(oracle);
+        expect(first.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: true
+        });
+        expect(await gameEscrow.getGetResidualSwept()).toEqual(true);
+
+        const second = await sweepFrom(oracle);
+        expect(second.transactions).toHaveTransaction({
+            from: oracle.address,
+            to: gameEscrow.address,
+            success: false
+        });
+        expect(await gameEscrow.getGetStatus()).toEqual(STATUS_SETTLED);
+        expect(await gameEscrow.getGetResidualSwept()).toEqual(true);
     });
 });
 

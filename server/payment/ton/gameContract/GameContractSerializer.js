@@ -316,6 +316,25 @@ export function serializeEmergencyCancelBody({ reasonCode = 0 } = {}) {
 
 }
 
+export function serializeSweepResidualBody() {
+
+    try {
+
+        return beginCell()
+            .storeUint(GAME_CONTRACT_OPCODES.SWEEP_RESIDUAL, 32)
+            .endCell();
+
+    } catch (error) {
+
+        throw new SerializationError(
+            "Failed to serialize sweep residual body",
+            { cause: error?.message ?? null }
+        );
+
+    }
+
+}
+
 export function serializeArchiveBody() {
 
     try {

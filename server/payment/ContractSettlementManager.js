@@ -23,7 +23,7 @@ import {
     GAME_ESCROW_MODE_V4,
     resolveGameEscrowMode
 } from "./ton/buildGameEscrowStateInit.js";
-import { GAME_CONTRACT_ON_CHAIN_STATUS } from "./ton/gameContract/GameContractOpcodes.js";
+import { GAME_CONTRACT_ON_CHAIN_STATUS, GAME_ESCROW_SETTLE_GAS_RESERVE_TON } from "./ton/gameContract/GameContractOpcodes.js";
 import {
     printGameEscrowConfirmationDebug,
     printGameEscrowSettlementDebug,
@@ -164,6 +164,10 @@ export class ContractSettlementManager {
         this._confirmedTxHashes = new Set();
 
         this._inFlight = new Set();
+
+        this._residualSweepInFlight = new Set();
+
+        this._residualSweepConfirmed = new Set();
 
         this._lastSettlementAt = null;
 
@@ -790,7 +794,58 @@ export class ContractSettlementManager {
 
         }
 
+        this._retryUnconfirmedResidualSweeps();
+
         return Object.freeze({ attempted, resumed, skipped });
+
+    }
+
+    _retryUnconfirmedResidualSweeps() {
+
+        if (!this._isTestnetResidualSweepEnabled()) {
+
+            return;
+
+        }
+
+        const seen = new Set();
+
+        for (const session of this._byGameId.values()) {
+
+            if (session?.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED) {
+
+                seen.add(session.gameId);
+                void this._maybeSweepSettledResidual(session);
+
+            }
+
+        }
+
+        const records = this._financialPersistence?.listActive?.(
+            TON_FINANCIAL_RECORD_TYPES.SETTLEMENT
+        ) ?? [];
+
+        for (const record of records) {
+
+            try {
+
+                const session = SettlementSession.fromRecord(record);
+
+                if (
+                    session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED
+                    && !seen.has(session.gameId)
+                ) {
+
+                    void this._maybeSweepSettledResidual(session);
+
+                }
+
+            } catch {
+
+                // skip malformed recovery records
+            }
+
+        }
 
     }
 
@@ -2287,6 +2342,8 @@ export class ContractSettlementManager {
 
         if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED) {
 
+            void this._maybeSweepSettledResidual(session);
+
             return session;
 
         }
@@ -2376,6 +2433,8 @@ export class ContractSettlementManager {
             `SETTLEMENT_COMPLETED | gameId=${session.gameId} | `
                 + `tx=${session.settlementTransactionHash ?? "none"}`
         );
+
+        void this._maybeSweepSettledResidual(session);
 
         this._cleanupAfterSuccess(session.roomId, session);
 
@@ -2473,7 +2532,21 @@ export class ContractSettlementManager {
 
         const session = this._byGameId.get(gameId);
 
-        if (!session || !session.isInProgress()) {
+        if (!session) {
+
+            return;
+
+        }
+
+        if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED) {
+
+            void this._maybeSweepSettledResidual(session);
+
+            return;
+
+        }
+
+        if (!session.isInProgress()) {
 
             return;
 
@@ -3090,6 +3163,248 @@ export class ContractSettlementManager {
 
     }
 
+    _isTestnetResidualSweepEnabled() {
+
+        return String(this._tonNetwork ?? "").trim().toLowerCase() === "testnet";
+
+    }
+
+    _hasConfirmedResidualSweep(gameId) {
+
+        if (!gameId) {
+
+            return false;
+
+        }
+
+        if (this._residualSweepConfirmed.has(gameId)) {
+
+            return true;
+
+        }
+
+        const records = this._financialPersistence?.findByGame?.(gameId) ?? [];
+
+        return records.some((record) => (
+            record?.recordType === TON_FINANCIAL_RECORD_TYPES.AUDIT
+            && record?.payload?.action === "RESIDUAL_SWEEP"
+            && (
+                record?.payload?.confirmationStatus === "CONFIRMED"
+                || record?.payload?.confirmationStatus === "ALREADY_SWEPT"
+            )
+        ));
+
+    }
+
+    _buildResidualSweepContext(session) {
+
+        const contract = this._gameContractManager?.getContractByGameId?.(session?.gameId)
+            ?? null;
+
+        return {
+            gameId: session?.gameId ?? null,
+            roomId: session?.roomId ?? contract?.roomId ?? null,
+            contractId: session?.contractId ?? contract?.contractId ?? null,
+            escrowAddress: session?.request?.contractAddress
+                ?? contract?.contractAddress
+                ?? null,
+            escrowMode: this._resolveEscrowMode(contract, session?.request),
+            correlationId: session?.correlationId ?? null
+        };
+
+    }
+
+    async _maybeSweepSettledResidual(session) {
+
+        if (!this._isTestnetResidualSweepEnabled()) {
+
+            return;
+
+        }
+
+        if (!session || session.status !== SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED) {
+
+            return;
+
+        }
+
+        const context = this._buildResidualSweepContext(session);
+
+        if (context.escrowMode !== GAME_ESCROW_MODE_GAME) {
+
+            return;
+
+        }
+
+        if (!context.escrowAddress || !context.gameId) {
+
+            return;
+
+        }
+
+        if (this._hasConfirmedResidualSweep(context.gameId)) {
+
+            return;
+
+        }
+
+        if (this._residualSweepInFlight.has(context.gameId)) {
+
+            return;
+
+        }
+
+        const sweepFn = this._settlementAdapter?.sweepSettledResidual;
+
+        if (typeof sweepFn !== "function") {
+
+            return;
+
+        }
+
+        this._residualSweepInFlight.add(context.gameId);
+
+        try {
+
+            const result = await sweepFn.call(this._settlementAdapter, {
+                contractAddress: context.escrowAddress,
+                gameId: context.gameId,
+                roomId: context.roomId,
+                contractId: context.contractId
+            });
+
+            if (result?.ok === true) {
+
+                this._recordResidualSweep(session, context, result);
+                return;
+
+            }
+
+            this._log(
+                `RESIDUAL_SWEEP deferred | gameId=${context.gameId} | `
+                    + `reason=${result?.reason ?? "sweep_failed"}`
+            );
+
+            this._audit(context.roomId, {
+                type: "RESIDUAL_SWEEP_FAILED",
+                gameId: context.gameId,
+                contractId: context.contractId,
+                escrowAddress: context.escrowAddress,
+                reason: result?.reason ?? "sweep_failed",
+                sweepTxHash: result?.txId ?? null,
+                at: Date.now()
+            });
+
+        } catch (error) {
+
+            this._logger.error(
+                `RESIDUAL_SWEEP threw | gameId=${context.gameId} | `
+                    + `${error?.message ?? error}`
+            );
+
+        } finally {
+
+            this._residualSweepInFlight.delete(context.gameId);
+
+        }
+
+    }
+
+    _recordResidualSweep(session, context, result) {
+
+        this._residualSweepConfirmed.add(context.gameId);
+
+        const confirmationStatus = result?.alreadySwept === true && !result?.txId
+            ? "ALREADY_SWEPT"
+            : "CONFIRMED";
+        const timestamp = result?.completedAt ?? Date.now();
+        const recipient = result?.recipient ?? null;
+
+        this._audit(context.roomId, {
+            type: "RESIDUAL_SWEEP",
+            gameId: context.gameId,
+            contractId: context.contractId,
+            escrowAddress: context.escrowAddress,
+            recipientDeployWallet: recipient,
+            residualAmountBefore: result?.residualAmountBefore ?? null,
+            residualAmountAfter: result?.residualAmountAfter ?? null,
+            reserveTon: result?.reserveTon ?? GAME_ESCROW_SETTLE_GAS_RESERVE_TON,
+            sweepTxHash: result?.txId ?? null,
+            confirmationStatus,
+            at: timestamp
+        });
+
+        if (!this._financialPersistence?.createAuditRecord) {
+
+            return;
+
+        }
+
+        if (this._hasConfirmedResidualSweepRecord(context.gameId)) {
+
+            return;
+
+        }
+
+        try {
+
+            this._financialPersistence.createAuditRecord(
+                {
+                    auditId: `residual_sweep_${context.gameId}`,
+                    action: "RESIDUAL_SWEEP",
+                    gameId: context.gameId,
+                    roomId: context.roomId,
+                    contractId: context.contractId,
+                    escrowAddress: context.escrowAddress,
+                    recipientDeployWallet: recipient,
+                    residualAmountRequested: result?.residualAmountBefore ?? null,
+                    residualAmountSwept: result?.residualAmountAfter ?? null,
+                    reserveTon: result?.reserveTon ?? GAME_ESCROW_SETTLE_GAS_RESERVE_TON,
+                    sweepTransactionHash: result?.txId ?? null,
+                    confirmationStatus,
+                    timestamp
+                },
+                {
+                    auditId: `residual_sweep_${context.gameId}`,
+                    gameId: context.gameId,
+                    roomId: context.roomId,
+                    contractId: context.contractId,
+                    tonNetwork: session?.network ?? this._tonNetwork,
+                    correlationId: context.correlationId,
+                    status: confirmationStatus
+                }
+            );
+
+        } catch (error) {
+
+            if (error?.name !== "DuplicateRecordError") {
+
+                this._logger.error(
+                    `RESIDUAL_SWEEP persist failed | gameId=${context.gameId} | `
+                        + `${error?.message ?? error}`
+                );
+
+            }
+
+        }
+
+    }
+
+    _hasConfirmedResidualSweepRecord(gameId) {
+
+        const records = this._financialPersistence?.findByGame?.(gameId) ?? [];
+
+        return records.some((record) => (
+            record?.recordType === TON_FINANCIAL_RECORD_TYPES.AUDIT
+            && record?.payload?.action === "RESIDUAL_SWEEP"
+            && (
+                record?.payload?.confirmationStatus === "CONFIRMED"
+                || record?.payload?.confirmationStatus === "ALREADY_SWEPT"
+            )
+        ));
+
+    }
+
     _audit(roomId, entry) {
 
         if (!roomId) {
@@ -3136,6 +3451,10 @@ export class ContractSettlementManager {
         this._confirmedTxHashes.clear();
 
         this._inFlight.clear();
+
+        this._residualSweepInFlight.clear();
+
+        this._residualSweepConfirmed.clear();
 
     }
 

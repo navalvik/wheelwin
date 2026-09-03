@@ -57,6 +57,10 @@ message(0x43414e43) EmergencyCancel {
     reasonCode: Int as uint32;
 }
 
+/// SWEP — oracle residual sweep after SETTLED (not SETTLE ABI)
+message(0x53574550) SweepResidual {
+}
+
 struct SettlementInfo {
     winner: Address;
     winnerAmount: Int as coins;
@@ -104,6 +108,8 @@ contract GameEscrow {
     refundedAmount: Int as coins;
     cancelReason: Int as uint32;
 
+    residualSwept: Bool;
+
     init() {
         let zero: Address = newAddress(0, 0);
         self.version = CONTRACT_VERSION;
@@ -128,6 +134,7 @@ contract GameEscrow {
         self.refundMask = 0;
         self.refundedAmount = 0;
         self.cancelReason = 0;
+        self.residualSwept = false;
     }
 
     /// Empty body — deploy path only. Player funds must use STAKE.
@@ -311,6 +318,27 @@ contract GameEscrow {
         self.status = STATUS_CANCELLED;
     }
 
+    /// Post-SETTLE residual to oracle/deploy wallet. Leaves SETTLE_GAS_RESERVE.
+    receive(msg: SweepResidual) {
+        require(sender() == self.oracle, "GameEscrow: sender is not oracle");
+        require(self.status == STATUS_SETTLED, "GameEscrow: not settled");
+        require(self.settled == true, "GameEscrow: not settled");
+        require(self.residualSwept == false, "GameEscrow: already swept");
+        require(myBalance() > SETTLE_GAS_RESERVE, "GameEscrow: insufficient residual");
+
+        let amount: Int = myBalance() - SETTLE_GAS_RESERVE;
+        require(amount > 0, "GameEscrow: insufficient residual");
+
+        self.residualSwept = true;
+
+        send(SendParameters{
+            to: self.oracle,
+            value: amount,
+            mode: SendPayGasSeparately,
+            bounce: false
+        });
+    }
+
     get fun get_status(): Int {
         return self.status;
     }
@@ -385,5 +413,9 @@ contract GameEscrow {
             cancelReason: self.cancelReason,
             refundMask: self.refundMask
         };
+    }
+
+    get fun get_residual_swept(): Bool {
+        return self.residualSwept;
     }
 }

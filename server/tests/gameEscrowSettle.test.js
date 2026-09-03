@@ -21,7 +21,8 @@ import { GAME_CONTRACT_OPCODES } from "../payment/ton/gameContract/GameContractO
 import {
     GAME_ESCROW_SETTLE_OPCODE_BITS,
     serializeGameEscrowSettleBody,
-    serializeLegacySettleBody
+    serializeLegacySettleBody,
+    serializeSweepResidualBody
 } from "../payment/ton/gameContract/GameContractSerializer.js";
 import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
 
@@ -261,6 +262,21 @@ async function main() {
         assert.equal(debug?.transactionHash, result.settlementTxId);
 
         console.log("  game path creates SETTLE message: OK");
+    }
+
+    // --- residual sweep body is not SETTLE ---
+
+    {
+        const body = serializeSweepResidualBody();
+        const slice = body.beginParse();
+        assert.equal(slice.loadUint(32), GAME_CONTRACT_OPCODES.SWEEP_RESIDUAL);
+        assert.equal(slice.remainingBits, 0);
+        assert.notEqual(
+            GAME_CONTRACT_OPCODES.SWEEP_RESIDUAL,
+            GAME_CONTRACT_OPCODES.SETTLE
+        );
+
+        console.log("  residual sweep serialization: OK");
     }
 
     resetTonSettlementDebugForTests();

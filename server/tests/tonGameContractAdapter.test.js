@@ -18,6 +18,7 @@ import {
     decodeRefundMask,
     decodeRefundedTotal,
     decodeRequiredTotal,
+    decodeResidualSwept,
     decodeSettlementState,
     decodeTotalPaid,
     decodeWinner
@@ -31,7 +32,8 @@ import {
     serializeArchiveBody,
     serializeEmergencyCancelBody,
     serializeLegacySettleBody,
-    serializeSettleBody
+    serializeSettleBody,
+    serializeSweepResidualBody
 } from "../payment/ton/gameContract/GameContractSerializer.js";
 import { buildGameEscrowWallet } from "../payment/ton/buildGameEscrowStateInit.js";
 import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
@@ -235,6 +237,9 @@ const defaultGetMethodHandlers = {
     }),
     get_network: () => ({
         stack: [{ value: "testnet" }]
+    }),
+    get_residual_swept: () => ({
+        stack: [{ value: -1 }]
     })
 };
 
@@ -1401,6 +1406,31 @@ async function main() {
         assert.equal(accountCalls, 0);
 
         console.log("  no-mnemonic deploy skips activation poll: OK");
+    }
+
+    {
+        const cell = serializeSweepResidualBody();
+        assert.ok(cell.bits.length > 0);
+        assert.equal(decodeResidualSwept({ stack: [{ value: -1 }] }), true);
+        assert.equal(decodeResidualSwept({ stack: [{ value: 0 }] }), false);
+
+        const mainnetAdapter = createAdapter(createMockTonService(), {
+            network: "mainnet",
+            deployerMnemonic: [
+                "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+                "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+                "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+                "abandon", "abandon", "abandon", "abandon", "abandon", "art"
+            ].join(" ")
+        });
+
+        const mainnetSweep = await mainnetAdapter.sweepSettledResidual({
+            contractAddress
+        });
+        assert.equal(mainnetSweep.ok, false);
+        assert.equal(mainnetSweep.reason, "sweep_testnet_only");
+
+        console.log("  residual sweep serialization + mainnet skip: OK");
     }
 
     console.log("tonGameContractAdapter tests passed");
