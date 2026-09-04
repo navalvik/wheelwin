@@ -8,16 +8,18 @@
  * - All amounts are integer nanograms (bigint).
  * - Recipient amounts are never reduced by gas.
  * - Gas is charged to the source wallet.
- * - Owner payout accounting keeps 0.14 Gram for the owner and 0.01 Gram
- *   as the room-wallet retained amount for the current policy.
- * - Residual sweep uses 0.49 Gram as the transfer amount; its gas is paid
- *   separately by the source Room Wallet.
+ * - For every game, 0.01 Gram is retained from the Owner economic share in
+ *   the Room Wallet, while the Owner receives the remaining share. The Owner
+ *   payout must therefore be at least 0.14 Gram.
+ * - Residual sweep sends 0.49 Gram to Residues Wallet when the reconciled
+ *   Room Wallet balance reaches 0.50 Gram. Sweep gas is paid separately by
+ *   the source Room Wallet.
  */
 
 export const GRAM_NANO = 1_000_000_000n;
 
 export const ROOM_WALLET_POLICY = Object.freeze({
-    ownerPayoutNano: 140_000_000n,
+    ownerPayoutMinimumNano: 140_000_000n,
     ownerRetainedNano: 10_000_000n,
     residualTriggerNano: 500_000_000n,
     residualSweepNano: 490_000_000n,
@@ -44,19 +46,22 @@ export function assertNonNegativeNano(value, name = "amount") {
 export function buildOwnerPayout({ ownerGrossNano }) {
     assertNonNegativeNano(ownerGrossNano, "ownerGrossNano");
 
-    if (ownerGrossNano < ROOM_WALLET_POLICY.ownerPayoutNano) {
+    const retainedNano = ROOM_WALLET_POLICY.ownerRetainedNano;
+    const ownerPayoutNano = ownerGrossNano - retainedNano;
+
+    if (ownerPayoutNano < ROOM_WALLET_POLICY.ownerPayoutMinimumNano) {
         throw new RangeError(
-            `ownerGrossNano must be at least ${ROOM_WALLET_POLICY.ownerPayoutNano} nanograms`
+            `ownerGrossNano must leave at least ${ROOM_WALLET_POLICY.ownerPayoutMinimumNano} nanograms for the Owner after retention`
         );
     }
 
     return Object.freeze({
         ownerGrossNano,
-        ownerPayoutNano: ROOM_WALLET_POLICY.ownerPayoutNano,
-        retainedNano: ROOM_WALLET_POLICY.ownerRetainedNano,
+        ownerPayoutNano,
+        retainedNano,
         minimumEconomicShareNano:
-            ROOM_WALLET_POLICY.ownerPayoutNano
-            + ROOM_WALLET_POLICY.ownerRetainedNano
+            ROOM_WALLET_POLICY.ownerPayoutMinimumNano
+            + retainedNano
     });
 }
 
