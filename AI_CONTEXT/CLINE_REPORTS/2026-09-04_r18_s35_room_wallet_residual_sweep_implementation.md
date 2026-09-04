@@ -246,7 +246,7 @@ Full `npm test` was not run to completion (large suite; two known unrelated fail
 
 ### Git commit hash
 
-Filled after commit (see §8 / git log).
+`7c1bd3e` — `feat: implement room wallet residual sweep`
 
 ### Production safety verification
 
