@@ -28,6 +28,18 @@ test("RoomWalletSettlementRouter uses legacy adapter by default", async () => {
     assert.equal(result.adapter, "legacy");
 });
 
+test("RoomWalletSettlementRouter can remain disabled without Room Wallet adapter", async () => {
+    const router = new RoomWalletSettlementRouter({
+        legacySettlementAdapter: adapter("legacy")
+    });
+
+    const result = await router.settleContract({ gameId: "g-disabled" });
+
+    assert.equal(router.isEnabled(), false);
+    assert.equal(result.adapter, "legacy");
+    assert.throws(() => router.setEnabled(true), /without an adapter/);
+});
+
 test("RoomWalletSettlementRouter switches explicitly to Room Wallet adapter", async () => {
     const router = new RoomWalletSettlementRouter({
         legacySettlementAdapter: adapter("legacy"),
