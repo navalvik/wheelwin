@@ -33,3 +33,10 @@ server/data/advertisements/
 # R13.9F — forensic archive staging (local ZIP before GCS upload)
 data/archive-staging/
 server/data/archive-staging/
+
+# Offline Room Wallet provisioning artifacts (private signing material — never commit)
+/room-wallet-provisioning/
+server/room-wallet-provisioning/
+server/scripts/room-wallet-provisioning/
+*room-wallets-testnet*.json
+*ROOM_WALLETS_JSON.json

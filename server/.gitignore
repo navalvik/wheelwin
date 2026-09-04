@@ -7,3 +7,9 @@ logs/
 # P6.8A — never commit the real owner wallet file (lives at repo config/).
 ../config/owner.json
 config/owner.json
+
+# Offline Room Wallet provisioning artifacts (private signing material — never commit)
+room-wallet-provisioning/
+scripts/room-wallet-provisioning/
+*room-wallets-testnet*.json
+*ROOM_WALLETS_JSON.json
