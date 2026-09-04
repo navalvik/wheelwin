@@ -62,7 +62,8 @@ export class PaymentSessionManager {
         blockchainMonitor = null,
         financialPersistence = null,
         tonNetwork = null,
-        devMode = false
+        devMode = false,
+        roomWalletPaymentIntakeEnabled = false
     }) {
 
         this._logger = logger;
@@ -98,6 +99,8 @@ export class PaymentSessionManager {
             : DEFAULT_PAYMENT_SESSION_DURATION_MS;
 
         this._devMode = devMode;
+
+        this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
 
         this._sessionsByRoom = new Map();
 
@@ -918,6 +921,17 @@ export class PaymentSessionManager {
     } = {}) {
 
         this._assertInitialized();
+
+        if (this._roomWalletPaymentIntakeEnabled) {
+
+            return Object.freeze({
+                ok: true,
+                synced: 0,
+                demoted: 0,
+                skipped: "room_wallet_intake"
+            });
+
+        }
 
         const session = this._sessionsByRoom.get(roomId);
 

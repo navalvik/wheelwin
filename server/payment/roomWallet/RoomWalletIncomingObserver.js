@@ -44,6 +44,7 @@ export const ROOM_WALLET_INCOMING_REJECTION_REASONS = Object.freeze({
     DUPLICATE_TRANSACTION: "duplicate_transaction",
     PERSISTENCE_UNAVAILABLE: "persistence_unavailable",
     PERSISTENCE_FAILURE: "persistence_failure",
+    LEDGER_FAILURE: "ledger_failure",
     TRANSPORT_FAILURE: "transport_failure"
 });
 
@@ -157,6 +158,7 @@ export class RoomWalletIncomingObserver {
         financialPersistence = null,
         registry = null,
         roomManager = null,
+        ledgerRegistry = null,
         transport = null,
         tonService = null,
         auditLedger = null,
@@ -169,6 +171,7 @@ export class RoomWalletIncomingObserver {
         this._financialPersistence = financialPersistence;
         this._registry = registry;
         this._roomManager = roomManager;
+        this._ledgerRegistry = ledgerRegistry;
         this._transport = transport;
         this._tonService = tonService;
         this._auditLedger = auditLedger;
@@ -376,6 +379,28 @@ export class RoomWalletIncomingObserver {
             );
         }
 
+        const ledgerEntry = this._recordPlayerPayment({
+            session,
+            participant,
+            destination,
+            sender,
+            txHash,
+            amountGram,
+            comment: deposit.comment,
+            lt: deposit.lt
+        });
+
+        if (ledgerEntry?.ok === false) {
+            return this._result(ledgerEntry.reason, {
+                credited: false,
+                txHash,
+                destination,
+                roomId: session.roomId,
+                gameId: session.gameId,
+                playerId: participant.playerId
+            });
+        }
+
         const accepted = this._persistObservation({
             observationId,
             status: ROOM_WALLET_INCOMING_STATUS.ACCEPTED,
@@ -555,6 +580,55 @@ export class RoomWalletIncomingObserver {
         }
 
         return sessions;
+    }
+
+    _recordPlayerPayment({
+        session,
+        participant,
+        destination,
+        sender,
+        txHash,
+        amountGram,
+        comment,
+        lt
+    }) {
+        if (!this._ledgerRegistry || typeof this._ledgerRegistry.recordPlayerPayment !== "function") {
+            return { ok: true, skipped: true };
+        }
+
+        const roomNumber = resolveAuthoritativeRoomNumber({
+            roomId: session.roomId,
+            roomNumber: session.roomNumber,
+            roomManager: this._roomManager,
+            session
+        });
+
+        try {
+            const entry = this._ledgerRegistry.recordPlayerPayment({
+                roomId: session.roomId,
+                roomNumber,
+                gameId: session.gameId,
+                playerId: participant.playerId,
+                paymentReference: participant.paymentReference,
+                txHash,
+                amountGram,
+                sender,
+                destination,
+                lt,
+                comment
+            });
+
+            return { ok: true, entry };
+        } catch (error) {
+            this._log(
+                "error",
+                `Room Wallet ledger record failed | tx=${txHash} | ${error?.message ?? error}`
+            );
+            return {
+                ok: false,
+                reason: ROOM_WALLET_INCOMING_REJECTION_REASONS.LEDGER_FAILURE
+            };
+        }
     }
 
     _paymentPayload({

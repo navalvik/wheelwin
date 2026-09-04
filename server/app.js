@@ -95,9 +95,10 @@ import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
-import { composeRoomWalletSettlementRouter } from "./payment/roomWallet/roomWalletConfig.js";
+import { composeRoomWalletSettlementRouter, isRoomWalletPaymentIntakeEnabled } from "./payment/roomWallet/roomWalletConfig.js";
 import { createRoomWalletRegistryFromEnv } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { RoomWalletIncomingObserver } from "./payment/roomWallet/RoomWalletIncomingObserver.js";
+import { RoomWalletLedgerRegistry } from "./payment/roomWallet/RoomWalletLedger.js";
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
 import { AudioRegistryService } from "./console/configuration/AudioRegistryService.js";
 import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
@@ -1345,7 +1346,8 @@ class WheelWinApplication {
             sessionWalletStore: this._sessionWalletStore,
             blockchainMonitor: this._blockchainMonitor,
             financialPersistence: this._financialPersistence,
-            devMode: this._productionConfig.isDevelopment
+            devMode: this._productionConfig.isDevelopment,
+            roomWalletPaymentIntakeEnabled: isRoomWalletPaymentIntakeEnabled(process.env)
         });
 
         this._paymentSessionManager.initialize();
@@ -1686,6 +1688,8 @@ class WheelWinApplication {
 
         this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
 
+        this._roomWalletLedgerRegistry = new RoomWalletLedgerRegistry();
+
         this._roomWalletIncomingObserver = new RoomWalletIncomingObserver({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1693,6 +1697,7 @@ class WheelWinApplication {
             financialPersistence: this._financialPersistence,
             registry: this._roomWalletRegistry,
             roomManager: this._managers.roomManager,
+            ledgerRegistry: this._roomWalletLedgerRegistry,
             transport: this._services?.tonService?.getTransport?.() ?? null,
             tonService: this._services?.tonService ?? null,
             auditLedger: this._entryPaymentAuditLedger,
@@ -1810,7 +1815,9 @@ class WheelWinApplication {
             auditLedger: this._entryPaymentAuditLedger,
             roomConfig: this._roomConfig,
             devMode: this._productionConfig.isDevelopment,
-            depositSessionCoordinator: this._depositSessionCoordinator
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            roomWalletPaymentIntakeEnabled: isRoomWalletPaymentIntakeEnabled(process.env),
+            roomWalletLedgerRegistry: this._roomWalletLedgerRegistry
         });
 
         this._gameStartAuthorization.initialize();

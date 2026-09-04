@@ -8,7 +8,8 @@
 
 import {
     assertNonNegativeNano,
-    buildSourceWalletTransfer
+    buildSourceWalletTransfer,
+    gramsToNano
 } from "./RoomWalletFinancialPolicy.js";
 
 export const ROOM_LEDGER_ENTRY_TYPES = Object.freeze({
@@ -23,13 +24,14 @@ export const ROOM_LEDGER_ENTRY_TYPES = Object.freeze({
 
 export class RoomWalletLedger {
 
-    constructor({ roomId, gameId = null, clock = () => Date.now() } = {}) {
+    constructor({ roomId, gameId = null, roomNumber = null, clock = () => Date.now() } = {}) {
         if (!roomId) {
             throw new TypeError("roomId is required");
         }
 
         this.roomId = String(roomId);
         this.gameId = gameId == null ? null : String(gameId);
+        this.roomNumber = roomNumber == null ? null : Number(roomNumber);
         this._clock = clock;
         this._entries = [];
         this._entryIds = new Set();
@@ -43,6 +45,8 @@ export class RoomWalletLedger {
         amountNano,
         counterparty = null,
         gameId = this.gameId,
+        roomNumber = this.roomNumber,
+        playerId = null,
         reference = null,
         metadata = {}
     } = {}) {
@@ -63,7 +67,11 @@ export class RoomWalletLedger {
         const entry = Object.freeze({
             entryId: String(entryId),
             roomId: this.roomId,
+            roomNumber: roomNumber == null || roomNumber === ""
+                ? this.roomNumber
+                : Number(roomNumber),
             gameId: gameId == null ? null : String(gameId),
+            playerId: playerId == null ? null : String(playerId),
             type,
             direction,
             amountNano,
@@ -151,4 +159,143 @@ export class RoomWalletLedger {
         );
     }
 
+    hasEntry(entryId) {
+        return this._entryIds.has(String(entryId));
+    }
+
+    listPlayerPayments(gameId = this.gameId) {
+        const scopedGameId = gameId == null ? null : String(gameId);
+
+        return Object.freeze(
+            this._entries.filter((entry) => (
+                entry.type === ROOM_LEDGER_ENTRY_TYPES.PLAYER_PAYMENT
+                && entry.direction === "CREDIT"
+                && (scopedGameId == null || entry.gameId === scopedGameId)
+            ))
+        );
+    }
+
+}
+
+export function buildRoomWalletPlayerPaymentEntryId(transactionHash) {
+    const hash = String(transactionHash ?? "").trim();
+
+    if (!hash) {
+        throw new TypeError("transactionHash is required");
+    }
+
+    return `rwp:${hash}`;
+}
+
+/**
+ * In-process registry of per-game Room Wallet ledgers.
+ * Sequential games in one room get separate ledger instances keyed by gameId.
+ */
+export class RoomWalletLedgerRegistry {
+    constructor({ clock = () => Date.now() } = {}) {
+        this._clock = clock;
+        this._byGameId = new Map();
+        this._byEntryId = new Map();
+    }
+
+    getOrCreate({ roomId, gameId, roomNumber = null } = {}) {
+        if (!gameId) {
+            throw new TypeError("gameId is required");
+        }
+
+        const key = String(gameId);
+        let ledger = this._byGameId.get(key);
+
+        if (!ledger) {
+            ledger = new RoomWalletLedger({
+                roomId,
+                gameId: key,
+                roomNumber,
+                clock: this._clock
+            });
+            this._byGameId.set(key, ledger);
+        }
+
+        return ledger;
+    }
+
+    getByGameId(gameId) {
+        if (gameId == null || gameId === "") {
+            return null;
+        }
+
+        return this._byGameId.get(String(gameId)) ?? null;
+    }
+
+    hasEntry(entryId) {
+        return this._byEntryId.has(String(entryId));
+    }
+
+    recordPlayerPayment({
+        roomId,
+        roomNumber = null,
+        gameId,
+        playerId,
+        paymentReference = null,
+        txHash,
+        amountGram,
+        sender = null,
+        destination = null,
+        lt = null,
+        comment = ""
+    } = {}) {
+        if (!roomId || !gameId || !playerId || !txHash) {
+            throw new TypeError("roomId, gameId, playerId, and txHash are required");
+        }
+
+        const entryId = buildRoomWalletPlayerPaymentEntryId(txHash);
+        const existing = this._byEntryId.get(entryId);
+
+        if (existing) {
+            if (
+                existing.gameId !== String(gameId)
+                || existing.playerId !== String(playerId)
+            ) {
+                throw new Error(
+                    "duplicate transaction hash already attributed to another payment"
+                );
+            }
+
+            return existing;
+        }
+
+        const ledger = this.getOrCreate({ roomId, gameId, roomNumber });
+        const entry = ledger.record({
+            entryId,
+            type: ROOM_LEDGER_ENTRY_TYPES.PLAYER_PAYMENT,
+            direction: "CREDIT",
+            amountNano: gramsToNano(Number(amountGram)),
+            counterparty: String(playerId),
+            playerId: String(playerId),
+            gameId: String(gameId),
+            roomNumber,
+            reference: paymentReference ?? String(txHash),
+            metadata: Object.freeze({
+                txHash: String(txHash),
+                sender: sender ?? null,
+                destination: destination ?? null,
+                lt: lt ?? null,
+                comment: comment ?? "",
+                amountGram: Number(amountGram)
+            })
+        });
+
+        this._byEntryId.set(entryId, entry);
+        return entry;
+    }
+
+    listPlayerPayments(gameId) {
+        const ledger = this.getByGameId(gameId);
+
+        if (!ledger) {
+            return Object.freeze([]);
+        }
+
+        return ledger.listPlayerPayments(gameId);
+    }
 }

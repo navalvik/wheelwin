@@ -28,6 +28,7 @@ import {
 } from "../payment/BlockchainMonitor.js";
 import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
 import { RoomWalletRegistry } from "../payment/roomWallet/RoomWalletRegistry.js";
+import { RoomWalletLedgerRegistry } from "../payment/roomWallet/RoomWalletLedger.js";
 import {
     ROOM_WALLET_INCOMING_REJECTION_REASONS,
     RoomWalletIncomingObserver,
@@ -188,6 +189,7 @@ function createObserverFixture({
 } = {}) {
     const harness = createPaymentHarness({ rooms, dataDir, durationMs });
     const registry = new RoomWalletRegistry({ entries: registryEntries });
+    const ledgerRegistry = new RoomWalletLedgerRegistry();
     const auditLedger = new EntryPaymentAuditLedger();
     const observer = new RoomWalletIncomingObserver({
         logger: harness.logger,
@@ -196,6 +198,7 @@ function createObserverFixture({
         financialPersistence: harness.persistence,
         registry,
         roomManager: harness.roomManager,
+        ledgerRegistry,
         transport,
         tonService,
         auditLedger,
@@ -209,7 +212,7 @@ function createObserverFixture({
         });
     }
 
-    const fixture = { ...harness, registry, observer, auditLedger };
+    const fixture = { ...harness, registry, observer, auditLedger, ledgerRegistry };
     t?.after?.(() => finish(fixture));
     return fixture;
 }

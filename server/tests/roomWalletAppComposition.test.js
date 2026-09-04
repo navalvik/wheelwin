@@ -8,6 +8,7 @@ import { RoomWalletSettlementAdapter } from "../payment/roomWallet/RoomWalletSet
 import { RoomWalletSettlementRouter } from "../payment/RoomWalletSettlementRouter.js";
 import {
     composeRoomWalletSettlementRouter,
+    isRoomWalletPaymentIntakeEnabled,
     isRoomWalletSettlementEnabled
 } from "../payment/roomWallet/roomWalletConfig.js";
 
@@ -70,6 +71,14 @@ const SETTLEMENT_REQUEST = Object.freeze({
     organizerAmountNano: 150_000_000n,
     totalPot: 10,
     settlementId: "settle_passthrough_1"
+});
+
+test("ROOM_WALLET_PAYMENT_INTAKE_MODE is independent of settlement mode", () => {
+    assert.equal(isRoomWalletPaymentIntakeEnabled({}), false);
+    assert.equal(isRoomWalletPaymentIntakeEnabled({ ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET" }), false);
+    assert.equal(isRoomWalletPaymentIntakeEnabled({ ROOM_WALLET_PAYMENT_INTAKE_MODE: "true" }), false);
+    assert.equal(isRoomWalletPaymentIntakeEnabled({ ROOM_WALLET_PAYMENT_INTAKE_MODE: "ROOM_WALLET" }), true);
+    assert.equal(isRoomWalletPaymentIntakeEnabled({ ROOM_WALLET_PAYMENT_INTAKE_MODE: " room_wallet " }), true);
 });
 
 test("ROOM_WALLET_SETTLEMENT_MODE is off unless it is exactly ROOM_WALLET", () => {
@@ -230,4 +239,8 @@ test("app.js wires the Room Wallet router into ContractSettlementManager", () =>
     assert.equal(/settlementAdapter:\s*deployAdapter/.test(source), false);
     assert.match(source, /new ContractSettlementManager\(\{[\s\S]*?roomManager:\s*this\._managers\.roomManager/);
     assert.match(source, /new RoomWalletIncomingObserver\(\{[\s\S]*?roomManager:\s*this\._managers\.roomManager/);
+    assert.match(source, /isRoomWalletPaymentIntakeEnabled/);
+    assert.match(source, /RoomWalletLedgerRegistry/);
+    assert.match(source, /ledgerRegistry:\s*this\._roomWalletLedgerRegistry/);
+    assert.match(source, /roomWalletPaymentIntakeEnabled:\s*isRoomWalletPaymentIntakeEnabled/);
 });

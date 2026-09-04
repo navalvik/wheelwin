@@ -13,6 +13,15 @@ export function isRoomWalletSettlementEnabled(env = process.env) {
     return value === "ROOM_WALLET";
 }
 
+/**
+ * Player-payment intake is independent of settlement.
+ * ROOM_WALLET_SETTLEMENT_MODE does not enable this path.
+ */
+export function isRoomWalletPaymentIntakeEnabled(env = process.env) {
+    const value = String(env.ROOM_WALLET_PAYMENT_INTAKE_MODE || "").trim().toUpperCase();
+    return value === "ROOM_WALLET";
+}
+
 export function assertRoomWalletSettlementCanBeEnabled(service) {
     if (!service || typeof service.isConfigured !== "function" || !service.isConfigured()) {
         throw new Error("ROOM_WALLET settlement requested but Room Wallet runtime configuration is not available");

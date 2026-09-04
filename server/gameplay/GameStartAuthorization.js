@@ -40,7 +40,9 @@ export class GameStartAuthorization {
         auditLedger = null,
         roomConfig = null,
         devMode = false,
-        depositSessionCoordinator = null
+        depositSessionCoordinator = null,
+        roomWalletPaymentIntakeEnabled = false,
+        roomWalletLedgerRegistry = null
     }) {
 
         this._logger = logger;
@@ -81,6 +83,10 @@ export class GameStartAuthorization {
 
         this._depositSessionCoordinator = depositSessionCoordinator;
 
+        this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
+
+        this._roomWalletLedgerRegistry = roomWalletLedgerRegistry;
+
         // roomId → { phase, gameId, authorizedAt, initializingAt, openPage5At }
         this._lifecycleByRoom = new Map();
 
@@ -118,6 +124,18 @@ export class GameStartAuthorization {
             (envelope) => {
 
                 this._evaluate(envelope.payload?.roomId);
+
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.PAYMENT_SESSION_CREATED,
+            (envelope) => {
+
+                this._resetLifecycleForNewGame(
+                    envelope.payload?.roomId,
+                    envelope.payload?.gameId
+                );
 
             }
         );
@@ -369,16 +387,51 @@ export class GameStartAuthorization {
 
         }
 
-        if (this._depositSessionCoordinator) {
+        if (session.participants.length !== this._expectedPlayers) {
 
-            const deposit = this._depositSessionCoordinator.getByRoomAndGame?.(
-                roomId,
-                session.gameId
-            ) ?? null;
+            return {
+                ok: false,
+                reason: "expected_player_count",
+                gameId: session.gameId ?? null
+            };
 
-            if (!isDepositLayerComplete(deposit)) {
+        }
 
-                return { ok: false, reason: "deposit_not_full", gameId: session.gameId };
+        if (this._roomWalletPaymentIntakeEnabled) {
+
+            const ledgerGate = this._checkRoomWalletLedger(session);
+
+            if (!ledgerGate.ok) {
+
+                return ledgerGate;
+
+            }
+
+        } else {
+
+            if (this._depositSessionCoordinator) {
+
+                const deposit = this._depositSessionCoordinator.getByRoomAndGame?.(
+                    roomId,
+                    session.gameId
+                ) ?? null;
+
+                if (!isDepositLayerComplete(deposit)) {
+
+                    return { ok: false, reason: "deposit_not_full", gameId: session.gameId };
+
+                }
+
+            }
+
+            const contract = this._gameContractManager?.getContract(roomId);
+
+            if (
+                !contract
+                || contract.status !== GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
+            ) {
+
+                return { ok: false, reason: "contract_not_payments_complete" };
 
             }
 
@@ -386,17 +439,8 @@ export class GameStartAuthorization {
 
         const contract = this._gameContractManager?.getContract(roomId);
 
-        if (
-            !contract
-            || contract.status !== GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
-        ) {
-
-            return { ok: false, reason: "contract_not_payments_complete" };
-
-        }
-
         const gameId = session.gameId
-            ?? contract.gameId
+            ?? contract?.gameId
             ?? this._gameManager?.getPendingGameplayGameId?.(roomId)
             ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
             ?? null;
@@ -404,6 +448,12 @@ export class GameStartAuthorization {
         if (!gameId) {
 
             return { ok: false, reason: "game_missing" };
+
+        }
+
+        if (session.gameId && session.gameId !== gameId) {
+
+            return { ok: false, reason: "payment_session_wrong_game", gameId };
 
         }
 
@@ -420,9 +470,80 @@ export class GameStartAuthorization {
             contract,
             gameId,
             blockchainCompletedAt: session.completedAt
-                ?? contract.paymentsCompletedAt
+                ?? contract?.paymentsCompletedAt
                 ?? Date.now()
         };
+
+    }
+
+    _resetLifecycleForNewGame(roomId, gameId) {
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        const existing = this._lifecycleByRoom.get(roomId);
+
+        if (!existing) {
+
+            return;
+
+        }
+
+        if (gameId && existing.gameId && existing.gameId !== gameId) {
+
+            this._forgetRoom(roomId);
+
+        }
+
+    }
+
+    _checkRoomWalletLedger(session) {
+
+        if (!this._roomWalletLedgerRegistry
+            || typeof this._roomWalletLedgerRegistry.listPlayerPayments !== "function") {
+
+            return {
+                ok: false,
+                reason: "room_wallet_ledger_missing",
+                gameId: session.gameId ?? null
+            };
+
+        }
+
+        const payments = this._roomWalletLedgerRegistry.listPlayerPayments(session.gameId)
+            ?? [];
+        const fundedPlayers = new Set();
+
+        for (const payment of payments) {
+
+            const playerId = payment.playerId ?? payment.counterparty;
+
+            if (playerId) {
+
+                fundedPlayers.add(String(playerId));
+
+            }
+
+        }
+
+        for (const participant of session.participants) {
+
+            if (!fundedPlayers.has(String(participant.playerId))) {
+
+                return {
+                    ok: false,
+                    reason: "room_wallet_ledger_incomplete",
+                    gameId: session.gameId ?? null
+                };
+
+            }
+
+        }
+
+        return { ok: true, gameId: session.gameId ?? null };
 
     }
 
