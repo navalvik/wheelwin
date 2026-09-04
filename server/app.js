@@ -95,6 +95,7 @@ import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
+import { composeRoomWalletSettlementRouter } from "./payment/roomWallet/roomWalletConfig.js";
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
 import { AudioRegistryService } from "./console/configuration/AudioRegistryService.js";
 import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
@@ -1525,13 +1526,26 @@ class WheelWinApplication {
 
         const deployerWalletAddress = await this._resolveDeployerWalletAddress();
 
+        this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
+            legacySettlementAdapter: deployAdapter,
+            tonService: this._services?.tonService ?? null,
+            logger: this._logger,
+            env: process.env
+        });
+
+        this._logger.startupLine(
+            this._roomWalletSettlementRouter.isEnabled()
+                ? "RoomWalletSettlementRouter (ROOM_WALLET)"
+                : "RoomWalletSettlementRouter (legacy)"
+        );
+
         this._contractSettlementManager = new ContractSettlementManager({
             logger: this._logger,
             eventBus: this._eventBus,
             gameContractManager: this._gameContractManager,
             winnerEngine: this._engines.winnerEngine,
             configurationEngine: this._engines.configurationEngine,
-            settlementAdapter: deployAdapter,
+            settlementAdapter: this._roomWalletSettlementRouter,
             blockchainMonitor: this._blockchainMonitor,
             deployerWalletAddress,
             auditLedger: this._entryPaymentAuditLedger,
