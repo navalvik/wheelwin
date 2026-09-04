@@ -666,8 +666,9 @@ async function main() {
 
             const result = await worker.processQueue();
 
-            assert.equal(result.claimed, 1);
-            assert.equal(sendCalls, 1);
+            assert.equal(result.skipped, "send_permanently_retired");
+            assert.equal(result.claimed, 0);
+            assert.equal(sendCalls, 0);
 
             worker.shutdown();
             rmSync(dir, { recursive: true, force: true });
@@ -697,7 +698,7 @@ async function main() {
                     DEPLOYMENT_REIMBURSEMENT_ENABLED: "true",
                     REIMBURSEMENT_ENABLED: "true"
                 }),
-                true
+                false
             );
 
             const dir = mkdtempSync(join(tmpdir(), "wheelwin-reimb-stage-s-cfg-"));
@@ -746,7 +747,7 @@ async function main() {
 
             const result = await worker.processQueue();
 
-            assert.equal(result.skipped, "send_paused");
+            assert.equal(result.skipped, "send_permanently_retired");
             assert.equal(sendCalls, 0);
             assert.equal(
                 repository.findByGameId("game_stage_s_cfg").payload.status,

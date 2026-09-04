@@ -31,6 +31,8 @@ function assertNoSecretLeak(value) {
 test("A. ROOM_WALLETS_JSON is classified as a secret", () => {
     assert.equal(SECRET_ENV_KEYS.includes("ROOM_WALLETS_JSON"), true);
     assert.equal(isSecretKey("ROOM_WALLETS_JSON"), true);
+    assert.equal(SECRET_ENV_KEYS.includes("TON_RESIDUES_MNEMONIC"), true);
+    assert.equal(isSecretKey("TON_RESIDUES_MNEMONIC"), true);
 });
 
 test("B. secret redaction does not expose ROOM_WALLETS_JSON", () => {

@@ -9,6 +9,7 @@ export const SECRET_ENV_KEYS = Object.freeze([
     "TON_DEPLOYER_MNEMONIC",
     "TON_TESTNET_DEPOSIT_DEPLOYER_MNEMONIC",
     "TON_REIMBURSEMENT_MNEMONIC",
+    "TON_RESIDUES_MNEMONIC",
     "L25_PLAYER_0_MNEMONIC",
     "L25_PLAYER_1_MNEMONIC",
     "L25_PLAYER_2_MNEMONIC",
@@ -25,6 +26,7 @@ export const SECRET_CONFIG_KEYS = Object.freeze([
     "ton.deployerMnemonic",
     "ton.testnetDepositDeployerMnemonic",
     "ton.reimbursementMnemonic",
+    "ton.residuesMnemonic",
     "ton.apiKey"
 ]);
 

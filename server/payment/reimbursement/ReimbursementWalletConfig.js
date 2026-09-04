@@ -5,10 +5,8 @@
  */
 
 import { Address } from "@ton/core";
-import { mnemonicToPrivateKey } from "@ton/crypto";
-import { WalletContractV4 } from "@ton/ton";
 
-import { isDeploymentReimbursementEnabled } from "./deploymentReimbursementConfig.js";
+import { deriveResiduesWalletIdentity } from "../roomWallet/ResiduesWalletConfig.js";
 import { tonStringToNanoton } from "./nanoton.js";
 
 export const TON_REIMBURSEMENT_MNEMONIC_ENV = "TON_REIMBURSEMENT_MNEMONIC";
@@ -49,15 +47,29 @@ export function isReimbursementEmergencySendAllowed(env = process.env) {
 }
 
 /**
- * Master feature + emergency pause must both allow a send.
+ * Residues role migration: reimbursement send is permanently retired.
+ * Historical flags cannot re-authorize a transfer from this wallet.
+ *
+ * @returns {true}
+ */
+export function isReimbursementSendPermanentlyRetired() {
+
+    return true;
+
+}
+
+/**
+ * Master feature + emergency pause used to allow a send.
+ * Permanently false: enabling REIMBURSEMENT_ENABLED or
+ * DEPLOYMENT_REIMBURSEMENT_ENABLED cannot spend from this wallet.
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {boolean}
  */
 export function isReimbursementSendAllowed(env = process.env) {
 
-    return isDeploymentReimbursementEnabled(env)
-        && isReimbursementEmergencySendAllowed(env);
+    void env;
+    return false;
 
 }
 
@@ -149,30 +161,22 @@ export function reimbursementAddressesEqual(left, right) {
  * @param {string} mnemonic
  * @returns {Promise<{ address: string, publicKey: Buffer, secretKey: Buffer, walletId: number }>}
  */
+/**
+ * Identical V4R2 / workchain 0 derivation as Residues Wallet.
+ * The physical identity did not change; only the application role did.
+ *
+ * @param {string} mnemonic
+ * @returns {Promise<{ address: string, publicKey: Buffer, secretKey: Buffer, walletId: number }>}
+ */
 export async function deriveReimbursementWalletIdentity(mnemonic) {
 
-    const words = String(mnemonic ?? "").trim().split(/\s+/).filter(Boolean);
-
-    if (words.length < 12) {
-
-        throw new Error("TON_REIMBURSEMENT_MNEMONIC is empty or invalid");
-
-    }
-
-    const keyPair = await mnemonicToPrivateKey(words);
-    const wallet = WalletContractV4.create({
-        workchain: REIMBURSEMENT_WALLET_WORKCHAIN,
-        publicKey: keyPair.publicKey
-    });
+    const identity = await deriveResiduesWalletIdentity(mnemonic);
 
     return Object.freeze({
-        address: wallet.address.toString({
-            bounceable: true,
-            urlSafe: true
-        }),
-        publicKey: keyPair.publicKey,
-        secretKey: keyPair.secretKey,
-        walletId: wallet.walletId
+        address: identity.address,
+        publicKey: identity.publicKey,
+        secretKey: identity.secretKey,
+        walletId: identity.walletId
     });
 
 }

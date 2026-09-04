@@ -20,6 +20,10 @@ import {
     isRoomWalletResidualSweepEnabled,
     resolveResiduesWalletDestination
 } from "./roomWalletConfig.js";
+import {
+    assertSweepSourceDiffersFromDestination,
+    verifyResiduesWalletIdentity
+} from "./ResiduesWalletConfig.js";
 import { RESIDUAL_SWEEP_STATUS } from "./residualSweepStates.js";
 
 export const RESIDUAL_SWEEP_WATCH_KIND = "RESIDUAL_SWEEP";
@@ -460,6 +464,64 @@ export class RoomWalletResidualSweepWorker {
             });
         }
 
+        const selfTransfer = assertSweepSourceDiffersFromDestination(
+            sourceAddress,
+            destination.address
+        );
+
+        if (!selfTransfer.ok) {
+            this._logSweep({
+                event: "sweep_skip",
+                code: selfTransfer.code,
+                roomNumber,
+                sourceAddress,
+                destinationAddress: destination.address,
+                trigger
+            });
+            return Object.freeze({
+                ok: false,
+                code: selfTransfer.code
+            });
+        }
+
+        const identity = await verifyResiduesWalletIdentity(this._env);
+
+        if (!identity.ok) {
+            this._logSweep({
+                event: "sweep_skip",
+                code: identity.code,
+                roomNumber,
+                sourceAddress,
+                destinationAddress: destination.address,
+                trigger
+            });
+            return Object.freeze({
+                ok: false,
+                code: identity.code
+            });
+        }
+
+        if (
+            identity.derivedAddress
+            && !assertSweepSourceDiffersFromDestination(
+                sourceAddress,
+                identity.derivedAddress
+            ).ok
+        ) {
+            this._logSweep({
+                event: "sweep_skip",
+                code: "SOURCE_EQUALS_DESTINATION",
+                roomNumber,
+                sourceAddress,
+                destinationAddress: identity.derivedAddress,
+                trigger
+            });
+            return Object.freeze({
+                ok: false,
+                code: "SOURCE_EQUALS_DESTINATION"
+            });
+        }
+
         let balanceNano;
 
         try {
@@ -572,6 +634,43 @@ export class RoomWalletResidualSweepWorker {
             return Object.freeze({
                 ok: false,
                 code: destination.code
+            });
+        }
+
+        const sourceAddress = record.payload?.sourceAddress ?? null;
+        const selfTransfer = assertSweepSourceDiffersFromDestination(
+            sourceAddress,
+            destination.address
+        );
+
+        if (!selfTransfer.ok) {
+            this._repository.markFailed(record.recordId, {
+                terminal: true,
+                failureReason: selfTransfer.code
+            });
+            this._logSweep({
+                event: "sweep_skip",
+                code: selfTransfer.code,
+                recordId,
+                sourceAddress,
+                destinationAddress: destination.address
+            });
+            return Object.freeze({
+                ok: false,
+                code: selfTransfer.code
+            });
+        }
+
+        const identity = await verifyResiduesWalletIdentity(this._env);
+
+        if (!identity.ok) {
+            this._repository.markFailed(record.recordId, {
+                terminal: true,
+                failureReason: identity.code
+            });
+            return Object.freeze({
+                ok: false,
+                code: identity.code
             });
         }
 

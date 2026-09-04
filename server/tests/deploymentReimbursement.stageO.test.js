@@ -176,6 +176,10 @@ async function main() {
             SECRET_ENV_KEYS.includes("TON_REIMBURSEMENT_MNEMONIC"),
             "reimbursement mnemonic must be registered as secret"
         );
+        assert.ok(
+            SECRET_ENV_KEYS.includes("TON_RESIDUES_MNEMONIC"),
+            "residues mnemonic must be registered as secret"
+        );
 
         // --- Security: address pin match / mismatch ---
 
@@ -241,11 +245,8 @@ async function main() {
             );
 
             assert.ok(adapterSrc.includes("TON_REIMBURSEMENT") || adapterSrc.includes("loadReimbursementWalletConfig"));
-            assert.ok(adapterSrc.includes("WalletContractV4"));
-            assert.ok(
-                adapterSrc.includes("init: seqno === 0 ? wallet.init : undefined"),
-                "uninit reimbursement wallet must attach V4 StateInit"
-            );
+            assert.match(adapterSrc, /send permanently retired/);
+            assert.equal(/broadcastTransaction/.test(adapterSrc), false);
         }
 
         // --- Validation: disabled flag blocks send ---
@@ -274,7 +275,7 @@ async function main() {
             assert.equal(result.ok, false);
             assert.equal(
                 result.code,
-                REIMBURSEMENT_TRANSFER_RESULT.FEATURE_DISABLED
+                REIMBURSEMENT_TRANSFER_RESULT.SEND_RETIRED
             );
         }
 
@@ -307,7 +308,7 @@ async function main() {
             assert.equal(result.ok, false);
             assert.equal(
                 result.code,
-                REIMBURSEMENT_TRANSFER_RESULT.FEATURE_DISABLED
+                REIMBURSEMENT_TRANSFER_RESULT.SEND_RETIRED
             );
         }
 
@@ -338,7 +339,7 @@ async function main() {
             });
 
             assert.equal(zero.ok, false);
-            assert.equal(zero.code, REIMBURSEMENT_TRANSFER_RESULT.AMOUNT_INVALID);
+            assert.equal(zero.code, REIMBURSEMENT_TRANSFER_RESULT.SEND_RETIRED);
 
             const over = await transfer.sendReimbursement({
                 payload: {
@@ -352,7 +353,7 @@ async function main() {
             assert.equal(over.ok, false);
             assert.equal(
                 over.code,
-                REIMBURSEMENT_TRANSFER_RESULT.AMOUNT_EXCEEDS_MAX
+                REIMBURSEMENT_TRANSFER_RESULT.SEND_RETIRED
             );
         }
 
@@ -388,7 +389,7 @@ async function main() {
             assert.equal(badDest.ok, false);
             assert.equal(
                 badDest.code,
-                REIMBURSEMENT_TRANSFER_RESULT.DESTINATION_MISMATCH
+                REIMBURSEMENT_TRANSFER_RESULT.SEND_RETIRED
             );
         }
 
@@ -421,9 +422,9 @@ async function main() {
 
             const sent = await transfer.sendReimbursement(reimb);
 
-            assert.equal(sent.ok, true);
-            assert.equal(sent.code, REIMBURSEMENT_TRANSFER_RESULT.SENT);
-            assert.equal(sent.txHash, "mock_success_tx_o");
+            assert.equal(sent.ok, false);
+            assert.equal(sent.code, REIMBURSEMENT_TRANSFER_RESULT.SEND_RETIRED);
+            assert.equal(sent.txHash, null);
 
             const worker = new DeploymentReimbursementWorker({
                 repository: stack.repository,
@@ -436,16 +437,16 @@ async function main() {
 
             const queue = await worker.processQueue();
 
-            assert.equal(queue.claimed, 1);
-            assert.equal(queue.results[0]?.code, REIMBURSEMENT_TRANSFER_RESULT.SENT);
+            assert.equal(queue.skipped, "send_permanently_retired");
+            assert.equal(queue.claimed, 0);
 
             const after = stack.repository.findById(reimb.recordId);
 
             assert.equal(
                 after.payload.status,
-                DEPLOYMENT_REIMBURSEMENT_STATUS.PROCESSING
+                DEPLOYMENT_REIMBURSEMENT_STATUS.PENDING
             );
-            assert.equal(after.payload.txHash, "mock_success_tx_o");
+            assert.equal(after.payload.txHash, null);
             assert.notEqual(
                 after.payload.status,
                 DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED
@@ -493,20 +494,16 @@ async function main() {
 
             const queue = await worker.processQueue();
 
-            assert.equal(queue.results[0]?.ok, false);
-            assert.equal(
-                queue.results[0]?.code,
-                REIMBURSEMENT_TRANSFER_RESULT.FAILED
-            );
+            assert.equal(queue.skipped, "send_permanently_retired");
+            assert.equal(queue.claimed, 0);
 
             const after = stack.repository.findById(reimb.recordId);
 
             assert.equal(
                 after.payload.status,
-                DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_RETRY
+                DEPLOYMENT_REIMBURSEMENT_STATUS.PENDING
             );
             assert.equal(after.payload.txHash, null);
-            assert.match(String(after.payload.errorReason), /mock_broadcast_error/);
 
             worker.shutdown();
             transfer.shutdown();
@@ -543,20 +540,9 @@ async function main() {
                 amountTon: "0.023878622"
             });
 
-            assert.equal(result.ok, true);
-            assert.equal(result.code, "SENT");
-            assert.equal(result.txHash, "uninit_seqno_broadcast_hash");
-            assert.equal(typeof capturedBoc, "string");
-            assert.ok(capturedBoc.length > 0);
-
-            const msg = loadMessage(
-                Cell.fromBase64(capturedBoc).beginParse()
-            );
-
-            assert.ok(
-                msg.init,
-                "first send against uninit wallet must include StateInit"
-            );
+            assert.equal(result.ok, false);
+            assert.equal(result.code, "SEND_RETIRED");
+            assert.equal(capturedBoc, null);
 
             adapter.shutdown();
         }
@@ -588,17 +574,9 @@ async function main() {
                 amountTon: "0.023878622"
             });
 
-            assert.equal(result.ok, true);
-            assert.equal(result.txHash, "active_seqno_broadcast_hash");
-
-            const msg = loadMessage(
-                Cell.fromBase64(capturedBoc).beginParse()
-            );
-
-            assert.ok(
-                !msg.init,
-                "active wallet seqno>0 must not re-attach StateInit"
-            );
+            assert.equal(result.ok, false);
+            assert.equal(result.code, "SEND_RETIRED");
+            assert.equal(capturedBoc, null);
 
             adapter.shutdown();
         }

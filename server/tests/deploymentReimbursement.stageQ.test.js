@@ -230,7 +230,7 @@ async function main() {
 
             const paused = await worker.processQueue();
 
-            assert.equal(paused.skipped, "send_paused");
+            assert.equal(paused.skipped, "send_permanently_retired");
             assert.equal(sendCalls, 0);
             assert.equal(stack.repository.listPending().length, 1);
             assert.equal(
@@ -259,7 +259,7 @@ async function main() {
 
             assert.equal(
                 disabled.code,
-                REIMBURSEMENT_TRANSFER_RESULT.FEATURE_DISABLED
+                REIMBURSEMENT_TRANSFER_RESULT.SEND_RETIRED
             );
         }
 
@@ -310,16 +310,14 @@ async function main() {
 
             const queue = await worker.processQueue();
 
-            assert.equal(
-                queue.results[0]?.code,
-                REIMBURSEMENT_TRANSFER_RESULT.AWAITING_TRANSACTION_HASH
-            );
+            assert.equal(queue.skipped, "send_permanently_retired");
+            assert.equal(queue.claimed, 0);
 
             const after = stack.repository.findById(created.recordId);
 
             assert.equal(
                 after.payload.status,
-                DEPLOYMENT_REIMBURSEMENT_STATUS.AWAITING_TRANSACTION_HASH
+                DEPLOYMENT_REIMBURSEMENT_STATUS.PENDING
             );
             assert.equal(after.payload.txHash, null);
 
@@ -490,7 +488,7 @@ async function main() {
 
             assert.equal(
                 result.code,
-                REIMBURSEMENT_TRANSFER_RESULT.INSUFFICIENT_BALANCE
+                REIMBURSEMENT_TRANSFER_RESULT.SEND_RETIRED
             );
             assert.equal(result.txHash, null);
 

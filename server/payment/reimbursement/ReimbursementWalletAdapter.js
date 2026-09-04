@@ -1,28 +1,17 @@
 /**
- * R17.8V.2P.O — Isolated Reimbursement Wallet adapter (no settlement / escrow paths).
+ * Isolated Reimbursement Wallet adapter.
  *
- * Loads reimbursement keys only. Never touches Owner or Deployer secrets.
+ * Residues role migration: sendTransfer is permanently retired and cannot
+ * broadcast. Identity load remains for address pin checks only.
  */
 
-import { Address, beginCell, external, internal, storeMessage, toNano } from "@ton/core";
-import { WalletContractV4 } from "@ton/ton";
-
-import {
-    REIMBURSEMENT_WALLET_WORKCHAIN,
-    loadReimbursementWalletConfig,
-    reimbursementAddressesEqual
-} from "./ReimbursementWalletConfig.js";
-import { nanotonToTonString, tonStringToNanoton } from "./nanoton.js";
+import { loadReimbursementWalletConfig } from "./ReimbursementWalletConfig.js";
 
 export class ReimbursementWalletAdapter {
 
     /**
      * @param {{
-     *   tonService?: {
-     *     getSeqno: Function,
-     *     getBalance: Function,
-     *     broadcastTransaction: Function
-     *   }|null,
+     *   tonService?: object|null,
      *   env?: NodeJS.ProcessEnv,
      *   logger?: object|null,
      *   walletConfigLoader?: Function
@@ -54,7 +43,7 @@ export class ReimbursementWalletAdapter {
      */
     async initialize() {
 
-        if (this._initialized && this._secretKey) {
+        if (this._initialized && this._address) {
 
             return {
                 ok: true,
@@ -85,14 +74,13 @@ export class ReimbursementWalletAdapter {
         }
 
         this._address = loaded.derivedAddress;
-        this._publicKey = loaded.publicKey;
-        this._secretKey = loaded.secretKey;
         this._walletId = loaded.walletId;
         this._initialized = true;
         this._initError = null;
+        this._clearSecrets();
 
         this._logger?.info?.(
-            `ReimbursementWalletAdapter ready | address=${this._address}`
+            `ReimbursementWalletAdapter ready | address=${this._address} | send retired`
         );
 
         return {
@@ -131,192 +119,28 @@ export class ReimbursementWalletAdapter {
     }
 
     /**
-     * @param {{ destination: string, amountTon: string }} params
+     * Permanently refuses to broadcast. Enabling historical reimbursement
+     * flags cannot cause this method to spend.
+     *
+     * @param {{ destination?: string, amountTon?: string }} [params]
      * @returns {Promise<{ ok: boolean, code: string, txHash?: string|null, errorReason?: string }>}
      */
-    async sendTransfer({ destination, amountTon }) {
+    async sendTransfer({ destination, amountTon } = {}) {
 
-        if (!this._initialized || !this._secretKey || !this._publicKey) {
+        void destination;
+        void amountTon;
+        void this._tonService;
 
-            const init = await this.initialize();
+        this._logger?.warn?.(
+            "ReimbursementWalletAdapter sendTransfer refused | send permanently retired"
+        );
 
-            if (!init.ok) {
-
-                return {
-                    ok: false,
-                    code: "FAILED",
-                    txHash: null,
-                    errorReason: init.code ?? init.message ?? "wallet_not_initialized"
-                };
-
-            }
-
-        }
-
-        if (!this._tonService) {
-
-            return {
-                ok: false,
-                code: "FAILED",
-                txHash: null,
-                errorReason: "ton_service_missing"
-            };
-
-        }
-
-        const dest = String(destination ?? "").trim();
-        const amount = String(amountTon ?? "").trim();
-        const amountNano = tonStringToNanoton(amount);
-
-        if (!dest || amountNano == null || amountNano <= 0n) {
-
-            return {
-                ok: false,
-                code: "FAILED",
-                txHash: null,
-                errorReason: "invalid_transfer_params"
-            };
-
-        }
-
-        try {
-
-            Address.parse(dest);
-
-        } catch {
-
-            return {
-                ok: false,
-                code: "FAILED",
-                txHash: null,
-                errorReason: "invalid_destination"
-            };
-
-        }
-
-        try {
-
-            const balance = await this._tonService.getBalance(this._address);
-
-            if (typeof balance === "bigint" && balance < amountNano) {
-
-                return {
-                    ok: false,
-                    code: "FAILED",
-                    txHash: null,
-                    errorReason: "insufficient_balance",
-                    balanceTon: nanotonToTonString(balance)
-                };
-
-            }
-
-            const wallet = WalletContractV4.create({
-                workchain: REIMBURSEMENT_WALLET_WORKCHAIN,
-                publicKey: this._publicKey
-            });
-
-            if (!reimbursementAddressesEqual(wallet.address, this._address)) {
-
-                return {
-                    ok: false,
-                    code: "FAILED",
-                    txHash: null,
-                    errorReason: "wallet_identity_drift"
-                };
-
-            }
-
-            // Uninitialized V4 wallets have no code. runGetMethod("seqno") then
-            // fails with TonClient "Unable to execute get method. Got exit_code: -13".
-            // First outbound must attach WalletContractV4 StateInit (same pattern as
-            // executeDepositTestnetDeploy). After that, seqno advances normally.
-            let seqno = 0;
-
-            try {
-
-                seqno = await this._tonService.getSeqno(this._address);
-
-            } catch {
-
-                seqno = 0;
-
-            }
-
-            if (!Number.isInteger(seqno) || seqno < 0) {
-
-                seqno = 0;
-
-            }
-
-            const transfer = wallet.createTransfer({
-                seqno,
-                secretKey: this._secretKey,
-                messages: [
-                    internal({
-                        to: dest,
-                        value: toNano(amount),
-                        bounce: true
-                    })
-                ]
-            });
-
-            const externalMessage = external({
-                to: wallet.address,
-                init: seqno === 0 ? wallet.init : undefined,
-                body: transfer
-            });
-
-            const bocBase64 = beginCell()
-                .store(storeMessage(externalMessage))
-                .endCell()
-                .toBoc()
-                .toString("base64");
-
-            const broadcast = await this._tonService.broadcastTransaction(bocBase64);
-
-            const txHash = extractBroadcastTxHash(broadcast);
-
-            if (!txHash) {
-
-                this._logger?.warn?.(
-                    `ReimbursementWalletAdapter broadcast accepted without txHash | `
-                        + `to=${dest} | amount=${amount} | seqno=${seqno}`
-                );
-
-                return {
-                    ok: true,
-                    code: "AWAITING_TRANSACTION_HASH",
-                    txHash: null,
-                    seqno
-                };
-
-            }
-
-            this._logger?.info?.(
-                `ReimbursementWalletAdapter SENT | to=${dest} | amount=${amount} | `
-                    + `txHash=${txHash}`
-            );
-
-            return {
-                ok: true,
-                code: "SENT",
-                txHash
-            };
-
-        } catch (error) {
-
-            this._logger?.error?.(
-                `ReimbursementWalletAdapter send failed | ${error?.message ?? error}`
-            );
-
-            return {
-                ok: false,
-                code: "FAILED",
-                txHash: null,
-                errorReason: error?.message ?? "send_failed"
-            };
-
-        }
+        return {
+            ok: false,
+            code: "SEND_RETIRED",
+            txHash: null,
+            errorReason: "reimbursement_send_permanently_retired"
+        };
 
     }
 
@@ -326,38 +150,5 @@ export class ReimbursementWalletAdapter {
         this._secretKey = null;
 
     }
-
-}
-
-/**
- * @param {unknown} broadcast
- * @returns {string|null}
- */
-function extractBroadcastTxHash(broadcast) {
-
-    if (!broadcast || typeof broadcast !== "object") {
-
-        return null;
-
-    }
-
-    const candidates = [
-        broadcast.hash,
-        broadcast.txHash,
-        broadcast.transactionHash,
-        broadcast.result?.hash
-    ];
-
-    for (const value of candidates) {
-
-        if (typeof value === "string" && value.trim()) {
-
-            return value.trim();
-
-        }
-
-    }
-
-    return null;
 
 }

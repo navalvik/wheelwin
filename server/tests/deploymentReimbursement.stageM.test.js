@@ -349,7 +349,7 @@ async function main() {
 
             const queue = await stack.worker.processQueue();
 
-            assert.equal(queue.skipped, "feature_disabled");
+            assert.equal(queue.skipped, "send_permanently_retired");
             assert.equal(queue.scanned, 0);
 
         } finally {
@@ -380,6 +380,7 @@ async function main() {
             assert.ok(
                 transfer.code === "NOT_INITIALIZED"
                 || transfer.code === "FEATURE_DISABLED"
+                || transfer.code === "SEND_RETIRED"
                 || transfer.code === "FAILED",
                 `expected blocked transfer code, got ${transfer.code}`
             );
@@ -387,19 +388,15 @@ async function main() {
 
             const queue = await stack.worker.processQueue();
 
-            assert.equal(queue.scanned, 1);
-            assert.equal(queue.claimed, 1);
-            assert.notEqual(
-                queue.results[0]?.code,
-                DEPLOYMENT_REIMBURSEMENT_STATUS.CONFIRMED
-            );
-            assert.equal(queue.results[0]?.ok, false);
+            assert.equal(queue.skipped, "send_permanently_retired");
+            assert.equal(queue.scanned, 0);
+            assert.equal(queue.claimed, 0);
 
             const after = stack.repository.findById(created.reimbursement.recordId);
 
             assert.equal(
                 after.payload.status,
-                DEPLOYMENT_REIMBURSEMENT_STATUS.FAILED_RETRY
+                DEPLOYMENT_REIMBURSEMENT_STATUS.PENDING
             );
             assert.notEqual(
                 after.payload.status,

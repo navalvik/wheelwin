@@ -1528,7 +1528,9 @@ class WheelWinApplication {
 
         this._deploymentReimbursementWorker.initialize();
 
-        this._logger.startupLine("DeploymentReimbursementWorker");
+        this._logger.startupLine(
+            "DeploymentReimbursementWorker (send permanently retired)"
+        );
 
         const deployerWalletAddress = await this._resolveDeployerWalletAddress();
 

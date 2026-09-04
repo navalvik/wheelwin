@@ -10,6 +10,9 @@ import { OwnerConfiguration } from "../../config/OwnerConfiguration.js";
 import { PAYMENT_RULES } from "../../catalog/PaymentRules.js";
 import { STAKES } from "../../catalog/Stakes.js";
 import {
+    resolveResiduesWalletDestination
+} from "../../payment/roomWallet/ResiduesWalletConfig.js";
+import {
     DEFAULT_SETTLEMENT_TIMEOUT_MS,
     RUNTIME_CONFIG_EDITABLE_KEYS
 } from "./runtimeConfigurationKeys.js";
@@ -115,9 +118,11 @@ export function buildRuntimeConfigurationSnapshot({
     }
 
     const deployWallet = safeAddress(ton.deployerExpectedAddress);
-    const reimbursementWallet = safeAddress(
-        env.TON_REIMBURSEMENT_EXPECTED_ADDRESS
-    );
+    const residuesDestination = resolveResiduesWalletDestination(env);
+    const residuesWallet = residuesDestination.ok
+        ? safeAddress(residuesDestination.address)
+        : null;
+    const reimbursementWallet = residuesWallet;
 
     const catalogStakes = Array.isArray(STAKES) ? [...STAKES] : [];
     const stake1 = Number.isFinite(Number(ov.baseStake1Gram))
@@ -155,12 +160,17 @@ export function buildRuntimeConfigurationSnapshot({
     const wallets = Object.freeze({
         ownerWallet,
         deployWallet,
+        residuesWallet,
         reimbursementWallet,
         tonNetwork: ton.network ?? null,
         readOnly: true,
         secrets: Object.freeze({
             ownerMnemonicExposed: false,
             deployerMnemonicConfigured: Boolean(ton.deployerMnemonic),
+            residuesMnemonicConfigured: Boolean(
+                String(env.TON_RESIDUES_MNEMONIC ?? "").trim()
+                || String(env.TON_REIMBURSEMENT_MNEMONIC ?? "").trim()
+            ),
             reimbursementMnemonicConfigured: Boolean(
                 String(env.TON_REIMBURSEMENT_MNEMONIC ?? "").trim()
             ),

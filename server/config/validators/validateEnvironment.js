@@ -710,6 +710,12 @@ export function validateEnvironment(collector, env) {
 
     validateStringField(
         collector,
+        ENVIRONMENT_SCHEMA.TON_RESIDUES_MNEMONIC,
+        env.TON_RESIDUES_MNEMONIC
+    );
+
+    validateStringField(
+        collector,
         ENVIRONMENT_SCHEMA.ROOM_WALLETS_JSON,
         env.ROOM_WALLETS_JSON
     );

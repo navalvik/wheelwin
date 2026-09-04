@@ -1,8 +1,8 @@
 /**
- * R17.8V.2P.O / Q — Reimbursement transfer service (secure TON send boundary).
+ * R17.8V.2P.O / Q — Reimbursement transfer service.
  *
- * Policy + wallet balance gates → adapter → SENT / AWAITING_TRANSACTION_HASH / FAILED.
- * Never invents synthetic txHash. Never marks CONFIRMED.
+ * Residues role migration: sendReimbursement is permanently retired.
+ * Historical validation helpers remain for audit; they cannot broadcast.
  */
 
 import { DEPLOYMENT_COST_SNAPSHOT_STATUS } from "./deploymentCostSnapshotStates.js";
@@ -30,7 +30,8 @@ export const REIMBURSEMENT_TRANSFER_RESULT = Object.freeze({
     INSUFFICIENT_BALANCE: "INSUFFICIENT_BALANCE",
     DESTINATION_INVALID: "DESTINATION_INVALID",
     DESTINATION_MISMATCH: "DESTINATION_MISMATCH",
-    WALLET_DISABLED: "WALLET_DISABLED"
+    WALLET_DISABLED: "WALLET_DISABLED",
+    SEND_RETIRED: "SEND_RETIRED"
 });
 
 export class ReimbursementTransferService {
@@ -115,175 +116,24 @@ export class ReimbursementTransferService {
      */
     async sendReimbursement(record) {
 
-        if (!this._initialized) {
+        void record;
 
-            return {
-                ok: false,
-                code: REIMBURSEMENT_TRANSFER_RESULT.NOT_INITIALIZED,
-                txHash: null,
-                errorReason: "transfer_service_not_initialized"
-            };
-
-        }
-
-        const policyGate = this._policy?.validateWalletPolicy?.()
-            ?? (
-                isReimbursementSendAllowed(this._env)
-                    ? { ok: true }
-                    : {
-                        ok: false,
-                        code: REIMBURSEMENT_POLICY_RESULT.FEATURE_DISABLED,
-                        reason: "reimbursement_send_disabled"
-                    }
-            );
-
-        if (!policyGate.ok) {
-
-            return {
-                ok: false,
-                code: REIMBURSEMENT_TRANSFER_RESULT.FEATURE_DISABLED,
-                txHash: null,
-                errorReason: policyGate.reason ?? "reimbursement_send_disabled"
-            };
-
-        }
-
-        const validation = this._validateTransferRequest(record);
-
-        if (!validation.ok) {
-
-            return {
-                ok: false,
-                code: validation.code,
-                txHash: null,
-                errorReason: validation.errorReason,
-                message: validation.message
-            };
-
-        }
-
-        const recordId = record?.recordId ?? record?.payload?.id ?? null;
-
-        const single = this._policy?.validateSingleTransfer?.(validation.amountTon)
-            ?? { ok: true };
-
-        if (!single.ok) {
-
-            return {
-                ok: false,
-                code: mapPolicyCode(single.code),
-                txHash: null,
-                errorReason: single.reason ?? single.code
-            };
-
-        }
-
-        const daily = this._policy?.validateDailyLimit?.({
-            amountTon: validation.amountTon,
-            excludeRecordId: recordId
-        }) ?? { ok: true };
-
-        if (!daily.ok) {
-
-            return {
-                ok: false,
-                code: mapPolicyCode(daily.code),
-                txHash: null,
-                errorReason: daily.reason ?? daily.code
-            };
-
-        }
-
-        if (this._walletMonitor?.validateAvailableBalance) {
-
-            const balance = await this._walletMonitor.validateAvailableBalance(
-                validation.amountTon
-            );
-
-            if (!balance.ok) {
-
-                return {
-                    ok: false,
-                    code: balance.code
-                        === REIMBURSEMENT_WALLET_MONITOR_RESULT.INSUFFICIENT_BALANCE
-                        ? REIMBURSEMENT_TRANSFER_RESULT.INSUFFICIENT_BALANCE
-                        : REIMBURSEMENT_TRANSFER_RESULT.FAILED,
-                    txHash: null,
-                    errorReason: balance.reason ?? balance.code
-                };
-
-            }
-
-        }
-
-        if (!this._adapter?.sendTransfer) {
-
-            return {
-                ok: false,
-                code: REIMBURSEMENT_TRANSFER_RESULT.FAILED,
-                txHash: null,
-                errorReason: "wallet_adapter_missing"
-            };
-
-        }
-
-        const sent = await this._adapter.sendTransfer({
-            destination: validation.destination,
-            amountTon: validation.amountTon
-        });
-
-        if (
-            sent?.ok
-            && sent.code === REIMBURSEMENT_TRANSFER_RESULT.AWAITING_TRANSACTION_HASH
-        ) {
-
-            return {
-                ok: true,
-                code: REIMBURSEMENT_TRANSFER_RESULT.AWAITING_TRANSACTION_HASH,
-                txHash: null,
-                seqno: sent.seqno ?? null,
-                errorReason: null
-            };
-
-        }
-
-        if (sent?.ok && sent.code === REIMBURSEMENT_TRANSFER_RESULT.SENT) {
-
-            const txHash = String(sent.txHash ?? "").trim();
-
-            if (!txHash || /^reimb_seqno_/i.test(txHash)) {
-
-                return {
-                    ok: true,
-                    code: REIMBURSEMENT_TRANSFER_RESULT.AWAITING_TRANSACTION_HASH,
-                    txHash: null,
-                    seqno: sent.seqno ?? null,
-                    errorReason: null
-                };
-
-            }
-
-            return {
-                ok: true,
-                code: REIMBURSEMENT_TRANSFER_RESULT.SENT,
-                txHash,
-                errorReason: null
-            };
-
-        }
+        this._logger?.debug?.(
+            "ReimbursementTransferService send refused | send permanently retired"
+        );
 
         return {
             ok: false,
-            code: REIMBURSEMENT_TRANSFER_RESULT.FAILED,
+            code: REIMBURSEMENT_TRANSFER_RESULT.SEND_RETIRED,
             txHash: null,
-            errorReason: sent?.errorReason
-                ?? sent?.code
-                ?? "transfer_failed"
+            errorReason: "reimbursement_send_permanently_retired"
         };
 
     }
 
     /**
+     * Historical request validation. Not used by sendReimbursement.
+     *
      * @param {object} record
      * @returns {object}
      */

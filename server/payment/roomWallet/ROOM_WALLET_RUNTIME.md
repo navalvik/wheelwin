@@ -17,7 +17,9 @@ The application composition root should create the Room Wallet service once and 
 - Owner payout preserves the existing gross Owner share while retaining the configured room reserve.
 - Gas is paid by the source wallet and is not deducted from the recipient's intended amount.
 - Residual sweep transfers exactly 0.49 Gram to the Residues destination when the Room Wallet chain balance reaches 0.50 Gram. The source Room Wallet retains a 0.01 Gram envelope (0.006 Gram source-paid fee budget + 0.004 Gram safety margin). Recipient value is never reduced to pay fees.
-- Residual sweep is off unless `ROOM_WALLET_RESIDUAL_SWEEP_ENABLED` is explicitly true. Missing `TON_RESIDUES_EXPECTED_ADDRESS` prevents sends; the process still starts.
+- Residual sweep is off unless `ROOM_WALLET_RESIDUAL_SWEEP_ENABLED` is explicitly true.
+- Residues destination prefers `TON_RESIDUES_EXPECTED_ADDRESS`. Compatibility fallback: `TON_REIMBURSEMENT_EXPECTED_ADDRESS` (same physical wallet; role migration only). Dual pins must match. Source Room Wallet must not equal Residues destination.
+- Missing Residues destination prevents sweep sends; the process still starts.
 - Room Wallet balance is not the source of truth for an individual game's accounting; the game financial ledger is.
 
 ## Activation rule

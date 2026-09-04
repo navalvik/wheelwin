@@ -8,7 +8,7 @@ import PanelShell from "./shared/PanelShell";
 const WALLET_LABELS = Object.freeze({
     OWNER_WALLET: "OWNER WALLET",
     DEPLOY_WALLET: "Deploy Wallet",
-    REIMBURSEMENT_WALLET: "Reimbursement Wallet"
+    REIMBURSEMENT_WALLET: "Residues Wallet"
 });
 
 const WALLET_ORDER = Object.freeze([

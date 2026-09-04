@@ -5,14 +5,16 @@
  * new settlement path unless explicitly requested by configuration.
  */
 
-import { canonicalizeTonWalletAddress } from "../../models/TonWalletAddress.js";
 import { RoomWalletSettlementRouter } from "../RoomWalletSettlementRouter.js";
 import { createRoomWalletService } from "./RoomWalletService.js";
+import {
+    TON_RESIDUES_EXPECTED_ADDRESS_ENV,
+    resolveResiduesWalletDestination as resolveResiduesWalletDestinationIdentity
+} from "./ResiduesWalletConfig.js";
 
 export const ROOM_WALLET_RESIDUAL_SWEEP_ENABLED_ENV =
     "ROOM_WALLET_RESIDUAL_SWEEP_ENABLED";
-export const TON_RESIDUES_EXPECTED_ADDRESS_ENV =
-    "TON_RESIDUES_EXPECTED_ADDRESS";
+export { TON_RESIDUES_EXPECTED_ADDRESS_ENV };
 
 export function isRoomWalletSettlementEnabled(env = process.env) {
     const value = String(env.ROOM_WALLET_SETTLEMENT_MODE || "").trim().toUpperCase();
@@ -40,35 +42,12 @@ export function isRoomWalletResidualSweepEnabled(env = process.env) {
 }
 
 /**
- * Public Residues receive address. Missing or invalid must not crash
- * startup and must not authorize a sweep send.
+ * Public Residues receive address. Prefer TON_RESIDUES_EXPECTED_ADDRESS.
+ * Compatibility fallback: TON_REIMBURSEMENT_EXPECTED_ADDRESS (same identity).
+ * Missing or invalid must not crash startup and must not authorize a sweep send.
  */
 export function resolveResiduesWalletDestination(env = process.env) {
-    const raw = String(env?.[TON_RESIDUES_EXPECTED_ADDRESS_ENV] ?? "").trim();
-
-    if (!raw) {
-        return Object.freeze({
-            ok: false,
-            code: "RESIDUES_DESTINATION_MISSING",
-            address: null
-        });
-    }
-
-    const address = canonicalizeTonWalletAddress(raw);
-
-    if (!address) {
-        return Object.freeze({
-            ok: false,
-            code: "RESIDUES_DESTINATION_INVALID",
-            address: null
-        });
-    }
-
-    return Object.freeze({
-        ok: true,
-        code: "OK",
-        address
-    });
+    return resolveResiduesWalletDestinationIdentity(env);
 }
 
 export function assertRoomWalletSettlementCanBeEnabled(service) {

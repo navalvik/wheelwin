@@ -175,6 +175,13 @@ test("missing and invalid Residues destinations fail closed", () => {
     });
     assert.equal(valid.ok, true);
     assert.equal(valid.address, RESIDUES_ADDRESS);
+
+    const fallback = resolveResiduesWalletDestination({
+        TON_REIMBURSEMENT_EXPECTED_ADDRESS: RESIDUES_ADDRESS
+    });
+    assert.equal(fallback.ok, true);
+    assert.equal(fallback.address, RESIDUES_ADDRESS);
+    assert.equal(fallback.compatibility, true);
 });
 
 test("disabled worker never sends", async () => {

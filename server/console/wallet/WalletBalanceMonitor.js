@@ -9,10 +9,10 @@ import { fromNano } from "@ton/core";
 import { OwnerConfiguration } from "../../config/OwnerConfiguration.js";
 import { deriveDeployerWalletIdentity } from "../../payment/ton/deriveDeployerWalletIdentity.js";
 import {
-    TON_REIMBURSEMENT_EXPECTED_ADDRESS_ENV,
-    TON_REIMBURSEMENT_MNEMONIC_ENV,
-    deriveReimbursementWalletIdentity
-} from "../../payment/reimbursement/ReimbursementWalletConfig.js";
+    deriveResiduesWalletIdentity,
+    resolveResiduesMnemonic,
+    resolveResiduesWalletDestination
+} from "../../payment/roomWallet/ResiduesWalletConfig.js";
 
 export const WALLET_BALANCE_TYPES = Object.freeze({
     OWNER_WALLET: "OWNER_WALLET",
@@ -403,21 +403,17 @@ export class WalletBalanceMonitor {
 
     async _resolveReimbursementAddress() {
 
-        const expected = safeAddress(
-            this._env[TON_REIMBURSEMENT_EXPECTED_ADDRESS_ENV]
-        );
+        const destination = resolveResiduesWalletDestination(this._env);
 
-        if (expected) {
+        if (destination.ok) {
 
-            return expected;
+            return safeAddress(destination.address);
 
         }
 
-        const mnemonic = String(
-            this._env[TON_REIMBURSEMENT_MNEMONIC_ENV] ?? ""
-        ).trim();
+        const resolved = resolveResiduesMnemonic(this._env);
 
-        if (!mnemonic) {
+        if (!resolved.mnemonic) {
 
             return null;
 
@@ -425,14 +421,14 @@ export class WalletBalanceMonitor {
 
         try {
 
-            const identity = await deriveReimbursementWalletIdentity(mnemonic);
+            const identity = await deriveResiduesWalletIdentity(resolved.mnemonic);
 
             return safeAddress(identity?.address);
 
         } catch (error) {
 
             this._logger?.warn?.(
-                `WalletBalanceMonitor reimbursement address resolve failed | ${error?.message ?? error}`
+                `WalletBalanceMonitor residues address resolve failed | ${error?.message ?? error}`
             );
 
             return null;
