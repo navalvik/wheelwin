@@ -11,9 +11,11 @@
  * - For every game, 0.01 Gram is retained from the Owner economic share in
  *   the Room Wallet, while the Owner receives the remaining share. The Owner
  *   payout must therefore be at least 0.14 Gram.
- * - Residual sweep sends 0.49 Gram to Residues Wallet when the reconciled
- *   Room Wallet balance reaches 0.50 Gram. Sweep gas is paid separately by
- *   the source Room Wallet.
+ * - Residual sweep sends exactly 0.49 Gram to Residues Wallet when the
+ *   Room Wallet chain balance reaches 0.50 Gram. The source Room Wallet
+ *   retains a 0.01 Gram envelope (0.006 Gram source-paid fee budget +
+ *   0.004 Gram safety margin). The 0.49 Gram recipient value is never
+ *   reduced to pay fees.
  */
 
 export const GRAM_NANO = 1_000_000_000n;
@@ -23,8 +25,21 @@ export const ROOM_WALLET_POLICY = Object.freeze({
     ownerRetainedNano: 10_000_000n,
     residualTriggerNano: 500_000_000n,
     residualSweepNano: 490_000_000n,
-    initialRoomReserveNano: 10_000_000n
+    initialRoomReserveNano: 10_000_000n,
+    residualRetainedFloorNano: 10_000_000n,
+    residualSweepGasNano: 6_000_000n,
+    residualSafetyMarginNano: 4_000_000n
 });
+
+if (
+    ROOM_WALLET_POLICY.residualSweepGasNano
+        + ROOM_WALLET_POLICY.residualSafetyMarginNano
+    !== ROOM_WALLET_POLICY.residualRetainedFloorNano
+) {
+    throw new Error(
+        "ROOM_WALLET_POLICY residual retained floor must equal sweep gas + safety margin"
+    );
+}
 
 export function gramsToNano(grams) {
     if (!Number.isFinite(grams) || grams < 0) {
@@ -77,41 +92,67 @@ export function buildSourceWalletTransfer({ amountNano, gasNano }) {
     });
 }
 
-export function buildResidualSweep({ balanceNano, gasNano }) {
+/**
+ * Deterministic residual-sweep eligibility.
+ *
+ * Recipient transfer value is always residualSweepNano (0.49 Gram) when
+ * eligible. Source-paid fee budget and safety margin live inside the
+ * retained floor (0.01 Gram). They are not extra deductions on top of
+ * 0.49 + 0.01, and they do not reduce the recipient amount.
+ */
+export function buildResidualSweep({ balanceNano } = {}) {
     assertNonNegativeNano(balanceNano, "balanceNano");
-    assertNonNegativeNano(gasNano, "gasNano");
 
-    if (balanceNano < ROOM_WALLET_POLICY.residualTriggerNano) {
+    const transferNano = ROOM_WALLET_POLICY.residualSweepNano;
+    const triggerNano = ROOM_WALLET_POLICY.residualTriggerNano;
+    const retainedFloorNano = ROOM_WALLET_POLICY.residualRetainedFloorNano;
+    const sweepGasNano = ROOM_WALLET_POLICY.residualSweepGasNano;
+    const safetyMarginNano = ROOM_WALLET_POLICY.residualSafetyMarginNano;
+
+    const composition = Object.freeze({
+        triggerNano,
+        retainedFloorNano,
+        sweepGasNano,
+        safetyMarginNano,
+        sourceFeeBudgetNano: sweepGasNano
+    });
+
+    if (balanceNano < triggerNano) {
         return Object.freeze({
             eligible: false,
             reason: "BELOW_RESIDUAL_TRIGGER",
             transferNano: 0n,
-            gasNano,
-            sourceDebitNano: 0n,
-            remainingNano: balanceNano
+            recipientCreditNano: 0n,
+            remainingAfterTransferNano: balanceNano,
+            remainingAfterFeeBudgetNano: balanceNano,
+            ...composition
         });
     }
 
-    const sourceDebitNano =
-        ROOM_WALLET_POLICY.residualSweepNano + gasNano;
+    const remainingAfterTransferNano = balanceNano - transferNano;
 
-    if (balanceNano < sourceDebitNano) {
+    if (remainingAfterTransferNano < retainedFloorNano) {
         return Object.freeze({
             eligible: false,
-            reason: "INSUFFICIENT_BALANCE_FOR_SWEEP_AND_GAS",
-            transferNano: ROOM_WALLET_POLICY.residualSweepNano,
-            gasNano,
-            sourceDebitNano,
-            remainingNano: balanceNano
+            reason: "INSUFFICIENT_RETAINED_FLOOR",
+            transferNano,
+            recipientCreditNano: transferNano,
+            remainingAfterTransferNano,
+            remainingAfterFeeBudgetNano:
+                remainingAfterTransferNano > sweepGasNano
+                    ? remainingAfterTransferNano - sweepGasNano
+                    : 0n,
+            ...composition
         });
     }
 
     return Object.freeze({
         eligible: true,
         reason: "ELIGIBLE",
-        transferNano: ROOM_WALLET_POLICY.residualSweepNano,
-        gasNano,
-        sourceDebitNano,
-        remainingNano: balanceNano - sourceDebitNano
+        transferNano,
+        recipientCreditNano: transferNano,
+        remainingAfterTransferNano,
+        remainingAfterFeeBudgetNano: remainingAfterTransferNano - sweepGasNano,
+        ...composition
     });
 }

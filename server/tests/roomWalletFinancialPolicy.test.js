@@ -32,41 +32,81 @@ import {
     assert.equal(result.sourceDebitNano, 142_000_000n);
 }
 
-// Residual sweep: 0.49 Gram is transferred and gas is charged separately.
+assert.equal(ROOM_WALLET_POLICY.residualTriggerNano, 500_000_000n);
+assert.equal(ROOM_WALLET_POLICY.residualSweepNano, 490_000_000n);
+assert.equal(ROOM_WALLET_POLICY.residualRetainedFloorNano, 10_000_000n);
+assert.equal(ROOM_WALLET_POLICY.residualSweepGasNano, 6_000_000n);
+assert.equal(ROOM_WALLET_POLICY.residualSafetyMarginNano, 4_000_000n);
+assert.equal(
+    ROOM_WALLET_POLICY.residualSweepGasNano
+        + ROOM_WALLET_POLICY.residualSafetyMarginNano,
+    ROOM_WALLET_POLICY.residualRetainedFloorNano
+);
+assert.equal(
+    ROOM_WALLET_POLICY.ownerRetainedNano,
+    ROOM_WALLET_POLICY.residualRetainedFloorNano
+);
+assert.notEqual(
+    ROOM_WALLET_POLICY.initialRoomReserveNano,
+    ROOM_WALLET_POLICY.residualSweepGasNano
+);
+
+// 0.49 Gram is below the 0.50 Gram trigger.
+{
+    const result = buildResidualSweep({ balanceNano: 490_000_000n });
+    assert.equal(result.eligible, false);
+    assert.equal(result.reason, "BELOW_RESIDUAL_TRIGGER");
+    assert.equal(result.transferNano, 0n);
+    assert.equal(result.recipientCreditNano, 0n);
+}
+
+// 0.499999999 Gram is still below the trigger.
+{
+    const result = buildResidualSweep({ balanceNano: 499_999_999n });
+    assert.equal(result.eligible, false);
+    assert.equal(result.reason, "BELOW_RESIDUAL_TRIGGER");
+    assert.equal(result.transferNano, 0n);
+}
+
+// Exactly 0.50 Gram is eligible: destination 0.49, source retains 0.01 envelope.
+{
+    const result = buildResidualSweep({ balanceNano: 500_000_000n });
+
+    assert.equal(result.eligible, true);
+    assert.equal(result.reason, "ELIGIBLE");
+    assert.equal(result.transferNano, 490_000_000n);
+    assert.equal(result.recipientCreditNano, 490_000_000n);
+    assert.equal(result.remainingAfterTransferNano, 10_000_000n);
+    assert.equal(result.sweepGasNano, 6_000_000n);
+    assert.equal(result.safetyMarginNano, 4_000_000n);
+    assert.equal(result.sourceFeeBudgetNano, 6_000_000n);
+    assert.equal(result.remainingAfterFeeBudgetNano, 4_000_000n);
+    assert.equal(
+        result.remainingAfterTransferNano,
+        result.sweepGasNano + result.safetyMarginNano
+    );
+}
+
+// Above 0.50 Gram is eligible but still sends exactly 0.49 Gram.
+{
+    const result = buildResidualSweep({ balanceNano: 800_000_000n });
+
+    assert.equal(result.eligible, true);
+    assert.equal(result.transferNano, 490_000_000n);
+    assert.equal(result.recipientCreditNano, 490_000_000n);
+    assert.equal(result.remainingAfterTransferNano, 310_000_000n);
+}
+
+// Passing a leftover gasNano field must not add an extra debit on the 0.01 floor.
 {
     const result = buildResidualSweep({
         balanceNano: 500_000_000n,
-        gasNano: 2_000_000n
+        gasNano: 6_000_000n
     });
 
     assert.equal(result.eligible, true);
-    assert.equal(result.transferNano, ROOM_WALLET_POLICY.residualSweepNano);
-    assert.equal(result.sourceDebitNano, 492_000_000n);
-    assert.equal(result.remainingNano, 8_000_000n);
-}
-
-// Below the threshold no sweep is allowed.
-{
-    const result = buildResidualSweep({
-        balanceNano: 499_999_999n,
-        gasNano: 2_000_000n
-    });
-
-    assert.equal(result.eligible, false);
-    assert.equal(result.reason, "BELOW_RESIDUAL_TRIGGER");
-}
-
-// At/above the trigger, sweep still requires enough balance for 0.49 Gram plus gas.
-{
-    const result = buildResidualSweep({
-        balanceNano: ROOM_WALLET_POLICY.residualTriggerNano,
-        gasNano: 15_000_000n
-    });
-
-    assert.equal(result.eligible, false);
-    assert.equal(result.reason, "INSUFFICIENT_BALANCE_FOR_SWEEP_AND_GAS");
-    assert.equal(result.transferNano, ROOM_WALLET_POLICY.residualSweepNano);
-    assert.equal(result.sourceDebitNano, 505_000_000n);
+    assert.equal(result.transferNano, 490_000_000n);
+    assert.equal(result.remainingAfterTransferNano, 10_000_000n);
 }
 
 // Ledger records transfer amount and gas separately, preserving auditability.
@@ -98,6 +138,10 @@ import {
     assert.equal(ledger.getCreditsNano(), 25_000_000_000n);
     assert.equal(ledger.getDebitsNano(), 142_000_000n);
     assert.equal(ledger.getEntries().length, 3);
+    assert.equal(
+        ledger.getEntries().some((entry) => entry.type === ROOM_LEDGER_ENTRY_TYPES.RESIDUAL_SWEEP),
+        false
+    );
 }
 
 console.log("roomWalletFinancialPolicy.test.js: OK");

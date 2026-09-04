@@ -2077,6 +2077,22 @@ export class BlockchainMonitor {
                     `payment-tx-confirmed:${watch.transactionId}`
                 );
 
+            } else if (watch.kind === "RESIDUAL_SWEEP") {
+
+                this._emitObservation(
+                    EVENT_TYPES.RESIDUAL_SWEEP_TRANSACTION_CONFIRMED,
+                    {
+                        contractId: watch.contractId,
+                        transactionId: watch.transactionId,
+                        address: watch.address,
+                        network: this._network,
+                        timestamp: this._now(),
+                        correlationId: watch.correlationId,
+                        kind: "RESIDUAL_SWEEP"
+                    },
+                    `residual-sweep-confirmed:${watch.transactionId}`
+                );
+
             }
 
             return this._publicTransactionWatch(watch);

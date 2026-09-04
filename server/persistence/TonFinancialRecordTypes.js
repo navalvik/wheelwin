@@ -21,7 +21,8 @@ export const TON_FINANCIAL_RECORD_TYPES = Object.freeze({
     // R17.9L.7 — immutable on-chain funding observation facts.
     DEPOSIT_OBSERVATION: "deposit_observation",
     // R17.9T.6-C — Recovery Data Contract persistence (gameplay recovery data).
-    RECOVERY_DATA: "recovery_data"
+    RECOVERY_DATA: "recovery_data",
+    RESIDUAL_SWEEP: "residual_sweep"
 });
 
 export const TON_FINANCIAL_SCHEMA_VERSION = 1;
@@ -93,6 +94,11 @@ export const RECOVERY_DATA_TERMINAL_STATUSES = Object.freeze([
     "FAILED_CLOSED"
 ]);
 
+export const RESIDUAL_SWEEP_TERMINAL_STATUSES = Object.freeze([
+    "CONFIRMED",
+    "FAILED_TERMINAL"
+]);
+
 export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT]: "active",
     [TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION]: "active",
@@ -107,5 +113,6 @@ export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.SNAPSHOT]: "immutable",
     [TON_FINANCIAL_RECORD_TYPES.AUDIT]: "immutable",
     [TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT]: "archived",
-    [TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA]: "active"
+    [TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA]: "active",
+    [TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP]: "active"
 });

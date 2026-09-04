@@ -12,6 +12,7 @@ import {
     DEPOSIT_SESSION_TERMINAL_STATUSES,
     DEPLOYMENT_AUTHORIZATION_TERMINAL_STATUSES,
     RECOVERY_DATA_TERMINAL_STATUSES,
+    RESIDUAL_SWEEP_TERMINAL_STATUSES,
     TON_FINANCIAL_RECORD_TYPES,
     TON_FINANCIAL_SCHEMA_VERSION
 } from "./TonFinancialRecordTypes.js";
@@ -143,6 +144,11 @@ export function resolveRecordId(recordType, payload, metadata = {}) {
                 ?? payload?.gameId
                 ?? null;
 
+        case TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP:
+            return metadata.recordId
+                ?? payload?.id
+                ?? null;
+
         default:
             return metadata.recordId ?? null;
 
@@ -223,6 +229,12 @@ export function isImmutableRecord(recordType, status = null) {
     if (recordType === TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA) {
 
         return RECOVERY_DATA_TERMINAL_STATUSES.includes(status);
+
+    }
+
+    if (recordType === TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP) {
+
+        return RESIDUAL_SWEEP_TERMINAL_STATUSES.includes(status);
 
     }
 

@@ -696,6 +696,18 @@ export function validateEnvironment(collector, env) {
         env.ROOM_WALLET_PAYMENT_INTAKE_MODE
     );
 
+    validateBooleanField(
+        collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLET_RESIDUAL_SWEEP_ENABLED,
+        env.ROOM_WALLET_RESIDUAL_SWEEP_ENABLED
+    );
+
+    validateStringField(
+        collector,
+        ENVIRONMENT_SCHEMA.TON_RESIDUES_EXPECTED_ADDRESS,
+        env.TON_RESIDUES_EXPECTED_ADDRESS
+    );
+
     validateStringField(
         collector,
         ENVIRONMENT_SCHEMA.ROOM_WALLETS_JSON,

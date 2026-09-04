@@ -6,6 +6,7 @@
  */
 
 import { ROOM_WALLET_POLICY } from "./RoomWalletFinancialPolicy.js";
+import { normalizeRoomNumber } from "./RoomWalletRegistry.js";
 
 export function buildOwnerPayoutPlan({ gameId, roomId, ownerWallet }) {
 
@@ -33,12 +34,26 @@ export function buildOwnerPayoutPlan({ gameId, roomId, ownerWallet }) {
 
 }
 
-export function buildResidualSweepPlan({ roomId, residuesWallet }) {
+/**
+ * Residual sweep is a Room Wallet treasury plan keyed by roomNumber.
+ * It does not use gameplay roomId, gameId, or array indexes.
+ */
+export function buildResidualSweepPlan({ roomNumber, residuesWallet } = {}) {
 
-    const normalizedRoomId = String(roomId ?? "").trim();
+    let normalizedRoomNumber;
+
+    try {
+        normalizedRoomNumber = normalizeRoomNumber(roomNumber);
+    } catch {
+        return {
+            ok: false,
+            code: "INVALID_RESIDUAL_SWEEP_PLAN"
+        };
+    }
+
     const destination = String(residuesWallet ?? "").trim();
 
-    if (!normalizedRoomId || !destination) {
+    if (!destination) {
         return {
             ok: false,
             code: "INVALID_RESIDUAL_SWEEP_PLAN"
@@ -48,11 +63,14 @@ export function buildResidualSweepPlan({ roomId, residuesWallet }) {
     return {
         ok: true,
         kind: "RESIDUAL_SWEEP",
-        roomId: normalizedRoomId,
+        roomNumber: normalizedRoomNumber,
         destination,
         amountNano: ROOM_WALLET_POLICY.residualSweepNano,
-        gasSource: "ROOM_WALLET",
         triggerNano: ROOM_WALLET_POLICY.residualTriggerNano,
+        retainedFloorNano: ROOM_WALLET_POLICY.residualRetainedFloorNano,
+        sweepGasNano: ROOM_WALLET_POLICY.residualSweepGasNano,
+        safetyMarginNano: ROOM_WALLET_POLICY.residualSafetyMarginNano,
+        gasSource: "ROOM_WALLET"
     };
 
 }

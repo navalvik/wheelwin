@@ -2195,7 +2195,8 @@ export class ContractSettlementManager {
             this._persistSession(session, "update");
 
             this._emitDomain(EVENT_TYPES.SETTLEMENT_CONFIRMED, session, {
-                transactionHash: session.settlementTransactionHash
+                transactionHash: session.settlementTransactionHash,
+                roomNumber: session.request?.roomNumber ?? null
             });
 
         }

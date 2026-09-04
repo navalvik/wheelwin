@@ -9,6 +9,7 @@ import { RoomWalletSettlementRouter } from "../payment/RoomWalletSettlementRoute
 import {
     composeRoomWalletSettlementRouter,
     isRoomWalletPaymentIntakeEnabled,
+    isRoomWalletResidualSweepEnabled,
     isRoomWalletSettlementEnabled
 } from "../payment/roomWallet/roomWalletConfig.js";
 import { createDummyRoomWalletEntry } from "./helpers/dummyRoomWallet.js";
@@ -72,6 +73,13 @@ test("ROOM_WALLET_PAYMENT_INTAKE_MODE is independent of settlement mode", () => 
     assert.equal(isRoomWalletPaymentIntakeEnabled({ ROOM_WALLET_PAYMENT_INTAKE_MODE: "true" }), false);
     assert.equal(isRoomWalletPaymentIntakeEnabled({ ROOM_WALLET_PAYMENT_INTAKE_MODE: "ROOM_WALLET" }), true);
     assert.equal(isRoomWalletPaymentIntakeEnabled({ ROOM_WALLET_PAYMENT_INTAKE_MODE: " room_wallet " }), true);
+});
+
+test("ROOM_WALLET_RESIDUAL_SWEEP_ENABLED is off by default and independent of intake", () => {
+    assert.equal(isRoomWalletResidualSweepEnabled({}), false);
+    assert.equal(isRoomWalletResidualSweepEnabled({ ROOM_WALLET_PAYMENT_INTAKE_MODE: "ROOM_WALLET" }), false);
+    assert.equal(isRoomWalletResidualSweepEnabled({ ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET" }), false);
+    assert.equal(isRoomWalletResidualSweepEnabled({ ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: "true" }), true);
 });
 
 test("ROOM_WALLET_SETTLEMENT_MODE is off unless it is exactly ROOM_WALLET", () => {
@@ -236,4 +244,6 @@ test("app.js wires the Room Wallet router into ContractSettlementManager", () =>
     assert.match(source, /RoomWalletLedgerRegistry/);
     assert.match(source, /ledgerRegistry:\s*this\._roomWalletLedgerRegistry/);
     assert.match(source, /roomWalletPaymentIntakeEnabled:\s*isRoomWalletPaymentIntakeEnabled/);
+    assert.match(source, /RoomWalletResidualSweepWorker/);
+    assert.match(source, /new RoomWalletResidualSweepRepository/);
 });

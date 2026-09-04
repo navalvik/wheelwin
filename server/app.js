@@ -99,6 +99,8 @@ import { composeRoomWalletSettlementRouter, isRoomWalletPaymentIntakeEnabled } f
 import { createRoomWalletRegistryFromEnv } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { RoomWalletIncomingObserver } from "./payment/roomWallet/RoomWalletIncomingObserver.js";
 import { RoomWalletLedgerRegistry } from "./payment/roomWallet/RoomWalletLedger.js";
+import { RoomWalletResidualSweepRepository } from "./payment/roomWallet/RoomWalletResidualSweepRepository.js";
+import { RoomWalletResidualSweepWorker } from "./payment/roomWallet/RoomWalletResidualSweepWorker.js";
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
 import { AudioRegistryService } from "./console/configuration/AudioRegistryService.js";
 import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
@@ -1714,6 +1716,26 @@ class WheelWinApplication {
                 : "RoomWalletIncomingObserver (unconfigured)"
         );
 
+        this._roomWalletResidualSweepRepository = new RoomWalletResidualSweepRepository({
+            persistence: this._financialPersistence,
+            tonNetwork: this._tonConfig?.network ?? "testnet"
+        });
+
+        this._roomWalletResidualSweepWorker = new RoomWalletResidualSweepWorker({
+            repository: this._roomWalletResidualSweepRepository,
+            registry: this._roomWalletRegistry,
+            roomManager: this._managers.roomManager,
+            blockchainMonitor: this._blockchainMonitor,
+            eventBus: this._eventBus,
+            logger: this._logger,
+            env: process.env,
+            tonService: this._services?.tonService ?? null
+        });
+
+        this._roomWalletResidualSweepWorker.initialize();
+
+        this._logger.startupLine("RoomWalletResidualSweepWorker");
+
         await this._blockchainMonitor.start();
 
         this._logger.startupLine("BlockchainMonitor started");
@@ -2508,6 +2530,16 @@ class WheelWinApplication {
             if (this._roomWalletIncomingObserver) {
 
                 this._roomWalletIncomingObserver.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("roomWalletResidualSweepWorker", () => {
+
+            if (this._roomWalletResidualSweepWorker) {
+
+                this._roomWalletResidualSweepWorker.shutdown();
 
             }
 

@@ -54,12 +54,16 @@ export class RoomWalletAdapter {
         return this._tonService.getBalance(identity.address);
     }
 
-    async canFundTransfer({ roomNumber, amountNano } = {}) {
+    async canFundTransfer({ roomNumber, amountNano, sourceReserveNano = null } = {}) {
         assertNonNegativeNano(amountNano, "amountNano");
 
+        const reserveNano = resolveSourceReserveNano(
+            sourceReserveNano,
+            this._gasReserveNano
+        );
         const identity = await this._resolve(roomNumber);
         const balanceNano = await this._tonService.getBalance(identity.address);
-        const requiredNano = amountNano + this._gasReserveNano;
+        const requiredNano = amountNano + reserveNano;
 
         return Object.freeze({
             ok: balanceNano >= requiredNano,
@@ -67,7 +71,7 @@ export class RoomWalletAdapter {
             address: identity.address,
             balanceNano,
             amountNano,
-            gasReserveNano: this._gasReserveNano,
+            gasReserveNano: reserveNano,
             requiredNano,
             shortfallNano: balanceNano >= requiredNano
                 ? 0n
@@ -80,7 +84,8 @@ export class RoomWalletAdapter {
         destination,
         amountNano,
         bounce = true,
-        queryId = null
+        queryId = null,
+        sourceReserveNano = null
     } = {}) {
         assertNonNegativeNano(amountNano, "amountNano");
 
@@ -88,6 +93,10 @@ export class RoomWalletAdapter {
             throw new RangeError("amountNano must be greater than zero");
         }
 
+        const reserveNano = resolveSourceReserveNano(
+            sourceReserveNano,
+            this._gasReserveNano
+        );
         const identity = await this._resolve(roomNumber);
         const destinationAddress = Address.parse(String(destination ?? "").trim());
 
@@ -96,7 +105,7 @@ export class RoomWalletAdapter {
         }
 
         const balanceNano = await this._tonService.getBalance(identity.address);
-        const requiredNano = amountNano + this._gasReserveNano;
+        const requiredNano = amountNano + reserveNano;
 
         if (balanceNano < requiredNano) {
             return Object.freeze({
@@ -177,7 +186,7 @@ export class RoomWalletAdapter {
             address: identity.address,
             destination: configuredDestination(destinationAddress),
             amountNano,
-            gasReserveNano: this._gasReserveNano,
+            gasReserveNano: reserveNano,
             seqno,
             txHash
         });
@@ -196,6 +205,14 @@ export class RoomWalletAdapter {
 
         return identity;
     }
+}
+
+function resolveSourceReserveNano(sourceReserveNano, defaultReserveNano) {
+    if (sourceReserveNano == null) {
+        return defaultReserveNano;
+    }
+
+    return assertNonNegativeNano(sourceReserveNano, "sourceReserveNano");
 }
 
 function configuredDestination(address) {

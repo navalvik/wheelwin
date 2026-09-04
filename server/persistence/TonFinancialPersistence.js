@@ -1148,6 +1148,44 @@ export class TonFinancialPersistence {
 
     }
 
+    createResidualSweepRecord(payload, metadata = {}) {
+
+        return this.create(
+            TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP,
+            payload,
+            metadata
+        );
+
+    }
+
+    updateResidualSweepRecord(recordId, payload, metadata = {}) {
+
+        return this.update(
+            TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP,
+            recordId,
+            payload,
+            metadata
+        );
+
+    }
+
+    loadResidualSweepRecord(recordId) {
+
+        return this.load(
+            TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP,
+            recordId
+        );
+
+    }
+
+    listActiveResidualSweepRecords() {
+
+        return this.listActive(
+            TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP
+        );
+
+    }
+
     // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------

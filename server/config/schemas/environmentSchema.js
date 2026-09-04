@@ -837,6 +837,25 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
             "Leave unset to keep legacy Deposit + GameEscrow readiness. "
             + "Set ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET to enable Room Wallet intake."
     }),
+    ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: Object.freeze({
+        key: "ROOM_WALLET_RESIDUAL_SWEEP_ENABLED",
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        category: "TON",
+        suggestedFix:
+            "Leave unset/false. Set ROOM_WALLET_RESIDUAL_SWEEP_ENABLED=true only after "
+            + "Residues destination is configured and sweep sends are explicitly authorized."
+    }),
+    TON_RESIDUES_EXPECTED_ADDRESS: Object.freeze({
+        key: "TON_RESIDUES_EXPECTED_ADDRESS",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Optional public Residues Wallet bounceable address. Missing or invalid "
+            + "prevents residual sweep sends; the application still starts."
+    }),
     ROOM_WALLETS_JSON: Object.freeze({
         key: "ROOM_WALLETS_JSON",
         type: "string",
