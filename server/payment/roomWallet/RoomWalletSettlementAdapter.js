@@ -22,6 +22,10 @@ export class RoomWalletSettlementAdapter {
             throw new TypeError("roomWalletAdapter.sendTransfer is required");
         }
 
+        if (typeof roomWalletAdapter.getBalance !== "function") {
+            throw new TypeError("roomWalletAdapter.getBalance is required");
+        }
+
         this._roomWalletAdapter = roomWalletAdapter;
         this._logger = logger;
     }
@@ -34,37 +38,40 @@ export class RoomWalletSettlementAdapter {
             request.organizerAmount,
             "organizerAmount"
         );
+        const gasReserveNano = this._roomWalletAdapter.getGasReserveNano?.() ?? 0n;
 
         assertNonNegativeNano(winnerAmountNano, "winnerAmountNano");
         assertNonNegativeNano(ownerGrossNano, "ownerGrossNano");
+        assertNonNegativeNano(gasReserveNano, "gasReserveNano");
 
         const ownerPlan = buildOwnerPayout({ ownerGrossNano });
-        const winnerCheck = await this._roomWalletAdapter.canFundTransfer({
-            roomNumber,
-            amountNano: winnerAmountNano
-        });
-        const ownerCheck = await this._roomWalletAdapter.canFundTransfer({
-            roomNumber,
-            amountNano: ownerPlan.ownerPayoutNano
-        });
+        const balanceNano = await this._roomWalletAdapter.getBalance(roomNumber);
+        const totalPayoutNano = winnerAmountNano + ownerPlan.ownerPayoutNano;
+        const totalGasReserveNano = gasReserveNano * 2n;
+        const requiredNano = totalPayoutNano + totalGasReserveNano;
 
         return Object.freeze({
-            ok: winnerCheck.ok && ownerCheck.ok,
+            ok: balanceNano >= requiredNano,
             roomNumber,
+            balanceNano,
             winner: Object.freeze({
                 amountNano: winnerAmountNano,
-                balanceNano: winnerCheck.balanceNano,
-                requiredNano: winnerCheck.requiredNano,
-                shortfallNano: winnerCheck.shortfallNano
+                gasReserveNano,
+                requiredNano: winnerAmountNano + gasReserveNano
             }),
             owner: Object.freeze({
                 grossNano: ownerGrossNano,
                 payoutNano: ownerPlan.ownerPayoutNano,
                 retainedNano: ownerPlan.retainedNano,
-                balanceNano: ownerCheck.balanceNano,
-                requiredNano: ownerCheck.requiredNano,
-                shortfallNano: ownerCheck.shortfallNano
-            })
+                gasReserveNano,
+                requiredNano: ownerPlan.ownerPayoutNano + gasReserveNano
+            }),
+            totalPayoutNano,
+            totalGasReserveNano,
+            requiredNano,
+            shortfallNano: balanceNano >= requiredNano
+                ? 0n
+                : requiredNano - balanceNano
         });
     }
 
@@ -79,6 +86,7 @@ export class RoomWalletSettlementAdapter {
             "organizerAmount"
         );
         const ownerPlan = buildOwnerPayout({ ownerGrossNano });
+        const gasReserveNano = this._roomWalletAdapter.getGasReserveNano?.() ?? 0n;
 
         const preflight = await this.preflight(request);
         if (!preflight.ok) {
@@ -94,12 +102,12 @@ export class RoomWalletSettlementAdapter {
 
         const winnerTransfer = buildSourceWalletTransfer({
             amountNano: winnerAmountNano,
-            gasNano: this._roomWalletAdapter.getGasReserveNano?.() ?? 0n
+            gasNano: gasReserveNano
         });
 
         const ownerTransfer = buildSourceWalletTransfer({
             amountNano: ownerPlan.ownerPayoutNano,
-            gasNano: this._roomWalletAdapter.getGasReserveNano?.() ?? 0n
+            gasNano: gasReserveNano
         });
 
         const winnerResult = await this._roomWalletAdapter.sendTransfer({
