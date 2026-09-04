@@ -4,7 +4,9 @@ The Room Wallet subsystem is intentionally inert unless runtime wallet configura
 
 ## Runtime configuration
 
-Provide `ROOM_WALLETS_JSON` as a JSON array containing one entry per configured room wallet. Private signing material is runtime-only and must never be committed to GitHub.
+Provide `ROOM_WALLETS_JSON` as a JSON array containing one entry per configured room wallet. Private signing material is runtime-only and must never be committed to GitHub. The variable is a secret (`SECRET_ENV_KEYS`): logs and configuration errors must redact it.
+
+When `ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET`, the catalog must contain exactly 64 entries with `roomNumber` 1..64 once each. Each entry's `secretKey` must derive `publicKey`, and `address` must be the WalletContractV4 address for that key on workchain 0.
 
 The application composition root should create the Room Wallet service once and expose it to the settlement layer. Creating the service does not enable Room Wallet settlement by itself.
 

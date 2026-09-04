@@ -690,4 +690,16 @@ export function validateEnvironment(collector, env) {
         env.GAME_START_AUTHORIZATION_DURATION_MS
     );
 
+    validateStringField(
+        collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLET_PAYMENT_INTAKE_MODE,
+        env.ROOM_WALLET_PAYMENT_INTAKE_MODE
+    );
+
+    validateStringField(
+        collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLETS_JSON,
+        env.ROOM_WALLETS_JSON
+    );
+
 }

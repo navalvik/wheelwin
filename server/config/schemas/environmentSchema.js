@@ -827,6 +827,25 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         min: 1,
         category: "Payments",
         suggestedFix: "Set GAME_START_AUTHORIZATION_DURATION_MS to a positive integer."
+    }),
+    ROOM_WALLET_PAYMENT_INTAKE_MODE: Object.freeze({
+        key: "ROOM_WALLET_PAYMENT_INTAKE_MODE",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Leave unset to keep legacy Deposit + GameEscrow readiness. "
+            + "Set ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET to enable Room Wallet intake."
+    }),
+    ROOM_WALLETS_JSON: Object.freeze({
+        key: "ROOM_WALLETS_JSON",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Railway secret only; never commit. JSON array of 64 Room Wallet identities "
+            + "(roomNumber 1..64, address, publicKey, secretKey). Required when "
+            + "ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET."
     })
 });
 

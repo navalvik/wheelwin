@@ -2,21 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createRoomWalletService } from "../payment/roomWallet/RoomWalletService.js";
+import { createDummyRoomWalletEntry } from "./helpers/dummyRoomWallet.js";
 
-const PUBLIC_KEY = "11".repeat(32);
-const SECRET_KEY = "22".repeat(64);
-const ADDRESS = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
+const WALLET = createDummyRoomWalletEntry(1);
+const ADDRESS = WALLET.address;
 
 function env() {
     return {
-        ROOM_WALLETS_JSON: JSON.stringify([{
-            roomNumber: 1,
-            address: ADDRESS,
-            publicKey: PUBLIC_KEY,
-            secretKey: SECRET_KEY,
-            workchain: 0,
-            network: "testnet"
-        }])
+        ROOM_WALLETS_JSON: JSON.stringify([WALLET])
     };
 }
 

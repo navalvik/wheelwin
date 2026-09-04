@@ -12,7 +12,8 @@ export const SECRET_ENV_KEYS = Object.freeze([
     "L25_PLAYER_0_MNEMONIC",
     "L25_PLAYER_1_MNEMONIC",
     "L25_PLAYER_2_MNEMONIC",
-    "TON_API_KEY"
+    "TON_API_KEY",
+    "ROOM_WALLETS_JSON"
 ]);
 
 export const SECRET_CONFIG_KEYS = Object.freeze([
