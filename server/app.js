@@ -96,6 +96,8 @@ import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
 import { composeRoomWalletSettlementRouter } from "./payment/roomWallet/roomWalletConfig.js";
+import { createRoomWalletRegistryFromEnv } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
+import { RoomWalletIncomingObserver } from "./payment/roomWallet/RoomWalletIncomingObserver.js";
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
 import { AudioRegistryService } from "./console/configuration/AudioRegistryService.js";
 import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
@@ -1681,6 +1683,30 @@ class WheelWinApplication {
 
         this._logger.startupLine("DepositMonitor");
 
+        this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
+
+        this._roomWalletIncomingObserver = new RoomWalletIncomingObserver({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            paymentSessionManager: this._paymentSessionManager,
+            financialPersistence: this._financialPersistence,
+            registry: this._roomWalletRegistry,
+            transport: this._services?.tonService?.getTransport?.() ?? null,
+            tonService: this._services?.tonService ?? null,
+            auditLedger: this._entryPaymentAuditLedger,
+            network: this._tonConfig?.network ?? null
+        });
+
+        this._blockchainMonitor.setRoomWalletIncomingObserver?.(
+            this._roomWalletIncomingObserver
+        );
+
+        this._logger.startupLine(
+            this._roomWalletRegistry.size() > 0
+                ? `RoomWalletIncomingObserver (${this._roomWalletRegistry.size()} wallets)`
+                : "RoomWalletIncomingObserver (unconfigured)"
+        );
+
         await this._blockchainMonitor.start();
 
         this._logger.startupLine("BlockchainMonitor started");
@@ -2463,6 +2489,16 @@ class WheelWinApplication {
             if (this._paymentSessionManager) {
 
                 this._paymentSessionManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("roomWalletIncomingObserver", () => {
+
+            if (this._roomWalletIncomingObserver) {
+
+                this._roomWalletIncomingObserver.shutdown();
 
             }
 

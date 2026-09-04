@@ -264,6 +264,8 @@ export class BlockchainMonitor {
 
         this._depositMonitor = depositMonitor;
 
+        this._roomWalletIncomingObserver = null;
+
         this._auditLedger = auditLedger;
 
         this._pollIntervalMs = pollIntervalMs;
@@ -1140,6 +1142,16 @@ export class BlockchainMonitor {
     }
 
     /**
+     * Room Wallet incoming observer shares the global poll timer.
+     * One poll per cycle; no per-transaction watchers.
+     */
+    setRoomWalletIncomingObserver(observer) {
+
+        this._roomWalletIncomingObserver = observer ?? null;
+
+    }
+
+    /**
      * R7.69B — Read authoritative GameEscrow payment state via getters.
      * Returns null when the adapter / getters are unavailable.
      */
@@ -1625,6 +1637,14 @@ export class BlockchainMonitor {
             if (typeof this._depositMonitor?.poll === "function") {
 
                 await this._depositMonitor.poll();
+
+                observed = true;
+
+            }
+
+            if (typeof this._roomWalletIncomingObserver?.poll === "function") {
+
+                await this._roomWalletIncomingObserver.poll();
 
                 observed = true;
 
