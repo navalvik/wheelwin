@@ -5,11 +5,7 @@
  * transactions and does not alter WheelWin game rules.
  */
 
-import {
-    OWNER_PAYOUT_NANO,
-    RESIDUAL_SWEEP_NANO,
-    ROOM_RESERVE_NANO
-} from "./RoomWalletFinancialPolicy.js";
+import { ROOM_WALLET_POLICY } from "./RoomWalletFinancialPolicy.js";
 
 export function buildOwnerPayoutPlan({ gameId, roomId, ownerWallet }) {
 
@@ -30,8 +26,8 @@ export function buildOwnerPayoutPlan({ gameId, roomId, ownerWallet }) {
         gameId: normalizedGameId,
         roomId: normalizedRoomId,
         destination,
-        amountNano: OWNER_PAYOUT_NANO,
-        retainedNano: ROOM_RESERVE_NANO,
+        amountNano: ROOM_WALLET_POLICY.ownerPayoutMinimumNano,
+        retainedNano: ROOM_WALLET_POLICY.ownerRetainedNano,
         gasSource: "ROOM_WALLET"
     };
 
@@ -54,9 +50,9 @@ export function buildResidualSweepPlan({ roomId, residuesWallet }) {
         kind: "RESIDUAL_SWEEP",
         roomId: normalizedRoomId,
         destination,
-        amountNano: RESIDUAL_SWEEP_NANO,
+        amountNano: ROOM_WALLET_POLICY.residualSweepNano,
         gasSource: "ROOM_WALLET",
-        triggerNano: 500000000n
+        triggerNano: ROOM_WALLET_POLICY.residualTriggerNano,
     };
 
 }

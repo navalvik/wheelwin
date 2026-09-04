@@ -4,24 +4,36 @@ import test from "node:test";
 import { RoomWalletSettlementAdapter } from "../payment/roomWallet/RoomWalletSettlementAdapter.js";
 import { GRAM_NANO } from "../payment/roomWallet/RoomWalletFinancialPolicy.js";
 
-function createAdapter({ balanceNano = 100n * GRAM_NANO } = {}) {
+function createAdapter({
+    balanceNano = 100n * GRAM_NANO,
+    sendTransfer = null
+} = {}) {
     const calls = [];
+    const balanceCalls = [];
+    const gasReserveNano = 3_000_000n;
     const roomWalletAdapter = {
         getGasReserveNano() {
-            return 3_000_000n;
+            return gasReserveNano;
+        },
+        async getBalance(roomNumber) {
+            balanceCalls.push(roomNumber);
+            return balanceNano;
         },
         async canFundTransfer({ amountNano }) {
             return {
-                ok: balanceNano >= amountNano + 3_000_000n,
+                ok: balanceNano >= amountNano + gasReserveNano,
                 balanceNano,
-                requiredNano: amountNano + 3_000_000n,
-                shortfallNano: balanceNano >= amountNano + 3_000_000n
+                requiredNano: amountNano + gasReserveNano,
+                shortfallNano: balanceNano >= amountNano + gasReserveNano
                     ? 0n
-                    : amountNano + 3_000_000n - balanceNano
+                    : amountNano + gasReserveNano - balanceNano
             };
         },
         async sendTransfer(input) {
             calls.push(input);
+            if (typeof sendTransfer === "function") {
+                return sendTransfer(input, calls);
+            }
             return {
                 ok: true,
                 code: "SENT",
@@ -32,12 +44,14 @@ function createAdapter({ balanceNano = 100n * GRAM_NANO } = {}) {
 
     return {
         adapter: new RoomWalletSettlementAdapter({ roomWalletAdapter }),
-        calls
+        calls,
+        balanceCalls,
+        gasReserveNano
     };
 }
 
 test("owner payout retains exactly 0.01 Gram from owner gross share", async () => {
-    const { adapter, calls } = createAdapter();
+    const { adapter, calls, balanceCalls } = createAdapter();
 
     const result = await adapter.settleContract({
         gameId: "game-1",
@@ -55,6 +69,13 @@ test("owner payout retains exactly 0.01 Gram from owner gross share", async () =
     assert.equal(calls.length, 2);
     assert.equal(calls[0].amountNano, 9_500_000_000n);
     assert.equal(calls[1].amountNano, 140_000_000n);
+    assert.equal(result.winnerTransfer.recipientCreditNano, 9_500_000_000n);
+    assert.equal(result.winnerTransfer.gasNano, 3_000_000n);
+    assert.equal(result.winnerTransfer.sourceDebitNano, 9_503_000_000n);
+    assert.equal(result.ownerTransfer.recipientCreditNano, 140_000_000n);
+    assert.equal(result.ownerTransfer.gasNano, 3_000_000n);
+    assert.equal(result.ownerTransfer.sourceDebitNano, 143_000_000n);
+    assert.deepEqual(balanceCalls, ["01"]);
 });
 
 test("owner payout preserves the existing gross share when it is above the minimum", async () => {
@@ -76,7 +97,7 @@ test("owner payout preserves the existing gross share when it is above the minim
 });
 
 test("settlement does not send anything when the Room Wallet cannot fund the payout plus gas reserve", async () => {
-    const { adapter, calls } = createAdapter({ balanceNano: 100_000_000n });
+    const { adapter, calls, balanceCalls } = createAdapter({ balanceNano: 100_000_000n });
 
     const result = await adapter.settleContract({
         gameId: "game-3",
@@ -90,4 +111,63 @@ test("settlement does not send anything when the Room Wallet cannot fund the pay
     assert.equal(result.ok, false);
     assert.equal(result.code, "INSUFFICIENT_ROOM_WALLET_BALANCE");
     assert.equal(calls.length, 0);
+    assert.equal(result.preflight.ok, false);
+    assert.equal(result.preflight.balanceNano, 100_000_000n);
+    assert.equal(result.preflight.winner.amountNano, 95_000_000n);
+    assert.equal(result.preflight.owner.payoutNano, 140_000_000n);
+    assert.equal(result.preflight.totalGasReserveNano, 6_000_000n);
+    assert.deepEqual(balanceCalls, ["03"]);
+});
+
+test("preflight uses getBalance and requires payout plus source-wallet gas reserve", async () => {
+    const { adapter, gasReserveNano } = createAdapter({ balanceNano: 100n * GRAM_NANO });
+
+    const preflight = await adapter.preflight({
+        gameId: "game-4",
+        roomNumber: "04",
+        prizeAmountNano: 9_500_000_000n,
+        organizerAmountNano: 150_000_000n
+    });
+
+    assert.equal(preflight.ok, true);
+    assert.equal(preflight.balanceNano, 100n * GRAM_NANO);
+    assert.equal(preflight.winner.amountNano, 9_500_000_000n);
+    assert.equal(preflight.winner.gasReserveNano, gasReserveNano);
+    assert.equal(preflight.owner.payoutNano, 140_000_000n);
+    assert.equal(preflight.owner.retainedNano, 10_000_000n);
+    assert.equal(preflight.totalPayoutNano, 9_640_000_000n);
+    assert.equal(preflight.totalGasReserveNano, gasReserveNano * 2n);
+    assert.equal(
+        preflight.requiredNano,
+        preflight.totalPayoutNano + preflight.totalGasReserveNano
+    );
+});
+
+test("owner payout failure after winner transfer is reported as partial settlement", async () => {
+    const { adapter, calls } = createAdapter({
+        sendTransfer(_input, recordedCalls) {
+            if (recordedCalls.length === 1) {
+                return { ok: true, code: "SENT", txHash: "tx-winner" };
+            }
+            return { ok: false, code: "OWNER_SEND_FAILED" };
+        }
+    });
+
+    const result = await adapter.settleContract({
+        gameId: "game-5",
+        roomNumber: "05",
+        winnerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+        ownerWallet: "EQBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBK",
+        prizeAmountNano: 9_500_000_000n,
+        organizerAmountNano: 150_000_000n
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.partial, true);
+    assert.equal(result.code, "OWNER_SEND_FAILED");
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].amountNano, 9_500_000_000n);
+    assert.equal(calls[1].amountNano, 140_000_000n);
+    assert.equal(result.winner.txHash, "tx-winner");
+    assert.equal(result.ownerTransfer.recipientCreditNano, 140_000_000n);
 });

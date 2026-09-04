@@ -56,15 +56,17 @@ import {
     assert.equal(result.reason, "BELOW_RESIDUAL_TRIGGER");
 }
 
-// The source wallet must have enough to cover both the 0.49 Gram transfer and gas.
+// At/above the trigger, sweep still requires enough balance for 0.49 Gram plus gas.
 {
     const result = buildResidualSweep({
-        balanceNano: 491_000_000n,
-        gasNano: 2_000_000n
+        balanceNano: ROOM_WALLET_POLICY.residualTriggerNano,
+        gasNano: 15_000_000n
     });
 
     assert.equal(result.eligible, false);
     assert.equal(result.reason, "INSUFFICIENT_BALANCE_FOR_SWEEP_AND_GAS");
+    assert.equal(result.transferNano, ROOM_WALLET_POLICY.residualSweepNano);
+    assert.equal(result.sourceDebitNano, 505_000_000n);
 }
 
 // Ledger records transfer amount and gas separately, preserving auditability.
