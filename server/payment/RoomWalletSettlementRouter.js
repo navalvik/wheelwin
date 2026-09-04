@@ -11,15 +11,17 @@
 export class RoomWalletSettlementRouter {
     constructor({
         legacySettlementAdapter,
-        roomWalletSettlementAdapter,
+        roomWalletSettlementAdapter = null,
         enabled = false
     }) {
         if (!legacySettlementAdapter) {
             throw new Error("RoomWalletSettlementRouter requires legacySettlementAdapter");
         }
 
-        if (!roomWalletSettlementAdapter) {
-            throw new Error("RoomWalletSettlementRouter requires roomWalletSettlementAdapter");
+        if (enabled === true && !roomWalletSettlementAdapter) {
+            throw new Error(
+                "RoomWalletSettlementRouter requires roomWalletSettlementAdapter when enabled"
+            );
         }
 
         this._legacySettlementAdapter = legacySettlementAdapter;
@@ -32,7 +34,15 @@ export class RoomWalletSettlementRouter {
     }
 
     setEnabled(enabled) {
-        this._enabled = enabled === true;
+        const next = enabled === true;
+
+        if (next && !this._roomWalletSettlementAdapter) {
+            throw new Error(
+                "RoomWalletSettlementRouter cannot enable ROOM_WALLET without an adapter"
+            );
+        }
+
+        this._enabled = next;
         return this._enabled;
     }
 
