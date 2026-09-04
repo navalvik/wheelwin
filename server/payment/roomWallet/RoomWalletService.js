@@ -6,7 +6,10 @@
  */
 
 import { RoomWalletAdapter } from "./RoomWalletAdapter.js";
-import { RoomWalletRuntimeResolver, createRoomWalletRuntimeResolver, createRoomWalletRegistryFromEnv } from "./RoomWalletRuntimeResolver.js";
+import {
+    createRoomWalletRuntimeResolver,
+    createRoomWalletRegistryFromEnv
+} from "./RoomWalletRuntimeResolver.js";
 import { RoomWalletSettlementAdapter } from "./RoomWalletSettlementAdapter.js";
 
 export function createRoomWalletService({
@@ -42,5 +45,3 @@ export function createRoomWalletService({
         }
     });
 }
-
-export { RoomWalletRuntimeResolver };
