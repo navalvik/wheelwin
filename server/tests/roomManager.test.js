@@ -80,6 +80,18 @@ assert(
     "roomId should use the public room alphabet"
 );
 
+assert(
+    Number.isInteger(room.roomNumber)
+        && room.roomNumber >= 1
+        && room.roomNumber <= 64,
+    "first room receives a valid Room Number 1..64"
+);
+
+assert(
+    room.roomId !== String(room.roomNumber),
+    "public roomId must remain distinct from Room Number"
+);
+
 assert(roomManager.hasRoom(room.roomId), "room should be registered");
 
 assert(

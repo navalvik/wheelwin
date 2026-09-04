@@ -228,4 +228,6 @@ test("app.js wires the Room Wallet router into ContractSettlementManager", () =>
     assert.match(source, /legacySettlementAdapter:\s*deployAdapter/);
     assert.match(source, /settlementAdapter:\s*this\._roomWalletSettlementRouter/);
     assert.equal(/settlementAdapter:\s*deployAdapter/.test(source), false);
+    assert.match(source, /new ContractSettlementManager\(\{[\s\S]*?roomManager:\s*this\._managers\.roomManager/);
+    assert.match(source, /new RoomWalletIncomingObserver\(\{[\s\S]*?roomManager:\s*this\._managers\.roomManager/);
 });

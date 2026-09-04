@@ -63,6 +63,7 @@ test("owner payout retains exactly 0.01 Gram from owner gross share", async () =
     });
 
     assert.equal(result.ok, true);
+    assert.equal(result.roomNumber, 1);
     assert.equal(result.ownerGrossNano, 150_000_000n);
     assert.equal(result.ownerPayoutNano, 140_000_000n);
     assert.equal(result.ownerRetainedNano, 10_000_000n);
@@ -75,7 +76,7 @@ test("owner payout retains exactly 0.01 Gram from owner gross share", async () =
     assert.equal(result.ownerTransfer.recipientCreditNano, 140_000_000n);
     assert.equal(result.ownerTransfer.gasNano, 3_000_000n);
     assert.equal(result.ownerTransfer.sourceDebitNano, 143_000_000n);
-    assert.deepEqual(balanceCalls, ["01"]);
+    assert.deepEqual(balanceCalls, [1]);
 });
 
 test("owner payout preserves the existing gross share when it is above the minimum", async () => {
@@ -116,7 +117,7 @@ test("settlement does not send anything when the Room Wallet cannot fund the pay
     assert.equal(result.preflight.winner.amountNano, 95_000_000n);
     assert.equal(result.preflight.owner.payoutNano, 140_000_000n);
     assert.equal(result.preflight.totalGasReserveNano, 6_000_000n);
-    assert.deepEqual(balanceCalls, ["03"]);
+    assert.deepEqual(balanceCalls, [3]);
 });
 
 test("preflight uses getBalance and requires payout plus source-wallet gas reserve", async () => {
@@ -170,4 +171,46 @@ test("owner payout failure after winner transfer is reported as partial settleme
     assert.equal(calls[1].amountNano, 140_000_000n);
     assert.equal(result.winner.txHash, "tx-winner");
     assert.equal(result.ownerTransfer.recipientCreditNano, 140_000_000n);
+    assert.equal(result.roomNumber, 5);
+});
+
+test("settlement requires authoritative roomNumber and never uses gameplay roomId", async () => {
+    const { adapter, balanceCalls } = createAdapter();
+
+    await assert.rejects(
+        () => adapter.settleContract({
+            gameId: "game-keah",
+            roomId: "Keah",
+            winnerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+            ownerWallet: "EQBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBK",
+            prizeAmountNano: 9_500_000_000n,
+            organizerAmountNano: 150_000_000n
+        }),
+        /roomNumber is required/
+    );
+
+    await assert.rejects(
+        () => adapter.preflight({
+            gameId: "game-keah",
+            roomId: "Keah",
+            prizeAmountNano: 9_500_000_000n,
+            organizerAmountNano: 150_000_000n
+        }),
+        /roomNumber is required/
+    );
+
+    const result = await adapter.settleContract({
+        gameId: "game-keah",
+        roomId: "Keah",
+        roomNumber: 17,
+        winnerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+        ownerWallet: "EQBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBK",
+        prizeAmountNano: 9_500_000_000n,
+        organizerAmountNano: 150_000_000n
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.roomNumber, 17);
+    assert.deepEqual(balanceCalls, [17]);
+    assert.notEqual(result.roomNumber, Number("Keah"));
 });

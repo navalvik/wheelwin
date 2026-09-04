@@ -490,6 +490,7 @@ export class PaymentSessionManager {
             const session = new PaymentSession({
                 paymentSessionId: `pay_${randomUUID()}`,
                 roomId,
+                roomNumber: Number.isInteger(room.roomNumber) ? room.roomNumber : null,
                 gameId: resolvedGameId,
                 contractId: contract?.contractId ?? contractId ?? null,
                 network: activeNetwork,

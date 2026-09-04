@@ -4,6 +4,7 @@ import { consumeRoomDestroyContext, registerRoomDestroyContext } from "../diagno
 import { Room } from "../models/Room.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import { generateRoomId } from "./room/roomIdAlphabet.js";
+import { ROOM_WALLET_COUNT } from "../payment/roomWallet/RoomWalletRegistry.js";
 
 export class RoomManager {
 
@@ -16,6 +17,8 @@ export class RoomManager {
         this._roomConfig = roomConfig;
 
         this._rooms = new Map();
+
+        this._occupiedRoomNumbers = new Set();
 
         this._playerRoomIndex = new Map();
 
@@ -125,12 +128,10 @@ export class RoomManager {
 
         }
 
-        const roomId = this._generateRoomId();
-
-        if (!roomId) {
+        if (!this._setupSessionLifecycle) {
 
             this._logger.error(
-                "Room creation failed: could not allocate unique roomId"
+                "Room creation failed: Setup Session lifecycle is not attached"
             );
 
             return null;
@@ -147,10 +148,26 @@ export class RoomManager {
 
         }
 
-        if (!this._setupSessionLifecycle) {
+        const roomNumber = this._allocateRoomNumber();
+
+        if (roomNumber == null) {
 
             this._logger.error(
-                "Room creation failed: Setup Session lifecycle is not attached"
+                "Room creation failed: room number pool exhausted"
+            );
+
+            return null;
+
+        }
+
+        const roomId = this._generateRoomId();
+
+        if (!roomId) {
+
+            this._releaseRoomNumber(roomNumber);
+
+            this._logger.error(
+                "Room creation failed: could not allocate unique roomId"
             );
 
             return null;
@@ -159,6 +176,7 @@ export class RoomManager {
 
         const room = new Room({
             roomId,
+            roomNumber,
             createdAt: Date.now(),
             status: ROOM_STATUS.CREATED,
             maxPlayers: resolvedMaxPlayers,
@@ -173,6 +191,8 @@ export class RoomManager {
 
             this._rooms.delete(roomId);
 
+            this._releaseRoomNumber(roomNumber);
+
             this._logger.error(
                 `Room creation failed: Setup Session was not created (${roomId})`
             );
@@ -181,10 +201,11 @@ export class RoomManager {
 
         }
 
-        this._logger.info(`Room Created: ${roomId}`);
+        this._logger.info(`Room Created: ${roomId} | roomNumber=${roomNumber}`);
 
         this._emit(EVENT_TYPES.ROOM_CREATED, {
             roomId: room.roomId,
+            roomNumber: room.roomNumber,
             status: room.status,
             maxPlayers: room.maxPlayers,
             playerCount: room.players.length
@@ -490,6 +511,7 @@ export class RoomManager {
 
         this._emit(EVENT_TYPES.ROOM_DESTROYED, {
             roomId: room.roomId,
+            roomNumber: room.roomNumber,
             status: room.status,
             maxPlayers: room.maxPlayers,
             playerCount: room.players.length
@@ -507,6 +529,8 @@ export class RoomManager {
 
         this._rooms.delete(roomId);
 
+        this._releaseRoomNumber(room.roomNumber);
+
         return true;
 
     }
@@ -522,6 +546,38 @@ export class RoomManager {
         }
 
         return room.toSnapshot();
+
+    }
+
+    resolveRoomNumber(roomId) {
+
+        const room = this._rooms.get(roomId);
+
+        return Number.isInteger(room?.roomNumber) ? room.roomNumber : null;
+
+    }
+
+    getRoomByNumber(roomNumber) {
+
+        const normalized = Number(roomNumber);
+
+        if (!Number.isInteger(normalized)) {
+
+            return null;
+
+        }
+
+        for (const room of this._rooms.values()) {
+
+            if (room.roomNumber === normalized) {
+
+                return room.toSnapshot();
+
+            }
+
+        }
+
+        return null;
 
     }
 
@@ -577,6 +633,12 @@ export class RoomManager {
 
         }
 
+        if (!this._claimExistingOrAllocateRoomNumber(room)) {
+
+            return null;
+
+        }
+
         this._rooms.set(room.roomId, room);
 
         for (const playerId of room.players) {
@@ -617,6 +679,8 @@ export class RoomManager {
         }
 
         this._rooms.delete(roomId);
+
+        this._releaseRoomNumber(room.roomNumber);
 
         for (const playerId of room.players) {
 
@@ -663,6 +727,7 @@ export class RoomManager {
         return {
             activeRooms: this.getRooms().map((room) => ({
                 roomId: room.roomId,
+                roomNumber: room.roomNumber,
                 status: room.status,
                 playerCount: room.players.length,
                 createdAt: room.createdAt
@@ -777,6 +842,84 @@ export class RoomManager {
         }
 
         return 64;
+
+    }
+
+    _allocateRoomNumber() {
+
+        for (let roomNumber = 1; roomNumber <= ROOM_WALLET_COUNT; roomNumber += 1) {
+
+            if (!this._occupiedRoomNumbers.has(roomNumber)) {
+
+                this._occupiedRoomNumbers.add(roomNumber);
+
+                return roomNumber;
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    _releaseRoomNumber(roomNumber) {
+
+        if (!Number.isInteger(roomNumber)) {
+
+            return;
+
+        }
+
+        this._occupiedRoomNumbers.delete(roomNumber);
+
+    }
+
+    _claimExistingOrAllocateRoomNumber(room) {
+
+        if (Number.isInteger(room.roomNumber)) {
+
+            if (room.roomNumber < 1 || room.roomNumber > ROOM_WALLET_COUNT) {
+
+                this._logger.error(
+                    `Room attach failed: invalid roomNumber (${room.roomNumber})`
+                );
+
+                return false;
+
+            }
+
+            if (this._occupiedRoomNumbers.has(room.roomNumber)) {
+
+                this._logger.error(
+                    `Room attach failed: roomNumber already occupied (${room.roomNumber})`
+                );
+
+                return false;
+
+            }
+
+            this._occupiedRoomNumbers.add(room.roomNumber);
+
+            return true;
+
+        }
+
+        const allocated = this._allocateRoomNumber();
+
+        if (allocated == null) {
+
+            this._logger.error(
+                "Room attach failed: room number pool exhausted"
+            );
+
+            return false;
+
+        }
+
+        room.roomNumber = allocated;
+
+        return true;
 
     }
 

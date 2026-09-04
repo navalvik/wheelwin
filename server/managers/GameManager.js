@@ -202,9 +202,12 @@ export class GameManager {
 
         }
 
+        const roomNumber = this._resolveRoomNumber(roomId);
+
         const game = new Game({
             gameId,
             roomId,
+            roomNumber,
             createdAt: Date.now(),
             status: GAME_STATUS.CREATED,
             players: [...players],
@@ -218,6 +221,7 @@ export class GameManager {
         this._emit(EVENT_TYPES.GAME_CREATED, {
             gameId: game.gameId,
             roomId: game.roomId,
+            roomNumber: game.roomNumber,
             status: game.status,
             players: [...game.players]
         });
@@ -1322,6 +1326,34 @@ export class GameManager {
         }
 
         this._logger.info(`[GameplayBootstrap] ${message}`);
+
+    }
+
+    _resolveRoomNumber(roomId) {
+
+        const roomManager = this._bootstrap?.roomManager;
+
+        if (!roomManager || !roomId) {
+
+            return null;
+
+        }
+
+        if (typeof roomManager.resolveRoomNumber === "function") {
+
+            const resolved = roomManager.resolveRoomNumber(roomId);
+
+            if (Number.isInteger(resolved)) {
+
+                return resolved;
+
+            }
+
+        }
+
+        const room = roomManager.getRoom?.(roomId);
+
+        return Number.isInteger(room?.roomNumber) ? room.roomNumber : null;
 
     }
 

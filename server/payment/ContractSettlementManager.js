@@ -31,6 +31,7 @@ import {
     setGameEscrowSettlementDebug
 } from "../diagnostics/SettlementPipelineForensics.js";
 import { shouldPreserveFinancialEvidence } from "../gameplay/financialEvidenceGuards.js";
+import { tryNormalizeRoomNumber } from "./roomWallet/RoomWalletRegistry.js";
 
 export const DEFAULT_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -85,6 +86,7 @@ export class ContractSettlementManager {
         walletManager = null,
         gameplayContextResolver = null,
         gameManager = null,
+        roomManager = null,
         ownerConfiguration = OwnerConfiguration,
         tonNetwork = null,
         gameEscrowMode = null,
@@ -107,6 +109,8 @@ export class ContractSettlementManager {
         this._blockchainMonitor = blockchainMonitor;
 
         this._gameManager = gameManager;
+
+        this._roomManager = roomManager;
 
         // R7.62 — settlement account tx hash lives on the deployer wallet (not escrow).
         this._deployerWalletAddress = typeof deployerWalletAddress === "string"
@@ -1134,7 +1138,9 @@ export class ContractSettlementManager {
 
         try {
 
-            adapterResult = await this._settlementAdapter.settleContract(request);
+            adapterResult = await this._settlementAdapter.settleContract(
+                this._withAuthoritativeRoomNumber(request, ctx)
+            );
 
         } catch (error) {
 
@@ -1407,6 +1413,106 @@ export class ContractSettlementManager {
     }
 
     /**
+     * Authoritative Room Number for settlement. Never treats gameplay roomId
+     * as a numeric wallet key.
+     */
+    _resolveRoomNumberForSettlement(ctx = {}) {
+
+        const fromRequest = tryNormalizeRoomNumber(ctx.roomNumber)
+            ?? tryNormalizeRoomNumber(ctx.request?.roomNumber);
+
+        if (fromRequest != null) {
+
+            return fromRequest;
+
+        }
+
+        const roomId = ctx.roomId;
+
+        if (this._roomManager && roomId) {
+
+            if (typeof this._roomManager.resolveRoomNumber === "function") {
+
+                const resolved = tryNormalizeRoomNumber(
+                    this._roomManager.resolveRoomNumber(roomId)
+                );
+
+                if (resolved != null) {
+
+                    return resolved;
+
+                }
+
+            }
+
+            const room = this._roomManager.getRoom?.(roomId);
+
+            const fromRoom = tryNormalizeRoomNumber(room?.roomNumber);
+
+            if (fromRoom != null) {
+
+                return fromRoom;
+
+            }
+
+        }
+
+        if (this._gameManager && ctx.gameId) {
+
+            const game = this._gameManager.getGame?.(ctx.gameId);
+
+            const fromGame = tryNormalizeRoomNumber(game?.roomNumber);
+
+            if (fromGame != null) {
+
+                return fromGame;
+
+            }
+
+        }
+
+        if (this._paymentSessionManager && roomId) {
+
+            const session = this._paymentSessionManager.getSession?.(roomId);
+
+            const fromPayment = tryNormalizeRoomNumber(session?.roomNumber);
+
+            if (fromPayment != null) {
+
+                return fromPayment;
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    _withAuthoritativeRoomNumber(request, ctx) {
+
+        const roomNumber = this._resolveRoomNumberForSettlement({
+            ...ctx,
+            roomNumber: request?.roomNumber ?? ctx?.roomNumber
+        });
+
+        const roomId = ctx?.roomId ?? request?.roomId ?? null;
+
+        if (request && request.roomNumber === roomNumber && request.roomId === roomId) {
+
+            return request;
+
+        }
+
+        return Object.freeze({
+            ...(request ?? {}),
+            roomId,
+            roomNumber
+        });
+
+    }
+
+    /**
      * R9.2 — Create + persist SettlementSession with winner/payout fields
      * before any await. Reuses existing SettlementSession + TonFinancialPersistence.
      */
@@ -1437,6 +1543,8 @@ export class ContractSettlementManager {
 
         const request = Object.freeze({
             gameId,
+            roomId,
+            roomNumber: this._resolveRoomNumberForSettlement({ gameId, roomId }),
             contractId: contract.contractId,
             contractAddress: contract.contractAddress,
             winnerId,
@@ -1688,7 +1796,9 @@ export class ContractSettlementManager {
 
         try {
 
-            adapterResult = await this._settlementAdapter.settleContract(request);
+            adapterResult = await this._settlementAdapter.settleContract(
+                this._withAuthoritativeRoomNumber(request, ctx)
+            );
 
         } catch (error) {
 

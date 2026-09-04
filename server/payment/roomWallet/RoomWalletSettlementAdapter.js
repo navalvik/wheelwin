@@ -3,6 +3,7 @@ import {
     buildSourceWalletTransfer,
     assertNonNegativeNano
 } from "./RoomWalletFinancialPolicy.js";
+import { normalizeRoomNumber } from "./RoomWalletRegistry.js";
 
 /**
  * Settlement adapter for the Room Wallet architecture.
@@ -173,12 +174,11 @@ export class RoomWalletSettlementAdapter {
 }
 
 function resolveRoomNumber(request) {
-    const value = request.roomNumber ?? request.roomId;
-    if (value == null || String(value).trim() === "") {
-        throw new TypeError("roomNumber or roomId is required");
+    if (request.roomNumber == null || String(request.roomNumber).trim() === "") {
+        throw new TypeError("roomNumber is required");
     }
 
-    return String(value).trim();
+    return normalizeRoomNumber(request.roomNumber);
 }
 
 function requireWallet(value, name) {

@@ -32,7 +32,8 @@ import {
     ROOM_WALLET_INCOMING_REJECTION_REASONS,
     RoomWalletIncomingObserver,
     nanotonToGram,
-    resolveIntendedRoomWalletAddress
+    resolveIntendedRoomWalletAddress,
+    resolveAuthoritativeRoomNumber
 } from "../payment/roomWallet/RoomWalletIncomingObserver.js";
 import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
 
@@ -110,12 +111,10 @@ function createPaymentHarness({
 
     const identities = new Map();
     const wallets = new Map();
-    const playersByRoom = new Map();
-    const gameByRoom = new Map();
+    const roomsById = new Map();
 
     for (const room of rooms) {
-        playersByRoom.set(room.roomId, room.players.map((player) => player.playerId));
-        gameByRoom.set(room.roomId, room.gameId);
+        roomsById.set(room.roomId, room);
         for (const player of room.players) {
             identities.set(player.playerId, {
                 baseStake: player.baseStake ?? 1,
@@ -125,6 +124,22 @@ function createPaymentHarness({
         }
     }
 
+    const roomManager = {
+        getRoom(roomId) {
+            const room = roomsById.get(roomId);
+            return room
+                ? {
+                    players: room.players.map((player) => player.playerId),
+                    roomId: room.roomId,
+                    roomNumber: room.roomNumber ?? null
+                }
+                : null;
+        },
+        resolveRoomNumber(roomId) {
+            return roomsById.get(roomId)?.roomNumber ?? null;
+        }
+    };
+
     const manager = new PaymentSessionManager({
         logger,
         eventBus,
@@ -133,16 +148,11 @@ function createPaymentHarness({
                 return identities.get(playerId) ?? null;
             }
         },
-        roomManager: {
-            getRoom(roomId) {
-                const players = playersByRoom.get(roomId);
-                return players ? { players } : null;
-            }
-        },
+        roomManager,
         roomConfig: { paymentSessionDurationMs: durationMs },
         gameplayContextResolver: {
             resolveGameIdByRoomId(roomId) {
-                return gameByRoom.get(roomId) ?? null;
+                return roomsById.get(roomId)?.gameId ?? null;
             }
         },
         sessionWalletStore: {
@@ -156,7 +166,7 @@ function createPaymentHarness({
 
     manager.initialize();
 
-    return { logger, eventBus, manager, persistence };
+    return { logger, eventBus, manager, persistence, roomManager };
 }
 
 function threePlayers(prefix) {
@@ -185,6 +195,7 @@ function createObserverFixture({
         paymentSessionManager: harness.manager,
         financialPersistence: harness.persistence,
         registry,
+        roomManager: harness.roomManager,
         transport,
         tonService,
         auditLedger,
@@ -225,15 +236,29 @@ test("nanotonToGram matches parseDepositCandidate TonCenter convention", () => {
     assert.equal(parsed.amountGram, nanotonToGram(1_000_000_000));
 });
 
-test("resolveIntendedRoomWalletAddress maps numeric roomId and sole registry wallet", () => {
-    const address = friendlyAddress("rw-sole");
+test("resolveIntendedRoomWalletAddress uses roomNumber and never Number(roomId)", () => {
+    const address4 = friendlyAddress("rw-4");
+    const address17 = friendlyAddress("rw-17");
     const registry = new RoomWalletRegistry({
-        entries: [{ roomNumber: 4, address }]
+        entries: [
+            { roomNumber: 4, address: address4 },
+            { roomNumber: 17, address: address17 }
+        ]
     });
 
-    assert.equal(resolveIntendedRoomWalletAddress("4", registry), address);
-    assert.equal(resolveIntendedRoomWalletAddress("Keah", registry), address);
-    assert.equal(resolveIntendedRoomWalletAddress("9", registry), address);
+    assert.equal(resolveIntendedRoomWalletAddress({ roomId: "4" }, registry), null);
+    assert.equal(resolveIntendedRoomWalletAddress({ roomId: "Keah" }, registry), null);
+    assert.equal(resolveIntendedRoomWalletAddress("Keah", registry), null);
+    assert.equal(resolveAuthoritativeRoomNumber({ roomId: "Keah" }), null);
+    assert.equal(resolveIntendedRoomWalletAddress({ roomNumber: 17 }, registry), address17);
+    assert.equal(resolveIntendedRoomWalletAddress({
+        roomId: "Keah",
+        roomManager: {
+            getRoom(roomId) {
+                return roomId === "Keah" ? { roomNumber: 17 } : null;
+            }
+        }
+    }, registry), address17);
 });
 
 test("A-D valid Room Wallet payment attributes sender, game, and exact amount", (t) => {
@@ -242,7 +267,7 @@ test("A-D valid Room Wallet payment attributes sender, game, and exact amount", 
     const { observer, manager, eventBus } = createObserverFixture({
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
-        rooms: [{ roomId: "1", gameId: "game-a", players }]
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-a", players }]
     });
 
     const confirmed = [];
@@ -259,7 +284,7 @@ test("A-D valid Room Wallet payment attributes sender, game, and exact amount", 
 
     assert.equal(result.credited, true);
     assert.equal(result.playerId, players[0].playerId);
-    assert.equal(result.roomId, "1");
+    assert.equal(result.roomId, "Keah");
     assert.equal(result.gameId, "game-a");
     assert.equal(confirmed.length, 1);
     assert.equal(confirmed[0].sender, players[0].wallet);
@@ -268,7 +293,7 @@ test("A-D valid Room Wallet payment attributes sender, game, and exact amount", 
     assert.equal(confirmed[0].destination, roomWallet);
     assert.equal("address" in confirmed[0] && confirmed[0].address != null, false);
 
-    const session = manager.getSession("1");
+    const session = manager.getSession("Keah");
     const participant = session.findParticipant(players[0].playerId);
     assert.equal(participant.status, PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED);
     assert.equal(participant.confirmationStatus, PAYMENT_CONFIRMATION_STATUS.CONFIRMED);
@@ -281,7 +306,7 @@ test("E wrong amount is rejected and not credited", (t) => {
     const { observer, manager } = createObserverFixture({
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
-        rooms: [{ roomId: "1", gameId: "game-e", players }]
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-e", players }]
     });
 
     const result = observer.processTransaction(inboundTx({
@@ -294,7 +319,7 @@ test("E wrong amount is rejected and not credited", (t) => {
     assert.equal(result.credited, false);
     assert.equal(result.reason, ROOM_WALLET_INCOMING_REJECTION_REASONS.WRONG_AMOUNT);
     assert.notEqual(
-        manager.getSession("1").findParticipant(players[0].playerId).status,
+        manager.getSession("Keah").findParticipant(players[0].playerId).status,
         PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
     );
 });
@@ -306,7 +331,7 @@ test("F wrong destination is rejected", (t) => {
     const { observer, manager } = createObserverFixture({
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
-        rooms: [{ roomId: "1", gameId: "game-f", players }]
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-f", players }]
     });
 
     const result = observer.processTransaction(inboundTx({
@@ -319,7 +344,7 @@ test("F wrong destination is rejected", (t) => {
     assert.equal(result.credited, false);
     assert.equal(result.reason, ROOM_WALLET_INCOMING_REJECTION_REASONS.WRONG_DESTINATION);
     assert.notEqual(
-        manager.getSession("1").findParticipant(players[0].playerId).status,
+        manager.getSession("Keah").findParticipant(players[0].playerId).status,
         PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
     );
 });
@@ -330,7 +355,7 @@ test("G unknown sender is rejected without durable lock-out", (t) => {
     const { observer, persistence } = createObserverFixture({
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
-        rooms: [{ roomId: "1", gameId: "game-g", players }]
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-g", players }]
     });
 
     const unknown = friendlyAddress("stranger");
@@ -367,8 +392,8 @@ test("H ambiguous attribution is not credited", (t) => {
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
         rooms: [
-            { roomId: "1", gameId: "game-h1", players: room1Players },
-            { roomId: "2", gameId: "game-h2", players: room2Players }
+            { roomId: "Keah", roomNumber: 1, gameId: "game-h1", players: room1Players },
+            { roomId: "Abcd", roomNumber: 1, gameId: "game-h2", players: room2Players }
         ]
     });
 
@@ -382,11 +407,11 @@ test("H ambiguous attribution is not credited", (t) => {
     assert.equal(result.credited, false);
     assert.equal(result.reason, ROOM_WALLET_INCOMING_REJECTION_REASONS.AMBIGUOUS_ATTRIBUTION);
     assert.notEqual(
-        manager.getSession("1").findParticipant("h1-p1").status,
+        manager.getSession("Keah").findParticipant("h1-p1").status,
         PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
     );
     assert.notEqual(
-        manager.getSession("2").findParticipant("h2-p1").status,
+        manager.getSession("Abcd").findParticipant("h2-p1").status,
         PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
     );
 });
@@ -406,14 +431,14 @@ test("I/J duplicate and repeated poll do not credit twice", async (t) => {
     const { observer, manager } = createObserverFixture({
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
-        rooms: [{ roomId: "1", gameId: "game-ij", players }],
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-ij", players }],
         transport
     });
 
     await observer.poll();
     await observer.poll();
 
-    const participant = manager.getSession("1").findParticipant(players[0].playerId);
+    const participant = manager.getSession("Keah").findParticipant(players[0].playerId);
     assert.equal(participant.status, PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED);
 
     const second = observer.processTransaction(tx, roomWallet);
@@ -434,8 +459,8 @@ test("K two simultaneous games do not cross-credit", (t) => {
             { roomNumber: 2, address: walletB }
         ],
         rooms: [
-            { roomId: "1", gameId: "game-ka", players: playersA },
-            { roomId: "2", gameId: "game-kb", players: playersB }
+            { roomId: "Ka01", roomNumber: 1, gameId: "game-ka", players: playersA },
+            { roomId: "Kb02", roomNumber: 2, gameId: "game-kb", players: playersB }
         ]
     });
 
@@ -457,9 +482,9 @@ test("K two simultaneous games do not cross-credit", (t) => {
     }), walletA);
 
     assert.equal(creditedA.credited, true);
-    assert.equal(creditedA.roomId, "1");
+    assert.equal(creditedA.roomId, "Ka01");
     assert.equal(
-        manager.getSession("2").findParticipant(playersB[0].playerId).status,
+        manager.getSession("Kb02").findParticipant(playersB[0].playerId).status,
         PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
     );
 });
@@ -472,7 +497,7 @@ test("L/M reconnect and persistence restart keep attribution identity", (t) => {
     const first = createObserverFixture({
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
-        rooms: [{ roomId: "1", gameId: "game-lm", players }],
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-lm", players }],
         dataDir
     });
 
@@ -491,12 +516,12 @@ test("L/M reconnect and persistence restart keep attribution identity", (t) => {
     restoredStore.initialize();
 
     const restored = createPaymentHarness({
-        rooms: [{ roomId: "1", gameId: "game-lm", players }],
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-lm", players }],
         dataDir
     });
     restored.manager.restorePaymentSessions();
 
-    const restoredParticipant = restored.manager.getSession("1")
+    const restoredParticipant = restored.manager.getSession("Keah")
         .findParticipant(players[0].playerId);
     assert.equal(restoredParticipant.status, PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED);
     assert.equal(restoredParticipant.txHash, "tx-restart");
@@ -509,6 +534,7 @@ test("L/M reconnect and persistence restart keep attribution identity", (t) => {
         registry: new RoomWalletRegistry({
             entries: [{ roomNumber: 1, address: roomWallet }]
         }),
+        roomManager: restored.roomManager,
         network: "testnet"
     });
 
@@ -537,7 +563,7 @@ test("N PaymentSessionManager remains compatible with Room Wallet confirmation e
     const { observer, manager, eventBus } = createObserverFixture({
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
-        rooms: [{ roomId: "1", gameId: "game-n", players }]
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-n", players }]
     });
 
     const detected = [];
@@ -555,11 +581,11 @@ test("N PaymentSessionManager remains compatible with Room Wallet confirmation e
     assert.equal(detected.length, 1);
     assert.equal(detected[0].source, EVENT_SOURCES.ROOM_WALLET_INCOMING_OBSERVER);
     assert.equal(
-        manager.getSession("1").findParticipant(players[1].playerId).confirmationStatus,
+        manager.getSession("Keah").findParticipant(players[1].playerId).confirmationStatus,
         PAYMENT_CONFIRMATION_STATUS.CONFIRMED
     );
     assert.equal(
-        manager.getSession("1").findParticipant(players[0].playerId).status,
+        manager.getSession("Keah").findParticipant(players[0].playerId).status,
         PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
     );
 });
@@ -570,11 +596,11 @@ test("expired payment context is rejected", (t) => {
     const { observer, manager } = createObserverFixture({
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
-        rooms: [{ roomId: "1", gameId: "game-exp", players }],
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-exp", players }],
         durationMs: 60_000
     });
 
-    const session = manager.getSession("1");
+    const session = manager.getSession("Keah");
     session.paymentDeadline = Date.now() - 1000;
 
     const result = observer.processTransaction(inboundTx({
@@ -594,7 +620,7 @@ test("missing sender / hash / persistence failure paths do not credit", (t) => {
     const { observer } = createObserverFixture({
         t,
         registryEntries: [{ roomNumber: 1, address: roomWallet }],
-        rooms: [{ roomId: "1", gameId: "game-miss", players }]
+        rooms: [{ roomId: "Keah", roomNumber: 1, gameId: "game-miss", players }]
     });
 
     assert.equal(observer.processTransaction({ in_msg: { destination: roomWallet, value: "1" } }, roomWallet).reason,

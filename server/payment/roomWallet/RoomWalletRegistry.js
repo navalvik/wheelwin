@@ -7,7 +7,7 @@
 
 export const ROOM_WALLET_COUNT = 64;
 
-function normalizeRoomNumber(roomNumber) {
+export function normalizeRoomNumber(roomNumber) {
     const value = Number(roomNumber);
 
     if (!Number.isInteger(value) || value < 1 || value > ROOM_WALLET_COUNT) {
@@ -15,6 +15,14 @@ function normalizeRoomNumber(roomNumber) {
     }
 
     return value;
+}
+
+export function tryNormalizeRoomNumber(roomNumber) {
+    try {
+        return normalizeRoomNumber(roomNumber);
+    } catch {
+        return null;
+    }
 }
 
 export class RoomWalletRegistry {
@@ -80,5 +88,21 @@ export class RoomWalletRegistry {
 
     size() {
         return this._entries.size;
+    }
+
+    getByAddress(address) {
+        const normalizedAddress = String(address ?? "").trim();
+
+        if (!normalizedAddress) {
+            return null;
+        }
+
+        for (const record of this._entries.values()) {
+            if (record.address === normalizedAddress) {
+                return record;
+            }
+        }
+
+        return null;
     }
 }

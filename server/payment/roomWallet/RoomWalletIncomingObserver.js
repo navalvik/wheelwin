@@ -23,6 +23,7 @@ import {
     DuplicateRecordError,
     RecordNotFoundError
 } from "../../persistence/TonFinancialPersistenceErrors.js";
+import { tryNormalizeRoomNumber } from "./RoomWalletRegistry.js";
 
 export const ROOM_WALLET_INCOMING_TX_PAGE_LIMIT = 32;
 
@@ -77,25 +78,56 @@ export function buildRoomWalletIncomingObservationId(destination, transactionHas
     return `${ROOM_WALLET_INCOMING_OBSERVATION_PREFIX}__${dest}__${hash}`;
 }
 
-export function resolveIntendedRoomWalletAddress(roomId, registry) {
-    if (!registry || roomId == null || roomId === "") {
+export function resolveAuthoritativeRoomNumber({
+    roomNumber = null,
+    roomId = null,
+    roomManager = null,
+    session = null
+} = {}) {
+    const explicit = tryNormalizeRoomNumber(roomNumber)
+        ?? tryNormalizeRoomNumber(session?.roomNumber);
+
+    if (explicit != null) {
+        return explicit;
+    }
+
+    if (!roomManager || roomId == null || roomId === "") {
         return null;
     }
 
-    const numeric = Number(roomId);
+    if (typeof roomManager.resolveRoomNumber === "function") {
+        const resolved = tryNormalizeRoomNumber(roomManager.resolveRoomNumber(roomId));
 
-    if (Number.isInteger(numeric) && typeof registry.has === "function" && registry.has(numeric)) {
-        const record = registry.get(numeric);
-        return canonicalizeTonWalletAddress(record?.address) ?? record?.address ?? null;
+        if (resolved != null) {
+            return resolved;
+        }
     }
 
-    const listed = typeof registry.list === "function" ? registry.list() : [];
+    const room = typeof roomManager.getRoom === "function"
+        ? roomManager.getRoom(roomId)
+        : null;
 
-    if (listed.length === 1) {
-        return canonicalizeTonWalletAddress(listed[0].address) ?? listed[0].address ?? null;
+    return tryNormalizeRoomNumber(room?.roomNumber);
+}
+
+export function resolveIntendedRoomWalletAddress(context, registry) {
+    if (!registry) {
+        return null;
     }
 
-    return null;
+    const identity = context && typeof context === "object" && !Array.isArray(context)
+        ? context
+        : { roomId: context };
+
+    const roomNumber = resolveAuthoritativeRoomNumber(identity);
+
+    if (roomNumber == null) {
+        return null;
+    }
+
+    const record = typeof registry.get === "function" ? registry.get(roomNumber) : null;
+
+    return canonicalizeTonWalletAddress(record?.address) ?? record?.address ?? null;
 }
 
 export function listConfiguredRoomWalletAddresses(registry) {
@@ -124,6 +156,7 @@ export class RoomWalletIncomingObserver {
         paymentSessionManager = null,
         financialPersistence = null,
         registry = null,
+        roomManager = null,
         transport = null,
         tonService = null,
         auditLedger = null,
@@ -135,6 +168,7 @@ export class RoomWalletIncomingObserver {
         this._paymentSessionManager = paymentSessionManager;
         this._financialPersistence = financialPersistence;
         this._registry = registry;
+        this._roomManager = roomManager;
         this._transport = transport;
         this._tonService = tonService;
         this._auditLedger = auditLedger;
@@ -333,6 +367,7 @@ export class RoomWalletIncomingObserver {
                     comment: deposit.comment,
                     lt: deposit.lt,
                     roomId: session.roomId,
+                    roomNumber: session.roomNumber ?? null,
                     gameId: session.gameId,
                     playerId: participant.playerId,
                     paymentReference: participant.paymentReference,
@@ -352,6 +387,7 @@ export class RoomWalletIncomingObserver {
             comment: deposit.comment,
             lt: deposit.lt,
             roomId: session.roomId,
+            roomNumber: session.roomNumber ?? null,
             gameId: session.gameId,
             playerId: participant.playerId,
             paymentReference: participant.paymentReference,
@@ -414,6 +450,7 @@ export class RoomWalletIncomingObserver {
             txHash,
             destination,
             roomId: session.roomId,
+            roomNumber: session.roomNumber ?? null,
             gameId: session.gameId,
             playerId: participant.playerId
         });
@@ -427,7 +464,12 @@ export class RoomWalletIncomingObserver {
         const now = this._now();
 
         for (const session of sessions) {
-            const intended = resolveIntendedRoomWalletAddress(session.roomId, this._registry);
+            const intended = resolveIntendedRoomWalletAddress({
+                roomId: session.roomId,
+                roomNumber: session.roomNumber,
+                roomManager: this._roomManager,
+                session
+            }, this._registry);
 
             for (const participant of session.participants ?? []) {
                 const wallet = canonicalizeTonWalletAddress(participant.wallet);
@@ -463,6 +505,7 @@ export class RoomWalletIncomingObserver {
                 reason: ROOM_WALLET_INCOMING_REJECTION_REASONS.AMBIGUOUS_ATTRIBUTION,
                 matches: destMatches.map((match) => ({
                     roomId: match.session.roomId,
+                    roomNumber: match.session.roomNumber ?? null,
                     gameId: match.session.gameId,
                     playerId: match.participant.playerId
                 }))
@@ -533,6 +576,7 @@ export class RoomWalletIncomingObserver {
             timestamp: this._now(),
             correlationId: session.correlationId ?? null,
             roomId: session.roomId,
+            roomNumber: session.roomNumber ?? null,
             gameId: session.gameId,
             playerId: participant.playerId,
             paymentReference: participant.paymentReference,
@@ -590,6 +634,7 @@ export class RoomWalletIncomingObserver {
                     status: fields.status,
                     rejectionReason: fields.rejectionReason ?? null,
                     roomId: fields.roomId ?? null,
+                    roomNumber: fields.roomNumber ?? null,
                     gameId: fields.gameId ?? null,
                     playerId: fields.playerId ?? null,
                     paymentReference: fields.paymentReference ?? null,
@@ -599,6 +644,7 @@ export class RoomWalletIncomingObserver {
                 {
                     auditId: fields.observationId,
                     roomId: fields.roomId ?? null,
+                    roomNumber: fields.roomNumber ?? null,
                     gameId: fields.gameId ?? null,
                     status: fields.status,
                     tonNetwork: this._network
