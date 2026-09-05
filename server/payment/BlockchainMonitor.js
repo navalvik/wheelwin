@@ -328,6 +328,8 @@ export class BlockchainMonitor {
 
         this._globalPollTimer = null;
 
+        this._globalPollInFlight = false;
+
     }
 
     // -------------------------------------------------------------------------
@@ -1586,6 +1588,18 @@ export class BlockchainMonitor {
 
         }
 
+        if (this._globalPollInFlight) {
+
+            this._logger?.info?.(
+                "BlockchainMonitor global poll skipped | in_flight"
+            );
+
+            return;
+
+        }
+
+        this._globalPollInFlight = true;
+
         try {
 
             let observed = false;
@@ -1671,6 +1685,10 @@ export class BlockchainMonitor {
             this._state = BLOCKCHAIN_MONITOR_STATE.DEGRADED;
 
             this._connected = false;
+
+        } finally {
+
+            this._globalPollInFlight = false;
 
         }
 

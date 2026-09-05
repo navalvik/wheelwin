@@ -23,9 +23,100 @@ import {
     DuplicateRecordError,
     RecordNotFoundError
 } from "../../persistence/TonFinancialPersistenceErrors.js";
-import { tryNormalizeRoomNumber } from "./RoomWalletRegistry.js";
+import { ROOM_WALLET_COUNT, tryNormalizeRoomNumber } from "./RoomWalletRegistry.js";
+import {
+    isInfrastructureFailure,
+    readHttpStatus
+} from "../../services/ton/TonServiceRetry.js";
 
 export const ROOM_WALLET_INCOMING_TX_PAGE_LIMIT = 32;
+
+/**
+ * Observer TonCenter traffic control (read-only polling).
+ *
+ * Concurrency 1: Production shares one TonCenter key with GameEscrow
+ * `sendBoc` / deposit `getAccount`. Forensic incident measured ~47.5
+ * failed getTransactions HTTP/s with overlap + 3-attempt retry (s58).
+ * Free plan is 10 RPS; Plus 25. One in-flight observer RPC leaves headroom.
+ *
+ * Wallets per cycle 8: 64 catalog addresses, 2000 ms global interval →
+ * full coverage about every 16 s when ticks are not skipped. Avoids holding
+ * `_pollGlobal` on a 64-wallet 429 scan.
+ *
+ * Retry: 2 attempts (1 retry), 400 ms delay, observer-local. Does not use
+ * TonService `executeWithRetry` maxAttempts=3 for this poll path.
+ */
+export const ROOM_WALLET_OBSERVER_MAX_CONCURRENCY = 1;
+
+export const ROOM_WALLET_OBSERVER_WALLETS_PER_CYCLE = 8;
+
+export const ROOM_WALLET_OBSERVER_RETRY_MAX_ATTEMPTS = 2;
+
+export const ROOM_WALLET_OBSERVER_RETRY_DELAY_MS = 400;
+
+export const ROOM_WALLET_OBSERVER_FETCH_TIMEOUT_MS = 8_000;
+
+export const ROOM_WALLET_OBSERVER_MAX_CONCURRENCY_ENV =
+    "ROOM_WALLET_OBSERVER_MAX_CONCURRENCY";
+
+export const ROOM_WALLET_OBSERVER_WALLETS_PER_CYCLE_ENV =
+    "ROOM_WALLET_OBSERVER_WALLETS_PER_CYCLE";
+
+export const ROOM_WALLET_OBSERVER_RETRY_MAX_ATTEMPTS_ENV =
+    "ROOM_WALLET_OBSERVER_RETRY_MAX_ATTEMPTS";
+
+export const ROOM_WALLET_OBSERVER_RETRY_DELAY_MS_ENV =
+    "ROOM_WALLET_OBSERVER_RETRY_DELAY_MS";
+
+function readBoundedInt(env, key, fallback, min, max) {
+    const raw = env?.[key];
+
+    if (raw === undefined || raw === null || String(raw).trim() === "") {
+        return fallback;
+    }
+
+    const value = Number(raw);
+
+    if (!Number.isFinite(value)) {
+        return fallback;
+    }
+
+    return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
+export function resolveRoomWalletObserverTrafficConfig(env = process.env) {
+    return Object.freeze({
+        maxConcurrency: readBoundedInt(
+            env,
+            ROOM_WALLET_OBSERVER_MAX_CONCURRENCY_ENV,
+            ROOM_WALLET_OBSERVER_MAX_CONCURRENCY,
+            1,
+            4
+        ),
+        walletsPerCycle: readBoundedInt(
+            env,
+            ROOM_WALLET_OBSERVER_WALLETS_PER_CYCLE_ENV,
+            ROOM_WALLET_OBSERVER_WALLETS_PER_CYCLE,
+            1,
+            ROOM_WALLET_COUNT
+        ),
+        retryMaxAttempts: readBoundedInt(
+            env,
+            ROOM_WALLET_OBSERVER_RETRY_MAX_ATTEMPTS_ENV,
+            ROOM_WALLET_OBSERVER_RETRY_MAX_ATTEMPTS,
+            1,
+            3
+        ),
+        retryDelayMs: readBoundedInt(
+            env,
+            ROOM_WALLET_OBSERVER_RETRY_DELAY_MS_ENV,
+            ROOM_WALLET_OBSERVER_RETRY_DELAY_MS,
+            0,
+            2_000
+        ),
+        fetchTimeoutMs: ROOM_WALLET_OBSERVER_FETCH_TIMEOUT_MS
+    });
+}
 
 export const ROOM_WALLET_INCOMING_OBSERVATION_PREFIX = "rwin";
 
@@ -163,7 +254,14 @@ export class RoomWalletIncomingObserver {
         tonService = null,
         auditLedger = null,
         network = null,
-        now = () => Date.now()
+        now = () => Date.now(),
+        env = process.env,
+        maxConcurrency = null,
+        walletsPerCycle = null,
+        retryMaxAttempts = null,
+        retryDelayMs = null,
+        fetchTimeoutMs = null,
+        delay = null
     } = {}) {
         this._logger = logger;
         this._eventBus = eventBus;
@@ -178,6 +276,31 @@ export class RoomWalletIncomingObserver {
         this._network = network;
         this._now = now;
         this._stopped = false;
+        this._pollInFlight = false;
+        this._scanOffset = 0;
+
+        const traffic = resolveRoomWalletObserverTrafficConfig(env);
+
+        this._maxConcurrency = Number.isInteger(maxConcurrency) && maxConcurrency > 0
+            ? maxConcurrency
+            : traffic.maxConcurrency;
+        this._walletsPerCycle = Number.isInteger(walletsPerCycle) && walletsPerCycle > 0
+            ? walletsPerCycle
+            : traffic.walletsPerCycle;
+        this._retryMaxAttempts = Number.isInteger(retryMaxAttempts) && retryMaxAttempts > 0
+            ? retryMaxAttempts
+            : traffic.retryMaxAttempts;
+        this._retryDelayMs = Number.isFinite(Number(retryDelayMs)) && Number(retryDelayMs) >= 0
+            ? Number(retryDelayMs)
+            : traffic.retryDelayMs;
+        this._fetchTimeoutMs = Number.isFinite(Number(fetchTimeoutMs)) && Number(fetchTimeoutMs) > 0
+            ? Number(fetchTimeoutMs)
+            : traffic.fetchTimeoutMs;
+        this._delay = typeof delay === "function"
+            ? delay
+            : (ms) => new Promise((resolve) => {
+                setTimeout(resolve, ms);
+            });
     }
 
     stop() {
@@ -190,40 +313,102 @@ export class RoomWalletIncomingObserver {
 
     async poll() {
         if (this._stopped) {
-            return Object.freeze({ polled: 0, processed: 0 });
+            return Object.freeze({
+                polled: 0,
+                processed: 0,
+                skipped: true,
+                skipReason: "stopped"
+            });
+        }
+
+        if (this._pollInFlight) {
+            this._log("info", "RoomWalletIncomingObserver cycle skipped | in_flight");
+            return Object.freeze({
+                polled: 0,
+                processed: 0,
+                skipped: true,
+                skipReason: "in_flight"
+            });
         }
 
         const addresses = listConfiguredRoomWalletAddresses(this._registry);
 
         if (addresses.length === 0) {
-            return Object.freeze({ polled: 0, processed: 0 });
+            return Object.freeze({ polled: 0, processed: 0, skipped: false });
         }
 
+        this._pollInFlight = true;
+        const startedAt = this._now();
+        const slice = this._nextWalletSlice(addresses);
         let processed = 0;
+        let completed = 0;
+        let http429 = 0;
+        let retries = 0;
+        let inFlightMax = 0;
 
-        for (const address of addresses) {
-            let transactions;
+        this._log(
+            "info",
+            "RoomWalletIncomingObserver cycle started"
+                + ` | wallets=${slice.length}`
+                + ` | catalog=${addresses.length}`
+                + ` | concurrency=${this._maxConcurrency}`
+        );
 
-            try {
-                transactions = await this._fetchTransactions(address);
-            } catch (error) {
-                this._log(
-                    "error",
-                    `Room Wallet incoming transport failure | address=${address} | `
-                        + `${error?.message ?? error}`
-                );
-                continue;
-            }
+        try {
+            await this._mapPool(slice, this._maxConcurrency, async (address, getActive) => {
+                if (this._stopped) {
+                    return;
+                }
 
-            for (const tx of transactions ?? []) {
-                this.processTransaction(tx, address);
-                processed += 1;
-            }
+                inFlightMax = Math.max(inFlightMax, getActive());
+
+                const fetched = await this._fetchTransactionsControlled(address);
+
+                http429 += fetched.http429;
+                retries += fetched.retries;
+                completed += 1;
+
+                if (!fetched.ok) {
+                    this._log(
+                        "error",
+                        `Room Wallet incoming transport failure | address=${address} | `
+                            + `${fetched.error?.message ?? fetched.error}`
+                    );
+                    return;
+                }
+
+                for (const tx of fetched.transactions ?? []) {
+                    this.processTransaction(tx, address);
+                    processed += 1;
+                }
+            });
+        } finally {
+            this._pollInFlight = false;
         }
+
+        const durationMs = Math.max(0, this._now() - startedAt);
+
+        this._log(
+            "info",
+            "RoomWalletIncomingObserver cycle complete"
+                + ` | durationMs=${durationMs}`
+                + ` | wallets=${slice.length}`
+                + ` | completed=${completed}`
+                + ` | processed=${processed}`
+                + ` | inFlightMax=${inFlightMax}`
+                + ` | http429=${http429}`
+                + ` | retries=${retries}`
+        );
 
         return Object.freeze({
-            polled: addresses.length,
-            processed
+            polled: slice.length,
+            processed,
+            skipped: false,
+            completed,
+            http429,
+            retries,
+            inFlightMax,
+            durationMs
         });
     }
 
@@ -806,21 +991,168 @@ export class RoomWalletIncomingObserver {
         });
     }
 
-    async _fetchTransactions(address) {
+    _nextWalletSlice(addresses) {
+        const n = addresses.length;
+        const count = Math.min(this._walletsPerCycle, n);
+        const start = ((this._scanOffset % n) + n) % n;
+        const slice = [];
+
+        for (let index = 0; index < count; index += 1) {
+            slice.push(addresses[(start + index) % n]);
+        }
+
+        this._scanOffset = (start + count) % n;
+
+        return slice;
+    }
+
+    async _mapPool(items, limit, worker) {
+        const concurrency = Math.max(1, Math.min(limit, items.length || 1));
+        let cursor = 0;
+        let active = 0;
+
+        const runOne = async () => {
+            while (cursor < items.length && !this._stopped) {
+                const index = cursor;
+                cursor += 1;
+                const item = items[index];
+                active += 1;
+                try {
+                    await worker(item, () => active);
+                } finally {
+                    active -= 1;
+                }
+            }
+        };
+
+        const runners = [];
+
+        for (let i = 0; i < Math.min(concurrency, items.length); i += 1) {
+            runners.push(runOne());
+        }
+
+        await Promise.all(runners);
+    }
+
+    async _fetchTransactionsControlled(address) {
+        let http429 = 0;
+        let retries = 0;
+        let lastError = null;
+
+        for (let attempt = 1; attempt <= this._retryMaxAttempts; attempt += 1) {
+            if (this._stopped) {
+                return Object.freeze({
+                    ok: false,
+                    transactions: [],
+                    http429,
+                    retries,
+                    error: lastError ?? new Error("stopped")
+                });
+            }
+
+            if (attempt > 1) {
+                retries += 1;
+                if (this._retryDelayMs > 0) {
+                    this._log(
+                        "info",
+                        `RoomWalletIncomingObserver retry | attempt=${attempt}`
+                            + ` | delayMs=${this._retryDelayMs}`
+                    );
+                    await this._delay(this._retryDelayMs);
+                }
+            }
+
+            try {
+                const transactions = await this._fetchTransactionsOnce(address);
+                return Object.freeze({
+                    ok: true,
+                    transactions,
+                    http429,
+                    retries,
+                    error: null
+                });
+            } catch (error) {
+                lastError = error;
+                if (readHttpStatus(error) === 429) {
+                    http429 += 1;
+                }
+                const canRetry = attempt < this._retryMaxAttempts
+                    && isInfrastructureFailure(error);
+
+                if (!canRetry) {
+                    return Object.freeze({
+                        ok: false,
+                        transactions: [],
+                        http429,
+                        retries,
+                        error
+                    });
+                }
+            }
+        }
+
+        return Object.freeze({
+            ok: false,
+            transactions: [],
+            http429,
+            retries,
+            error: lastError
+        });
+    }
+
+    async _fetchTransactionsOnce(address) {
         const query = {
             limit: ROOM_WALLET_INCOMING_TX_PAGE_LIMIT,
             archival: true
         };
 
-        if (this._tonService?.getTransactions) {
-            return this._tonService.getTransactions(address, query);
-        }
+        const operation = () => this._fetchTransactionsRaw(address, query);
 
+        return this._withTimeout(operation(), this._fetchTimeoutMs);
+    }
+
+    async _fetchTransactionsRaw(address, query) {
+        // Prefer transport so observer 429s are not multiplied by TonService
+        // executeWithRetry (maxAttempts 3). Local policy is applied above.
         if (this._transport?.getTransactions) {
             return this._transport.getTransactions(address, query);
         }
 
+        if (this._tonService?.getTransactions) {
+            return this._tonService.getTransactions(address, query, {
+                retryPolicy: {
+                    maxAttempts: 1,
+                    timeoutMs: this._fetchTimeoutMs
+                }
+            });
+        }
+
         throw new Error("No TON transport available");
+    }
+
+    async _withTimeout(promise, timeoutMs) {
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+            return promise;
+        }
+
+        let timer = null;
+
+        try {
+            return await Promise.race([
+                promise,
+                new Promise((_, reject) => {
+                    timer = setTimeout(() => {
+                        const error = new Error("room_wallet_observer_rpc_timeout");
+                        error.status = 504;
+                        reject(error);
+                    }, timeoutMs);
+                })
+            ]);
+        } finally {
+            if (timer) {
+                clearTimeout(timer);
+            }
+        }
     }
 
     _emit(type, payload, _dedupeKey = null) {

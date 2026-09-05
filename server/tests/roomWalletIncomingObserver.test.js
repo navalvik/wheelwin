@@ -185,7 +185,8 @@ function createObserverFixture({
     dataDir = null,
     durationMs = 60_000,
     transport = null,
-    tonService = null
+    tonService = null,
+    observerOptions = {}
 } = {}) {
     const harness = createPaymentHarness({ rooms, dataDir, durationMs });
     const registry = new RoomWalletRegistry({ entries: registryEntries });
@@ -202,7 +203,8 @@ function createObserverFixture({
         transport,
         tonService,
         auditLedger,
-        network: "testnet"
+        network: "testnet",
+        ...observerOptions
     });
 
     for (const room of rooms) {
@@ -683,3 +685,301 @@ test("BlockchainMonitor global poll invokes Room Wallet incoming observer once p
     t.after(() => monitor.stop());
     assert.equal(polls, 1);
 });
+
+function wait(ms) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+
+function http429(message = "TonCenter HTTP 429") {
+    const error = new Error(message);
+    error.status = 429;
+    return error;
+}
+
+test("traffic control: overlapping observer poll is skipped", async (t) => {
+    const roomWallet = friendlyAddress("rw-overlap");
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let started = 0;
+
+    const transport = {
+        async getTransactions() {
+            started += 1;
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            await wait(60);
+            inFlight -= 1;
+            return [];
+        }
+    };
+
+    const { observer } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{
+            roomId: "Ov01",
+            roomNumber: 1,
+            gameId: "game-ov",
+            players: threePlayers("ov")
+        }],
+        transport,
+        observerOptions: {
+            walletsPerCycle: 1,
+            maxConcurrency: 1,
+            retryMaxAttempts: 1
+        }
+    });
+
+    const first = observer.poll();
+    const second = observer.poll();
+    const [a, b] = await Promise.all([first, second]);
+
+    assert.equal(maxInFlight, 1);
+    assert.equal(started, 1);
+    const skipped = [a, b].filter((result) => result.skipped === true);
+    const ran = [a, b].filter((result) => result.skipped !== true);
+    assert.equal(skipped.length, 1);
+    assert.equal(skipped[0].skipReason, "in_flight");
+    assert.equal(ran.length, 1);
+});
+
+test("traffic control: getTransactions concurrency never exceeds maxConcurrency", async (t) => {
+    const addresses = [
+        friendlyAddress("rw-c1"),
+        friendlyAddress("rw-c2"),
+        friendlyAddress("rw-c3"),
+        friendlyAddress("rw-c4")
+    ];
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    const transport = {
+        async getTransactions() {
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            await wait(30);
+            inFlight -= 1;
+            return [];
+        }
+    };
+
+    const { observer } = createObserverFixture({
+        t,
+        registryEntries: addresses.map((address, index) => ({
+            roomNumber: index + 1,
+            address
+        })),
+        rooms: addresses.map((address, index) => ({
+            roomId: `C${index + 1}`,
+            roomNumber: index + 1,
+            gameId: `game-c${index + 1}`,
+            players: threePlayers(`c${index + 1}`)
+        })),
+        transport,
+        observerOptions: {
+            walletsPerCycle: 4,
+            maxConcurrency: 2,
+            retryMaxAttempts: 1
+        }
+    });
+
+    await observer.poll();
+    assert.ok(maxInFlight <= 2, `maxInFlight=${maxInFlight}`);
+    assert.equal(maxInFlight, 2);
+});
+
+test("traffic control: 429 retries are bounded and delayed without overlapping polls", async (t) => {
+    const roomWallet = friendlyAddress("rw-429");
+    const delays = [];
+    let calls = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    const transport = {
+        async getTransactions() {
+            calls += 1;
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            inFlight -= 1;
+            throw http429();
+        }
+    };
+
+    const { observer } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{
+            roomId: "R429",
+            roomNumber: 1,
+            gameId: "game-429",
+            players: threePlayers("r429")
+        }],
+        transport,
+        observerOptions: {
+            walletsPerCycle: 1,
+            maxConcurrency: 1,
+            retryMaxAttempts: 2,
+            retryDelayMs: 400,
+            delay: async (ms) => {
+                delays.push(ms);
+            }
+        }
+    });
+
+    const first = observer.poll();
+    const second = observer.poll();
+    await Promise.all([first, second]);
+
+    assert.equal(calls, 2);
+    assert.deepEqual(delays, [400]);
+    assert.equal(maxInFlight, 1);
+});
+
+test("traffic control: one failing wallet does not block other wallets", async (t) => {
+    const failing = friendlyAddress("rw-fail");
+    const okA = friendlyAddress("rw-ok-a");
+    const okB = friendlyAddress("rw-ok-b");
+    const calls = new Map();
+
+    const transport = {
+        async getTransactions(address) {
+            calls.set(address, (calls.get(address) ?? 0) + 1);
+            if (address === failing) {
+                throw http429();
+            }
+            return [];
+        }
+    };
+
+    const { observer } = createObserverFixture({
+        t,
+        registryEntries: [
+            { roomNumber: 1, address: failing },
+            { roomNumber: 2, address: okA },
+            { roomNumber: 3, address: okB }
+        ],
+        rooms: [
+            { roomId: "F1", roomNumber: 1, gameId: "game-f1", players: threePlayers("f1") },
+            { roomId: "F2", roomNumber: 2, gameId: "game-f2", players: threePlayers("f2") },
+            { roomId: "F3", roomNumber: 3, gameId: "game-f3", players: threePlayers("f3") }
+        ],
+        transport,
+        observerOptions: {
+            walletsPerCycle: 3,
+            maxConcurrency: 1,
+            retryMaxAttempts: 2,
+            retryDelayMs: 0,
+            delay: async () => {}
+        }
+    });
+
+    await observer.poll();
+
+    assert.equal(calls.get(failing), 2);
+    assert.equal(calls.get(okA), 1);
+    assert.equal(calls.get(okB), 1);
+});
+
+test("traffic control: poll still credits a valid incoming payment", async (t) => {
+    const roomWallet = friendlyAddress("rw-pay");
+    const players = threePlayers("pay");
+    const transport = new MockTonTransport();
+    transport.seedTransactions(roomWallet, [inboundTx({
+        hash: "tx-traffic-pay",
+        from: players[0].wallet,
+        to: roomWallet,
+        nanoton: 1_000_000_000
+    })]);
+
+    const { observer, manager } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "Pay1", roomNumber: 1, gameId: "game-pay", players }],
+        transport,
+        observerOptions: {
+            walletsPerCycle: 1,
+            maxConcurrency: 1,
+            retryMaxAttempts: 1
+        }
+    });
+
+    const result = await observer.poll();
+    assert.equal(result.processed >= 1, true);
+    const participant = manager.getSession("Pay1").findParticipant(players[0].playerId);
+    assert.equal(participant.status, PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED);
+    assert.equal(participant.txHash, "tx-traffic-pay");
+});
+
+test("traffic control: shutdown skips new cycles", async (t) => {
+    const roomWallet = friendlyAddress("rw-stop");
+    let calls = 0;
+    const transport = {
+        async getTransactions() {
+            calls += 1;
+            return [];
+        }
+    };
+
+    const { observer } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{
+            roomId: "St1",
+            roomNumber: 1,
+            gameId: "game-st",
+            players: threePlayers("st")
+        }],
+        transport,
+        observerOptions: { walletsPerCycle: 1, retryMaxAttempts: 1 }
+    });
+
+    observer.shutdown();
+    const result = await observer.poll();
+    assert.equal(result.skipped, true);
+    assert.equal(result.skipReason, "stopped");
+    assert.equal(calls, 0);
+});
+
+test("traffic control: BlockchainMonitor does not overlap _pollGlobal", async (t) => {
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    let started = 0;
+
+    const logger = createLogger();
+    const eventBus = new EventBus({
+        logger,
+        eventBusConfig: { logEvents: false, showDebugPanel: false }
+    });
+    eventBus.initialize();
+
+    const monitor = new BlockchainMonitor({
+        logger,
+        eventBus,
+        transport: new MockTonTransport(),
+        auditLedger: new EntryPaymentAuditLedger(),
+        pollIntervalMs: 20
+    });
+    monitor.initialize();
+    monitor.setRoomWalletIncomingObserver({
+        async poll() {
+            started += 1;
+            concurrent += 1;
+            maxConcurrent = Math.max(maxConcurrent, concurrent);
+            await wait(80);
+            concurrent -= 1;
+        }
+    });
+
+    await monitor.start();
+    t.after(() => {
+        monitor.stop();
+        eventBus.shutdown();
+    });
+
+    await wait(100);
+    assert.equal(maxConcurrent, 1);
+    assert.ok(started >= 1);
+});
+
