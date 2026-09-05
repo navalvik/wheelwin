@@ -13,6 +13,7 @@ import {
     beginCell,
     external,
     internal,
+    SendMode,
     storeMessage
 } from "@ton/core";
 import { WalletContractV4 } from "@ton/ton";
@@ -149,6 +150,7 @@ export class RoomWalletAdapter {
         const transfer = wallet.createTransfer({
             seqno,
             secretKey: identity.secretKey,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
             messages: [
                 internal({
                     to: destinationAddress,

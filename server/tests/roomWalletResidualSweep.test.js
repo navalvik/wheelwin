@@ -5,13 +5,18 @@
 
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { beginCell, SendMode } from "@ton/core";
+import { WalletContractV4 } from "@ton/ton";
+
 import { EventBus } from "../events/EventBus.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { RoomWalletAdapter } from "../payment/roomWallet/RoomWalletAdapter.js";
 import {
     DuplicateRecordError,
     TonFinancialPersistence,
@@ -33,6 +38,21 @@ import { createDummyRoomWalletEntry } from "./helpers/dummyRoomWallet.js";
 const SOURCE = createDummyRoomWalletEntry(1);
 const OTHER_ROOM = createDummyRoomWalletEntry(2);
 const RESIDUES_ADDRESS = OTHER_ROOM.address;
+const requireFromTest = createRequire(import.meta.url);
+const {
+    storeExtendedAction,
+    loadExtendedAction
+} = requireFromTest("@ton/ton/dist/wallets/v4/WalletContractV4Actions.js");
+
+function sourceSigningIdentity() {
+    return {
+        roomNumber: SOURCE.roomNumber,
+        address: SOURCE.address,
+        publicKey: Buffer.from(SOURCE.publicKey, "hex"),
+        secretKey: Buffer.from(SOURCE.secretKey, "hex"),
+        workchain: SOURCE.workchain
+    };
+}
 
 function createLogger() {
     return {
@@ -222,9 +242,20 @@ test("exactly 0.50 Gram sends 0.49 with 0.01 source reserve", async () => {
         assert.equal(harness.sends[0].roomNumber, 1);
         assert.equal(harness.sends[0].amountNano, 490_000_000n);
         assert.equal(harness.sends[0].sourceReserveNano, 10_000_000n);
+        assert.equal(harness.sends[0].sendMode, SendMode.PAY_GAS_SEPARATELY);
+        assert.notEqual(harness.sends[0].sendMode, SendMode.NONE);
         assert.equal(harness.sends[0].destination, RESIDUES_ADDRESS);
         assert.notEqual(harness.sends[0].amountNano, 484_000_000n);
+        assert.notEqual(
+            harness.sends[0].amountNano,
+            ROOM_WALLET_POLICY.residualSweepNano - ROOM_WALLET_POLICY.residualSweepGasNano
+        );
         assert.notEqual(harness.sends[0].sourceReserveNano, 6_000_000n);
+        assert.equal(ROOM_WALLET_POLICY.residualTriggerNano, 500_000_000n);
+        assert.equal(ROOM_WALLET_POLICY.residualSweepNano, 490_000_000n);
+        assert.equal(ROOM_WALLET_POLICY.residualRetainedFloorNano, 10_000_000n);
+        assert.equal(ROOM_WALLET_POLICY.residualSweepGasNano, 6_000_000n);
+        assert.equal(ROOM_WALLET_POLICY.residualSafetyMarginNano, 4_000_000n);
         assert.equal(result.record.payload.amountNano, "490000000");
         assert.equal(result.record.payload.roomNumber, 1);
         assert.equal(result.record.payload.sourceAddress, SOURCE.address);
@@ -239,6 +270,104 @@ test("exactly 0.50 Gram sends 0.49 with 0.01 source reserve", async () => {
         assert.equal(harness.watches[0].transactionId, "sweep_tx_hash_1");
     } finally {
         harness.cleanup();
+    }
+});
+
+test("Wallet V4 residual sweep pays gas separately and keeps 0.49 Gram value", async () => {
+    assert.equal(ROOM_WALLET_POLICY.residualTriggerNano, 500_000_000n);
+    assert.equal(ROOM_WALLET_POLICY.residualSweepNano, 490_000_000n);
+    assert.equal(ROOM_WALLET_POLICY.residualRetainedFloorNano, 10_000_000n);
+    assert.equal(ROOM_WALLET_POLICY.residualSweepGasNano, 6_000_000n);
+    assert.equal(ROOM_WALLET_POLICY.residualSafetyMarginNano, 4_000_000n);
+    assert.equal(
+        ROOM_WALLET_POLICY.residualSweepGasNano + ROOM_WALLET_POLICY.residualSafetyMarginNano,
+        ROOM_WALLET_POLICY.residualRetainedFloorNano
+    );
+
+    const captured = [];
+    const originalCreateTransfer = WalletContractV4.prototype.createTransfer;
+    WalletContractV4.prototype.createTransfer = function createTransferSpy(args) {
+        captured.push(args);
+        return originalCreateTransfer.call(this, args);
+    };
+
+    const { dataDir, persistence } = createPersistence();
+    const registry = new RoomWalletRegistry({
+        entries: [
+            { roomNumber: 1, address: SOURCE.address, network: "testnet" },
+            { roomNumber: 2, address: OTHER_ROOM.address, network: "testnet" }
+        ]
+    });
+    const adapter = new RoomWalletAdapter({
+        tonService: {
+            async getBalance() {
+                return 500_000_000n;
+            },
+            async getSeqno() {
+                return 1;
+            },
+            async broadcastTransaction() {
+                return { hash: "mock_sweep_v4_hash" };
+            }
+        },
+        walletResolver: async (roomNumber) => {
+            assert.equal(roomNumber, 1);
+            return sourceSigningIdentity();
+        }
+    });
+    const repository = new RoomWalletResidualSweepRepository({
+        persistence,
+        tonNetwork: "testnet"
+    });
+    const worker = new RoomWalletResidualSweepWorker({
+        repository,
+        roomWalletAdapter: adapter,
+        registry,
+        blockchainMonitor: {
+            watchTransaction() {
+                return { status: "PENDING" };
+            }
+        },
+        logger: createLogger(),
+        env: {
+            ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: "true",
+            TON_RESIDUES_EXPECTED_ADDRESS: RESIDUES_ADDRESS
+        }
+    });
+
+    try {
+        const result = await worker.processRoom(1);
+        assert.equal(result.ok, true);
+        assert.equal(result.record.payload.amountNano, "490000000");
+        assert.equal(captured.length, 1);
+        assert.equal(captured[0].sendMode, SendMode.PAY_GAS_SEPARATELY);
+        assert.notEqual(captured[0].sendMode, SendMode.NONE);
+        assert.equal(captured[0].sendMode, 1);
+        assert.notEqual(captured[0].sendMode, 0);
+        assert.equal(captured[0].messages.length, 1);
+        assert.equal(captured[0].messages[0].info.value.coins, 490_000_000n);
+        assert.notEqual(captured[0].messages[0].info.value.coins, 484_000_000n);
+        assert.notEqual(
+            captured[0].messages[0].info.value.coins,
+            490_000_000n - 6_000_000n
+        );
+
+        const encoded = beginCell()
+            .store(storeExtendedAction({
+                type: "sendMsg",
+                messages: captured[0].messages,
+                sendMode: captured[0].sendMode
+            }))
+            .endCell();
+        const loaded = loadExtendedAction(encoded.beginParse());
+        assert.equal(loaded.sendMode, SendMode.PAY_GAS_SEPARATELY);
+        assert.notEqual(loaded.sendMode, SendMode.NONE);
+        assert.equal(loaded.messages[0].info.value.coins, 490_000_000n);
+    } finally {
+        worker.shutdown();
+        persistence.shutdown({ checkpoint: false });
+        rmSync(dataDir, { recursive: true, force: true });
+        WalletContractV4.prototype.createTransfer = originalCreateTransfer;
     }
 });
 

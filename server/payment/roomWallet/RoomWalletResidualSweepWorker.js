@@ -6,6 +6,8 @@
  * Default: feature flag OFF — no send, no Residues broadcast.
  */
 
+import { SendMode } from "@ton/core";
+
 import { EVENT_SOURCES } from "../../events/EventSources.js";
 import { EVENT_TYPES } from "../../events/EventTypes.js";
 import { DuplicateRecordError } from "../../persistence/TonFinancialPersistence.js";
@@ -734,7 +736,8 @@ export class RoomWalletResidualSweepWorker {
                 roomNumber,
                 destination: destination.address,
                 amountNano: ROOM_WALLET_POLICY.residualSweepNano,
-                sourceReserveNano: ROOM_WALLET_POLICY.residualRetainedFloorNano
+                sourceReserveNano: ROOM_WALLET_POLICY.residualRetainedFloorNano,
+                sendMode: SendMode.PAY_GAS_SEPARATELY
             });
         } catch (error) {
             this._repository.markFailed(record.recordId, {
