@@ -4,10 +4,17 @@
 
 import { Address } from "@ton/core";
 
+import {
+    DEFAULT_TON_RETRY_POLICY,
+    executeWithRetry,
+    isInfrastructureFailure
+} from "../../../services/ton/TonServiceRetry.js";
+
 export function createLegacyTonServiceShim({
     transport,
     tonClient,
-    tonConfig
+    tonConfig,
+    retryPolicy = DEFAULT_TON_RETRY_POLICY
 }) {
 
     if (!transport || !tonClient) {
@@ -15,6 +22,11 @@ export function createLegacyTonServiceShim({
         throw new Error("Legacy TonService shim requires transport and tonClient");
 
     }
+
+    const seqnoRetryPolicy = Object.freeze({
+        ...DEFAULT_TON_RETRY_POLICY,
+        ...(retryPolicy ?? {})
+    });
 
     return {
         getActiveNetwork() {
@@ -54,14 +66,24 @@ export function createLegacyTonServiceShim({
         },
         async getSeqno(walletAddress) {
 
-            const result = await tonClient.runMethod(
-                Address.parse(walletAddress),
-                "seqno",
-                []
-            );
+            const address = Address.parse(walletAddress);
 
-            // @ton/ton runMethod returns stack as TupleReader, not an array.
-            return result.stack.readNumber();
+            return executeWithRetry({
+                operation: async () => {
+
+                    const result = await tonClient.runMethod(
+                        address,
+                        "seqno",
+                        []
+                    );
+
+                    // @ton/ton runMethod returns stack as TupleReader, not an array.
+                    return result.stack.readNumber();
+
+                },
+                retryPolicy: seqnoRetryPolicy,
+                shouldRetry: isInfrastructureFailure
+            });
 
         },
         async runGetMethod(address, method, stack = []) {
