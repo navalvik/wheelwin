@@ -9,7 +9,10 @@ import { Address, TupleReader } from "@ton/core";
 
 import { TonGameContractAdapter } from "../payment/TonGameContractAdapter.js";
 import { createLegacyTonServiceShim } from "../payment/ton/gameContract/legacyTonServiceShim.js";
-import { DEFAULT_TON_RETRY_POLICY } from "../services/ton/TonServiceRetry.js";
+import {
+    DEFAULT_TON_RETRY_POLICY,
+    isInfrastructureFailure
+} from "../services/ton/TonServiceRetry.js";
 
 const DEPLOYER = "EQB83s9XMOMseDFxyXxj4hrC0sS4FB4xhdNiUPkl_3zx3PDQ";
 
@@ -33,6 +36,33 @@ function createTonCenter429() {
 
 }
 
+/**
+ * @ton/ton 16.3.0 HttpApi.doCall when axios returns HTTP 200 and
+ * `data.ok === false` (TonCenter rate-limit body).
+ */
+function createTonClientReceivedError429() {
+
+    return new Error(
+        'Received error: {"ok":false,"result":"Ratelimit exceed","code":429}'
+    );
+
+}
+
+function createAxios429() {
+
+    const error = new Error("Request failed with status code 429");
+
+    error.name = "AxiosError";
+    error.status = 429;
+    error.response = {
+        status: 429,
+        data: { ok: false, result: "Ratelimit exceed", code: 429 }
+    };
+
+    return error;
+
+}
+
 function createSeqnoStack(value) {
 
     return new TupleReader([
@@ -41,15 +71,15 @@ function createSeqnoStack(value) {
 
 }
 
-function createShim(tonClient, retryPolicy = FAST_RETRY_POLICY) {
+function createShim(tonClient, retryPolicy = FAST_RETRY_POLICY, transport = null) {
 
     return createLegacyTonServiceShim({
-        transport: {
+        transport: transport ?? {
             async sendBoc() {
                 return { ok: true };
             },
             async getAddressInformation() {
-                return { state: "active" };
+                return { state: "active", balance: "500000000" };
             }
         },
         tonClient,
@@ -278,4 +308,152 @@ function createShim(tonClient, retryPolicy = FAST_RETRY_POLICY) {
     console.log("  TonGameContractAdapter legacy shim seqno retry compatible: OK");
 }
 
-console.log("legacyTonServiceShim.getSeqno R7.50 + R18 S48 retry: all passed");
+{
+    assert.equal(
+        isInfrastructureFailure(createTonClientReceivedError429()),
+        true
+    );
+    assert.equal(isInfrastructureFailure(createAxios429()), true);
+    assert.equal(isInfrastructureFailure(createTonCenter429()), true);
+    assert.equal(
+        isInfrastructureFailure(
+            new Error('Received error: {"ok":false,"exit_code":0}')
+        ),
+        false
+    );
+    console.log("  isInfrastructureFailure @ton/ton HttpApi 429 shape: OK");
+}
+
+{
+    let calls = 0;
+
+    const tonClient = {
+        async runMethod() {
+
+            calls += 1;
+
+            if (calls <= 2) {
+
+                throw createTonClientReceivedError429();
+
+            }
+
+            return { stack: createSeqnoStack(5) };
+
+        }
+    };
+
+    const shim = createShim(tonClient);
+    const seqno = await shim.getSeqno(DEPLOYER);
+
+    assert.equal(seqno, 5);
+    assert.equal(calls, 3);
+    console.log("  getSeqno retries @ton/ton Received-error 429 then succeeds: OK");
+}
+
+{
+    let calls = 0;
+
+    const tonClient = {
+        async runMethod() {
+
+            calls += 1;
+            throw createTonClientReceivedError429();
+
+        }
+    };
+
+    const shim = createShim(tonClient);
+
+    await assert.rejects(
+        () => shim.getSeqno(DEPLOYER),
+        (error) => error.message.includes("Ratelimit exceed")
+    );
+
+    assert.equal(calls, FAST_RETRY_POLICY.maxAttempts);
+    console.log("  getSeqno @ton/ton 429 stops at retry limit: OK");
+}
+
+{
+    let calls = 0;
+
+    const transport = {
+        async sendBoc() {
+            return { ok: true };
+        },
+        async getAddressInformation() {
+
+            calls += 1;
+
+            if (calls === 1) {
+
+                throw createTonCenter429();
+
+            }
+
+            return { state: "active", balance: "500000000" };
+
+        }
+    };
+
+    const shim = createShim({ async runMethod() {} }, FAST_RETRY_POLICY, transport);
+    const account = await shim.getAccount(DEPLOYER);
+
+    assert.equal(account.balance, "500000000");
+    assert.equal(calls, 2);
+    console.log("  getAccount retries TonCenter HTTP 429 then succeeds: OK");
+}
+
+{
+    let calls = 0;
+
+    const transport = {
+        async sendBoc() {
+            return { ok: true };
+        },
+        async getAddressInformation() {
+
+            calls += 1;
+            throw createTonCenter429();
+
+        }
+    };
+
+    const shim = createShim({ async runMethod() {} }, FAST_RETRY_POLICY, transport);
+
+    await assert.rejects(
+        () => shim.getAccount(DEPLOYER),
+        (error) => error.status === 429 && error.message === "TonCenter HTTP 429"
+    );
+
+    assert.equal(calls, FAST_RETRY_POLICY.maxAttempts);
+    console.log("  getAccount persistent HTTP 429 stops at retry limit: OK");
+}
+
+{
+    const adapter = new TonGameContractAdapter({
+        tonConfig: { network: "testnet", deployerMnemonic: null },
+        transport: {
+            async sendBoc() {
+                return { ok: true };
+            },
+            async getAddressInformation() {
+                return { state: "active", balance: "1" };
+            }
+        },
+        tonClient: {
+            async runMethod() {
+                return { stack: createSeqnoStack(0) };
+            }
+        }
+    });
+
+    const service = adapter._service();
+
+    assert.equal(typeof service.getBalance, "undefined");
+    assert.equal(typeof service.getAccount, "function");
+    assert.equal(typeof service.getSeqno, "function");
+    console.log("  Production _service() is legacy shim (no getBalance): OK");
+}
+
+console.log("legacyTonServiceShim.getSeqno R7.50 + R18 S48/S50 retry: all passed");

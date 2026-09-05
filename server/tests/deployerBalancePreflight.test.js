@@ -18,7 +18,9 @@ import {
     DEPLOYER_MIN_BALANCE_REQUIRED_NANO,
     DEPLOYER_MIN_BALANCE_REQUIRED_TON
 } from "../payment/ton/deployerBalancePolicy.js";
+import { createLegacyTonServiceShim } from "../payment/ton/gameContract/legacyTonServiceShim.js";
 import { MockTonTransport } from "../payment/ton/MockTonTransport.js";
+import { DEFAULT_TON_RETRY_POLICY } from "../services/ton/TonServiceRetry.js";
 
 const TEST_MNEMONIC = [
     "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
@@ -170,6 +172,112 @@ async function runPreflightUnitTests() {
 
     assert.ok(DEPLOYER_MIN_BALANCE_REQUIRED_NANO > toNano("0.007"));
     assert.ok(DEPLOYER_MIN_BALANCE_REQUIRED_NANO <= toNano("0.2"));
+
+    {
+        let accountCalls = 0;
+        const fastRetry = {
+            maxAttempts: DEFAULT_TON_RETRY_POLICY.maxAttempts,
+            initialDelayMs: 1,
+            maxDelayMs: 5,
+            multiplier: 1,
+            timeoutMs: 1000
+        };
+
+        const shim = createLegacyTonServiceShim({
+            transport: {
+                async sendBoc() {
+                    return { ok: true };
+                },
+                async getAddressInformation() {
+
+                    accountCalls += 1;
+
+                    if (accountCalls === 1) {
+
+                        const error = new Error("TonCenter HTTP 429");
+                        error.status = 429;
+                        error.responseBody = '{"ok":false,"result":"Ratelimit exceed","code":429}';
+                        throw error;
+
+                    }
+
+                    return {
+                        state: "active",
+                        balance: String(toNano("0.5"))
+                    };
+
+                }
+            },
+            tonClient: {
+                async runMethod() {
+                    throw new Error("seqno must not run during preflight");
+                }
+            },
+            tonConfig: { network: "testnet" },
+            retryPolicy: fastRetry
+        });
+
+        assert.equal(typeof shim.getBalance, "undefined");
+
+        const recovered = await checkDeployerBalancePreflight({
+            tonConfig: {
+                deployerMnemonic: TEST_MNEMONIC,
+                network: "testnet"
+            },
+            tonService: shim
+        });
+
+        assert.equal(recovered.ok, true);
+        assert.equal(accountCalls, 2);
+        assertNoSecrets(recovered);
+    }
+
+    {
+        let accountCalls = 0;
+        const fastRetry = {
+            maxAttempts: DEFAULT_TON_RETRY_POLICY.maxAttempts,
+            initialDelayMs: 1,
+            maxDelayMs: 5,
+            multiplier: 1,
+            timeoutMs: 1000
+        };
+
+        const shim = createLegacyTonServiceShim({
+            transport: {
+                async sendBoc() {
+                    return { ok: true };
+                },
+                async getAddressInformation() {
+
+                    accountCalls += 1;
+                    const error = new Error("TonCenter HTTP 429");
+                    error.status = 429;
+                    throw error;
+
+                }
+            },
+            tonClient: {
+                async runMethod() {
+                    throw new Error("seqno must not run during preflight");
+                }
+            },
+            tonConfig: { network: "testnet" },
+            retryPolicy: fastRetry
+        });
+
+        await assert.rejects(
+            () => checkDeployerBalancePreflight({
+                tonConfig: {
+                    deployerMnemonic: TEST_MNEMONIC,
+                    network: "testnet"
+                },
+                tonService: shim
+            }),
+            (error) => error.message === "TonCenter HTTP 429" && error.status === 429
+        );
+
+        assert.equal(accountCalls, DEFAULT_TON_RETRY_POLICY.maxAttempts);
+    }
 
 }
 

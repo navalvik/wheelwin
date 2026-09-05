@@ -83,7 +83,13 @@ export function isInfrastructureFailure(error) {
         || message.includes("http 5")
         || message.includes("http 429")
         || message.includes("status code 429")
-        || message.includes("too many requests");
+        || message.includes("too many requests")
+        // @ton/ton 16.3.x HttpApi.doCall: HTTP 200 + { ok:false, code:429 }
+        || message.includes("ratelimit exceed")
+        || (
+            message.includes("received error:")
+            && message.includes("429")
+        );
 
 }
 

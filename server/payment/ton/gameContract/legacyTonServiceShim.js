@@ -23,10 +23,20 @@ export function createLegacyTonServiceShim({
 
     }
 
-    const seqnoRetryPolicy = Object.freeze({
+    const readRpcRetryPolicy = Object.freeze({
         ...DEFAULT_TON_RETRY_POLICY,
         ...(retryPolicy ?? {})
     });
+
+    function retryReadRpc(operation) {
+
+        return executeWithRetry({
+            operation,
+            retryPolicy: readRpcRetryPolicy,
+            shouldRetry: isInfrastructureFailure
+        });
+
+    }
 
     return {
         getActiveNetwork() {
@@ -56,7 +66,9 @@ export function createLegacyTonServiceShim({
         },
         async getAccount(address) {
 
-            return transport.getAddressInformation(address);
+            return retryReadRpc(
+                () => transport.getAddressInformation(address)
+            );
 
         },
         async getTransactions(address, query = {}) {
@@ -68,21 +80,17 @@ export function createLegacyTonServiceShim({
 
             const address = Address.parse(walletAddress);
 
-            return executeWithRetry({
-                operation: async () => {
+            return retryReadRpc(async () => {
 
-                    const result = await tonClient.runMethod(
-                        address,
-                        "seqno",
-                        []
-                    );
+                const result = await tonClient.runMethod(
+                    address,
+                    "seqno",
+                    []
+                );
 
-                    // @ton/ton runMethod returns stack as TupleReader, not an array.
-                    return result.stack.readNumber();
+                // @ton/ton runMethod returns stack as TupleReader, not an array.
+                return result.stack.readNumber();
 
-                },
-                retryPolicy: seqnoRetryPolicy,
-                shouldRetry: isInfrastructureFailure
             });
 
         },

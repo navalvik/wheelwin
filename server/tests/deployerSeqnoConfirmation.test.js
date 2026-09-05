@@ -268,6 +268,20 @@ async function main() {
             isInfrastructureFailure(new Error("BOC was not accepted")),
             false
         );
+        assert.equal(
+            isInfrastructureFailure(
+                new Error(
+                    'Received error: {"ok":false,"result":"Ratelimit exceed","code":429}'
+                )
+            ),
+            true
+        );
+        assert.equal(
+            isInfrastructureFailure(
+                new Error('Received error: {"ok":false,"exit_code":9}')
+            ),
+            false
+        );
 
         console.log("  isInfrastructureFailure axios 429: OK");
     }
