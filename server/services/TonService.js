@@ -683,6 +683,7 @@ export class TonService {
 
             const result = await executeWithRetry({
                 operation: rpcOperation,
+                operationName: operation,
                 retryPolicy: {
                     ...this._retryPolicy,
                     ...(retryPolicy ?? {})

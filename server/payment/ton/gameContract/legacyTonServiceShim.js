@@ -14,7 +14,8 @@ export function createLegacyTonServiceShim({
     transport,
     tonClient,
     tonConfig,
-    retryPolicy = DEFAULT_TON_RETRY_POLICY
+    retryPolicy = DEFAULT_TON_RETRY_POLICY,
+    onRetryObservability = null
 }) {
 
     if (!transport || !tonClient) {
@@ -28,12 +29,14 @@ export function createLegacyTonServiceShim({
         ...(retryPolicy ?? {})
     });
 
-    function retryReadRpc(operation) {
+    function retryReadRpc(operationName, operation) {
 
         return executeWithRetry({
             operation,
+            operationName,
             retryPolicy: readRpcRetryPolicy,
-            shouldRetry: isInfrastructureFailure
+            shouldRetry: isInfrastructureFailure,
+            onRetryObservability
         });
 
     }
@@ -67,6 +70,7 @@ export function createLegacyTonServiceShim({
         async getAccount(address) {
 
             return retryReadRpc(
+                "getAccount",
                 () => transport.getAddressInformation(address)
             );
 
@@ -80,7 +84,7 @@ export function createLegacyTonServiceShim({
 
             const address = Address.parse(walletAddress);
 
-            return retryReadRpc(async () => {
+            return retryReadRpc("getSeqno", async () => {
 
                 const result = await tonClient.runMethod(
                     address,

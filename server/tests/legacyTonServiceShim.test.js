@@ -10,7 +10,12 @@ import { Address, TupleReader } from "@ton/core";
 import { TonGameContractAdapter } from "../payment/TonGameContractAdapter.js";
 import { createLegacyTonServiceShim } from "../payment/ton/gameContract/legacyTonServiceShim.js";
 import {
+    beginTonDeployDebug,
+    pushTonDeployDebugStage
+} from "../diagnostics/DeployPipelineForensics.js";
+import {
     DEFAULT_TON_RETRY_POLICY,
+    formatTonRpcRetryLog,
     isInfrastructureFailure
 } from "../services/ton/TonServiceRetry.js";
 
@@ -71,7 +76,12 @@ function createSeqnoStack(value) {
 
 }
 
-function createShim(tonClient, retryPolicy = FAST_RETRY_POLICY, transport = null) {
+function createShim(
+    tonClient,
+    retryPolicy = FAST_RETRY_POLICY,
+    transport = null,
+    onRetryObservability = null
+) {
 
     return createLegacyTonServiceShim({
         transport: transport ?? {
@@ -84,7 +94,8 @@ function createShim(tonClient, retryPolicy = FAST_RETRY_POLICY, transport = null
         },
         tonClient,
         tonConfig: { network: "testnet" },
-        retryPolicy
+        retryPolicy,
+        onRetryObservability
     });
 
 }
@@ -454,6 +465,121 @@ function createShim(tonClient, retryPolicy = FAST_RETRY_POLICY, transport = null
     assert.equal(typeof service.getAccount, "function");
     assert.equal(typeof service.getSeqno, "function");
     console.log("  Production _service() is legacy shim (no getBalance): OK");
+}
+
+{
+    const events = [];
+    beginTonDeployDebug({
+        roomId: "7dhz",
+        gameId: "game_52d95bb4-6e79-4c99-8621-133c0e4c8c5c"
+    });
+    pushTonDeployDebugStage("WALLET_CREATED", { operation: "DEPLOY" });
+
+    let calls = 0;
+    const shim = createShim(
+        {
+            async runMethod() {
+                calls += 1;
+                throw createAxios429();
+            }
+        },
+        FAST_RETRY_POLICY,
+        null,
+        (event) => events.push(event)
+    );
+
+    await assert.rejects(
+        () => shim.getSeqno(DEPLOYER),
+        (error) => error.name === "AxiosError" && error.status === 429
+    );
+
+    assert.equal(calls, DEFAULT_TON_RETRY_POLICY.maxAttempts);
+    const attempts = events.filter((item) => item.kind === "attempt");
+    const finals = events.filter((item) => item.kind === "final");
+    assert.equal(attempts.length, 3);
+    assert.deepEqual(attempts.map((item) => item.attempt), [1, 2, 3]);
+    assert.equal(attempts.every((item) => item.operation === "getSeqno"), true);
+    assert.equal(attempts.every((item) => item.retryable === true), true);
+    assert.equal(attempts[0].willRetry, true);
+    assert.equal(attempts[1].willRetry, true);
+    assert.equal(attempts[2].willRetry, false);
+    assert.equal(attempts.every((item) => item.status === 429), true);
+    assert.equal(attempts.every((item) => item.errorName === "AxiosError"), true);
+    assert.equal(attempts.every((item) => item.roomId === "7dhz"), true);
+    assert.equal(
+        attempts.every((item) => item.gameId === "game_52d95bb4-6e79-4c99-8621-133c0e4c8c5c"),
+        true
+    );
+    assert.equal(attempts.every((item) => item.deployOperation === "DEPLOY"), true);
+    assert.equal(finals.length, 1);
+    assert.equal(finals[0].success, false);
+    assert.equal(finals[0].attempt, 3);
+    assert.equal(finals[0].status, 429);
+    const line = formatTonRpcRetryLog(attempts[0]);
+    assert.match(line, /^\[TON_RPC_RETRY_ATTEMPT\] /);
+    assert.match(line, /operation=getSeqno/);
+    assert.equal(line.includes("X-API-Key"), false);
+    console.log("  getSeqno Axios 429 logs attempts 1-3 then FINAL failure: OK");
+}
+
+{
+    const events = [];
+    let calls = 0;
+    const shim = createShim(
+        {
+            async runMethod() {
+                calls += 1;
+                if (calls === 1) {
+                    throw createAxios429();
+                }
+                return { stack: createSeqnoStack(9) };
+            }
+        },
+        FAST_RETRY_POLICY,
+        null,
+        (event) => events.push(event)
+    );
+
+    const seqno = await shim.getSeqno(DEPLOYER);
+
+    assert.equal(seqno, 9);
+    assert.equal(calls, 2);
+    assert.equal(events.filter((item) => item.kind === "attempt").length, 1);
+    assert.equal(events[0].attempt, 1);
+    assert.equal(events[0].willRetry, true);
+    assert.equal(events[1].kind, "final");
+    assert.equal(events[1].success, true);
+    assert.equal(events[1].attempt, 2);
+    console.log("  getSeqno Axios 429 then success logs FINAL success: OK");
+}
+
+{
+    const events = [];
+    let calls = 0;
+    const permanent = new Error("BOC was not accepted");
+    const shim = createShim(
+        {
+            async runMethod() {
+                calls += 1;
+                throw permanent;
+            }
+        },
+        FAST_RETRY_POLICY,
+        null,
+        (event) => events.push(event)
+    );
+
+    await assert.rejects(() => shim.getSeqno(DEPLOYER), (error) => error === permanent);
+
+    assert.equal(calls, 1);
+    assert.equal(events.length, 2);
+    assert.equal(events[0].kind, "attempt");
+    assert.equal(events[0].retryable, false);
+    assert.equal(events[0].willRetry, false);
+    assert.equal(events[1].kind, "final");
+    assert.equal(events[1].success, false);
+    assert.equal(events[1].retryable, false);
+    console.log("  getSeqno non-retryable error logs one attempt and FINAL: OK");
 }
 
 console.log("legacyTonServiceShim.getSeqno R7.50 + R18 S48/S50 retry: all passed");
