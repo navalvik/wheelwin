@@ -2,7 +2,8 @@ export {
     AUTHORITATIVE_SESSION_ACTIONS,
     AUTHORITATIVE_SESSION_INITIAL_STATE,
     authoritativeSessionReducer,
-    createAuthoritativeSessionStore
+    createAuthoritativeSessionStore,
+    unwrapAuthoritativeSocketRecord
 } from "./authoritativeSessionModel.js";
 
 export {

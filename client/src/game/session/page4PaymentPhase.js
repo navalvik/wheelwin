@@ -80,11 +80,53 @@ function paymentSessionGameEscrowTarget(paymentSession = null) {
 
 }
 
+function depositOwnedByCurrentSession(deposit, context = null, gameContract = null) {
+
+    if (!deposit) {
+
+        return null;
+
+    }
+
+    const roomId = context?.roomId
+        ?? context?.paymentSession?.roomId
+        ?? gameContract?.roomId
+        ?? null;
+    const gameId = context?.gameId
+        ?? context?.paymentSession?.gameId
+        ?? gameContract?.gameId
+        ?? null;
+
+    if (
+        deposit.roomId
+        && roomId
+        && String(deposit.roomId) !== String(roomId)
+    ) {
+
+        return null;
+
+    }
+
+    if (
+        deposit.gameId
+        && gameId
+        && String(deposit.gameId) !== String(gameId)
+    ) {
+
+        return null;
+
+    }
+
+    return deposit;
+
+}
+
 /**
  * Game-Escrow-only player payment (`GAME_ESCROW_MODE=game`).
  * Prefer explicit `escrowMode`, then infer from server payment state when
  * Production clients never received `escrowMode` on the contract mirror.
  * Do not infer while a real Deposit package is present (legacy `v4`).
+ * Ignore leftover Deposit from a previous room/game.
  */
 export function isGameEscrowOnlyPlayerPayment(gameContract = null, context = null) {
 
@@ -102,7 +144,11 @@ export function isGameEscrowOnlyPlayerPayment(gameContract = null, context = nul
 
     }
 
-    const deposit = context?.deposit ?? null;
+    const deposit = depositOwnedByCurrentSession(
+        context?.deposit ?? null,
+        context,
+        gameContract
+    );
     const paymentSession = context?.paymentSession ?? null;
     const paymentTarget = paymentSessionGameEscrowTarget(paymentSession);
 
@@ -141,13 +187,20 @@ export function shouldShowWaitingCreatorDeposit({
 
     }
 
-    if (!hasLegacyDepositPackage(deposit)) {
+    const ownedDeposit = depositOwnedByCurrentSession(deposit, {
+        deposit,
+        paymentSession,
+        roomId: gameContract?.roomId,
+        gameId: gameContract?.gameId
+    }, gameContract);
+
+    if (!hasLegacyDepositPackage(ownedDeposit)) {
 
         return false;
 
     }
 
-    return deposit?.isCreator !== true;
+    return ownedDeposit?.isCreator !== true;
 
 }
 

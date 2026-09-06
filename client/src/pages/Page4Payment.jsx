@@ -763,7 +763,9 @@ export default function Page4Payment({ onNavigate }) {
         const gameContract = authoritative?.gameContract ?? null;
         const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract, {
             deposit: depositProjection,
-            paymentSession
+            paymentSession,
+            roomId: authoritative?.roomId,
+            gameId: authoritative?.gameId
         });
 
         if (!gameEscrowOnly) {
@@ -1128,7 +1130,9 @@ export default function Page4Payment({ onNavigate }) {
     const confirmedSeatCount = Number(depositProjection?.confirmedSeats);
     const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract, {
         deposit: depositProjection,
-        paymentSession
+        paymentSession,
+        roomId: authoritative.roomId,
+        gameId: authoritative.gameId
     });
 
     const depositStatusParts = [];

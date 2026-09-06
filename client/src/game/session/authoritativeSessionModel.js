@@ -245,6 +245,125 @@ function ingestPlayerList(players, list) {
 }
 
 /**
+ * Socket named events sometimes arrive as the EventBus envelope
+ * `{ type, payload: record }` instead of the record itself. Unwrap only when
+ * the inner record is the authoritative body.
+ */
+export function unwrapAuthoritativeSocketRecord(payload) {
+
+    if (!payload || typeof payload !== "object") {
+
+        return payload;
+
+    }
+
+    const nested = payload.payload;
+
+    if (
+        nested
+        && typeof nested === "object"
+        && !Array.isArray(nested)
+        && payload.escrowMode == null
+        && payload.contractAddress == null
+        && payload.status == null
+        && !Array.isArray(payload.participants)
+        && (
+            nested.escrowMode != null
+            || nested.contractAddress != null
+            || nested.status != null
+            || Array.isArray(nested.participants)
+        )
+    ) {
+
+        return nested;
+
+    }
+
+    if (
+        payload.gameContract
+        && typeof payload.gameContract === "object"
+        && payload.escrowMode == null
+        && payload.contractAddress == null
+    ) {
+
+        return {
+            ...payload,
+            ...payload.gameContract
+        };
+
+    }
+
+    return payload;
+
+}
+
+function shouldDropDepositForSession(deposit, nextRoomId, nextGameId, previousRoomId) {
+
+    if (!deposit) {
+
+        return false;
+
+    }
+
+    if (
+        deposit.roomId
+        && nextRoomId
+        && String(deposit.roomId) !== String(nextRoomId)
+    ) {
+
+        return true;
+
+    }
+
+    if (
+        deposit.gameId
+        && nextGameId
+        && String(deposit.gameId) !== String(nextGameId)
+    ) {
+
+        return true;
+
+    }
+
+    if (
+        !deposit.roomId
+        && nextRoomId
+        && previousRoomId
+        && String(nextRoomId) !== String(previousRoomId)
+    ) {
+
+        return true;
+
+    }
+
+    return false;
+
+}
+
+function applySessionScopedDeposit(state, nextRoomId, nextGameId) {
+
+    if (!shouldDropDepositForSession(
+        state.deposit,
+        nextRoomId,
+        nextGameId,
+        state.roomId
+    )) {
+
+        return {
+            deposit: state.deposit,
+            depositActivationVerified: state.lifecycle?.depositActivationVerified === true
+        };
+
+    }
+
+    return {
+        deposit: null,
+        depositActivationVerified: false
+    };
+
+}
+
+/**
  * Pure reducer: copies server fields into the session mirror. Never invents
  * values that were absent from the payload.
  */
@@ -527,9 +646,13 @@ export function authoritativeSessionReducer(state, action) {
 
             }
 
+            const nextRoomId = payload.roomId ?? state.roomId;
+            const scoped = applySessionScopedDeposit(state, nextRoomId, state.gameId);
+
             return stamp({
                 ...state,
-                roomId: payload.roomId ?? state.roomId,
+                roomId: nextRoomId,
+                deposit: scoped.deposit,
                 setup: Object.freeze({
                     setupSessionId: payload.setupSessionId,
                     roomId: payload.roomId ?? null,
@@ -541,6 +664,10 @@ export function authoritativeSessionReducer(state, action) {
                     state: payload.state ?? null,
                     verificationState: payload.verificationState ?? null,
                     paymentPrepState: payload.paymentPrepState ?? null
+                }),
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    depositActivationVerified: scoped.depositActivationVerified
                 })
             }, action.type);
 
@@ -701,9 +828,17 @@ export function authoritativeSessionReducer(state, action) {
 
             }
 
-            const participants = Array.isArray(payload.participants)
+            const record = unwrapAuthoritativeSocketRecord(payload);
+
+            if (!record || typeof record !== "object") {
+
+                return state;
+
+            }
+
+            const participants = Array.isArray(record.participants)
                 ? Object.freeze(
-                    payload.participants.map((participant) => Object.freeze({
+                    record.participants.map((participant) => Object.freeze({
                         playerId: participant?.playerId ?? null,
                         // R7.70C10 — server seat index for GameEscrow STAKE body.
                         playerIndex: participant?.playerIndex ?? null,
@@ -717,20 +852,29 @@ export function authoritativeSessionReducer(state, action) {
                 )
                 : Object.freeze([]);
 
+            const nextRoomId = record.roomId ?? state.roomId;
+            const nextGameId = record.gameId ?? state.gameId;
+            const scoped = applySessionScopedDeposit(state, nextRoomId, nextGameId);
+
             return stamp({
                 ...state,
-                roomId: payload.roomId ?? state.roomId,
-                gameId: payload.gameId ?? state.gameId,
+                roomId: nextRoomId,
+                gameId: nextGameId,
+                deposit: scoped.deposit,
                 paymentSession: Object.freeze({
-                    paymentSessionId: payload.paymentSessionId ?? null,
-                    roomId: payload.roomId ?? null,
-                    gameId: payload.gameId ?? null,
-                    createdAt: payload.createdAt ?? null,
-                    expiresAt: payload.expiresAt ?? null,
-                    completedAt: payload.completedAt ?? null,
-                    status: payload.status ?? null,
-                    reason: payload.reason ?? null,
+                    paymentSessionId: record.paymentSessionId ?? null,
+                    roomId: record.roomId ?? null,
+                    gameId: record.gameId ?? null,
+                    createdAt: record.createdAt ?? null,
+                    expiresAt: record.expiresAt ?? null,
+                    completedAt: record.completedAt ?? null,
+                    status: record.status ?? null,
+                    reason: record.reason ?? null,
                     participants
+                }),
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    depositActivationVerified: scoped.depositActivationVerified
                 })
             }, action.type);
 
@@ -763,25 +907,42 @@ export function authoritativeSessionReducer(state, action) {
 
             }
 
+            const record = unwrapAuthoritativeSocketRecord(payload);
+
+            if (!record || typeof record !== "object") {
+
+                return state;
+
+            }
+
+            const nextRoomId = record.roomId ?? state.roomId;
+            const nextGameId = record.gameId ?? state.gameId;
+            const scoped = applySessionScopedDeposit(state, nextRoomId, nextGameId);
+
             return stamp({
                 ...state,
-                roomId: payload.roomId ?? state.roomId,
-                gameId: payload.gameId ?? state.gameId,
+                roomId: nextRoomId,
+                gameId: nextGameId,
+                deposit: scoped.deposit,
                 gameContract: Object.freeze({
-                    contractId: payload.contractId ?? null,
-                    gameId: payload.gameId ?? null,
-                    roomId: payload.roomId ?? null,
-                    status: payload.status ?? null,
-                    createdAt: payload.createdAt ?? null,
-                    contractAddress: payload.contractAddress ?? null,
-                    deploymentStatus: payload.deploymentStatus ?? null,
-                    deployedAt: payload.deployedAt ?? null,
-                    paymentsCompletedAt: payload.paymentsCompletedAt ?? null,
-                    deployError: payload.deployError ?? null,
-                    escrowMode: payload.escrowMode
-                        ?? payload.snapshot?.escrowMode
+                    contractId: record.contractId ?? null,
+                    gameId: record.gameId ?? null,
+                    roomId: record.roomId ?? null,
+                    status: record.status ?? null,
+                    createdAt: record.createdAt ?? null,
+                    contractAddress: record.contractAddress ?? null,
+                    deploymentStatus: record.deploymentStatus ?? null,
+                    deployedAt: record.deployedAt ?? null,
+                    paymentsCompletedAt: record.paymentsCompletedAt ?? null,
+                    deployError: record.deployError ?? null,
+                    escrowMode: record.escrowMode
+                        ?? record.snapshot?.escrowMode
                         ?? state.gameContract?.escrowMode
                         ?? null
+                }),
+                lifecycle: Object.freeze({
+                    ...state.lifecycle,
+                    depositActivationVerified: scoped.depositActivationVerified
                 })
             }, action.type);
 
@@ -837,6 +998,8 @@ export function authoritativeSessionReducer(state, action) {
                 depositId: deposit.depositId ?? null,
                 depositAddress: deposit.depositAddress ?? null,
                 network: deposit.network ?? null,
+                roomId: payload.roomId ?? deposit.roomId ?? state.roomId ?? null,
+                gameId: payload.gameId ?? deposit.gameId ?? state.gameId ?? null,
                 ...(pkg ? { package: pkg } : {}),
                 mySeatIndex: deposit.mySeatIndex ?? null,
                 isCreator: deposit.isCreator ?? null,
