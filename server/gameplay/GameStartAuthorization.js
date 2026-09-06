@@ -7,6 +7,7 @@ import {
 } from "../models/PaymentSession.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import { DEPOSIT_SESSION_STATUS } from "../deposit/DepositSessionStates.js";
+import { isGameEscrowOnlyPlayerPayment } from "../config/gameEscrowMode.js";
 
 /**
  * P6.7 — Authoritative gameplay start after blockchain payment confirmation.
@@ -42,7 +43,8 @@ export class GameStartAuthorization {
         devMode = false,
         depositSessionCoordinator = null,
         roomWalletPaymentIntakeEnabled = false,
-        roomWalletLedgerRegistry = null
+        roomWalletLedgerRegistry = null,
+        gameEscrowMode = null
     }) {
 
         this._logger = logger;
@@ -86,6 +88,8 @@ export class GameStartAuthorization {
         this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
 
         this._roomWalletLedgerRegistry = roomWalletLedgerRegistry;
+
+        this._gameEscrowMode = gameEscrowMode ?? null;
 
         // roomId → { phase, gameId, authorizedAt, initializingAt, openPage5At }
         this._lifecycleByRoom = new Map();
@@ -409,7 +413,12 @@ export class GameStartAuthorization {
 
         } else {
 
-            if (this._depositSessionCoordinator) {
+            const contractForMode = this._gameContractManager?.getContract(roomId);
+
+            if (
+                this._depositSessionCoordinator
+                && !this._isGameEscrowOnlyPlayerPayment(contractForMode)
+            ) {
 
                 const deposit = this._depositSessionCoordinator.getByRoomAndGame?.(
                     roomId,
@@ -424,7 +433,7 @@ export class GameStartAuthorization {
 
             }
 
-            const contract = this._gameContractManager?.getContract(roomId);
+            const contract = contractForMode;
 
             if (
                 !contract
@@ -866,6 +875,26 @@ export class GameStartAuthorization {
         }
 
         this._lifecycleByRoom.clear();
+
+    }
+
+    _isGameEscrowOnlyPlayerPayment(contract) {
+
+        const snapshotMode = contract?.snapshot?.escrowMode ?? null;
+
+        if (isGameEscrowOnlyPlayerPayment(snapshotMode)) {
+
+            return true;
+
+        }
+
+        if (snapshotMode === "v4") {
+
+            return false;
+
+        }
+
+        return isGameEscrowOnlyPlayerPayment(this._gameEscrowMode);
 
     }
 

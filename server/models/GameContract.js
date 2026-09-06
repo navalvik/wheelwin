@@ -297,7 +297,8 @@ export class GameContract {
             version: this.version,
             gameStartedAt: this.gameStartedAt,
             archivedAt: this.archivedAt,
-            failureReason: this.failureReason
+            failureReason: this.failureReason,
+            escrowMode: this.snapshot?.escrowMode ?? null
         });
 
     }

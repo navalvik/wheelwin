@@ -14,6 +14,7 @@ import {
     canSubmitEntryPayment,
     getLocalPaymentRequest,
     isGameContractDeployed,
+    isGameEscrowOnlyPlayerPayment,
     mapPaymentSessionRows,
     mapWalletConnectionRows,
     PAGE4_PAYMENT_PHASE,
@@ -757,25 +758,31 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-        if (!depositProjection) {
-
-            setDepositSubmitError(t("payment.serverStateMismatch"));
-
-            return;
-
-        }
-
-        if (depositProjection.isCreator !== true && depositProjection.isCreator !== false) {
-
-            setDepositSubmitError(t("payment.serverStateMismatch"));
-
-            return;
-
-        }
-
         const lifecycle = authoritative?.lifecycle ?? null;
         const paymentSession = authoritative?.paymentSession ?? null;
         const gameContract = authoritative?.gameContract ?? null;
+        const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract);
+
+        if (!gameEscrowOnly) {
+
+            if (!depositProjection) {
+
+                setDepositSubmitError(t("payment.serverStateMismatch"));
+
+                return;
+
+            }
+
+            if (depositProjection.isCreator !== true && depositProjection.isCreator !== false) {
+
+                setDepositSubmitError(t("payment.serverStateMismatch"));
+
+                return;
+
+            }
+
+        }
+
         const localPlayerId = resolveLocalPlayerId(
             identity.playerId ?? null,
             authoritative.players,
@@ -831,11 +838,11 @@ export default function Page4Payment({ onNavigate }) {
                 ?? null;
 
             const transactionObject = buildEntryPaymentTransaction({
-                isCreator: depositProjection.isCreator === true,
-                includeDeploy: components.includeDeploy,
-                includeFund: components.includeFund,
+                isCreator: gameEscrowOnly ? false : depositProjection.isCreator === true,
+                includeDeploy: gameEscrowOnly ? false : components.includeDeploy,
+                includeFund: gameEscrowOnly ? false : components.includeFund,
                 includeStake: components.includeStake,
-                depositPackage: components.includeDeploy
+                depositPackage: !gameEscrowOnly && components.includeDeploy
                     ? {
                         stateInit: {
                             codeBoc: depositProjection.package.stateInit.codeBoc,
@@ -845,10 +852,12 @@ export default function Page4Payment({ onNavigate }) {
                         depositAddress: depositProjection.depositAddress
                     }
                     : null,
-                depositAddress: depositProjection.depositAddress,
-                mySeatIndex: depositProjection.mySeatIndex,
-                myExpectedAmountNanotons: depositProjection.myExpectedAmountNanotons,
-                network: depositProjection.network,
+                depositAddress: gameEscrowOnly ? null : depositProjection.depositAddress,
+                mySeatIndex: gameEscrowOnly ? null : depositProjection.mySeatIndex,
+                myExpectedAmountNanotons: gameEscrowOnly
+                    ? null
+                    : depositProjection.myExpectedAmountNanotons,
+                network: gameEscrowOnly ? null : depositProjection.network,
                 gameEscrowAddress: paymentRequest?.contractAddress
                     ?? gameContract?.contractAddress
                     ?? null,
@@ -1110,11 +1119,13 @@ export default function Page4Payment({ onNavigate }) {
     }
 
     const confirmedSeatCount = Number(depositProjection?.confirmedSeats);
+    const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract);
 
     const depositStatusParts = [];
 
     if (
-        Number.isFinite(confirmedSeatCount)
+        !gameEscrowOnly
+        && Number.isFinite(confirmedSeatCount)
         && inPostWalletPhase
         && !showPaymentRows
     ) {
@@ -1125,9 +1136,17 @@ export default function Page4Payment({ onNavigate }) {
 
     }
 
-    if (paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
+    if (paymentPhase === PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE) {
 
-        if (isGameContractDeployed(gameContract) && depositProjection?.isCreator !== true) {
+        depositStatusParts.push(t("payment.waitingGameEscrow"));
+
+    } else if (paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
+
+        if (
+            !gameEscrowOnly
+            && isGameContractDeployed(gameContract)
+            && depositProjection?.isCreator !== true
+        ) {
 
             depositStatusParts.push(t("payment.waitingCreatorDeposit"));
 

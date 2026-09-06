@@ -75,6 +75,7 @@ export {
     isDepositFull,
     resolveEntryPaymentComponents,
     resolvePage4PaymentPhase,
+    isGameEscrowOnlyPlayerPayment,
     shouldShowDepositAction,
     shouldShowEntryAction,
     shouldShowPaymentSessionRows,

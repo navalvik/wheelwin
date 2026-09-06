@@ -108,6 +108,7 @@ import { TIMER_PHASES } from "./catalog/Timers.js";
 import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
 import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
 import { TonGameContractAdapter } from "./payment/TonGameContractAdapter.js";
+import { isGameEscrowOnlyPlayerPayment } from "./config/gameEscrowMode.js";
 import { deriveDeployerWalletIdentity } from "./payment/ton/deriveDeployerWalletIdentity.js";
 import {
     assertDeployerWalletMatchesExpected,
@@ -157,6 +158,7 @@ import { DepositMonitor } from "./deposit/DepositMonitor.js";
 import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
 import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
 import { DepositActivationVerificationCoordinator } from "./deposit/DepositActivationVerificationCoordinator.js";
+import { GameEscrowDeploymentAuthorizationAutomation } from "./deposit/GameEscrowDeploymentAuthorizationAutomation.js";
 import { DepositOrchestrator } from "./deposit/DepositOrchestrator.js";
 import { resolveDepositOrchestrationFinancials } from "./deposit/resolveDepositOrchestrationFinancials.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
@@ -1665,6 +1667,19 @@ class WheelWinApplication {
 
         this._logger.startupLine("EntryDeploymentAuthorizationAutomation");
 
+        this._gameEscrowDeploymentAuthorizationAutomation =
+            new GameEscrowDeploymentAuthorizationAutomation({
+                logger: this._logger,
+                eventBus: this._eventBus,
+                paymentSessionManager: this._paymentSessionManager,
+                deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator,
+                enabled: isGameEscrowOnlyPlayerPayment(this._tonConfig?.gameEscrowMode)
+            });
+
+        this._gameEscrowDeploymentAuthorizationAutomation.initialize();
+
+        this._logger.startupLine("GameEscrowDeploymentAuthorizationAutomation");
+
         this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
             logger: this._logger,
             tonService: this._services.tonService,
@@ -1784,7 +1799,10 @@ class WheelWinApplication {
                 network: this._tonConfig?.network ?? "testnet",
                 runtimeOverrides: this._runtimeConfigurationService?.getOverrides?.() ?? null,
                 paymentDurationMs: this._roomConfig?.paymentSessionDurationMs ?? null
-            })
+            }),
+            gameEscrowOnlyPlayerPayment: isGameEscrowOnlyPlayerPayment(
+                this._tonConfig?.gameEscrowMode
+            )
         });
 
         this._depositOrchestrator.initialize();
@@ -1841,7 +1859,8 @@ class WheelWinApplication {
             devMode: this._productionConfig.isDevelopment,
             depositSessionCoordinator: this._depositSessionCoordinator,
             roomWalletPaymentIntakeEnabled: isRoomWalletPaymentIntakeEnabled(process.env),
-            roomWalletLedgerRegistry: this._roomWalletLedgerRegistry
+            roomWalletLedgerRegistry: this._roomWalletLedgerRegistry,
+            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null
         });
 
         this._gameStartAuthorization.initialize();

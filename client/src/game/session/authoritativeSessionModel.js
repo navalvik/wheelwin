@@ -777,7 +777,8 @@ export function authoritativeSessionReducer(state, action) {
                     deploymentStatus: payload.deploymentStatus ?? null,
                     deployedAt: payload.deployedAt ?? null,
                     paymentsCompletedAt: payload.paymentsCompletedAt ?? null,
-                    deployError: payload.deployError ?? null
+                    deployError: payload.deployError ?? null,
+                    escrowMode: payload.escrowMode ?? null
                 })
             }, action.type);
 

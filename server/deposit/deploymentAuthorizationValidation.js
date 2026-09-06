@@ -8,7 +8,7 @@ import {
     InvalidDeploymentAuthorizationError,
     MissingDeploymentAuthorizationError
 } from "./DeploymentAuthorizationErrors.js";
-import { computeDeploymentAuthorizationHash } from "./deploymentAuthorizationHash.js";
+import { computeDeploymentAuthorizationHash, computeDepositBindingHash } from "./deploymentAuthorizationHash.js";
 import { normalizeDepositIdPart } from "./depositValidation.js";
 import { timingSafeEqual } from "node:crypto";
 
@@ -230,6 +230,135 @@ export function assertCanCreateEntryDeploymentAuthorization(session, options = {
     });
 
     const depositStateSnapshot = captureDepositStateSnapshot(session);
+
+    const network = resolveAuthorizationNetwork(session, options);
+
+    return {
+        depositId,
+        roomId,
+        gameId,
+        bindingHash,
+        depositStateSnapshot,
+        network
+    };
+
+}
+
+/**
+ * GameEscrow-only player payment: authorize deploy from PaymentSession wallets.
+ * Does not require a DepositSession, depositAddress, or FundSeat.
+ */
+export function assertCanCreateGameEscrowDeploymentAuthorization(session, options = {}) {
+
+    if (!session || typeof session !== "object") {
+
+        throw new InvalidDeploymentAuthorizationError(
+            "PaymentSession is required",
+            { session: null }
+        );
+
+    }
+
+    const roomId = assertNonEmpty(session.roomId, "roomId");
+
+    const gameId = assertNonEmpty(session.gameId, "gameId", { roomId });
+
+    const depositId = `game_escrow:${gameId}`;
+
+    if (typeof options.roomExists === "function" && !options.roomExists(roomId)) {
+
+        throw new InvalidDeploymentAuthorizationError("roomId does not exist", {
+            depositId,
+            roomId
+        });
+
+    }
+
+    if (typeof options.gameExists === "function" && !options.gameExists(gameId)) {
+
+        throw new InvalidDeploymentAuthorizationError("gameId does not exist", {
+            depositId,
+            gameId
+        });
+
+    }
+
+    const participants = Array.isArray(session.participants) ? session.participants : [];
+
+    if (participants.length !== 3) {
+
+        throw new InvalidDeploymentAuthorizationError(
+            "GameEscrow DeploymentAuthorization requires exactly three payment participants",
+            {
+                depositId,
+                roomId,
+                gameId,
+                participantCount: participants.length
+            }
+        );
+
+    }
+
+    const bindings = participants.map((participant, index) => {
+
+        const playerId = assertNonEmpty(participant?.playerId, "playerId", {
+            depositId,
+            roomId,
+            gameId,
+            index
+        });
+
+        const wallet = assertNonEmpty(
+            participant?.wallet ?? participant?.walletAddress,
+            "wallet",
+            {
+                depositId,
+                roomId,
+                gameId,
+                playerId
+            }
+        );
+
+        const requiredGram = Number(participant?.requiredGram);
+
+        if (!Number.isFinite(requiredGram) || requiredGram <= 0) {
+
+            throw new InvalidDeploymentAuthorizationError(
+                "requiredGram must be a positive payment obligation",
+                {
+                    depositId,
+                    roomId,
+                    gameId,
+                    playerId,
+                    requiredGram: participant?.requiredGram ?? null
+                }
+            );
+
+        }
+
+        return Object.freeze({
+            playerId,
+            wallet,
+            expectedAmount: requiredGram
+        });
+
+    });
+
+    const bindingHash = computeDepositBindingHash({
+        roomId,
+        gameId,
+        depositId,
+        bindings
+    });
+
+    const depositStateSnapshot = Object.freeze({
+        source: "payment_session",
+        paymentSessionId: session.paymentSessionId ?? null,
+        roomId,
+        gameId,
+        state: session.status ?? session.state ?? null,
+        bindings
+    });
 
     const network = resolveAuthorizationNetwork(session, options);
 

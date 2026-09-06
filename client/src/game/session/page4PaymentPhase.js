@@ -1,7 +1,7 @@
 /**
  * R18-S16 — Page4 payment-phase coordinator (pure).
- * One wallet action covers Deposit deploy (creator), FundSeat, and GameEscrow STAKE.
- * Does not invent funding, activation, or Page5 navigation.
+ * Game Escrow (`escrowMode=game`): STAKE only, equal for all players.
+ * Legacy v4 / Deposit path: creator deploy + FundSeat + STAKE.
  */
 
 import {
@@ -27,6 +27,12 @@ export const DEPOSIT_ACTIVATION_VERIFIED_STATUSES = Object.freeze([
     "VERIFIED",
     "ALREADY_VERIFIED"
 ]);
+
+export function isGameEscrowOnlyPlayerPayment(gameContract = null) {
+
+    return String(gameContract?.escrowMode ?? "").trim().toLowerCase() === "game";
+
+}
 
 export function isDepositActivationVerified(deposit = null, lifecycle = null) {
 
@@ -173,6 +179,20 @@ export function resolveEntryPaymentComponents({
     lifecycle = null
 } = {}) {
 
+    if (isGameEscrowOnlyPlayerPayment(gameContract)) {
+
+        return Object.freeze({
+            includeDeploy: false,
+            includeFund: false,
+            includeStake: canStakeGameEscrow({
+                paymentSession,
+                gameContract,
+                localPlayerId
+            })
+        });
+
+    }
+
     const includeDeploy = canDeployDeposit(deposit, lifecycle);
     const includeFund = canIncludeFundSeatInEntry(deposit, lifecycle);
     const includeStake = canStakeGameEscrow({
@@ -200,6 +220,16 @@ export function canSubmitEntryPayment({
     if (!isGameContractDeployed(gameContract)) {
 
         return false;
+
+    }
+
+    if (isGameEscrowOnlyPlayerPayment(gameContract)) {
+
+        return canStakeGameEscrow({
+            paymentSession,
+            gameContract,
+            localPlayerId
+        });
 
     }
 
@@ -240,8 +270,9 @@ export function canSubmitEntryPayment({
 }
 
 /**
- * PAYMENT_CONNECTION_READY must not select GAMEESCROW_STAKE / ENTRY_PAYMENT.
- * One-wallet entry only after GameEscrow is deployed and OPEN for STAKE.
+ * PAYMENT_CONNECTION_READY must not select GAMEESCROW_STAKE / ENTRY_PAYMENT
+ * on the legacy Deposit path. Game Escrow-only waits for server deploy, then
+ * every player with a STAKE obligation gets the same payment action.
  */
 export function resolvePage4PaymentPhase({
     deposit = null,
@@ -255,6 +286,34 @@ export function resolvePage4PaymentPhase({
     if (paymentSession?.status === "COMPLETED") {
 
         return PAGE4_PAYMENT_PHASE.WAITING_PAGE5;
+
+    }
+
+    if (isGameEscrowOnlyPlayerPayment(gameContract)) {
+
+        if (canSubmitEntryPayment({
+            deposit,
+            paymentSession,
+            gameContract,
+            localPlayerId,
+            lifecycle
+        })) {
+
+            return PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
+
+        }
+
+        if (
+            isGameContractDeployed(gameContract)
+            || hasPaymentSession(paymentSession)
+            || paymentConnectionReady
+        ) {
+
+            return PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE;
+
+        }
+
+        return PAGE4_PAYMENT_PHASE.WALLET;
 
     }
 

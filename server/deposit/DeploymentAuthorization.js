@@ -17,7 +17,8 @@ import {
 } from "./DeploymentAuthorizationErrors.js";
 import {
     assertCanCreateDeploymentAuthorization,
-    assertCanCreateEntryDeploymentAuthorization
+    assertCanCreateEntryDeploymentAuthorization,
+    assertCanCreateGameEscrowDeploymentAuthorization
 } from "./deploymentAuthorizationValidation.js";
 import {
     canTransitionDeploymentAuthorizationStatus,
@@ -130,6 +131,29 @@ export class DeploymentAuthorization {
             createdAt,
             metadata: {
                 ...(options.metadata ?? {}),
+                entryReady: true
+            }
+        });
+
+    }
+
+    static fromGameEscrowReady(session, options = {}) {
+
+        const validated = assertCanCreateGameEscrowDeploymentAuthorization(session, options);
+
+        const createdAt = Date.now();
+
+        return new DeploymentAuthorization({
+            roomId: validated.roomId,
+            gameId: validated.gameId,
+            depositId: validated.depositId,
+            depositStateSnapshot: validated.depositStateSnapshot,
+            bindingHash: validated.bindingHash,
+            network: validated.network,
+            createdAt,
+            metadata: {
+                ...(options.metadata ?? {}),
+                gameEscrowOnly: true,
                 entryReady: true
             }
         });

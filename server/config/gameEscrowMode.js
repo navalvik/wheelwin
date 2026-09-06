@@ -86,6 +86,18 @@ export function resolveGameEscrowMode(explicitMode, env = process.env) {
 }
 
 /**
+ * Player payment uses GameEscrow STAKE only — no Deposit Contract / FundSeat.
+ *
+ * @param {string|null|undefined} mode
+ * @returns {boolean}
+ */
+export function isGameEscrowOnlyPlayerPayment(mode) {
+
+    return String(mode ?? "").trim().toLowerCase() === GAME_ESCROW_MODE_GAME;
+
+}
+
+/**
  * @param {string} raw
  * @returns {"v4"|"game"}
  */

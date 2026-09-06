@@ -115,6 +115,7 @@ export class DepositOrchestrator {
         financialParameters = null,
         resolveFinancialParameters = null,
         env = process.env,
+        gameEscrowOnlyPlayerPayment = false,
         activationRetryIntervalMs = 3_000,
         activationRetryMaxMs = 300_000
     } = {}) {
@@ -141,6 +142,8 @@ export class DepositOrchestrator {
         this._resolveFinancialParameters = resolveFinancialParameters;
 
         this._env = env;
+
+        this._gameEscrowOnlyPlayerPayment = gameEscrowOnlyPlayerPayment === true;
 
         this._initialized = false;
 
@@ -261,6 +264,20 @@ export class DepositOrchestrator {
      * @param {{ roomId?: string|null }} payload
      */
     async handlePaymentConnectionReady(payload = {}) {
+
+        if (this._gameEscrowOnlyPlayerPayment) {
+
+            this._logger.info?.(
+                "DepositOrchestrator skipped PAYMENT_CONNECTION_READY | game_escrow_only"
+            );
+
+            return Object.freeze({
+                ok: true,
+                skipped: true,
+                reason: "game_escrow_only"
+            });
+
+        }
 
         const roomId = typeof payload?.roomId === "string"
             ? payload.roomId.trim()

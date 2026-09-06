@@ -31,7 +31,8 @@ function createHarness({
     recoveryPending = false,
     simulationMissing = false,
     clockMissing = false,
-    depositSessionCoordinator = null
+    depositSessionCoordinator = null,
+    gameEscrowMode = null
 } = {}) {
 
     const logger = createLogger();
@@ -180,7 +181,8 @@ function createHarness({
         },
         auditLedger,
         roomConfig: { maxPlayers: 3 },
-        depositSessionCoordinator
+        depositSessionCoordinator,
+        gameEscrowMode
     });
 
     auth.initialize();
@@ -379,6 +381,54 @@ function createHarness({
         harness.auth.getLifecycle("room-1")?.phase,
         GAME_START_PHASE.OPENED,
         "DEPOSIT_FULL plus confirmed STAKE authorizes game start"
+    );
+
+    harness.auth.shutdown();
+
+}
+
+{
+    const harness = createHarness({
+        depositSessionCoordinator: {
+            getByRoomAndGame() {
+
+                return { state: "AWAITING_FUNDS" };
+
+            }
+        },
+        gameEscrowMode: "game"
+    });
+
+    harness.emitPaymentsComplete();
+
+    assert.equal(
+        harness.auth.getLifecycle("room-1")?.phase,
+        GAME_START_PHASE.OPENED,
+        "escrowMode=game authorizes start without Deposit FULL"
+    );
+
+    harness.auth.shutdown();
+
+}
+
+{
+    const harness = createHarness({
+        depositSessionCoordinator: {
+            getByRoomAndGame() {
+
+                return { state: "AWAITING_FUNDS" };
+
+            }
+        },
+        gameEscrowMode: "v4"
+    });
+
+    harness.emitPaymentsComplete();
+
+    assert.equal(
+        harness.collected.length,
+        0,
+        "escrowMode=v4 still requires Deposit FULL"
     );
 
     harness.auth.shutdown();

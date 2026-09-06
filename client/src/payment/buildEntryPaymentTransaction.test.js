@@ -321,4 +321,59 @@ describe("R18-S16 buildEntryPaymentTransaction", () => {
 
     });
 
+    it("GameEscrow-only player payment is STAKE only at the sector total", () => {
+
+        const lena = buildEntryPaymentTransaction({
+            isCreator: true,
+            includeDeploy: false,
+            includeFund: false,
+            includeStake: true,
+            gameEscrowAddress: ESCROW_ADDRESS,
+            requiredGram: 1,
+            playerIndex: 0,
+            nowMs
+        });
+
+        const bob = buildEntryPaymentTransaction({
+            isCreator: false,
+            includeDeploy: false,
+            includeFund: false,
+            includeStake: true,
+            gameEscrowAddress: ESCROW_ADDRESS,
+            requiredGram: 1,
+            playerIndex: 1,
+            nowMs
+        });
+
+        const olga = buildEntryPaymentTransaction({
+            isCreator: false,
+            includeDeploy: false,
+            includeFund: false,
+            includeStake: true,
+            gameEscrowAddress: ESCROW_ADDRESS,
+            requiredGram: 2.5,
+            playerIndex: 2,
+            nowMs
+        });
+
+        for (const tx of [lena, bob, olga]) {
+
+            assert.equal(tx.messages.length, 1);
+            const parsed = Cell.fromBase64(tx.messages[0].payload).beginParse();
+            assert.equal(parsed.loadUint(32), GAME_ESCROW_STAKE_OPCODE);
+            assert.notEqual(tx.messages[0].amount, "11000000");
+            assert.notEqual(tx.messages[0].amount, "10000000");
+            assert.notEqual(tx.messages[0].amount, "1000000");
+
+        }
+
+        assert.equal(lena.messages[0].amount, requiredGramToNanotonString(1));
+        assert.equal(bob.messages[0].amount, requiredGramToNanotonString(1));
+        assert.equal(olga.messages[0].amount, requiredGramToNanotonString(2.5));
+        assert.equal(lena.messages[0].payload, buildGameEscrowStakePayload(0));
+        assert.equal(bob.messages[0].payload, buildGameEscrowStakePayload(1));
+        assert.equal(olga.messages[0].payload, buildGameEscrowStakePayload(2));
+
+    });
+
 });

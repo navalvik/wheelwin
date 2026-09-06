@@ -12,7 +12,9 @@ import {
     canSubmitEntryPayment,
     isDepositActivationVerified,
     isDepositFull,
+    isGameEscrowOnlyPlayerPayment,
     PAGE4_PAYMENT_PHASE,
+    resolveEntryPaymentComponents,
     resolvePage4PaymentPhase,
     shouldShowDepositAction,
     shouldShowEntryAction,
@@ -506,6 +508,98 @@ test("R18-S16: Page4 entry handler sends one TonConnect transaction", () => {
     assert.doesNotMatch(
         PAGE4_SOURCE,
         /tonConnectUI\.sendTransaction\(transactionObject\)/
+    );
+
+});
+
+test("R18-S63: GameEscrow-only Page4 is creator-neutral STAKE payment", () => {
+
+    assert.match(PAGE4_SOURCE, /isGameEscrowOnlyPlayerPayment/);
+    assert.match(PAGE4_SOURCE, /includeFund: gameEscrowOnly \? false/);
+    assert.match(PAGE4_SOURCE, /includeDeploy: gameEscrowOnly \? false/);
+
+    const gameContract = {
+        escrowMode: "game",
+        status: "AWAITING_PLAYER_PAYMENTS",
+        contractAddress: "EQBescrow"
+    };
+
+    assert.equal(isGameEscrowOnlyPlayerPayment(gameContract), true);
+
+    const paymentSession = {
+        status: "WAITING_FOR_PAYMENTS",
+        participants: [
+            {
+                playerId: "lena",
+                status: "AWAITING_PLAYER_CONFIRMATION",
+                requiredGram: 1
+            },
+            {
+                playerId: "bob",
+                status: "AWAITING_PLAYER_CONFIRMATION",
+                requiredGram: 1
+            },
+            {
+                playerId: "olga",
+                status: "AWAITING_PLAYER_CONFIRMATION",
+                requiredGram: 1
+            }
+        ]
+    };
+
+    const creatorDeposit = depositFixture({ isCreator: true, mySeatIndex: 0 });
+    const joinerDeposit = depositFixture({ isCreator: false, mySeatIndex: 1 });
+
+    for (const [playerId, deposit] of [
+        ["lena", creatorDeposit],
+        ["bob", joinerDeposit],
+        ["olga", joinerDeposit]
+    ]) {
+
+        const components = resolveEntryPaymentComponents({
+            deposit,
+            paymentSession,
+            gameContract,
+            localPlayerId: playerId
+        });
+
+        assert.equal(components.includeDeploy, false);
+        assert.equal(components.includeFund, false);
+        assert.equal(components.includeStake, true);
+        assert.equal(
+            canSubmitEntryPayment({
+                deposit,
+                paymentSession,
+                gameContract,
+                localPlayerId: playerId
+            }),
+            true
+        );
+        assert.equal(
+            resolvePage4PaymentPhase({
+                deposit,
+                paymentSession,
+                gameContract,
+                localPlayerId: playerId
+            }),
+            PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT
+        );
+
+    }
+
+    assert.equal(
+        canSubmitEntryPayment({
+            deposit: creatorDeposit,
+            paymentSession,
+            gameContract,
+            localPlayerId: "lena"
+        }),
+        canSubmitEntryPayment({
+            deposit: joinerDeposit,
+            paymentSession,
+            gameContract,
+            localPlayerId: "bob"
+        })
     );
 
 });
