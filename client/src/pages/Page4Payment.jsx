@@ -13,7 +13,6 @@ import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import {
     canSubmitEntryPayment,
     getLocalPaymentRequest,
-    isGameContractDeployed,
     isGameEscrowOnlyPlayerPayment,
     mapPaymentSessionRows,
     mapWalletConnectionRows,
@@ -22,13 +21,14 @@ import {
     resolvePage4PaymentPhase,
     shouldShowEntryAction,
     shouldShowPaymentSessionRows,
+    shouldShowWaitingCreatorDeposit,
     shouldShowWalletActions,
     WALLET_CONNECTION_STATUS
 } from "../game/session";
 
 import { resolveLocalPlayerId } from "../game/session";
 
-import { buildEntryPaymentTransaction, nanotonsToTonDisplay, sumAuthoritativeEntryNanotons } from "../payment/buildEntryPaymentTransaction";
+import { buildEntryPaymentTransaction, nanotonsToTonDisplay, sumAuthoritativeEntryNanotons, toTonConnectSendTransactionRequest } from "../payment/buildEntryPaymentTransaction";
 import { requiredGramToNanotonString } from "../payment/buildTonConnectPaymentTransaction";
 import {
     classifyDepositWalletError,
@@ -761,7 +761,10 @@ export default function Page4Payment({ onNavigate }) {
         const lifecycle = authoritative?.lifecycle ?? null;
         const paymentSession = authoritative?.paymentSession ?? null;
         const gameContract = authoritative?.gameContract ?? null;
-        const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract);
+        const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract, {
+            deposit: depositProjection,
+            paymentSession
+        });
 
         if (!gameEscrowOnly) {
 
@@ -838,6 +841,7 @@ export default function Page4Payment({ onNavigate }) {
                 ?? null;
 
             const transactionObject = buildEntryPaymentTransaction({
+                gameEscrowOnly,
                 isCreator: gameEscrowOnly ? false : depositProjection.isCreator === true,
                 includeDeploy: gameEscrowOnly ? false : components.includeDeploy,
                 includeFund: gameEscrowOnly ? false : components.includeFund,
@@ -865,7 +869,10 @@ export default function Page4Payment({ onNavigate }) {
                 playerIndex
             });
 
-            const { totalNanotons, ...tonConnectTransaction } = transactionObject;
+            const { totalNanotons } = transactionObject;
+            const tonConnectTransaction = toTonConnectSendTransactionRequest(
+                transactionObject
+            );
 
             tonConnectRuntimeDiagnostics = describeTonConnectSendRequestDiagnostics(
                 tonConnectTransaction
@@ -876,9 +883,9 @@ export default function Page4Payment({ onNavigate }) {
                 amount: totalNanotons,
                 messageCount: transactionObject.messages.length,
                 packageDeployValueNanotons: components.includeDeploy
-                    ? depositProjection.package.deployValueNanotons
+                    ? depositProjection?.package?.deployValueNanotons
                     : undefined,
-                depositAddress: depositProjection.depositAddress,
+                depositAddress: depositProjection?.depositAddress,
                 hasStateInit: Boolean(transactionObject.messages[0]?.stateInit)
             });
 
@@ -1119,7 +1126,10 @@ export default function Page4Payment({ onNavigate }) {
     }
 
     const confirmedSeatCount = Number(depositProjection?.confirmedSeats);
-    const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract);
+    const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract, {
+        deposit: depositProjection,
+        paymentSession
+    });
 
     const depositStatusParts = [];
 
@@ -1140,21 +1150,18 @@ export default function Page4Payment({ onNavigate }) {
 
         depositStatusParts.push(t("payment.waitingGameEscrow"));
 
+    } else if (shouldShowWaitingCreatorDeposit({
+        paymentPhase,
+        gameContract,
+        deposit: depositProjection,
+        paymentSession
+    })) {
+
+        depositStatusParts.push(t("payment.waitingCreatorDeposit"));
+
     } else if (paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
 
-        if (
-            !gameEscrowOnly
-            && isGameContractDeployed(gameContract)
-            && depositProjection?.isCreator !== true
-        ) {
-
-            depositStatusParts.push(t("payment.waitingCreatorDeposit"));
-
-        } else {
-
-            depositStatusParts.push(t("payment.waitingGameEscrow"));
-
-        }
+        depositStatusParts.push(t("payment.waitingGameEscrow"));
 
     } else if (
         paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_WAIT_FULL

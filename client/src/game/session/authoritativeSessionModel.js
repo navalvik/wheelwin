@@ -778,7 +778,10 @@ export function authoritativeSessionReducer(state, action) {
                     deployedAt: payload.deployedAt ?? null,
                     paymentsCompletedAt: payload.paymentsCompletedAt ?? null,
                     deployError: payload.deployError ?? null,
-                    escrowMode: payload.escrowMode ?? null
+                    escrowMode: payload.escrowMode
+                        ?? payload.snapshot?.escrowMode
+                        ?? state.gameContract?.escrowMode
+                        ?? null
                 })
             }, action.type);
 

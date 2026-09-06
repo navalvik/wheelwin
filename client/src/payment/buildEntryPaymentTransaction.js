@@ -83,6 +83,44 @@ export function sumAuthoritativeEntryNanotons({
 }
 
 /**
+ * TonConnect sendTransaction payload: only SDK-legal keys.
+ * `totalNanotons` is display-only and must never be sent to the wallet.
+ */
+export function toTonConnectSendTransactionRequest(transactionObject = {}) {
+
+    const rawMessages = Array.isArray(transactionObject.messages)
+        ? transactionObject.messages
+        : [];
+
+    return {
+        validUntil: transactionObject.validUntil,
+        messages: rawMessages.map((message) => {
+
+            const next = {
+                address: message.address,
+                amount: message.amount
+            };
+
+            if (message.payload != null && message.payload !== "") {
+
+                next.payload = message.payload;
+
+            }
+
+            if (message.stateInit != null && message.stateInit !== "") {
+
+                next.stateInit = message.stateInit;
+
+            }
+
+            return next;
+
+        })
+    };
+
+}
+
+/**
  * @returns {{ validUntil: number, messages: object[], totalNanotons: string }}
  */
 export function buildEntryPaymentTransaction({
@@ -90,6 +128,7 @@ export function buildEntryPaymentTransaction({
     includeDeploy = false,
     includeFund = false,
     includeStake = false,
+    gameEscrowOnly = false,
     depositPackage = null,
     depositAddress = null,
     mySeatIndex = null,
@@ -102,13 +141,17 @@ export function buildEntryPaymentTransaction({
     nowMs = Date.now()
 } = {}) {
 
-    if (includeDeploy !== true && includeFund !== true && includeStake !== true) {
+    const allowDeploy = gameEscrowOnly === true ? false : includeDeploy === true;
+    const allowFund = gameEscrowOnly === true ? false : includeFund === true;
+    const allowStake = includeStake === true;
+
+    if (allowDeploy !== true && allowFund !== true && allowStake !== true) {
 
         throw new Error("entry payment requires at least one authoritative component");
 
     }
 
-    if (includeDeploy === true && isCreator !== true) {
+    if (allowDeploy === true && isCreator !== true) {
 
         throw new Error("Only the Room Creator may include DepositContract deployment");
 
@@ -117,7 +160,7 @@ export function buildEntryPaymentTransaction({
     const messages = [];
     let totalNanotons = "0";
 
-    if (includeDeploy === true) {
+    if (allowDeploy === true) {
 
         const deployTx = buildDepositDeploymentTransaction({
             depositPackage,
@@ -136,7 +179,7 @@ export function buildEntryPaymentTransaction({
 
     }
 
-    if (includeFund === true) {
+    if (allowFund === true) {
 
         const fundTx = buildFundDepositTransaction({
             depositAddress,
@@ -155,7 +198,7 @@ export function buildEntryPaymentTransaction({
 
     }
 
-    if (includeStake === true) {
+    if (allowStake === true) {
 
         if (playerIndex == null || playerIndex === "") {
 

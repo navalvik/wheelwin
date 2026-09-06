@@ -18,6 +18,7 @@ import {
     resolvePage4PaymentPhase,
     shouldShowDepositAction,
     shouldShowEntryAction,
+    shouldShowWaitingCreatorDeposit,
     shouldShowWalletActions
 } from "./page4PaymentPhase.js";
 
@@ -497,9 +498,10 @@ test("R18-S16: Page4 entry handler sends one TonConnect transaction", () => {
     );
     assert.match(PAGE4_SOURCE, /buildEntryPaymentTransaction/);
     assert.match(PAGE4_SOURCE, /PAYMENT_CONFIRM_INTENT/);
+    assert.match(PAGE4_SOURCE, /toTonConnectSendTransactionRequest/);
     assert.match(
         PAGE4_SOURCE,
-        /const \{ totalNanotons, \.\.\.tonConnectTransaction \} = transactionObject/
+        /const \{ totalNanotons \} = transactionObject/
     );
     assert.match(
         PAGE4_SOURCE,
@@ -515,6 +517,7 @@ test("R18-S16: Page4 entry handler sends one TonConnect transaction", () => {
 test("R18-S63: GameEscrow-only Page4 is creator-neutral STAKE payment", () => {
 
     assert.match(PAGE4_SOURCE, /isGameEscrowOnlyPlayerPayment/);
+    assert.match(PAGE4_SOURCE, /shouldShowWaitingCreatorDeposit/);
     assert.match(PAGE4_SOURCE, /includeFund: gameEscrowOnly \? false/);
     assert.match(PAGE4_SOURCE, /includeDeploy: gameEscrowOnly \? false/);
 
@@ -601,6 +604,183 @@ test("R18-S63: GameEscrow-only Page4 is creator-neutral STAKE payment", () => {
             localPlayerId: "bob"
         })
     );
+
+});
+
+function f6iJPaymentSession(overrides = {}) {
+
+    return {
+        status: "WAITING_FOR_PAYMENTS",
+        participants: [
+            {
+                playerId: "olga",
+                status: "AWAITING_PLAYER_CONFIRMATION",
+                requiredGram: 1,
+                contractAddress: "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx",
+                playerIndex: 0
+            },
+            {
+                playerId: "lena",
+                status: "AWAITING_PLAYER_CONFIRMATION",
+                requiredGram: 1,
+                contractAddress: "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx",
+                playerIndex: 1
+            },
+            {
+                playerId: "bob",
+                status: "AWAITING_PLAYER_CONFIRMATION",
+                requiredGram: 1,
+                contractAddress: "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx",
+                playerIndex: 2
+            }
+        ],
+        ...overrides
+    };
+
+}
+
+const f6iJGameContract = {
+    status: "AWAITING_PLAYER_PAYMENTS",
+    contractAddress: "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx"
+};
+
+test("R18-S65: GAME_ESCROW_MODE=game Page4 never waits for creator Deposit", () => {
+
+    const paymentSession = f6iJPaymentSession();
+
+    assert.equal(
+        isGameEscrowOnlyPlayerPayment(f6iJGameContract, {
+            deposit: null,
+            paymentSession
+        }),
+        true
+    );
+    assert.equal(
+        isGameEscrowOnlyPlayerPayment(
+            { ...f6iJGameContract, escrowMode: "game" },
+            { deposit: null, paymentSession }
+        ),
+        true
+    );
+
+    for (const playerId of ["olga", "lena", "bob"]) {
+
+        const phase = resolvePage4PaymentPhase({
+            deposit: null,
+            paymentSession,
+            gameContract: f6iJGameContract,
+            localPlayerId: playerId
+        });
+
+        assert.equal(phase, PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT);
+        assert.equal(shouldShowEntryAction(phase), true);
+        assert.equal(
+            canSubmitEntryPayment({
+                deposit: null,
+                paymentSession,
+                gameContract: f6iJGameContract,
+                localPlayerId: playerId
+            }),
+            true
+        );
+        assert.deepEqual(
+            resolveEntryPaymentComponents({
+                deposit: null,
+                paymentSession,
+                gameContract: f6iJGameContract,
+                localPlayerId: playerId
+            }),
+            {
+                includeDeploy: false,
+                includeFund: false,
+                includeStake: true
+            }
+        );
+        assert.equal(
+            shouldShowWaitingCreatorDeposit({
+                paymentPhase: phase,
+                gameContract: f6iJGameContract,
+                deposit: null,
+                paymentSession
+            }),
+            false
+        );
+
+    }
+
+    assert.equal(
+        shouldShowWaitingCreatorDeposit({
+            paymentPhase: PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION,
+            gameContract: f6iJGameContract,
+            deposit: null,
+            paymentSession
+        }),
+        false
+    );
+
+    const creatorSubmit = canSubmitEntryPayment({
+        deposit: { isCreator: true },
+        paymentSession,
+        gameContract: { ...f6iJGameContract, escrowMode: "game" },
+        localPlayerId: "olga"
+    });
+    const joinerSubmit = canSubmitEntryPayment({
+        deposit: { isCreator: false },
+        paymentSession,
+        gameContract: { ...f6iJGameContract, escrowMode: "game" },
+        localPlayerId: "bob"
+    });
+
+    assert.equal(creatorSubmit, joinerSubmit);
+    assert.equal(creatorSubmit, true);
+
+    const staleIgnoredWhenModeIsGame = depositFixture({
+        isCreator: false,
+        mySeatIndex: 1,
+        activationStatus: "VERIFIED",
+        depositAddress: "EQDstaleDepositFromPreviousGame"
+    });
+
+    assert.equal(
+        isGameEscrowOnlyPlayerPayment(
+            { ...f6iJGameContract, escrowMode: "game" },
+            { deposit: staleIgnoredWhenModeIsGame, paymentSession }
+        ),
+        true
+    );
+    assert.deepEqual(
+        resolveEntryPaymentComponents({
+            deposit: staleIgnoredWhenModeIsGame,
+            paymentSession,
+            gameContract: { ...f6iJGameContract, escrowMode: "game" },
+            localPlayerId: "lena"
+        }),
+        {
+            includeDeploy: false,
+            includeFund: false,
+            includeStake: true
+        }
+    );
+
+    assert.equal(
+        isGameEscrowOnlyPlayerPayment(gameEscrowReady, {
+            deposit: depositFixture({ isCreator: false }),
+            paymentSession: paymentReady("p1", 1)
+        }),
+        false
+    );
+
+    assert.equal(
+        shouldShowWaitingCreatorDeposit({
+            paymentPhase: PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION,
+            gameContract: gameEscrowReady,
+            deposit: depositFixture({ isCreator: false }),
+            paymentSession: paymentReady("p1", 1)
+        }),
+        true
+    );
+
+    assert.doesNotMatch(PAGE4_SOURCE, /waitingCreatorDeposit[\s\S]*isCreator !== true/);
 
 });
 

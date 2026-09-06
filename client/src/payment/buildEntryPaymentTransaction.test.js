@@ -16,7 +16,8 @@ import {
 import {
     buildEntryPaymentTransaction,
     nanotonsToTonDisplay,
-    sumAuthoritativeEntryNanotons
+    sumAuthoritativeEntryNanotons,
+    toTonConnectSendTransactionRequest
 } from "./buildEntryPaymentTransaction.js";
 
 const testCode = beginCell().storeUint(0x46554E44, 32).storeUint(0, 8).endCell();
@@ -373,6 +374,86 @@ describe("R18-S16 buildEntryPaymentTransaction", () => {
         assert.equal(lena.messages[0].payload, buildGameEscrowStakePayload(0));
         assert.equal(bob.messages[0].payload, buildGameEscrowStakePayload(1));
         assert.equal(olga.messages[0].payload, buildGameEscrowStakePayload(2));
+
+    });
+
+    it("gameEscrowOnly drops FundSeat even if includeFund is requested", () => {
+
+        const tx = buildEntryPaymentTransaction({
+            gameEscrowOnly: true,
+            isCreator: true,
+            includeDeploy: true,
+            includeFund: true,
+            includeStake: true,
+            depositPackage: depositPackage(),
+            depositAddress: VALID_DEPOSIT_ADDRESS,
+            mySeatIndex: 0,
+            myExpectedAmountNanotons: FUND_VALUE,
+            network: "testnet",
+            gameEscrowAddress: "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx",
+            requiredGram: 1,
+            playerIndex: 1,
+            nowMs
+        });
+
+        assert.equal(tx.messages.length, 1);
+        assert.equal(
+            tx.messages[0].address,
+            "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx"
+        );
+        assert.equal(tx.messages[0].amount, requiredGramToNanotonString(1));
+        assert.equal(tx.messages[0].amount, "1000000000");
+        assert.notEqual(tx.messages[0].amount, FUND_VALUE);
+        assert.equal(tx.messages[0].payload, buildGameEscrowStakePayload(1));
+        assert.equal(tx.messages[0].stateInit, undefined);
+
+        const sent = toTonConnectSendTransactionRequest(tx);
+
+        assert.deepEqual(Object.keys(sent).sort(), ["messages", "validUntil"]);
+        assert.equal(sent.totalNanotons, undefined);
+        assert.equal(sent.messages.length, 1);
+        assert.deepEqual(
+            Object.keys(sent.messages[0]).sort(),
+            ["address", "amount", "payload"]
+        );
+        assert.equal(sent.validUntil, tx.validUntil);
+
+        const parsed = Cell.fromBase64(sent.messages[0].payload).beginParse();
+        assert.equal(parsed.loadUint(32), GAME_ESCROW_STAKE_OPCODE);
+        assert.equal(parsed.loadUint(8), 1);
+
+    });
+
+    it("legacy v4 creator entry is unchanged when gameEscrowOnly is false", () => {
+
+        const tx = buildEntryPaymentTransaction({
+            gameEscrowOnly: false,
+            isCreator: true,
+            includeDeploy: true,
+            includeFund: true,
+            includeStake: true,
+            depositPackage: depositPackage(),
+            depositAddress: VALID_DEPOSIT_ADDRESS,
+            mySeatIndex: 0,
+            myExpectedAmountNanotons: FUND_VALUE,
+            network: "testnet",
+            gameEscrowAddress: ESCROW_ADDRESS,
+            requiredGram: 1,
+            playerIndex: 0,
+            nowMs
+        });
+
+        assert.equal(tx.messages.length, 3);
+        assert.ok(tx.messages[0].stateInit);
+        assert.equal(tx.messages[1].amount, FUND_VALUE);
+        assert.equal(tx.messages[1].address, VALID_DEPOSIT_ADDRESS);
+        assert.equal(tx.messages[2].address, ESCROW_ADDRESS);
+        assert.equal(tx.messages[2].amount, requiredGramToNanotonString(1));
+
+        const sent = toTonConnectSendTransactionRequest(tx);
+        assert.equal(sent.messages.length, 3);
+        assert.ok(sent.messages[0].stateInit);
+        assert.equal(sent.totalNanotons, undefined);
 
     });
 

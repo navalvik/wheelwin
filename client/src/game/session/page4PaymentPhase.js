@@ -28,9 +28,126 @@ export const DEPOSIT_ACTIVATION_VERIFIED_STATUSES = Object.freeze([
     "ALREADY_VERIFIED"
 ]);
 
-export function isGameEscrowOnlyPlayerPayment(gameContract = null) {
+function hasLegacyDepositPackage(deposit = null) {
 
-    return String(gameContract?.escrowMode ?? "").trim().toLowerCase() === "game";
+    if (!deposit || typeof deposit !== "object") {
+
+        return false;
+
+    }
+
+    const depositId = String(deposit.depositId ?? "").trim();
+    const depositAddress = String(deposit.depositAddress ?? "").trim();
+    const pkg = deposit.package && typeof deposit.package === "object"
+        ? deposit.package
+        : null;
+    const hasStateInit = Boolean(
+        pkg?.stateInit?.codeBoc
+        || pkg?.stateInit?.dataBoc
+        || pkg?.stateInitBocB64
+        || pkg?.codeBocB64
+        || pkg?.dataBocB64
+    );
+    const deployValue = Number(pkg?.deployValueNanotons);
+
+    return Boolean(depositId)
+        || Boolean(depositAddress)
+        || hasStateInit
+        || (Number.isFinite(deployValue) && deployValue > 0);
+
+}
+
+function paymentSessionGameEscrowTarget(paymentSession = null) {
+
+    const participants = Array.isArray(paymentSession?.participants)
+        ? paymentSession.participants
+        : [];
+
+    for (const participant of participants) {
+
+        const address = String(participant?.contractAddress ?? "").trim();
+        const required = Number(participant?.requiredGram);
+
+        if (address && Number.isFinite(required) && required > 0) {
+
+            return address;
+
+        }
+
+    }
+
+    return "";
+
+}
+
+/**
+ * Game-Escrow-only player payment (`GAME_ESCROW_MODE=game`).
+ * Prefer explicit `escrowMode`, then infer from server payment state when
+ * Production clients never received `escrowMode` on the contract mirror.
+ * Do not infer while a real Deposit package is present (legacy `v4`).
+ */
+export function isGameEscrowOnlyPlayerPayment(gameContract = null, context = null) {
+
+    const mode = String(gameContract?.escrowMode ?? "").trim().toLowerCase();
+
+    if (mode === "game") {
+
+        return true;
+
+    }
+
+    if (mode === "v4") {
+
+        return false;
+
+    }
+
+    const deposit = context?.deposit ?? null;
+    const paymentSession = context?.paymentSession ?? null;
+    const paymentTarget = paymentSessionGameEscrowTarget(paymentSession);
+
+    if (hasLegacyDepositPackage(deposit)) {
+
+        return false;
+
+    }
+
+    if (paymentTarget) {
+
+        return true;
+
+    }
+
+    return isGameContractDeployed(gameContract);
+
+}
+
+export function shouldShowWaitingCreatorDeposit({
+    paymentPhase = null,
+    gameContract = null,
+    deposit = null,
+    paymentSession = null
+} = {}) {
+
+    if (paymentPhase !== PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
+
+        return false;
+
+    }
+
+    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
+
+        return false;
+
+    }
+
+    if (!hasLegacyDepositPackage(deposit)) {
+
+        return false;
+
+    }
+
+    return deposit?.isCreator !== true;
 
 }
 
@@ -179,7 +296,7 @@ export function resolveEntryPaymentComponents({
     lifecycle = null
 } = {}) {
 
-    if (isGameEscrowOnlyPlayerPayment(gameContract)) {
+    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
 
         return Object.freeze({
             includeDeploy: false,
@@ -223,7 +340,7 @@ export function canSubmitEntryPayment({
 
     }
 
-    if (isGameEscrowOnlyPlayerPayment(gameContract)) {
+    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
 
         return canStakeGameEscrow({
             paymentSession,
@@ -289,7 +406,7 @@ export function resolvePage4PaymentPhase({
 
     }
 
-    if (isGameEscrowOnlyPlayerPayment(gameContract)) {
+    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
 
         if (canSubmitEntryPayment({
             deposit,
