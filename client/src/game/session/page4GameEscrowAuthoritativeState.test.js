@@ -27,6 +27,7 @@ import {
 const KEO2_ROOM = "kEo2";
 const KEO2_GAME = "game_4976ed6a-8736-4ec5-81c4-d5f619e44500";
 const KEO2_ESCROW = "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx";
+const KEO2_ROOM_WALLET = "EQDroomWalletPayToXXXXXXXXXXXXXXXXXX";
 
 const PLAYERS = [
     { playerId: "player_olga", playerIndex: 0 },
@@ -54,12 +55,13 @@ function keo2PaymentSnapshot() {
         roomId: KEO2_ROOM,
         gameId: KEO2_GAME,
         status: "WAITING_FOR_PAYMENTS",
+        roomWalletAddress: KEO2_ROOM_WALLET,
         participants: PLAYERS.map((player) => ({
             playerId: player.playerId,
             playerIndex: player.playerIndex,
             requiredGram: 1,
             status: "AWAITING_PLAYER_CONFIRMATION",
-            contractAddress: KEO2_ESCROW
+            contractAddress: KEO2_ROOM_WALLET
         }))
     };
 

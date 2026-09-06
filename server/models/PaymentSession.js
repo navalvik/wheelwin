@@ -137,7 +137,8 @@ export class PaymentSession {
         completedAt = null,
         correlationId = null,
         version = 1,
-        recoveryMetadata = null
+        recoveryMetadata = null,
+        roomWalletAddress = null
     }) {
 
         this.paymentSessionId = paymentSessionId;
@@ -171,6 +172,11 @@ export class PaymentSession {
         this.version = version;
 
         this.recoveryMetadata = recoveryMetadata ?? null;
+
+        this.roomWalletAddress = typeof roomWalletAddress === "string"
+            && roomWalletAddress.trim()
+            ? roomWalletAddress.trim()
+            : null;
 
         this.participants = (participants ?? []).map((entry) => (
             entry instanceof PaymentParticipant
@@ -217,7 +223,8 @@ export class PaymentSession {
             completedAt: payload.completedAt ?? null,
             correlationId: payload.correlationId ?? record?.correlationId ?? null,
             version: payload.version ?? record?.version ?? 1,
-            recoveryMetadata: payload.recoveryMetadata ?? null
+            recoveryMetadata: payload.recoveryMetadata ?? null,
+            roomWalletAddress: payload.roomWalletAddress ?? null
         });
 
     }
@@ -538,6 +545,7 @@ export class PaymentSession {
             walletSessions: this.walletSessions,
             requiredPayments: this.requiredPayments,
             receivedPayments: Object.freeze([...this.receivedPayments]),
+            roomWalletAddress: this.roomWalletAddress,
             participants: Object.freeze(
                 this.participants.map((participant) => participant.toSnapshot())
             )

@@ -95,7 +95,7 @@ import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
-import { composeRoomWalletSettlementRouter, isRoomWalletPaymentIntakeEnabled } from "./payment/roomWallet/roomWalletConfig.js";
+import { composeRoomWalletSettlementRouter, isRoomWalletOnlyFinancialPath } from "./payment/roomWallet/roomWalletConfig.js";
 import { createRoomWalletRegistryFromEnv } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { RoomWalletIncomingObserver } from "./payment/roomWallet/RoomWalletIncomingObserver.js";
 import { RoomWalletLedgerRegistry } from "./payment/roomWallet/RoomWalletLedger.js";
@@ -1351,7 +1351,10 @@ class WheelWinApplication {
             blockchainMonitor: this._blockchainMonitor,
             financialPersistence: this._financialPersistence,
             devMode: this._productionConfig.isDevelopment,
-            roomWalletPaymentIntakeEnabled: isRoomWalletPaymentIntakeEnabled(process.env)
+            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
+                env: process.env,
+                gameEscrowMode: this._tonConfig?.gameEscrowMode
+            })
         });
 
         this._paymentSessionManager.initialize();
@@ -1393,7 +1396,11 @@ class WheelWinApplication {
             creatingDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
             deployTimeoutMs: this._roomConfig?.gameContractDeployTimeoutMs
                 ?? (2 * 60 * 1000),
-            devMode: this._productionConfig.isDevelopment
+            devMode: this._productionConfig.isDevelopment,
+            skipBlockchainDeploy: isRoomWalletOnlyFinancialPath({
+                env: process.env,
+                gameEscrowMode: this._tonConfig?.gameEscrowMode
+            })
         });
 
         this._gameContractManager.initialize();
@@ -1540,7 +1547,8 @@ class WheelWinApplication {
             legacySettlementAdapter: deployAdapter,
             tonService: this._services?.tonService ?? null,
             logger: this._logger,
-            env: process.env
+            env: process.env,
+            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null
         });
 
         this._logger.startupLine(
@@ -1733,6 +1741,14 @@ class WheelWinApplication {
                 : "RoomWalletIncomingObserver (unconfigured)"
         );
 
+        this._paymentSessionManager.setRoomWalletFinance({
+            registry: this._roomWalletRegistry,
+            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
+                env: process.env,
+                gameEscrowMode: this._tonConfig?.gameEscrowMode
+            })
+        });
+
         this._roomWalletResidualSweepRepository = new RoomWalletResidualSweepRepository({
             persistence: this._financialPersistence,
             tonNetwork: this._tonConfig?.network ?? "testnet"
@@ -1858,7 +1874,10 @@ class WheelWinApplication {
             roomConfig: this._roomConfig,
             devMode: this._productionConfig.isDevelopment,
             depositSessionCoordinator: this._depositSessionCoordinator,
-            roomWalletPaymentIntakeEnabled: isRoomWalletPaymentIntakeEnabled(process.env),
+            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
+                env: process.env,
+                gameEscrowMode: this._tonConfig?.gameEscrowMode
+            }),
             roomWalletLedgerRegistry: this._roomWalletLedgerRegistry,
             gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null
         });

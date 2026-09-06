@@ -86,7 +86,8 @@ export class GameContractManager {
         creatingDelayMs = 0,
         deployDelayMs = 0,
         deployTimeoutMs = 2 * 60 * 1000,
-        devMode = false
+        devMode = false,
+        skipBlockchainDeploy = false
     }) {
 
         this._logger = logger;
@@ -130,6 +131,8 @@ export class GameContractManager {
             && creatingDelayMs >= 0
             ? creatingDelayMs
             : 0;
+
+        this._skipBlockchainDeploy = skipBlockchainDeploy === true;
 
         this._devMode = devMode;
 
@@ -1284,6 +1287,18 @@ export class GameContractManager {
                 { throwOnInvalid: false }
             );
 
+            if (this._skipBlockchainDeploy) {
+
+                this._log(
+                    `ROOM_WALLET_FINANCE | skip Game Escrow deploy | roomId=${current.roomId}`
+                );
+
+                this._emitClientUpdate(current);
+
+                return;
+
+            }
+
             this._transitionContract(
                 current,
                 GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN,
@@ -1356,6 +1371,16 @@ export class GameContractManager {
      * requiring a new authorization.
      */
     async _beginDeploy(roomId) {
+
+        if (this._skipBlockchainDeploy) {
+
+            this._log(
+                `ROOM_WALLET_FINANCE | _beginDeploy skipped | roomId=${roomId}`
+            );
+
+            return;
+
+        }
 
         const contract = this._contractsByRoom.get(roomId);
 

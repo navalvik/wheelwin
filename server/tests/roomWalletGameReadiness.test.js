@@ -154,14 +154,19 @@ function createPaymentContext({
 
     const ledgerRegistry = new RoomWalletLedgerRegistry();
     const roomWallet = friendlyAddress(`rw-${roomNumber}`);
+    const registry = new RoomWalletRegistry({
+        entries: [{ roomNumber, address: roomWallet }]
+    });
+    manager.setRoomWalletFinance({
+        registry,
+        roomWalletPaymentIntakeEnabled
+    });
     const observer = new RoomWalletIncomingObserver({
         logger,
         eventBus,
         paymentSessionManager: manager,
         financialPersistence: persistence,
-        registry: new RoomWalletRegistry({
-            entries: [{ roomNumber, address: roomWallet }]
-        }),
+        registry,
         roomManager,
         ledgerRegistry,
         auditLedger: new EntryPaymentAuditLedger(),

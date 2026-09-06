@@ -32,7 +32,9 @@ function createHarness({
     simulationMissing = false,
     clockMissing = false,
     depositSessionCoordinator = null,
-    gameEscrowMode = null
+    gameEscrowMode = null,
+    roomWalletPaymentIntakeEnabled = false,
+    roomWalletLedgerRegistry = null
 } = {}) {
 
     const logger = createLogger();
@@ -182,7 +184,9 @@ function createHarness({
         auditLedger,
         roomConfig: { maxPlayers: 3 },
         depositSessionCoordinator,
-        gameEscrowMode
+        gameEscrowMode,
+        roomWalletPaymentIntakeEnabled,
+        roomWalletLedgerRegistry
     });
 
     auth.initialize();
@@ -396,15 +400,53 @@ function createHarness({
 
             }
         },
-        gameEscrowMode: "game"
+        gameEscrowMode: "game",
+        roomWalletLedgerRegistry: {
+            listPlayerPayments() {
+
+                return [
+                    { playerId: "p1" },
+                    { playerId: "p2" },
+                    { playerId: "p3" }
+                ];
+
+            }
+        }
     });
+
+    harness.contract.status = "AWAITING_PAYMENTS";
+    harness.contract.snapshot = { escrowMode: "game" };
 
     harness.emitPaymentsComplete();
 
     assert.equal(
         harness.auth.getLifecycle("room-1")?.phase,
         GAME_START_PHASE.OPENED,
-        "escrowMode=game authorizes start without Deposit FULL"
+        "escrowMode=game authorizes start from Room Wallet ledger without Deposit FULL or PAYMENTS_COMPLETE"
+    );
+
+    harness.auth.shutdown();
+
+}
+
+{
+    const harness = createHarness({
+        depositSessionCoordinator: {
+            getByRoomAndGame() {
+
+                return { state: "AWAITING_FUNDS" };
+
+            }
+        },
+        gameEscrowMode: "game"
+    });
+
+    harness.emitPaymentsComplete();
+
+    assert.equal(
+        harness.collected.length,
+        0,
+        "escrowMode=game does not start from Game Escrow PAYMENTS_COMPLETE without Room Wallet ledger"
     );
 
     harness.auth.shutdown();

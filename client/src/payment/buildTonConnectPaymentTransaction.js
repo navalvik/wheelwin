@@ -96,6 +96,7 @@ export function buildTonConnectPaymentTransaction({
     paymentReference = null,
     playerIndex = null,
     allowLegacyComment = false,
+    plainTransfer = false,
     validUntilSeconds = DEFAULT_VALID_UNTIL_SECONDS,
     nowMs = Date.now()
 } = {}) {
@@ -113,7 +114,11 @@ export function buildTonConnectPaymentTransaction({
 
     let payload;
 
-    if (hasUsablePlayerIndex(playerIndex)) {
+    if (plainTransfer === true) {
+
+        payload = null;
+
+    } else if (hasUsablePlayerIndex(playerIndex)) {
 
         payload = buildGameEscrowStakePayload(playerIndex);
 
@@ -142,11 +147,16 @@ export function buildTonConnectPaymentTransaction({
     return {
         validUntil: Math.floor(Number(nowMs) / 1000) + ttl,
         messages: [
-            {
-                address: contractAddress.trim(),
-                amount,
-                payload
-            }
+            payload
+                ? {
+                    address: contractAddress.trim(),
+                    amount,
+                    payload
+                }
+                : {
+                    address: contractAddress.trim(),
+                    amount
+                }
         ]
     };
 

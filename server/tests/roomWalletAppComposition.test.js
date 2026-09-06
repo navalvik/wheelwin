@@ -8,6 +8,7 @@ import { RoomWalletSettlementAdapter } from "../payment/roomWallet/RoomWalletSet
 import { RoomWalletSettlementRouter } from "../payment/RoomWalletSettlementRouter.js";
 import {
     composeRoomWalletSettlementRouter,
+    isRoomWalletOnlyFinancialPath,
     isRoomWalletPaymentIntakeEnabled,
     isRoomWalletResidualSweepEnabled,
     isRoomWalletSettlementEnabled
@@ -89,6 +90,22 @@ test("ROOM_WALLET_SETTLEMENT_MODE is off unless it is exactly ROOM_WALLET", () =
     assert.equal(isRoomWalletSettlementEnabled({ ROOM_WALLET_SETTLEMENT_MODE: "true" }), false);
     assert.equal(isRoomWalletSettlementEnabled({ ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET" }), true);
     assert.equal(isRoomWalletSettlementEnabled({ ROOM_WALLET_SETTLEMENT_MODE: " room_wallet " }), true);
+});
+
+test("GAME_ESCROW_MODE=game enables Room Wallet settlement without a settlement env flag", async () => {
+    const legacy = capturingAdapter("legacy");
+    const router = composeRoomWalletSettlementRouter({
+        legacySettlementAdapter: legacy,
+        tonService: {},
+        logger: createLogger(),
+        env: envWithWallets(),
+        gameEscrowMode: "game"
+    });
+
+    assert.equal(isRoomWalletOnlyFinancialPath({ gameEscrowMode: "game" }), true);
+    assert.equal(router.isEnabled(), true);
+    assert.equal(router.activeAdapter instanceof RoomWalletSettlementAdapter, true);
+    assert.equal(legacy.calls.length, 0);
 });
 
 test("A. absent ROOM_WALLET_SETTLEMENT_MODE keeps legacy settlement", async () => {
@@ -240,10 +257,10 @@ test("app.js wires the Room Wallet router into ContractSettlementManager", () =>
     assert.equal(/settlementAdapter:\s*deployAdapter/.test(source), false);
     assert.match(source, /new ContractSettlementManager\(\{[\s\S]*?roomManager:\s*this\._managers\.roomManager/);
     assert.match(source, /new RoomWalletIncomingObserver\(\{[\s\S]*?roomManager:\s*this\._managers\.roomManager/);
-    assert.match(source, /isRoomWalletPaymentIntakeEnabled/);
+    assert.match(source, /isRoomWalletOnlyFinancialPath/);
     assert.match(source, /RoomWalletLedgerRegistry/);
     assert.match(source, /ledgerRegistry:\s*this\._roomWalletLedgerRegistry/);
-    assert.match(source, /roomWalletPaymentIntakeEnabled:\s*isRoomWalletPaymentIntakeEnabled/);
+    assert.match(source, /roomWalletPaymentIntakeEnabled:\s*isRoomWalletOnlyFinancialPath/);
     assert.match(source, /RoomWalletResidualSweepWorker/);
     assert.match(source, /new RoomWalletResidualSweepRepository/);
 });

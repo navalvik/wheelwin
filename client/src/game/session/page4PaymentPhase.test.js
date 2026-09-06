@@ -189,12 +189,24 @@ test("R18-S16: Deposit completion is server phase / confirmedSeats, not a local 
 
 });
 
-test("R18-S16: GameEscrow STAKE only after GameEscrow deployed", () => {
+test("R18-S16: player PAY only after Room Wallet destination is published", () => {
 
     assert.equal(
         isGameContractDeployed({ status: "DEPLOYED", contractAddress: "EQG" }),
         true
     );
+
+    const paymentSession = {
+        status: "WAITING_FOR_PAYMENTS",
+        roomWalletAddress: "EQDroomWalletPayToXXXXXXXXXXXXXXXXXX",
+        participants: [{
+            playerId: "p1",
+            status: "AWAITING_PLAYER_CONFIRMATION",
+            playerIndex: 1,
+            contractAddress: "EQDroomWalletPayToXXXXXXXXXXXXXXXXXX",
+            requiredGram: 1
+        }]
+    };
 
     const stakePhase = resolvePage4PaymentPhase({
         deposit: depositFixture({
@@ -203,17 +215,10 @@ test("R18-S16: GameEscrow STAKE only after GameEscrow deployed", () => {
             activationStatus: "VERIFIED"
         }),
         gameContract: {
-            status: "AWAITING_PLAYER_PAYMENTS",
-            contractAddress: "EQG"
+            escrowMode: "game",
+            status: "AWAITING_PAYMENTS"
         },
-        paymentSession: {
-            status: "WAITING_FOR_PAYMENTS",
-            participants: [{
-                playerId: "p1",
-                status: "AWAITING_PLAYER_CONFIRMATION",
-                playerIndex: 1
-            }]
-        },
+        paymentSession,
         localPlayerId: "p1"
     });
 
@@ -221,14 +226,8 @@ test("R18-S16: GameEscrow STAKE only after GameEscrow deployed", () => {
     assert.equal(shouldShowEntryAction(stakePhase), true);
     assert.equal(
         canStakeGameEscrow({
-            paymentSession: {
-                status: "WAITING_FOR_PAYMENTS",
-                participants: [{
-                    playerId: "p1",
-                    status: "AWAITING_PLAYER_CONFIRMATION"
-                }]
-            },
-            gameContract: { status: "AWAITING_PLAYER_PAYMENTS", contractAddress: "EQG" },
+            paymentSession,
+            gameContract: { escrowMode: "game", status: "AWAITING_PAYMENTS" },
             localPlayerId: "p1"
         }),
         true
@@ -242,7 +241,7 @@ test("R18-S16: GameEscrow STAKE only after GameEscrow deployed", () => {
                     status: "AWAITING_PLAYER_CONFIRMATION"
                 }]
             },
-            gameContract: { status: "CREATING" },
+            gameContract: { escrowMode: "game", status: "DEPLOYED", contractAddress: "EQG" },
             localPlayerId: "p1"
         }),
         false
@@ -519,33 +518,42 @@ test("R18-S63: GameEscrow-only Page4 is creator-neutral STAKE payment", () => {
     assert.match(PAGE4_SOURCE, /isGameEscrowOnlyPlayerPayment/);
     assert.match(PAGE4_SOURCE, /shouldShowWaitingCreatorDeposit/);
     assert.match(PAGE4_SOURCE, /includeFund: gameEscrowOnly \? false/);
+    assert.match(PAGE4_SOURCE, /resolvePlayerPaymentDestination/);
+    assert.match(PAGE4_SOURCE, /paymentDestination: gameEscrowOnly \? roomWalletDestination/);
+    assert.doesNotMatch(
+        PAGE4_SOURCE,
+        /gameEscrowAddress:\s*paymentRequest\?\.contractAddress\s*\n?\s*\?\?\s*gameContract\?\.contractAddress/
+    );
     assert.match(PAGE4_SOURCE, /includeDeploy: gameEscrowOnly \? false/);
 
     const gameContract = {
         escrowMode: "game",
-        status: "AWAITING_PLAYER_PAYMENTS",
-        contractAddress: "EQBescrow"
+        status: "AWAITING_PAYMENTS"
     };
 
     assert.equal(isGameEscrowOnlyPlayerPayment(gameContract), true);
 
     const paymentSession = {
         status: "WAITING_FOR_PAYMENTS",
+        roomWalletAddress: "EQDroomWalletPayToXXXXXXXXXXXXXXXXXX",
         participants: [
             {
                 playerId: "lena",
                 status: "AWAITING_PLAYER_CONFIRMATION",
-                requiredGram: 1
+                requiredGram: 1,
+                contractAddress: "EQDroomWalletPayToXXXXXXXXXXXXXXXXXX"
             },
             {
                 playerId: "bob",
                 status: "AWAITING_PLAYER_CONFIRMATION",
-                requiredGram: 1
+                requiredGram: 1,
+                contractAddress: "EQDroomWalletPayToXXXXXXXXXXXXXXXXXX"
             },
             {
                 playerId: "olga",
                 status: "AWAITING_PLAYER_CONFIRMATION",
-                requiredGram: 1
+                requiredGram: 1,
+                contractAddress: "EQDroomWalletPayToXXXXXXXXXXXXXXXXXX"
             }
         ]
     };

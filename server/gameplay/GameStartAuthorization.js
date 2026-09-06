@@ -401,7 +401,12 @@ export class GameStartAuthorization {
 
         }
 
-        if (this._roomWalletPaymentIntakeEnabled) {
+        const contractForMode = this._gameContractManager?.getContract(roomId);
+
+        if (
+            this._roomWalletPaymentIntakeEnabled
+            || this._isGameEscrowOnlyPlayerPayment(contractForMode)
+        ) {
 
             const ledgerGate = this._checkRoomWalletLedger(session);
 
@@ -412,8 +417,6 @@ export class GameStartAuthorization {
             }
 
         } else {
-
-            const contractForMode = this._gameContractManager?.getContract(roomId);
 
             if (
                 this._depositSessionCoordinator

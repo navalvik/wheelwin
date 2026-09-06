@@ -135,6 +135,8 @@ export function buildEntryPaymentTransaction({
     myExpectedAmountNanotons = null,
     network = null,
     gameEscrowAddress = null,
+    paymentDestination = null,
+    roomWalletAddress = null,
     requiredGram = null,
     playerIndex = null,
     validUntilSeconds = DEFAULT_VALID_UNTIL_SECONDS,
@@ -200,25 +202,53 @@ export function buildEntryPaymentTransaction({
 
     if (allowStake === true) {
 
-        if (playerIndex == null || playerIndex === "") {
+        if (gameEscrowOnly === true) {
 
-            throw new Error("playerIndex is required for GameEscrow STAKE payment");
+            const destination = String(paymentDestination ?? roomWalletAddress ?? "").trim();
+
+            if (!destination) {
+
+                throw new Error("Room Wallet address is required for player payment");
+
+            }
+
+            const stakeTx = buildTonConnectPaymentTransaction({
+                contractAddress: destination,
+                requiredGram,
+                plainTransfer: true,
+                validUntilSeconds,
+                nowMs
+            });
+
+            messages.push(...stakeTx.messages);
+            totalNanotons = addNanotons(
+                totalNanotons,
+                stakeTx.messages[0].amount
+            );
+
+        } else {
+
+            if (playerIndex == null || playerIndex === "") {
+
+                throw new Error("playerIndex is required for GameEscrow STAKE payment");
+
+            }
+
+            const stakeTx = buildTonConnectPaymentTransaction({
+                contractAddress: gameEscrowAddress,
+                requiredGram,
+                playerIndex,
+                validUntilSeconds,
+                nowMs
+            });
+
+            messages.push(...stakeTx.messages);
+            totalNanotons = addNanotons(
+                totalNanotons,
+                stakeTx.messages[0].amount
+            );
 
         }
-
-        const stakeTx = buildTonConnectPaymentTransaction({
-            contractAddress: gameEscrowAddress,
-            requiredGram,
-            playerIndex,
-            validUntilSeconds,
-            nowMs
-        });
-
-        messages.push(...stakeTx.messages);
-        totalNanotons = addNanotons(
-            totalNanotons,
-            stakeTx.messages[0].amount
-        );
 
     }
 

@@ -80,6 +80,37 @@ function paymentSessionGameEscrowTarget(paymentSession = null) {
 
 }
 
+export function resolvePlayerPaymentDestination({
+    paymentSession = null,
+    localPlayerId = null
+} = {}) {
+
+    const sessionAddress = String(paymentSession?.roomWalletAddress ?? "").trim();
+
+    if (sessionAddress) {
+
+        return sessionAddress;
+
+    }
+
+    const seat = Array.isArray(paymentSession?.participants)
+        ? paymentSession.participants.find(
+            (participant) => String(participant?.playerId) === String(localPlayerId)
+        )
+        : null;
+
+    const seatAddress = String(seat?.contractAddress ?? "").trim();
+
+    if (seatAddress) {
+
+        return seatAddress;
+
+    }
+
+    return paymentSessionGameEscrowTarget(paymentSession) || null;
+
+}
+
 function depositOwnedByCurrentSession(deposit, context = null, gameContract = null) {
 
     if (!deposit) {
@@ -150,7 +181,8 @@ export function isGameEscrowOnlyPlayerPayment(gameContract = null, context = nul
         gameContract
     );
     const paymentSession = context?.paymentSession ?? null;
-    const paymentTarget = paymentSessionGameEscrowTarget(paymentSession);
+    const paymentTarget = String(paymentSession?.roomWalletAddress ?? "").trim()
+        || paymentSessionGameEscrowTarget(paymentSession);
 
     if (hasLegacyDepositPackage(deposit)) {
 
@@ -290,8 +322,13 @@ export function canStakeGameEscrow({
     localPlayerId = null
 } = {}) {
 
+    void gameContract;
+
     return canConfirmLocalPayment(paymentSession, localPlayerId)
-        && isGameContractDeployed(gameContract);
+        && Boolean(resolvePlayerPaymentDestination({
+            paymentSession,
+            localPlayerId
+        }));
 
 }
 
@@ -387,12 +424,6 @@ export function canSubmitEntryPayment({
     lifecycle = null
 } = {}) {
 
-    if (!isGameContractDeployed(gameContract)) {
-
-        return false;
-
-    }
-
     if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
 
         return canStakeGameEscrow({
@@ -400,6 +431,12 @@ export function canSubmitEntryPayment({
             gameContract,
             localPlayerId
         });
+
+    }
+
+    if (!isGameContractDeployed(gameContract)) {
+
+        return false;
 
     }
 
@@ -474,7 +511,10 @@ export function resolvePage4PaymentPhase({
         }
 
         if (
-            isGameContractDeployed(gameContract)
+            Boolean(resolvePlayerPaymentDestination({
+                paymentSession,
+                localPlayerId
+            }))
             || hasPaymentSession(paymentSession)
             || paymentConnectionReady
         ) {

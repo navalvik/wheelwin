@@ -377,7 +377,21 @@ describe("R18-S16 buildEntryPaymentTransaction", () => {
 
     });
 
-    it("gameEscrowOnly drops FundSeat even if includeFund is requested", () => {
+    it("gameEscrowOnly pays Room Wallet without STAKE opcode and ignores Game Escrow address", () => {
+
+        const roomWallet = "EQDroomWalletPayToXXXXXXXXXXXXXXXXXX";
+
+        assert.throws(
+            () => buildEntryPaymentTransaction({
+                gameEscrowOnly: true,
+                includeStake: true,
+                gameEscrowAddress: "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx",
+                requiredGram: 1,
+                playerIndex: 1,
+                nowMs
+            }),
+            /Room Wallet address is required/
+        );
 
         const tx = buildEntryPaymentTransaction({
             gameEscrowOnly: true,
@@ -391,36 +405,31 @@ describe("R18-S16 buildEntryPaymentTransaction", () => {
             myExpectedAmountNanotons: FUND_VALUE,
             network: "testnet",
             gameEscrowAddress: "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx",
+            paymentDestination: roomWallet,
             requiredGram: 1,
             playerIndex: 1,
             nowMs
         });
 
         assert.equal(tx.messages.length, 1);
-        assert.equal(
+        assert.equal(tx.messages[0].address, roomWallet);
+        assert.notEqual(
             tx.messages[0].address,
             "EQBmvptdvJ5h1WqJy8Fy3Mf0F1rtowikZ8cVWjAtfYnBabpx"
         );
         assert.equal(tx.messages[0].amount, requiredGramToNanotonString(1));
-        assert.equal(tx.messages[0].amount, "1000000000");
-        assert.notEqual(tx.messages[0].amount, FUND_VALUE);
-        assert.equal(tx.messages[0].payload, buildGameEscrowStakePayload(1));
+        assert.equal(tx.messages[0].payload, undefined);
         assert.equal(tx.messages[0].stateInit, undefined);
 
         const sent = toTonConnectSendTransactionRequest(tx);
 
         assert.deepEqual(Object.keys(sent).sort(), ["messages", "validUntil"]);
-        assert.equal(sent.totalNanotons, undefined);
         assert.equal(sent.messages.length, 1);
         assert.deepEqual(
             Object.keys(sent.messages[0]).sort(),
-            ["address", "amount", "payload"]
+            ["address", "amount"]
         );
-        assert.equal(sent.validUntil, tx.validUntil);
-
-        const parsed = Cell.fromBase64(sent.messages[0].payload).beginParse();
-        assert.equal(parsed.loadUint(32), GAME_ESCROW_STAKE_OPCODE);
-        assert.equal(parsed.loadUint(8), 1);
+        assert.equal(sent.messages[0].payload, undefined);
 
     });
 

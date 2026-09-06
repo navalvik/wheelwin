@@ -217,6 +217,12 @@ export class ContractSettlementManager {
 
     }
 
+    _isRoomWalletSettlementActive() {
+
+        return this._settlementAdapter?.isEnabled?.() === true;
+
+    }
+
     initialize() {
 
         this._subscribe(
@@ -1033,7 +1039,10 @@ export class ContractSettlementManager {
 
         }
 
-        if (this._resolveEscrowMode(ctx.contract, session.request) === GAME_ESCROW_MODE_GAME) {
+        if (
+            !this._isRoomWalletSettlementActive()
+            && this._resolveEscrowMode(ctx.contract, session.request) === GAME_ESCROW_MODE_GAME
+        ) {
 
             if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING) {
 
@@ -1168,7 +1177,10 @@ export class ContractSettlementManager {
             ?? adapterResult.txHash
             ?? null;
 
-        if (this._resolveEscrowMode(contract, request) === GAME_ESCROW_MODE_GAME) {
+        if (
+            !this._isRoomWalletSettlementActive()
+            && this._resolveEscrowMode(contract, request) === GAME_ESCROW_MODE_GAME
+        ) {
 
             if (session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING) {
 
@@ -1837,9 +1849,37 @@ export class ContractSettlementManager {
 
         const settlementTxHash = adapterResult.settlementTxId
             ?? adapterResult.txHash
+            ?? adapterResult.winner?.txHash
+            ?? adapterResult.owner?.txHash
             ?? null;
 
         const escrowMode = this._resolveEscrowMode(contract, session.request);
+
+        if (this._isRoomWalletSettlementActive()) {
+
+            session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING, {
+                settlementTransactionHash: settlementTxHash
+            });
+
+            this._gameContractManager.markSettlementPending?.(roomId);
+
+            this._persistSession(session, "update");
+
+            this._emitDomain(EVENT_TYPES.SETTLEMENT_PENDING, session, {
+                transactionHash: settlementTxHash
+            });
+
+            this._log(
+                `ROOM_WALLET_SETTLEMENT | gameId=${gameId} | `
+                    + `roomId=${roomId} | `
+                    + `winner=${maskWalletAddress(winnerWallet)}`
+            );
+
+            await this._confirmSettlement(session, settlementTxHash);
+
+            return;
+
+        }
 
         if (escrowMode === GAME_ESCROW_MODE_GAME) {
 
@@ -1965,27 +2005,31 @@ export class ContractSettlementManager {
 
         }
 
-        if (!contract.contractAddress) {
+        if (!this._isRoomWalletSettlementActive()) {
 
-            return {
-                ok: false,
-                gameId,
-                roomId: contract.roomId,
-                contractId: contract.contractId,
-                reason: "contract_not_deployed"
-            };
+            if (!contract.contractAddress) {
 
-        }
+                return {
+                    ok: false,
+                    gameId,
+                    roomId: contract.roomId,
+                    contractId: contract.contractId,
+                    reason: "contract_not_deployed"
+                };
 
-        if (contract.status !== GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE) {
+            }
 
-            return {
-                ok: false,
-                gameId,
-                roomId: contract.roomId,
-                contractId: contract.contractId,
-                reason: `contract_state_${contract.status}`
-            };
+            if (contract.status !== GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE) {
+
+                return {
+                    ok: false,
+                    gameId,
+                    roomId: contract.roomId,
+                    contractId: contract.contractId,
+                    reason: `contract_state_${contract.status}`
+                };
+
+            }
 
         }
 
@@ -2284,7 +2328,8 @@ export class ContractSettlementManager {
             ?? null;
 
         if (
-            this._resolveEscrowMode(settleContract, session.request)
+            !this._isRoomWalletSettlementActive()
+            && this._resolveEscrowMode(settleContract, session.request)
             === GAME_ESCROW_MODE_GAME
         ) {
 
@@ -2329,6 +2374,12 @@ export class ContractSettlementManager {
         const contractProbe = gameIdProbe
             ? this._gameContractManager?.getContractByGameId?.(gameIdProbe)
             : null;
+
+        if (this._isRoomWalletSettlementActive()) {
+
+            return;
+
+        }
 
         if (
             this._resolveEscrowMode(contractProbe, sessionProbe?.request)
@@ -2404,6 +2455,12 @@ export class ContractSettlementManager {
         const contractProbe = gameIdProbe
             ? this._gameContractManager?.getContractByGameId?.(gameIdProbe)
             : null;
+
+        if (this._isRoomWalletSettlementActive()) {
+
+            return;
+
+        }
 
         if (
             this._resolveEscrowMode(contractProbe, sessionProbe?.request)

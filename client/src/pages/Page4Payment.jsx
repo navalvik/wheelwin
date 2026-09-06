@@ -19,6 +19,7 @@ import {
     PAGE4_PAYMENT_PHASE,
     resolveEntryPaymentComponents,
     resolvePage4PaymentPhase,
+    resolvePlayerPaymentDestination,
     shouldShowEntryAction,
     shouldShowPaymentSessionRows,
     shouldShowWaitingCreatorDeposit,
@@ -796,6 +797,10 @@ export default function Page4Payment({ onNavigate }) {
             }
         );
         const paymentRequest = getLocalPaymentRequest(paymentSession, localPlayerId);
+        const roomWalletDestination = resolvePlayerPaymentDestination({
+            paymentSession,
+            localPlayerId
+        });
         const components = resolveEntryPaymentComponents({
             deposit: depositProjection,
             paymentSession,
@@ -811,9 +816,7 @@ export default function Page4Payment({ onNavigate }) {
             action: "entry",
             deployValueNanotons: depositProjection?.package?.deployValueNanotons,
             depositAddress: depositProjection?.depositAddress,
-            gameEscrowAddress: paymentRequest?.contractAddress
-                ?? gameContract?.contractAddress
-                ?? null,
+            paymentDestination: roomWalletDestination,
             playerIndex: paymentRequest?.playerIndex ?? paymentRequest?.seatIndex ?? null
         });
 
@@ -842,6 +845,14 @@ export default function Page4Payment({ onNavigate }) {
                 ?? paymentRequest?.seatIndex
                 ?? null;
 
+            if (gameEscrowOnly && !roomWalletDestination) {
+
+                setDepositSubmitting(false);
+                setDepositSubmitError(t("payment.stakeUnavailable"));
+                return;
+
+            }
+
             const transactionObject = buildEntryPaymentTransaction({
                 gameEscrowOnly,
                 isCreator: gameEscrowOnly ? false : depositProjection.isCreator === true,
@@ -864,11 +875,12 @@ export default function Page4Payment({ onNavigate }) {
                     ? null
                     : depositProjection.myExpectedAmountNanotons,
                 network: gameEscrowOnly ? null : depositProjection.network,
-                gameEscrowAddress: paymentRequest?.contractAddress
-                    ?? gameContract?.contractAddress
-                    ?? null,
+                paymentDestination: gameEscrowOnly ? roomWalletDestination : null,
+                gameEscrowAddress: gameEscrowOnly
+                    ? null
+                    : (paymentRequest?.contractAddress ?? null),
                 requiredGram: paymentRequest?.requiredGram ?? null,
-                playerIndex
+                playerIndex: gameEscrowOnly ? null : playerIndex
             });
 
             const { totalNanotons } = transactionObject;

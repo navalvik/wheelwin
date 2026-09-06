@@ -5,6 +5,7 @@
  * new settlement path unless explicitly requested by configuration.
  */
 
+import { isGameEscrowOnlyPlayerPayment } from "../../config/gameEscrowMode.js";
 import { RoomWalletSettlementRouter } from "../RoomWalletSettlementRouter.js";
 import { createRoomWalletService } from "./RoomWalletService.js";
 import {
@@ -28,6 +29,18 @@ export function isRoomWalletSettlementEnabled(env = process.env) {
 export function isRoomWalletPaymentIntakeEnabled(env = process.env) {
     const value = String(env.ROOM_WALLET_PAYMENT_INTAKE_MODE || "").trim().toUpperCase();
     return value === "ROOM_WALLET";
+}
+
+/**
+ * Room-Wallet-only player-payment path. `GAME_ESCROW_MODE=game` is the
+ * Production new-game architecture and must not wait for an extra env flag.
+ */
+export function isRoomWalletOnlyFinancialPath({
+    env = process.env,
+    gameEscrowMode = null
+} = {}) {
+    return isGameEscrowOnlyPlayerPayment(gameEscrowMode)
+        || isRoomWalletPaymentIntakeEnabled(env);
 }
 
 /**
@@ -59,21 +72,25 @@ export function assertRoomWalletSettlementCanBeEnabled(service) {
 /**
  * Compose the settlement adapter passed to ContractSettlementManager.
  *
- * Default (mode absent/invalid): legacy GameEscrow adapter via a disabled router.
- * ROOM_WALLET_SETTLEMENT_MODE=ROOM_WALLET requires valid runtime wallet config
- * and fails closed when that configuration is missing.
+ * Default (v4 / flags absent): legacy GameEscrow adapter via a disabled router.
+ * GAME_ESCROW_MODE=game or ROOM_WALLET_SETTLEMENT_MODE=ROOM_WALLET requires
+ * valid runtime wallet config and fails closed when that configuration is missing.
  */
 export function composeRoomWalletSettlementRouter({
     legacySettlementAdapter,
     tonService = null,
     logger = null,
-    env = process.env
+    env = process.env,
+    gameEscrowMode = null
 } = {}) {
     if (!legacySettlementAdapter) {
         throw new Error("composeRoomWalletSettlementRouter requires legacySettlementAdapter");
     }
 
-    if (!isRoomWalletSettlementEnabled(env)) {
+    const enableSettlement = isGameEscrowOnlyPlayerPayment(gameEscrowMode)
+        || isRoomWalletSettlementEnabled(env);
+
+    if (!enableSettlement) {
         return new RoomWalletSettlementRouter({
             legacySettlementAdapter,
             enabled: false
