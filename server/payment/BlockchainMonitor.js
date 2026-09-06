@@ -99,6 +99,78 @@ export function amountsMatch(expected, actual) {
 }
 
 /**
+ * True when the inbound value was returned as a bounce.
+ * TonCenter getTransactions often omits `aborted` / `success`; bounce is
+ * visible as an out_msg with opcode 0xffffffff / message `/////w==`.
+ */
+export function isBouncedTonTransaction(tx) {
+
+    if (!tx || typeof tx !== "object") {
+
+        return false;
+
+    }
+
+    const bouncePhase = tx.bounce_phase ?? tx.bouncePhase ?? null;
+
+    if (
+        bouncePhase === "TrPhaseBounceOk"
+        || (typeof bouncePhase === "string" && bouncePhase.toLowerCase().includes("bounce"))
+    ) {
+
+        return true;
+
+    }
+
+    const outs = tx.out_msgs ?? tx.outMessages ?? [];
+
+    if (!Array.isArray(outs)) {
+
+        return false;
+
+    }
+
+    for (const message of outs) {
+
+        if (!message || typeof message !== "object") {
+
+            continue;
+
+        }
+
+        if (message.bounced === true || message.decoded_op_name === "bounce") {
+
+            return true;
+
+        }
+
+        const op = message.op_code ?? message.op ?? message.opcode ?? null;
+
+        if (
+            op === "0xffffffff"
+            || op === -1
+            || op === 0xffffffff
+        ) {
+
+            return true;
+
+        }
+
+        const text = String(message.message ?? "").replace(/\s+/g, "");
+
+        if (text === "/////w==") {
+
+            return true;
+
+        }
+
+    }
+
+    return false;
+
+}
+
+/**
  * R7.69D — True when a TonCenter / SDK transaction aborted or failed compute.
  * Aborted inbound messages must never confirm GameEscrow payments.
  */
@@ -117,6 +189,12 @@ export function isFailedTonTransaction(tx) {
     }
 
     if (tx.description === "failed") {
+
+        return true;
+
+    }
+
+    if (isBouncedTonTransaction(tx)) {
 
         return true;
 

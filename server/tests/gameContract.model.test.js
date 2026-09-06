@@ -31,6 +31,16 @@ import { buildGameEscrowStateInit } from "../payment/ton/buildGameEscrowStateIni
     );
 
     assert.equal(
+        contract.canTransitionTo(GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE),
+        true
+    );
+
+    assert.equal(
+        contract.canTransitionTo(GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING),
+        false
+    );
+
+    assert.equal(
         contract.transitionTo(GAME_CONTRACT_STATUS.READY_FOR_BLOCKCHAIN),
         true
     );

@@ -827,6 +827,24 @@ async function main() {
             true
         );
         assert.equal(isFailedTonTransaction({ in_msg: {} }), false);
+        assert.equal(
+            isFailedTonTransaction({
+                transaction_id: { hash: "bounced-toncenter" },
+                in_msg: {
+                    source: "EQsender",
+                    destination: "EQdest",
+                    value: "1000000000"
+                },
+                out_msgs: [{
+                    source: "EQdest",
+                    destination: "EQsender",
+                    value: "999933333",
+                    message: "/////w==\n"
+                }]
+            }),
+            true,
+            "TonCenter bounce out_msg must be treated as failed"
+        );
 
         const { eventBus, monitor, audit } = createMonitor();
 

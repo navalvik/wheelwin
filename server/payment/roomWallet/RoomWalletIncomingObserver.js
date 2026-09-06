@@ -420,6 +420,31 @@ export class RoomWalletIncomingObserver {
         }
 
         if (isFailedTonTransaction(tx)) {
+            const failedDeposit = parseDepositCandidate(tx);
+            const failedHash = typeof failedDeposit?.txHash === "string"
+                && failedDeposit.txHash.trim()
+                ? failedDeposit.txHash.trim()
+                : null;
+            const failedDestination = canonicalizeTonWalletAddress(
+                failedDeposit?.destination
+            ) ?? canonicalizeTonWalletAddress(watchedAddress);
+
+            if (failedHash && failedDestination) {
+                return this._rejectTerminal(
+                    ROOM_WALLET_INCOMING_REJECTION_REASONS.FAILED_TRANSACTION,
+                    {
+                        destination: failedDestination,
+                        sender: canonicalizeTonWalletAddress(failedDeposit?.sender),
+                        txHash: failedHash,
+                        amountGram: Number.isFinite(Number(failedDeposit?.amountGram))
+                            ? Number(failedDeposit.amountGram)
+                            : null,
+                        comment: failedDeposit?.comment,
+                        lt: failedDeposit?.lt
+                    }
+                );
+            }
+
             return this._rejectTransient(
                 ROOM_WALLET_INCOMING_REJECTION_REASONS.FAILED_TRANSACTION,
                 { tx }

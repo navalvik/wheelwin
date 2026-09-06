@@ -305,6 +305,40 @@ test("A-D valid Room Wallet payment attributes sender, game, and exact amount", 
     assert.equal(participant.txHash, "tx-valid");
 });
 
+test("TonCenter bounce out_msg is not credited as a Room Wallet payment", (t) => {
+    const roomWallet = friendlyAddress("rw-bounce");
+    const players = threePlayers("bounce");
+    const { observer, manager } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "RGFT", roomNumber: 1, gameId: "game-bounce", players }]
+    });
+
+    const result = observer.processTransaction({
+        ...inboundTx({
+            hash: "tx-bounced-bob",
+            from: players[0].wallet,
+            to: roomWallet,
+            nanoton: 1_000_000_000
+        }),
+        out_msgs: [{
+            source: roomWallet,
+            destination: players[0].wallet,
+            value: "999933333",
+            message: "/////w==\n"
+        }]
+    }, roomWallet);
+
+    assert.equal(result.credited, false);
+    assert.equal(
+        result.reason,
+        ROOM_WALLET_INCOMING_REJECTION_REASONS.FAILED_TRANSACTION
+    );
+
+    const participant = manager.getSession("RGFT").findParticipant(players[0].playerId);
+    assert.notEqual(participant.status, PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED);
+});
+
 test("E wrong amount is rejected and not credited", (t) => {
     const roomWallet = friendlyAddress("rw-e");
     const players = threePlayers("e");

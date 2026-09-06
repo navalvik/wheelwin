@@ -759,7 +759,13 @@ export class GameContractManager {
 
         }
 
-        if (contract.status !== GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS) {
+        const roomWalletPaymentsComplete = this._skipBlockchainDeploy === true
+            && contract.status === GAME_CONTRACT_STATUS.AWAITING_PAYMENTS;
+
+        if (
+            contract.status !== GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS
+            && !roomWalletPaymentsComplete
+        ) {
 
             return contract;
 

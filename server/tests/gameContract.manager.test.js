@@ -48,7 +48,8 @@ function createHarness({
     financialPersistence = null,
     tonNetwork = "testnet",
     authorize = true,
-    creatingDelayMs = 0
+    creatingDelayMs = 0,
+    skipBlockchainDeploy = false
 } = {}) {
 
     OwnerConfiguration.resetForTests();
@@ -125,7 +126,8 @@ function createHarness({
         deploymentAuthorizationCoordinator: authorizationCoordinator,
         tonNetwork,
         creatingDelayMs,
-        devMode: false
+        devMode: false,
+        skipBlockchainDeploy
     });
 
     manager.initialize();
@@ -427,6 +429,53 @@ async function main() {
         eventBus.shutdown();
 
         console.log("  invalid transitions: OK");
+    }
+
+    // --- Room Wallet-only: skip deploy, FULLY_PAID → PAYMENTS_COMPLETE → settlement ---
+
+    {
+        const { eventBus, manager } = createHarness({ skipBlockchainDeploy: true });
+
+        manager.createContract("room-1", { gameId: "game-1" });
+
+        await wait(10);
+
+        const waiting = manager.getContract("room-1");
+
+        assert.equal(waiting.status, GAME_CONTRACT_STATUS.AWAITING_PAYMENTS);
+
+        assert.throws(
+            () => manager.markWinnerPending("room-1"),
+            InvalidContractStateTransitionError
+        );
+
+        assert.equal(
+            manager.getContract("room-1").status,
+            GAME_CONTRACT_STATUS.AWAITING_PAYMENTS
+        );
+
+        eventBus.emit({
+            source: "test",
+            type: EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
+            payload: { roomId: "room-1", gameId: "game-1" }
+        });
+
+        assert.equal(
+            manager.getContract("room-1").status,
+            GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
+        );
+
+        manager.markWinnerPending("room-1");
+
+        assert.equal(
+            manager.getContract("room-1").status,
+            GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING
+        );
+
+        manager.shutdown();
+        eventBus.shutdown();
+
+        console.log("  room-wallet skip-deploy payments-complete settlement: OK");
     }
 
     // --- markGameStarted / winner / settlement / complete / archive ---
