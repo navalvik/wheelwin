@@ -5,7 +5,10 @@
  * Secret material is resolved by the runtime wallet provider.
  */
 
-import { tonWalletAccountsEqual } from "../../models/TonWalletAddress.js";
+import {
+    canonicalizeTonWalletAddress,
+    tonWalletAccountsEqual
+} from "../../models/TonWalletAddress.js";
 
 export const ROOM_WALLET_COUNT = 64;
 
@@ -42,7 +45,7 @@ export class RoomWalletRegistry {
 
     register({ roomNumber, address, network = null } = {}) {
         const normalizedRoomNumber = normalizeRoomNumber(roomNumber);
-        const normalizedAddress = String(address ?? "").trim();
+        const normalizedAddress = canonicalizeTonWalletAddress(address);
 
         if (!normalizedAddress) {
             throw new TypeError("address is required");
@@ -50,7 +53,10 @@ export class RoomWalletRegistry {
 
         const existing = this._entries.get(normalizedRoomNumber);
 
-        if (existing && existing.address !== normalizedAddress) {
+        if (
+            existing
+            && !tonWalletAccountsEqual(existing.address, normalizedAddress)
+        ) {
             throw new Error(`room ${normalizedRoomNumber} is already mapped to another wallet`);
         }
 
