@@ -12,6 +12,10 @@ import { normalizeRoomNumber } from "./RoomWalletRegistry.js";
  * determine the winner, calculate the game pot, or change gameplay rules.
  * Winner and Owner receive their exact intended amounts; blockchain gas is
  * paid by the source Room Wallet.
+ *
+ * Authoritative ContractSettlementManager handoff fields:
+ * winnerAmount, organizerAmount, roomNumber, winnerWallet, ownerWallet.
+ * prizeAmount / prizeAmountNano remain aliases of the winner payout.
  */
 export class RoomWalletSettlementAdapter {
     constructor({ roomWalletAdapter, logger = null } = {}) {
@@ -33,7 +37,7 @@ export class RoomWalletSettlementAdapter {
 
     async preflight(request = {}) {
         const roomNumber = resolveRoomNumber(request);
-        const winnerAmountNano = resolveNano(request.prizeAmountNano, request.prizeAmount, "prizeAmount");
+        const winnerAmountNano = resolveAuthoritativeWinnerAmountNano(request);
         const ownerGrossNano = resolveNano(
             request.organizerAmountNano,
             request.organizerAmount,
@@ -80,7 +84,7 @@ export class RoomWalletSettlementAdapter {
         const roomNumber = resolveRoomNumber(request);
         const winnerWallet = requireWallet(request.winnerWallet, "winnerWallet");
         const ownerWallet = requireWallet(request.ownerWallet, "ownerWallet");
-        const winnerAmountNano = resolveNano(request.prizeAmountNano, request.prizeAmount, "prizeAmount");
+        const winnerAmountNano = resolveAuthoritativeWinnerAmountNano(request);
         const ownerGrossNano = resolveNano(
             request.organizerAmountNano,
             request.organizerAmount,
@@ -206,4 +210,68 @@ function resolveNano(nanoValue, gramValue, name) {
     }
 
     throw new TypeError(`${name} or ${name}Nano is required`);
+}
+
+/**
+ * ContractSettlementManager handoff uses winnerAmount (GRAM).
+ * Older adapter callers and s75 tests use prizeAmount / prizeAmountNano.
+ * Both names are aliases of the same authoritative winner payout.
+ * Disagreeing values fail closed.
+ */
+function resolveAuthoritativeWinnerAmountNano(request = {}) {
+    const candidates = [];
+
+    pushNanoCandidate(candidates, request.winnerAmountNano, "winnerAmountNano");
+    pushNanoCandidate(candidates, request.prizeAmountNano, "prizeAmountNano");
+    pushGramCandidate(candidates, request.winnerAmount, "winnerAmount");
+    pushGramCandidate(candidates, request.prizeAmount, "prizeAmount");
+
+    if (candidates.length === 0) {
+        throw new TypeError("winnerAmount or winnerAmountNano is required");
+    }
+
+    const first = candidates[0].nano;
+
+    for (const candidate of candidates) {
+        if (candidate.nano !== first) {
+            throw new TypeError(
+                `winner amount fields disagree (${candidates[0].key} vs ${candidate.key})`
+            );
+        }
+    }
+
+    return first;
+}
+
+function pushNanoCandidate(candidates, value, key) {
+    if (value == null) {
+        return;
+    }
+
+    if (typeof value !== "bigint") {
+        throw new TypeError(`${key} must be a bigint`);
+    }
+
+    candidates.push({ key, nano: value });
+}
+
+function pushGramCandidate(candidates, value, key) {
+    if (value == null || value === "") {
+        return;
+    }
+
+    if (typeof value === "bigint") {
+        candidates.push({ key, nano: value });
+        return;
+    }
+
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+        candidates.push({
+            key,
+            nano: BigInt(Math.round(value * 1_000_000_000))
+        });
+        return;
+    }
+
+    throw new TypeError(`${key} must be a non-negative finite number or bigint`);
 }

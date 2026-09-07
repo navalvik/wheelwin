@@ -214,3 +214,58 @@ test("settlement requires authoritative roomNumber and never uses gameplay roomI
     assert.deepEqual(balanceCalls, [17]);
     assert.notEqual(result.roomNumber, Number("Keah"));
 });
+
+test("UhqU CSM handoff shape is accepted without prizeAmount", async () => {
+    const { adapter, calls } = createAdapter();
+    const winnerWallet = "EQC9qwKAy72kX1oPtryX-g5y44B2mYZEB2HVdJAeJprla_Le";
+    const ownerWallet = "0QBaklBYMdMsuq7a2eTYhMkz1OF7ZSHaO1mnFd1MZd3YjC5t";
+    const request = {
+        gameId: "game_3618b43e-f127-4f8f-93ca-84eaa90f1345",
+        roomId: "UhqU",
+        roomNumber: 1,
+        winnerWallet,
+        ownerWallet,
+        winnerAmount: 2.85,
+        organizerAmount: 0.15
+    };
+
+    assert.equal(Object.hasOwn(request, "winnerAmount"), true);
+    assert.equal(Object.hasOwn(request, "organizerAmount"), true);
+    assert.equal(Object.hasOwn(request, "prizeAmount"), false);
+    assert.equal(Object.hasOwn(request, "prizeAmountNano"), false);
+
+    const result = await adapter.settleContract(request);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.roomNumber, 1);
+    assert.equal(result.winnerAmountNano, 2_850_000_000n);
+    assert.equal(result.ownerGrossNano, 150_000_000n);
+    assert.equal(result.ownerPayoutNano, 140_000_000n);
+    assert.equal(result.ownerRetainedNano, 10_000_000n);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].roomNumber, 1);
+    assert.equal(calls[0].destination, winnerWallet);
+    assert.equal(calls[0].amountNano, 2_850_000_000n);
+    assert.equal(calls[1].roomNumber, 1);
+    assert.equal(calls[1].destination, ownerWallet);
+    assert.equal(calls[1].amountNano, 140_000_000n);
+});
+
+test("disagreeing winnerAmount and prizeAmount fail closed", async () => {
+    const { adapter, calls } = createAdapter();
+
+    await assert.rejects(
+        () => adapter.settleContract({
+            gameId: "game-disagree",
+            roomNumber: 1,
+            winnerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+            ownerWallet: "EQBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBK",
+            winnerAmount: 2.85,
+            prizeAmount: 2.84,
+            organizerAmount: 0.15
+        }),
+        /winner amount fields disagree/
+    );
+
+    assert.equal(calls.length, 0);
+});
