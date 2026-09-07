@@ -290,5 +290,5 @@ function decodeKey(value, label, expectedBytes) {
         throw new RangeError(`${label} must decode to exactly ${expectedBytes} bytes`);
     }
 
-    return Uint8Array.from(bytes);
+    return Buffer.from(bytes);
 }

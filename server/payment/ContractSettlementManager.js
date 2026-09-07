@@ -681,6 +681,12 @@ export class ContractSettlementManager {
                     + `gameId=${session.gameId} | status=${session.status}`
             );
 
+            if (this._isRoomWalletSettlementActive()) {
+
+                this._scheduleRoomWalletRetry(session);
+
+            }
+
             return false;
 
         }
@@ -823,13 +829,14 @@ export class ContractSettlementManager {
             ?? this._gameplayContextResolver?.resolveRoomByGameId?.(gameId)
             ?? null;
 
-        const contract = this._gameContractManager.getContractByGameId?.(gameId)
+        const contract = this._gameContractManager?.getContractByGameId?.(gameId)
             ?? (roomId
-                ? this._gameContractManager.getContract?.(roomId)
+                ? this._gameContractManager?.getContract?.(roomId)
                 : null)
             ?? (session.contractId
-                ? this._gameContractManager.getContractById?.(session.contractId)
+                ? this._gameContractManager?.getContractById?.(session.contractId)
                 : null)
+            ?? this._contractFromSettlementRequest(session)
             ?? null;
 
         if (!contract?.snapshot) {
@@ -895,6 +902,38 @@ export class ContractSettlementManager {
             organizerAmount,
             totalPot,
             traceSeed: session.traceSeed ?? request?.traceSeed ?? null
+        };
+
+    }
+
+    /**
+     * Room Wallet resume can use the persisted settlement request snapshot when
+     * GameContractManager has already forgotten the live contract object.
+     */
+    _contractFromSettlementRequest(session) {
+
+        if (!this._isRoomWalletSettlementActive()) {
+
+            return null;
+
+        }
+
+        const request = session?.request;
+        const snapshot = request?.snapshot;
+
+        if (!snapshot || typeof snapshot !== "object") {
+
+            return null;
+
+        }
+
+        return {
+            contractId: session.contractId ?? request.contractId ?? null,
+            gameId: session.gameId ?? request.gameId ?? null,
+            roomId: session.roomId ?? request.roomId ?? snapshot.roomId ?? null,
+            contractAddress: request.contractAddress ?? snapshot.contractAddress ?? null,
+            snapshot,
+            snapshotHash: request.snapshotHash ?? null
         };
 
     }

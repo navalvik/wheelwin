@@ -142,9 +142,12 @@ export class RoomWalletAdapter {
             });
         }
 
+        const publicKey = toSigningBuffer(identity.publicKey, "publicKey");
+        const secretKey = toSigningBuffer(identity.secretKey, "secretKey");
+
         const wallet = WalletContractV4.create({
             workchain: Number(identity.workchain ?? 0),
-            publicKey: identity.publicKey
+            publicKey
         });
 
         const derivedAddress = wallet.address.toString({ bounceable: true, urlSafe: true });
@@ -170,7 +173,7 @@ export class RoomWalletAdapter {
 
         const transfer = wallet.createTransfer({
             seqno,
-            secretKey: identity.secretKey,
+            secretKey,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
             messages: [
                 internal({
@@ -234,6 +237,18 @@ export class RoomWalletAdapter {
 
         return identity;
     }
+}
+
+function toSigningBuffer(value, label) {
+    if (Buffer.isBuffer(value)) {
+        return value;
+    }
+
+    if (value instanceof Uint8Array) {
+        return Buffer.from(value);
+    }
+
+    throw new TypeError(`${label} must be a Buffer or Uint8Array`);
 }
 
 function resolveSourceReserveNano(sourceReserveNano, defaultReserveNano) {

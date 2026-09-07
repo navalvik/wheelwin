@@ -438,3 +438,120 @@ test("Room Wallet settlement does not invoke reimbursement or Game Escrow", asyn
     assert.equal(harness.settleCalls[0].organizerAmount, 0.15);
     harness.shutdown();
 });
+
+test("src.copy adapter throw stays READY and retries instead of terminal FAILED", async () => {
+    let attempts = 0;
+    let releaseSecond;
+    const secondAttempt = new Promise((resolve) => {
+        releaseSecond = resolve;
+    });
+    const harness = createHarness({
+        settle: async () => {
+            attempts += 1;
+            if (attempts === 1) {
+                throw new TypeError("src.copy is not a function");
+            }
+            await secondAttempt;
+            return {
+                ok: true,
+                chainInspected: true,
+                winnerConfirmed: true,
+                ownerConfirmed: true,
+                winner: { txHash: "w-s85" },
+                owner: { txHash: "o-s85" }
+            };
+        }
+    });
+    await harness.win();
+    const first = harness.manager.getSettlementSession(GAME_ID);
+    assert.equal(first.status, SETTLEMENT_SESSION_STATUS.READY);
+    assert.match(String(first.reason), /src\.copy is not a function/);
+    assert.equal(harness.events.includes(EVENT_TYPES.SETTLEMENT_FAILED), false);
+    releaseSecond();
+    await wait(80);
+    const after = harness.manager.getSettlementSession(GAME_ID);
+    assert.equal(after.status, SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED);
+    assert.equal(harness.events.includes(EVENT_TYPES.SETTLEMENT_CONFIRMED), true);
+    assert.equal(attempts >= 2, true);
+    harness.shutdown();
+});
+
+test("Room Wallet READY resume uses persisted request snapshot when live contract is gone", async () => {
+    const harness = createHarness({
+        persist: true,
+        settle: async () => {
+            throw new TypeError("src.copy is not a function");
+        }
+    });
+    await harness.win();
+    const live = harness.manager.getSettlementSession(GAME_ID);
+    assert.equal(live.status, SETTLEMENT_SESSION_STATUS.READY);
+    assert.equal(Boolean(live.request?.snapshot), true);
+    harness.manager.shutdown();
+
+    const logger = createLogger();
+    const eventBus = new EventBus({
+        logger,
+        eventBusConfig: { logEvents: false, showDebugPanel: false }
+    });
+    eventBus.initialize();
+    let resumed = 0;
+    const second = new ContractSettlementManager({
+        logger,
+        eventBus,
+        gameContractManager: {
+            getContract() { return null; },
+            getContractByGameId() { return null; },
+            getContractById() { return null; },
+            markWinnerPending() {},
+            markSettlementPending() {},
+            updateContractState() {},
+            completeContract() {},
+            failContract() {},
+            notifyClientUpdate() {}
+        },
+        winnerEngine: { getResult() { return { winningPlayer: { playerId: "olga" } }; } },
+        settlementAdapter: new RoomWalletSettlementRouter({
+            legacySettlementAdapter: { async settleContract() { throw new Error("legacy"); } },
+            roomWalletSettlementAdapter: {
+                async settleContract() {
+                    resumed += 1;
+                    return {
+                        ok: true,
+                        chainInspected: true,
+                        winnerConfirmed: true,
+                        ownerConfirmed: true,
+                        winner: { txHash: "w-resume" },
+                        owner: { txHash: "o-resume" }
+                    };
+                },
+                async inspectSettlement() {
+                    return {
+                        unavailable: false,
+                        unknown: false,
+                        reused: false,
+                        winnerPayout: null,
+                        ownerPayout: null
+                    };
+                }
+            },
+            enabled: true
+        }),
+        financialPersistence: harness.financialPersistence,
+        gameplayContextResolver: { resolveRoomByGameId() { return "RmS3"; } },
+        roomManager: { getRoom() { return { roomId: "RmS3", roomNumber: 1 }; } },
+        ownerConfiguration: { getOwnerWallet() { return OWNER; } },
+        gameEscrowMode: GAME_ESCROW_MODE_GAME,
+        roomWalletRetryDelayMs: 20
+    });
+    second.initialize();
+    const restored = second.restoreSettlementSessions();
+    assert.equal(restored.restored >= 1, true);
+    await second.resumeRestoredSettlements();
+    const session = second.getSettlementSession(GAME_ID);
+    assert.equal(session.status, SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED);
+    assert.equal(resumed, 1);
+    second.shutdown();
+    eventBus.shutdown();
+    harness.shutdown();
+});
