@@ -152,15 +152,36 @@ node tests/roomWalletTerminalSettlementRecovery.r18s82.test.js
   17 pass
 ```
 
-### Production financial statement (pre-deploy, read-only)
+### Production financial statement
 
-- kezX **unpaid** on-chain (no winner/owner settlement outbound).
-- UhqU **untouched** (same Room Wallet #1; no new outbound from this task).
-- No operator-recovery call.
-- No TON sent from this workstation.
+Pre-fix TonAPI: balance **6489398741**, last inbound player payment only, **no** settlement outs.
+
+Post-deploy TonAPI (read-only, after Railway restart):
+
+| Leg | Destination (raw) | Amount nano | utime | hash |
+| --- | --- | --- | --- | --- |
+| Winner Bob | `0:2d8205bb979c1f41c3f2cb7f18ee656e5e7874c111dca4528f21db426dc4476f` | 2850000000 | 1788779868 | `a482e0c6106491ef531c0619c9ab98cb1a2cca166acb1a634c3a294973f46ab5` |
+| Owner | `0:5a92505831d32cbaaedad9e4d884c933d4e17b6521da3b59a715dd4c65ddd88c` | 140000000 | 1788779874 | `654b7df3b304b9b5783f825a776af51201841f05748a870cab2fba88cc107ba1` |
+| Residual Sweep | `0:feca5852b3b60b509a59ca6462897d879e8bc04a7c12f4b6e12bd3a2768bde05` | 490000000 | 1788779876 | `3de4858e2c07b65254d47de308e7fac08a8638e56b3a9ee82d45327286b91c27` |
+
+- Room Wallet balance after: **3008233870**. seqno **5** (was 2).
+- **One** winner out, **one** owner out, **one** residual sweep. No duplicate Bob/owner payouts.
+- kezX **was paid** by ordinary Room Wallet resume after this deploy (not operator-recovery, not a manual send from this workstation).
+- UhqU: **no** 2.85 outbound to Olga. UhqU settlement record remains historical `SETTLEMENT_FAILED`. Room Wallet #1 is shared, so kezX+sweep spent pooled balance; Olga was not paid.
+- `/console/settlements/operator-recovery` was **not** called.
+- `/debug/games` after deploy: `activeGames: []`.
 
 ### Deployment
 
-Git push of this commit to `payment/room-wallet-integration` is the established Railway Production mechanism. Post-push verification of `/health`, `/ready`, GitHub `railway-app[bot]`, and a second read-only TonAPI pass is recorded after the push in this same report (section updated at deploy time).
+| Item | Value |
+| --- | --- |
+| Branch | `payment/room-wallet-integration` |
+| Commit | `00c3d3777270ba1be3c5668c5b360bd67e4926d2` |
+| Push | `aa58c65..00c3d37` to `origin/payment/room-wallet-integration` |
+| GitHub combined | `success` |
+| Railway | `Success - wheelwin-production.up.railway.app` at `2026-09-07T11:17:42Z` |
+| Railway deploy id | `a0d55091-7ef6-4fdb-a706-f0f1882c8bb8` |
+| `/health` | `ok`, `RUNNING`, `ready=true`, `uptimeMs≈25831` on the new process, `GAME_ESCROW_MODE=game` |
+| `/ready` | `ready=true` |
 
-**kezX payout after deploy:** if Production restores this `READY` session, ordinary machinery may send winner 2.85 + owner 0.14. That event is **not** claimed here until an on-chain outbound proves it. This report does not treat deploy itself as financial completion.
+Final: ordinary Room Wallet settlement **can** recover from this exact `src.copy` failure. kezX Bob **is paid on-chain**. Code/test/deploy verification and financial completion are both true for kezX; they are still distinct from UhqU, which remains unpaid.
