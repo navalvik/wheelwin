@@ -367,16 +367,16 @@ test("historical SETTLEMENT_FAILED remains failed and is not rewritten", async (
     const persistence = new TonFinancialPersistence({ dataDir, logger: createLogger() });
     persistence.initialize();
     persistence.createSettlementRecord({
-        gameId: "game_3618b43e-f127-4f8f-93ca-84eaa90f1345",
-        roomId: "UhqU",
+        gameId: "game_unclassified_failed",
+        roomId: "XyzZ",
         status: SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED,
         winnerAmount: 2.85,
         organizerAmount: 0.15,
-        reason: "adapter_threw:prizeAmount or prizeAmountNano is required",
+        reason: "adapter_threw:rpc_timeout",
         originalStatus: "SETTLEMENT_FAILED"
     }, {
-        gameId: "game_3618b43e-f127-4f8f-93ca-84eaa90f1345",
-        roomId: "UhqU",
+        gameId: "game_unclassified_failed",
+        roomId: "XyzZ",
         status: SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED
     });
     const logger = createLogger();
@@ -413,9 +413,9 @@ test("historical SETTLEMENT_FAILED remains failed and is not rewritten", async (
     assert.equal(restored.restored, 0);
     await manager.resumeRestoredSettlements();
     assert.equal(settleCalls, 0);
-    const record = persistence.loadSettlementRecord("game_3618b43e-f127-4f8f-93ca-84eaa90f1345");
+    const record = persistence.loadSettlementRecord("game_unclassified_failed");
     assert.equal(record.status, SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED);
-    assert.match(String(record.payload?.reason ?? record.reason ?? ""), /prizeAmount/);
+    assert.match(String(record.payload?.reason ?? record.reason ?? ""), /rpc_timeout/);
     manager.shutdown();
     eventBus.shutdown();
 });

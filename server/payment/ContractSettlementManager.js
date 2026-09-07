@@ -35,6 +35,9 @@ import { tryNormalizeRoomNumber } from "./roomWallet/RoomWalletRegistry.js";
 import {
     ROOM_WALLET_SETTLEMENT_SAFETY_CODES
 } from "./roomWallet/RoomWalletSettlementAdapter.js";
+import {
+    reconstructHistoricalRoomWalletRequest
+} from "./roomWallet/historicalRoomWalletSettlementReentry.js";
 
 export const DEFAULT_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -486,7 +489,11 @@ export class ContractSettlementManager {
 
                 if (session.isTerminal()) {
 
-                    continue;
+                    if (!this._reenterHistoricalRoomWalletFailure(session)) {
+
+                        continue;
+
+                    }
 
                 }
 
@@ -544,6 +551,57 @@ export class ContractSettlementManager {
         }
 
         return Object.freeze({ restored, recovered, rewatched });
+
+    }
+
+    /**
+     * Re-open only the known historical Room Wallet adapter field-mismatch
+     * FAILED record into READY. Does not use SETTLEMENT_FAILED transitions
+     * and does not reopen safety failures.
+     */
+    _reenterHistoricalRoomWalletFailure(session) {
+
+        if (!this._isRoomWalletSettlementActive()) {
+
+            return false;
+
+        }
+
+        const request = reconstructHistoricalRoomWalletRequest(session);
+
+        if (!request) {
+
+            return false;
+
+        }
+
+        session.request = request;
+        session.winnerWallet = session.winnerWallet ?? request.winnerWallet;
+        session.ownerWallet = session.ownerWallet ?? request.ownerWallet;
+        session.prizeAmount = session.prizeAmount ?? request.winnerAmount;
+        session.organizerAmount = session.organizerAmount ?? request.organizerAmount;
+        session.totalPot = session.totalPot ?? request.totalPot;
+        session.winnerId = session.winnerId ?? request.winnerId;
+        session.recoveryMetadata = Object.freeze({
+            ...(session.recoveryMetadata ?? {}),
+            historicalReentry: true,
+            originalStatus: SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED,
+            originalReason: session.reason
+        });
+        session.status = SETTLEMENT_SESSION_STATUS.READY;
+        session.failedAt = null;
+        session.settlementDeadline = Date.now() + this._settlementTimeoutMs;
+        session.updatedAt = Date.now();
+        session.version += 1;
+
+        this._persistSession(session, "update");
+
+        this._log(
+            `ROOM_WALLET_HISTORICAL_REENTRY | gameId=${session.gameId} | `
+                + `status=${session.status}`
+        );
+
+        return true;
 
     }
 
