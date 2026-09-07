@@ -1186,6 +1186,36 @@ export class TonFinancialPersistence {
 
     }
 
+    createSettlementOperatorRecoveryRecord(payload, metadata = {}) {
+
+        return this.create(
+            TON_FINANCIAL_RECORD_TYPES.SETTLEMENT_OPERATOR_RECOVERY,
+            payload,
+            metadata
+        );
+
+    }
+
+    updateSettlementOperatorRecoveryRecord(gameId, payload, metadata = {}) {
+
+        return this.update(
+            TON_FINANCIAL_RECORD_TYPES.SETTLEMENT_OPERATOR_RECOVERY,
+            gameId,
+            payload,
+            metadata
+        );
+
+    }
+
+    loadSettlementOperatorRecoveryRecord(gameId) {
+
+        return this.load(
+            TON_FINANCIAL_RECORD_TYPES.SETTLEMENT_OPERATOR_RECOVERY,
+            gameId
+        );
+
+    }
+
     // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------

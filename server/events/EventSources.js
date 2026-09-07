@@ -47,6 +47,7 @@ export const EVENT_SOURCES = Object.freeze({
     DEPLOYMENT_REIMBURSEMENT_SERVICE: "DeploymentReimbursementService",
     WALLET_MANAGER: "WalletManager",
     TON_FINANCIAL_RECOVERY: "TonFinancialRecovery",
+    ROOM_WALLET_TERMINAL_SETTLEMENT_RECOVERY: "RoomWalletTerminalSettlementRecovery",
     OPERATIONAL_METRICS: "OperationalMetrics",
     ADVERTISEMENT_SCHEDULER: "AdvertisementScheduler"
 });

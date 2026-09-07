@@ -7,6 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
     IMMUTABLE_ON_CREATE_TYPES,
     SETTLEMENT_TERMINAL_STATUSES,
+    SETTLEMENT_OPERATOR_RECOVERY_TERMINAL_STATUSES,
     DEPLOYMENT_COST_SNAPSHOT_TERMINAL_STATUSES,
     DEPLOYMENT_REIMBURSEMENT_TERMINAL_STATUSES,
     DEPOSIT_SESSION_TERMINAL_STATUSES,
@@ -149,6 +150,12 @@ export function resolveRecordId(recordType, payload, metadata = {}) {
                 ?? payload?.id
                 ?? null;
 
+        case TON_FINANCIAL_RECORD_TYPES.SETTLEMENT_OPERATOR_RECOVERY:
+            return metadata.gameId
+                ?? payload?.gameId
+                ?? metadata.recordId
+                ?? null;
+
         default:
             return metadata.recordId ?? null;
 
@@ -235,6 +242,12 @@ export function isImmutableRecord(recordType, status = null) {
     if (recordType === TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP) {
 
         return RESIDUAL_SWEEP_TERMINAL_STATUSES.includes(status);
+
+    }
+
+    if (recordType === TON_FINANCIAL_RECORD_TYPES.SETTLEMENT_OPERATOR_RECOVERY) {
+
+        return SETTLEMENT_OPERATOR_RECOVERY_TERMINAL_STATUSES.includes(status);
 
     }
 

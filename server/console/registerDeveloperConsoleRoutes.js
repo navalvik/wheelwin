@@ -15,7 +15,8 @@ export function registerDeveloperConsoleRoutes(
         gameDiagnosticLogManager = null,
         sessionHistoryArchive = null,
         runtimeConfigurationService = null,
-        audioRegistryService = null
+        audioRegistryService = null,
+        roomWalletTerminalSettlementRecovery = null
     } = {}
 ) {
 
@@ -546,6 +547,49 @@ export function registerDeveloperConsoleRoutes(
         res.setHeader("Cache-Control", "no-store");
 
         res.end(download.buffer);
+
+    });
+
+    /**
+     * Administrator-only recovery of a terminal FAILED Room-Wallet settlement.
+     * Operator supplies identity pins only. Amounts and destinations are derived.
+     */
+    app.post("/console/settlements/operator-recovery", adminGate, async (req, res) => {
+
+        if (!roomWalletTerminalSettlementRecovery?.recover) {
+
+            res.status(503).json({ error: "Operator settlement recovery unavailable" });
+
+            return;
+
+        }
+
+        try {
+
+            const result = await roomWalletTerminalSettlementRecovery.recover({
+                gameId: req.body?.gameId,
+                roomNumber: req.body?.roomNumber,
+                roomWalletAddress: req.body?.roomWalletAddress
+            });
+
+            const status = result?.ok
+                ? 200
+                : result?.code === "PIN_MISMATCH" || result?.code === "OPERATOR_OVERRIDE_FORBIDDEN"
+                    ? 400
+                    : result?.code === "ROOM_OCCUPIED" || result?.code === "WALLET_REUSED"
+                        ? 409
+                        : 422;
+
+            res.status(status).json(result);
+
+        } catch (error) {
+
+            res.status(500).json({
+                error: "Operator settlement recovery failed",
+                message: error?.message ?? "Unknown error"
+            });
+
+        }
 
     });
 

@@ -203,6 +203,7 @@ function resolveTonFinancialDataDir(env = process.env) {
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
+import { RoomWalletTerminalSettlementRecovery } from "./payment/roomWallet/RoomWalletTerminalSettlementRecovery.js";
 import { DeveloperConsoleGateway } from "./console/DeveloperConsoleGateway.js";
 import { DeveloperAuthService } from "./console/auth/DeveloperAuthService.js";
 import { createDeveloperAuthMiddleware } from "./console/auth/developerAuthMiddleware.js";
@@ -1579,6 +1580,21 @@ class WheelWinApplication {
 
         this._contractSettlementManager.initialize();
 
+        this._roomWalletTerminalSettlementRecovery = new RoomWalletTerminalSettlementRecovery({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            financialPersistence: this._financialPersistence,
+            sessionHistoryArchive: null,
+            settlementAdapter: this._roomWalletSettlementRouter,
+            tonService: this._services?.tonService ?? null,
+            roomManager: this._managers.roomManager,
+            gameManager: this._managers.gameManager,
+            ownerConfiguration: OwnerConfiguration,
+            env: process.env
+        });
+
+        this._logger.startupLine("RoomWalletTerminalSettlementRecovery");
+
         // R5.19 — Page5 → Page6 must follow authoritative RESULT_COMPLETED →
         // OPEN_PAGE6. Settlement continues independently and must not gate
         // presentation navigation (SETTLEMENT_FAILED / hang left clients stuck
@@ -2229,6 +2245,12 @@ class WheelWinApplication {
 
         this._logger.startupLine("SessionHistoryArchiveManager");
 
+        if (this._roomWalletTerminalSettlementRecovery) {
+            this._roomWalletTerminalSettlementRecovery.bindSessionHistoryArchive(
+                this._sessionHistoryArchive
+            );
+        }
+
         // R13.9H — Forensic lifecycle archive (collect → ZIP → private Cloudflare R2).
         const forensicArchiveConfig = resolveForensicArchiveConfig();
 
@@ -2375,7 +2397,9 @@ class WheelWinApplication {
                 gameDiagnosticLogManager: this._gameDiagnosticLogManager,
                 sessionHistoryArchive: this._sessionHistoryArchive,
                 runtimeConfigurationService: this._runtimeConfigurationService,
-                audioRegistryService: this._audioRegistryService
+                audioRegistryService: this._audioRegistryService,
+                roomWalletTerminalSettlementRecovery:
+                    this._roomWalletTerminalSettlementRecovery
             }
         );
 

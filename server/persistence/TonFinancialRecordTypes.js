@@ -22,7 +22,8 @@ export const TON_FINANCIAL_RECORD_TYPES = Object.freeze({
     DEPOSIT_OBSERVATION: "deposit_observation",
     // R17.9T.6-C — Recovery Data Contract persistence (gameplay recovery data).
     RECOVERY_DATA: "recovery_data",
-    RESIDUAL_SWEEP: "residual_sweep"
+    RESIDUAL_SWEEP: "residual_sweep",
+    SETTLEMENT_OPERATOR_RECOVERY: "settlement_operator_recovery"
 });
 
 export const TON_FINANCIAL_SCHEMA_VERSION = 1;
@@ -99,6 +100,12 @@ export const RESIDUAL_SWEEP_TERMINAL_STATUSES = Object.freeze([
     "FAILED_TERMINAL"
 ]);
 
+/** Operator recovery of a historical FAILED Room-Wallet settlement. */
+export const SETTLEMENT_OPERATOR_RECOVERY_TERMINAL_STATUSES = Object.freeze([
+    "CONFIRMED",
+    "PARTIAL"
+]);
+
 export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT]: "active",
     [TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION]: "active",
@@ -114,5 +121,6 @@ export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.AUDIT]: "immutable",
     [TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT]: "archived",
     [TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA]: "active",
-    [TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP]: "active"
+    [TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP]: "active",
+    [TON_FINANCIAL_RECORD_TYPES.SETTLEMENT_OPERATOR_RECOVERY]: "active"
 });
