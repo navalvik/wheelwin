@@ -918,6 +918,41 @@ function assertUnrelatedIntact(graph, unrelated, label) {
 })();
 
 // ---------------------------------------------------------------------------
+// G2. EXPIRED at recovery time even when checkpoint was still inside window
+// ---------------------------------------------------------------------------
+
+(function testExpiredAtRecoveryTimeFailClosed() {
+
+    const graph = buildGraph();
+
+    const now = Date.now();
+
+    const payload = buildPayload({
+        gameState: "READY",
+        phaseStartedAt: now - 10000,
+        clockStartedAt: now - 15000,
+        serverTimestampAtCheckpoint: now - 9000
+    });
+
+    const result = graph.orchestrator.recoverCandidate(payload);
+
+    assert(
+        result.status === RECOVERY_RESULT_STATUS.FAILED_EXPIRED,
+        `recovery-time expired candidate must fail closed, got ${result.status}`
+    );
+
+    assert(
+        result.reason === "phase_deadline_expired_at_recovery_time",
+        `expected recovery-time expiry reason, got ${result.reason}`
+    );
+
+    assertNoResidue(graph, payload, "expired at recovery time");
+
+    graph.assertZeroLifecycleEvents("expired at recovery time");
+
+})();
+
+// ---------------------------------------------------------------------------
 // H. INVALID IDENTITY fail closed
 // ---------------------------------------------------------------------------
 
@@ -1405,16 +1440,9 @@ function assertUnrelatedIntact(graph, unrelated, label) {
 
         }
 
-        const record = graph.gameClockEngine._clocks.get(GAME_ID);
-
         assert(
-            record && record.running === false,
-            "clock_arm injection: refused arming must leave clock unarmed"
-        );
-
-        assert(
-            record.timeoutHandle === null,
-            "clock_arm injection: no timeout may be scheduled"
+            graph.gameClockEngine.getClock(GAME_ID) === null,
+            "clock_arm injection: refused arming must evict the unarmed recovered clock"
         );
 
         assert(
@@ -1422,11 +1450,11 @@ function assertUnrelatedIntact(graph, unrelated, label) {
             "clock_arm injection: pending entry must be cleaned up"
         );
 
+        assertNoResidue(graph, payload, "failure injection clock_arm");
+
         assertUnrelatedIntact(graph, unrelated, "failure injection clock_arm");
 
         graph.assertZeroLifecycleEvents("failure injection clock_arm");
-
-        graph.gameClockEngine.removeClock(GAME_ID);
 
     }
 

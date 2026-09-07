@@ -10,8 +10,9 @@
  *   E. Sequential connects 0→1→2→3   → arms exactly once at 3;
  *   F. Duplicate PLAYER_CONNECTED    → no duplicate arm / no second timeout;
  *   G. Deadline expires before full
- *      reconnect                     → existing fail-closed behavior, no
- *                                      deadline extension, no invented state;
+ *      reconnect                     → watchdog evicts unarmed recovered
+ *                                      runtime (no residue, no deadline
+ *                                      extension, no invented state);
  *   H. Disconnect after arming       → clock continues normally (no pause/
  *                                      disarm/deadline change);
  *   I. RESULT recovery               → terminal, no pending clock, no arming;
@@ -698,8 +699,9 @@ async function testCaseG() {
 
     const graph = buildGraph();
 
-    // READY duration is 3000ms; leave only ~120ms remaining at recovery.
-    const payload = buildPayload({}, { phaseAgeMs: 2880 });
+    // READY duration is 3000ms; leave ~1s remaining at recovery so the
+    // pending deadline watch can fire before reconnect.
+    const payload = buildPayload({}, { phaseAgeMs: 2000 });
 
     const result = graph.orchestrator.recoverCandidate(payload);
 
@@ -710,43 +712,39 @@ async function testCaseG() {
 
     assertUnarmedPending(graph, "G");
 
-    // Let the original authoritative deadline elapse before reconnecting.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    connectPlayers(graph, 3);
-
-    const record = graph.gameClockEngine._clocks.get(GAME_ID);
-
-    assert(
-        record && record.running === false,
-        "G: late arming attempt must fail closed (clock stays unarmed)"
-    );
-
-    assert(
-        record.timeoutHandle === null,
-        "G: no timeout may be scheduled after refused arming"
-    );
+    await new Promise((resolve) => setTimeout(resolve, 1200));
 
     assert(
         !graph.orchestrator._pendingRecoveredClocks.has(GAME_ID),
-        "G: pending entry must be cleaned up after fail-closed refusal"
+        "G: pending entry must be removed after deadline watch eviction"
     );
 
-    // No deadline extension, no phase restart, no invented recovery state.
-    const expectedDeadline = payload.phaseStartedAt
-        + payload.configuration.timers.READY.durationMs;
+    assert(
+        graph.gameClockEngine.getClock(GAME_ID) === null,
+        "G: expired unarmed recovered clock must not remain attached"
+    );
 
     assert(
-        record.phaseEndsAt === expectedDeadline,
-        "G: original deadline must remain untouched"
+        !graph.roomManager.hasRoom(ROOM_ID),
+        "G: recovered room must be detached after deadline eviction"
+    );
+
+    assert(
+        !graph.gameManager.hasGame(GAME_ID),
+        "G: recovered game must be detached after deadline eviction"
+    );
+
+    connectPlayers(graph, 3);
+
+    assert(
+        graph.gameClockEngine.getClock(GAME_ID) === null,
+        "G: late reconnect must not resurrect an evicted recovered clock"
     );
 
     assert(
         graph.lifecycleEvents() === 0,
-        "G: late arming attempt must cause zero gameplay events"
+        "G: deadline eviction must cause zero gameplay events"
     );
-
-    graph.gameClockEngine.removeClock(GAME_ID);
 
 }
 

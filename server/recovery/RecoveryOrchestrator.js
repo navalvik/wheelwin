@@ -171,6 +171,15 @@ export class RecoveryOrchestrator {
          */
         this._pendingRecoveredClocks = new Map();
 
+        /**
+         * Deadline watches for pending recovered clocks. If connectivity
+         * never completes before the original phase deadline, the recovered
+         * runtime is evicted instead of remaining unarmed indefinitely.
+         *
+         * @type {Map<string, ReturnType<typeof setTimeout>>}
+         */
+        this._pendingDeadlineWatches = new Map();
+
         this._playerConnectedHandler = null;
 
         this._playerConnectedSubscribed = false;
@@ -352,6 +361,14 @@ export class RecoveryOrchestrator {
             case "NOT_RECOVERABLE":
                 return this._buildResult({
                     status: RECOVERY_RESULT_STATUS.SKIPPED_NOT_RECOVERABLE,
+                    payload,
+                    classification,
+                    reason: classification.reason
+                });
+
+            case "EXPIRED":
+                return this._buildResult({
+                    status: RECOVERY_RESULT_STATUS.FAILED_EXPIRED,
                     payload,
                     classification,
                     reason: classification.reason
@@ -693,17 +710,30 @@ export class RecoveryOrchestrator {
         // 17. R17.9T.6 OPTION B — connectivity-aware recovered clock arming.
         //
         // The reconstructed PRE_GAME_READY/READY clock stays UNARMED-ATTACHED
-        // (authoritative state restored, not running, no timeout scheduled,
-        // no phase progression, no lifecycle events) and is registered as
-        // pending in runtime memory. It transitions to ARMED only when ALL 3
-        // registered players report CONNECTED — either they are already
-        // connected at reconstruction time (armed exactly once here), or
-        // later via the existing manager-level PLAYER_CONNECTED event.
-        //
-        // The original authoritative deadline is never modified; late arming
-        // uses the existing armRecoveredClock() remaining-time computation
-        // and its fail-closed expiry behavior.
+        // only while the original deadline is still in the future and not all
+        // 3 registered players are CONNECTED. A deadline that has already
+        // elapsed at recovery time (Date.now()), or that elapses while still
+        // pending connectivity, fail-closes and evicts the recovered runtime.
+        // The original authoritative deadline is never extended.
         if (isPreGame) {
+
+            const expiry = this._computePhaseExpiry(payload);
+            const remainingMs = typeof expiry.deadline === "number"
+                ? Math.max(0, expiry.deadline - Date.now())
+                : 0;
+
+            if (remainingMs <= 0) {
+
+                this._clearPendingDeadlineWatch(payload.gameId);
+                this._pendingRecoveredClocks.delete(payload.gameId);
+
+                return fail(
+                    RECOVERY_RESULT_STATUS.FAILED_EXPIRED,
+                    "clock_arm",
+                    "phase_deadline_expired_at_recovery_time"
+                );
+
+            }
 
             this._pendingRecoveredClocks.set(payload.gameId, {
                 roomId: payload.roomId,
@@ -712,20 +742,23 @@ export class RecoveryOrchestrator {
 
             const armedNow = this._tryArmPendingRecoveredClock(payload.gameId);
 
-            if (!armedNow
-                && this._areAllRegisteredPlayersConnected(orderedIds)) {
+            if (armedNow) {
 
-                // All players reported CONNECTED yet the existing engine
-                // refused arming (e.g. deadline elapsed between checkpoint
-                // validation and arming): preserve the pre-existing
-                // fail-closed FAILED_EXPIRED rollback behavior exactly.
-                this._pendingRecoveredClocks.delete(payload.gameId);
+                // Clock armed; no pending watch required.
 
-                return fail(
-                    RECOVERY_RESULT_STATUS.FAILED_EXPIRED,
-                    "clock_arm",
-                    "armRecoveredClock refused (expired/paused/terminal-invalid)"
-                );
+            } else if (this._pendingRecoveredClocks.has(payload.gameId)) {
+
+                this._armPendingDeadlineWatch(payload.gameId, remainingMs);
+
+            } else if (this._areAllRegisteredPlayersConnected(orderedIds)) {
+
+                return this._buildResult({
+                    status: RECOVERY_RESULT_STATUS.FAILED_EXPIRED,
+                    payload,
+                    classification,
+                    failedStep: "clock_arm",
+                    reason: "armRecoveredClock refused (expired/paused/terminal-invalid)"
+                });
 
             }
 
@@ -896,18 +929,17 @@ export class RecoveryOrchestrator {
 
         const armed = this._gameClockEngine.armRecoveredClock(gameId);
 
-        // Remove the pending entry regardless of outcome: on success the
-        // game is armed (further PLAYER_CONNECTED events must be no-ops);
-        // on refusal the existing fail-closed engine behavior is final and
-        // no stale pending residue may remain.
+        this._clearPendingDeadlineWatch(gameId);
         this._pendingRecoveredClocks.delete(gameId);
 
         if (!armed) {
 
             this._logError(
                 `RecoveryOrchestrator: pending recovered clock arming refused | `
-                    + `gameId=${gameId} (existing fail-closed behavior preserved)`
+                    + `gameId=${gameId} — evicting unarmed recovered runtime`
             );
+
+            this._evictExpiredRecoveredRuntime(gameId, entry);
 
             return false;
 
@@ -919,6 +951,93 @@ export class RecoveryOrchestrator {
         );
 
         return true;
+
+    }
+
+    _armPendingDeadlineWatch(gameId, remainingMs) {
+
+        this._clearPendingDeadlineWatch(gameId);
+
+        const delayMs = Math.max(0, remainingMs);
+
+        const handle = setTimeout(() => {
+
+            this._pendingDeadlineWatches.delete(gameId);
+
+            const entry = this._pendingRecoveredClocks.get(gameId);
+
+            if (!entry) {
+
+                return;
+
+            }
+
+            this._logError(
+                `RecoveryOrchestrator: pending recovered clock deadline elapsed `
+                    + `without connectivity | gameId=${gameId}`
+            );
+
+            this._evictExpiredRecoveredRuntime(gameId, entry);
+
+        }, delayMs);
+
+        if (typeof handle.unref === "function") {
+
+            handle.unref();
+
+        }
+
+        this._pendingDeadlineWatches.set(gameId, handle);
+
+    }
+
+    _clearPendingDeadlineWatch(gameId) {
+
+        const handle = this._pendingDeadlineWatches.get(gameId);
+
+        if (!handle) {
+
+            return;
+
+        }
+
+        clearTimeout(handle);
+
+        this._pendingDeadlineWatches.delete(gameId);
+
+    }
+
+    /**
+     * Silent eviction of a recovered PRE_GAME runtime that can no longer be
+     * armed. Uses the existing rollback detach APIs only. Does not write
+     * persistence, emit gameplay lifecycle events, or touch financial state.
+     */
+    _evictExpiredRecoveredRuntime(gameId, entry) {
+
+        this._clearPendingDeadlineWatch(gameId);
+
+        this._pendingRecoveredClocks.delete(gameId);
+
+        const playerIds = Array.isArray(entry?.playerIds) ? entry.playerIds : [];
+
+        const attached = [
+            { component: "winner", id: gameId },
+            { component: "physics", id: gameId },
+            { component: "input", id: gameId },
+            { component: "clock", id: gameId },
+            { component: "state", id: gameId },
+            { component: "configuration", id: gameId },
+            { component: "game", id: gameId },
+            ...playerIds.map((playerId) => ({ component: "player", id: playerId }))
+        ];
+
+        if (entry?.roomId) {
+
+            attached.push({ component: "room", id: entry.roomId });
+
+        }
+
+        this._rollbackCandidate(attached);
 
     }
 
@@ -986,7 +1105,9 @@ export class RecoveryOrchestrator {
 
         }
 
-        // EXPIRED: unpaused phase deadline already passed at checkpoint time.
+        // EXPIRED: unpaused phase deadline already passed at checkpoint time
+        // OR at recovery time (Date.now()). A checkpoint taken inside the
+        // original window must not resurrect an already-elapsed READY clock.
         if ((payload.gameState === GAME_STATES.PRE_GAME_READY
             || payload.gameState === GAME_STATES.READY)) {
 
@@ -996,7 +1117,9 @@ export class RecoveryOrchestrator {
 
                 return {
                     type: "EXPIRED",
-                    reason: `phase_deadline_expired_at_checkpoint`
+                    reason: expiry.expiredAtCheckpoint
+                        ? "phase_deadline_expired_at_checkpoint"
+                        : "phase_deadline_expired_at_recovery_time"
                 };
 
             }
@@ -1026,8 +1149,14 @@ export class RecoveryOrchestrator {
 
         const deadline = payload.phaseStartedAt + durationMs;
 
+        const expiredAtCheckpoint = deadline <= payload.serverTimestampAtCheckpoint;
+
+        const expiredAtRecovery = deadline <= Date.now();
+
         return {
-            expired: deadline <= payload.serverTimestampAtCheckpoint,
+            expired: expiredAtCheckpoint || expiredAtRecovery,
+            expiredAtCheckpoint,
+            expiredAtRecovery,
             deadline,
             durationMs
         };
@@ -1368,7 +1497,9 @@ export class RecoveryOrchestrator {
                 return {
                     ok: false,
                     status: RECOVERY_RESULT_STATUS.FAILED_EXPIRED,
-                    reason: "phase_deadline_expired_at_checkpoint"
+                    reason: expiry.expiredAtCheckpoint
+                        ? "phase_deadline_expired_at_checkpoint"
+                        : "phase_deadline_expired_at_recovery_time"
                 };
 
             }
