@@ -261,7 +261,7 @@ test("CSM Room Wallet handoff accepts UhqU winnerAmount without prizeAmount", as
     assert.equal(session.reason, null);
 });
 
-test("genuine Room Wallet adapter throw remains SETTLEMENT_FAILED", async () => {
+test("transient Room Wallet adapter throw is retryable and does not strand SETTLEMENT_FAILED", async () => {
     OwnerConfiguration.resetForTests();
 
     const settlementAdapter = new RoomWalletSettlementRouter({
@@ -347,7 +347,7 @@ test("genuine Room Wallet adapter throw remains SETTLEMENT_FAILED", async () => 
                 return OWNER;
             }
         },
-        gameEscrowMode: GAME_ESCROW_MODE_GAME,
+        roomWalletRetryDelayMs: 20,
         devMode: false
     });
 
@@ -362,11 +362,12 @@ test("genuine Room Wallet adapter throw remains SETTLEMENT_FAILED", async () => 
         }
     });
 
-    await wait(80);
+    await wait(40);
 
     const session = manager._byGameId.get(UHQU_GAME_ID);
-    assert.equal(session.status, SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED);
+    assert.equal(session.status, SETTLEMENT_SESSION_STATUS.READY);
     assert.match(String(session.reason), /adapter_threw:wallet_unavailable/);
-    assert.equal(contract.status, GAME_CONTRACT_STATUS.SETTLEMENT_FAILED);
+    assert.notEqual(contract.status, GAME_CONTRACT_STATUS.SETTLEMENT_FAILED);
     assert.notEqual(contract.status, GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED);
+    manager.shutdown();
 });

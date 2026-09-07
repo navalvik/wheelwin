@@ -56,6 +56,16 @@ export class RoomWalletSettlementRouter {
         return this.activeAdapter.settleContract(request);
     }
 
+    async inspectSettlement(request) {
+        const adapter = this.activeAdapter;
+
+        if (typeof adapter.inspectSettlement === "function") {
+            return adapter.inspectSettlement(request);
+        }
+
+        return null;
+    }
+
     async getSettlementState(address) {
         const adapter = this.activeAdapter;
 

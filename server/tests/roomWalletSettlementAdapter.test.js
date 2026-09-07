@@ -6,7 +6,9 @@ import { GRAM_NANO } from "../payment/roomWallet/RoomWalletFinancialPolicy.js";
 
 function createAdapter({
     balanceNano = 100n * GRAM_NANO,
-    sendTransfer = null
+    sendTransfer = null,
+    inspectHistory = null,
+    getWalletAddress = null
 } = {}) {
     const calls = [];
     const balanceCalls = [];
@@ -39,11 +41,15 @@ function createAdapter({
                 code: "SENT",
                 txHash: `tx-${calls.length}`
             };
-        }
+        },
+        ...(typeof getWalletAddress === "function" ? { getWalletAddress } : {})
     };
 
     return {
-        adapter: new RoomWalletSettlementAdapter({ roomWalletAdapter }),
+        adapter: new RoomWalletSettlementAdapter({
+            roomWalletAdapter,
+            ...(inspectHistory ? { inspectHistory } : {})
+        }),
         calls,
         balanceCalls,
         gasReserveNano
@@ -267,5 +273,183 @@ test("disagreeing winnerAmount and prizeAmount fail closed", async () => {
         /winner amount fields disagree/
     );
 
+    assert.equal(calls.length, 0);
+});
+
+const WINNER = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
+const OWNER_W = "EQBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBK";
+const RW = "EQDGQjwaP0OSExa9MfZih61De5TQuUITQPYiYZyfqAFzpvQB";
+
+function payout(hash, amountNano, destination) {
+    return { hash, amountNano, destination, success: true, bounced: false };
+}
+
+test("winner payout already on chain is not sent again", async () => {
+    let inspectCalls = 0;
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        inspectHistory: async () => {
+            inspectCalls += 1;
+            return {
+                reused: false,
+                laterCount: inspectCalls > 1 ? 1 : 0,
+                winnerPayout: payout("winner-existing", 9_500_000_000n, WINNER),
+                ownerPayout: inspectCalls > 1
+                    ? payout("owner-new", 140_000_000n, OWNER_W)
+                    : null,
+                winnerPayoutCount: 1,
+                ownerPayoutCount: inspectCalls > 1 ? 1 : 0
+            };
+        }
+    });
+
+    const result = await adapter.settleContract({
+        roomNumber: 1,
+        winnerWallet: WINNER,
+        ownerWallet: OWNER_W,
+        prizeAmountNano: 9_500_000_000n,
+        organizerAmountNano: 150_000_000n
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].destination, OWNER_W);
+    assert.equal(calls[0].amountNano, 140_000_000n);
+});
+
+test("owner payout already on chain is not sent again", async () => {
+    let inspectCalls = 0;
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        inspectHistory: async () => {
+            inspectCalls += 1;
+            return {
+                reused: false,
+                laterCount: inspectCalls > 1 ? 1 : 0,
+                winnerPayout: inspectCalls > 1
+                    ? payout("winner-new", 9_500_000_000n, WINNER)
+                    : null,
+                ownerPayout: payout("owner-existing", 140_000_000n, OWNER_W),
+                winnerPayoutCount: inspectCalls > 1 ? 1 : 0,
+                ownerPayoutCount: 1
+            };
+        }
+    });
+
+    const result = await adapter.settleContract({
+        roomNumber: 1,
+        winnerWallet: WINNER,
+        ownerWallet: OWNER_W,
+        prizeAmountNano: 9_500_000_000n,
+        organizerAmountNano: 150_000_000n
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].destination, WINNER);
+    assert.equal(calls[0].amountNano, 9_500_000_000n);
+});
+
+test("both payouts already on chain are adopted without sending", async () => {
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        inspectHistory: async () => ({
+            reused: false,
+            laterCount: 0,
+            winnerPayout: payout("winner-existing", 9_500_000_000n, WINNER),
+            ownerPayout: payout("owner-existing", 140_000_000n, OWNER_W),
+            winnerPayoutCount: 1,
+            ownerPayoutCount: 1
+        })
+    });
+
+    const result = await adapter.settleContract({
+        roomNumber: 1,
+        winnerWallet: WINNER,
+        ownerWallet: OWNER_W,
+        winnerAmount: 9.5,
+        organizerAmount: 0.15
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.code, "SETTLEMENT_ADOPTED");
+    assert.equal(result.winnerConfirmed, true);
+    assert.equal(result.ownerConfirmed, true);
+    assert.equal(calls.length, 0);
+});
+
+test("duplicate payout history fails closed", async () => {
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        inspectHistory: async () => ({
+            reused: false,
+            laterCount: 2,
+            winnerPayout: payout("w1", 9_500_000_000n, WINNER),
+            ownerPayout: payout("o1", 140_000_000n, OWNER_W),
+            winnerPayoutCount: 2,
+            ownerPayoutCount: 1
+        })
+    });
+
+    const result = await adapter.settleContract({
+        roomNumber: 1,
+        winnerWallet: WINNER,
+        ownerWallet: OWNER_W,
+        prizeAmountNano: 9_500_000_000n,
+        organizerAmountNano: 150_000_000n
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.code, "DUPLICATE_PAYOUT");
+    assert.equal(calls.length, 0);
+});
+
+test("reused Room Wallet fails closed", async () => {
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        inspectHistory: async () => ({
+            reused: true,
+            laterCount: 1,
+            winnerPayout: null,
+            ownerPayout: null,
+            winnerPayoutCount: 0,
+            ownerPayoutCount: 0
+        })
+    });
+
+    const result = await adapter.settleContract({
+        roomNumber: 1,
+        winnerWallet: WINNER,
+        ownerWallet: OWNER_W,
+        prizeAmountNano: 9_500_000_000n,
+        organizerAmountNano: 150_000_000n
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.code, "WALLET_REUSED");
+    assert.equal(calls.length, 0);
+});
+
+test("inspect RPC failure is retryable and does not send", async () => {
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        inspectHistory: async () => {
+            throw new Error("timeout");
+        }
+    });
+
+    const result = await adapter.settleContract({
+        roomNumber: 1,
+        winnerWallet: WINNER,
+        ownerWallet: OWNER_W,
+        prizeAmountNano: 9_500_000_000n,
+        organizerAmountNano: 150_000_000n
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, true);
+    assert.equal(result.code, "CHAIN_INSPECT_UNKNOWN");
     assert.equal(calls.length, 0);
 });

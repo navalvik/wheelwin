@@ -51,8 +51,29 @@ export class RoomWalletAdapter {
     }
 
     async getBalance(roomNumber) {
-        const identity = await this._resolve(roomNumber);
+        const identity = await this._resolveAddress(roomNumber);
         return this._tonService.getBalance(identity.address);
+    }
+
+    async getWalletAddress(roomNumber) {
+        const identity = await this._resolveAddress(roomNumber);
+        return identity.address;
+    }
+
+    async getTransactions(roomNumber, query = {}) {
+        const identity = await this._resolveAddress(roomNumber);
+        if (typeof this._tonService.getTransactions !== "function") {
+            return [];
+        }
+        return this._tonService.getTransactions(identity.address, query);
+    }
+
+    async getSeqno(roomNumber) {
+        const identity = await this._resolveAddress(roomNumber);
+        if (typeof this._tonService.getSeqno !== "function") {
+            return null;
+        }
+        return this._tonService.getSeqno(identity.address);
     }
 
     async canFundTransfer({ roomNumber, amountNano, sourceReserveNano = null } = {}) {
@@ -194,12 +215,18 @@ export class RoomWalletAdapter {
         });
     }
 
-    async _resolve(roomNumber) {
+    async _resolveAddress(roomNumber) {
         const identity = await this._walletResolver(roomNumber);
 
         if (!identity || identity.roomNumber == null || !identity.address) {
             throw new Error(`invalid wallet identity for room ${roomNumber}`);
         }
+
+        return identity;
+    }
+
+    async _resolve(roomNumber) {
+        const identity = await this._resolveAddress(roomNumber);
 
         if (!identity.publicKey || !identity.secretKey) {
             throw new Error(`signing material is unavailable for room ${roomNumber}`);

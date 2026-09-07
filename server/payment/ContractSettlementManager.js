@@ -32,6 +32,9 @@ import {
 } from "../diagnostics/SettlementPipelineForensics.js";
 import { shouldPreserveFinancialEvidence } from "../gameplay/financialEvidenceGuards.js";
 import { tryNormalizeRoomNumber } from "./roomWallet/RoomWalletRegistry.js";
+import {
+    ROOM_WALLET_SETTLEMENT_SAFETY_CODES
+} from "./roomWallet/RoomWalletSettlementAdapter.js";
 
 export const DEFAULT_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -91,6 +94,7 @@ export class ContractSettlementManager {
         tonNetwork = null,
         gameEscrowMode = null,
         settlementTimeoutMs = DEFAULT_SETTLEMENT_TIMEOUT_MS,
+        roomWalletRetryDelayMs = 2_000,
         devMode = false
     }) {
 
@@ -140,11 +144,18 @@ export class ContractSettlementManager {
             ? settlementTimeoutMs
             : DEFAULT_SETTLEMENT_TIMEOUT_MS;
 
+        this._roomWalletRetryDelayMs = Number.isFinite(roomWalletRetryDelayMs)
+            && roomWalletRetryDelayMs >= 0
+            ? roomWalletRetryDelayMs
+            : 2_000;
+
         this._devMode = devMode;
 
         this._byGameId = new Map();
 
         this._expiryTimers = new Map();
+
+        this._roomWalletRetryTimers = new Map();
 
         this._confirmedTxHashes = new Set();
 
@@ -610,8 +621,11 @@ export class ContractSettlementManager {
 
         }
 
-        // Hashed PENDING+ stays rewatch-only (registered during restore).
-        if (session.settlementTransactionHash) {
+        // Hashed PENDING+ stays rewatch-only on restore for escrow.
+        // Room Wallet hashed PENDING must resume: adapter inspects chain
+        // and sends only the missing payout.
+        if (session.settlementTransactionHash
+            && !this._isRoomWalletSettlementActive()) {
 
             return false;
 
@@ -695,6 +709,12 @@ export class ContractSettlementManager {
                         + `gameId=${session.gameId} | status=${session.status}`
                 );
 
+                if (this._isRoomWalletSettlementActive()) {
+
+                    this._scheduleRoomWalletRetry(session);
+
+                }
+
                 return true;
 
             }
@@ -738,7 +758,15 @@ export class ContractSettlementManager {
 
                 await this._resumeFromPreparing(session, ctx);
 
-            } else if (session.status === SETTLEMENT_SESSION_STATUS.READY) {
+            } else if (session.status === SETTLEMENT_SESSION_STATUS.READY
+                || (
+                    this._isRoomWalletSettlementActive()
+                    && (
+                        session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
+                        || session.status
+                            === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION
+                    )
+                )) {
 
                 await this._submitSettlementAdapter(session, ctx);
 
@@ -759,10 +787,21 @@ export class ContractSettlementManager {
 
             if (session.isInProgress?.()) {
 
-                this._failSettlement(
-                    session,
-                    `resume_failed:${error?.message ?? "unknown"}`
-                );
+                if (this._isRoomWalletSettlementActive()) {
+
+                    this._deferRoomWalletRetry(
+                        session,
+                        `resume_failed:${error?.message ?? "unknown"}`
+                    );
+
+                } else {
+
+                    this._failSettlement(
+                        session,
+                        `resume_failed:${error?.message ?? "unknown"}`
+                    );
+
+                }
 
             }
 
@@ -793,7 +832,13 @@ export class ContractSettlementManager {
                 : null)
             ?? null;
 
-        if (!contract?.contractAddress || !contract.snapshot) {
+        if (!contract?.snapshot) {
+
+            return null;
+
+        }
+
+        if (!this._isRoomWalletSettlementActive() && !contract.contractAddress) {
 
             return null;
 
@@ -859,6 +904,12 @@ export class ContractSettlementManager {
      * Returns tri-state status; UNKNOWN never authorizes settleContract().
      */
     async _probeOnChainSettlement(session, ctx) {
+
+        if (this._isRoomWalletSettlementActive()) {
+
+            return this._probeRoomWalletSettlement(session, ctx);
+
+        }
 
         const unknown = () => Object.freeze({
             status: ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN,
@@ -1153,6 +1204,28 @@ export class ContractSettlementManager {
 
         } catch (error) {
 
+            if (this._isRoomWalletSettlementActive()) {
+
+                if (this._isRoomWalletSafetyFailure(error?.message, null)) {
+
+                    this._failSettlement(
+                        session,
+                        `adapter_threw:${error?.message ?? "unknown"}`
+                    );
+
+                    return;
+
+                }
+
+                this._deferRoomWalletRetry(
+                    session,
+                    `adapter_threw:${error?.message ?? "unknown"}`
+                );
+
+                return;
+
+            }
+
             this._failSettlement(
                 session,
                 `adapter_threw:${error?.message ?? "unknown"}`
@@ -1163,6 +1236,29 @@ export class ContractSettlementManager {
         }
 
         if (!adapterResult?.ok) {
+
+            if (this._isRoomWalletSettlementActive()) {
+
+                if (this._isRoomWalletSafetyFailure(adapterResult?.code, adapterResult)) {
+
+                    this._failSettlement(
+                        session,
+                        adapterResult?.reason ?? adapterResult?.code ?? "settlement_adapter_failed"
+                    );
+
+                    return;
+
+                }
+
+                this._deferRoomWalletRetry(
+                    session,
+                    adapterResult?.reason ?? adapterResult?.code ?? "settlement_adapter_failed",
+                    adapterResult
+                );
+
+                return;
+
+            }
 
             this._failSettlement(
                 session,
@@ -1736,6 +1832,8 @@ export class ContractSettlementManager {
      */
     async _submitSettlementAdapter(session, ctx) {
 
+        const startedAt = session.startedAt ?? Date.now();
+
         const {
             contract,
             winnerWallet,
@@ -1744,7 +1842,15 @@ export class ContractSettlementManager {
             organizerAmount
         } = ctx;
 
-        if (session.status !== SETTLEMENT_SESSION_STATUS.READY) {
+        if (session.status !== SETTLEMENT_SESSION_STATUS.READY
+            && !(
+                this._isRoomWalletSettlementActive()
+                && (
+                    session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
+                    || session.status
+                        === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION
+                )
+            )) {
 
             throw new InvalidSettlementStateTransitionError(
                 session.settlementSessionId,
@@ -1754,7 +1860,8 @@ export class ContractSettlementManager {
 
         }
 
-        if (session.settlementTransactionHash) {
+        if (session.settlementTransactionHash
+            && !this._isRoomWalletSettlementActive()) {
 
             this._log(
                 `Settlement adapter submit skipped — tx already present | `
@@ -1765,9 +1872,8 @@ export class ContractSettlementManager {
 
         }
 
-        const startedAt = session.startedAt ?? Date.now();
-
-        const request = session.request ?? Object.freeze({
+        const request = this._withAuthoritativeRoomNumber(
+            session.request ?? Object.freeze({
             gameId: ctx.gameId,
             contractId: contract.contractId,
             contractAddress: contract.contractAddress,
@@ -1782,7 +1888,8 @@ export class ContractSettlementManager {
             snapshot: contract.snapshot,
             snapshotHash: contract.snapshotHash ?? null,
             gameEscrowMode: this._resolveEscrowMode(contract)
-        });
+        })
+        );
 
         session.request = request;
 
@@ -1814,6 +1921,28 @@ export class ContractSettlementManager {
 
         } catch (error) {
 
+            if (this._isRoomWalletSettlementActive()) {
+
+                if (this._isRoomWalletSafetyFailure(error?.message, null)) {
+
+                    this._failSettlement(
+                        session,
+                        `adapter_threw:${error?.message ?? "unknown"}`
+                    );
+
+                    return;
+
+                }
+
+                this._deferRoomWalletRetry(
+                    session,
+                    `adapter_threw:${error?.message ?? "unknown"}`
+                );
+
+                return;
+
+            }
+
             this._failSettlement(session, `adapter_threw:${error?.message ?? "unknown"}`);
 
             return;
@@ -1821,6 +1950,29 @@ export class ContractSettlementManager {
         }
 
         if (!adapterResult?.ok) {
+
+            if (this._isRoomWalletSettlementActive()) {
+
+                if (this._isRoomWalletSafetyFailure(adapterResult?.code, adapterResult)) {
+
+                    this._failSettlement(
+                        session,
+                        adapterResult?.reason ?? adapterResult?.code ?? "settlement_adapter_failed"
+                    );
+
+                    return;
+
+                }
+
+                this._deferRoomWalletRetry(
+                    session,
+                    adapterResult?.reason ?? adapterResult?.code ?? "settlement_adapter_failed",
+                    adapterResult
+                );
+
+                return;
+
+            }
 
             this._failSettlement(
                 session,
@@ -1857,9 +2009,18 @@ export class ContractSettlementManager {
 
         if (this._isRoomWalletSettlementActive()) {
 
-            session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING, {
-                settlementTransactionHash: settlementTxHash
-            });
+            if (session.status === SETTLEMENT_SESSION_STATUS.READY) {
+
+                session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING, {
+                    settlementTransactionHash: settlementTxHash
+                });
+
+            } else if (settlementTxHash && !session.settlementTransactionHash) {
+
+                session.settlementTransactionHash = settlementTxHash;
+                session.updatedAt = Date.now();
+
+            }
 
             this._gameContractManager.markSettlementPending?.(roomId);
 
@@ -1875,7 +2036,23 @@ export class ContractSettlementManager {
                     + `winner=${maskWalletAddress(winnerWallet)}`
             );
 
-            await this._confirmSettlement(session, settlementTxHash);
+            const bothConfirmed = adapterResult.winnerConfirmed === true
+                && adapterResult.ownerConfirmed === true;
+
+            if (bothConfirmed
+                || (adapterResult.ok === true && adapterResult.chainInspected !== true)) {
+
+                await this._confirmSettlement(session, settlementTxHash);
+
+                return;
+
+            }
+
+            this._deferRoomWalletRetry(
+                session,
+                adapterResult.code ?? "awaiting_chain_confirmation",
+                adapterResult
+            );
 
             return;
 
@@ -2253,6 +2430,8 @@ export class ContractSettlementManager {
 
         this._clearExpiry(session.gameId);
 
+        this._clearRoomWalletRetry(session.gameId);
+
         this._lastSettlementAt = Date.now();
 
         this._persistSession(session, "update");
@@ -2527,6 +2706,17 @@ export class ContractSettlementManager {
 
         }
 
+        if (this._isRoomWalletSettlementActive()) {
+
+            this._deferRoomWalletRetry(
+                session,
+                payload?.reason ?? "transaction_failed"
+            );
+
+            return;
+
+        }
+
         this._failSettlement(session, payload?.reason ?? "transaction_failed");
 
     }
@@ -2546,7 +2736,201 @@ export class ContractSettlementManager {
 
         if (payload?.state === GAME_CONTRACT_STATUS.SETTLEMENT_FAILED) {
 
+            if (this._isRoomWalletSettlementActive()) {
+
+                return;
+
+            }
+
             this._failSettlement(session, "contract_state_failed");
+
+        }
+
+    }
+
+    async _probeRoomWalletSettlement(session, ctx) {
+
+        const unknown = () => Object.freeze({
+            status: ON_CHAIN_SETTLEMENT_PROBE_STATUS.UNKNOWN,
+            settlementTxHash: null
+        });
+
+        const request = {
+            ...(session.request ?? {}),
+            gameId: session.gameId,
+            roomNumber: session.request?.roomNumber
+                ?? ctx?.contract?.snapshot?.roomNumber
+                ?? null,
+            winnerWallet: ctx.winnerWallet,
+            ownerWallet: ctx.ownerWallet,
+            winnerAmount: ctx.winnerAmount,
+            organizerAmount: ctx.organizerAmount,
+            timestamp: session.startedAt
+        };
+
+        if (request.roomNumber == null) {
+
+            return unknown();
+
+        }
+
+        if (typeof this._settlementAdapter?.inspectSettlement !== "function") {
+
+            return Object.freeze({
+                status: ON_CHAIN_SETTLEMENT_PROBE_STATUS.NOT_SETTLED,
+                settlementTxHash: null
+            });
+
+        }
+
+        try {
+
+            const inspected = await this._settlementAdapter.inspectSettlement(request);
+
+            if (!inspected || inspected.unavailable === true) {
+
+                return Object.freeze({
+                    status: ON_CHAIN_SETTLEMENT_PROBE_STATUS.NOT_SETTLED,
+                    settlementTxHash: null
+                });
+
+            }
+
+            if (inspected.unknown === true) {
+
+                return unknown();
+
+            }
+
+            if (inspected.winnerPayout && inspected.ownerPayout) {
+
+                return Object.freeze({
+                    status: ON_CHAIN_SETTLEMENT_PROBE_STATUS.SETTLED,
+                    settlementTxHash: inspected.winnerPayout.hash
+                        ?? inspected.winnerPayout.txHash
+                        ?? session.settlementTransactionHash
+                });
+
+            }
+
+            return Object.freeze({
+                status: ON_CHAIN_SETTLEMENT_PROBE_STATUS.NOT_SETTLED,
+                settlementTxHash: inspected.winnerPayout?.hash
+                    ?? inspected.ownerPayout?.hash
+                    ?? session.settlementTransactionHash
+                    ?? null
+            });
+
+        } catch (error) {
+
+            this._logger.warn?.(
+                `Room Wallet settlement probe failed | gameId=${session?.gameId} | `
+                    + `${error?.message ?? error}`
+            );
+
+            return unknown();
+
+        }
+
+    }
+
+    _isRoomWalletSafetyFailure(codeOrMessage, result = null) {
+
+        const text = String(codeOrMessage ?? result?.code ?? "");
+
+        if (text.includes("disagree") || text.includes("AMOUNT_MISMATCH")) {
+
+            return true;
+
+        }
+
+        return Object.values(ROOM_WALLET_SETTLEMENT_SAFETY_CODES).includes(text)
+            || Object.values(ROOM_WALLET_SETTLEMENT_SAFETY_CODES).includes(result?.code);
+
+    }
+
+    _deferRoomWalletRetry(session, reason, adapterResult = null) {
+
+        if (!session || session.isTerminal?.()) {
+
+            return;
+
+        }
+
+        const winnerHash = adapterResult?.winner?.txHash
+            ?? session.settlementTransactionHash
+            ?? null;
+
+        session.reason = reason ?? session.reason;
+        session.updatedAt = Date.now();
+
+        if (winnerHash && session.status === SETTLEMENT_SESSION_STATUS.READY) {
+
+            session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING, {
+                settlementTransactionHash: winnerHash,
+                reason
+            });
+
+        } else if (winnerHash && !session.settlementTransactionHash) {
+
+            session.settlementTransactionHash = winnerHash;
+
+        }
+
+        this._persistSession(session, "update");
+
+        this._log(
+            `ROOM_WALLET_SETTLEMENT_RETRY | gameId=${session.gameId} | `
+                + `status=${session.status} | reason=${reason}`
+        );
+
+        this._scheduleRoomWalletRetry(session);
+
+    }
+
+    _scheduleRoomWalletRetry(session) {
+
+        const gameId = session?.gameId;
+
+        if (!gameId) {
+
+            return;
+
+        }
+
+        this._clearRoomWalletRetry(gameId);
+
+        const delay = this._roomWalletRetryDelayMs;
+
+        const timerId = setTimeout(() => {
+
+            this._roomWalletRetryTimers.delete(gameId);
+
+            const current = this._byGameId.get(gameId);
+
+            if (!current || current.isTerminal?.()) {
+
+                return;
+
+            }
+
+            void this._resumeRestoredSettlement(current);
+
+        }, delay);
+
+        this._roomWalletRetryTimers.set(gameId, timerId);
+
+    }
+
+    _clearRoomWalletRetry(gameId) {
+
+        const timerId = this._roomWalletRetryTimers.get(gameId);
+
+        if (timerId) {
+
+            clearTimeout(timerId);
+
+            this._roomWalletRetryTimers.delete(gameId);
 
         }
 
@@ -2854,6 +3238,14 @@ export class ContractSettlementManager {
 
         }
 
+        if (this._isRoomWalletSettlementActive()) {
+
+            void this._resumeRestoredSettlement(session);
+
+            return;
+
+        }
+
         session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_TIMEOUT, {
             failedAt: Date.now(),
             reason: "settlement_timeout"
@@ -3004,6 +3396,12 @@ export class ContractSettlementManager {
         for (const gameId of [...this._expiryTimers.keys()]) {
 
             this._clearExpiry(gameId);
+
+        }
+
+        for (const gameId of [...this._roomWalletRetryTimers.keys()]) {
+
+            this._clearRoomWalletRetry(gameId);
 
         }
 
