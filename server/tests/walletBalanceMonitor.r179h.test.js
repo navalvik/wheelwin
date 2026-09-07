@@ -84,13 +84,13 @@ test("R17.9H discovers three wallet slots and keeps previous balance on RPC erro
         first.wallets.map((w) => w.walletType),
         [
             WALLET_BALANCE_TYPES.OWNER_WALLET,
-            WALLET_BALANCE_TYPES.DEPLOY_WALLET,
-            WALLET_BALANCE_TYPES.REIMBURSEMENT_WALLET
+            WALLET_BALANCE_TYPES.DEPLOYMENT_WALLET,
+            WALLET_BALANCE_TYPES.RESIDUES_WALLET
         ]
     );
 
     const deployOk = first.wallets.find(
-        (w) => w.walletType === WALLET_BALANCE_TYPES.DEPLOY_WALLET
+        (w) => w.walletType === WALLET_BALANCE_TYPES.DEPLOYMENT_WALLET
     );
 
     assert.equal(deployOk.status, WALLET_BALANCE_STATUS.OK);
@@ -104,12 +104,14 @@ test("R17.9H discovers three wallet slots and keeps previous balance on RPC erro
     assert.equal(payload.includes("private"), false);
     assert.equal(payload.includes("secret"), false);
     assert.equal(payload.includes("seed"), false);
+    assert.equal(payload.includes("REIMBURSEMENT_WALLET"), false);
+    assert.equal(first.wallets.some((w) => w.walletType === "RESIDUES_WALLET"), true);
 
     fail = true;
 
     const second = await monitor.refresh();
     const deployErr = second.wallets.find(
-        (w) => w.walletType === WALLET_BALANCE_TYPES.DEPLOY_WALLET
+        (w) => w.walletType === WALLET_BALANCE_TYPES.DEPLOYMENT_WALLET
     );
 
     assert.equal(deployErr.status, WALLET_BALANCE_STATUS.RPC_ERROR);

@@ -214,6 +214,8 @@ export function isFailedTonTransaction(tx) {
 
 /**
  * Extract structured payment fields from a TonCenter transaction-like object.
+ * Address fields may be strings or `{ address: string }`; canonicalizeTonWalletAddress
+ * unwraps then fail-closes on invalid data (never String(object)).
  */
 export function parseDepositCandidate(tx) {
 

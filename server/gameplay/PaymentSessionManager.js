@@ -15,6 +15,7 @@ import {
     PaymentParticipant,
     PaymentSession
 } from "../models/PaymentSession.js";
+import { tonWalletAccountsEqual } from "../models/TonWalletAddress.js";
 import { amountsMatch } from "../payment/BlockchainMonitor.js";
 import { calculateRequiredGram } from "../payment/calculateRequiredGram.js";
 import { resolveIntendedRoomWalletAddress } from "../payment/roomWallet/RoomWalletIncomingObserver.js";
@@ -2596,22 +2597,22 @@ export class PaymentSessionManager {
 
         if (this._roomWalletPaymentIntakeEnabled) {
 
-            if (
-                expectedDestination
-                && payload?.address
-                && expectedDestination !== payload.address
-            ) {
+            if (expectedDestination && payload?.address) {
 
-                throw new PaymentValidationError("Payment sent to wrong contract", {
-                    expected: expectedDestination,
-                    actual: payload.address
-                });
+                if (!tonWalletAccountsEqual(expectedDestination, payload.address)) {
+
+                    throw new PaymentValidationError("Payment sent to wrong contract", {
+                        expected: expectedDestination,
+                        actual: payload.address
+                    });
+
+                }
 
             }
 
         } else if (contract?.contractAddress && payload?.address) {
 
-            if (contract.contractAddress !== payload.address) {
+            if (!tonWalletAccountsEqual(contract.contractAddress, payload.address)) {
 
                 throw new PaymentValidationError("Payment sent to wrong contract", {
                     expected: contract.contractAddress,
@@ -2622,12 +2623,16 @@ export class PaymentSessionManager {
 
         }
 
-        if (payload?.sender && participant.wallet && payload.sender !== participant.wallet) {
+        if (payload?.sender && participant.wallet) {
 
-            throw new PaymentValidationError("Payment from wrong wallet", {
-                expected: participant.wallet,
-                actual: payload.sender
-            });
+            if (!tonWalletAccountsEqual(payload.sender, participant.wallet)) {
+
+                throw new PaymentValidationError("Payment from wrong wallet", {
+                    expected: participant.wallet,
+                    actual: payload.sender
+                });
+
+            }
 
         }
 

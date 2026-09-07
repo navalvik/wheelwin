@@ -7,6 +7,7 @@
 import { fromNano } from "@ton/core";
 
 import { OwnerConfiguration } from "../../config/OwnerConfiguration.js";
+import { describeTonWalletIdentity } from "../../models/TonWalletAddress.js";
 import { deriveDeployerWalletIdentity } from "../../payment/ton/deriveDeployerWalletIdentity.js";
 import {
     deriveResiduesWalletIdentity,
@@ -16,8 +17,11 @@ import {
 
 export const WALLET_BALANCE_TYPES = Object.freeze({
     OWNER_WALLET: "OWNER_WALLET",
-    DEPLOY_WALLET: "DEPLOY_WALLET",
-    REIMBURSEMENT_WALLET: "REIMBURSEMENT_WALLET"
+    DEPLOYMENT_WALLET: "DEPLOYMENT_WALLET",
+    RESIDUES_WALLET: "RESIDUES_WALLET",
+    // Historical aliases — same role strings, not a second wallet.
+    DEPLOY_WALLET: "DEPLOYMENT_WALLET",
+    REIMBURSEMENT_WALLET: "RESIDUES_WALLET"
 });
 
 export const WALLET_BALANCE_STATUS = Object.freeze({
@@ -29,15 +33,20 @@ export const WALLET_BALANCE_STATUS = Object.freeze({
 
 export const DEFAULT_WALLET_BALANCE_REFRESH_MS = 30_000;
 
+const MONITORED_WALLET_TYPES = Object.freeze([
+    WALLET_BALANCE_TYPES.OWNER_WALLET,
+    WALLET_BALANCE_TYPES.DEPLOYMENT_WALLET,
+    WALLET_BALANCE_TYPES.RESIDUES_WALLET
+]);
+
 /**
  * @param {unknown} address
- * @returns {string|null}
+ * @param {string|null} network
+ * @returns {{ address: string|null, network: string|null, accountId: string|null }}
  */
-function safeAddress(address) {
+function operatorIdentity(address, network) {
 
-    const text = String(address ?? "").trim();
-
-    return text || null;
+    return describeTonWalletIdentity(address, network);
 
 }
 
@@ -74,6 +83,8 @@ function freezeWalletEntry(entry) {
     return Object.freeze({
         walletType: entry.walletType,
         address: entry.address ?? null,
+        network: entry.network ?? null,
+        accountId: entry.accountId ?? null,
         balance: entry.balance ?? null,
         unit: "TON",
         status: entry.status,
@@ -127,33 +138,19 @@ export class WalletBalanceMonitor {
         this._refreshInFlight = null;
         this._addressCache = Object.freeze({
             [WALLET_BALANCE_TYPES.OWNER_WALLET]: null,
-            [WALLET_BALANCE_TYPES.DEPLOY_WALLET]: null,
-            [WALLET_BALANCE_TYPES.REIMBURSEMENT_WALLET]: null
+            [WALLET_BALANCE_TYPES.DEPLOYMENT_WALLET]: null,
+            [WALLET_BALANCE_TYPES.RESIDUES_WALLET]: null
         });
 
-        this._wallets = new Map([
-            [
-                WALLET_BALANCE_TYPES.OWNER_WALLET,
+        this._wallets = new Map(
+            MONITORED_WALLET_TYPES.map((walletType) => [
+                walletType,
                 freezeWalletEntry({
-                    walletType: WALLET_BALANCE_TYPES.OWNER_WALLET,
+                    walletType,
                     status: WALLET_BALANCE_STATUS.UNAVAILABLE
                 })
-            ],
-            [
-                WALLET_BALANCE_TYPES.DEPLOY_WALLET,
-                freezeWalletEntry({
-                    walletType: WALLET_BALANCE_TYPES.DEPLOY_WALLET,
-                    status: WALLET_BALANCE_STATUS.UNAVAILABLE
-                })
-            ],
-            [
-                WALLET_BALANCE_TYPES.REIMBURSEMENT_WALLET,
-                freezeWalletEntry({
-                    walletType: WALLET_BALANCE_TYPES.REIMBURSEMENT_WALLET,
-                    status: WALLET_BALANCE_STATUS.UNAVAILABLE
-                })
-            ]
-        ]);
+            ])
+        );
 
     }
 
@@ -266,16 +263,12 @@ export class WalletBalanceMonitor {
      */
     getSnapshot() {
 
-        const wallets = [
-            WALLET_BALANCE_TYPES.OWNER_WALLET,
-            WALLET_BALANCE_TYPES.DEPLOY_WALLET,
-            WALLET_BALANCE_TYPES.REIMBURSEMENT_WALLET
-        ].map((type) => this._wallets.get(type));
+        const wallets = MONITORED_WALLET_TYPES.map((type) => this._wallets.get(type));
 
         return Object.freeze({
             schemaVersion: 1,
             refreshIntervalMs: this._refreshIntervalMs,
-            network: this._runtimeConfig?.ton?.network ?? null,
+            network: this._applicationNetwork(),
             generatedAt: this._nowFn(),
             wallets: Object.freeze(wallets)
         });
@@ -313,15 +306,27 @@ export class WalletBalanceMonitor {
 
     }
 
+    _applicationNetwork() {
+
+        const network = this._runtimeConfig?.ton?.network;
+
+        if (network == null || String(network).trim() === "") {
+
+            return null;
+
+        }
+
+        return String(network).trim().toLowerCase();
+
+    }
+
     async _refreshAll() {
 
         await this._resolveAddresses();
 
-        await Promise.all([
-            this._refreshOne(WALLET_BALANCE_TYPES.OWNER_WALLET),
-            this._refreshOne(WALLET_BALANCE_TYPES.DEPLOY_WALLET),
-            this._refreshOne(WALLET_BALANCE_TYPES.REIMBURSEMENT_WALLET)
-        ]);
+        await Promise.all(
+            MONITORED_WALLET_TYPES.map((type) => this._refreshOne(type))
+        );
 
         return this.getSnapshot();
 
@@ -331,12 +336,12 @@ export class WalletBalanceMonitor {
 
         const owner = this._resolveOwnerAddress();
         const deploy = await this._resolveDeployAddress();
-        const reimbursement = await this._resolveReimbursementAddress();
+        const residues = await this._resolveResiduesAddress();
 
         this._addressCache = Object.freeze({
             [WALLET_BALANCE_TYPES.OWNER_WALLET]: owner,
-            [WALLET_BALANCE_TYPES.DEPLOY_WALLET]: deploy,
-            [WALLET_BALANCE_TYPES.REIMBURSEMENT_WALLET]: reimbursement
+            [WALLET_BALANCE_TYPES.DEPLOYMENT_WALLET]: deploy,
+            [WALLET_BALANCE_TYPES.RESIDUES_WALLET]: residues
         });
 
     }
@@ -347,7 +352,10 @@ export class WalletBalanceMonitor {
 
             if (OwnerConfiguration.isLoaded()) {
 
-                return safeAddress(OwnerConfiguration.getOwnerWallet());
+                return operatorIdentity(
+                    OwnerConfiguration.getOwnerWallet(),
+                    this._applicationNetwork()
+                ).address;
 
             }
 
@@ -356,15 +364,19 @@ export class WalletBalanceMonitor {
             // fall through
         }
 
-        return safeAddress(this._env.OWNER_WALLET);
+        return operatorIdentity(
+            this._env.OWNER_WALLET,
+            this._applicationNetwork()
+        ).address;
 
     }
 
     async _resolveDeployAddress() {
 
-        const expected = safeAddress(
-            this._runtimeConfig?.ton?.deployerExpectedAddress
-        );
+        const expected = operatorIdentity(
+            this._runtimeConfig?.ton?.deployerExpectedAddress,
+            this._applicationNetwork()
+        ).address;
 
         if (expected) {
 
@@ -387,7 +399,10 @@ export class WalletBalanceMonitor {
                 network: this._runtimeConfig?.ton?.network ?? null
             });
 
-            return safeAddress(identity?.address);
+            return operatorIdentity(
+                identity?.address,
+                this._applicationNetwork()
+            ).address;
 
         } catch (error) {
 
@@ -401,13 +416,16 @@ export class WalletBalanceMonitor {
 
     }
 
-    async _resolveReimbursementAddress() {
+    async _resolveResiduesAddress() {
 
         const destination = resolveResiduesWalletDestination(this._env);
 
         if (destination.ok) {
 
-            return safeAddress(destination.address);
+            return operatorIdentity(
+                destination.address,
+                this._applicationNetwork()
+            ).address;
 
         }
 
@@ -423,7 +441,10 @@ export class WalletBalanceMonitor {
 
             const identity = await deriveResiduesWalletIdentity(resolved.mnemonic);
 
-            return safeAddress(identity?.address);
+            return operatorIdentity(
+                identity?.address,
+                this._applicationNetwork()
+            ).address;
 
         } catch (error) {
 
@@ -440,14 +461,17 @@ export class WalletBalanceMonitor {
     async _refreshOne(walletType) {
 
         const previous = this._wallets.get(walletType);
-        const address = this._addressCache[walletType] ?? null;
+        const rawAddress = this._addressCache[walletType] ?? null;
+        const identity = operatorIdentity(rawAddress, this._applicationNetwork());
         const nowIso = new Date(this._nowFn()).toISOString();
 
-        if (!address) {
+        if (!identity.address) {
 
             this._wallets.set(walletType, freezeWalletEntry({
                 walletType,
                 address: null,
+                network: identity.network,
+                accountId: null,
                 balance: previous?.status === WALLET_BALANCE_STATUS.OK
                     ? previous.balance
                     : null,
@@ -465,7 +489,9 @@ export class WalletBalanceMonitor {
 
             this._wallets.set(walletType, freezeWalletEntry({
                 walletType,
-                address,
+                address: identity.address,
+                network: identity.network,
+                accountId: identity.accountId,
                 balance: previous?.balance ?? null,
                 status: WALLET_BALANCE_STATUS.UNAVAILABLE,
                 lastUpdated: nowIso,
@@ -479,12 +505,14 @@ export class WalletBalanceMonitor {
 
         try {
 
-            const nano = await this._tonService.getBalance(address);
+            const nano = await this._tonService.getBalance(identity.address);
             const balance = balanceTonFromNano(nano);
 
             this._wallets.set(walletType, freezeWalletEntry({
                 walletType,
-                address,
+                address: identity.address,
+                network: identity.network,
+                accountId: identity.accountId,
                 balance,
                 status: WALLET_BALANCE_STATUS.OK,
                 lastUpdated: nowIso,
@@ -496,7 +524,9 @@ export class WalletBalanceMonitor {
 
             this._wallets.set(walletType, freezeWalletEntry({
                 walletType,
-                address,
+                address: identity.address,
+                network: identity.network,
+                accountId: identity.accountId,
                 // Keep previous successful balance on RPC failure.
                 balance: previous?.lastSuccessfulUpdate
                     ? previous.balance

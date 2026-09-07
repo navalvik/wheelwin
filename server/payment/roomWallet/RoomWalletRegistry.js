@@ -5,6 +5,8 @@
  * Secret material is resolved by the runtime wallet provider.
  */
 
+import { tonWalletAccountsEqual } from "../../models/TonWalletAddress.js";
+
 export const ROOM_WALLET_COUNT = 64;
 
 export function normalizeRoomNumber(roomNumber) {
@@ -91,14 +93,12 @@ export class RoomWalletRegistry {
     }
 
     getByAddress(address) {
-        const normalizedAddress = String(address ?? "").trim();
-
-        if (!normalizedAddress) {
+        if (!address) {
             return null;
         }
 
         for (const record of this._entries.values()) {
-            if (record.address === normalizedAddress) {
+            if (tonWalletAccountsEqual(record.address, address)) {
                 return record;
             }
         }

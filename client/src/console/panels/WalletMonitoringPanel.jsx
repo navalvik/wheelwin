@@ -7,15 +7,23 @@ import PanelShell from "./shared/PanelShell";
 
 const WALLET_LABELS = Object.freeze({
     OWNER_WALLET: "OWNER WALLET",
-    DEPLOY_WALLET: "Deploy Wallet",
-    REIMBURSEMENT_WALLET: "Residues Wallet"
+    DEPLOYMENT_WALLET: "DEPLOYMENT WALLET",
+    DEPLOY_WALLET: "DEPLOYMENT WALLET",
+    RESIDUES_WALLET: "RESIDUES WALLET",
+    REIMBURSEMENT_WALLET: "RESIDUES WALLET"
 });
 
 const WALLET_ORDER = Object.freeze([
     "OWNER_WALLET",
-    "DEPLOY_WALLET",
-    "REIMBURSEMENT_WALLET"
+    "DEPLOYMENT_WALLET",
+    "RESIDUES_WALLET"
 ]);
+
+const WALLET_TYPE_ALIASES = Object.freeze({
+    OWNER_WALLET: ["OWNER_WALLET"],
+    DEPLOYMENT_WALLET: ["DEPLOYMENT_WALLET", "DEPLOY_WALLET"],
+    RESIDUES_WALLET: ["RESIDUES_WALLET", "REIMBURSEMENT_WALLET"]
+});
 
 function statusClass(status) {
 
@@ -80,6 +88,33 @@ function formatTimestamp(value) {
 
 }
 
+function pickWallet(walletsByType, canonicalType) {
+
+    const aliases = WALLET_TYPE_ALIASES[canonicalType] ?? [canonicalType];
+
+    for (const type of aliases) {
+
+        if (walletsByType.has(type)) {
+
+            return walletsByType.get(type);
+
+        }
+
+    }
+
+    return {
+        walletType: canonicalType,
+        address: null,
+        network: null,
+        accountId: null,
+        balance: null,
+        unit: "TON",
+        status: "UNAVAILABLE",
+        lastUpdated: null
+    };
+
+}
+
 function WalletCard({ wallet }) {
 
     const label = WALLET_LABELS[wallet?.walletType] ?? wallet?.walletType ?? "Wallet";
@@ -99,6 +134,30 @@ function WalletCard({ wallet }) {
                     <span className="devConsole__kvValue">
 
                         {formatAddress(wallet?.address)}
+
+                    </span>
+
+                </div>
+
+                <div className="devConsole__kvRow">
+
+                    <span className="devConsole__kvKey">Network</span>
+
+                    <span className="devConsole__kvValue">
+
+                        {wallet?.network ?? "—"}
+
+                    </span>
+
+                </div>
+
+                <div className="devConsole__kvRow">
+
+                    <span className="devConsole__kvKey">Account</span>
+
+                    <span className="devConsole__kvValue">
+
+                        {formatAddress(wallet?.accountId)}
 
                     </span>
 
@@ -261,7 +320,7 @@ export default function WalletMonitoringPanel() {
 
             <PanelShell
                 title="Wallet Monitoring"
-                subtitle="Live TON balances for Owner, Deploy, and Reimbursement wallets"
+                subtitle="Live TON balances for Owner, Deployment, and Residues wallets"
             >
 
                 <EmptyState
@@ -279,20 +338,13 @@ export default function WalletMonitoringPanel() {
         (snapshot?.wallets ?? []).map((entry) => [entry.walletType, entry])
     );
 
-    const wallets = WALLET_ORDER.map((type) => walletsByType.get(type) ?? {
-        walletType: type,
-        address: null,
-        balance: null,
-        unit: "TON",
-        status: "UNAVAILABLE",
-        lastUpdated: null
-    });
+    const wallets = WALLET_ORDER.map((type) => pickWallet(walletsByType, type));
 
     return (
 
         <PanelShell
             title="Wallet Monitoring"
-            subtitle="Live TON balances for Owner, Deploy, and Reimbursement wallets"
+            subtitle="Live TON balances for Owner, Deployment, and Residues wallets"
         >
 
             {error && (

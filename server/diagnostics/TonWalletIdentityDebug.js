@@ -3,6 +3,7 @@
  */
 import { Address } from "@ton/core";
 
+import { canonicalizeTonWalletAddress } from "../models/TonWalletAddress.js";
 import { printDeployBlock } from "./DeployPipelineForensics.js";
 
 /** @type {null | Record<string, unknown>} */
@@ -94,21 +95,11 @@ export function resetTonWalletIdentityDebugForTests() {
  */
 export function tonAddressesEqual(left, right) {
 
-    if (!left || !right) {
+    const canonicalLeft = canonicalizeTonWalletAddress(left);
 
-        return false;
+    const canonicalRight = canonicalizeTonWalletAddress(right);
 
-    }
-
-    try {
-
-        return Address.parse(String(left)).equals(Address.parse(String(right)));
-
-    } catch {
-
-        return String(left).trim() === String(right).trim();
-
-    }
+    return Boolean(canonicalLeft && canonicalRight && canonicalLeft === canonicalRight);
 
 }
 
