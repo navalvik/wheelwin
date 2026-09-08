@@ -8,10 +8,11 @@ import {
 import { listAuthoritativePlayers } from "../../game/session/authoritativePlayerView";
 
 import { useAuthoritativeSession } from "../../context/AuthoritativeSessionContext";
+import { useLanguage } from "../../context/LanguageContext";
 import { usePreGameReady } from "../../context/PreGameReadyContext";
 import { useWheelConfig } from "../../context/WheelConfigContext";
 
-function PreGameReadyPlayerCard({ player, confirmed, iconGlyph, color }) {
+function PreGameReadyPlayerCard({ player, confirmed, iconGlyph, color, t }) {
 
     return (
 
@@ -51,7 +52,7 @@ function PreGameReadyPlayerCard({ player, confirmed, iconGlyph, color }) {
                 }`}
             >
 
-                {confirmed ? "✓ READY" : "WAITING"}
+                {confirmed ? t("game.playerReady") : t("game.playerWaiting")}
 
             </span>
 
@@ -66,6 +67,8 @@ export default memo(function PreGameReadyPlayerPanel() {
     const authoritative = useAuthoritativeSession();
 
     const { wheelConfiguration } = useWheelConfig();
+
+    const { t } = useLanguage();
 
     const { isPlayerReady } = usePreGameReady();
 
@@ -93,6 +96,7 @@ export default memo(function PreGameReadyPlayerPanel() {
                             player.playerId
                         ) ?? "#cccccc"
                     }
+                    t={t}
                 />
 
             ))}

@@ -49,15 +49,21 @@ test("all player locale catalogs have matching key coverage", () => {
     assert.equal(TRANSLATIONS.ru, undefined);
 
     const enKeys = Object.keys(TRANSLATIONS.en).sort();
-    assert.equal(enKeys.length, 170);
+    assert.equal(enKeys.length, 181);
 
     for (const code of LOCALE_CODES) {
         const keys = Object.keys(TRANSLATIONS[code]).sort();
-        assert.equal(keys.length, 170, `${code} key count`);
+        assert.equal(keys.length, 181, `${code} key count`);
         assert.deepEqual(keys, enKeys, `${code} key parity`);
     }
 
     assert.match(TRANSLATIONS.en["page.welcome.title"], /WHEELWIN/i);
+    assert.equal(TRANSLATIONS.en["common.bannerAlt"], "WheelWin Banner");
+    assert.equal(TRANSLATIONS.es["common.bannerAlt"], "Banner de WheelWin");
+    assert.equal(TRANSLATIONS.pt["common.bannerAlt"], "Banner do WheelWin");
+    assert.equal(TRANSLATIONS.fr["common.bannerAlt"], "Bannière WheelWin");
+    assert.equal(TRANSLATIONS.zh["common.bannerAlt"], "WheelWin 横幅");
+
     assert.match(TRANSLATIONS.zh["page.welcome.title"], /WHEELWIN/i);
     assert.match(TRANSLATIONS.zh["payment.confirmInWallet"], /Telegram Wallet/i);
     assert.match(TRANSLATIONS.zh["setup.oneGram"], /GRAM/);
@@ -113,6 +119,16 @@ test("translate interpolates placeholders across locales", () => {
     assert.equal(
         translate("zh", "player.you", { n: 2 }),
         "玩家 2 — 你"
+    );
+
+    assert.equal(
+        translate("en", "game.sectorSingular", { count: 1 }),
+        "1 sector"
+    );
+
+    assert.equal(
+        translate("es", "game.sectorPlural", { count: 2 }),
+        "2 sectores"
     );
 });
 

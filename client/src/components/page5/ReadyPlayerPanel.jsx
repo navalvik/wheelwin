@@ -8,6 +8,7 @@ import {
 import { listAuthoritativePlayers } from "../../game/session/authoritativePlayerView";
 
 import { useAuthoritativeSession } from "../../context/AuthoritativeSessionContext";
+import { useLanguage } from "../../context/LanguageContext";
 import { useWheelConfig } from "../../context/WheelConfigContext";
 
 function countSectorsForPlayer(sectors, playerId) {
@@ -22,7 +23,7 @@ function countSectorsForPlayer(sectors, playerId) {
 
 }
 
-function ReadyPlayerCard({ player, sectorCount, iconGlyph, color }) {
+function ReadyPlayerCard({ player, sectorCount, iconGlyph, color, t }) {
 
     return (
 
@@ -55,11 +56,12 @@ function ReadyPlayerCard({ player, sectorCount, iconGlyph, color }) {
 
             <span className="playerCard__readySectors">
 
-                {sectorCount}
-
-                {" "}
-
-                {sectorCount === 1 ? "sector" : "sectors"}
+                {t(
+                    sectorCount === 1
+                        ? "game.sectorSingular"
+                        : "game.sectorPlural",
+                    { count: sectorCount }
+                )}
 
             </span>
 
@@ -72,6 +74,8 @@ function ReadyPlayerCard({ player, sectorCount, iconGlyph, color }) {
 export default memo(function ReadyPlayerPanel() {
 
     const authoritative = useAuthoritativeSession();
+
+    const { t } = useLanguage();
 
     const { wheelConfiguration } = useWheelConfig();
 
@@ -102,6 +106,7 @@ export default memo(function ReadyPlayerPanel() {
                             player.playerId
                         ) ?? "#cccccc"
                     }
+                    t={t}
                 />
 
             ))}

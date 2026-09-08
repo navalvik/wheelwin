@@ -22,42 +22,42 @@ export const MAX_BUTTON_PRESSES = 3;
 
 export const BUTTON_PRESENTATION = Object.freeze({
     [BUTTON_STATES.PRE_GAME_READY]: {
-        label: "PUSH",
+        label: "game.buttonPush",
         backgroundColor: "#ffffff",
         borderColor: "#cccccc",
         textColor: "#000000",
         pulseClass: ""
     },
     [BUTTON_STATES.PRE_GAME_READY_CONFIRMED]: {
-        label: "READY",
+        label: "game.buttonReady",
         backgroundColor: "#00aa44",
         borderColor: "#008833",
         textColor: "#ffffff",
         pulseClass: ""
     },
     [BUTTON_STATES.READY]: {
-        label: "READY",
+        label: "game.buttonReady",
         backgroundColor: "#bbbbbb",
         borderColor: "#999999",
         textColor: "#000000",
         pulseClass: "centerButton--pulseReady"
     },
     [BUTTON_STATES.PUSH]: {
-        label: "PUSH",
+        label: "game.buttonPush",
         backgroundColor: "#222222",
         borderColor: "#1c73d0",
         textColor: "#ffffff",
         pulseClass: "centerButton--pulsePush"
     },
     [BUTTON_STATES.COUNTDOWN]: {
-        label: "COUNTDOWN",
+        label: "game.buttonCountdown",
         backgroundColor: "#666666",
         borderColor: "#4f8dd8",
         textColor: "#ffffff",
         pulseClass: "centerButton--pulseCountdown"
     },
     [BUTTON_STATES.SPEED]: {
-        label: "SPIN",
+        label: "game.buttonSpin",
         backgroundColor: "transparent",
         borderColor: "rgba(255, 255, 255, 0.82)",
         textColor: "#ffffff",
@@ -72,14 +72,14 @@ export const BUTTON_PRESENTATION = Object.freeze({
         pulseClass: ""
     },
     [BUTTON_STATES.WIN]: {
-        label: "WIN",
+        label: "game.buttonWin",
         backgroundColor: "#00aa44",
         borderColor: "#008833",
         textColor: "#ffffff",
         pulseClass: ""
     },
     [BUTTON_STATES.LOST]: {
-        label: "LOST",
+        label: "game.buttonLost",
         backgroundColor: "#d62828",
         borderColor: "#b81f1f",
         textColor: "#ffffff",

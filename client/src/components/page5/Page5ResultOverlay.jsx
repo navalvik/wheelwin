@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import { useAuthoritativeSession } from "../../context/AuthoritativeSessionContext";
 import { useGameResult } from "../../context/GameResultContext";
+import { useLanguage } from "../../context/LanguageContext";
 import { usePlayerIdentity } from "../../context/PlayerIdentityContext";
 import {
     isLocalPlayerWinner,
@@ -16,6 +17,8 @@ import { resolveLocalPlayerId } from "../../game/session";
 export default function Page5ResultOverlay() {
 
     const { result } = useGameResult();
+
+    const { t } = useLanguage();
 
     const { identity } = usePlayerIdentity();
 
@@ -76,7 +79,7 @@ export default function Page5ResultOverlay() {
                 }
             >
 
-                {presentation.headline}
+                {t(presentation.headlineKey)}
 
             </div>
 

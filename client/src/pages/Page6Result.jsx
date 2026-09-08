@@ -105,12 +105,13 @@ function resolveWinningSwatchColor(winningSector, wheelConfiguration) {
 
 /**
  * Presentation-only payout line from server payment + winner id.
+ * Dynamic amounts are never passed to t().
  */
 function resolveYouReceived({ payment, localPlayerId, winnerPlayerId }) {
 
     if (winnerPlayerId == null || winnerPlayerId === "") {
 
-        return null;
+        return { mode: "fallback" };
 
     }
 
@@ -118,7 +119,7 @@ function resolveYouReceived({ payment, localPlayerId, winnerPlayerId }) {
 
     if (!isWinner) {
 
-        return "result.zeroGrm";
+        return { mode: "key", key: "result.zeroGrm" };
 
     }
 
@@ -128,15 +129,45 @@ function resolveYouReceived({ payment, localPlayerId, winnerPlayerId }) {
         || payment.winnerAmount === undefined
     ) {
 
-        return null;
+        return { mode: "fallback" };
 
     }
 
     const amount = Number(payment.winnerAmount);
 
-    return Number.isFinite(amount)
-        ? `${amount.toFixed(2)} GRM`
-        : "result.zeroGrm";
+    if (Number.isFinite(amount)) {
+
+        return { mode: "amount", text: `${amount.toFixed(2)} GRM` };
+
+    }
+
+    return { mode: "key", key: "result.zeroGrm" };
+
+}
+
+function renderYouReceivedAmount(youReceived, payment, t) {
+
+    if (youReceived?.mode === "amount") {
+
+        return youReceived.text;
+
+    }
+
+    if (youReceived?.mode === "key") {
+
+        return t(youReceived.key);
+
+    }
+
+    if (payment) {
+
+        return PAYMENT_STATUS_LABEL_KEYS[payment.status]
+            ? t(PAYMENT_STATUS_LABEL_KEYS[payment.status])
+            : payment.status;
+
+    }
+
+    return t("result.awaitingSettlement");
 
 }
 
@@ -420,16 +451,11 @@ export default function Page6Result({ onFinish }) {
                                     <div className="page6__label">{t("result.youReceived")}</div>
 
                                     <div className="page6__youReceivedAmount">
-                                        {(youReceived
-                                            ? (youReceived.includes(".")
-                                                ? t(youReceived)
-                                                : youReceived)
-                                            : null)
-                                            ?? (payment
-                                                ? (PAYMENT_STATUS_LABEL_KEYS[payment.status]
-                                                    ? t(PAYMENT_STATUS_LABEL_KEYS[payment.status])
-                                                    : payment.status)
-                                                : t("result.awaitingSettlement"))}
+                                        {renderYouReceivedAmount(
+                                            youReceived,
+                                            payment,
+                                            t
+                                        )}
                                     </div>
 
                                     {payment?.status === PAYMENT_VIEW_STATUS.FAILED

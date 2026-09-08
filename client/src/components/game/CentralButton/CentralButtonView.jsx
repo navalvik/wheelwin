@@ -1,8 +1,12 @@
 import { memo } from "react";
 
+import { useLanguage } from "../../context/LanguageContext";
+
 import "./centralButton.css";
 
 function CentralButtonView({ snapshot, onPress, onRelease }) {
+
+    const { t } = useLanguage();
 
     const { presentation, isPressed, locked } = snapshot;
 
@@ -14,6 +18,8 @@ function CentralButtonView({ snapshot, onPress, onRelease }) {
         pulseClass,
         enabled
     } = presentation;
+
+    const displayLabel = label ? t(label) : "";
 
     const interactive = enabled && typeof onPress === "function";
 
@@ -34,7 +40,7 @@ function CentralButtonView({ snapshot, onPress, onRelease }) {
                 borderColor,
                 color: textColor
             }}
-            aria-label={label}
+            aria-label={displayLabel || undefined}
             disabled={!interactive}
             onPointerDown={interactive ? (event) => {
 
@@ -56,7 +62,7 @@ function CentralButtonView({ snapshot, onPress, onRelease }) {
             } : undefined}
         >
 
-            {label}
+            {displayLabel}
 
         </button>
 
