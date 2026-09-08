@@ -64,7 +64,8 @@ const FAILURE_STEPS = new Set([
     "DISCONNECT_EXCEPTION",
     "CALLBACK_EXCEPTION",
     "UNHANDLED_REJECTION",
-    "WINDOW_ONERROR"
+    "WINDOW_ONERROR",
+    "PAGE4_SEND_TRANSACTION_REJECTION"
 ]);
 
 function createEmptyAutopsy(sessionId = null) {
@@ -222,6 +223,53 @@ export function captureErrorForensic(error) {
                 stringified: String(error),
                 keys
             };
+
+        }
+
+        if (rawSnapshot == null || typeof rawSnapshot !== "object") {
+
+            rawSnapshot = { value: rawSnapshot };
+
+        }
+
+        for (const propertyName of ERROR_PROPERTY_CANDIDATES) {
+
+            if (Object.prototype.hasOwnProperty.call(rawSnapshot, propertyName)
+                && rawSnapshot[propertyName] != null) {
+
+                continue;
+
+            }
+
+            let value;
+
+            try {
+
+                value = error[propertyName];
+
+            } catch {
+
+                continue;
+
+            }
+
+            if (value === undefined) {
+
+                continue;
+
+            }
+
+            try {
+
+                rawSnapshot[propertyName] = JSON.parse(
+                    safeJsonStringifyForAutopsy(value)
+                );
+
+            } catch {
+
+                rawSnapshot[propertyName] = String(value);
+
+            }
 
         }
 

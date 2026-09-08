@@ -33,6 +33,7 @@ import { buildEntryPaymentTransaction, nanotonsToTonDisplay, sumAuthoritativeEnt
 import { requiredGramToNanotonString } from "../payment/buildTonConnectPaymentTransaction";
 import {
     classifyDepositWalletError,
+    describePage4SendTransactionForensicContext,
     describeTonConnectResult,
     describeTonConnectSendRequestDiagnostics,
     logPage4DepositDeploy
@@ -838,6 +839,7 @@ export default function Page4Payment({ onNavigate }) {
 
         let sendAttempted = false;
         let tonConnectRuntimeDiagnostics = null;
+        let sendForensicContext = null;
 
         try {
 
@@ -887,9 +889,23 @@ export default function Page4Payment({ onNavigate }) {
             const tonConnectTransaction = toTonConnectSendTransactionRequest(
                 transactionObject
             );
+            const nowEpochSeconds = Math.floor(Date.now() / 1000);
+            const authoritativeNetwork = paymentSession?.network
+                ?? depositProjection?.network
+                ?? gameContract?.network
+                ?? null;
+            const walletChain = tonWallet?.account?.chain
+                ?? tonConnectUI?.wallet?.account?.chain
+                ?? tonConnectUI?.account?.chain
+                ?? null;
 
             tonConnectRuntimeDiagnostics = describeTonConnectSendRequestDiagnostics(
-                tonConnectTransaction
+                tonConnectTransaction,
+                {
+                    nowEpochSeconds,
+                    network: authoritativeNetwork,
+                    walletChain
+                }
             );
 
             logPage4DepositDeploy("BUILD", {
@@ -918,10 +934,35 @@ export default function Page4Payment({ onNavigate }) {
 
             try {
 
-                ensureTonConnectAutopsy({
+                const autopsyStore = ensureTonConnectAutopsy({
                     roomId: authoritative?.roomId ?? null,
                     playerId: localPlayerId
                 });
+                const reusedExistingSdkConnection = isTonConnectSdkConnected(
+                    tonConnectUI,
+                    tonWallet
+                );
+                const nextSendForensicContext = describePage4SendTransactionForensicContext({
+                    roomId: authoritative?.roomId ?? null,
+                    gameId: authoritative?.gameId ?? null,
+                    localPlayerId,
+                    playerIndex,
+                    playerWalletAddress: resolveTonConnectSdkAddress(
+                        tonConnectUI,
+                        tonWallet
+                    ),
+                    paymentDestination: roomWalletDestination,
+                    requiredGram: paymentRequest?.requiredGram ?? null,
+                    requestDiagnostics: tonConnectRuntimeDiagnostics,
+                    tonConnectUI,
+                    tonWallet,
+                    reusedExistingSdkConnection,
+                    autopsySessionId: autopsyStore?.sessionId ?? null,
+                    attemptId: handshakeAttemptIdRef.current,
+                    nowEpochSeconds
+                });
+                sendForensicContext = nextSendForensicContext;
+
                 pushAutopsyTimeline({
                     event: "PAGE4_SEND_TRANSACTION_REQUEST",
                     payloadSummary: {
@@ -932,9 +973,30 @@ export default function Page4Payment({ onNavigate }) {
                         messageCount: tonConnectRuntimeDiagnostics.messageCount,
                         messageTopLevelKeys:
                             tonConnectRuntimeDiagnostics.messageTopLevelKeys,
+                        messageDestination:
+                            tonConnectRuntimeDiagnostics.messageDestination,
+                        messageAmount:
+                            tonConnectRuntimeDiagnostics.messageAmount,
+                        hasPayload: tonConnectRuntimeDiagnostics.hasPayload,
+                        hasStateInit: tonConnectRuntimeDiagnostics.hasStateInit,
+                        validUntil: tonConnectRuntimeDiagnostics.validUntil,
+                        nowEpochSeconds:
+                            tonConnectRuntimeDiagnostics.nowEpochSeconds,
+                        validUntilRemainingSeconds:
+                            tonConnectRuntimeDiagnostics.validUntilRemainingSeconds,
+                        network: tonConnectRuntimeDiagnostics.network,
+                        walletChain: tonConnectRuntimeDiagnostics.walletChain,
                         sendTransactionCallCount:
-                            tonConnectRuntimeDiagnostics.sendTransactionCallCount
+                            tonConnectRuntimeDiagnostics.sendTransactionCallCount,
+                        reusedExistingSdkConnection,
+                        autopsySessionId: nextSendForensicContext.autopsySessionId,
+                        attemptId: nextSendForensicContext.attemptId
                     }
+                });
+                pushAutopsyRawObject({
+                    kind: "page4SendTransactionRequest",
+                    label: "PAGE4_SEND_TRANSACTION_REQUEST",
+                    value: nextSendForensicContext
                 });
 
             } catch {
@@ -960,6 +1022,43 @@ export default function Page4Payment({ onNavigate }) {
         } catch (error) {
 
             const validationError = String(error?.message ?? "").slice(0, 240);
+
+            if (sendAttempted) {
+
+                try {
+
+                    dumpTonConnectError(
+                        "PAGE4_SEND_TRANSACTION_REJECTION",
+                        error,
+                        sendForensicContext ?? {
+                            event: "PAGE4_SEND_TRANSACTION_REJECTION",
+                            roomId: authoritative?.roomId ?? null,
+                            gameId: authoritative?.gameId ?? null,
+                            localPlayerId: identity.playerId ?? null
+                        }
+                    );
+
+                } catch {
+
+                    // diagnostics only
+                }
+
+                try {
+
+                    pushAutopsyTimeline({
+                        event: "PAGE4_SEND_TRANSACTION_REJECTION",
+                        payloadSummary: {
+                            ...(sendForensicContext ?? {}),
+                            validationError
+                        }
+                    });
+
+                } catch {
+
+                    // diagnostics only
+                }
+
+            }
 
             logPage4DepositDeploy("WALLET_RESULT", {
                 action: "entry",

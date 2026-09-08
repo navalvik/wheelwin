@@ -792,3 +792,37 @@ test("R18-S65: GAME_ESCROW_MODE=game Page4 never waits for creator Deposit", () 
 
 });
 
+test("R18-S90: Page4 sendTransaction rejection dumps original error and does not confirm", () => {
+
+    const handler = PAGE4_SOURCE.split("handleConfirmInTelegramWallet")[1]
+        ?? "";
+    const catchBlock = handler.split("} catch (error)")[1]
+        ?? "";
+    const successBlock = handler.split("} catch (error)")[0]
+        ?? "";
+
+    assert.match(
+        PAGE4_SOURCE,
+        /dumpTonConnectError\(\s*"PAGE4_SEND_TRANSACTION_REJECTION"/
+    );
+    assert.match(PAGE4_SOURCE, /event: "PAGE4_SEND_TRANSACTION_REJECTION"/);
+    assert.match(catchBlock, /dumpTonConnectError/);
+    assert.match(catchBlock, /if \(sendAttempted\)/);
+    assert.doesNotMatch(
+        catchBlock,
+        /socket\.emit\(LOBBY_OUTGOING_EVENTS\.PAYMENT_CONFIRM_INTENT\)/
+    );
+    assert.match(
+        successBlock,
+        /socket\.emit\(LOBBY_OUTGOING_EVENTS\.PAYMENT_CONFIRM_INTENT\)/
+    );
+    assert.doesNotMatch(PAGE4_SOURCE, /sendTransaction\(tonConnectTransaction,\s*\{/);
+    assert.doesNotMatch(PAGE4_SOURCE, /tonConnectTransaction\.network\s*=/);
+    assert.doesNotMatch(PAGE4_SOURCE, /retry.*sendTransaction/i);
+    assert.doesNotMatch(PAGE4_SOURCE, /reconnect.*sendTransaction/i);
+    const sendMatches = PAGE4_SOURCE.match(/tonConnectUI\.sendTransaction/g) ?? [];
+    assert.equal(sendMatches.length, 1);
+
+});
+
+

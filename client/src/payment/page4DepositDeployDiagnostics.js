@@ -75,12 +75,31 @@ export function classifyDepositWalletError(error) {
 
 }
 
+function safeValidUntilRemainingSeconds(validUntil, nowEpochSeconds) {
+
+    const until = Number(validUntil);
+    const now = Number(nowEpochSeconds);
+
+    if (!Number.isFinite(until) || !Number.isFinite(now)) {
+
+        return null;
+
+    }
+
+    return until - now;
+
+}
+
 /**
  * Observational keys of the object about to be passed to
  * tonConnectUI.sendTransaction(). Does not clone payloads, amounts, or
- * addresses. Does not mutate the request.
+ * addresses onto the request. Does not mutate the request.
  */
-export function describeTonConnectSendRequestDiagnostics(request) {
+export function describeTonConnectSendRequestDiagnostics(request, extras = {}) {
+
+    const nowEpochSeconds = Number.isFinite(Number(extras.nowEpochSeconds))
+        ? Number(extras.nowEpochSeconds)
+        : Math.floor(Date.now() / 1000);
 
     if (request == null || typeof request !== "object") {
 
@@ -90,13 +109,25 @@ export function describeTonConnectSendRequestDiagnostics(request) {
             requestTopLevelKeys: [],
             hasTotalNanotons: false,
             messageCount: 0,
-            messageTopLevelKeys: []
+            messageTopLevelKeys: [],
+            messageDestination: null,
+            messageAmount: null,
+            hasPayload: false,
+            hasStateInit: false,
+            validUntil: null,
+            nowEpochSeconds,
+            validUntilRemainingSeconds: null,
+            network: extras.network ?? null,
+            walletChain: extras.walletChain ?? null
         };
 
     }
 
     const requestTopLevelKeys = Object.keys(request);
     const messageKeySet = new Set();
+    const firstMessage = Array.isArray(request.messages)
+        ? request.messages[0]
+        : null;
 
     if (Array.isArray(request.messages)) {
 
@@ -116,6 +147,22 @@ export function describeTonConnectSendRequestDiagnostics(request) {
 
     }
 
+    const validUntil = Object.prototype.hasOwnProperty.call(request, "validUntil")
+        ? request.validUntil
+        : null;
+
+    const hasPayload = firstMessage != null
+        && typeof firstMessage === "object"
+        && Object.prototype.hasOwnProperty.call(firstMessage, "payload")
+        && firstMessage.payload != null
+        && firstMessage.payload !== "";
+
+    const hasStateInit = firstMessage != null
+        && typeof firstMessage === "object"
+        && Object.prototype.hasOwnProperty.call(firstMessage, "stateInit")
+        && firstMessage.stateInit != null
+        && firstMessage.stateInit !== "";
+
     return {
         sendTransactionCallCount: 1,
         requestIsObject: true,
@@ -127,7 +174,93 @@ export function describeTonConnectSendRequestDiagnostics(request) {
         messageCount: Array.isArray(request.messages)
             ? request.messages.length
             : 0,
-        messageTopLevelKeys: Array.from(messageKeySet)
+        messageTopLevelKeys: Array.from(messageKeySet),
+        messageDestination: firstMessage != null && typeof firstMessage === "object"
+            ? (firstMessage.address ?? null)
+            : null,
+        messageAmount: firstMessage != null && typeof firstMessage === "object"
+            ? (firstMessage.amount ?? null)
+            : null,
+        hasPayload,
+        hasStateInit,
+        validUntil,
+        nowEpochSeconds,
+        validUntilRemainingSeconds: safeValidUntilRemainingSeconds(
+            validUntil,
+            nowEpochSeconds
+        ),
+        network: extras.network ?? null,
+        walletChain: extras.walletChain ?? null
+    };
+
+}
+
+/**
+ * Forensic context for a Page4 sendTransaction attempt. Never includes
+ * mnemonics, private keys, tokens, or walletStateInit.
+ */
+export function describePage4SendTransactionForensicContext({
+    roomId = null,
+    gameId = null,
+    localPlayerId = null,
+    playerIndex = null,
+    playerWalletAddress = null,
+    paymentDestination = null,
+    requiredGram = null,
+    requestDiagnostics = null,
+    tonConnectUI = null,
+    tonWallet = null,
+    reusedExistingSdkConnection = null,
+    autopsySessionId = null,
+    attemptId = null,
+    nowEpochSeconds = null
+} = {}) {
+
+    const wallet = tonWallet ?? tonConnectUI?.wallet ?? null;
+    const resolvedNow = Number.isFinite(Number(nowEpochSeconds))
+        ? Number(nowEpochSeconds)
+        : (requestDiagnostics?.nowEpochSeconds ?? Math.floor(Date.now() / 1000));
+
+    return {
+        event: "PAGE4_SEND_TRANSACTION_REJECTION",
+        roomId: roomId ?? null,
+        gameId: gameId ?? null,
+        localPlayerId: localPlayerId ?? null,
+        playerIndex: playerIndex ?? null,
+        playerWalletAddress: playerWalletAddress ?? null,
+        paymentDestination: paymentDestination ?? null,
+        requiredGram: requiredGram ?? null,
+        transactionAmount: requestDiagnostics?.messageAmount ?? null,
+        transactionValidUntil: requestDiagnostics?.validUntil ?? null,
+        nowEpochSeconds: resolvedNow,
+        validUntilRemainingSeconds:
+            requestDiagnostics?.validUntilRemainingSeconds
+            ?? safeValidUntilRemainingSeconds(
+                requestDiagnostics?.validUntil,
+                resolvedNow
+            ),
+        tonConnectUiConnected: tonConnectUI?.connected ?? null,
+        tonConnectConnectorConnected: tonConnectUI?.connector?.connected ?? null,
+        activeWalletAddress: wallet?.account?.address
+            ?? tonConnectUI?.account?.address
+            ?? playerWalletAddress
+            ?? null,
+        walletAccountChain: wallet?.account?.chain
+            ?? requestDiagnostics?.walletChain
+            ?? null,
+        walletProvider: wallet?.provider ?? null,
+        walletAppName: wallet?.device?.appName ?? wallet?.name ?? null,
+        walletAppVersion: wallet?.device?.appVersion ?? null,
+        walletDevicePlatform: wallet?.device?.platform ?? null,
+        network: requestDiagnostics?.network ?? null,
+        reusedExistingSdkConnection: reusedExistingSdkConnection === true,
+        autopsySessionId: autopsySessionId ?? null,
+        attemptId: attemptId ?? null,
+        requestTopLevelKeys: requestDiagnostics?.requestTopLevelKeys ?? [],
+        messageCount: requestDiagnostics?.messageCount ?? 0,
+        messageTopLevelKeys: requestDiagnostics?.messageTopLevelKeys ?? [],
+        hasPayload: requestDiagnostics?.hasPayload === true,
+        hasStateInit: requestDiagnostics?.hasStateInit === true
     };
 
 }
