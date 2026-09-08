@@ -10,6 +10,8 @@ When `ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET`, the catalog must contain exa
 
 The application composition root should create the Room Wallet service once and expose it to the settlement layer. Creating the service does not enable Room Wallet settlement by itself.
 
+Offline catalogs are produced by `server/scripts/provision-room-wallets.mjs`. Omitting `--network` remains Testnet-only. Mainnet catalogs require `--network mainnet` and Mainnet-specific filenames. See `docs/MAINNET_ROOM_WALLET_PROVISIONER.md`. The `network` field is a credential tag: the same public key can yield the same bounceable address string on both TON networks, so Testnet keys must never be reused on Mainnet.
+
 ## Financial invariants
 
 - Existing WheelWin game rules remain unchanged.

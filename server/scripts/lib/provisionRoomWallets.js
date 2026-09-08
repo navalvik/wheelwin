@@ -1,10 +1,16 @@
 /**
- * Offline TESTNET Room Wallet identity provisioning.
+ * Offline Room Wallet identity provisioning (testnet or mainnet).
  *
  * Generates WalletContractV4 keypairs with cryptographically secure randomness
  * and the same identity rules as RoomWalletRuntimeResolver. Does not send
  * transactions, fund wallets, or write secrets unless an explicit output
  * directory outside the Git work tree is supplied.
+ *
+ * Network is a catalog tag. The same public key yields the same bounceable
+ * address string on testnet and mainnet; keys must still never be reused
+ * across networks.
+ *
+ * Legacy CLI (no --network) remains TESTNET-only.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -20,10 +26,20 @@ import { loadRoomWalletRuntimeConfig } from "../../payment/roomWallet/RoomWallet
 
 export const ROOM_WALLET_PROVISION_COUNT = ROOM_WALLET_COUNT;
 export const ROOM_WALLET_PROVISION_NETWORK = "testnet";
+export const ROOM_WALLET_PROVISION_NETWORKS = Object.freeze(["testnet", "mainnet"]);
 export const ROOM_WALLET_PROVISION_WORKCHAIN = 0;
 export const ROOM_WALLET_CONTRACT_TYPE = "WalletContractV4R2";
 export const MASTER_BACKUP_FILENAME = "room-wallets-testnet-master-backup.json";
 export const RUNTIME_JSON_FILENAME = "room-wallets-testnet-ROOM_WALLETS_JSON.json";
+export const MAINNET_MASTER_BACKUP_FILENAME = "room-wallets-mainnet-master-backup.json";
+export const MAINNET_RUNTIME_JSON_FILENAME = "room-wallets-mainnet-ROOM_WALLETS_JSON.json";
+
+/**
+ * Historical Testnet offline catalog directory (s30). Never write Mainnet
+ * (or new Testnet) artifacts here.
+ */
+export const RESERVED_TESTNET_PROVISION_OUTPUT_DIR_BASENAME =
+    "2026-09-04-room-wallets-testnet";
 
 const PUBLIC_KEY_BYTES = 32;
 const SECRET_KEY_BYTES = 64;
@@ -31,15 +47,95 @@ const HEX_PUBLIC_KEY_LENGTH = PUBLIC_KEY_BYTES * 2;
 const HEX_SECRET_KEY_LENGTH = SECRET_KEY_BYTES * 2;
 const MAX_UNIQUE_ATTEMPTS = 8;
 
+const USAGE =
+    "usage: node scripts/provision-room-wallets.mjs [--network testnet|mainnet] --output-dir <absolute-path-outside-git>";
+
+export function normalizeProvisionNetwork(value) {
+    const network = String(value ?? "").trim().toLowerCase();
+
+    if (!ROOM_WALLET_PROVISION_NETWORKS.includes(network)) {
+        throw new Error(
+            `network must be testnet or mainnet (got ${String(value ?? "").trim() || "<empty>"})`
+        );
+    }
+
+    return network;
+}
+
+export function parseProvisionCliArgs(argv) {
+    let outputDir = null;
+    let networkRaw = null;
+    let networkExplicit = false;
+
+    for (let index = 0; index < argv.length; index += 1) {
+        const token = argv[index];
+
+        if (token === "--output-dir") {
+            const value = argv[index + 1];
+
+            if (!value || value.startsWith("--")) {
+                throw new Error(USAGE);
+            }
+
+            outputDir = value;
+            index += 1;
+            continue;
+        }
+
+        if (token === "--network") {
+            const value = argv[index + 1];
+
+            if (!value || value.startsWith("--")) {
+                throw new Error("missing --network value; expected testnet or mainnet");
+            }
+
+            networkRaw = value;
+            networkExplicit = true;
+            index += 1;
+            continue;
+        }
+
+        throw new Error(`${USAGE} (unknown argument: ${token})`);
+    }
+
+    if (!outputDir) {
+        throw new Error(USAGE);
+    }
+
+    const network = networkExplicit
+        ? normalizeProvisionNetwork(networkRaw)
+        : ROOM_WALLET_PROVISION_NETWORK;
+
+    return Object.freeze({
+        outputDir,
+        network,
+        networkExplicit
+    });
+}
+
+export function provisionArtifactFilenames(network) {
+    const normalized = normalizeProvisionNetwork(network);
+
+    if (normalized === "mainnet") {
+        return Object.freeze({
+            master: MAINNET_MASTER_BACKUP_FILENAME,
+            runtime: MAINNET_RUNTIME_JSON_FILENAME
+        });
+    }
+
+    return Object.freeze({
+        master: MASTER_BACKUP_FILENAME,
+        runtime: RUNTIME_JSON_FILENAME
+    });
+}
+
 export function generateRoomWalletIdentities({
     count = ROOM_WALLET_PROVISION_COUNT,
     network = ROOM_WALLET_PROVISION_NETWORK,
     workchain = ROOM_WALLET_PROVISION_WORKCHAIN,
     randomBytesFn = randomBytes
 } = {}) {
-    if (network !== ROOM_WALLET_PROVISION_NETWORK) {
-        throw new Error("this provisioning utility only generates TESTNET identities");
-    }
+    const normalizedNetwork = normalizeProvisionNetwork(network);
 
     if (workchain !== ROOM_WALLET_PROVISION_WORKCHAIN) {
         throw new Error(`workchain must be ${ROOM_WALLET_PROVISION_WORKCHAIN}`);
@@ -58,7 +154,11 @@ export function generateRoomWalletIdentities({
         let entry = null;
 
         for (let attempt = 1; attempt <= MAX_UNIQUE_ATTEMPTS; attempt += 1) {
-            entry = generateOneIdentity(roomNumber, { network, workchain, randomBytesFn });
+            entry = generateOneIdentity(roomNumber, {
+                network: normalizedNetwork,
+                workchain,
+                randomBytesFn
+            });
 
             if (
                 !seenAddresses.has(entry.address)
@@ -96,10 +196,14 @@ export function buildRuntimePayload(identities) {
 }
 
 export function buildMasterBackup(identities, { generatedAt = new Date().toISOString() } = {}) {
+    const network = identities[0]?.network
+        ? normalizeProvisionNetwork(identities[0].network)
+        : ROOM_WALLET_PROVISION_NETWORK;
+
     return {
         schemaVersion: 1,
         purpose: "WheelWin Room Wallet offline master backup",
-        network: ROOM_WALLET_PROVISION_NETWORK,
+        network,
         workchain: ROOM_WALLET_PROVISION_WORKCHAIN,
         walletContractType: ROOM_WALLET_CONTRACT_TYPE,
         roomCount: identities.length,
@@ -117,10 +221,14 @@ export function buildMasterBackup(identities, { generatedAt = new Date().toISOSt
     };
 }
 
-export function validateProvisionedCatalog(identities, { envNetwork = ROOM_WALLET_PROVISION_NETWORK } = {}) {
+export function validateProvisionedCatalog(identities, { envNetwork = null } = {}) {
     if (!Array.isArray(identities) || identities.length !== ROOM_WALLET_PROVISION_COUNT) {
         throw new RangeError(`catalog must contain exactly ${ROOM_WALLET_PROVISION_COUNT} wallets`);
     }
+
+    const catalogNetwork = normalizeProvisionNetwork(
+        envNetwork ?? identities[0]?.network ?? ROOM_WALLET_PROVISION_NETWORK
+    );
 
     const addresses = new Set();
     const publicKeys = new Set();
@@ -139,8 +247,10 @@ export function validateProvisionedCatalog(identities, { envNetwork = ROOM_WALLE
         assertHexKey(entry.secretKey, HEX_SECRET_KEY_LENGTH, `room ${entry.roomNumber} secretKey`);
         assertLocalIdentity(entry);
 
-        if (entry.network !== ROOM_WALLET_PROVISION_NETWORK) {
-            throw new Error(`room ${entry.roomNumber} network must be testnet`);
+        if (entry.network !== catalogNetwork) {
+            throw new Error(
+                `room ${entry.roomNumber} network must be ${catalogNetwork}`
+            );
         }
 
         if (entry.workchain !== ROOM_WALLET_PROVISION_WORKCHAIN) {
@@ -179,7 +289,7 @@ export function validateProvisionedCatalog(identities, { envNetwork = ROOM_WALLE
     const parsed = loadRoomWalletRuntimeConfig({
         ROOM_WALLETS_JSON: JSON.stringify(runtimePayload),
         ROOM_WALLET_PAYMENT_INTAKE_MODE: "ROOM_WALLET",
-        TON_NETWORK: envNetwork
+        TON_NETWORK: catalogNetwork
     });
 
     if (parsed.entries.length !== ROOM_WALLET_PROVISION_COUNT) {
@@ -202,7 +312,7 @@ export function validateProvisionedCatalog(identities, { envNetwork = ROOM_WALLE
             throw new Error(`parser workchain mismatch for room ${roomNumber}`);
         }
 
-        if (parsedEntry.network !== ROOM_WALLET_PROVISION_NETWORK) {
+        if (parsedEntry.network !== catalogNetwork) {
             throw new Error(`parser network mismatch for room ${roomNumber}`);
         }
     }
@@ -213,13 +323,13 @@ export function validateProvisionedCatalog(identities, { envNetwork = ROOM_WALLE
         uniquePublicKeys: publicKeys.size,
         uniqueSecretKeys: secretKeys.size,
         workchain: ROOM_WALLET_PROVISION_WORKCHAIN,
-        network: ROOM_WALLET_PROVISION_NETWORK,
+        network: catalogNetwork,
         walletContractType: ROOM_WALLET_CONTRACT_TYPE,
         rooms: publicSummary
     });
 }
 
-export function assertOutputDirSafe(outputDir, gitRoot) {
+export function assertOutputDirSafe(outputDir, gitRoot, { network = null } = {}) {
     if (!outputDir || typeof outputDir !== "string") {
         throw new TypeError("--output-dir is required");
     }
@@ -235,14 +345,36 @@ export function assertOutputDirSafe(outputDir, gitRoot) {
         throw new Error("refusing to write Room Wallet secrets inside the Git repository");
     }
 
+    if (isReservedTestnetProvisionDir(resolvedOutput)) {
+        throw new Error(
+            "refusing to write into the historical Testnet Room Wallet output directory"
+        );
+    }
+
+    void network;
+
     return resolvedOutput;
 }
 
-export async function writeProvisionArtifacts(outputDir, { masterBackup, runtimePayload }) {
+export async function writeProvisionArtifacts(outputDir, {
+    masterBackup,
+    runtimePayload,
+    network = null
+} = {}) {
+    const resolvedNetwork = normalizeProvisionNetwork(
+        network
+            ?? masterBackup?.network
+            ?? runtimePayload?.[0]?.network
+            ?? ROOM_WALLET_PROVISION_NETWORK
+    );
+
     await mkdir(outputDir, { recursive: true, mode: 0o700 });
 
-    const masterPath = path.join(outputDir, MASTER_BACKUP_FILENAME);
-    const runtimePath = path.join(outputDir, RUNTIME_JSON_FILENAME);
+    await assertDirectoryDoesNotMixNetworks(outputDir, resolvedNetwork);
+
+    const names = provisionArtifactFilenames(resolvedNetwork);
+    const masterPath = path.join(outputDir, names.master);
+    const runtimePath = path.join(outputDir, names.runtime);
 
     await assertFileDoesNotExist(masterPath);
     await assertFileDoesNotExist(runtimePath);
@@ -257,7 +389,8 @@ export async function writeProvisionArtifacts(outputDir, { masterBackup, runtime
         masterPath,
         runtimePath,
         masterSha256: sha256Buffer(Buffer.from(masterBody, "utf8")),
-        runtimeSha256: sha256Buffer(Buffer.from(runtimeBody, "utf8"))
+        runtimeSha256: sha256Buffer(Buffer.from(runtimeBody, "utf8")),
+        network: resolvedNetwork
     };
 }
 
@@ -282,6 +415,80 @@ export function buildPublicSummary(stats, artifactPaths) {
         rooms: stats.rooms,
         artifacts: artifactPaths
     };
+}
+
+export function formatPublicSummaryLines(summary) {
+    const lines = [
+        "Room Wallet offline provisioning complete.",
+        `count=${summary.count}`,
+        `network=${summary.network}`,
+        `workchain=${summary.workchain}`,
+        `walletContractType=${summary.walletContractType}`,
+        `uniqueAddresses=${summary.uniqueAddresses}`,
+        `uniquePublicKeys=${summary.uniquePublicKeys}`,
+        `uniqueSecretKeys=${summary.uniqueSecretKeys}`,
+        `masterBackup=${summary.artifacts.masterPath}`,
+        `masterSha256=${summary.artifacts.masterSha256}`,
+        `runtimeJson=${summary.artifacts.runtimePath}`,
+        `runtimeSha256=${summary.artifacts.runtimeSha256}`,
+        `acl=${summary.artifacts.acl}`
+    ];
+
+    for (const room of summary.rooms) {
+        lines.push(
+            `room=${String(room.roomNumber).padStart(2, "0")} address=${room.address}`
+        );
+    }
+
+    return lines;
+}
+
+export async function revalidateProvisionArtifacts({
+    masterPath,
+    runtimePath,
+    expectedMasterSha256,
+    expectedRuntimeSha256,
+    network
+}) {
+    const catalogNetwork = normalizeProvisionNetwork(network);
+    const masterBytes = await readFile(masterPath);
+    const runtimeBytes = await readFile(runtimePath);
+    const masterSha256 = await hashFileSha256(masterPath);
+    const runtimeSha256 = await hashFileSha256(runtimePath);
+
+    if (masterSha256 !== expectedMasterSha256 || runtimeSha256 !== expectedRuntimeSha256) {
+        throw new Error("artifact hash mismatch after re-read");
+    }
+
+    const masterBackup = JSON.parse(masterBytes.toString("utf8"));
+    const runtimePayload = JSON.parse(runtimeBytes.toString("utf8"));
+
+    if (!Array.isArray(masterBackup.wallets) || masterBackup.wallets.length !== 64) {
+        throw new Error("master backup did not re-read 64 wallets");
+    }
+
+    if (!Array.isArray(runtimePayload) || runtimePayload.length !== 64) {
+        throw new Error("runtime JSON did not re-read 64 wallets");
+    }
+
+    if (masterBackup.network !== catalogNetwork) {
+        throw new Error("master backup network does not match requested network");
+    }
+
+    const stats = validateProvisionedCatalog(masterBackup.wallets, {
+        envNetwork: catalogNetwork
+    });
+    const parsed = loadRoomWalletRuntimeConfig({
+        ROOM_WALLETS_JSON: runtimeBytes.toString("utf8"),
+        ROOM_WALLET_PAYMENT_INTAKE_MODE: "ROOM_WALLET",
+        TON_NETWORK: catalogNetwork
+    });
+
+    if (parsed.entries.length !== 64) {
+        throw new Error("production parser did not accept the re-read runtime JSON");
+    }
+
+    return stats;
 }
 
 function generateOneIdentity(roomNumber, { network, workchain, randomBytesFn }) {
@@ -351,6 +558,39 @@ function assertLocalIdentity(entry) {
 
     if (derivedAddress !== configuredAddress || configuredAddress !== entry.address) {
         throw new Error(`room ${entry.roomNumber} address does not match WalletContractV4(publicKey)`);
+    }
+}
+
+function isReservedTestnetProvisionDir(resolvedOutput) {
+    const normalized = normalizeFsPath(resolvedOutput);
+    const basename = path.basename(normalized);
+
+    if (basename === RESERVED_TESTNET_PROVISION_OUTPUT_DIR_BASENAME) {
+        return true;
+    }
+
+    return normalized.endsWith(`${path.sep}${RESERVED_TESTNET_PROVISION_OUTPUT_DIR_BASENAME}`);
+}
+
+async function assertDirectoryDoesNotMixNetworks(outputDir, network) {
+    const other = network === "mainnet"
+        ? provisionArtifactFilenames("testnet")
+        : provisionArtifactFilenames("mainnet");
+
+    for (const name of [other.master, other.runtime]) {
+        try {
+            await stat(path.join(outputDir, name));
+        } catch (error) {
+            if (error && error.code === "ENOENT") {
+                continue;
+            }
+
+            throw error;
+        }
+
+        throw new Error(
+            `refusing to write ${network} artifacts into a directory that already contains ${name}`
+        );
     }
 }
 

@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 /**
- * One-time offline TESTNET Room Wallet provisioning.
+ * Offline Room Wallet provisioning (testnet or mainnet).
  *
- * Usage:
+ * Legacy (TESTNET):
  *   node scripts/provision-room-wallets.mjs --output-dir <absolute-path-outside-git>
  *
+ * Explicit network:
+ *   node scripts/provision-room-wallets.mjs --network <testnet|mainnet> --output-dir <absolute-path-outside-git>
+ *
+ * Mainnet requires --network mainnet. Network is never inferred from the
+ * output directory name.
+ *
  * Writes two files into the output directory and prints only public metadata
- * and SHA-256 hashes. Never prints secretKey, mnemonic, or raw JSON.
+ * and SHA-256 hashes. Never prints secretKey, mnemonic, seed, or raw JSON.
  *
  * Does not send blockchain transactions, fund wallets, or change Railway.
  */
@@ -24,23 +30,15 @@ import {
     buildMasterBackup,
     buildPublicSummary,
     buildRuntimePayload,
+    formatPublicSummaryLines,
     generateRoomWalletIdentities,
-    hashFileSha256,
+    parseProvisionCliArgs,
+    revalidateProvisionArtifacts,
     validateProvisionedCatalog,
     writeProvisionArtifacts
 } from "./lib/provisionRoomWallets.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-
-function parseOutputDir(argv) {
-    const index = argv.indexOf("--output-dir");
-
-    if (index < 0 || !argv[index + 1] || argv[index + 1].startsWith("--")) {
-        throw new Error("usage: node scripts/provision-room-wallets.mjs --output-dir <absolute-path-outside-git>");
-    }
-
-    return argv[index + 1];
-}
 
 function resolveGitRoot() {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -75,76 +73,17 @@ function restrictWindowsAcl(outputDir) {
     }
 }
 
-async function revalidateArtifacts({ masterPath, runtimePath, expectedMasterSha256, expectedRuntimeSha256 }) {
-    const masterBytes = await readFile(masterPath);
-    const runtimeBytes = await readFile(runtimePath);
-    const masterSha256 = await hashFileSha256(masterPath);
-    const runtimeSha256 = await hashFileSha256(runtimePath);
-
-    if (masterSha256 !== expectedMasterSha256 || runtimeSha256 !== expectedRuntimeSha256) {
-        throw new Error("artifact hash mismatch after re-read");
-    }
-
-    const masterBackup = JSON.parse(masterBytes.toString("utf8"));
-    const runtimePayload = JSON.parse(runtimeBytes.toString("utf8"));
-
-    if (!Array.isArray(masterBackup.wallets) || masterBackup.wallets.length !== 64) {
-        throw new Error("master backup did not re-read 64 wallets");
-    }
-
-    if (!Array.isArray(runtimePayload) || runtimePayload.length !== 64) {
-        throw new Error("runtime JSON did not re-read 64 wallets");
-    }
-
-    const stats = validateProvisionedCatalog(masterBackup.wallets);
-    const parsed = loadRoomWalletRuntimeConfig({
-        ROOM_WALLETS_JSON: runtimeBytes.toString("utf8"),
-        ROOM_WALLET_PAYMENT_INTAKE_MODE: "ROOM_WALLET",
-        TON_NETWORK: "testnet"
-    });
-
-    const collector = new ConfigurationIssueCollector();
-    validateSecrets(collector, {
-        DEVELOPER_AUTH_ENABLED: "false",
-        ROOM_WALLETS_JSON: runtimeBytes.toString("utf8"),
-        ROOM_WALLET_PAYMENT_INTAKE_MODE: "ROOM_WALLET",
-        TON_NETWORK: "testnet"
-    }, {
-        nodeEnv: "development",
-        tonDeployMode: "stub",
-        developer: { enabled: false, configured: false }
-    });
-    collector.throwIfAny();
-
-    if (parsed.entries.length !== 64) {
-        throw new Error("production parser did not accept the re-read runtime JSON");
-    }
-
-    return stats;
-}
-
 function printPublicSummary(summary) {
-    console.log("Room Wallet offline provisioning complete.");
-    console.log(`count=${summary.count}`);
-    console.log(`network=${summary.network}`);
-    console.log(`workchain=${summary.workchain}`);
-    console.log(`walletContractType=${summary.walletContractType}`);
-    console.log(`uniqueAddresses=${summary.uniqueAddresses}`);
-    console.log(`uniquePublicKeys=${summary.uniquePublicKeys}`);
-    console.log(`uniqueSecretKeys=${summary.uniqueSecretKeys}`);
-    console.log(`masterBackup=${summary.artifacts.masterPath}`);
-    console.log(`masterSha256=${summary.artifacts.masterSha256}`);
-    console.log(`runtimeJson=${summary.artifacts.runtimePath}`);
-    console.log(`runtimeSha256=${summary.artifacts.runtimeSha256}`);
-    console.log(`acl=${summary.artifacts.acl}`);
-
-    for (const room of summary.rooms) {
-        console.log(`room=${String(room.roomNumber).padStart(2, "0")} address=${room.address}`);
+    for (const line of formatPublicSummaryLines(summary)) {
+        console.log(line);
     }
 }
 
 async function main() {
-    const outputDir = assertOutputDirSafe(parseOutputDir(process.argv.slice(2)), resolveGitRoot());
+    const parsedArgs = parseProvisionCliArgs(process.argv.slice(2));
+    const outputDir = assertOutputDirSafe(parsedArgs.outputDir, resolveGitRoot(), {
+        network: parsedArgs.network
+    });
     await mkdir(outputDir, { recursive: true, mode: 0o700 });
 
     const acl = restrictWindowsAcl(outputDir);
@@ -153,18 +92,41 @@ async function main() {
         throw new Error("refusing to generate wallets because the output directory ACL could not be restricted");
     }
 
-    const identities = generateRoomWalletIdentities();
-    validateProvisionedCatalog(identities);
+    const identities = generateRoomWalletIdentities({ network: parsedArgs.network });
+    validateProvisionedCatalog(identities, { envNetwork: parsedArgs.network });
     const written = await writeProvisionArtifacts(outputDir, {
         masterBackup: buildMasterBackup(identities),
-        runtimePayload: buildRuntimePayload(identities)
+        runtimePayload: buildRuntimePayload(identities),
+        network: parsedArgs.network
     });
 
-    const rereadStats = await revalidateArtifacts({
+    const rereadStats = await revalidateProvisionArtifacts({
         masterPath: written.masterPath,
         runtimePath: written.runtimePath,
         expectedMasterSha256: written.masterSha256,
-        expectedRuntimeSha256: written.runtimeSha256
+        expectedRuntimeSha256: written.runtimeSha256,
+        network: parsedArgs.network
+    });
+
+    const runtimeBytes = await readFile(written.runtimePath, "utf8");
+
+    const collector = new ConfigurationIssueCollector();
+    validateSecrets(collector, {
+        DEVELOPER_AUTH_ENABLED: "false",
+        ROOM_WALLETS_JSON: runtimeBytes,
+        ROOM_WALLET_PAYMENT_INTAKE_MODE: "ROOM_WALLET",
+        TON_NETWORK: parsedArgs.network
+    }, {
+        nodeEnv: "development",
+        tonDeployMode: "stub",
+        developer: { enabled: false, configured: false }
+    });
+    collector.throwIfAny();
+
+    loadRoomWalletRuntimeConfig({
+        ROOM_WALLETS_JSON: runtimeBytes,
+        ROOM_WALLET_PAYMENT_INTAKE_MODE: "ROOM_WALLET",
+        TON_NETWORK: parsedArgs.network
     });
 
     printPublicSummary(buildPublicSummary(rereadStats, {
