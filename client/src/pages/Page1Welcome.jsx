@@ -12,6 +12,8 @@ import { useLanguage } from "../context/LanguageContext";
 
 import { DOCUMENTS } from "../utils/documents";
 
+import { SHOW_MAINNET_SWITCH } from "../config/features";
+
 export default function Page1Welcome({
 
     onNext
@@ -36,9 +38,11 @@ export default function Page1Welcome({
 
            nextEnabled={true}
 
-           onNext={onNext}
+onNext={onNext}
 
-         >
+           showMainnetSwitch={SHOW_MAINNET_SWITCH}
+
+          >
 
             <InfoPanel
 

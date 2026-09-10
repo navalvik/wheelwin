@@ -84,7 +84,6 @@
 
     justify-content:center;
 }
-
 .headerBar button{
 
     width:90px;
@@ -92,6 +91,23 @@
     height:36px;
 
     font-weight:bold;
+
+}
+
+.mainnetSwitchButton{
+
+    background:#00aa44;
+
+    color:#ffffff;
+
+    border:2px solid #008833;
+
+}
+
+.mainnetSwitchButton:hover{
+
+    background:#00993d;
+
 }
 
 .jumpButton{

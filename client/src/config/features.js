@@ -5,3 +5,5 @@
  * to remove the Page1 Testnet warning overlay completely.
  */
 export const SHOW_TESTNET_WARNING = true;
+
+export const SHOW_MAINNET_SWITCH = true;

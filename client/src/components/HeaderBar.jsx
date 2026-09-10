@@ -11,18 +11,38 @@ export default function HeaderBar({
     onBack,
     onNext,
     showJumpButton = false,
-    onJump
+    onJump,
+    showMainnetSwitch = false
 }) {
 
     const { t } = useLanguage();
 
     const resolvedNextLabel = nextLabel ?? t("common.next");
 
+    const isTestnet = typeof window !== "undefined" && (
+        window.location.hostname.includes("nine") ||
+        window.location.hostname.includes("testnet")
+    );
+
+    const handleMainnetClick = () => {
+        window.location.replace("https://wheelwin-main.vercel.app");
+    };
+
     return (
 
         <div className={`headerBar${DEBUG_JUMP_ENABLED && showJumpButton ? " headerBar--dev" : ""}`}>
 
             <div className="left">
+
+                {showMainnetSwitch && isTestnet && (
+                    <button
+                        type="button"
+                        className="mainnetSwitchButton"
+                        onClick={handleMainnetClick}
+                    >
+                        MAINNET
+                    </button>
+                )}
 
                 {backEnabled && (
                     <button
