@@ -1,6 +1,6 @@
 import { memo } from "react";
 
-import { useLanguage } from "../../context/LanguageContext";
+import { useLanguage } from "../../../context/LanguageContext";
 
 import "./centralButton.css";
 
