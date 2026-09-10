@@ -12,6 +12,8 @@ import socket from "./socket/socket";
 
 import { devLog } from "./utils/devLog";
 
+import { resolveTonConnectManifestUrl } from "./config/tonConnectManifest.js";
+
 import "./styles/global.css";
 import "./styles/layout.css";
 
@@ -29,7 +31,7 @@ socket.on("disconnect", () => {
 
 });
 
-const tonConnectManifestUrl = `${window.location.origin}/tonconnect-manifest.json`;
+const tonConnectManifestUrl = resolveTonConnectManifestUrl();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
 
