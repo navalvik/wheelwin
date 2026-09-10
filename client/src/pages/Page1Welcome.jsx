@@ -38,7 +38,7 @@ export default function Page1Welcome({
 
            nextEnabled={true}
 
-onNext={onNext}
+            onNext={onNext}
 
            showMainnetSwitch={SHOW_MAINNET_SWITCH}
 
