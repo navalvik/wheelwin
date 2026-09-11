@@ -33,6 +33,12 @@ export const TRANSLATIONS = Object.freeze({
             "THIS PROJECT IS CURRENTLY RUNNING ON THE TON TESTNET.",
         "welcome.testnetWalletsOnly":
             "USE TESTNET GRAM (TON) WALLETS ONLY.",
+        "welcome.mainnetMode": "⚠️ MAINNET",
+        "welcome.mainnetBody":
+            "THIS PROJECT IS CURRENTLY RUNNING ON THE TON MAINNET.",
+        "welcome.mainnetWalletsOnly":
+            "USE TELEGRAM WALLET ONLY.",
+
         "welcome.testnetDismiss": "Tap anywhere on this message to continue.",
 
         "page.welcome.title": "WELCOME TO WHEELWIN",

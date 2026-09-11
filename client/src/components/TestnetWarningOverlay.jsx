@@ -7,6 +7,15 @@ import "../styles/testnetWarningOverlay.css";
 
 const FADE_MS = 280;
 
+const isTestnet = typeof window !== "undefined" && (
+    window.location.hostname.includes("nine") ||
+    window.location.hostname.includes("testnet")
+);
+
+const titleKey = isTestnet ? "welcome.testMode" : "welcome.mainnetMode";
+const bodyKey = isTestnet ? "welcome.testnetBody" : "welcome.mainnetBody";
+const walletsKey = isTestnet ? "welcome.testnetWalletsOnly" : "welcome.mainnetWalletsOnly";
+
 /**
  * R6.5 — Page1 Testnet warning overlay.
  * Visible once per page mount when SHOW_TESTNET_WARNING is true.
@@ -80,19 +89,19 @@ export default function TestnetWarningOverlay() {
                     className="testnetWarningOverlay__eyebrow"
                 >
 
-                    {t("welcome.testMode")}
+                    {t(titleKey)}
 
                 </div>
 
                 <p className="testnetWarningOverlay__body">
 
-                    {t("welcome.testnetBody")}
+                    {t(bodyKey)}
 
                 </p>
 
                 <p className="testnetWarningOverlay__body">
 
-                    {t("welcome.testnetWalletsOnly")}
+                    {t(walletsKey)}
 
                 </p>
 
