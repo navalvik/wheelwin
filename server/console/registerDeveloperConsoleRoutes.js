@@ -1,6 +1,7 @@
 import { createAdministratorAuthMiddleware } from "./auth/developerAuthMiddleware.js";
 import { readMultipartOggUpload } from "./configuration/readMultipartOggUpload.js";
 import { AUDIO_UPLOAD_MAX_BYTES } from "./configuration/uploadAudioRegistryAsset.js";
+import { selectWalletNetworkSnapshot } from "./wallet/WalletBalanceMonitor.js";
 
 /**
  * R6.0C / R6.1 — Read-only Developer Console HTTP routes.
@@ -216,12 +217,49 @@ export function registerDeveloperConsoleRoutes(
 
     /**
      * R17.9I.3 — Administrator-only wallet balance monitor.
+     *
+     * r18-s104 — Optional explicit network selection: `?network=testnet` or
+     * `?network=mainnet` returns ONLY that profile's data. An unavailable or
+     * unknown network returns 400 — there is no cross-network fallback.
+     * Without the parameter the full multi-profile snapshot is returned
+     * (backward compatible).
      */
     app.get("/console/wallets/balances", adminGate, (req, res) => {
 
         try {
 
-            res.json(projectionService.buildWalletBalances());
+            const snapshot = projectionService.buildWalletBalances();
+
+            const requestedNetwork = typeof req.query.network === "string"
+                ? req.query.network.trim().toLowerCase()
+                : null;
+
+            if (!requestedNetwork) {
+
+                res.json(snapshot);
+
+                return;
+
+            }
+
+            const selected = selectWalletNetworkSnapshot(snapshot, requestedNetwork);
+
+            if (!selected) {
+
+                res.status(400).json({
+                    error: "Requested wallet monitoring network profile is not available",
+                    network: requestedNetwork
+                });
+
+                return;
+
+            }
+
+            res.json({
+                ...snapshot,
+                network: selected.profile.network,
+                wallets: selected.profile.wallets
+            });
 
         } catch (error) {
 

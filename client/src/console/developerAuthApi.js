@@ -408,11 +408,23 @@ export async function fetchBlockchainStatus(accessToken) {
 
 /**
  * R17.9H — Read-only wallet balance monitor snapshot.
+ *
+ * r18-s104 — Optional explicit network selection. `network` ("testnet" or
+ * "mainnet") is sent as `?network=` so the backend returns ONLY that
+ * network's profile. Omitted → full multi-profile snapshot (backward compat).
  */
-export async function fetchWalletBalances(accessToken) {
+export async function fetchWalletBalances(accessToken, network = null) {
+
+    const normalizedNetwork = typeof network === "string" && network.trim()
+        ? network.trim().toLowerCase()
+        : null;
+
+    const query = normalizedNetwork
+        ? `?network=${encodeURIComponent(normalizedNetwork)}`
+        : "";
 
     const response = await fetch(
-        `${getConsoleApiBase()}/console/wallets/balances`,
+        `${getConsoleApiBase()}/console/wallets/balances${query}`,
         {
             method: "GET",
             headers: {

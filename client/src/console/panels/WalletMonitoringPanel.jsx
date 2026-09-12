@@ -25,6 +25,23 @@ const WALLET_TYPE_ALIASES = Object.freeze({
     RESIDUES_WALLET: ["RESIDUES_WALLET", "REIMBURSEMENT_WALLET"]
 });
 
+/**
+ * r18-s104 — Explicit Testnet/Mainnet monitoring tabs. Selection is always
+ * explicit; the UI never falls back to the other network's data.
+ */
+const NETWORK_TABS = Object.freeze([
+    Object.freeze({ id: "testnet", label: "TESTNET" }),
+    Object.freeze({ id: "mainnet", label: "MAINNET" })
+]);
+
+function formatNetwork(network) {
+
+    const text = String(network ?? "").trim();
+
+    return text ? text.toUpperCase() : "—";
+
+}
+
 function statusClass(status) {
 
     switch (status) {
@@ -145,7 +162,7 @@ function WalletCard({ wallet }) {
 
                     <span className="devConsole__kvValue">
 
-                        {wallet?.network ?? "—"}
+                        {formatNetwork(wallet?.network)}
 
                     </span>
 
@@ -236,6 +253,10 @@ export default function WalletMonitoringPanel() {
 
     const [snapshot, setSnapshot] = useState(null);
 
+    // r18-s104 — Explicitly selected monitoring network ("testnet"|"mainnet").
+    // null until the first snapshot resolves the application network.
+    const [activeNetwork, setActiveNetwork] = useState(null);
+
     const [error, setError] = useState(null);
 
     const [forbidden, setForbidden] = useState(false);
@@ -256,7 +277,27 @@ export default function WalletMonitoringPanel() {
 
             try {
 
-                const next = await fetchWalletBalances(accessToken);
+                // r18-s104 — The requested network is explicit in the request.
+                const next = await fetchWalletBalances(accessToken, activeNetwork);
+
+                if (cancelled) {
+
+                    return;
+
+                }
+
+                // Defense in depth: the response must carry the requested
+                // network. The backend performs fallback-free slicing; any
+                // mismatch is a hard error, not a reason to render other data.
+                if (
+                    activeNetwork
+                    && next?.network
+                    && next.network !== activeNetwork
+                ) {
+
+                    throw new Error("Wallet monitoring network mismatch");
+
+                }
 
                 if (!cancelled) {
 
@@ -265,6 +306,16 @@ export default function WalletMonitoringPanel() {
                     setError(null);
 
                     setForbidden(false);
+
+                    if (!activeNetwork && next?.applicationNetwork) {
+
+                        setActiveNetwork(
+                            next.applicationNetwork === "mainnet"
+                                ? "mainnet"
+                                : "testnet"
+                        );
+
+                    }
 
                 }
 
@@ -312,7 +363,7 @@ export default function WalletMonitoringPanel() {
 
         };
 
-    }, [accessToken, isAdministrator]);
+    }, [accessToken, isAdministrator, activeNetwork]);
 
     if (!isAdministrator || forbidden) {
 
@@ -340,6 +391,13 @@ export default function WalletMonitoringPanel() {
 
     const wallets = WALLET_ORDER.map((type) => pickWallet(walletsByType, type));
 
+    // r18-s104 — Resolved tab. Explicit selection first; the first snapshot
+    // defaults the tab to the application's own network. The displayed wallet
+    // list is the server-sliced profile for exactly this network.
+    const resolvedNetwork = activeNetwork
+        ?? (snapshot?.applicationNetwork === "mainnet" ? "mainnet" : null)
+        ?? (snapshot ? "testnet" : null);
+
     return (
 
         <PanelShell
@@ -363,9 +421,51 @@ export default function WalletMonitoringPanel() {
 
                 <div className="devConsole__opsStack">
 
+                    <div
+                        className="devConsole__networkSwitch"
+                        role="group"
+                        aria-label="Wallet monitoring network"
+                    >
+
+                        {NETWORK_TABS.map((tab) => {
+
+                            const profile = snapshot.networkProfiles?.[tab.id] ?? null;
+                            const isActive = resolvedNetwork === tab.id;
+
+                            return (
+
+                                <button
+                                    key={tab.id}
+                                    type="button"
+                                    className={`devConsole__button${isActive ? " devConsole__networkSwitchButton--active" : ""}`}
+                                    aria-pressed={isActive}
+                                    onClick={() => {
+
+                                        if (profile) {
+
+                                            setActiveNetwork(tab.id);
+
+                                        }
+
+                                    }}
+                                >
+
+                                    {tab.label}
+                                    {snapshot.applicationNetwork === tab.id ? " (APP)" : ""}
+
+                                </button>
+
+                            );
+
+                        })}
+
+                    </div>
+
                     <p className="devConsole__placeholder">
 
-                        Network: {snapshot.network ?? "—"}
+                        WALLET MONITORING — {formatNetwork(resolvedNetwork)}
+                        {" · "}
+                        Network: {formatNetwork(snapshot.network)}
                         {" · "}
                         Refresh: {(snapshot.refreshIntervalMs ?? 30000) / 1000}s
                         {" · "}

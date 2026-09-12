@@ -7,6 +7,7 @@
 import { fromNano } from "@ton/core";
 
 import { OwnerConfiguration } from "../../config/OwnerConfiguration.js";
+import { loadMainnetTonProfile } from "../../config/tonNetworkProfiles.js";
 import { describeTonWalletIdentity } from "../../models/TonWalletAddress.js";
 import { deriveDeployerWalletIdentity } from "../../payment/ton/deriveDeployerWalletIdentity.js";
 import {
@@ -32,6 +33,26 @@ export const WALLET_BALANCE_STATUS = Object.freeze({
 });
 
 export const DEFAULT_WALLET_BALANCE_REFRESH_MS = 30_000;
+
+/**
+ * r18-s104 — Explicit wallet monitoring network profiles.
+ *
+ * APPLICATION = the network this service is bound to (runtimeConfig.ton.network).
+ * MAINNET     = an independent read-only profile resolved from mainnet-only
+ *               public address pins. It never inherits or falls back to the
+ *               application-network configuration.
+ */
+export const WALLET_PROFILE_SOURCES = Object.freeze({
+    APPLICATION: "APPLICATION",
+    MAINNET: "MAINNET_PINS"
+});
+
+export const WALLET_MONITORING_NETWORKS = Object.freeze(["testnet", "mainnet"]);
+
+const MAINNET_ONLY_ENV_KEYS = Object.freeze({
+    OWNER_WALLET: "TON_MAINNET_OWNER_WALLET",
+    RESIDUES_WALLET: "TON_MAINNET_RESIDUES_EXPECTED_ADDRESS"
+});
 
 const MONITORED_WALLET_TYPES = Object.freeze([
     WALLET_BALANCE_TYPES.OWNER_WALLET,
@@ -112,6 +133,7 @@ export class WalletBalanceMonitor {
     constructor({
         logger = null,
         tonService = null,
+        mainnetTonService = null,
         runtimeConfig = null,
         env = process.env,
         refreshIntervalMs = DEFAULT_WALLET_BALANCE_REFRESH_MS,
@@ -122,6 +144,7 @@ export class WalletBalanceMonitor {
 
         this._logger = logger;
         this._tonService = tonService;
+        this._mainnetTonService = mainnetTonService;
         this._runtimeConfig = runtimeConfig;
         this._env = env;
         this._refreshIntervalMs = Number.isFinite(refreshIntervalMs)
@@ -142,11 +165,28 @@ export class WalletBalanceMonitor {
             [WALLET_BALANCE_TYPES.RESIDUES_WALLET]: null
         });
 
+        this._mainnetAddressCache = Object.freeze({
+            [WALLET_BALANCE_TYPES.OWNER_WALLET]: null,
+            [WALLET_BALANCE_TYPES.DEPLOYMENT_WALLET]: null,
+            [WALLET_BALANCE_TYPES.RESIDUES_WALLET]: null
+        });
+
         this._wallets = new Map(
             MONITORED_WALLET_TYPES.map((walletType) => [
                 walletType,
                 freezeWalletEntry({
                     walletType,
+                    status: WALLET_BALANCE_STATUS.UNAVAILABLE
+                })
+            ])
+        );
+
+        this._mainnetWallets = new Map(
+            MONITORED_WALLET_TYPES.map((walletType) => [
+                walletType,
+                freezeWalletEntry({
+                    walletType,
+                    network: "mainnet",
                     status: WALLET_BALANCE_STATUS.UNAVAILABLE
                 })
             ])
@@ -185,6 +225,8 @@ export class WalletBalanceMonitor {
         }
 
         await this._resolveAddresses();
+
+        this._applyMainnetAddressCache();
 
         this._initialized = true;
 
@@ -260,18 +302,62 @@ export class WalletBalanceMonitor {
     /**
      * Cached snapshot for GET /console/wallets/balances.
      * Never includes secrets.
+     *
+     * r18-s104 — schemaVersion 2 adds explicit per-network profiles
+     * (`networkProfiles`) while preserving the legacy application-network
+     * fields (`network`, `wallets`) for backward compatibility.
      */
     getSnapshot() {
 
         const wallets = MONITORED_WALLET_TYPES.map((type) => this._wallets.get(type));
+        const mainnetWallets = MONITORED_WALLET_TYPES.map((type) => this._mainnetWallets.get(type));
+        const applicationNetwork = this._applicationNetwork();
 
-        return Object.freeze({
-            schemaVersion: 1,
-            refreshIntervalMs: this._refreshIntervalMs,
-            network: this._applicationNetwork(),
-            generatedAt: this._nowFn(),
+        const applicationProfile = Object.freeze({
+            network: applicationNetwork,
+            source: WALLET_PROFILE_SOURCES.APPLICATION,
+            enabled: true,
             wallets: Object.freeze(wallets)
         });
+
+        const mainnetProfile = Object.freeze({
+            network: "mainnet",
+            source: WALLET_PROFILE_SOURCES.MAINNET,
+            enabled: this._isMainnetMonitoringConfigured(),
+            wallets: Object.freeze(mainnetWallets)
+        });
+
+        const networkProfiles = applicationNetwork === "mainnet"
+            ? Object.freeze({ mainnet: applicationProfile })
+            : Object.freeze({
+                [applicationNetwork || "application"]: applicationProfile,
+                mainnet: mainnetProfile
+            });
+
+        return Object.freeze({
+            schemaVersion: 2,
+            refreshIntervalMs: this._refreshIntervalMs,
+            network: applicationNetwork,
+            generatedAt: this._nowFn(),
+            wallets: Object.freeze(wallets),
+            applicationNetwork,
+            networkProfiles
+        });
+
+    }
+
+    /**
+     * r18-s104 — The Mainnet profile is configured only when mainnet-only pins
+     * (or an injected mainnet TonService) exist. No testnet inheritance.
+     */
+    _isMainnetMonitoringConfigured() {
+
+        return Boolean(
+            this._mainnetTonService
+            || this._mainnetAddressCache[WALLET_BALANCE_TYPES.OWNER_WALLET]
+            || this._mainnetAddressCache[WALLET_BALANCE_TYPES.DEPLOYMENT_WALLET]
+            || this._mainnetAddressCache[WALLET_BALANCE_TYPES.RESIDUES_WALLET]
+        );
 
     }
 
@@ -324,11 +410,107 @@ export class WalletBalanceMonitor {
 
         await this._resolveAddresses();
 
-        await Promise.all(
-            MONITORED_WALLET_TYPES.map((type) => this._refreshOne(type))
-        );
+        await Promise.all([
+            Promise.all(
+                MONITORED_WALLET_TYPES.map((type) => this._refreshOne(type))
+            ),
+            this._refreshMainnet()
+        ]);
 
         return this.getSnapshot();
+
+    }
+
+    /**
+     * r18-s104 — Independent MAINNET refresh.
+     *
+     * Reads ONLY mainnet-only public address pins and ONLY the injected
+     * mainnet TonService. It never falls back to the application-network
+     * service, addresses, or configuration. A Mainnet failure must not affect
+     * the application-network entries and vice versa.
+     */
+    async _refreshMainnet() {
+
+        this._applyMainnetAddressCache();
+
+        await Promise.all(
+            MONITORED_WALLET_TYPES.map((type) => this._refreshEntry(type, {
+                wallets: this._mainnetWallets,
+                address: this._mainnetAddressCache[type] ?? null,
+                network: "mainnet",
+                tonService: this._mainnetTonService,
+                notConfiguredMessage: "Mainnet wallet address is not configured",
+                serviceUnavailableMessage: "Mainnet TonService is unavailable"
+            }))
+        );
+
+    }
+
+    _applyMainnetAddressCache() {
+
+        try {
+
+            this._mainnetAddressCache = this._resolveMainnetAddressCache();
+
+        } catch (error) {
+
+            this._logger?.warn?.(
+                `WalletBalanceMonitor mainnet address resolve failed | ${error?.message ?? error}`
+            );
+
+        }
+
+    }
+
+    _resolveMainnetAddressCache() {
+
+        return Object.freeze({
+            [WALLET_BALANCE_TYPES.OWNER_WALLET]: this._resolveMainnetOwnerAddress(),
+            [WALLET_BALANCE_TYPES.DEPLOYMENT_WALLET]: this._resolveMainnetDeploymentAddress(),
+            [WALLET_BALANCE_TYPES.RESIDUES_WALLET]: this._resolveMainnetResiduesAddress()
+        });
+
+    }
+
+    /**
+     * Mainnet Owner pin: TON_MAINNET_OWNER_WALLET only. OwnerConfiguration /
+     * OWNER_WALLET belong to the application network and are never reused here.
+     */
+    _resolveMainnetOwnerAddress() {
+
+        return operatorIdentity(
+            this._env[MAINNET_ONLY_ENV_KEYS.OWNER_WALLET],
+            "mainnet"
+        ).address;
+
+    }
+
+    /**
+     * Mainnet Deployment pin: TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS via the
+     * existing mainnet network profile loader (no testnet/shared fallback).
+     */
+    _resolveMainnetDeploymentAddress() {
+
+        const profile = loadMainnetTonProfile(this._env);
+
+        return operatorIdentity(
+            profile.deployerExpectedAddress,
+            "mainnet"
+        ).address;
+
+    }
+
+    /**
+     * Mainnet Residues pin: TON_MAINNET_RESIDUES_EXPECTED_ADDRESS only. The
+     * application-network Residues resolution (env aliases / mnemonic derive)
+     * is never reused for Mainnet.
+     */
+    _resolveMainnetResiduesAddress() {
+
+        return operatorIdentity(
+            this._env[MAINNET_ONLY_ENV_KEYS.RESIDUES_WALLET],
+            "mainnet"
+        ).address;
 
     }
 
@@ -460,14 +642,31 @@ export class WalletBalanceMonitor {
 
     async _refreshOne(walletType) {
 
-        const previous = this._wallets.get(walletType);
-        const rawAddress = this._addressCache[walletType] ?? null;
-        const identity = operatorIdentity(rawAddress, this._applicationNetwork());
+        await this._refreshEntry(walletType, {
+            wallets: this._wallets,
+            address: this._addressCache[walletType] ?? null,
+            network: this._applicationNetwork(),
+            tonService: this._tonService,
+            notConfiguredMessage: "Wallet address is not configured",
+            serviceUnavailableMessage: "TonService is unavailable"
+        });
+
+    }
+
+    /**
+     * r18-s104 — Network-profile-aware refresh entry. The context explicitly
+     * binds ONE wallet map, ONE address, ONE network tag and ONE balance
+     * service, so a profile can never query or inherit another network's data.
+     */
+    async _refreshEntry(walletType, context) {
+
+        const previous = context.wallets.get(walletType);
+        const identity = operatorIdentity(context.address, context.network);
         const nowIso = new Date(this._nowFn()).toISOString();
 
         if (!identity.address) {
 
-            this._wallets.set(walletType, freezeWalletEntry({
+            context.wallets.set(walletType, freezeWalletEntry({
                 walletType,
                 address: null,
                 network: identity.network,
@@ -478,16 +677,16 @@ export class WalletBalanceMonitor {
                 status: WALLET_BALANCE_STATUS.NOT_CONFIGURED,
                 lastUpdated: nowIso,
                 lastSuccessfulUpdate: previous?.lastSuccessfulUpdate ?? null,
-                error: "Wallet address is not configured"
+                error: context.notConfiguredMessage
             }));
 
             return;
 
         }
 
-        if (!this._tonService?.getBalance) {
+        if (!context.tonService?.getBalance) {
 
-            this._wallets.set(walletType, freezeWalletEntry({
+            context.wallets.set(walletType, freezeWalletEntry({
                 walletType,
                 address: identity.address,
                 network: identity.network,
@@ -496,7 +695,7 @@ export class WalletBalanceMonitor {
                 status: WALLET_BALANCE_STATUS.UNAVAILABLE,
                 lastUpdated: nowIso,
                 lastSuccessfulUpdate: previous?.lastSuccessfulUpdate ?? null,
-                error: "TonService is unavailable"
+                error: context.serviceUnavailableMessage
             }));
 
             return;
@@ -505,10 +704,10 @@ export class WalletBalanceMonitor {
 
         try {
 
-            const nano = await this._tonService.getBalance(identity.address);
+            const nano = await context.tonService.getBalance(identity.address);
             const balance = balanceTonFromNano(nano);
 
-            this._wallets.set(walletType, freezeWalletEntry({
+            context.wallets.set(walletType, freezeWalletEntry({
                 walletType,
                 address: identity.address,
                 network: identity.network,
@@ -522,7 +721,7 @@ export class WalletBalanceMonitor {
 
         } catch (error) {
 
-            this._wallets.set(walletType, freezeWalletEntry({
+            context.wallets.set(walletType, freezeWalletEntry({
                 walletType,
                 address: identity.address,
                 network: identity.network,
@@ -542,5 +741,38 @@ export class WalletBalanceMonitor {
         }
 
     }
+
+}
+
+/**
+ * r18-s104 — Explicit, fallback-free network profile selection for the
+ * /console/wallets/balances route. Returns null when the requested network
+ * profile is absent; it never substitutes another network's data.
+ *
+ * @param {object|null} snapshot
+ * @param {string|null} network
+ * @returns {{ snapshot: object, profile: object }|null}
+ */
+export function selectWalletNetworkSnapshot(snapshot, network) {
+
+    const normalized = typeof network === "string"
+        ? network.trim().toLowerCase()
+        : "";
+
+    if (!WALLET_MONITORING_NETWORKS.includes(normalized)) {
+
+        return null;
+
+    }
+
+    const profile = snapshot?.networkProfiles?.[normalized];
+
+    if (!profile || profile.network !== normalized) {
+
+        return null;
+
+    }
+
+    return Object.freeze({ snapshot, profile });
 
 }

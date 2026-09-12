@@ -104,6 +104,7 @@ import { RoomWalletResidualSweepWorker } from "./payment/roomWallet/RoomWalletRe
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
 import { AudioRegistryService } from "./console/configuration/AudioRegistryService.js";
 import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
+import { loadMainnetTonProfile } from "./config/tonNetworkProfiles.js";
 import { TIMER_PHASES } from "./catalog/Timers.js";
 import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
 import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
@@ -2182,9 +2183,57 @@ class WheelWinApplication {
         this._healthService.registerRuntimeProvider(() => this._collectRuntime());
 
         // R17.9H — Read-only wallet balance monitor (30s refresh).
+        //
+        // r18-s104 — Optional read-only MAINNET monitoring profile. Balances
+        // only. The mainnet TonService is bound to the mainnet profile endpoint
+        // (TON_MAINNET_ENDPOINT, default https://toncenter.com/api/v2/jsonRPC)
+        // and is created ONLY when mainnet-only public address pins exist
+        // (TON_MAINNET_OWNER_WALLET / TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS /
+        // TON_MAINNET_RESIDUES_EXPECTED_ADDRESS). Without pins the Mainnet
+        // profile stays NOT_CONFIGURED — never a fallback to Testnet.
+        const mainnetPinsConfigured = Boolean(
+            process.env.TON_MAINNET_OWNER_WALLET
+            || process.env.TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS
+            || process.env.TON_MAINNET_RESIDUES_EXPECTED_ADDRESS
+        );
+
+        let mainnetTonService = null;
+
+        if (mainnetPinsConfigured) {
+
+            try {
+
+                mainnetTonService = new TonService({
+                    logger: this._logger,
+                    tonConfig: {
+                        network: "mainnet",
+                        endpoint: loadMainnetTonProfile(process.env).endpoint,
+                        apiKey: process.env.TON_MAINNET_API_KEY ?? null,
+                        deployMode: "stub",
+                        pollIntervalMs: 2000
+                    }
+                });
+
+                mainnetTonService.initialize();
+
+            } catch (error) {
+
+                this._logger?.warn?.(
+                    `Mainnet monitoring TonService init failed | ${error?.message ?? error}`
+                );
+
+                mainnetTonService = null;
+
+            }
+
+        }
+
+        this._mainnetMonitoringTonService = mainnetTonService;
+
         this._walletBalanceMonitor = new WalletBalanceMonitor({
             logger: this._logger,
             tonService: this._services?.tonService ?? null,
+            mainnetTonService,
             runtimeConfig: this._runtimeConfig,
             env: process.env
         });
@@ -2764,6 +2813,16 @@ class WheelWinApplication {
             if (this._walletBalanceMonitor) {
 
                 this._walletBalanceMonitor.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("mainnetMonitoringTonService", () => {
+
+            if (this._mainnetMonitoringTonService) {
+
+                void this._mainnetMonitoringTonService.shutdown();
 
             }
 

@@ -1394,6 +1394,23 @@ body:has(.devConsole) {
     filter: brightness(1.05);
 }
 
+/* r18-s104 — Wallet Monitoring Testnet/Mainnet switch (existing design language). */
+.devConsole__networkSwitch {
+
+    display: flex;
+
+    flex-wrap: wrap;
+
+    gap: 8px;
+
+    margin: 0 0 4px;
+}
+
+.devConsole__networkSwitchButton--active {
+
+    outline: 2px solid var(--console-muted);
+}
+
 .devConsole__stack {
 
     display: flex;
