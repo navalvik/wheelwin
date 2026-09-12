@@ -255,6 +255,13 @@ export const TRANSLATIONS = Object.freeze({
             "ESTE PROYECTO ESTÁ FUNCIONANDO ACTUALMENTE EN LA TON TESTNET.",
         "welcome.testnetWalletsOnly":
             "USA SOLO WALLETS DE GRAM (TON) DE TESTNET.",
+
+        "welcome.mainnetMode": "⚠️ MAINNET",
+        "welcome.mainnetBody":
+            "ESTE PROYECTO ESTÁ FUNCIONANDO ACTUALMENTE EN LA TON MAINNET.",
+        "welcome.mainnetWalletsOnly":
+            "USA SOLO TELEGRAM WALLET.",
+
         "welcome.testnetDismiss": "Toca este mensaje en cualquier lugar para continuar.",
 
         "page.welcome.title": "BIENVENIDO A WHEELWIN",
@@ -471,6 +478,13 @@ export const TRANSLATIONS = Object.freeze({
             "ESTE PROJETO ESTÁ RODANDO ATUALMENTE NA TON TESTNET.",
         "welcome.testnetWalletsOnly":
             "USE APENAS WALLETS DE GRAM (TON) DA TESTNET.",
+
+        "welcome.mainnetMode": "⚠️ MAINNET",
+        "welcome.mainnetBody":
+            "ESTE PROJETO ESTÁ RODANDO ATUALMENTE NA TON MAINNET.",
+        "welcome.mainnetWalletsOnly":
+            "USE APENAS TELEGRAM WALLET.",
+
         "welcome.testnetDismiss": "Toque em qualquer lugar nesta mensagem para continuar.",
 
         "page.welcome.title": "BEM-VINDO AO WHEELWIN",
@@ -687,6 +701,13 @@ export const TRANSLATIONS = Object.freeze({
             "CE PROJET TOURNE ACTUELLEMENT SUR LE TON TESTNET.",
         "welcome.testnetWalletsOnly":
             "UTILISEZ UNIQUEMENT DES WALLETS GRAM (TON) TESTNET.",
+
+        "welcome.mainnetMode": "⚠️ MAINNET",
+        "welcome.mainnetBody":
+            "CE PROJET TOURNE ACTUELLEMENT SUR LE TON MAINNET.",
+        "welcome.mainnetWalletsOnly":
+            "UTILISEZ UNIQUEMENT TELEGRAM WALLET.",
+
         "welcome.testnetDismiss": "Touchez n’importe où sur ce message pour continuer.",
 
         "page.welcome.title": "BIENVENUE SUR WHEELWIN",
@@ -903,6 +924,13 @@ export const TRANSLATIONS = Object.freeze({
             "本项目当前运行在 TON TESTNET 上。",
         "welcome.testnetWalletsOnly":
             "请仅使用 TESTNET GRAM (TON) Wallet。",
+
+        "welcome.mainnetMode": "⚠️ 主网",
+        "welcome.mainnetBody":
+            "本项目当前运行在 TON MAINNET 上。",
+        "welcome.mainnetWalletsOnly":
+            "请仅使用 TELEGRAM WALLET。",
+
         "welcome.testnetDismiss": "点击此消息任意位置以继续。",
 
         "page.welcome.title": "欢迎来到 WHEELWIN",
