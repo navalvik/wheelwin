@@ -4,6 +4,6 @@
  * Set SHOW_TESTNET_WARNING = false after TON Mainnet migration
  * to remove the Page1 Testnet warning overlay completely.
  */
-export const SHOW_TESTNET_WARNING = true;
+export const SHOW_TESTNET_WARNING = false;
 
 export const SHOW_MAINNET_SWITCH = true;
