@@ -24,27 +24,41 @@ export default function HeaderBar({
         window.location.hostname.includes("testnet")
     );
 
-    // R19-S110 — Testnet → Mainnet Telegram Mini App handoff.
+    // R19-S111 — Testnet → Mainnet Telegram Mini App handoff.
     //
     // Authoritative Mainnet Mini App configuration (operator-confirmed in
     // BotFather): bot @wheel_win_bot, Main App enabled, Web App URL
     // https://wheelwin-main.vercel.app/. Telegram's native profile Launch App
     // path was verified on Android to create a fully authenticated Mainnet
-    // session. The Android Testnet → Mainnet path must therefore remain a
-    // Telegram-native Main Mini App deep link, not a raw cross-origin URL.
+    // session.
     //
-    // A NON-EMPTY startapp value is intentional here. The previous bare
-    // `?startapp` link opened the Mainnet UI on Telegram Android but produced
-    // an empty WebApp.initData session. Telegram's documented Main Mini App
-    // deep-link format supports a start parameter, and using an explicit
-    // value forces this handoff through the same Main Mini App deep-link
-    // handling path while giving the launch a distinct request context.
-    // The application does not consume this value; it is only a launch
-    // marker. No Testnet initData or tgWebAppData is forwarded, copied, or
-    // reconstructed here.
+    // Telegram documents web_app_open_tg_link as the native Mini App event for
+    // opening t.me deep links. Its current event contract also accepts the
+    // force_request flag. Use that native event directly when the underlying
+    // Telegram WebView bridge is exposed, so Android is explicitly asked for
+    // a fresh Main Mini App request instead of reusing a cached deep-link
+    // result. This is intentionally narrower than changing server auth or
+    // forwarding any credentials.
     const MAINNET_MINI_APP_DEEP_LINK = "https://t.me/wheel_win_bot?startapp=mainnet";
+    const MAINNET_MINI_APP_PATH = "/wheel_win_bot?startapp=mainnet";
 
     const MAINNET_WEB_URL = "https://wheelwin-main.vercel.app";
+
+    function resolveTelegramWebViewPostEvent() {
+
+        if (typeof window === "undefined") {
+
+            return null;
+
+        }
+
+        const postEvent = window.Telegram?.WebView?.postEvent;
+
+        return typeof postEvent === "function"
+            ? postEvent
+            : null;
+
+    }
 
     function resolveTelegramOpenTelegramLink() {
 
@@ -63,6 +77,19 @@ export default function HeaderBar({
     }
 
     const handleMainnetClick = () => {
+
+        const postEvent = resolveTelegramWebViewPostEvent();
+
+        if (postEvent) {
+
+            postEvent("web_app_open_tg_link", false, {
+                path_full: MAINNET_MINI_APP_PATH,
+                force_request: true
+            });
+
+            return;
+
+        }
 
         const openTelegramLink = resolveTelegramOpenTelegramLink();
 
