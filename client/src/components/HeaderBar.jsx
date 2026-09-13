@@ -24,18 +24,25 @@ export default function HeaderBar({
         window.location.hostname.includes("testnet")
     );
 
-    // R18-S109 — Testnet → Mainnet Telegram Mini App handoff.
+    // R19-S110 — Testnet → Mainnet Telegram Mini App handoff.
     //
     // Authoritative Mainnet Mini App configuration (operator-confirmed in
     // BotFather): bot @wheel_win_bot, Main App enabled, Web App URL
-    // https://wheelwin-main.vercel.app/. The deep link below launches a
-    // FRESH Mainnet Mini App session with a fresh Telegram-signed
-    // tgWebAppData. It must go through Telegram's own link-opening API:
-    // a raw cross-origin location.replace drops the Mini App launch context
-    // and the Mainnet page loads with empty initData, which the server-side
-    // HMAC gate correctly rejects (R18-S107 diagnosis). No Testnet initData
-    // or tgWebAppData is ever forwarded, copied, or reconstructed here.
-    const MAINNET_MINI_APP_DEEP_LINK = "https://t.me/wheel_win_bot?startapp";
+    // https://wheelwin-main.vercel.app/. Telegram's native profile Launch App
+    // path was verified on Android to create a fully authenticated Mainnet
+    // session. The Android Testnet → Mainnet path must therefore remain a
+    // Telegram-native Main Mini App deep link, not a raw cross-origin URL.
+    //
+    // A NON-EMPTY startapp value is intentional here. The previous bare
+    // `?startapp` link opened the Mainnet UI on Telegram Android but produced
+    // an empty WebApp.initData session. Telegram's documented Main Mini App
+    // deep-link format supports a start parameter, and using an explicit
+    // value forces this handoff through the same Main Mini App deep-link
+    // handling path while giving the launch a distinct request context.
+    // The application does not consume this value; it is only a launch
+    // marker. No Testnet initData or tgWebAppData is forwarded, copied, or
+    // reconstructed here.
+    const MAINNET_MINI_APP_DEEP_LINK = "https://t.me/wheel_win_bot?startapp=mainnet";
 
     const MAINNET_WEB_URL = "https://wheelwin-main.vercel.app";
 
@@ -133,7 +140,6 @@ export default function HeaderBar({
                     >
                         {resolvedNextLabel}
                     </button>
-
                 )}
 
             </div>
