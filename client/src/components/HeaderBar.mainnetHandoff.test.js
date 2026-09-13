@@ -1,5 +1,5 @@
 /**
- * R18-S109 — Focused behavioral test for the Testnet → Mainnet Telegram
+ * R19-S110 — Focused behavioral test for the Testnet → Mainnet Telegram
  * Mini App handoff in `client/src/components/HeaderBar.jsx`.
  *
  * The Node test harness has no JSX loader (client/scripts/loaderHooks.js only
@@ -11,11 +11,12 @@
  *
  * Contract under test:
  * 1. Telegram WebApp runtime (openTelegramLink available) → the Telegram
- *    native deep link is used; window.location.replace is NOT called.
+ *    native Main Mini App deep link is used; window.location.replace is NOT
+ *    called.
  * 2. Non-Telegram runtime → the existing direct Mainnet URL fallback via
  *    window.location.replace is used.
- * 3. The exact operator-confirmed authoritative deep link is used:
- *    https://t.me/wheel_win_bot?startapp
+ * 3. The authoritative Mainnet bot is used with a NON-EMPTY `startapp` launch
+ *    marker: https://t.me/wheel_win_bot?startapp=mainnet
  * 4. Fail-safe: Telegram present but openTelegramLink unavailable (older
  *    client) → browser fallback, never a crash.
  * 5. No Testnet initData / tgWebAppData is forwarded, copied, or
@@ -130,8 +131,8 @@ function createFakeWindow({ withTelegramApi = false } = {}) {
 
     assert.deepEqual(
         calls.openTelegramLink,
-        ["https://t.me/wheel_win_bot?startapp"],
-        "Telegram runtime must hand off via WebApp.openTelegramLink with the authoritative deep link"
+        ["https://t.me/wheel_win_bot?startapp=mainnet"],
+        "Telegram runtime must hand off via WebApp.openTelegramLink with the explicit Main Mini App launch marker"
     );
 
     assert.deepEqual(
@@ -142,8 +143,8 @@ function createFakeWindow({ withTelegramApi = false } = {}) {
 
     assert.equal(
         MAINNET_MINI_APP_DEEP_LINK,
-        "https://t.me/wheel_win_bot?startapp",
-        "The authoritative operator-confirmed deep link must be used verbatim"
+        "https://t.me/wheel_win_bot?startapp=mainnet",
+        "The Mainnet deep link must use the operator-confirmed bot with an explicit non-empty startapp marker"
     );
 
 }
