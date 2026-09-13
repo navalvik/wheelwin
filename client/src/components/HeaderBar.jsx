@@ -24,8 +24,53 @@ export default function HeaderBar({
         window.location.hostname.includes("testnet")
     );
 
+    // R18-S109 — Testnet → Mainnet Telegram Mini App handoff.
+    //
+    // Authoritative Mainnet Mini App configuration (operator-confirmed in
+    // BotFather): bot @wheel_win_bot, Main App enabled, Web App URL
+    // https://wheelwin-main.vercel.app/. The deep link below launches a
+    // FRESH Mainnet Mini App session with a fresh Telegram-signed
+    // tgWebAppData. It must go through Telegram's own link-opening API:
+    // a raw cross-origin location.replace drops the Mini App launch context
+    // and the Mainnet page loads with empty initData, which the server-side
+    // HMAC gate correctly rejects (R18-S107 diagnosis). No Testnet initData
+    // or tgWebAppData is ever forwarded, copied, or reconstructed here.
+    const MAINNET_MINI_APP_DEEP_LINK = "https://t.me/wheel_win_bot?startapp";
+
+    const MAINNET_WEB_URL = "https://wheelwin-main.vercel.app";
+
+    function resolveTelegramOpenTelegramLink() {
+
+        if (typeof window === "undefined") {
+
+            return null;
+
+        }
+
+        const openTelegramLink = window.Telegram?.WebApp?.openTelegramLink;
+
+        return typeof openTelegramLink === "function"
+            ? openTelegramLink
+            : null;
+
+    }
+
     const handleMainnetClick = () => {
-        window.location.replace("https://wheelwin-main.vercel.app");
+
+        const openTelegramLink = resolveTelegramOpenTelegramLink();
+
+        if (openTelegramLink) {
+
+            openTelegramLink(MAINNET_MINI_APP_DEEP_LINK);
+
+            return;
+
+        }
+
+        // Plain-browser fallback (unchanged behavior): no Telegram WebApp
+        // runtime, or the required Telegram API is unavailable.
+        window.location.replace(MAINNET_WEB_URL);
+
     };
 
     return (
