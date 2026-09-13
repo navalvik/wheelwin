@@ -1,26 +1,23 @@
 /**
- * R19-S110 — Focused behavioral test for the Testnet → Mainnet Telegram
+ * R19-S111 — Focused behavioral test for the Testnet → Mainnet Telegram
  * Mini App handoff in `client/src/components/HeaderBar.jsx`.
  *
  * The Node test harness has no JSX loader (client/scripts/loaderHooks.js only
  * appends `.js` for extensionless relative imports), so the handoff source
- * block is extracted VERBATIM from the component file — between the stable
- * code markers `const MAINNET_MINI_APP_DEEP_LINK` and `const isTestnet =` —
- * and evaluated with a fake `window`. This executes the real production
- * decision logic, not a copy.
+ * block is extracted VERBATIM from the component file and evaluated with a
+ * fake `window`. This executes the real production decision logic, not a copy.
  *
  * Contract under test:
- * 1. Telegram WebApp runtime (openTelegramLink available) → the Telegram
- *    native Main Mini App deep link is used; window.location.replace is NOT
- *    called.
- * 2. Non-Telegram runtime → the existing direct Mainnet URL fallback via
+ * 1. Telegram WebView bridge available → use the native
+ *    `web_app_open_tg_link` event with `force_request: true` and the explicit
+ *    Main Mini App launch marker; window.location.replace is NOT called.
+ * 2. Telegram WebView bridge unavailable but WebApp.openTelegramLink exists →
+ *    use the supported Telegram-native fallback.
+ * 3. Non-Telegram runtime → existing direct Mainnet URL fallback via
  *    window.location.replace is used.
- * 3. The authoritative Mainnet bot is used with a NON-EMPTY `startapp` launch
- *    marker: https://t.me/wheel_win_bot?startapp=mainnet
- * 4. Fail-safe: Telegram present but openTelegramLink unavailable (older
- *    client) → browser fallback, never a crash.
- * 5. No Testnet initData / tgWebAppData is forwarded, copied, or
- *    reconstructed by the handoff code.
+ * 4. The authoritative Mainnet bot is used with a NON-EMPTY `startapp` marker:
+ *    https://t.me/wheel_win_bot?startapp=mainnet
+ * 5. No Testnet initData / tgWebAppData is forwarded, copied, or reconstructed.
  */
 
 import { readFileSync } from "node:fs";
@@ -81,10 +78,11 @@ return {
 
 }
 
-function createFakeWindow({ withTelegramApi = false } = {}) {
+function createFakeWindow({ withTelegramApi = false, withWebViewBridge = false } = {}) {
 
     const calls = {
         openTelegramLink: [],
+        postEvent: [],
         locationReplace: []
     };
 
@@ -98,7 +96,7 @@ function createFakeWindow({ withTelegramApi = false } = {}) {
         }
     };
 
-    if (withTelegramApi) {
+    if (withTelegramApi || withWebViewBridge) {
 
         windowObject.Telegram = {
             WebApp: {
@@ -112,15 +110,33 @@ function createFakeWindow({ withTelegramApi = false } = {}) {
 
     }
 
+    if (withWebViewBridge) {
+
+        windowObject.Telegram.WebView = {
+            postEvent: (...args) => {
+
+                calls.postEvent.push(args);
+
+            }
+        };
+
+    }
+
     return { windowObject, calls };
 
 }
 
-// 1. Telegram WebApp runtime: Telegram-native Main Mini App handoff.
+// 1. Telegram WebView bridge: force a fresh native Main Mini App request.
 
 {
 
-    const { windowObject, calls } = createFakeWindow({ withTelegramApi: true });
+    const {
+        windowObject,
+        calls
+    } = createFakeWindow({
+        withTelegramApi: true,
+        withWebViewBridge: true
+    });
 
     const {
         handleMainnetClick,
@@ -130,9 +146,22 @@ function createFakeWindow({ withTelegramApi = false } = {}) {
     handleMainnetClick();
 
     assert.deepEqual(
+        calls.postEvent,
+        [[
+            "web_app_open_tg_link",
+            false,
+            {
+                path_full: "/wheel_win_bot?startapp=mainnet",
+                force_request: true
+            }
+        ]],
+        "Telegram WebView bridge must request the Main Mini App natively with force_request=true"
+    );
+
+    assert.deepEqual(
         calls.openTelegramLink,
-        ["https://t.me/wheel_win_bot?startapp=mainnet"],
-        "Telegram runtime must hand off via WebApp.openTelegramLink with the explicit Main Mini App launch marker"
+        [],
+        "When the native WebView bridge exists, the generic WebApp.openTelegramLink fallback must not also fire"
     );
 
     assert.deepEqual(
@@ -149,7 +178,37 @@ function createFakeWindow({ withTelegramApi = false } = {}) {
 
 }
 
-// 2. Non-Telegram runtime: existing direct Mainnet URL fallback.
+// 2. Telegram WebApp fallback when the internal bridge is unavailable.
+
+{
+
+    const { windowObject, calls } = createFakeWindow({ withTelegramApi: true });
+
+    const { handleMainnetClick } = evaluateHandoff(windowObject);
+
+    handleMainnetClick();
+
+    assert.deepEqual(
+        calls.openTelegramLink,
+        ["https://t.me/wheel_win_bot?startapp=mainnet"],
+        "Without the internal bridge, the supported WebApp.openTelegramLink fallback must be used"
+    );
+
+    assert.deepEqual(
+        calls.postEvent,
+        [],
+        "No internal bridge must mean no direct postEvent call"
+    );
+
+    assert.deepEqual(
+        calls.locationReplace,
+        [],
+        "Telegram runtime must not navigate with window.location.replace"
+    );
+
+}
+
+// 3. Non-Telegram runtime: existing direct Mainnet URL fallback.
 
 {
 
@@ -182,46 +241,18 @@ function createFakeWindow({ withTelegramApi = false } = {}) {
 
 }
 
-// 3. Fail-safe: Telegram present but openTelegramLink unavailable.
+// 4. Hostile Telegram API shapes fail safely.
 
 {
 
     const windowObject = {
         Telegram: {
             WebApp: {
-                // openTelegramLink intentionally missing (older client).
-                initData: ""
-            }
-        },
-        location: {
-            replace: (url) => {
-
-                windowObject.lastReplace = url;
-
-            }
-        }
-    };
-
-    const { handleMainnetClick } = evaluateHandoff(windowObject);
-
-    handleMainnetClick();
-
-    assert.equal(
-        windowObject.lastReplace,
-        "https://wheelwin-main.vercel.app",
-        "Missing Telegram API must fail safe to the browser fallback"
-    );
-
-}
-
-// 4. Fail-safe: openTelegramLink present but not a function (hostile shape).
-
-{
-
-    const windowObject = {
-        Telegram: {
-            WebApp: {
+                initData: "",
                 openTelegramLink: "not-a-function"
+            },
+            WebView: {
+                postEvent: "not-a-function"
             }
         },
         location: {
@@ -240,7 +271,7 @@ function createFakeWindow({ withTelegramApi = false } = {}) {
     assert.equal(
         windowObject.lastReplace,
         "https://wheelwin-main.vercel.app",
-        "Non-function openTelegramLink must fail safe to the browser fallback"
+        "Invalid Telegram APIs must fail safe to the browser fallback"
     );
 
 }
