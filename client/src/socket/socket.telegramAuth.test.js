@@ -23,7 +23,7 @@ function assert(condition, message) {
 // ---------------------------------------------------------------------------
 
 globalThis.window = {
-    location: { hostname: "localhost", protocol: "http:" },
+    location: { hostname: "localhost", protocol: "http:", search: "", hash: "" },
     Telegram: {
         WebApp: {
             platform: "android",
@@ -100,6 +100,8 @@ globalThis.window.Telegram = {
     }
 };
 
+globalThis.window.location.hash = "";
+
 const delayedInitDataPromise = waitForTelegramInitData({
     timeoutMs: 300,
     pollIntervalMs: 10
@@ -116,13 +118,46 @@ assert(
     "waitForTelegramInitData must resolve delayed Telegram initData"
 );
 
-// 6. Standard Web: Telegram Mini App runtime absent -> no artificial delay.
+// 6. Telegram launch-data URL fallback must authenticate even if the SDK
+// object is missing or has not populated initData yet.
+
+delete globalThis.window.Telegram;
+
+globalThis.window.location.hash = `#tgWebAppData=${encodeURIComponent(RAW_INIT_DATA)}`;
+
+assert(
+    resolveTelegramInitData() === RAW_INIT_DATA,
+    "tgWebAppData URL fallback must resolve the raw initData"
+);
+
+let fallbackHandshakeAuth = null;
+
+socket.auth((auth) => {
+
+    fallbackHandshakeAuth = auth;
+
+});
+
+assert(
+    fallbackHandshakeAuth?.telegramInitData === RAW_INIT_DATA,
+    "socket auth callback must use tgWebAppData URL fallback"
+);
+
+assert(
+    await waitForTelegramInitData({ timeoutMs: 50, pollIntervalMs: 10 }) === RAW_INIT_DATA,
+    "Telegram URL fallback must be accepted by the initial wait"
+);
+
+// 7. Standard Web: Telegram launch signals absent -> no artificial delay.
+
+globalThis.window.location.hash = "";
+globalThis.window.location.search = "";
 
 delete globalThis.window.Telegram;
 
 assert(
     resolveTelegramInitData() === "",
-    "missing Telegram WebApp must resolve to empty string"
+    "missing Telegram WebApp and launch data must resolve to empty string"
 );
 
 assert(
@@ -130,7 +165,7 @@ assert(
     "standard Web must not wait for Telegram initData"
 );
 
-// 7. Telegram object exists but initData empty -> resolver remains empty.
+// 8. Telegram object exists but initData empty -> resolver remains empty.
 
 globalThis.window.Telegram = { WebApp: { platform: "android", initData: "" } };
 
@@ -152,7 +187,9 @@ assert(
 
 delete globalThis.window.Telegram;
 
-// 8. Bot token / secrets must NOT appear anywhere in client source code.
+globalThis.window.location.hash = "";
+
+// 9. Bot token / secrets must NOT appear anywhere in client source code.
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
