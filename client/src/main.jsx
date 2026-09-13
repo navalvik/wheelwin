@@ -8,7 +8,7 @@ import { TonConnectUIProvider } from "@tonconnect/ui-react";
 
 import App from "./App.jsx";
 
-import socket from "./socket/socket";
+import socket, { waitForTelegramInitData } from "./socket/socket";
 
 import { devLog } from "./utils/devLog";
 
@@ -17,7 +17,15 @@ import { resolveTonConnectManifestUrl } from "./config/tonConnectManifest.js";
 import "./styles/global.css";
 import "./styles/layout.css";
 
-socket.connect();
+const connectSocket = async () => {
+
+    await waitForTelegramInitData();
+
+    socket.connect();
+
+};
+
+void connectSocket();
 
 socket.on("connect", () => {
 

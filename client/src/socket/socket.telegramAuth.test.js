@@ -26,6 +26,7 @@ globalThis.window = {
     location: { hostname: "localhost", protocol: "http:" },
     Telegram: {
         WebApp: {
+            platform: "android",
             initData: RAW_INIT_DATA,
             initDataUnsafe: {
                 user: { id: 999999999 }
@@ -34,28 +35,40 @@ globalThis.window = {
     }
 };
 
-const { default: socket, resolveTelegramInitData } = await import("./socket.js");
+const {
+    default: socket,
+    resolveTelegramInitData,
+    waitForTelegramInitData
+} = await import("./socket.js");
 
-// 1. Telegram environment: exact raw initData inside handshake auth.
+// 1. Telegram environment: auth callback must contain the exact raw initData.
+
+let handshakeAuth = null;
+
+socket.auth((auth) => {
+
+    handshakeAuth = auth;
+
+});
 
 assert(
-    socket.auth?.telegramInitData === RAW_INIT_DATA,
-    "socket.auth.telegramInitData must contain the exact raw initData"
+    handshakeAuth?.telegramInitData === RAW_INIT_DATA,
+    "socket auth callback must contain the exact raw initData"
 );
 
-// 4. initDataUnsafe must NOT be used.
+// 2. initDataUnsafe must NOT be used.
 
 assert(
-    socket.auth?.telegramInitData !== String(999999999),
+    handshakeAuth?.telegramInitData !== String(999999999),
     "initDataUnsafe.user.id must never be sent as telegramInitData"
 );
 
 assert(
-    !JSON.stringify(socket.auth ?? {}).includes("initDataUnsafe"),
+    !JSON.stringify(handshakeAuth ?? {}).includes("initDataUnsafe"),
     "auth payload must not reference initDataUnsafe"
 );
 
-// 6. Existing socket options remain unchanged.
+// 3. Socket options remain unchanged.
 
 const opts = socket.io.opts;
 
@@ -72,15 +85,38 @@ assert(opts.reconnectionDelay === 1000, "reconnectionDelay must remain 1000");
 
 assert(opts.reconnectionDelayMax === 5000, "reconnectionDelayMax must remain 5000");
 
-// 7. Socket remains a singleton.
+// 4. Socket remains a singleton.
 
 const { default: socketAgain } = await import("./socket.js");
 
 assert(socketAgain === socket, "socket module must export a singleton instance");
 
-// ---------------------------------------------------------------------------
-// 2. Standard Web: window.Telegram absent -> empty auth value, no rejection.
-// ---------------------------------------------------------------------------
+// 5. Android-style delayed initData must be picked up before timeout.
+
+globalThis.window.Telegram = {
+    WebApp: {
+        platform: "android",
+        initData: ""
+    }
+};
+
+const delayedInitDataPromise = waitForTelegramInitData({
+    timeoutMs: 300,
+    pollIntervalMs: 10
+});
+
+setTimeout(() => {
+
+    globalThis.window.Telegram.WebApp.initData = RAW_INIT_DATA;
+
+}, 30);
+
+assert(
+    await delayedInitDataPromise === RAW_INIT_DATA,
+    "waitForTelegramInitData must resolve delayed Telegram initData"
+);
+
+// 6. Standard Web: Telegram Mini App runtime absent -> no artificial delay.
 
 delete globalThis.window.Telegram;
 
@@ -89,11 +125,14 @@ assert(
     "missing Telegram WebApp must resolve to empty string"
 );
 
-// ---------------------------------------------------------------------------
-// 3. Telegram object exists but initData empty -> empty auth value.
-// ---------------------------------------------------------------------------
+assert(
+    await waitForTelegramInitData({ timeoutMs: 50, pollIntervalMs: 10 }) === "",
+    "standard Web must not wait for Telegram initData"
+);
 
-globalThis.window.Telegram = { WebApp: { initData: "" } };
+// 7. Telegram object exists but initData empty -> resolver remains empty.
+
+globalThis.window.Telegram = { WebApp: { platform: "android", initData: "" } };
 
 assert(
     resolveTelegramInitData() === "",
@@ -102,7 +141,9 @@ assert(
 
 // Non-string initData also resolves to empty string (defensive).
 
-globalThis.window.Telegram = { WebApp: { initData: undefined } };
+globalThis.window.Telegram = {
+    WebApp: { platform: "android", initData: undefined }
+};
 
 assert(
     resolveTelegramInitData() === "",
@@ -111,9 +152,7 @@ assert(
 
 delete globalThis.window.Telegram;
 
-// ---------------------------------------------------------------------------
-// 5. Bot token / secrets must NOT appear anywhere in client source code.
-// ---------------------------------------------------------------------------
+// 8. Bot token / secrets must NOT appear anywhere in client source code.
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
