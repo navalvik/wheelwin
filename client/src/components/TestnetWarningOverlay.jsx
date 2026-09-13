@@ -7,9 +7,21 @@ import "../styles/testnetWarningOverlay.css";
 
 const FADE_MS = 280;
 
+const isTestnet = typeof window !== "undefined" && (
+    window.location.hostname.includes("nine") ||
+    window.location.hostname.includes("testnet")
+);
+
+const MAINNET_TITLE = "⚠️ MAINNET";
+const MAINNET_BODY =
+    "THIS PROJECT IS CURRENTLY RUNNING ON THE TON MAINNET.";
+const MAINNET_WALLETS_ONLY = "USE TELEGRAM WALLET ONLY.";
+
 /**
- * R6.5 — Page1 Testnet warning overlay.
+ * R6.5 — Page1 network warning overlay.
  * Visible once per page mount when SHOW_TESTNET_WARNING is true.
+ * Testnet keeps the existing translated warning; Mainnet shows the
+ * corresponding Mainnet warning instead of Testnet text.
  * Dismissed by clicking / tapping the warning card.
  */
 export default function TestnetWarningOverlay() {
@@ -56,6 +68,12 @@ export default function TestnetWarningOverlay() {
 
     }
 
+    const title = isTestnet ? t("welcome.testMode") : MAINNET_TITLE;
+    const body = isTestnet ? t("welcome.testnetBody") : MAINNET_BODY;
+    const wallets = isTestnet
+        ? t("welcome.testnetWalletsOnly")
+        : MAINNET_WALLETS_ONLY;
+
     return (
 
         <div
@@ -80,19 +98,19 @@ export default function TestnetWarningOverlay() {
                     className="testnetWarningOverlay__eyebrow"
                 >
 
-                    {t("welcome.testMode")}
+                    {title}
 
                 </div>
 
                 <p className="testnetWarningOverlay__body">
 
-                    {t("welcome.testnetBody")}
+                    {body}
 
                 </p>
 
                 <p className="testnetWarningOverlay__body">
 
-                    {t("welcome.testnetWalletsOnly")}
+                    {wallets}
 
                 </p>
 

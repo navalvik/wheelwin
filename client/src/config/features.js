@@ -1,9 +1,9 @@
 /**
  * R6.5 — Client feature flags (no env / runtime config).
  *
- * Set SHOW_TESTNET_WARNING = false after TON Mainnet migration
- * to remove the Page1 Testnet warning overlay completely.
+ * SHOW_TESTNET_WARNING controls the Page1 network warning overlay on both
+ * Testnet and Mainnet. The overlay selects network-specific content at runtime.
  */
-export const SHOW_TESTNET_WARNING = false;
+export const SHOW_TESTNET_WARNING = true;
 
 export const SHOW_MAINNET_SWITCH = true;
