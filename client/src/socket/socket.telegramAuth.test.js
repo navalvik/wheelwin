@@ -24,6 +24,9 @@ function assert(condition, message) {
 
 globalThis.window = {
     location: { hostname: "localhost", protocol: "http:", search: "", hash: "" },
+    sessionStorage: {
+        getItem: () => null
+    },
     Telegram: {
         WebApp: {
             platform: "android",
@@ -37,6 +40,7 @@ globalThis.window = {
 
 const {
     default: socket,
+    getTelegramInitDiagnostics,
     resolveTelegramInitData,
     waitForTelegramInitData
 } = await import("./socket.js");
@@ -91,7 +95,17 @@ const { default: socketAgain } = await import("./socket.js");
 
 assert(socketAgain === socket, "socket module must export a singleton instance");
 
-// 5. Android-style delayed initData must be picked up before timeout.
+// 5. Safe diagnostics report presence only and never expose raw initData.
+
+const populatedDiagnostics = getTelegramInitDiagnostics();
+
+assert(populatedDiagnostics.runtimeDetected === true, "Telegram runtime must be detected");
+assert(populatedDiagnostics.platform === "android", "Telegram platform must be reported");
+assert(populatedDiagnostics.webAppInitDataPresent === true, "WebApp initData presence must be reported");
+assert(populatedDiagnostics.urlInitDataPresent === false, "URL initData must be absent in this scenario");
+assert(!JSON.stringify(populatedDiagnostics).includes(RAW_INIT_DATA), "diagnostics must never contain raw initData");
+
+// 6. Android-style delayed initData must be picked up before timeout.
 
 globalThis.window.Telegram = {
     WebApp: {
@@ -101,6 +115,10 @@ globalThis.window.Telegram = {
 };
 
 globalThis.window.location.hash = "";
+
+globalThis.window.Telegram.WebView = {
+    initParams: {}
+};
 
 const delayedInitDataPromise = waitForTelegramInitData({
     timeoutMs: 300,
@@ -118,12 +136,14 @@ assert(
     "waitForTelegramInitData must resolve delayed Telegram initData"
 );
 
-// 6. Telegram launch-data URL fallback must authenticate even if the SDK
+// 7. Telegram launch-data URL fallback must authenticate even if the SDK
 // object is missing or has not populated initData yet.
 
 delete globalThis.window.Telegram;
 
 globalThis.window.location.hash = `#tgWebAppData=${encodeURIComponent(RAW_INIT_DATA)}`;
+
+globalThis.window.sessionStorage.getItem = () => null;
 
 assert(
     resolveTelegramInitData() === RAW_INIT_DATA,
@@ -148,12 +168,14 @@ assert(
     "Telegram URL fallback must be accepted by the initial wait"
 );
 
-// 7. Standard Web: Telegram launch signals absent -> no artificial delay.
+// 8. Standard Web: Telegram launch signals absent -> no artificial delay.
 
 globalThis.window.location.hash = "";
 globalThis.window.location.search = "";
 
 delete globalThis.window.Telegram;
+
+globalThis.window.sessionStorage.getItem = () => null;
 
 assert(
     resolveTelegramInitData() === "",
@@ -165,14 +187,35 @@ assert(
     "standard Web must not wait for Telegram initData"
 );
 
-// 8. Telegram object exists but initData empty -> resolver remains empty.
+// 9. Telegram object exists but initData empty -> resolver remains empty.
 
 globalThis.window.Telegram = { WebApp: { platform: "android", initData: "" } };
+
+globalThis.window.Telegram.WebView = {
+    initParams: {}
+};
+
+globalThis.window.TelegramWebviewProxy = {
+    postEvent: () => {}
+};
+
+globalThis.window.sessionStorage.getItem = () => "{}";
 
 assert(
     resolveTelegramInitData() === "",
     "empty initData must resolve to empty string"
 );
+
+const emptyDiagnostics = getTelegramInitDiagnostics();
+
+assert(emptyDiagnostics.runtimeDetected === true, "Telegram runtime must remain detectable when initData is empty");
+assert(emptyDiagnostics.webAppPresent === true, "empty-initData diagnostics must report WebApp presence");
+assert(emptyDiagnostics.webAppInitDataPresent === false, "empty-initData diagnostics must report missing WebApp initData");
+assert(emptyDiagnostics.webViewPresent === true, "empty-initData diagnostics must report WebView presence");
+assert(emptyDiagnostics.webViewInitParamsPresent === false, "empty-initData diagnostics must report empty WebView initParams");
+assert(emptyDiagnostics.telegramWebviewProxyPresent === true, "diagnostics must report TelegramWebviewProxy presence");
+assert(emptyDiagnostics.sessionStorageInitParamsPresent === true, "diagnostics must report stored Telegram initParams");
+assert(!JSON.stringify(emptyDiagnostics).includes("{}"), "diagnostics must remain presence-only");
 
 // Non-string initData also resolves to empty string (defensive).
 
@@ -186,10 +229,13 @@ assert(
 );
 
 delete globalThis.window.Telegram;
+delete globalThis.window.TelegramWebviewProxy;
 
 globalThis.window.location.hash = "";
 
-// 9. Bot token / secrets must NOT appear anywhere in client source code.
+globalThis.window.sessionStorage.getItem = () => null;
+
+// 10. Bot token / secrets must NOT appear anywhere in client source code.
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
