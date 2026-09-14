@@ -1,9 +1,9 @@
 /**
  * R6.5 — Client feature flags (no env / runtime config).
  *
- * Set SHOW_TESTNET_WARNING = false after TON Mainnet migration
- * to remove the Page1 Testnet warning overlay completely.
+ * Testnet no longer exposes a Page1 Mainnet switch. Network selection is
+ * intentionally deferred until after the authenticated room has been created.
  */
 export const SHOW_TESTNET_WARNING = true;
 
-export const SHOW_MAINNET_SWITCH = true;
+export const SHOW_MAINNET_SWITCH = false;
