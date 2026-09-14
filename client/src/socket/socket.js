@@ -115,6 +115,75 @@ function isTelegramMiniAppRuntime() {
 
 }
 
+function hasTelegramSessionStorageInitParams() {
+
+    try {
+
+        return Boolean(
+            globalThis.window?.sessionStorage?.getItem("__telegram__initParams")
+        );
+
+    } catch {
+
+        return false;
+
+    }
+
+}
+
+/**
+ * Safe Telegram launch diagnostics.
+ *
+ * This intentionally exposes presence/shape information only. It MUST NOT
+ * expose raw initData, user data, hashes, query strings, or any credential.
+ * The result is suitable for temporary production troubleshooting of the
+ * Testnet -> Mainnet handoff boundary.
+ */
+export function getTelegramInitDiagnostics() {
+
+    const win = globalThis.window;
+    const webApp = win?.Telegram?.WebApp;
+    const webView = win?.Telegram?.WebView;
+    const webViewInitParams = webView?.initParams;
+
+    const webAppInitDataPresent = typeof webApp?.initData === "string"
+        && webApp.initData.length > 0;
+
+    const urlInitDataPresent = Boolean(resolveTelegramLaunchInitData());
+
+    const webViewInitDataPresent = typeof webViewInitParams?.tgWebAppData === "string"
+        && webViewInitParams.tgWebAppData.length > 0;
+
+    const webViewInitParamsPresent = Boolean(
+        webViewInitParams
+        && typeof webViewInitParams === "object"
+        && Object.keys(webViewInitParams).length > 0
+    );
+
+    const platform = typeof webApp?.platform === "string"
+        ? webApp.platform
+        : "";
+
+    return {
+        runtimeDetected: isTelegramMiniAppRuntime(),
+        platform,
+        webAppPresent: Boolean(webApp),
+        webAppInitDataPresent,
+        urlInitDataPresent,
+        webViewPresent: Boolean(webView),
+        webViewInitParamsPresent,
+        webViewInitDataPresent,
+        telegramWebviewProxyPresent:
+            typeof win?.TelegramWebviewProxy?.postEvent === "function",
+        webViewPostEventPresent:
+            typeof webView?.postEvent === "function",
+        openTelegramLinkPresent:
+            typeof webApp?.openTelegramLink === "function",
+        sessionStorageInitParamsPresent: hasTelegramSessionStorageInitParams()
+    };
+
+}
+
 /**
  * Telegram Android can expose the WebApp object before its raw initData is
  * populated. Wait briefly for the authoritative initData before the first
