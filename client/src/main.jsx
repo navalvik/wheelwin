@@ -8,7 +8,10 @@ import { TonConnectUIProvider } from "@tonconnect/ui-react";
 
 import App from "./App.jsx";
 
-import socket, { waitForTelegramInitData } from "./socket/socket";
+import socket, {
+    getTelegramInitDiagnostics,
+    waitForTelegramInitData
+} from "./socket/socket";
 
 import { devLog } from "./utils/devLog";
 
@@ -19,7 +22,43 @@ import "./styles/layout.css";
 
 const connectSocket = async () => {
 
-    await waitForTelegramInitData();
+    const telegramInitData = await waitForTelegramInitData();
+
+    if (!telegramInitData) {
+
+        const diagnostics = getTelegramInitDiagnostics();
+
+        if (diagnostics.runtimeDetected) {
+
+            console.warn(
+                "WheelWin Telegram initData is empty",
+                diagnostics
+            );
+
+            const showAlert = window.Telegram?.WebApp?.showAlert;
+
+            if (typeof showAlert === "function") {
+
+                showAlert(
+                    [
+                        "WheelWin Telegram diagnostics",
+                        `platform=${diagnostics.platform || "unknown"}`,
+                        `webApp=${diagnostics.webAppPresent ? "yes" : "no"}`,
+                        `initData=${diagnostics.webAppInitDataPresent ? "yes" : "no"}`,
+                        `urlData=${diagnostics.urlInitDataPresent ? "yes" : "no"}`,
+                        `webViewParams=${diagnostics.webViewInitParamsPresent ? "yes" : "no"}`,
+                        `webViewData=${diagnostics.webViewInitDataPresent ? "yes" : "no"}`,
+                        `proxy=${diagnostics.telegramWebviewProxyPresent ? "yes" : "no"}`,
+                        `postEvent=${diagnostics.webViewPostEventPresent ? "yes" : "no"}`,
+                        `sessionParams=${diagnostics.sessionStorageInitParamsPresent ? "yes" : "no"}`
+                    ].join("\n")
+                );
+
+            }
+
+        }
+
+    }
 
     socket.connect();
 
