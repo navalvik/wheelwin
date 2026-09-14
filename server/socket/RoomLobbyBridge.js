@@ -180,6 +180,12 @@ export class RoomLobbyBridge {
         // never limited by this map. Released whenever the room is destroyed.
         this._activeRoomsByTelegramUser = new Map();
 
+        // R20 — one-time authoritative room network selection (post-CREATE_ROOM).
+        // roomId → "testnet" | "mainnet". Absent until the verified room Owner
+        // commits the choice. In-memory only; never part of the Room model and
+        // never persisted. Released by the existing room destruction paths.
+        this._roomNetworkByRoom = new Map();
+
         // Server-owned recovery identity keyed by socket id (CSR / same-id path).
         this._recoveryOwnershipBySocket = new Map();
 
@@ -336,6 +342,19 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleCreateRoom(envelope.payload.socketId);
+
+            }
+        );
+
+        // R20 — room Owner network selection (client "selectRoomNetwork").
+        this._subscribe(
+            EVENT_TYPES.LOBBY_SELECT_ROOM_NETWORK_REQUEST,
+            (envelope) => {
+
+                this._handleSelectRoomNetwork(
+                    envelope.payload.socketId,
+                    envelope.payload.network
+                );
 
             }
         );
@@ -789,6 +808,8 @@ export class RoomLobbyBridge {
 
         this._roomCreators.clear();
 
+        this._roomNetworkByRoom.clear();
+
         this._activeRoomsByTelegramUser.clear();
 
         this._recoveryOwnershipBySocket.clear();
@@ -1114,6 +1135,136 @@ export class RoomLobbyBridge {
         this._broadcastRoomState(room.roomId);
 
         this._deliverSetupSessionSync(room.roomId, socketId);
+
+    }
+
+    // R20 — Authoritative one-time room network selection.
+    //
+    // Authorization is fully server-side:
+    //   1. The socket's player identity comes from the server-owned
+    //      socket→player binding (never from the client payload).
+    //   2. The room comes from that authoritative player binding.
+    //   3. The requester must be exactly _roomCreators.get(roomId).
+    // The client payload carries ONLY the requested network; any ownership
+    // claim (playerId / telegramUserId / ownerPlayerId / roomId) is ignored.
+    _handleSelectRoomNetwork(socketId, requestedNetwork) {
+
+        const context = this._assertAuthoritativeMutation(
+            socketId,
+            "selectRoomNetwork"
+        );
+
+        if (!context) {
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        const creatorId = this._roomCreators.get(roomId) ?? null;
+
+        if (creatorId == null || creatorId !== playerId) {
+
+            this._logger.decisionTrace({
+                stage: "ROOM_NETWORK_SELECTION",
+                decision: "REJECT",
+                reason: "Requester is not the authoritative room owner",
+                caller: "RoomLobbyBridge._handleSelectRoomNetwork",
+                nextAction: "Emit roomError",
+                roomId,
+                playerId,
+                socketId
+            });
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_NETWORK_SELECT_FORBIDDEN
+            );
+
+            return;
+
+        }
+
+        // Strict normalization: only "testnet" | "mainnet" are valid values.
+        const network = typeof requestedNetwork === "string"
+            ? requestedNetwork.trim().toLowerCase()
+            : "";
+
+        if (network !== "testnet" && network !== "mainnet") {
+
+            this._logger.decisionTrace({
+                stage: "ROOM_NETWORK_SELECTION",
+                decision: "REJECT",
+                reason: "Malformed requested network value",
+                caller: "RoomLobbyBridge._handleSelectRoomNetwork",
+                nextAction: "Emit roomError",
+                roomId,
+                playerId,
+                socketId
+            });
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_NETWORK_INVALID
+            );
+
+            return;
+
+        }
+
+        // One-time selection: the committed network is immutable for the
+        // lifetime of the room. Switching (or re-selecting) is rejected.
+        if (this._roomNetworkByRoom.has(roomId)) {
+
+            this._logger.decisionTrace({
+                stage: "ROOM_NETWORK_SELECTION",
+                decision: "REJECT",
+                reason: "Room network already selected",
+                caller: "RoomLobbyBridge._handleSelectRoomNetwork",
+                nextAction: "Emit roomError",
+                roomId,
+                playerId,
+                socketId,
+                network: this._roomNetworkByRoom.get(roomId)
+            });
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_NETWORK_ALREADY_SELECTED
+            );
+
+            return;
+
+        }
+
+        this._roomNetworkByRoom.set(roomId, network);
+
+        this._logger.decisionTrace({
+            stage: "ROOM_NETWORK_SELECTION",
+            decision: "ACCEPT",
+            reason: `Room network committed: ${network}`,
+            caller: "RoomLobbyBridge._handleSelectRoomNetwork",
+            nextAction: "Broadcast ROOM_NETWORK_SELECTED and room state",
+            roomId,
+            playerId,
+            socketId,
+            network
+        });
+
+        // Authoritative broadcast to every socket currently in the room.
+        // Safe lobby information only: roomId + selected network. No Telegram
+        // identity, no recovery credentials, no secrets.
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.ROOM_NETWORK_SELECTED,
+            {
+                roomId,
+                network
+            }
+        );
+
+        this._broadcastRoomState(roomId);
 
     }
 
@@ -2703,6 +2854,8 @@ export class RoomLobbyBridge {
 
             this._roomCreators.delete(roomId);
 
+            this._roomNetworkByRoom.delete(roomId);
+
             this._releaseTelegramQuota(roomId);
 
             this._startedRooms.delete(roomId);
@@ -3095,6 +3248,8 @@ export class RoomLobbyBridge {
 
             this._roomCreators.delete(roomId);
 
+            this._roomNetworkByRoom.delete(roomId);
+
             this._releaseTelegramQuota(roomId);
 
             return;
@@ -3458,6 +3613,8 @@ export class RoomLobbyBridge {
 
         this._roomCreators.delete(roomId);
 
+        this._roomNetworkByRoom.delete(roomId);
+
         this._releaseTelegramQuota(roomId);
 
         this._startedRooms.delete(roomId);
@@ -3518,7 +3675,10 @@ export class RoomLobbyBridge {
             connectedPlayers: room.players.length,
             maxPlayers: room.maxPlayers,
             players: this._buildPlayerList(room),
-            state: room.status
+            state: room.status,
+            // R20 — authoritative room network. null while the Owner's
+            // one-time testnet/mainnet selection is still pending.
+            network: this._roomNetworkByRoom.get(room.roomId) ?? null
         };
 
     }
