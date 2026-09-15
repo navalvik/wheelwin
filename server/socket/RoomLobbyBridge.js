@@ -196,6 +196,24 @@ export class RoomLobbyBridge {
         // instantiates its own store.
         this._roomNetworkHandoffIdByRoom = new Map();
 
+        // R23 — Mainnet-side idempotency mapping for the handoff bootstrap.
+        // handoffId → authoritative Mainnet roomId CREATED for this handoff.
+        // Server-side only, in-memory, runtime-local. Enforces
+        // ONE HANDOFF → AT MOST ONE MAINNET ROOM. A runtime restart drops
+        // both this mapping and the RoomManager rooms with it (documented
+        // restart semantics); recovery of a COMPLETED handoff after a restart
+        // comes from the Testnet store's completed record (claim returns the
+        // authoritative mainnetRoomId) and is re-verified against the live
+        // room registry before it is reused.
+        this._roomNetworkHandoffRoomByHandoff = new Map();
+
+        // R23 — Mainnet-side HTTP client for the R21 Testnet handoff
+        // contract (claim/complete). Injected by WheelWinServer; never
+        // instantiated here; the shared secret stays inside the client.
+        // Fail-closed: without a configured client every bootstrap request
+        // is rejected without any network activity.
+        this._roomNetworkHandoffClient = null;
+
         // Server-owned recovery identity keyed by socket id (CSR / same-id path).
         this._recoveryOwnershipBySocket = new Map();
 
@@ -353,6 +371,17 @@ export class RoomLobbyBridge {
     configureRoomNetworkHandoffStore(handoffStore) {
 
         this._roomNetworkHandoffStore = handoffStore ?? null;
+
+    }
+
+    /**
+     * R23 — wire the SINGLE Mainnet-side RoomNetworkHandoffClient (R21)
+     * created by WheelWinServer. The bridge never instantiates its own
+     * client and never sees the shared secret (the client holds it).
+     */
+    configureRoomNetworkHandoffClient(handoffClient) {
+
+        this._roomNetworkHandoffClient = handoffClient ?? null;
 
     }
 
@@ -556,6 +585,22 @@ export class RoomLobbyBridge {
                 this._handleSelectRoomNetwork(
                     envelope.payload.socketId,
                     envelope.payload.network
+                );
+
+            }
+        );
+
+        // R23 — Mainnet handoff bootstrap (client
+        // "roomNetworkHandoffBootstrapRequest"). Only { socketId, handoffId }
+        // is forwarded by SocketGateway; the handler resolves identity and
+        // room creation server-side.
+        this._subscribe(
+            EVENT_TYPES.LOBBY_ROOM_NETWORK_HANDOFF_BOOTSTRAP_REQUEST,
+            (envelope) => {
+
+                this._handleRoomNetworkHandoffBootstrap(
+                    envelope.payload.socketId,
+                    envelope.payload.handoffId
                 );
 
             }
@@ -1016,6 +1061,10 @@ export class RoomLobbyBridge {
         // RoomNetworkHandoffStore is torn down with the runtime (pending
         // handoffs are invalidated by design on restart).
         this._roomNetworkHandoffIdByRoom.clear();
+
+        // R23 — drop the handoffId → Mainnet roomId idempotency mapping on
+        // teardown (restart semantics documented on the map itself).
+        this._roomNetworkHandoffRoomByHandoff.clear();
 
         this._activeRoomsByTelegramUser.clear();
 
@@ -1537,6 +1586,446 @@ export class RoomLobbyBridge {
             this._deliverRoomNetworkHandoffReady(roomId, creatorId, handoff);
 
         }
+
+    }
+
+    /**
+     * R23 — Mainnet bootstrap from the R22 cross-runtime handoff.
+     *
+     * Server-authoritative entry point for the authenticated Owner of a
+     * Testnet MAINNET-selected room who has opened the Mainnet runtime:
+     *
+     *   authenticated socket (Telegram initData, io.use middleware)
+     *     → claim(handoffId, ownerTelegramUserId) via RoomNetworkHandoffClient
+     *     → NEW ordinary Mainnet Room via the EXISTING _handleCreateRoom path
+     *     → complete(handoffId, ownerTelegramUserId, newMainnetRoomId)
+     *     → Owner-only { roomId, network: "mainnet" } result
+     *
+     * Identity comes ONLY from the trusted Telegram socket context (the same
+     * resolver that authorizes CREATE_ROOM). The handoffId is a continuation
+     * token, never an identity proof. Client-supplied roomId / playerId /
+     * ownerTelegramUserId / network / mainnetRoomId are never accepted. The
+     * Testnet Room is never migrated, copied, socket-bound or destroyed here.
+     *
+     * Failure semantics (never fabricated success, no destructive rollback):
+     * - claim fails → no Mainnet Room is created; controlled error;
+     * - claim ok but room creation fails → the existing CREATE_ROOM path has
+     *   already delivered its controlled roomError; complete is never called
+     *   with a fabricated room;
+     * - room created but complete fails → the room stays a normal
+     *   authoritative room; a RETRY_REQUIRED error is delivered and the
+     *   handoffId → roomId mapping is kept so a retry reuses the SAME room
+     *   (no duplicate rooms).
+     */
+    async _handleRoomNetworkHandoffBootstrap(socketId, rawHandoffId) {
+
+        // Only an opaque string is accepted. No client field other than the
+        // handoffId is ever consulted for identity, room or ownership.
+        const handoffId = typeof rawHandoffId === "string"
+            ? rawHandoffId.trim()
+            : "";
+
+        if (handoffId.length === 0 || handoffId.length > 512) {
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_INVALID
+            );
+
+            return;
+
+        }
+
+        // R23 — the Mainnet runtime trusts ONLY fresh Telegram
+        // authentication. The identity is resolved from the authenticated
+        // socket context exactly like CREATE_ROOM does; a bootstrap request
+        // without an authenticated Telegram identity is rejected fail-closed
+        // with the established lobby error code.
+        const ownerTelegramUserId = this._resolveSocketTelegramUserId(socketId);
+
+        if (ownerTelegramUserId == null) {
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_CREATION_REQUIRES_TELEGRAM
+            );
+
+            return;
+
+        }
+
+        const handoffClient = this._roomNetworkHandoffClient ?? null;
+
+        if (!handoffClient) {
+
+            this._logger.warn(
+                "[RoomLobbyBridge] ROOM_NETWORK_HANDOFF_BOOTSTRAP | client " +
+                "not configured; bootstrap rejected"
+            );
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_UNAVAILABLE
+            );
+
+            return;
+
+        }
+
+        // Idempotency: ONE handoff → AT MOST ONE Mainnet Room. If this
+        // runtime already created the room for this handoff, never create a
+        // second one; reuse the authoritative room and re-attempt the
+        // completion.
+        const mappedRoomId =
+            this._roomNetworkHandoffRoomByHandoff.get(handoffId) ?? null;
+
+        if (mappedRoomId) {
+
+            if (!this._roomManager.getRoom(mappedRoomId)) {
+
+                // The previously created room no longer exists (destroyed
+                // through the normal lifecycle). A new room must NOT be
+                // created for the same handoff; the handoff can no longer be
+                // served by this runtime.
+                this._logger.decisionTrace({
+                    stage: "ROOM_NETWORK_HANDOFF_BOOTSTRAP",
+                    decision: "REJECT",
+                    reason: "Mapped Mainnet room no longer exists",
+                    caller: "RoomLobbyBridge._handleRoomNetworkHandoffBootstrap",
+                    nextAction: "Emit controlled roomError",
+                    roomId: mappedRoomId,
+                    socketId
+                });
+
+                this._emitRoomError(
+                    socketId,
+                    LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_INVALID
+                );
+
+                return;
+
+            }
+
+            try {
+
+                const claimResult = await handoffClient.claim({
+                    handoffId,
+                    ownerTelegramUserId
+                });
+
+                if (!claimResult?.ok) {
+
+                    this._logBootstrapClaimFailure(
+                        claimResult?.reason,
+                        socketId
+                    );
+
+                    this._emitRoomError(
+                        socketId,
+                        this._bootstrapClaimErrorCode(claimResult?.reason)
+                    );
+
+                    return;
+
+                }
+
+                // Defensive consistency check: the store's completed record
+                // must agree with the runtime mapping (cannot happen in
+                // normal ordering; logged server-side only).
+                if (
+                    claimResult.state === "completed"
+                    && claimResult.mainnetRoomId
+                    && claimResult.mainnetRoomId !== mappedRoomId
+                ) {
+
+                    this._logger.warn(
+                        "[RoomLobbyBridge] ROOM_NETWORK_HANDOFF_BOOTSTRAP | " +
+                        "store completed mainnetRoomId disagrees with the " +
+                        "runtime mapping; the runtime room stays authoritative"
+                    );
+
+                }
+
+                const completeResult = await handoffClient.complete({
+                    handoffId,
+                    ownerTelegramUserId,
+                    mainnetRoomId: mappedRoomId
+                });
+
+                if (!completeResult?.ok) {
+
+                    this._logBootstrapCompleteFailure(
+                        completeResult?.reason,
+                        socketId
+                    );
+
+                    this._emitRoomError(
+                        socketId,
+                        LOBBY_ERROR_CODES
+                            .ROOM_NETWORK_HANDOFF_BOOTSTRAP_RETRY_REQUIRED
+                    );
+
+                    return;
+
+                }
+
+                this._deliverRoomNetworkHandoffBootstrapResult(
+                    socketId,
+                    mappedRoomId
+                );
+
+            } catch (error) {
+
+                this._logBootstrapUnexpectedError(error, socketId);
+
+                this._emitRoomError(
+                    socketId,
+                    LOBBY_ERROR_CODES.UNKNOWN_ERROR
+                );
+
+            }
+
+            return;
+
+        }
+
+        // Fresh bootstrap: the socket must not already be bound to a player.
+        // (An idempotent retry of a mapped handoff is handled above and never
+        // reaches this point.) The existing CREATE_ROOM admission would
+        // reject this anyway; failing here avoids consuming claim state for
+        // a creation that cannot happen.
+        if (this._socketToPlayer.has(socketId)) {
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.PLAYER_ALREADY_CONNECTED
+            );
+
+            return;
+
+        }
+
+        try {
+
+            const claimResult = await handoffClient.claim({
+                handoffId,
+                ownerTelegramUserId
+            });
+
+            if (!claimResult?.ok) {
+
+                this._logBootstrapClaimFailure(claimResult?.reason, socketId);
+
+                this._emitRoomError(
+                    socketId,
+                    this._bootstrapClaimErrorCode(claimResult?.reason)
+                );
+
+                return;
+
+            }
+
+            // The handoff may already be completed on the Testnet side (e.g.
+            // a Mainnet restart dropped the local mapping after a successful
+            // completion). The authoritative Mainnet room of that completion
+            // is reused when it still exists; no second room is created.
+            if (
+                claimResult.state === "completed"
+                && claimResult.mainnetRoomId
+            ) {
+
+                const completedRoomId = claimResult.mainnetRoomId;
+
+                if (this._roomManager.getRoom(completedRoomId)) {
+
+                    this._roomNetworkHandoffRoomByHandoff.set(
+                        handoffId,
+                        completedRoomId
+                    );
+
+                    this._deliverRoomNetworkHandoffBootstrapResult(
+                        socketId,
+                        completedRoomId
+                    );
+
+                } else {
+
+                    this._logger.decisionTrace({
+                        stage: "ROOM_NETWORK_HANDOFF_BOOTSTRAP",
+                        decision: "REJECT",
+                        reason:
+                            "Completed handoff room no longer exists on this runtime",
+                        caller:
+                            "RoomLobbyBridge._handleRoomNetworkHandoffBootstrap",
+                        nextAction: "Emit controlled roomError",
+                        socketId
+                    });
+
+                    this._emitRoomError(
+                        socketId,
+                        LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_INVALID
+                    );
+
+                }
+
+                return;
+
+            }
+
+            // Create the NEW ordinary Mainnet Room through the EXISTING
+            // authoritative CREATE_ROOM path (per-socket dedup, Telegram
+            // admission, one-active-room-per-user quota, drain gate, capacity,
+            // RoomManager rules, room id generation, creator mapping and
+            // socket/player binding). No privileged "handoff room" exists.
+            this._handleCreateRoom(socketId);
+
+            const createdRoomId =
+                this._getSocketContext(socketId)?.roomId ?? null;
+
+            if (!createdRoomId) {
+
+                // The create path already emitted its own controlled
+                // roomError (e.g. quota, drain, capacity). Complete is never
+                // called with a fabricated room.
+                this._logger.decisionTrace({
+                    stage: "ROOM_NETWORK_HANDOFF_BOOTSTRAP",
+                    decision: "REJECT",
+                    reason: "Mainnet room creation failed",
+                    caller: "RoomLobbyBridge._handleRoomNetworkHandoffBootstrap",
+                    nextAction:
+                        "Existing CREATE_ROOM error already delivered; no complete call",
+                    socketId
+                });
+
+                return;
+
+            }
+
+            // Idempotency mapping is recorded BEFORE the completion so a
+            // failure (or runtime crash) between creation and completion
+            // still resolves to the SAME room on retry.
+            this._roomNetworkHandoffRoomByHandoff.set(
+                handoffId,
+                createdRoomId
+            );
+
+            const completeResult = await handoffClient.complete({
+                handoffId,
+                ownerTelegramUserId,
+                mainnetRoomId: createdRoomId
+            });
+
+            if (!completeResult?.ok) {
+
+                // The created room stays a normal authoritative room. No
+                // destructive rollback is invented; the retry path reuses
+                // the mapped room and re-attempts completion.
+                this._logBootstrapCompleteFailure(
+                    completeResult?.reason,
+                    socketId
+                );
+
+                this._emitRoomError(
+                    socketId,
+                    LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_RETRY_REQUIRED
+                );
+
+                return;
+
+            }
+
+            this._deliverRoomNetworkHandoffBootstrapResult(
+                socketId,
+                createdRoomId
+            );
+
+        } catch (error) {
+
+            this._logBootstrapUnexpectedError(error, socketId);
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.UNKNOWN_ERROR
+            );
+
+        }
+
+    }
+
+    /**
+     * R23 — deliver the bootstrap result to the authenticated Owner socket
+     * ONLY. Payload: { roomId, network: "mainnet" } exactly — no handoff
+     * internals, no claim state, no Telegram identity, no Testnet room id,
+     * no wallet or secret material.
+     */
+    _deliverRoomNetworkHandoffBootstrapResult(socketId, roomId) {
+
+        this._deliverToSocket(
+            socketId,
+            LOBBY_SERVER_EVENTS.ROOM_NETWORK_HANDOFF_BOOTSTRAP_RESULT,
+            {
+                roomId,
+                network: "mainnet"
+            }
+        );
+
+    }
+
+    /**
+     * R23 — coarse client error code for a failed claim. Transport and
+     * configuration failures are retryable; identity and record failures
+     * are not. The precise cross-runtime reason never reaches the browser.
+     */
+    _bootstrapClaimErrorCode(claimReason) {
+
+        const reason = String(claimReason ?? "");
+
+        if (
+            reason === "HANDOFF_CLIENT_NOT_CONFIGURED"
+            || reason === "TIMEOUT"
+            || reason === "NETWORK_ERROR"
+            || reason === "UNEXPECTED_RESPONSE"
+            || reason.startsWith("HTTP_")
+        ) {
+
+            return LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_UNAVAILABLE;
+
+        }
+
+        return LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_INVALID;
+
+    }
+
+    /**
+     * R23 — server-side precise failure logging. The handoffId is never
+     * logged; the precise R21 contract reason stays in server logs only.
+     */
+    _logBootstrapClaimFailure(reason, socketId) {
+
+        this._logger.warn(
+            "[RoomLobbyBridge] ROOM_NETWORK_HANDOFF_BOOTSTRAP | claim " +
+            `failed | reason=${reason ?? "unknown"} | socketId=${socketId}`
+        );
+
+    }
+
+    _logBootstrapCompleteFailure(reason, socketId) {
+
+        this._logger.warn(
+            "[RoomLobbyBridge] ROOM_NETWORK_HANDOFF_BOOTSTRAP | complete " +
+            `failed | reason=${reason ?? "unknown"} | socketId=${socketId}`
+        );
+
+    }
+
+    _logBootstrapUnexpectedError(error, socketId) {
+
+        this._logger.error(
+            "[RoomLobbyBridge] ROOM_NETWORK_HANDOFF_BOOTSTRAP | unexpected " +
+            "error | error="
+            + (error instanceof Error ? error.message : String(error))
+            + ` | socketId=${socketId}`
+        );
 
     }
 

@@ -882,6 +882,29 @@ export class SocketGateway {
 
         });
 
+        // R23 — Mainnet handoff bootstrap. ONLY the opaque handoffId is
+        // forwarded. The Owner identity comes exclusively from the
+        // authenticated socket context (io.use Telegram initData); the room
+        // and its creator mapping are produced by the existing authoritative
+        // CREATE_ROOM path. Client-supplied identity/room fields are never
+        // delivered to the bridge.
+        socket.on(
+            LOBBY_CLIENT_EVENTS.ROOM_NETWORK_HANDOFF_BOOTSTRAP_REQUEST,
+            (payload) => {
+
+                this._emitLobbyRequest(
+                    EVENT_TYPES.LOBBY_ROOM_NETWORK_HANDOFF_BOOTSTRAP_REQUEST,
+                    {
+                        socketId: socket.id,
+                        handoffId: typeof payload?.handoffId === "string"
+                            ? payload.handoffId
+                            : null
+                    }
+                );
+
+            }
+        );
+
         socket.on(LOBBY_CLIENT_EVENTS.VERIFY_NEXT_REQUEST, (payload) => {
 
             this._emitLobbyRequest(EVENT_TYPES.LOBBY_VERIFY_NEXT_REQUEST, {

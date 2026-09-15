@@ -10,6 +10,12 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     // post-CREATE_ROOM). Payload carries ONLY the requested network;
     // ownership and room are resolved server-side from socket bindings.
     SELECT_ROOM_NETWORK: "selectRoomNetwork",
+    // R23 — Mainnet bootstrap: the authenticated Owner submits the opaque
+    // R22 handoffId ONLY. The Telegram identity, the room and the ownership
+    // are resolved server-side from the authenticated socket context and the
+    // existing authoritative CREATE_ROOM path; the client can never provide
+    // roomId / playerId / ownerTelegramUserId / network / mainnetRoomId.
+    ROOM_NETWORK_HANDOFF_BOOTSTRAP_REQUEST: "roomNetworkHandoffBootstrapRequest",
     VERIFY_NEXT_REQUEST: "VERIFY_NEXT_REQUEST",
     // R1.3D — development-only; SocketGateway rejects outside development.
     DEBUG_START_GAME: "DEBUG_START_GAME",
@@ -39,6 +45,11 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     // { roomId, handoffId, targetNetwork, expiresAt } only — no Telegram
     // identity, no player ids, no store/claim internals, no auth material.
     ROOM_NETWORK_HANDOFF_READY: "roomNetworkHandoffReady",
+    // R23 — Mainnet bootstrap result for the authenticated Owner whose
+    // handoff completed. Owner-scoped (never broadcast). Payload:
+    // { roomId, network: "mainnet" } only — no handoff internals, no claim
+    // state, no Telegram identity, no Testnet room id, no secrets.
+    ROOM_NETWORK_HANDOFF_BOOTSTRAP_RESULT: "roomNetworkHandoffBootstrapResult",
     ROOM_STATE: "roomState",
     ROOM_JOINED: "roomJoined",
     ROOM_LEFT: "roomLeft",
@@ -108,6 +119,12 @@ export const LOBBY_ERROR_CODES = Object.freeze({
     ROOM_NETWORK_SELECT_FORBIDDEN: "ROOM_NETWORK_SELECT_FORBIDDEN",
     ROOM_NETWORK_ALREADY_SELECTED: "ROOM_NETWORK_ALREADY_SELECTED",
     ROOM_NETWORK_INVALID: "ROOM_NETWORK_INVALID",
+    // R23 — Mainnet handoff bootstrap. Coarse controlled outcomes only: the
+    // precise cross-runtime reason (R21 contract codes, transport details)
+    // stays in server logs and is never exposed to the browser.
+    ROOM_NETWORK_HANDOFF_BOOTSTRAP_INVALID: "ROOM_NETWORK_HANDOFF_BOOTSTRAP_INVALID",
+    ROOM_NETWORK_HANDOFF_BOOTSTRAP_UNAVAILABLE: "ROOM_NETWORK_HANDOFF_BOOTSTRAP_UNAVAILABLE",
+    ROOM_NETWORK_HANDOFF_BOOTSTRAP_RETRY_REQUIRED: "ROOM_NETWORK_HANDOFF_BOOTSTRAP_RETRY_REQUIRED",
     SERVER_DRAINING: "SERVER_DRAINING",
     INVALID_SECRET_MATRIX: "INVALID_SECRET_MATRIX",
     SECRET_MATRIX_MISMATCH: "SECRET_MATRIX_MISMATCH",
@@ -138,6 +155,12 @@ export const LOBBY_ERROR_MESSAGES = Object.freeze({
         "The room network has already been selected.",
     [LOBBY_ERROR_CODES.ROOM_NETWORK_INVALID]:
         "Invalid room network selection.",
+    [LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_INVALID]:
+        "This Mainnet handoff is invalid or can no longer be used.",
+    [LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_UNAVAILABLE]:
+        "The Mainnet handoff service is not available right now. Please try again shortly.",
+    [LOBBY_ERROR_CODES.ROOM_NETWORK_HANDOFF_BOOTSTRAP_RETRY_REQUIRED]:
+        "Your Mainnet room is ready, but the handoff could not be finalized. Please retry the Mainnet continuation.",
     [LOBBY_ERROR_CODES.SERVER_DRAINING]:
         "The server is shutting down and is not accepting new rooms.",
     [LOBBY_ERROR_CODES.INVALID_SECRET_MATRIX]:

@@ -124,6 +124,12 @@ export const EVENT_TYPES = Object.freeze({
     LOBBY_CREATE_ROOM_REQUEST: "LOBBY_CREATE_ROOM_REQUEST",
     // R20 — room Owner network selection request (client "selectRoomNetwork").
     LOBBY_SELECT_ROOM_NETWORK_REQUEST: "LOBBY_SELECT_ROOM_NETWORK_REQUEST",
+    // R23 — Mainnet handoff bootstrap request (client
+    // "roomNetworkHandoffBootstrapRequest"). Envelope carries ONLY
+    // { socketId, handoffId }; the authenticated Telegram identity, the room
+    // and the ownership stay server-authoritative.
+    LOBBY_ROOM_NETWORK_HANDOFF_BOOTSTRAP_REQUEST:
+        "LOBBY_ROOM_NETWORK_HANDOFF_BOOTSTRAP_REQUEST",
     LOBBY_JOIN_ROOM_REQUEST: "LOBBY_JOIN_ROOM_REQUEST",
     LOBBY_LEAVE_ROOM_REQUEST: "LOBBY_LEAVE_ROOM_REQUEST",
     LOBBY_UPDATE_PLAYER_PROFILE_REQUEST: "LOBBY_UPDATE_PLAYER_PROFILE_REQUEST",

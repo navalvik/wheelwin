@@ -205,6 +205,7 @@ function resolveTonFinancialDataDir(env = process.env) {
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
 import { RoomNetworkHandoffStore } from "./network/RoomNetworkHandoffStore.js";
+import { RoomNetworkHandoffClient } from "./network/RoomNetworkHandoffClient.js";
 import { registerRoomNetworkHandoffRoutes } from "./network/registerRoomNetworkHandoffRoutes.js";
 import { RoomWalletTerminalSettlementRecovery } from "./payment/roomWallet/RoomWalletTerminalSettlementRecovery.js";
 import { DeveloperConsoleGateway } from "./console/DeveloperConsoleGateway.js";
@@ -2476,6 +2477,21 @@ class WheelWinApplication {
         );
 
         this._logger.startupLine("RoomNetworkHandoffStore");
+
+        // R23 — the Mainnet-side HTTP client for the SAME R21 handoff
+        // contract (claim/complete). Exactly ONE instance per runtime;
+        // env-configured (ROOM_NETWORK_HANDOFF_TESTNET_URL +
+        // ROOM_NETWORK_HANDOFF_SECRET) and fail-closed: without complete
+        // configuration the Mainnet bootstrap path is rejected without any
+        // network activity. The shared secret stays inside this client —
+        // never in the bridge, never in any socket payload, never logged.
+        this._roomNetworkHandoffClient = new RoomNetworkHandoffClient();
+
+        this._roomLobbyBridge.configureRoomNetworkHandoffClient(
+            this._roomNetworkHandoffClient
+        );
+
+        this._logger.startupLine("RoomNetworkHandoffClient");
 
         this._consoleGateway = new DeveloperConsoleGateway({
             logger: this._logger,
