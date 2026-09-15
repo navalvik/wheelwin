@@ -2467,6 +2467,14 @@ class WheelWinApplication {
             logger: this._logger
         });
 
+        // R22 — the RoomLobbyBridge MAINNET-selection wiring reuses this SAME
+        // shared store instance (never a second store). Startup order is safe:
+        // the socket server does not accept gameplay commands until the server
+        // starts listening, which happens after this constructor completes.
+        this._roomLobbyBridge.configureRoomNetworkHandoffStore(
+            this._roomNetworkHandoffStore
+        );
+
         this._logger.startupLine("RoomNetworkHandoffStore");
 
         this._consoleGateway = new DeveloperConsoleGateway({

@@ -32,6 +32,13 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     // R20 — authoritative one-time room network selection broadcast to all
     // sockets currently in the room. Payload: { roomId, network } only.
     ROOM_NETWORK_SELECTED: "roomNetworkSelected",
+    // R22 — cross-runtime MAINNET handoff continuation. Owner-scoped: the
+    // opaque handoffId is a bearer-like continuation token, so this event is
+    // delivered ONLY to the verified Room Owner's authenticated socket and
+    // must NEVER be included in any room-wide broadcast. Payload:
+    // { roomId, handoffId, targetNetwork, expiresAt } only — no Telegram
+    // identity, no player ids, no store/claim internals, no auth material.
+    ROOM_NETWORK_HANDOFF_READY: "roomNetworkHandoffReady",
     ROOM_STATE: "roomState",
     ROOM_JOINED: "roomJoined",
     ROOM_LEFT: "roomLeft",

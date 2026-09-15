@@ -186,6 +186,16 @@ export class RoomLobbyBridge {
         // never persisted. Released by the existing room destruction paths.
         this._roomNetworkByRoom = new Map();
 
+        // R22 — pending MAINNET cross-runtime handoff continuation.
+        // roomId → opaque handoffId of the record created in the SINGLE shared
+        // app-level RoomNetworkHandoffStore (injected by WheelWinServer via
+        // configureRoomNetworkHandoffStore()). This map is the minimum state
+        // required so the existing room destruction paths can release an
+        // outstanding handoff. Records are created ONLY for MAINNET selections
+        // and ONLY from server-authoritative owner identity. The bridge never
+        // instantiates its own store.
+        this._roomNetworkHandoffIdByRoom = new Map();
+
         // Server-owned recovery identity keyed by socket id (CSR / same-id path).
         this._recoveryOwnershipBySocket = new Map();
 
@@ -334,6 +344,198 @@ export class RoomLobbyBridge {
         }
 
     }
+    /**
+     * R22 — wire the SINGLE app-level RoomNetworkHandoffStore created by
+     * WheelWinServer (getRoomNetworkHandoffStore()). The bridge never
+     * instantiates its own store. Left unset until configured so runtimes
+     * without the handoff store keep the legacy R20 selection behavior.
+     */
+    configureRoomNetworkHandoffStore(handoffStore) {
+
+        this._roomNetworkHandoffStore = handoffStore ?? null;
+
+    }
+
+    /**
+     * R22 — trusted Telegram identity of the authoritative room Owner.
+     *
+     * Resolved ONLY from the server-side `_activeRoomsByTelegramUser` record
+     * pinned at CREATE_ROOM from the authenticated socket context (the same
+     * trusted resolver that authorizes CREATE_ROOM). Client payloads are
+     * never consulted. Fail-closed: missing record → null.
+     */
+    _resolveRoomOwnerTelegramUserId(roomId) {
+
+        if (!roomId) {
+
+            return null;
+
+        }
+
+        for (const [telegramUserId, activeRoomId] of this
+            ._activeRoomsByTelegramUser.entries()) {
+
+            if (activeRoomId === roomId) {
+
+                return telegramUserId;
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    /**
+     * R22 — create the pending cross-runtime handoff for a MAINNET selection.
+     *
+     * Authoritative inputs ONLY:
+     * - roomId: the authoritative room context (never a client-supplied id);
+     * - ownerPlayerId: the existing authoritative creator mapping
+     *   (`_roomCreators`), never a client-supplied ownership proof;
+     * - ownerTelegramUserId: the trusted Telegram identity pinned at
+     *   CREATE_ROOM, never a client-supplied identity.
+     *
+     * Returns the opaque { handoffId, targetNetwork, expiresAt } result or
+     * null on failure. Internal record fields are never exposed and the
+     * handoffId is never logged.
+     */
+    _createRoomNetworkHandoff(roomId, handoffStore) {
+
+        const ownerPlayerId = this._roomCreators.get(roomId) ?? null;
+
+        const ownerTelegramUserId = this._resolveRoomOwnerTelegramUserId(roomId);
+
+        if (!ownerPlayerId || ownerTelegramUserId == null) {
+
+            this._logger.warn(
+                `[RoomLobbyBridge] ROOM_NETWORK_HANDOFF | refused: missing ` +
+                `authoritative owner identity | roomId=${roomId}`
+            );
+
+            return null;
+
+        }
+
+        try {
+
+            const handoff = handoffStore.create({
+                roomId,
+                ownerPlayerId,
+                ownerTelegramUserId
+            });
+
+            // Minimum roomId → handoffId mapping so the existing room
+            // destruction paths can release an outstanding handoff.
+            this._roomNetworkHandoffIdByRoom.set(roomId, handoff.handoffId);
+
+            this._logger.info(
+                `[RoomLobbyBridge] ROOM_NETWORK_HANDOFF | pending handoff ` +
+                `armed for the verified Owner (continuation token delivered ` +
+                `to the Owner socket only) | roomId=${roomId}`
+            );
+
+            return handoff;
+
+        } catch (error) {
+
+            // Server-side only: no exception detail ever reaches a client.
+            this._logger.error(
+                `[RoomLobbyBridge] ROOM_NETWORK_HANDOFF | creation failed; ` +
+                `MAINNET selection not committed | roomId=${roomId} | ` +
+                `error=${error instanceof Error ? error.message : String(error)}`
+            );
+
+            return null;
+
+        }
+
+    }
+
+    /**
+     * R22 — deliver the opaque handoff continuation to the verified Owner's
+     * authenticated socket ONLY. Never broadcast, never sent to joiners,
+     * spectators or any other socket. Payload carries only:
+     * { roomId, handoffId, targetNetwork, expiresAt }.
+     */
+    _deliverRoomNetworkHandoffReady(roomId, ownerPlayerId, handoff) {
+
+        const ownerSocketId = this._playerToSocket.get(ownerPlayerId) ?? null;
+
+        if (!ownerSocketId) {
+
+            this._logger.warn(
+                `[RoomLobbyBridge] ROOM_NETWORK_HANDOFF | Owner socket not ` +
+                `bound; continuation not delivered | roomId=${roomId}`
+            );
+
+            return;
+
+        }
+
+        this._deliverToSocket(
+            ownerSocketId,
+            LOBBY_SERVER_EVENTS.ROOM_NETWORK_HANDOFF_READY,
+            {
+                roomId,
+                handoffId: handoff.handoffId,
+                targetNetwork: handoff.targetNetwork ?? "mainnet",
+                expiresAt: handoff.expiresAt ?? null
+            }
+        );
+
+    }
+
+    /**
+     * R22 — release an outstanding handoff through the existing room
+     * destruction paths (setup-expired teardown, empty-room close, _closeRoom).
+     * Uses the shared store's own release(); the roomId mapping is always
+     * dropped, even when the store release fails. A handoff already
+     * claimed/completed by the future Mainnet bootstrap is unaffected in
+     * normal ordering (the bootstrap completes before the Testnet room is
+     * destroyed); releasing such a record is at worst an early TTL removal,
+     * never a financial or gameplay event.
+     */
+    _releaseRoomNetworkHandoff(roomId) {
+
+        if (!roomId) {
+
+            return;
+
+        }
+
+        const handoffId = this._roomNetworkHandoffIdByRoom.get(roomId) ?? null;
+
+        if (handoffId == null) {
+
+            return;
+
+        }
+
+        this._roomNetworkHandoffIdByRoom.delete(roomId);
+
+        const handoffStore = this._roomNetworkHandoffStore ?? null;
+
+        if (!handoffStore || typeof handoffStore.release !== "function") {
+
+            return;
+
+        }
+
+        try {
+
+            handoffStore.release(handoffId);
+
+        } catch {
+
+            // Non-fatal: the record also expires by the store TTL.
+
+        }
+
+    }
+
+
 
     initialize() {
 
@@ -810,6 +1012,11 @@ export class RoomLobbyBridge {
 
         this._roomNetworkByRoom.clear();
 
+        // R22 — drop the roomId → handoffId mapping on teardown. The shared
+        // RoomNetworkHandoffStore is torn down with the runtime (pending
+        // handoffs are invalidated by design on restart).
+        this._roomNetworkHandoffIdByRoom.clear();
+
         this._activeRoomsByTelegramUser.clear();
 
         this._recoveryOwnershipBySocket.clear();
@@ -1238,6 +1445,60 @@ export class RoomLobbyBridge {
 
         }
 
+        // R22 — a MAINNET selection arms the cross-runtime handoff BEFORE the
+        // authoritative commit (atomicity): if handoff creation fails, the
+        // room is NOT committed to MAINNET, no success broadcast is emitted,
+        // no handoffId is exposed, and the existing controlled error path is
+        // used. The one-time selection is not consumed, so the Owner may
+        // retry. A TESTNET selection never creates any handoff material.
+        let handoff = null;
+
+        if (network === "mainnet") {
+
+            const handoffStore = this._roomNetworkHandoffStore ?? null;
+
+            if (handoffStore) {
+
+                handoff = this._createRoomNetworkHandoff(roomId, handoffStore);
+
+                if (!handoff) {
+
+                    this._logger.decisionTrace({
+                        stage: "ROOM_NETWORK_SELECTION",
+                        decision: "REJECT",
+                        reason: "RoomNetworkHandoff creation failed",
+                        caller: "RoomLobbyBridge._handleSelectRoomNetwork",
+                        nextAction: "Emit controlled roomError; MAINNET not committed",
+                        roomId,
+                        playerId,
+                        socketId,
+                        network
+                    });
+
+                    this._emitRoomError(
+                        socketId,
+                        LOBBY_ERROR_CODES.UNKNOWN_ERROR
+                    );
+
+                    return;
+
+                }
+
+            } else {
+
+                // R20-compatible runtime without the handoff store (partial
+                // harnesses): keep the legacy behavior — commit and broadcast
+                // only, no handoff continuation armed. Production
+                // WheelWinServer always wires the single shared store.
+                this._logger.warn(
+                    "[RoomLobbyBridge] ROOM_NETWORK_HANDOFF | store not " +
+                    "configured; MAINNET handoff not armed"
+                );
+
+            }
+
+        }
+
         this._roomNetworkByRoom.set(roomId, network);
 
         this._logger.decisionTrace({
@@ -1254,7 +1515,8 @@ export class RoomLobbyBridge {
 
         // Authoritative broadcast to every socket currently in the room.
         // Safe lobby information only: roomId + selected network. No Telegram
-        // identity, no recovery credentials, no secrets.
+        // identity, no recovery credentials, no secrets, and — per R22 —
+        // never the opaque handoffId.
         this._deliverToRoom(
             roomId,
             LOBBY_SERVER_EVENTS.ROOM_NETWORK_SELECTED,
@@ -1265,6 +1527,16 @@ export class RoomLobbyBridge {
         );
 
         this._broadcastRoomState(roomId);
+
+        // R22 — Owner-only opaque handoff continuation, delivered strictly to
+        // the verified Owner's authenticated socket. It is never part of the
+        // room-wide ROOM_NETWORK_SELECTED broadcast and is never sent to
+        // joiners or spectators.
+        if (handoff) {
+
+            this._deliverRoomNetworkHandoffReady(roomId, creatorId, handoff);
+
+        }
 
     }
 
@@ -2856,6 +3128,8 @@ export class RoomLobbyBridge {
 
             this._roomNetworkByRoom.delete(roomId);
 
+            this._releaseRoomNetworkHandoff(roomId);
+
             this._releaseTelegramQuota(roomId);
 
             this._startedRooms.delete(roomId);
@@ -3250,6 +3524,8 @@ export class RoomLobbyBridge {
 
             this._roomNetworkByRoom.delete(roomId);
 
+            this._releaseRoomNetworkHandoff(roomId);
+
             this._releaseTelegramQuota(roomId);
 
             return;
@@ -3614,6 +3890,8 @@ export class RoomLobbyBridge {
         this._roomCreators.delete(roomId);
 
         this._roomNetworkByRoom.delete(roomId);
+
+        this._releaseRoomNetworkHandoff(roomId);
 
         this._releaseTelegramQuota(roomId);
 
