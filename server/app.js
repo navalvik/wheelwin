@@ -204,6 +204,8 @@ function resolveTonFinancialDataDir(env = process.env) {
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
+import { RoomNetworkHandoffStore } from "./network/RoomNetworkHandoffStore.js";
+import { registerRoomNetworkHandoffRoutes } from "./network/registerRoomNetworkHandoffRoutes.js";
 import { RoomWalletTerminalSettlementRecovery } from "./payment/roomWallet/RoomWalletTerminalSettlementRecovery.js";
 import { DeveloperConsoleGateway } from "./console/DeveloperConsoleGateway.js";
 import { DeveloperAuthService } from "./console/auth/DeveloperAuthService.js";
@@ -2452,6 +2454,21 @@ class WheelWinApplication {
             }
         );
 
+        // R21 — Cross-runtime room network handoff (Testnet → Mainnet).
+        // Exactly ONE in-memory store per application runtime (Testnet Rooms
+        // are ephemeral; a restart invalidates pending handoffs by design).
+        // The future RoomLobbyBridge MAINNET-selection wiring reuses this same
+        // instance via getRoomNetworkHandoffStore(); the internal HTTP routes
+        // below expose the claim/complete contract to the Mainnet service.
+        this._roomNetworkHandoffStore = new RoomNetworkHandoffStore();
+
+        registerRoomNetworkHandoffRoutes(this._expressApp, {
+            handoffStore: this._roomNetworkHandoffStore,
+            logger: this._logger
+        });
+
+        this._logger.startupLine("RoomNetworkHandoffStore");
+
         this._consoleGateway = new DeveloperConsoleGateway({
             logger: this._logger,
             io: this._socketGateway.getIO(),
@@ -3384,6 +3401,17 @@ class WheelWinApplication {
             this._startPrometheusSidecar(monitoringConfig);
 
         }
+
+    }
+
+    /**
+     * R21 — Single RoomNetworkHandoffStore instance for this runtime.
+     * Consumed by the internal HTTP handoff routes and, in the next slice,
+     * by the RoomLobbyBridge MAINNET network-selection wiring.
+     */
+    getRoomNetworkHandoffStore() {
+
+        return this._roomNetworkHandoffStore ?? null;
 
     }
 
