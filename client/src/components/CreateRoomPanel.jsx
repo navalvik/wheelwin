@@ -3,6 +3,13 @@ import { useEffect, useState } from "react";
 import "../styles/createRoomPanel.css";
 import socket from "../socket/socket";
 
+import {
+    isTestnetRuntime,
+    launchMainnetMiniApp,
+    storeHandoff,
+    validateHandoffReadyPayload
+} from "../network/roomNetworkHandoff.js";
+
 import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
@@ -99,11 +106,47 @@ export default function CreateRoomPanel({
 
         }
 
+        // R24 — Owner-only cross-runtime MAINNET continuation. The server
+        // delivers roomNetworkHandoffReady ONLY to the verified Owner's
+        // socket (never in any room-wide broadcast). The Testnet client
+        // persists the MINIMUM opaque fields and immediately launches the
+        // Mainnet Mini App through the established Telegram mechanism. The
+        // handoffId never enters room-wide state and is never displayed;
+        // ownership is never validated client-side.
+        function handleRoomNetworkHandoffReady(data) {
+
+            if (!isTestnetRuntime()) {
+
+                // The handoff continuation is meaningful only from the
+                // Testnet runtime (a Mainnet room must never loop back into
+                // the deep-link launch).
+                return;
+
+            }
+
+            const handoff = validateHandoffReadyPayload(data);
+
+            if (!handoff) {
+
+                // Invalid or already-expired handoff: nothing is stored and
+                // Mainnet is never launched with it.
+                return;
+
+            }
+
+            storeHandoff(handoff);
+
+            launchMainnetMiniApp();
+
+        }
+
         socket.on("roomState", handleRoomState);
 
         socket.on("roomCreated", handleRoomCreated);
 
         socket.on("roomNetworkSelected", handleRoomNetworkSelected);
+
+        socket.on("roomNetworkHandoffReady", handleRoomNetworkHandoffReady);
 
         return () => {
 
@@ -112,6 +155,8 @@ export default function CreateRoomPanel({
             socket.off("roomCreated", handleRoomCreated);
 
             socket.off("roomNetworkSelected", handleRoomNetworkSelected);
+
+            socket.off("roomNetworkHandoffReady", handleRoomNetworkHandoffReady);
 
         };
 

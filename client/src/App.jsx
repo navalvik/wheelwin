@@ -12,6 +12,8 @@ import Page6Result from "./pages/Page6Result";
 
 import OpenPage5Navigator from "./components/OpenPage5Navigator";
 
+import RoomNetworkHandoffBootstrap from "./components/RoomNetworkHandoffBootstrap";
+
 import { DevNavigationContext } from "./context/DevNavigationContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { PlayerIdentityProvider } from "./context/PlayerIdentityContext";
@@ -360,6 +362,17 @@ function GameFlow() {
                         onSessionFinished={handleSessionFinished}
                         onArmNewGameplaySession={armNewGameplaySession}
                     />
+
+                    {/*
+                        R24 — cross-runtime room network handoff consumption.
+                        Renders NOTHING without a pending handoff (the normal
+                        direct-Mainnet flow is untouched); with a pending
+                        handoff it navigates into the normal RoomLobby flow,
+                        submits the R23 bootstrap request with ONLY the opaque
+                        handoffId, and reacts to the authoritative result and
+                        the controlled roomError codes.
+                    */}
+                    <RoomNetworkHandoffBootstrap onNavigate={navigate} />
 
                     {renderPage()}
 
