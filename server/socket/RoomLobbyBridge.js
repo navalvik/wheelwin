@@ -86,7 +86,8 @@ export class RoomLobbyBridge {
         roomConfig = null,
         telegramIdentityResolver = null,
         metricsService = null,
-        depositSessionCoordinator = null
+        depositSessionCoordinator = null,
+        runtimeNetwork = null
     }) {
 
         this._logger = logger;
@@ -179,6 +180,35 @@ export class RoomLobbyBridge {
         // telegramUserId → activeCreatedRoomId. Creation-quota only; joining is
         // never limited by this map. Released whenever the room is destroyed.
         this._activeRoomsByTelegramUser = new Map();
+
+        // R24.1 (R20) — one-time authoritative room network selection
+        // (post-CREATE_ROOM). roomId → "testnet" | "mainnet". Absent until the
+        // verified room Owner commits the choice. In-memory only; never part
+        // of the Room model and never persisted. Released by the existing room
+        // destruction paths.
+        this._roomNetworkByRoom = new Map();
+
+        // R24.1 — startGame withheld while the room network is unset (or
+        // mismatches this runtime's financial rails). roomId → gameId. The
+        // ROOM_FULL → game-prep transition may complete, but START_GAME /
+        // VERIFY is gated until the Owner's authoritative network exists and
+        // matches the runtime. Released by _handleSelectRoomNetwork (matching
+        // selection) and the existing room destruction paths.
+        this._startGamePendingByRoom = new Map();
+
+        // R24.1 — financial rails of THIS server runtime ("testnet" |
+        // "mainnet"), injected from the authoritative TON_NETWORK
+        // configuration (app.js). Defaults to "testnet" (the established
+        // historical default) when not injected. A room whose committed
+        // network differs from the runtime rails is parked: it never receives
+        // startGame (no wrong-network payment flow). On a testnet runtime a
+        // MAINNET room's continuation is the R22/R23/R24 cross-runtime
+        // handoff, which is untouched by this change.
+        this._roomNetworkRuntime =
+            String(runtimeNetwork ?? "testnet").trim().toLowerCase()
+            === "mainnet"
+                ? "mainnet"
+                : "testnet";
 
         // Server-owned recovery identity keyed by socket id (CSR / same-id path).
         this._recoveryOwnershipBySocket = new Map();
@@ -336,6 +366,20 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleCreateRoom(envelope.payload.socketId);
+
+            }
+        );
+
+        // R24.1 (R20) — room Owner network selection (client
+        // "selectRoomNetwork").
+        this._subscribe(
+            EVENT_TYPES.LOBBY_SELECT_ROOM_NETWORK_REQUEST,
+            (envelope) => {
+
+                this._handleSelectRoomNetwork(
+                    envelope.payload.socketId,
+                    envelope.payload.network
+                );
 
             }
         );
@@ -789,6 +833,11 @@ export class RoomLobbyBridge {
 
         this._roomCreators.clear();
 
+        // R24.1 — clear the room network selection lifecycle maps.
+        this._roomNetworkByRoom.clear();
+
+        this._startGamePendingByRoom.clear();
+
         this._activeRoomsByTelegramUser.clear();
 
         this._recoveryOwnershipBySocket.clear();
@@ -1099,6 +1148,10 @@ export class RoomLobbyBridge {
         const roomCreatedPayload = {
             roomId: roomSnapshot.roomId,
             playerId,
+            // R24.1 — authoritative room Owner projection (this creator).
+            // Additive lobby-safe information; the selector uses it to
+            // re-appear after roomState hydration.
+            ownerPlayerId: playerId,
             recoveryCredential,
             connectedPlayers: roomSnapshot.players.length,
             maxPlayers: roomSnapshot.maxPlayers,
@@ -1114,6 +1167,158 @@ export class RoomLobbyBridge {
         this._broadcastRoomState(room.roomId);
 
         this._deliverSetupSessionSync(room.roomId, socketId);
+
+    }
+
+    // R24.1 (R20) — Authoritative one-time room network selection.
+    //
+    // Authorization is fully server-side:
+    //   1. The socket's player identity comes from the server-owned
+    //      socket→player binding (never from the client payload).
+    //   2. The room comes from that authoritative player binding.
+    //   3. The requester must be exactly _roomCreators.get(roomId).
+    // The client payload carries ONLY the requested network; any ownership
+    // claim (playerId / telegramUserId / ownerPlayerId / roomId) is ignored.
+    _handleSelectRoomNetwork(socketId, requestedNetwork) {
+
+        const context = this._assertAuthoritativeMutation(
+            socketId,
+            "selectRoomNetwork"
+        );
+
+        if (!context) {
+
+            return;
+
+        }
+
+        const { playerId, roomId } = context;
+
+        const creatorId = this._roomCreators.get(roomId) ?? null;
+
+        if (creatorId == null || creatorId !== playerId) {
+
+            this._logger.decisionTrace({
+                stage: "ROOM_NETWORK_SELECTION",
+                decision: "REJECT",
+                reason: "Requester is not the verified room Owner",
+                caller: "RoomLobbyBridge._handleSelectRoomNetwork",
+                nextAction: "Emit ROOM_NETWORK_SELECT_FORBIDDEN",
+                roomId,
+                playerId,
+                socketId
+            });
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_NETWORK_SELECT_FORBIDDEN
+            );
+
+            return;
+
+        }
+
+        // Strict normalization: exactly "testnet" | "mainnet". Every other
+        // value is rejected WITHOUT burning the one-time selection.
+        const network = typeof requestedNetwork === "string"
+            ? requestedNetwork.trim().toLowerCase()
+            : "";
+
+        if (network !== "testnet" && network !== "mainnet") {
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_NETWORK_INVALID
+            );
+
+            return;
+
+        }
+
+        if (this._roomNetworkByRoom.has(roomId)) {
+
+            this._emitRoomError(
+                socketId,
+                LOBBY_ERROR_CODES.ROOM_NETWORK_ALREADY_SELECTED
+            );
+
+            return;
+
+        }
+
+        this._roomNetworkByRoom.set(roomId, network);
+
+        this._logger.decisionTrace({
+            stage: "ROOM_NETWORK_SELECTION",
+            decision: "ACCEPT",
+            reason: `Room network committed: ${network}`,
+            caller: "RoomLobbyBridge._handleSelectRoomNetwork",
+            nextAction: "Broadcast ROOM_NETWORK_SELECTED and room state",
+            roomId,
+            playerId,
+            socketId,
+            network
+        });
+
+        // Authoritative broadcast to every socket currently in the room.
+        // Safe lobby information only: roomId + selected network. No Telegram
+        // identity, no recovery credentials, no secrets.
+        this._deliverToRoom(
+            roomId,
+            LOBBY_SERVER_EVENTS.ROOM_NETWORK_SELECTED,
+            {
+                roomId,
+                network
+            }
+        );
+
+        this._broadcastRoomState(roomId);
+
+        // R24.1 — release a withheld startGame as soon as the committed room
+        // network matches this runtime's financial rails. On a testnet
+        // runtime a MAINNET room stays parked: its continuation is the
+        // R22/R23/R24 cross-runtime handoff (untouched by this change), never
+        // this runtime's payment flow.
+        if (network === this._roomNetworkRuntime) {
+
+            this._releasePendingStartGame(roomId);
+
+        }
+
+    }
+
+    // R24.1 — Whether the existing startGame transition may proceed for a
+    // room. Allowed only when the Owner's authoritative network exists AND
+    // matches this runtime's financial rails.
+    _shouldReleaseStartGame(roomId) {
+
+        const network = this._roomNetworkByRoom.get(roomId) ?? null;
+
+        if (!network) {
+
+            return false;
+
+        }
+
+        return network === this._roomNetworkRuntime;
+
+    }
+
+    // R24.1 — Deliver a previously withheld startGame (OWNER network decision
+    // has since arrived and matches the runtime rails).
+    _releasePendingStartGame(roomId) {
+
+        const pendingGameId = this._startGamePendingByRoom.get(roomId);
+
+        if (!pendingGameId) {
+
+            return;
+
+        }
+
+        this._startGamePendingByRoom.delete(roomId);
+
+        this._deliverStartGame(roomId, pendingGameId);
 
     }
 
@@ -2703,6 +2908,12 @@ export class RoomLobbyBridge {
 
             this._roomCreators.delete(roomId);
 
+            // R24.1 — release the room's network selection state together
+            // with the existing lobby-map cleanup (same destruction site).
+            this._roomNetworkByRoom.delete(roomId);
+
+            this._startGamePendingByRoom.delete(roomId);
+
             this._releaseTelegramQuota(roomId);
 
             this._startedRooms.delete(roomId);
@@ -2754,6 +2965,41 @@ export class RoomLobbyBridge {
     _handleGameCreated({ gameId, roomId }) {
 
         if (!gameId || !roomId) {
+
+            return;
+
+        }
+
+        // R24.1 — authoritative network gate on the existing ROOM_FULL /
+        // game-prep → startGame transition. The game may be created, but
+        // START_GAME (the client VERIFY transition) is emitted only after the
+        // Owner's authoritative room network exists AND matches this
+        // runtime's financial rails. network == null → withheld (releasable
+        // by _handleSelectRoomNetwork); committed network mismatching the
+        // runtime rails → parked (no wrong-network payment flow).
+        if (!this._shouldReleaseStartGame(roomId)) {
+
+            if (!this._roomNetworkByRoom.get(roomId)) {
+
+                this._startGamePendingByRoom.set(roomId, gameId);
+
+            }
+
+            this._logger.decisionTrace({
+                stage: "ROOM_NETWORK_SELECTION",
+                decision: "WITHHOLD_START_GAME",
+                reason: this._roomNetworkByRoom.get(roomId)
+                    ? "Committed room network does not match runtime rails"
+                    : "Room network not yet selected by the Owner",
+                caller: "RoomLobbyBridge._handleGameCreated",
+                nextAction: this._roomNetworkByRoom.get(roomId)
+                    ? "Room stays parked; no startGame"
+                    : "startGame released after Owner network selection",
+                roomId,
+                gameId,
+                network: this._roomNetworkByRoom.get(roomId) ?? null,
+                runtimeNetwork: this._roomNetworkRuntime
+            });
 
             return;
 
@@ -3094,6 +3340,12 @@ export class RoomLobbyBridge {
             this._roomManager.destroyRoom(roomId);
 
             this._roomCreators.delete(roomId);
+
+            // R24.1 — release the room's network selection state together
+            // with the existing lobby-map cleanup (empty-room destruction).
+            this._roomNetworkByRoom.delete(roomId);
+
+            this._startGamePendingByRoom.delete(roomId);
 
             this._releaseTelegramQuota(roomId);
 
@@ -3458,6 +3710,12 @@ export class RoomLobbyBridge {
 
         this._roomCreators.delete(roomId);
 
+        // R24.1 — release the room's network selection state together with
+        // the existing lobby-map cleanup (_closeRoom destruction path).
+        this._roomNetworkByRoom.delete(roomId);
+
+        this._startGamePendingByRoom.delete(roomId);
+
         this._releaseTelegramQuota(roomId);
 
         this._startedRooms.delete(roomId);
@@ -3518,7 +3776,18 @@ export class RoomLobbyBridge {
             connectedPlayers: room.players.length,
             maxPlayers: room.maxPlayers,
             players: this._buildPlayerList(room),
-            state: room.status
+            state: room.status,
+            // R24.1 — authoritative room network. null until the verified room
+            // Owner commits the one-time Testnet/Mainnet selection. Included so
+            // roomState hydration (join / reconnect / recovery) restores the
+            // exact lifecycle position instead of depending on a single
+            // ROOM_CREATED / ROOM_NETWORK_SELECTED event.
+            network: this._roomNetworkByRoom.get(room.roomId) ?? null,
+            // R24.1 — authoritative room Owner projection (playerId recorded
+            // in _roomCreators at CREATE_ROOM). Lobby-safe: it lets the
+            // creator's own UI re-derive the selector after hydration; it
+            // never grants selection rights (those stay server-side).
+            ownerPlayerId: this._roomCreators.get(room.roomId) ?? null
         };
 
     }

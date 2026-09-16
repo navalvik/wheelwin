@@ -53,6 +53,13 @@ export const TRANSLATIONS = Object.freeze({
         "room.connected": "Connected ✓",
         "room.unableToJoin": "Unable to join room.",
         "room.closed": "The room was closed.",
+        // R24.1 (R20) — Owner-only one-time room network selection. English
+        // keys only; translate() falls back to this catalog for other
+        // languages.
+        "room.networkLabel": "Network",
+        "room.networkPrompt": "Select room network",
+        "room.networkTestnet": "Testnet",
+        "room.networkMainnet": "Mainnet",
 
         "setup.yourLanguage": "YOUR LANGUAGE",
         "setup.nickname": "INPUT YOUR NICKNAME",

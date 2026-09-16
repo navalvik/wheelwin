@@ -858,6 +858,22 @@ export class SocketGateway {
 
         });
 
+        // R24.1 (R20) — room Owner network selection. Only the requested
+        // network is forwarded; ownership and room are resolved server-side
+        // from the authoritative socket/player bindings. Nothing else from
+        // the client payload is trusted or delivered.
+        socket.on(LOBBY_CLIENT_EVENTS.SELECT_ROOM_NETWORK, (payload) => {
+
+            this._emitLobbyRequest(
+                EVENT_TYPES.LOBBY_SELECT_ROOM_NETWORK_REQUEST,
+                {
+                    socketId: socket.id,
+                    network: payload?.network ?? null
+                }
+            );
+
+        });
+
         socket.on(LOBBY_CLIENT_EVENTS.CONFIRM_VERIFY, () => {
 
             this._emitLobbyRequest(EVENT_TYPES.LOBBY_CONFIRM_VERIFY_REQUEST, {
