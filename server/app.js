@@ -2087,7 +2087,12 @@ class WheelWinApplication {
             lifecycleManager: this._lifecycleManager,
             roomConfig: this._roomConfig,
             metricsService: this._metricsService,
-            depositSessionCoordinator: this._depositSessionCoordinator
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            // R24.1 — authoritative financial rails of THIS runtime
+            // ("testnet" | "mainnet"), from the already-validated TON
+            // configuration. The bridge uses it to release the withheld
+            // startGame only for rooms whose committed network matches.
+            runtimeNetwork: this._tonConfig?.network ?? null
         });
 
         this._roomLobbyBridge.initialize();

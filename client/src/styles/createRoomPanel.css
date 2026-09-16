@@ -192,3 +192,63 @@
     flex:1;
 
 }
+
+/* R24.1 (R20) — Owner-only one-time room network selection (post-CREATE_ROOM).
+   Appended as a structurally complete block: every rule below is balanced and
+   no existing rule is split. */
+
+.networkSelection{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:8px;
+
+}
+
+.networkPrompt{
+
+    font-weight:600;
+
+}
+
+.networkButtons{
+
+    display:flex;
+
+    gap:10px;
+
+}
+
+.networkButton{
+
+    flex:1;
+
+    height:42px;
+
+    border:1px solid #CBD5E1;
+
+    border-radius:8px;
+
+    background:white;
+
+    cursor:pointer;
+
+    font-weight:600;
+
+}
+
+.networkButton:disabled{
+
+    opacity:0.6;
+
+    cursor:default;
+
+}
+
+.networkStatus{
+
+    font-weight:600;
+
+}
