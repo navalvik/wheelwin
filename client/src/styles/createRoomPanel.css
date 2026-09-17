@@ -179,69 +179,45 @@
 
 }
 
-.roomInfo{
+.mainnetPaymentButton{
 
-    display:flex;
+    width:100%;
 
-    flex-direction:column;
+    height:48px;
 
-    align-items:center;
+    border:2px solid #B91C1C;
 
-    gap:18px;
+    border-radius:10px;
 
-    flex:1;
+    background:#DC2626;
 
-}
+    color:white;
 
-/* R24.1 (R20) — Owner-only one-time room network selection (post-CREATE_ROOM).
-   Appended as a structurally complete block: every rule below is balanced and
-   no existing rule is split. */
+    font-size:16px;
 
-.networkSelection{
-
-    display:flex;
-
-    flex-direction:column;
-
-    gap:8px;
-
-}
-
-.networkPrompt{
-
-    font-weight:600;
-
-}
-
-.networkButtons{
-
-    display:flex;
-
-    gap:10px;
-
-}
-
-.networkButton{
-
-    flex:1;
-
-    height:42px;
-
-    border:1px solid #CBD5E1;
-
-    border-radius:8px;
-
-    background:white;
+    font-weight:800;
 
     cursor:pointer;
 
-    font-weight:600;
+}
+
+.mainnetPaymentButton:hover{
+
+    background:#B91C1C;
 
 }
 
-.networkButton:disabled{
+.mainnetPaymentButton.selected{
 
-    opacity:0.6;
+    background:#991B1B;
+
+    border-color:#7F1D1D;
+
+}
+
+.mainnetPaymentButton:disabled{
+
+    opacity:0.75;
 
     cursor:default;
 
