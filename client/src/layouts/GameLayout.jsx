@@ -29,9 +29,6 @@ export default function GameLayout({
     /** When false, hides JUMP even when DEBUG_JUMP_ENABLED (e.g. Page6 FINISH). */
     showJumpButton,
 
-    /** When true, shows Mainnet switch button on Page1 Testnet. */
-    showMainnetSwitch,
-
     children
 
 }) {
@@ -63,7 +60,6 @@ export default function GameLayout({
               onNext={onNext}
               showJumpButton={jumpVisible}
               onJump={devNavigation?.onJump}
-              showMainnetSwitch={showMainnetSwitch}
             />
 
             <div className="contentArea">
