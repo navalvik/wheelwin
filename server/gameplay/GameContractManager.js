@@ -122,6 +122,12 @@ export class GameContractManager {
 
         this._tonNetwork = tonNetwork ?? null;
 
+        // Task 2026-09-17 — optional authoritative per-room payment network
+        // resolver (set via setPaymentNetworkResolver from app.js). When
+        // present, the contract snapshot's financial network comes from the
+        // pre-create payment selection instead of the server runtime.
+        this._paymentNetworkResolver = null;
+
         this._deployTimeoutMs = Number.isFinite(deployTimeoutMs)
             && deployTimeoutMs > 0
             ? deployTimeoutMs
@@ -537,7 +543,7 @@ export class GameContractManager {
 
         }
 
-        const network = this._resolveTonNetwork();
+        const network = this._resolveContractNetwork(roomId);
 
         const adapterIdentity = this._deployAdapter?.constructor?.name
             ?? "GameContractDeployAdapter";
@@ -1221,12 +1227,23 @@ export class GameContractManager {
 
         }
 
-        const resolvedNetwork = this._resolveTonNetwork();
+        // Task 2026-09-17 — the authorization network is the authoritative
+        // pre-create payment network for this room. With the resolver wired,
+        // the contract snapshot network is derived from the same source, so
+        // the comparison is against the room's payment network — NOT the
+        // gameplay server runtime. A valid Mainnet payment authorization must
+        // never be rejected merely because the runtime is Testnet.
+        const authoritativeNetwork = this._paymentNetworkResolver
+            ? this._resolveContractNetwork(roomId)
+            : null;
+
+        const expectedNetwork = authoritativeNetwork
+            ?? this._resolveTonNetwork();
 
         if (
-            resolvedNetwork
+            expectedNetwork
             && authorization.network
-            && authorization.network !== resolvedNetwork
+            && authorization.network !== expectedNetwork
         ) {
 
             this._logger?.error?.(
@@ -1440,7 +1457,14 @@ export class GameContractManager {
         return this._deploymentAuthorizationCoordinator.consumeValidForDeploy({
             roomId: contract.roomId,
             gameId: contract.gameId,
-            network: this._tonNetwork
+            // Task 2026-09-17 — the authorization was created from the room's
+            // authoritative pre-create payment network (DepositSession
+            // metadata), and the contract snapshot froze the same network.
+            // Compare against the contract's financial network — NOT the
+            // gameplay server runtime — so a valid Mainnet payment
+            // authorization is not rejected on a Testnet runtime.
+            network: contract.tonNetwork
+                ?? this._resolveContractNetwork(contract.roomId)
         });
 
     }
@@ -2134,6 +2158,38 @@ export class GameContractManager {
         return this._deployAdapter?._tonConfig?.network
             ?? this._deployAdapter?._tonService?.getActiveNetwork?.()
             ?? null;
+
+    }
+
+    /**
+     * Task 2026-09-17 — inject the authoritative per-room payment network
+     * resolver (roomId → "testnet" | "mainnet"). The resolver MUST come from
+     * the server-owned RoomLobbyBridge payment state (pre-create selection),
+     * never from a client payload.
+     */
+    setPaymentNetworkResolver(resolver) {
+
+        this._paymentNetworkResolver =
+            typeof resolver === "function" ? resolver : null;
+
+    }
+
+    /**
+     * Task 2026-09-17 — financial network for a room's GameContract snapshot.
+     * Priority: authoritative per-room payment network → runtime TON network.
+     * The snapshot network stays immutable once created.
+     */
+    _resolveContractNetwork(roomId) {
+
+        const roomNetwork = this._paymentNetworkResolver?.(roomId) ?? null;
+
+        if (roomNetwork === "mainnet" || roomNetwork === "testnet") {
+
+            return roomNetwork;
+
+        }
+
+        return this._resolveTonNetwork();
 
     }
 

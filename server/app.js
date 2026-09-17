@@ -1826,12 +1826,21 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             sessionWalletStore: this._sessionWalletStore,
             env: process.env,
-            resolveFinancialParameters: () => resolveDepositOrchestrationFinancials({
-                env: process.env,
-                network: this._tonConfig?.network ?? "testnet",
-                runtimeOverrides: this._runtimeConfigurationService?.getOverrides?.() ?? null,
-                paymentDurationMs: this._roomConfig?.paymentSessionDurationMs ?? null
-            }),
+            // Task 2026-09-17 — accept the authoritative per-room payment
+            // network override when provided; otherwise the runtime TON
+            // network (unchanged historical behavior).
+            resolveFinancialParameters: (overrides = {}) =>
+                resolveDepositOrchestrationFinancials({
+                    env: process.env,
+                    network: overrides?.network
+                        ?? this._tonConfig?.network
+                        ?? "testnet",
+                    runtimeOverrides:
+                        this._runtimeConfigurationService?.getOverrides?.()
+                        ?? null,
+                    paymentDurationMs:
+                        this._roomConfig?.paymentSessionDurationMs ?? null
+                }),
             gameEscrowOnlyPlayerPayment: isGameEscrowOnlyPlayerPayment(
                 this._tonConfig?.gameEscrowMode
             )
@@ -2087,15 +2096,27 @@ class WheelWinApplication {
             lifecycleManager: this._lifecycleManager,
             roomConfig: this._roomConfig,
             metricsService: this._metricsService,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            // R24.1 — authoritative financial rails of THIS runtime
-            // ("testnet" | "mainnet"), from the already-validated TON
-            // configuration. The bridge uses it to release the withheld
-            // startGame only for rooms whose committed network matches.
-            runtimeNetwork: this._tonConfig?.network ?? null
+            depositSessionCoordinator: this._depositSessionCoordinator
         });
 
         this._roomLobbyBridge.initialize();
+
+        // Task 2026-09-17 — route the authoritative pre-create payment
+        // network ("testnet" | "mainnet") into the payment orchestration.
+        // Single source of truth: RoomLobbyBridge._paymentNetworkByRoom,
+        // committed at CREATE_ROOM from the client's paymentNetwork request.
+        // The gameplay/runtime TON network (TON_NETWORK) is unchanged; this
+        // is a per-room FINANCIAL payment-routing signal only.
+        const resolveRoomPaymentNetwork = (roomId) =>
+            this._roomLobbyBridge?.getPaymentNetwork?.(roomId) ?? "testnet";
+
+        this._depositOrchestrator?.setPaymentNetworkResolver?.(
+            resolveRoomPaymentNetwork
+        );
+
+        this._gameContractManager?.setPaymentNetworkResolver?.(
+            resolveRoomPaymentNetwork
+        );
 
         // R17.9T.6-D — production wiring of the trusted Telegram identity
         // resolver. The identity is read ONLY from the authenticated Socket.IO

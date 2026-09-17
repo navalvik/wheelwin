@@ -620,7 +620,7 @@ export class PaymentSessionManager {
     /**
      * P6.3 legacy — idempotent create used by lobby flow.
      */
-    createAndRequest(roomId, { gameId = null } = {}) {
+    createAndRequest(roomId, { gameId = null, network = null } = {}) {
 
         this._assertInitialized();
 
@@ -672,7 +672,13 @@ export class PaymentSessionManager {
 
         try {
 
-            const created = this.createPaymentSession(roomId, { gameId });
+            const created = this.createPaymentSession(roomId, {
+                gameId,
+                // Task 2026-09-17 — authoritative pre-create payment network
+                // from the PAYMENT_CONNECTION_READY payload. null keeps the
+                // established resolution (contract.tonNetwork → runtime).
+                network
+            });
 
             console.log("[R7.50 DIAG] PaymentSession created", {
                 roomId,
@@ -2203,7 +2209,11 @@ export class PaymentSessionManager {
         });
 
         const session = this.createAndRequest(payload?.roomId, {
-            gameId: payload?.gameId ?? null
+            gameId: payload?.gameId ?? null,
+            // Task 2026-09-17 — authoritative pre-create payment network
+            // ("testnet" | "mainnet") emitted by the server-owned
+            // RoomLobbyBridge state. Never a client-provided value.
+            network: payload?.paymentNetwork ?? null
         });
 
         console.log("[R7.50 DIAG] createAndRequest returned", {

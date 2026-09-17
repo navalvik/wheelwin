@@ -6,11 +6,6 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     UPDATE_PLAYER_PROFILE: "updatePlayerProfile",
     SUBMIT_SECRET_MATRIX: "submitSecretMatrix",
     CONFIRM_VERIFY: "confirmVerify",
-    // R24.1 (R20) — room Owner commits the authoritative room network
-    // (one-time, post-CREATE_ROOM). Payload carries ONLY the requested
-    // network; ownership and room are resolved server-side from socket
-    // bindings.
-    SELECT_ROOM_NETWORK: "selectRoomNetwork",
     VERIFY_NEXT_REQUEST: "VERIFY_NEXT_REQUEST",
     // R1.3D — development-only; SocketGateway rejects outside development.
     DEBUG_START_GAME: "DEBUG_START_GAME",
@@ -30,9 +25,6 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({
     ROOM_CREATED: "roomCreated",
-    // R24.1 (R20) — authoritative one-time room network selection broadcast
-    // to all sockets currently in the room. Payload: { roomId, network } only.
-    ROOM_NETWORK_SELECTED: "roomNetworkSelected",
     ROOM_STATE: "roomState",
     ROOM_JOINED: "roomJoined",
     ROOM_LEFT: "roomLeft",
@@ -98,11 +90,6 @@ export const LOBBY_ERROR_CODES = Object.freeze({
     ROOM_CREATION_REQUIRES_TELEGRAM: "ROOM_CREATION_REQUIRES_TELEGRAM",
     // R17.9T.6-C — one active created room per Telegram user.
     ROOM_CREATION_USER_LIMIT: "ROOM_CREATION_USER_LIMIT",
-    // R24.1 (R20) — Owner-only one-time room network selection
-    // (testnet | mainnet).
-    ROOM_NETWORK_SELECT_FORBIDDEN: "ROOM_NETWORK_SELECT_FORBIDDEN",
-    ROOM_NETWORK_ALREADY_SELECTED: "ROOM_NETWORK_ALREADY_SELECTED",
-    ROOM_NETWORK_INVALID: "ROOM_NETWORK_INVALID",
     SERVER_DRAINING: "SERVER_DRAINING",
     INVALID_SECRET_MATRIX: "INVALID_SECRET_MATRIX",
     SECRET_MATRIX_MISMATCH: "SECRET_MATRIX_MISMATCH",
@@ -127,12 +114,6 @@ export const LOBBY_ERROR_MESSAGES = Object.freeze({
         "Room creation is only available in the Telegram Mini App.",
     [LOBBY_ERROR_CODES.ROOM_CREATION_USER_LIMIT]:
         "You already have an active room. Finish or close it before creating another.",
-    [LOBBY_ERROR_CODES.ROOM_NETWORK_SELECT_FORBIDDEN]:
-        "Only the room owner can select the room network.",
-    [LOBBY_ERROR_CODES.ROOM_NETWORK_ALREADY_SELECTED]:
-        "The room network has already been selected.",
-    [LOBBY_ERROR_CODES.ROOM_NETWORK_INVALID]:
-        "Invalid room network selection.",
     [LOBBY_ERROR_CODES.SERVER_DRAINING]:
         "The server is shutting down and is not accepting new rooms.",
     [LOBBY_ERROR_CODES.INVALID_SECRET_MATRIX]:

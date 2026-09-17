@@ -141,6 +141,10 @@ export class DepositOrchestrator {
 
         this._resolveFinancialParameters = resolveFinancialParameters;
 
+        // Task 2026-09-17 — optional authoritative per-room payment network
+        // resolver (set via setPaymentNetworkResolver from app.js).
+        this._paymentNetworkResolver = null;
+
         this._env = env;
 
         this._gameEscrowOnlyPlayerPayment = gameEscrowOnlyPlayerPayment === true;
@@ -330,7 +334,7 @@ export class DepositOrchestrator {
 
         }
 
-        const financials = this._resolveFinancials();
+        const financials = this._resolveFinancials(roomId);
 
         const bindingsInput = [];
         const expectedStakeByIndex = [];
@@ -752,7 +756,68 @@ export class DepositOrchestrator {
 
     }
 
-    _resolveFinancials() {
+    /**
+     * Task 2026-09-17 — inject the authoritative per-room payment network
+     * resolver (roomId → "testnet" | "mainnet"). The resolver MUST come from
+     * the server-owned RoomLobbyBridge payment state (pre-create selection),
+     * never from a client payload. Optional: when absent the runtime env
+     * network (TON_NETWORK) is used exactly as before.
+     */
+    setPaymentNetworkResolver(resolver) {
+
+        this._paymentNetworkResolver =
+            typeof resolver === "function" ? resolver : null;
+
+    }
+
+    /**
+     * Task 2026-09-17 — resolve the financial network for a room. Priority:
+     * 1. authoritative per-room payment network (pre-create selection);
+     * 2. existing runtime env network (TON_NETWORK, unchanged behavior).
+     */
+    _resolveFinancials(roomId = null) {
+
+        const roomNetwork =
+            this._paymentNetworkResolver?.(roomId ?? null) ?? null;
+
+        const normalizedRoomNetwork =
+            roomNetwork === "mainnet"
+                ? "mainnet"
+                : roomNetwork === "testnet"
+                    ? "testnet"
+                    : null;
+
+        if (normalizedRoomNetwork) {
+
+            if (this._financialParameters) {
+
+                if (this._financialParameters.network !== normalizedRoomNetwork) {
+
+                    return resolveDepositOrchestrationFinancials({
+                        env: this._env,
+                        network: normalizedRoomNetwork
+                    });
+
+                }
+
+                return this._financialParameters;
+
+            }
+
+            if (typeof this._resolveFinancialParameters === "function") {
+
+                return this._resolveFinancialParameters({
+                    network: normalizedRoomNetwork
+                });
+
+            }
+
+            return resolveDepositOrchestrationFinancials({
+                env: this._env,
+                network: normalizedRoomNetwork
+            });
+
+        }
 
         if (this._financialParameters) {
 
