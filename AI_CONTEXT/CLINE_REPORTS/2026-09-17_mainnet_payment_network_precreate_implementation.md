@@ -95,8 +95,6 @@ Exact files/functions changed:
 4. `server/events/EventTypes.js` — removed
    `LOBBY_SELECT_ROOM_NETWORK_REQUEST`.
 
-<!-- PART2 -->
-
 5. `server/gameplay/PaymentSessionManager.js`
    - `createAndRequest(roomId, { gameId, network })` — forwards `network` to
      `createPaymentSession` (existing `activeNetwork = network ??
@@ -202,8 +200,6 @@ existing authoritative `DepositPackage` / `PaymentSession` /
 `GAME_CONTRACT_*` payloads, which now carry the selected network in their
 existing network fields.
 
-<!-- PART3 -->
-
 ## 7. Old R24.1 Room Network Logic
 
 Removed (complete removal — no recovery/payment logic depended on it):
@@ -255,8 +251,6 @@ Preserved:
   financial evidence and recovery behavior — untouched;
 - no secrets, mnemonics, private keys, initData or tokens are exposed by any
   new payload (`paymentNetwork` is a lobby-safe string).
-
-<!-- PART4 -->
 
 ## 9. Tests
 
@@ -328,8 +322,6 @@ Known pre-existing failure (NOT introduced by this change):
   on the pristine branch baseline `30b0980` in a temporary detached worktree
   before/without any of these changes; the worktree was removed afterwards.
   Not rewritten or "fixed" per the no-unrelated-test-rewrite rule.
-
-<!-- PART5 -->
 
 ## 10. Git
 
