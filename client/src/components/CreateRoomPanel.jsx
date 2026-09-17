@@ -6,9 +6,8 @@ import socket from "../socket/socket";
 import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
-// R24.1 — authoritative room network values (server-normalized, lowercase).
-const ROOM_NETWORK_TESTNET = "testnet";
-const ROOM_NETWORK_MAINNET = "mainnet";
+const PAYMENT_NETWORK_TESTNET = "testnet";
+const PAYMENT_NETWORK_MAINNET = "mainnet";
 
 function applyRoomPayload(setRoomState, data) {
 
@@ -26,16 +25,8 @@ function applyRoomPayload(setRoomState, data) {
 
         players: data.players ?? [],
 
-        // R24.1 — authoritative room network. null until the room Owner has
-        // committed the one-time Testnet/Mainnet selection server-side.
-        // Restored by BOTH roomCreated and roomState, so hydration (join /
-        // reconnect / reload) re-derives the exact lifecycle position.
-        network: data.network ?? prev.network ?? null,
+        paymentNetwork: data.paymentNetwork ?? prev.paymentNetwork ?? PAYMENT_NETWORK_TESTNET,
 
-        // R24.1 — authoritative room Owner projection (playerId recorded
-        // server-side in _roomCreators at CREATE_ROOM). Ownership is never
-        // inferred client-side; this only lets the creator's own UI re-derive
-        // the selector after hydration.
         ownerPlayerId: data.ownerPlayerId ?? prev.ownerPlayerId ?? null
 
     }));
@@ -50,14 +41,13 @@ export default function CreateRoomPanel({
 
 }) {
 
-    const { identity, setIdentity } = usePlayerIdentity();
+    const { setIdentity } = usePlayerIdentity();
 
     const { t } = useLanguage();
 
-    // R24.1 — true while the Owner's selection is in flight. Both choices
-    // stay disabled until the server confirms via roomNetworkSelected /
-    // roomState. The authoritative network value never comes from here.
-    const [selectionPending, setSelectionPending] = useState(false);
+    const [selectedPaymentNetwork, setSelectedPaymentNetwork] = useState(
+        PAYMENT_NETWORK_TESTNET
+    );
 
     useEffect(() => {
 
@@ -65,11 +55,25 @@ export default function CreateRoomPanel({
 
             applyRoomPayload(setRoomState, data);
 
+            if (data?.paymentNetwork === PAYMENT_NETWORK_MAINNET
+                || data?.paymentNetwork === PAYMENT_NETWORK_TESTNET) {
+
+                setSelectedPaymentNetwork(data.paymentNetwork);
+
+            }
+
         }
 
         function handleRoomCreated(data) {
 
             applyRoomPayload(setRoomState, data);
+
+            if (data?.paymentNetwork === PAYMENT_NETWORK_MAINNET
+                || data?.paymentNetwork === PAYMENT_NETWORK_TESTNET) {
+
+                setSelectedPaymentNetwork(data.paymentNetwork);
+
+            }
 
             if (data?.roomId && data?.playerId) {
 
@@ -85,27 +89,9 @@ export default function CreateRoomPanel({
 
         }
 
-        // R24.1 — authoritative one-time network selection broadcast. Owner
-        // and joiners render the confirmed value; no client-side state wins.
-        function handleRoomNetworkSelected(data) {
-
-            setRoomState((prev) => ({
-
-                ...prev,
-
-                network: data?.network ?? prev.network ?? null
-
-            }));
-
-            setSelectionPending(false);
-
-        }
-
         socket.on("roomState", handleRoomState);
 
         socket.on("roomCreated", handleRoomCreated);
-
-        socket.on("roomNetworkSelected", handleRoomNetworkSelected);
 
         return () => {
 
@@ -113,63 +99,53 @@ export default function CreateRoomPanel({
 
             socket.off("roomCreated", handleRoomCreated);
 
-            socket.off("roomNetworkSelected", handleRoomNetworkSelected);
-
         };
 
     }, [setRoomState, setIdentity]);
+
+    function toggleMainnet() {
+
+        if (roomState.roomCreated) {
+
+            return;
+
+        }
+
+        setSelectedPaymentNetwork((current) => (
+            current === PAYMENT_NETWORK_MAINNET
+                ? PAYMENT_NETWORK_TESTNET
+                : PAYMENT_NETWORK_MAINNET
+        ));
+
+    }
 
     function createRoom() {
 
         if (roomState.roomCreated) return;
 
-        socket.emit("createRoom");
+        socket.emit("createRoom", {
+            paymentNetwork: selectedPaymentNetwork
+        });
 
     }
-
-    // R24.1 — Owner identification is derived from server-authoritative
-    // state only: the local playerId (bound by ROOM_CREATED, or restored by
-    // the recovery identity on hydration) must equal the room's authoritative
-    // ownerPlayerId projection (server _roomCreators). It does NOT depend
-    // exclusively on a single roomCreated event, so the selector re-appears
-    // after roomState hydration. Joiners bind a different playerId and never
-    // see the selector.
-    const isCreator = Boolean(
-
-        identity?.playerId
-
-        && roomState.ownerPlayerId
-
-        && identity.playerId === roomState.ownerPlayerId
-
-    );
-
-    // R24.1 — Owner-only, one-time room network selection. The server
-    // enforces ownership and irreversibility; this control renders for the
-    // creator only and only while the authoritative network is still null.
-    function selectRoomNetwork(network) {
-
-        if (!isCreator || roomState.network || selectionPending) return;
-
-        setSelectionPending(true);
-
-        socket.emit("selectRoomNetwork", { network });
-
-    }
-
-    const showNetworkSelector = Boolean(
-
-        roomState.roomCreated
-
-        && isCreator
-
-        && !roomState.network
-
-    );
 
     return (
 
         <div className="createRoomPanel">
+
+            <button
+                type="button"
+                className={
+                    selectedPaymentNetwork === PAYMENT_NETWORK_MAINNET
+                        ? "mainnetPaymentButton selected"
+                        : "mainnetPaymentButton"
+                }
+                onClick={toggleMainnet}
+                disabled={roomState.roomCreated}
+                aria-pressed={selectedPaymentNetwork === PAYMENT_NETWORK_MAINNET}
+            >
+                MAINNET
+            </button>
 
             <button
 
@@ -229,75 +205,21 @@ export default function CreateRoomPanel({
 
                     </div>
 
-                    {
+                    <p className="networkStatus">
 
-                        roomState.network &&
+                        {t("room.networkLabel")}:{" "}
 
-                        <p className="networkStatus">
+                        {
 
-                            {t("room.networkLabel")}:{" "}
+                            roomState.paymentNetwork === PAYMENT_NETWORK_MAINNET
 
-                            {
+                                ? t("room.networkMainnet")
 
-                                roomState.network === ROOM_NETWORK_MAINNET
+                                : t("room.networkTestnet")
 
-                                    ? t("room.networkMainnet")
+                        }
 
-                                    : t("room.networkTestnet")
-
-                            }
-
-                        </p>
-
-                    }
-
-                    {
-
-                        showNetworkSelector &&
-
-                        <div className="networkSelection">
-
-                            <p className="networkPrompt">
-
-                                {t("room.networkPrompt")}
-
-                            </p>
-
-                            <div className="networkButtons">
-
-                                <button
-
-                                    className="networkButton"
-
-                                    onClick={() => selectRoomNetwork(ROOM_NETWORK_TESTNET)}
-
-                                    disabled={selectionPending}
-
-                                >
-
-                                    {t("room.networkTestnet")}
-
-                                </button>
-
-                                <button
-
-                                    className="networkButton"
-
-                                    onClick={() => selectRoomNetwork(ROOM_NETWORK_MAINNET)}
-
-                                    disabled={selectionPending}
-
-                                >
-
-                                    {t("room.networkMainnet")}
-
-                                </button>
-
-                            </div>
-
-                        </div>
-
-                    }
+                    </p>
 
                 </div>
 
