@@ -1973,7 +1973,7 @@ export class BlockchainMonitor {
                         {
                             contractId: watch.contractId,
                             address: watch.address,
-                            network: this._network,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId,
                             previousStatus: previous,
@@ -1999,7 +1999,7 @@ export class BlockchainMonitor {
                         {
                             contractId: watch.contractId,
                             address: watch.address,
-                            network: this._network,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId,
                             status: watch.lastStatus
@@ -2021,7 +2021,7 @@ export class BlockchainMonitor {
                         {
                             contractId: watch.contractId,
                             address: watch.address,
-                            network: this._network,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId,
                             reason: "deployment_timeout"
@@ -2069,7 +2069,7 @@ export class BlockchainMonitor {
                     {
                         contractId: watch.contractId,
                         address: watch.address,
-                        network: this._network,
+                        network: watch.paymentNetwork ?? this._network,
                         timestamp: this._now(),
                         correlationId: watch.correlationId,
                         status: account.state
@@ -2108,7 +2108,7 @@ export class BlockchainMonitor {
                 contractId: watch.contractId,
                 transactionId: watch.transactionId,
                 address: watch.address,
-                network: this._network,
+                network: watch.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: watch.correlationId,
                 reason: "observation_timeout",
@@ -2158,7 +2158,7 @@ export class BlockchainMonitor {
                     contractId: watch.contractId,
                     transactionId: watch.transactionId,
                     address: watch.address,
-                    network: this._network,
+                    network: watch.paymentNetwork ?? this._network,
                     timestamp: this._now(),
                     correlationId: watch.correlationId,
                     kind: watch.kind
@@ -2180,7 +2180,7 @@ export class BlockchainMonitor {
                         contractId: watch.contractId,
                         transactionId: watch.transactionId,
                         address: watch.address,
-                        network: this._network,
+                        network: watch.paymentNetwork ?? this._network,
                         timestamp: this._now(),
                         correlationId: watch.correlationId
                     },
@@ -2195,7 +2195,7 @@ export class BlockchainMonitor {
                         contractId: watch.contractId,
                         transactionId: watch.transactionId,
                         address: watch.address,
-                        network: this._network,
+                        network: watch.paymentNetwork ?? this._network,
                         timestamp: this._now(),
                         correlationId: watch.correlationId
                     },
@@ -2210,7 +2210,7 @@ export class BlockchainMonitor {
                         contractId: watch.contractId,
                         transactionId: watch.transactionId,
                         address: watch.address,
-                        network: this._network,
+                        network: watch.paymentNetwork ?? this._network,
                         timestamp: this._now(),
                         correlationId: watch.correlationId,
                         kind: "RESIDUAL_SWEEP"
@@ -2569,7 +2569,7 @@ export class BlockchainMonitor {
                         playerId: playerMeta?.playerId ?? null,
                         wallet: refund.wallet,
                         amount: refund.amount,
-                        network: this._network,
+                        network: watch.paymentNetwork ?? this._network,
                         timestamp: this._now(),
                         correlationId: watch.correlationId
                     },
@@ -2742,7 +2742,7 @@ export class BlockchainMonitor {
                 contractId: matchingWatch.contractId ?? null,
                 transactionId: txHash,
                 address: matchingWatch.contractAddress,
-                network: this._network,
+                network: matchingWatch?.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: matchingWatch.correlationId ?? null,
                 roomId,
@@ -2897,7 +2897,7 @@ export class BlockchainMonitor {
                 contractId: matchingWatch.contractId ?? null,
                 transactionId: txHash,
                 address: matchingWatch.contractAddress,
-                network: this._network,
+                network: matchingWatch?.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: matchingWatch.correlationId ?? null,
                 roomId,
@@ -2921,7 +2921,7 @@ export class BlockchainMonitor {
                 contractId: matchingWatch.contractId ?? null,
                 transactionId: txHash,
                 escrowAddress: matchingWatch.contractAddress,
-                network: this._network,
+                network: matchingWatch?.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: matchingWatch.correlationId ?? null,
                 roomId,
