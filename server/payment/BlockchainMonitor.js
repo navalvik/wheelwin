@@ -878,6 +878,7 @@ export class BlockchainMonitor {
         gameId = null,
         correlationId = null,
         contractStatus = null,
+        paymentNetwork = null,
         timeoutMs = null
     }) {
 
@@ -922,6 +923,7 @@ export class BlockchainMonitor {
             roomId,
             gameId,
             correlationId,
+            paymentNetwork: paymentNetwork ?? null,
             status: "PENDING",
             startedAt: this._now(),
             timeoutMs: Number.isFinite(timeoutMs)
@@ -1940,7 +1942,8 @@ export class BlockchainMonitor {
             try {
 
                 const state = await this._contractAdapter.getContractState(
-                    watch.address
+                    watch.address,
+                    watch.paymentNetwork ?? null
                 );
 
                 const previous = watch.lastStatus;
@@ -2445,7 +2448,8 @@ export class BlockchainMonitor {
                 try {
 
                     const cancel = await this._contractAdapter.getCancelStatus(
-                        watch.escrowAddress
+                        watch.escrowAddress,
+                        watch.paymentNetwork ?? null
                     );
 
                     if (cancel?.cancelled === true) {
@@ -2812,7 +2816,8 @@ export class BlockchainMonitor {
 
                 const paidMask = Number(
                     await this._contractAdapter.getPaidMask(
-                        matchingWatch.contractAddress
+                        matchingWatch.contractAddress,
+                        matchingWatch.paymentNetwork ?? null
                     )
                 );
 
