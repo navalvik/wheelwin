@@ -1427,6 +1427,7 @@ class WheelWinApplication {
             }),
             eventBus: this._eventBus,
             transport: this._services?.tonService?.getTransport?.() ?? null,
+            tonNetworkRegistry: this._services?.tonNetworkServiceRegistry ?? null,
             logger: this._logger,
             env: process.env
         });
