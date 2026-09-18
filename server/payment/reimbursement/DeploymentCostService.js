@@ -58,6 +58,7 @@ export class DeploymentCostService {
      *   logger?: { debug?: Function, info?: Function, warn?: Function, error?: Function }|null,
      *   env?: NodeJS.ProcessEnv,
      *   transactionLookupLimit?: number
+     *   tonNetwork?: string
      * }} options
      */
     constructor({
@@ -67,7 +68,8 @@ export class DeploymentCostService {
         tonNetworkRegistry = null,
         logger = null,
         env = process.env,
-        transactionLookupLimit = 40
+        transactionLookupLimit = 40,
+        tonNetwork = "testnet"
     } = {}) {
 
         if (!repository) {
@@ -82,6 +84,7 @@ export class DeploymentCostService {
 
         this._transport = transport;
         this._tonNetworkRegistry = tonNetworkRegistry;
+        this._tonNetwork = String(tonNetwork ?? "testnet").trim().toLowerCase();
 
         this._logger = logger;
 
@@ -194,7 +197,7 @@ export class DeploymentCostService {
 
     _resolveTransport(network) {
 
-        const normalized = String(network ?? this._repository?._tonNetwork ?? "testnet")
+        const normalized = String(network ?? this._tonNetwork ?? "testnet")
             .trim()
             .toLowerCase();
 
@@ -216,7 +219,7 @@ export class DeploymentCostService {
 
         }
 
-        return normalized === String(this._repository?._tonNetwork ?? "testnet").trim().toLowerCase()
+        return normalized === this._tonNetwork
             ? this._transport
             : null;
 
