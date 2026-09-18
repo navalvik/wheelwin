@@ -2565,7 +2565,8 @@ export class PaymentSessionManager {
             expectedGram: participant.requiredGram,
             expectedWallet: participant.wallet,
             paymentDeadline: session.paymentDeadline,
-            playerIndex: participant.playerIndex ?? null
+            playerIndex: participant.playerIndex ?? null,
+            paymentNetwork: session.network ?? null
         });
 
     }
