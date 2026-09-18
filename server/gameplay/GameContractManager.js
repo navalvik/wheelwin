@@ -2293,6 +2293,10 @@ export class GameContractManager {
             contractAddress,
             deploymentTxHash,
             deployWallet,
+            network: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? this._resolveContractNetwork(contract.roomId),
             deployedAt: contract.deployedAt ?? Date.now(),
             timestamp: Date.now()
         }));
