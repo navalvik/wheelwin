@@ -487,18 +487,20 @@ export class RealTonDepositBlockchainSource {
         logger = null,
         monitor = null,
         expectedArtifactSha256 = null,
+        tonNetworkRegistry = null,
         now = () => Date.now()
     } = {}) {
 
-        if (!tonService) {
+        if (!tonService && !tonNetworkRegistry) {
 
             throw new DepositBlockchainSourceError(
-                "RealTonDepositBlockchainSource requires TonService"
+                "RealTonDepositBlockchainSource requires TonService or TonNetworkServiceRegistry"
             );
 
         }
 
         this._tonService = tonService;
+        this._tonNetworkRegistry = tonNetworkRegistry;
         this._network = assertSupportedNetwork(network);
         this._logger = logger;
         this._monitor = monitor;
@@ -507,7 +509,9 @@ export class RealTonDepositBlockchainSource {
         this._expectedCodeHash = null;
         this._cursors = new Map();
 
-        this._assertReadOnlyTonService();
+        if (this._tonService) {
+            this._assertReadOnlyTonService();
+        }
 
     }
 
@@ -572,7 +576,9 @@ export class RealTonDepositBlockchainSource {
 
         try {
 
-            this._assertNetwork(watch);
+            const effectiveNetwork = this._effectiveNetwork(watch);
+            const service = this._resolveService(effectiveNetwork);
+            this._assertNetwork(watch, service);
 
             const address = normalizeDepositWallet(watch?.depositAddress);
 
@@ -585,7 +591,7 @@ export class RealTonDepositBlockchainSource {
 
             }
 
-            const contractState = await this.getContractState(address);
+            const contractState = await this.getContractState(address, { service, network: effectiveNetwork });
 
             if (contractState.state === DEPOSIT_ACCOUNT_STATE.NONEXISTENT) {
 
@@ -639,9 +645,9 @@ export class RealTonDepositBlockchainSource {
 
             }
 
-            const depositState = await this.getDepositState(address);
+            const depositState = await this.getDepositState(address, { service, network: effectiveNetwork });
 
-            if (Number(depositState.networkTag) !== expectedNetworkTag(this._network)) {
+            if (Number(depositState.networkTag) !== expectedNetworkTag(effectiveNetwork)) {
 
                 return Object.freeze({
                     ...empty,
@@ -652,14 +658,14 @@ export class RealTonDepositBlockchainSource {
 
             }
 
-            const transactions = await this.getTransactions(address);
+            const transactions = await this.getTransactions(address, {}, service);
 
             const observations = [];
             const skipped = [];
 
             for (const tx of transactions) {
 
-                const decoded = this._decodeFundingTransaction(tx, watch);
+                const decoded = this._decodeFundingTransaction(tx, watch, effectiveNetwork);
 
                 if (!decoded.ok) {
 
@@ -739,11 +745,12 @@ export class RealTonDepositBlockchainSource {
 
     }
 
-    async getContractState(address) {
+    async getContractState(address, { service = null, network = null } = {}) {
 
+        const resolved = service ?? this._resolveService(network);
         const friendly = toFriendlyAddress(address);
 
-        const info = await this._tonService.getAccount(friendly);
+        const info = await resolved.getAccount(friendly);
 
         const state = mapAccountState(info);
         const codeCell = parseCodeCell(info?.code);
@@ -790,32 +797,30 @@ export class RealTonDepositBlockchainSource {
      * R17.9L.22 — Full getter snapshot for activation verification.
      * Read-only. Does not interpret balance as funding.
      */
-    async readActivationGetters(address) {
+    async readActivationGetters(address, { service = null, network = null } = {}) {
 
-        return readFullDepositGetters(this._tonService, toFriendlyAddress(address));
+        const resolved = service ?? this._resolveService(network);
+        return readFullDepositGetters(resolved, toFriendlyAddress(address));
 
     }
 
-    async getDepositState(address) {
+    async getDepositState(address, { service = null, network = null } = {}) {
 
+        const resolved = service ?? this._resolveService(network);
         const friendly = toFriendlyAddress(address);
 
-        const version = await this._runIntGetter(friendly, "get_version");
-        const depositIdHash = await this._runIntGetter(friendly, "get_deposit_id");
-        const roomIdHash = await this._runIntGetter(friendly, "get_room_id_hash");
-        const gameIdHash = await this._runIntGetter(friendly, "get_game_id_hash");
-        const paidMask = await this._runIntGetter(friendly, "get_paid_mask");
-        const status = await this._runIntGetter(friendly, "get_status");
-        const credited0 = await this._runIntGetter(friendly, "get_credited_amount0");
-        const credited1 = await this._runIntGetter(friendly, "get_credited_amount1");
-        const credited2 = await this._runIntGetter(friendly, "get_credited_amount2");
-        const surplusNano = await this._runIntGetter(friendly, "get_surplus_nano");
-        const expiresAt = await this._runIntGetter(friendly, "get_expires_at");
-        const networkTag = await this._runIntGetter(friendly, "get_network_tag");
-
-        return Object.freeze({
-            address: friendly,
-            contractVersion: version,
+        const version = await this._runIntGetter(friendly, "get_version", resolved);
+        const depositIdHash = await this._runIntGetter(friendly, "get_deposit_id", resolved);
+        const roomIdHash = await this._runIntGetter(friendly, "get_room_id_hash", resolved);
+        const gameIdHash = await this._runIntGetter(friendly, "get_game_id_hash", resolved);
+        const paidMask = await this._runIntGetter(friendly, "get_paid_mask", resolved);
+        const status = await this._runIntGetter(friendly, "get_status", resolved);
+        const credited0 = await this._runIntGetter(friendly, "get_credited_amount0", resolved);
+        const credited1 = await this._runIntGetter(friendly, "get_credited_amount1", resolved);
+        const credited2 = await this._runIntGetter(friendly, "get_credited_amount2", resolved);
+        const surplusNano = await this._runIntGetter(friendly, "get_surplus_nano", resolved);
+        const expiresAt = await this._runIntGetter(friendly, "get_expires_at", resolved);
+        const networkTag = await this._runIntGetter(friendly, "get_network_tag", resolved); version,
             depositIdHash,
             roomIdHash,
             gameIdHash,
@@ -831,15 +836,16 @@ export class RealTonDepositBlockchainSource {
 
     }
 
-    async getTransactions(address, { limit = TX_PAGE_LIMIT } = {}) {
+    async getTransactions(address, { limit = TX_PAGE_LIMIT } = {}, service = null) {
 
+        const resolved = service ?? this._resolveService(null);
         const friendly = toFriendlyAddress(address);
         const query = {
             limit,
             archival: true
         };
 
-        const transactions = await this._tonService.getTransactions(friendly, query);
+        const transactions = await resolved.getTransactions(friendly, query);
 
         const ordered = [...transactions].sort((left, right) => {
 
@@ -866,7 +872,7 @@ export class RealTonDepositBlockchainSource {
 
     }
 
-    _decodeFundingTransaction(tx, watch) {
+    _decodeFundingTransaction(tx, watch, networkOverride = null) {
 
         const hash = transactionHashOf(tx);
 
@@ -933,7 +939,7 @@ export class RealTonDepositBlockchainSource {
             senderWallet: sender,
             amount,
             timestamp,
-            network: this._network,
+            network: networkOverride ?? this._network,
             seatIndex: fundSeat.seatIndex,
             lt: transactionLtOf(tx)
         });
@@ -947,9 +953,10 @@ export class RealTonDepositBlockchainSource {
 
     }
 
-    async _runIntGetter(address, method) {
+    async _runIntGetter(address, method, service = null) {
 
-        const result = await this._tonService.runGetMethod(address, method, []);
+        const resolved = service ?? this._resolveService(null);
+        const result = await resolved.runGetMethod(address, method, []);
 
         return readIntFromGetResult(result, method);
 
@@ -977,17 +984,45 @@ export class RealTonDepositBlockchainSource {
 
     }
 
-    _assertNetwork(watch) {
+    _resolveService(network) {
 
-        const serviceNetwork = normalizeNetwork(this._tonService.getActiveNetwork?.());
+        if (this._tonNetworkRegistry) {
+            const effective = assertSupportedNetwork(network ?? this._network);
+            return this._tonNetworkRegistry.get(effective);
+        }
 
-        if (serviceNetwork && serviceNetwork !== this._network) {
+        if (!this._tonService) {
+            throw new DepositBlockchainSourceError(
+                "No TON service available for deposit blockchain source"
+            );
+        }
+
+        return this._tonService;
+    }
+
+    _effectiveNetwork(watch) {
+
+        const watchNetwork = normalizeNetwork(watch?.network);
+
+        if (watchNetwork) {
+            return assertSupportedNetwork(watchNetwork);
+        }
+
+        return this._network;
+    }
+
+    _assertNetwork(watch, service = this._tonService) {
+
+        const effectiveNetwork = this._effectiveNetwork(watch);
+        const serviceNetwork = normalizeNetwork(service?.getActiveNetwork?.());
+
+        if (serviceNetwork && serviceNetwork !== effectiveNetwork) {
 
             throw new DepositBlockchainSourceError(
-                "TonService network does not match adapter network",
+                "Resolved TonService network does not match watch network",
                 {
                     kind: "network_mismatch",
-                    adapterNetwork: this._network,
+                    adapterNetwork: effectiveNetwork,
                     serviceNetwork
                 }
             );
@@ -996,13 +1031,13 @@ export class RealTonDepositBlockchainSource {
 
         const watchNetwork = normalizeNetwork(watch?.network);
 
-        if (watchNetwork && watchNetwork !== this._network) {
+        if (watchNetwork && watchNetwork !== effectiveNetwork) {
 
             throw new DepositBlockchainSourceError(
                 "Watch network does not match adapter network",
                 {
                     kind: "network_mismatch",
-                    adapterNetwork: this._network,
+                    adapterNetwork: effectiveNetwork,
                     watchNetwork
                 }
             );
@@ -1010,6 +1045,7 @@ export class RealTonDepositBlockchainSource {
         }
 
     }
+
 
     _assertReadOnlyTonService() {
 
