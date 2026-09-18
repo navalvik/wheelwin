@@ -324,7 +324,7 @@ export class TonGameContractAdapter {
             setGameEscrowDeployDebug(gameEscrowDebug);
             printGameEscrowDeployDebug(gameEscrowDebug);
 
-            if (this._canBroadcast()) {
+            if (this._canBroadcast(paymentNetwork)) {
 
                 printDeployBlock("ADAPTER RPC — broadcastDeploy START", {
                     ContractAddress: contractAddress,
@@ -555,7 +555,7 @@ export class TonGameContractAdapter {
 
         }
 
-        const tonConfig = tonConfigForNetwork(paymentNetwork);
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
 
         const mode = resolveGameEscrowMode(tonConfig?.gameEscrowMode);
 
@@ -577,7 +577,7 @@ export class TonGameContractAdapter {
                 snapshotHash
             });
 
-            if (this._canBroadcast()) {
+            if (this._canBroadcast(paymentNetwork)) {
 
                 const txId = await this._sendOracleMessage({
                     operation: "INIT_GAME",
@@ -644,7 +644,7 @@ export class TonGameContractAdapter {
 
         }
 
-        const tonConfig = tonConfigForNetwork(paymentNetwork);
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
 
         const mode = resolveGameEscrowMode(tonConfig?.gameEscrowMode);
 
@@ -668,7 +668,7 @@ export class TonGameContractAdapter {
                 stake2: players[2].requiredGram
             });
 
-            if (this._canBroadcast()) {
+            if (this._canBroadcast(paymentNetwork)) {
 
                 const txId = await this._sendOracleMessage({
                     operation: "OPEN_PAYMENTS",
@@ -1332,7 +1332,7 @@ export class TonGameContractAdapter {
 
     async _broadcastDeploy(escrow, paymentNetwork = null) {
 
-        const tonConfig = tonConfigForNetwork(paymentNetwork);
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
 
         const preflight = await checkDeployerBalancePreflight({
             tonConfig: tonConfig,
@@ -1514,7 +1514,7 @@ export class TonGameContractAdapter {
         paymentNetwork = null
     }) {
 
-        const tonConfig = tonConfigForNetwork(paymentNetwork);
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
         const service = this._service(paymentNetwork);
 
         try {
