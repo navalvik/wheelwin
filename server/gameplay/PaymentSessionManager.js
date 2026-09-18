@@ -1087,7 +1087,10 @@ export class PaymentSessionManager {
 
             chainState = await this._blockchainMonitor.readGameEscrowPaymentState(
                 contractAddress,
-                { playerCount: session.participants.length }
+                {
+                    playerCount: session.participants.length,
+                    paymentNetwork: session.network ?? null
+                }
             );
 
         } catch (error) {
@@ -1243,7 +1246,10 @@ export class PaymentSessionManager {
 
             cancelState = await this._blockchainMonitor.readGameEscrowCancelState(
                 contractAddress,
-                { playerCount: session.participants.length }
+                {
+                    playerCount: session.participants.length,
+                    paymentNetwork: session.network ?? null
+                }
             );
 
         } catch (error) {
