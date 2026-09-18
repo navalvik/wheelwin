@@ -156,6 +156,7 @@ export class TonGameContractAdapter {
         logger = null,
         tonConfig,
         tonService = null,
+        tonNetworkRegistry = null,
         transport = null,
         tonClient = null
     }) {
@@ -165,6 +166,7 @@ export class TonGameContractAdapter {
         this._tonConfig = tonConfig;
 
         this._tonService = tonService;
+        this._tonNetworkRegistry = tonNetworkRegistry;
 
         this._legacyTransport = transport;
 
@@ -229,6 +231,11 @@ export class TonGameContractAdapter {
 
     async deployContract({ contractId, snapshot }) {
 
+        const paymentNetwork = snapshot?.network
+            ?? snapshot?.paymentNetwork
+            ?? null;
+        const tonConfig = tonConfigForNetwork(paymentNetwork);
+
         const roomId = snapshot?.roomId ?? contractId;
         const stage = markDeployStage(roomId, "ADAPTER_LIVE_DEPLOY_CONTRACT_START");
 
@@ -236,12 +243,12 @@ export class TonGameContractAdapter {
             AdapterImplementation: "TonGameContractAdapter",
             Environment: process.env.NODE_ENV ?? "unknown",
             DeployMode: "live",
-            Network: this._tonConfig?.network ?? "unknown",
+            Network: tonConfig?.network ?? "unknown",
             Railway: Boolean(process.env.RAILWAY_ENVIRONMENT),
             Development: process.env.NODE_ENV !== "production",
-            CanBroadcast: this._canBroadcast(),
-            DeployerMnemonicConfigured: Boolean(this._tonConfig?.deployerMnemonic),
-            RpcEndpoint: this._tonConfig?.endpoint ?? null,
+            CanBroadcast: this._canBroadcast(paymentNetwork),
+            DeployerMnemonicConfigured: Boolean(tonConfig?.deployerMnemonic),
+            RpcEndpoint: tonConfig?.endpoint ?? null,
             ContractId: contractId,
             RoomId: snapshot?.roomId ?? null,
             GameId: snapshot?.gameId ?? null,
@@ -269,7 +276,7 @@ export class TonGameContractAdapter {
         try {
 
             const gameEscrowMode = resolveGameEscrowMode(
-                this._tonConfig?.gameEscrowMode
+                tonConfig?.gameEscrowMode
             );
 
             const deployValueTon = resolveOracleValueTon("DEPLOY");
@@ -280,10 +287,10 @@ export class TonGameContractAdapter {
                 mode: gameEscrowMode,
                 oracle: snapshot?.oracleWallet
                     ?? snapshot?.oracle
-                    ?? this._tonConfig?.oracleAddress
+                    ?? tonConfig?.oracleAddress
                     ?? null,
                 owner: snapshot?.ownerWallet
-                    ?? this._tonConfig?.ownerWallet
+                    ?? tonConfig?.ownerWallet
                     ?? null
             });
 
@@ -323,7 +330,7 @@ export class TonGameContractAdapter {
                     ContractAddress: contractAddress,
                     GameEscrowMode: gameEscrowMode,
                     DeployerAddress: "(resolved at broadcast)",
-                    RpcEndpoint: this._tonConfig?.endpoint ?? null,
+                    RpcEndpoint: tonConfig?.endpoint ?? null,
                     RequestPayload: safeSerialize({
                         contractId,
                         to: contractAddress,
@@ -335,7 +342,7 @@ export class TonGameContractAdapter {
                     Timestamp: new Date().toISOString()
                 });
 
-                const broadcast = await this._broadcastDeploy(escrow);
+                const broadcast = await this._broadcastDeploy(escrow, paymentNetwork);
 
                 printDeployBlock("ADAPTER RPC — broadcastDeploy RESPONSE", {
                     ResponsePayload: safeSerialize(broadcast),
@@ -373,14 +380,15 @@ export class TonGameContractAdapter {
 
                 printDeployBlock("ADAPTER RPC — waitUntilEscrowActive START", {
                     ContractAddress: contractAddress,
-                    PollIntervalMs: this._tonConfig?.pollIntervalMs ?? 2000,
+                    PollIntervalMs: tonConfig?.pollIntervalMs ?? 2000,
                     EscrowActivationTimeoutMs:
-                        this._tonConfig?.escrowActivationTimeoutMs ?? 60000,
+                        tonConfig?.escrowActivationTimeoutMs ?? 60000,
                     Timestamp: new Date().toISOString()
                 });
 
                 const activation = await this._waitUntilEscrowActive(
-                    contractAddress
+                    contractAddress,
+                    paymentNetwork
                 );
 
                 printDeployBlock("ADAPTER RPC — waitUntilEscrowActive RESPONSE", {
@@ -412,11 +420,11 @@ export class TonGameContractAdapter {
                 printDeployBlock("ADAPTER RPC — no-broadcast placeholder path", {
                     Reason: "deployerMnemonic not configured",
                     GameEscrowMode: gameEscrowMode,
-                    RpcEndpoint: this._tonConfig?.endpoint ?? null,
+                    RpcEndpoint: tonConfig?.endpoint ?? null,
                     Timestamp: new Date().toISOString()
                 });
 
-                await this._service().broadcastTransaction(
+                await this._service(paymentNetwork).broadcastTransaction(
                     serializeDeployBocPlaceholder({ contractId })
                 );
 
@@ -512,15 +520,15 @@ export class TonGameContractAdapter {
 
     }
 
-    async openContract(contractAddress) {
+    async openContract(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
-        const exists = await this.contractExists(address.friendly);
+        const exists = await this.contractExists(address.friendly, paymentNetwork);
 
         return Object.freeze({
             address: address.friendly,
-            network: this._service().getActiveNetwork(),
+            network: this._service(paymentNetwork).getActiveNetwork(),
             exists
         });
 
@@ -534,7 +542,8 @@ export class TonGameContractAdapter {
         oracle,
         owner,
         contractIdHash,
-        snapshotHash
+        snapshotHash,
+        paymentNetwork = null
     }) {
 
         if (!contractAddress || !oracle || !owner || !contractIdHash || !snapshotHash) {
@@ -546,7 +555,9 @@ export class TonGameContractAdapter {
 
         }
 
-        const mode = resolveGameEscrowMode(this._tonConfig?.gameEscrowMode);
+        const tonConfig = tonConfigForNetwork(paymentNetwork);
+
+        const mode = resolveGameEscrowMode(tonConfig?.gameEscrowMode);
 
         if (mode !== GAME_ESCROW_MODE_GAME) {
 
@@ -574,7 +585,8 @@ export class TonGameContractAdapter {
                     body,
                     valueTon: resolveOracleValueTon("INIT_GAME"),
                     bounce: false,
-                    resolveAccountTxHash: true
+                    resolveAccountTxHash: true,
+                    paymentNetwork
                 });
 
                 return createOperationResultDTO({
@@ -585,7 +597,7 @@ export class TonGameContractAdapter {
 
             }
 
-            await this._service().broadcastTransaction(
+            await this._service(paymentNetwork).broadcastTransaction(
                 Buffer.from(
                     `init:${contractAddress}:${String(snapshotHash).slice(0, 16)}`
                 ).toString("base64")
@@ -619,7 +631,8 @@ export class TonGameContractAdapter {
      */
     async openPayments({
         contractAddress,
-        players
+        players,
+        paymentNetwork = null
     }) {
 
         if (!contractAddress || !Array.isArray(players) || players.length < 3) {
@@ -631,7 +644,9 @@ export class TonGameContractAdapter {
 
         }
 
-        const mode = resolveGameEscrowMode(this._tonConfig?.gameEscrowMode);
+        const tonConfig = tonConfigForNetwork(paymentNetwork);
+
+        const mode = resolveGameEscrowMode(tonConfig?.gameEscrowMode);
 
         if (mode !== GAME_ESCROW_MODE_GAME) {
 
@@ -661,7 +676,8 @@ export class TonGameContractAdapter {
                     body,
                     valueTon: resolveOracleValueTon("OPEN_PAYMENTS"),
                     bounce: false,
-                    resolveAccountTxHash: true
+                    resolveAccountTxHash: true,
+                    paymentNetwork
                 });
 
                 return createOperationResultDTO({
@@ -672,7 +688,7 @@ export class TonGameContractAdapter {
 
             }
 
-            await this._service().broadcastTransaction(
+            await this._service(paymentNetwork).broadcastTransaction(
                 Buffer.from(
                     `open:${contractAddress}:${players.map((p) => p.playerId).join(",")}`
                 ).toString("base64")
@@ -699,9 +715,9 @@ export class TonGameContractAdapter {
 
     }
 
-    async loadContract(contractAddress) {
+    async loadContract(contractAddress, paymentNetwork = null) {
 
-        const opened = await this.openContract(contractAddress);
+        const opened = await this.openContract(contractAddress, paymentNetwork);
 
         if (!opened.exists) {
 
@@ -709,7 +725,7 @@ export class TonGameContractAdapter {
 
         }
 
-        const state = await this.getContractState(opened.address);
+        const state = await this.getContractState(opened.address, paymentNetwork);
 
         return Object.freeze({
             ...opened,
@@ -718,73 +734,77 @@ export class TonGameContractAdapter {
 
     }
 
-    async contractExists(contractAddress) {
+    async contractExists(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
-        const account = await this._service().getAccount(address.friendly);
+        const account = await this._service(paymentNetwork).getAccount(address.friendly);
 
         return account?.state === "active";
 
     }
 
-    async getContractState(contractAddress) {
+    async getContractState(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.CONTRACT_STATE
+            paymentNetwork
         );
 
         return decodeContractState(
             address.friendly,
-            this._service().getActiveNetwork(),
+            this._service(paymentNetwork).getActiveNetwork(),
             stack
         );
 
     }
 
-    async getPaidMask(contractAddress) {
+    async getPaidMask(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.PAID_MASK
+            paymentNetwork
         );
 
         return decodePaidMask(stack);
 
     }
 
-    async getTotalPaid(contractAddress) {
+    async getTotalPaid(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.TOTAL_PAID
+            paymentNetwork
         );
 
         return decodeTotalPaid(stack);
 
     }
 
-    async getRequiredTotal(contractAddress) {
+    async getRequiredTotal(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.REQUIRED_TOTAL
+            paymentNetwork
         );
 
         return decodeRequiredTotal(stack);
 
     }
 
-    async getPlayerPayment(contractAddress, playerIndex) {
+    async getPlayerPayment(contractAddress, playerIndex, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
@@ -800,91 +820,98 @@ export class TonGameContractAdapter {
             address.friendly,
             GAME_CONTRACT_GET_METHODS.PLAYER_PAYMENT,
             [{ type: "int", value: String(index) }]
+            paymentNetwork
         );
 
         return decodePlayerPayment(stack, index);
 
     }
 
-    async getRefundMask(contractAddress) {
+    async getRefundMask(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.REFUND_MASK
+            paymentNetwork
         );
 
         return decodeRefundMask(stack);
 
     }
 
-    async getRefundedTotal(contractAddress) {
+    async getRefundedTotal(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.REFUNDED_TOTAL
+            paymentNetwork
         );
 
         return decodeRefundedTotal(stack);
 
     }
 
-    async getCancelStatus(contractAddress) {
+    async getCancelStatus(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.CANCEL_STATUS
+            paymentNetwork
         );
 
         return decodeCancelStatus(stack);
 
     }
 
-    async getParticipants(contractAddress) {
+    async getParticipants(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.PARTICIPANTS
+            paymentNetwork
         );
 
         return decodeParticipants(stack);
 
     }
 
-    async getWinner(contractAddress) {
+    async getWinner(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.WINNER
+            paymentNetwork
         );
 
         return decodeWinner(address.friendly, stack);
 
     }
 
-    async getSettlementState(contractAddress) {
+    async getSettlementState(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.SETTLEMENT_STATE
+            paymentNetwork
         );
 
         return decodeSettlementState(address.friendly, stack);
 
     }
 
-    async getBalances(contractAddress) {
+    async getBalances(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
@@ -913,26 +940,28 @@ export class TonGameContractAdapter {
 
     }
 
-    async getNetwork(contractAddress) {
+    async getNetwork(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.NETWORK
+            paymentNetwork
         );
 
         return decodeNetwork(stack);
 
     }
 
-    async getArchiveState(contractAddress) {
+    async getArchiveState(contractAddress, paymentNetwork = null) {
 
         const address = this._parseAddress(contractAddress);
 
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.ARCHIVE_STATE
+            paymentNetwork
         );
 
         return decodeArchiveState(address.friendly, stack);
@@ -1043,7 +1072,7 @@ export class TonGameContractAdapter {
 
     }
 
-    async archive({ contractAddress }) {
+    async archive({ contractAddress, paymentNetwork = null }) {
 
         if (!contractAddress) {
 
@@ -1056,7 +1085,7 @@ export class TonGameContractAdapter {
 
         try {
 
-            const address = this._parseAddress(contractAddress);
+            const address = this._parseAddress(contractAddress, paymentNetwork);
 
             const txId = await this._sendOracleMessage({
                 operation: "ARCHIVE",
@@ -1086,7 +1115,7 @@ export class TonGameContractAdapter {
 
     }
 
-    async cancel({ contractAddress, reasonCode = 0 }) {
+    async cancel({ contractAddress, reasonCode = 0, paymentNetwork = null }) {
 
         if (!contractAddress) {
 
@@ -1099,7 +1128,7 @@ export class TonGameContractAdapter {
 
         try {
 
-            const address = this._parseAddress(contractAddress);
+            const address = this._parseAddress(contractAddress, paymentNetwork);
 
             const txId = await this._sendOracleMessage({
                 operation: "CANCEL",
@@ -1133,7 +1162,11 @@ export class TonGameContractAdapter {
     // Internal
     // -------------------------------------------------------------------------
 
-    _service() {
+    _service(paymentNetwork = null) {
+
+        if (this._tonNetworkRegistry && paymentNetwork != null) {
+            return this._tonNetworkRegistry.get(paymentNetwork);
+        }
 
         if (this._tonService) {
 
@@ -1155,33 +1188,42 @@ export class TonGameContractAdapter {
 
     }
 
-    _parseAddress(contractAddress) {
+    _parseAddress(contractAddress, paymentNetwork = null) {
+
+        const service = this._service(paymentNetwork);
+        const activeNetwork = service.getActiveNetwork();
 
         const parsed = parseContractAddress(contractAddress, {
-            network: this._service().getActiveNetwork()
+            network: activeNetwork
         });
 
-        assertNetworkCompatibility(parsed, this._service().getActiveNetwork());
+        assertNetworkCompatibility(parsed, activeNetwork);
 
         return parsed;
 
     }
 
-    async _runContractMethod(address, method, stack = []) {
+    async _runContractMethod(address, method, stack = [], paymentNetwork = null) {
 
-        if (!await this.contractExists(address)) {
+        if (!await this.contractExists(address, paymentNetwork)) {
 
             throw new ContractNotFoundError(address);
 
         }
 
-        return this._service().runGetMethod(address, method, stack);
+        return this._service(paymentNetwork).runGetMethod(address, method, stack);
 
     }
 
-    _canBroadcast() {
+    _tonConfigForNetwork(paymentNetwork = null) {
+        if (this._tonNetworkRegistry && paymentNetwork != null) {
+            return this._tonNetworkRegistry.getConfig(paymentNetwork);
+        }
+        return this._tonConfig;
+    }
 
-        return Boolean(this._tonConfig?.deployerMnemonic);
+    _canBroadcast(paymentNetwork = null) {
+        return Boolean(this._tonConfigForNetwork(paymentNetwork)?.deployerMnemonic);
 
     }
 
@@ -1189,7 +1231,7 @@ export class TonGameContractAdapter {
      * Poll until escrow account is active on-chain (live broadcast path only).
      * Transient RPC errors are retried until timeout.
      */
-    async _waitUntilEscrowActive(contractAddress) {
+    async _waitUntilEscrowActive(contractAddress, paymentNetwork = null) {
 
         const expected = String(contractAddress ?? "").trim();
 
@@ -1202,14 +1244,15 @@ export class TonGameContractAdapter {
 
         }
 
-        const pollIntervalMs = Number(this._tonConfig?.pollIntervalMs);
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
+        const pollIntervalMs = Number(tonConfig?.pollIntervalMs);
 
         const interval = Number.isFinite(pollIntervalMs) && pollIntervalMs >= 200
             ? pollIntervalMs
             : 2000;
 
         const configuredTimeout = Number(
-            this._tonConfig?.escrowActivationTimeoutMs
+            tonConfig?.escrowActivationTimeoutMs
         );
 
         const timeoutMs = Number.isFinite(configuredTimeout)
@@ -1223,7 +1266,7 @@ export class TonGameContractAdapter {
 
             try {
 
-                const active = await this.contractExists(expected);
+                const active = await this.contractExists(expected, paymentNetwork);
 
                 if (active === true) {
 
@@ -1268,11 +1311,13 @@ export class TonGameContractAdapter {
 
     }
 
-    async _broadcastDeploy(escrow) {
+    async _broadcastDeploy(escrow, paymentNetwork = null) {
+
+        const tonConfig = tonConfigForNetwork(paymentNetwork);
 
         const preflight = await checkDeployerBalancePreflight({
-            tonConfig: this._tonConfig,
-            tonService: this._service()
+            tonConfig: tonConfig,
+            tonService: this._service(paymentNetwork)
         });
 
         pushTonDeployDebugStage("GAME_CONTRACT_DEPLOY_PREFLIGHT_STARTED", {
@@ -1342,7 +1387,8 @@ export class TonGameContractAdapter {
             valueTon: resolveOracleValueTon("DEPLOY"),
             bounce: false,
             // R7.70C2.6 — confirm on-chain before INIT_GAME/OPEN_PAYMENTS.
-            resolveAccountTxHash: true
+            resolveAccountTxHash: true,
+            paymentNetwork
         });
 
         return {
@@ -1353,9 +1399,11 @@ export class TonGameContractAdapter {
 
     }
 
-    async _broadcastSettle(settlementRequest) {
+    async _broadcastSettle(settlementRequest, paymentNetwork = null) {
 
-        const settlePlan = this._buildSettleMessagePlan(settlementRequest);
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
+
+        const settlePlan = this._buildSettleMessagePlan(settlementRequest, paymentNetwork);
 
         if (!settlePlan.ok) {
 
@@ -1380,7 +1428,8 @@ export class TonGameContractAdapter {
             valueTon: resolveOracleValueTon("SETTLE"),
             bounce: settlePlan.mode === GAME_ESCROW_MODE_GAME ? false : true,
             // R7.61A — resolve real deployer account tx hash (not ton_oracle_seq_*).
-            resolveAccountTxHash: true
+            resolveAccountTxHash: true,
+            paymentNetwork
         });
 
         this._recordGameEscrowSettlementDebug({
@@ -1401,9 +1450,12 @@ export class TonGameContractAdapter {
     /**
      * R7.66F — Build settle body for v4 (legacy) or game (GameEscrow ABI).
      */
-    _buildSettleMessagePlan(settlementRequest) {
+    _buildSettleMessagePlan(settlementRequest, paymentNetwork = null) {
 
-        return buildSettleMessagePlan(settlementRequest, this._tonConfig);
+        return buildSettleMessagePlan(
+            settlementRequest,
+            this._tonConfigForNetwork(paymentNetwork)
+        );
 
     }
 
@@ -1439,8 +1491,12 @@ export class TonGameContractAdapter {
         init = null,
         valueTon = resolveOracleValueTon(operation),
         bounce = true,
-        resolveAccountTxHash = false
+        resolveAccountTxHash = false,
+        paymentNetwork = null
     }) {
+
+        const tonConfig = tonConfigForNetwork(paymentNetwork);
+        const service = this._service(paymentNetwork);
 
         try {
 
@@ -1455,7 +1511,7 @@ export class TonGameContractAdapter {
             });
 
             const keyPair = await mnemonicToPrivateKey(
-                this._tonConfig.deployerMnemonic.split(/\s+/).filter(Boolean)
+                tonConfig.deployerMnemonic.split(/\s+/).filter(Boolean)
             );
 
             const deployerWallet = WalletContractV4.create({
@@ -1486,7 +1542,7 @@ export class TonGameContractAdapter {
             // R7.70C2.6 — serialize the full critical section for this deployer.
             return await this._withDeployerSendLock(deployerAddress, async () => {
 
-                const seqno = await this._service().getSeqno(deployerAddress);
+                const seqno = await service.getSeqno(deployerAddress);
 
                 console.log(
                     "[R7.51 TON DEPLOY]\n"
@@ -1562,7 +1618,7 @@ export class TonGameContractAdapter {
 
                 const sentAtMs = Date.now();
 
-                await this._service().broadcastTransaction(bocBase64);
+                await service.broadcastTransaction(bocBase64);
 
                 console.log(
                     "[R7.51 TON DEPLOY]\n"
@@ -1582,7 +1638,8 @@ export class TonGameContractAdapter {
                 const confirmedSeqno = await this._waitForDeployerSeqnoAdvance({
                     operation,
                     deployerAddress,
-                    sentSeqno: seqno
+                    sentSeqno: seqno,
+                    paymentNetwork
                 });
 
                 const confirmationDurationMs = Date.now() - sentAtMs;
@@ -1752,15 +1809,16 @@ export class TonGameContractAdapter {
     async _waitForDeployerSeqnoAdvance({
         operation,
         deployerAddress,
-        sentSeqno
+        sentSeqno,
+        paymentNetwork = null
     }) {
 
-        const timeoutMs = Number.isFinite(this._tonConfig?.settlementTxLookupTimeoutMs)
-            ? this._tonConfig.settlementTxLookupTimeoutMs
+        const timeoutMs = Number.isFinite(tonConfig?.settlementTxLookupTimeoutMs)
+            ? tonConfig.settlementTxLookupTimeoutMs
             : 30_000;
 
-        const pollMs = Number.isFinite(this._tonConfig?.settlementTxLookupPollMs)
-            ? Math.max(50, this._tonConfig.settlementTxLookupPollMs)
+        const pollMs = Number.isFinite(tonConfig?.settlementTxLookupPollMs)
+            ? Math.max(50, tonConfig.settlementTxLookupPollMs)
             : 1_000;
 
         const deadline = Date.now() + timeoutMs;
@@ -1787,7 +1845,7 @@ export class TonGameContractAdapter {
 
             try {
 
-                lastSeen = await this._service().getSeqno(deployerAddress);
+                lastSeen = await service.getSeqno(deployerAddress);
 
             } catch (error) {
 
@@ -1868,15 +1926,16 @@ export class TonGameContractAdapter {
         deployerAddress,
         destinationAddress,
         seqno,
-        sentAtMs
+        sentAtMs,
+        paymentNetwork = null
     }) {
 
-        const timeoutMs = Number.isFinite(this._tonConfig?.settlementTxLookupTimeoutMs)
-            ? this._tonConfig.settlementTxLookupTimeoutMs
+        const timeoutMs = Number.isFinite(tonConfig?.settlementTxLookupTimeoutMs)
+            ? tonConfig.settlementTxLookupTimeoutMs
             : 30_000;
 
-        const pollMs = Number.isFinite(this._tonConfig?.settlementTxLookupPollMs)
-            ? Math.max(50, this._tonConfig.settlementTxLookupPollMs)
+        const pollMs = Number.isFinite(tonConfig?.settlementTxLookupPollMs)
+            ? Math.max(50, tonConfig.settlementTxLookupPollMs)
             : 1_000;
 
         const destination = Address.parse(destinationAddress);
@@ -1909,7 +1968,7 @@ export class TonGameContractAdapter {
 
             try {
 
-                transactions = await this._service().getTransactions(
+                transactions = await service.getTransactions(
                     deployerAddress,
                     { limit: 20 }
                 );
