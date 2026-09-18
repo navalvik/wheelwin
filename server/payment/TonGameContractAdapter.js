@@ -234,7 +234,7 @@ export class TonGameContractAdapter {
         const paymentNetwork = snapshot?.network
             ?? snapshot?.paymentNetwork
             ?? null;
-        const tonConfig = tonConfigForNetwork(paymentNetwork);
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
 
         const roomId = snapshot?.roomId ?? contractId;
         const stage = markDeployStage(roomId, "ADAPTER_LIVE_DEPLOY_CONTRACT_START");
@@ -522,7 +522,7 @@ export class TonGameContractAdapter {
 
     async openContract(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const exists = await this.contractExists(address.friendly, paymentNetwork);
 
@@ -736,7 +736,7 @@ export class TonGameContractAdapter {
 
     async contractExists(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const account = await this._service(paymentNetwork).getAccount(address.friendly);
 
@@ -746,11 +746,12 @@ export class TonGameContractAdapter {
 
     async getContractState(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.CONTRACT_STATE
+            GAME_CONTRACT_GET_METHODS.CONTRACT_STATE,
+            [],
             paymentNetwork
         );
 
@@ -764,11 +765,12 @@ export class TonGameContractAdapter {
 
     async getPaidMask(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.PAID_MASK
+            GAME_CONTRACT_GET_METHODS.PAID_MASK,
+            [],
             paymentNetwork
         );
 
@@ -778,11 +780,12 @@ export class TonGameContractAdapter {
 
     async getTotalPaid(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.TOTAL_PAID
+            GAME_CONTRACT_GET_METHODS.TOTAL_PAID,
+            [],
             paymentNetwork
         );
 
@@ -792,11 +795,12 @@ export class TonGameContractAdapter {
 
     async getRequiredTotal(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.REQUIRED_TOTAL
+            GAME_CONTRACT_GET_METHODS.REQUIRED_TOTAL,
+            [],
             paymentNetwork
         );
 
@@ -806,7 +810,7 @@ export class TonGameContractAdapter {
 
     async getPlayerPayment(contractAddress, playerIndex, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const index = Number(playerIndex);
 
@@ -819,7 +823,7 @@ export class TonGameContractAdapter {
         const stack = await this._runContractMethod(
             address.friendly,
             GAME_CONTRACT_GET_METHODS.PLAYER_PAYMENT,
-            [{ type: "int", value: String(index) }]
+            [{ type: "int", value: String(index) }],
             paymentNetwork
         );
 
@@ -829,11 +833,12 @@ export class TonGameContractAdapter {
 
     async getRefundMask(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.REFUND_MASK
+            GAME_CONTRACT_GET_METHODS.REFUND_MASK,
+            [],
             paymentNetwork
         );
 
@@ -843,11 +848,12 @@ export class TonGameContractAdapter {
 
     async getRefundedTotal(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.REFUNDED_TOTAL
+            GAME_CONTRACT_GET_METHODS.REFUNDED_TOTAL,
+            [],
             paymentNetwork
         );
 
@@ -857,11 +863,12 @@ export class TonGameContractAdapter {
 
     async getCancelStatus(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.CANCEL_STATUS
+            GAME_CONTRACT_GET_METHODS.CANCEL_STATUS,
+            [],
             paymentNetwork
         );
 
@@ -871,11 +878,12 @@ export class TonGameContractAdapter {
 
     async getParticipants(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.PARTICIPANTS
+            GAME_CONTRACT_GET_METHODS.PARTICIPANTS,
+            [],
             paymentNetwork
         );
 
@@ -885,11 +893,12 @@ export class TonGameContractAdapter {
 
     async getWinner(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.WINNER
+            GAME_CONTRACT_GET_METHODS.WINNER,
+            [],
             paymentNetwork
         );
 
@@ -899,11 +908,12 @@ export class TonGameContractAdapter {
 
     async getSettlementState(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.SETTLEMENT_STATE
+            GAME_CONTRACT_GET_METHODS.SETTLEMENT_STATE,
+            [],
             paymentNetwork
         );
 
@@ -913,20 +923,22 @@ export class TonGameContractAdapter {
 
     async getBalances(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         try {
 
             const stack = await this._runContractMethod(
                 address.friendly,
-                GAME_CONTRACT_GET_METHODS.BALANCES
+                GAME_CONTRACT_GET_METHODS.BALANCES,
+                [],
+                paymentNetwork
             );
 
             return decodeBalances(address.friendly, stack);
 
         } catch {
 
-            const account = await this._service().getAccount(address.friendly);
+            const account = await this._service(paymentNetwork).getAccount(address.friendly);
 
             return decodeBalances(address.friendly, {
                 stack: [
@@ -942,11 +954,12 @@ export class TonGameContractAdapter {
 
     async getNetwork(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.NETWORK
+            GAME_CONTRACT_GET_METHODS.NETWORK,
+            [],
             paymentNetwork
         );
 
@@ -956,11 +969,12 @@ export class TonGameContractAdapter {
 
     async getArchiveState(contractAddress, paymentNetwork = null) {
 
-        const address = this._parseAddress(contractAddress);
+        const address = this._parseAddress(contractAddress, paymentNetwork);
 
         const stack = await this._runContractMethod(
             address.friendly,
-            GAME_CONTRACT_GET_METHODS.ARCHIVE_STATE
+            GAME_CONTRACT_GET_METHODS.ARCHIVE_STATE,
+            [],
             paymentNetwork
         );
 
@@ -982,15 +996,20 @@ export class TonGameContractAdapter {
 
         }
 
+        const paymentNetwork = settlementRequest?.paymentNetwork
+            ?? settlementRequest?.network
+            ?? null;
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
+
         const gameEscrowMode = resolveGameEscrowMode(
-            settlementRequest.gameEscrowMode ?? this._tonConfig?.gameEscrowMode
+            settlementRequest.gameEscrowMode ?? tonConfig?.gameEscrowMode
         );
 
         try {
 
-            if (this._canBroadcast()) {
+            if (this._canBroadcast(paymentNetwork)) {
 
-                const broadcast = await this._broadcastSettle(settlementRequest);
+                const broadcast = await this._broadcastSettle(settlementRequest, paymentNetwork);
 
                 if (!broadcast.ok) {
 
@@ -1010,7 +1029,7 @@ export class TonGameContractAdapter {
             }
 
             // Stub / no-mnemonic path — still emit GameEscrow settlement diagnostics.
-            const settlePlan = this._buildSettleMessagePlan(settlementRequest);
+            const settlePlan = this._buildSettleMessagePlan(settlementRequest, paymentNetwork);
 
             if (!settlePlan.ok) {
 
@@ -1028,7 +1047,7 @@ export class TonGameContractAdapter {
                 transactionHash: null
             });
 
-            await this._service().broadcastTransaction(
+            await this._service(paymentNetwork).broadcastTransaction(
                 serializeSettleBocPlaceholder({
                     contractId: settlementRequest.contractId,
                     winnerId: settlementRequest.winnerId
@@ -1673,7 +1692,8 @@ export class TonGameContractAdapter {
                         deployerAddress,
                         destinationAddress: destination,
                         seqno,
-                        sentAtMs
+                        sentAtMs,
+                        paymentNetwork
                     });
 
                 } catch (lookupError) {
@@ -1813,6 +1833,9 @@ export class TonGameContractAdapter {
         paymentNetwork = null
     }) {
 
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
+        const service = this._service(paymentNetwork);
+
         const timeoutMs = Number.isFinite(tonConfig?.settlementTxLookupTimeoutMs)
             ? tonConfig.settlementTxLookupTimeoutMs
             : 30_000;
@@ -1929,6 +1952,9 @@ export class TonGameContractAdapter {
         sentAtMs,
         paymentNetwork = null
     }) {
+
+        const tonConfig = this._tonConfigForNetwork(paymentNetwork);
+        const service = this._service(paymentNetwork);
 
         const timeoutMs = Number.isFinite(tonConfig?.settlementTxLookupTimeoutMs)
             ? tonConfig.settlementTxLookupTimeoutMs
