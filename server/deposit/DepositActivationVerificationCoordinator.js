@@ -109,6 +109,7 @@ export class DepositActivationVerificationCoordinator {
         depositMonitor = null,
         blockchainSource = null,
         tonService = null,
+        tonNetworkRegistry = null,
         network = "testnet",
         expectedArtifactSha256 = null,
         env = process.env,
@@ -128,6 +129,7 @@ export class DepositActivationVerificationCoordinator {
         this._blockchainSource = blockchainSource;
 
         this._tonService = tonService;
+        this._tonNetworkRegistry = tonNetworkRegistry;
 
         this._network = String(network ?? "testnet").trim().toLowerCase();
 
@@ -339,7 +341,11 @@ export class DepositActivationVerificationCoordinator {
 
         }
 
-        const contractState = await this._queryContractState(persistedAddress, depositId);
+        const contractState = await this._queryContractState(
+            persistedAddress,
+            depositId,
+            session
+        );
 
         if (contractState.state === DEPOSIT_ACCOUNT_STATE.UNINIT) {
 
@@ -396,7 +402,11 @@ export class DepositActivationVerificationCoordinator {
 
         }
 
-        const getters = await this._readGetters(persistedAddress, depositId);
+        const getters = await this._readGetters(
+            persistedAddress,
+            depositId,
+            session
+        );
 
         this._assertNetworkTag(session, getters, plan);
 
@@ -556,7 +566,7 @@ export class DepositActivationVerificationCoordinator {
 
     }
 
-    async _queryContractState(address, depositId) {
+    async _queryContractState(address, depositId, session = null) {
 
         if (typeof this._blockchainSource?.getContractState !== "function") {
 
@@ -571,7 +581,12 @@ export class DepositActivationVerificationCoordinator {
 
         try {
 
-            return await this._blockchainSource.getContractState(address);
+            const network = this._sessionNetwork(session);
+            const service = this._resolveNetworkService(network);
+            return await this._blockchainSource.getContractState(address, {
+                service,
+                network
+            });
 
         } catch (error) {
 
@@ -597,13 +612,18 @@ export class DepositActivationVerificationCoordinator {
 
     }
 
-    async _readGetters(address, depositId) {
+    async _readGetters(address, depositId, session = null) {
 
         try {
 
             if (typeof this._blockchainSource?.readActivationGetters === "function") {
 
-                return await this._blockchainSource.readActivationGetters(address);
+                const network = this._sessionNetwork(session);
+                const service = this._resolveNetworkService(network);
+                return await this._blockchainSource.readActivationGetters(address, {
+                    service,
+                    network
+                });
 
             }
 
@@ -611,13 +631,16 @@ export class DepositActivationVerificationCoordinator {
                 "../payment/ton/readDepositGetters.js"
             );
 
-            if (!this._tonService) {
+            const network = this._sessionNetwork(session);
+            const service = this._resolveNetworkService(network);
+
+            if (!service) {
 
                 throw new InvalidResponseError("TonService is not configured");
 
             }
 
-            return await readFullDepositGetters(this._tonService, address);
+            return await readFullDepositGetters(service, address);
 
         } catch (error) {
 
@@ -647,6 +670,31 @@ export class DepositActivationVerificationCoordinator {
 
         }
 
+    }
+
+    _sessionNetwork(session) {
+        const value = session?.metadata?.network
+            ?? session?.network
+            ?? this._network;
+        const normalized = String(value ?? "").trim().toLowerCase();
+
+        if (normalized !== "testnet" && normalized !== "mainnet") {
+            throw this._reject(
+                session?.depositId ?? "unknown",
+                DEPOSIT_ACTIVATION_ERROR_CODES.NETWORK_MISMATCH,
+                "DepositSession contains unsupported authoritative network",
+                { depositId: session?.depositId ?? null, network: value ?? null }
+            );
+        }
+
+        return normalized;
+    }
+
+    _resolveNetworkService(network) {
+        if (this._tonNetworkRegistry) {
+            return this._tonNetworkRegistry.get(network);
+        }
+        return this._tonService;
     }
 
     _expectedCodeHash() {
