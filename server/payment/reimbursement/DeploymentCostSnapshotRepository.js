@@ -90,7 +90,7 @@ export class DeploymentCostSnapshotRepository {
                 roomId: payload.roomId,
                 gameId: payload.gameId,
                 contractId: payload.contractId,
-                tonNetwork: this._tonNetwork,
+                tonNetwork: payload.tonNetwork ?? this._tonNetwork,
                 correlationId: generateDeploymentCostSnapshotCorrelationId(),
                 createdAt: payload.createdAt,
                 updatedAt: payload.createdAt
