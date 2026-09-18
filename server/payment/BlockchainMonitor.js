@@ -962,7 +962,8 @@ export class BlockchainMonitor {
             verifiedCancelTxHash: watch.verifiedCancelTxHash,
             contractId: watch.contractId,
             roomId: watch.roomId,
-            gameId: watch.gameId
+            gameId: watch.gameId,
+            paymentNetwork: watch.paymentNetwork ?? null
         });
 
     }
@@ -3167,6 +3168,7 @@ export class BlockchainMonitor {
             contractId: watch.contractId,
             address: watch.address,
             roomId: watch.roomId,
+            paymentNetwork: watch.paymentNetwork ?? null,
             gameId: watch.gameId,
             correlationId: watch.correlationId,
             lastStatus: watch.lastStatus,
@@ -3186,6 +3188,7 @@ export class BlockchainMonitor {
             address: watch.address,
             contractId: watch.contractId,
             roomId: watch.roomId,
+            paymentNetwork: watch.paymentNetwork ?? null,
             gameId: watch.gameId,
             correlationId: watch.correlationId,
             kind: watch.kind,
