@@ -44,6 +44,7 @@ import { OperationalMetrics } from "./services/OperationalMetrics.js";
 import { RandomService } from "./services/RandomService.js";
 import { TimerService } from "./services/TimerService.js";
 import { TonService } from "./services/TonService.js";
+import { TonNetworkServiceRegistry } from "./services/TonNetworkServiceRegistry.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
@@ -1332,6 +1333,7 @@ class WheelWinApplication {
             logger: this._logger,
             eventBus: this._eventBus,
             transport: this._services.tonService.getTransport(),
+            tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
             auditLedger: this._entryPaymentAuditLedger,
             pollIntervalMs: this._tonConfig.pollIntervalMs
         });
@@ -1375,6 +1377,7 @@ class WheelWinApplication {
             : new TonGameContractAdapter({
                 logger: this._logger,
                 tonConfig: this._tonConfig,
+                tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
                 transport: this._services.tonService.getTransport(),
                 tonClient: this._services.tonService.getClient()
             });
@@ -1707,6 +1710,7 @@ class WheelWinApplication {
         this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
             logger: this._logger,
             tonService: this._services.tonService,
+            tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
             network: this._tonConfig?.network ?? "testnet"
         });
 
@@ -1810,6 +1814,7 @@ class WheelWinApplication {
             depositMonitor: this._depositMonitor,
             blockchainSource: this._tonDepositBlockchainSource,
             tonService: this._services.tonService,
+            tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
             network: this._tonConfig?.network ?? "testnet",
             roomManager: this._managers.roomManager
         });
@@ -3641,10 +3646,17 @@ class WheelWinApplication {
             tonConfig
         });
 
+        // Room/payment blockchain I/O uses immutable per-network services.
+        // The process-global tonService remains unchanged for operational paths.
+        const tonNetworkServiceRegistry = new TonNetworkServiceRegistry({
+            logger: this._logger
+        });
+
         return {
             timerService,
             randomService,
-            tonService
+            tonService,
+            tonNetworkServiceRegistry
         };
 
     }
