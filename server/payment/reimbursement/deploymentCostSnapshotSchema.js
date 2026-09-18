@@ -11,6 +11,8 @@ import {
     isDeploymentCostSnapshotStatus
 } from "./deploymentCostSnapshotStates.js";
 
+const REQUIRED_NETWORKS = Object.freeze(["testnet", "mainnet"]);
+
 const REQUIRED_STRING_FIELDS = Object.freeze([
     "gameId",
     "roomId",
@@ -68,6 +70,14 @@ export function validateDeploymentCostSnapshotCreateInput(input) {
 
     }
 
+    const rawNetwork = String(input.network ?? input.tonNetwork ?? "testnet").trim().toLowerCase();
+
+    if (!REQUIRED_NETWORKS.includes(rawNetwork)) {
+
+        errors.push("network_invalid");
+
+    }
+
     const status = input.status ?? DEPLOYMENT_COST_SNAPSHOT_STATUS.PENDING_LOOKUP;
 
     if (!isDeploymentCostSnapshotStatus(status)) {
@@ -106,6 +116,7 @@ export function validateDeploymentCostSnapshotCreateInput(input) {
         contractAddress: String(input.contractAddress).trim(),
         deploymentTxHash,
         deployWallet: String(input.deployWallet).trim(),
+        tonNetwork: rawNetwork,
         status,
         createdAt,
         attachedTon: input.attachedTon ?? null,
