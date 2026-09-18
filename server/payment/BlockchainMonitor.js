@@ -1093,17 +1093,22 @@ export class BlockchainMonitor {
             network: this._network,
             contracts: Object.freeze(
                 [...this._contracts.values()].map((watch) => Object.freeze({
-                    ...watch
+                    ...watch,
+                    paymentNetwork: watch.paymentNetwork ?? null
                 }))
             ),
             transactions: Object.freeze(
                 [...this._transactions.values()]
                     .filter((watch) => watch.status === "PENDING")
-                    .map((watch) => Object.freeze({ ...watch }))
+                    .map((watch) => Object.freeze({
+                        ...watch,
+                        paymentNetwork: watch.paymentNetwork ?? null
+                    }))
             ),
             paymentWatches: Object.freeze(
                 [...this._watches.values()].map((watch) => Object.freeze({
-                    ...watch
+                    ...watch,
+                    paymentNetwork: watch.paymentNetwork ?? null
                 }))
             ),
             gameEscrowRefundWatches: Object.freeze(
@@ -1111,6 +1116,7 @@ export class BlockchainMonitor {
                     .filter((watch) => watch.status === "PENDING")
                     .map((watch) => Object.freeze({
                         ...watch,
+                        paymentNetwork: watch.paymentNetwork ?? null,
                         refunds: Object.freeze([...(watch.refunds ?? [])]),
                         refundTxs: Object.freeze([...(watch.refundTxs ?? [])])
                     }))
@@ -1252,7 +1258,8 @@ export class BlockchainMonitor {
      * Returns null when the adapter / getters are unavailable.
      */
     async readGameEscrowPaymentState(contractAddress, {
-        playerCount = 3
+        playerCount = 3,
+        paymentNetwork = null
     } = {}) {
 
         if (!contractAddress || !this._contractAdapter?.getPaidMask) {
@@ -1408,7 +1415,8 @@ export class BlockchainMonitor {
 
                     const detail = await this._contractAdapter.getPlayerPayment(
                         contractAddress,
-                        index
+                        index,
+                        paymentNetwork
                     );
 
                     player = {
