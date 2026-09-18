@@ -1815,6 +1815,9 @@ export class GameContractManager {
                     contractAddress: current.contractAddress,
                     oracle,
                     owner: current.snapshot?.ownerWallet ?? null,
+                    paymentNetwork: current.snapshot?.network
+                        ?? current.snapshot?.paymentNetwork
+                        ?? null,
                     contractIdHash,
                     snapshotHash
                 });
@@ -1827,7 +1830,10 @@ export class GameContractManager {
 
                 const open = await this._deployAdapter.openPayments({
                     contractAddress: current.contractAddress,
-                    players
+                    players,
+                    paymentNetwork: current.snapshot?.network
+                        ?? current.snapshot?.paymentNetwork
+                        ?? null
                 });
 
                 if (!open?.ok) {
@@ -2451,7 +2457,10 @@ export class GameContractManager {
 
             result = await this._deployAdapter.cancel({
                 contractAddress,
-                reasonCode: 0
+                reasonCode: 0,
+                paymentNetwork: contract?.snapshot?.network
+                    ?? contract?.snapshot?.paymentNetwork
+                    ?? null
             });
 
         } catch (error) {
