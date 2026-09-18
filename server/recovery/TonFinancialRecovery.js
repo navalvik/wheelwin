@@ -1127,6 +1127,9 @@ export class TonFinancialRecovery {
                             roomId: contract.roomId,
                             gameId: contract.gameId,
                             correlationId: contract.correlationId ?? null,
+                            paymentNetwork: contract.snapshot?.network
+                                ?? contract.snapshot?.paymentNetwork
+                                ?? null,
                             expectDeployment: contract.status === GAME_CONTRACT_STATUS.DEPLOYING
                         }
                     );
@@ -1235,7 +1238,8 @@ export class TonFinancialRecovery {
                             expectedGram: participant.requiredGram,
                             expectedWallet: participant.wallet,
                             paymentDeadline: syncedSession.paymentDeadline,
-                            playerIndex: participant.playerIndex ?? null
+                            playerIndex: participant.playerIndex ?? null,
+                            paymentNetwork: syncedSession.network ?? null
                         });
 
                         paymentWatches += 1;
@@ -1288,6 +1292,7 @@ export class TonFinancialRecovery {
                         gameId: session.gameId,
                         correlationId: session.correlationId,
                         kind: "SETTLEMENT",
+                        paymentNetwork: session.network ?? null,
                         timeoutMs: session.settlementDeadline
                             ? Math.max(0, session.settlementDeadline - Date.now())
                             : null
@@ -1392,6 +1397,7 @@ export class TonFinancialRecovery {
                 roomId: session.roomId,
                 gameId: session.gameId,
                 correlationId: session.correlationId,
+                paymentNetwork: session.network ?? null,
                 contractStatus: 9
             });
 
