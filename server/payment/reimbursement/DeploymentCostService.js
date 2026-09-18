@@ -54,6 +54,7 @@ export class DeploymentCostService {
      *   repository: import("./DeploymentCostSnapshotRepository.js").DeploymentCostSnapshotRepository,
      *   eventBus?: { subscribe: Function, unsubscribe: Function }|null,
      *   transport?: { getTransactions: Function }|null,
+     *   tonNetworkRegistry?: { get: Function }|null,
      *   logger?: { debug?: Function, info?: Function, warn?: Function, error?: Function }|null,
      *   env?: NodeJS.ProcessEnv,
      *   transactionLookupLimit?: number
@@ -63,6 +64,7 @@ export class DeploymentCostService {
         repository,
         eventBus = null,
         transport = null,
+        tonNetworkRegistry = null,
         logger = null,
         env = process.env,
         transactionLookupLimit = 40
@@ -79,6 +81,7 @@ export class DeploymentCostService {
         this._eventBus = eventBus;
 
         this._transport = transport;
+        this._tonNetworkRegistry = tonNetworkRegistry;
 
         this._logger = logger;
 
@@ -107,7 +110,7 @@ export class DeploymentCostService {
                     && result.snapshot
                     && result.snapshot.payload?.status
                         === DEPLOYMENT_COST_SNAPSHOT_STATUS.PENDING_LOOKUP
-                    && this._transport
+                    && this._resolveTransport(result.snapshot?.tonNetwork)
                 ) {
 
                     void this.lookupAndFreezeSnapshot(result.snapshot)
@@ -186,6 +189,36 @@ export class DeploymentCostService {
         this._initialized = false;
 
         this._logger?.debug?.("DeploymentCostService shutdown");
+
+    }
+
+    _resolveTransport(network) {
+
+        const normalized = String(network ?? this._repository?._tonNetwork ?? "testnet")
+            .trim()
+            .toLowerCase();
+
+        if (this._tonNetworkRegistry?.get) {
+
+            try {
+
+                return this._tonNetworkRegistry.get(normalized)?.getTransport?.() ?? null;
+
+            } catch (error) {
+
+                this._logger?.warn?.(
+                    `DeploymentCostService network transport unavailable | network=${normalized} | ${error?.message ?? error}`
+                );
+
+                return null;
+
+            }
+
+        }
+
+        return normalized === String(this._repository?._tonNetwork ?? "testnet").trim().toLowerCase()
+            ? this._transport
+            : null;
 
     }
 
@@ -405,7 +438,9 @@ export class DeploymentCostService {
 
         }
 
-        if (!this._transport?.getTransactions) {
+        const transport = this._resolveTransport(snapshot?.tonNetwork);
+
+        if (!transport?.getTransactions) {
 
             return {
                 ok: false,
@@ -683,7 +718,7 @@ export class DeploymentCostService {
                         + `tx=${deploymentTxHash}`
                 );
 
-                if (this._transport) {
+                if (this._resolveTransport(capture.snapshot?.tonNetwork)) {
 
                     const freeze = await this.lookupAndFreezeSnapshot(capture.snapshot);
 
