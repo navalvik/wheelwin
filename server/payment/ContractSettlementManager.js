@@ -3175,6 +3175,7 @@ export class ContractSettlementManager {
             gameId: session.gameId,
             correlationId: session.correlationId,
             kind: "SETTLEMENT",
+            paymentNetwork: session.network ?? null,
             timeoutMs: session.settlementDeadline
                 ? Math.max(0, session.settlementDeadline - Date.now())
                 : null
@@ -3220,6 +3221,7 @@ export class ContractSettlementManager {
             roomId: session.roomId,
             gameId: session.gameId,
             correlationId: session.correlationId,
+            paymentNetwork: session.network ?? null,
             timeoutMs: session.settlementDeadline
                 ? Math.max(0, session.settlementDeadline - Date.now())
                 : null
