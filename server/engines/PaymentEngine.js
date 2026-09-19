@@ -47,6 +47,17 @@ export class PaymentEngine {
 
     }
 
+    _resolvePaymentNetwork(gameId) {
+
+        const contract = this._gameContractManager?.getContractByGameId?.(gameId);
+
+        return contract?.tonNetwork
+            ?? contract?.snapshot?.network
+            ?? contract?.snapshot?.paymentNetwork
+            ?? null;
+
+    }
+
     setGameContractManager(gameContractManager) {
 
         this._gameContractManager = gameContractManager ?? null;
@@ -179,8 +190,11 @@ export class PaymentEngine {
 
             const { gameResult } = this._readPaymentInputs(gameId);
 
+            const paymentNetwork = this._resolvePaymentNetwork(gameId);
+
             this._emit(EVENT_TYPES.PAYMENT_STARTED, {
                 gameId,
+                paymentNetwork,
                 winnerId: gameResult.winningPlayer.playerId,
                 traceSeed: gameResult.traceSeed,
                 timestamp: Date.now()
@@ -223,6 +237,7 @@ export class PaymentEngine {
 
                 this._emit(EVENT_TYPES.PAYMENT_COMPLETED, {
                     gameId,
+                    paymentNetwork,
                     winnerId: paymentResult.winnerId,
                     winnerAmount: paymentResult.winnerAmount,
                     traceSeed: gameResult.traceSeed,
@@ -239,6 +254,7 @@ export class PaymentEngine {
 
                 this._emit(EVENT_TYPES.PAYMENT_FAILED, {
                     gameId,
+                    paymentNetwork,
                     winnerId: gameResult.winningPlayer.playerId,
                     traceSeed: gameResult.traceSeed,
                     reason: error.message,
