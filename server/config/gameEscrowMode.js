@@ -1,8 +1,8 @@
 /**
  * R7.67A — GameEscrow vs legacy WalletContractV4 mode resolution.
  *
- * Testnet default: game (GameEscrow).
- * Mainnet default: v4 (unchanged; legacy path).
+ * Testnet and Mainnet default: game (GameEscrow).
+ * Explicit GAME_ESCROW_MODE=v4 remains the rollback switch.
  * Explicit GAME_ESCROW_MODE=v4 remains the rollback switch on testnet.
  */
 
@@ -22,14 +22,15 @@ export function defaultGameEscrowModeForNetwork(network) {
 
     const normalized = String(network ?? "").trim().toLowerCase();
 
-    // Testnet only — GameEscrow is the default deploy/settle path.
-    if (normalized === "testnet") {
+    // Both supported payment networks use GameEscrow by default.
+    // Unknown values retain the legacy v4 fallback until a concrete
+    // network profile is selected.
+    if (normalized === "testnet" || normalized === "mainnet") {
 
         return GAME_ESCROW_MODE_GAME;
 
     }
 
-    // Mainnet and unknown: keep legacy v4 (do not enable GameEscrow by default).
     return GAME_ESCROW_MODE_V4;
 
 }
@@ -37,7 +38,7 @@ export function defaultGameEscrowModeForNetwork(network) {
 /**
  * Resolve escrow mode from an explicit override and/or env.
  *
- * Unset → network default (testnet=game, otherwise=v4).
+ * Unset → network default (testnet=game, mainnet=game, otherwise=v4).
  * Present but empty / unknown → throws (ambiguous).
  *
  * @param {string|null|undefined} explicitMode
