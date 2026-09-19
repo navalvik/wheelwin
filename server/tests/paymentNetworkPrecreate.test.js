@@ -1288,6 +1288,51 @@ function test13_blockchainCheckpointRetainsPaymentNetwork() {
 
 }
 
+// Test 21 — deployment-cost capture preserves the authoritative room network
+// and resolves its deploy wallet from the same network profile.
+function test21_deploymentCostCapturePreservesNetwork() {
+
+    const managerSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "gameplay/GameContractManager.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        managerSource.includes("contractNetwork = String(")
+            && managerSource.includes("networkProfile?.deployerExpectedAddress"),
+        "deployment cost capture must resolve deploy wallet from the contract network profile"
+    );
+    assert(
+        managerSource.includes("runtimeNetwork === contractNetwork"),
+        "runtime deployer/oracle fallback must be allowed only when runtime network matches"
+    );
+
+    const serviceSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "payment/reimbursement/DeploymentCostService.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        serviceSource.includes(
+            "network: input.network ?? input.tonNetwork ?? null"
+        ),
+        "deployment cost capture must persist the event network"
+    );
+
+    console.log(
+        "Test 21 — deployment cost capture preserves network: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1315,6 +1360,7 @@ async function main() {
     test15_deploymentAuthorizationNetworkIsAuthoritative();
     test19_blockchainMonitorNetworkRoutingIsStrict();
     test20_cancelCarriesContractNetwork();
+    test21_deploymentCostCapturePreservesNetwork();
     test16_paymentSessionRestartPreservesNetwork();
     test17_settlementSessionRestartPreservesNetwork();
     test18_mainnetDeployUsesSnapshotNetwork();

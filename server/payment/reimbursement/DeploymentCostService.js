@@ -33,6 +33,7 @@ import { nanotonToTonString } from "./nanoton.js";
  * @property {string} contractAddress
  * @property {string} deploymentTxHash
  * @property {string} deployWallet
+ * @property {string} [network]
  * @property {number} [deployedAt]
  * @property {number} [timestamp]
  */
@@ -1003,6 +1004,7 @@ export class DeploymentCostService {
             contractAddress: input.contractAddress,
             deploymentTxHash: input.deploymentTxHash,
             deployWallet: input.deployWallet,
+            network: input.network ?? input.tonNetwork ?? null,
             createdAt
         };
 

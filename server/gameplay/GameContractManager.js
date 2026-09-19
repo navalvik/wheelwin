@@ -2328,10 +2328,33 @@ export class GameContractManager {
 
         }
 
+        const contractNetwork = String(
+            contract?.tonNetwork
+                ?? contract?.snapshot?.network
+                ?? contract?.snapshot?.paymentNetwork
+                ?? ""
+        ).trim().toLowerCase();
+
+        const networkProfile = this._deployAdapter?._tonConfig?.profiles?.[
+            contractNetwork
+        ] ?? null;
+
+        const runtimeNetwork = String(
+            this._deployAdapter?._tonConfig?.network ?? ""
+        ).trim().toLowerCase();
+
         const deployWallet = String(
-            this._deployAdapter?._tonConfig?.deployerExpectedAddress
-            ?? contract?.snapshot?.oracleWallet
-            ?? this._deployAdapter?._tonConfig?.oracleAddress
+            networkProfile?.deployerExpectedAddress
+            ?? (
+                runtimeNetwork === contractNetwork
+                    ? this._deployAdapter?._tonConfig?.deployerExpectedAddress
+                    : null
+            )
+            ?? (
+                runtimeNetwork === contractNetwork
+                    ? this._deployAdapter?._tonConfig?.oracleAddress
+                    : null
+            )
             ?? ""
         ).trim();
 
