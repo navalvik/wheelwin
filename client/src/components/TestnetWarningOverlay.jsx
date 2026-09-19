@@ -1,23 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { SHOW_TESTNET_WARNING } from "../config/features";
-import { useLanguage } from "../context/LanguageContext";
 
 import "../styles/testnetWarningOverlay.css";
 
 const FADE_MS = 280;
 
-/**
- * R6.5 — Page1 Testnet warning overlay.
- * Visible once per page mount when SHOW_TESTNET_WARNING is true.
- * Dismissed by clicking / tapping the warning card.
- */
+const NETWORK_TITLE = "⚠️ NETWORK NOTICE";
+const NETWORK_BODY =
+    "THIS PROJECT OPERATES ON TON TESTNET AND TON MAINNET.";
+const NETWORK_WALLETS_ONLY =
+    "USE THE CORRESPONDING TESTNET OR MAINNET TON WALLET.";
+const DISMISS_HINT = "Tap anywhere on this message to continue.";
+
 export default function TestnetWarningOverlay() {
 
-    const { t } = useLanguage();
-
     const [visible, setVisible] = useState(SHOW_TESTNET_WARNING);
-
     const [fading, setFading] = useState(false);
 
     useEffect(() => {
@@ -43,7 +41,6 @@ export default function TestnetWarningOverlay() {
         window.setTimeout(() => {
 
             setVisible(false);
-
             setFading(false);
 
         }, FADE_MS);
@@ -79,27 +76,19 @@ export default function TestnetWarningOverlay() {
                     id="testnet-warning-title"
                     className="testnetWarningOverlay__eyebrow"
                 >
-
-                    {t("welcome.testMode")}
-
+                    {NETWORK_TITLE}
                 </div>
 
                 <p className="testnetWarningOverlay__body">
-
-                    {t("welcome.testnetBody")}
-
+                    {NETWORK_BODY}
                 </p>
 
                 <p className="testnetWarningOverlay__body">
-
-                    {t("welcome.testnetWalletsOnly")}
-
+                    {NETWORK_WALLETS_ONLY}
                 </p>
 
                 <p className="testnetWarningOverlay__hint">
-
-                    {t("welcome.testnetDismiss")}
-
+                    {DISMISS_HINT}
                 </p>
 
             </button>
