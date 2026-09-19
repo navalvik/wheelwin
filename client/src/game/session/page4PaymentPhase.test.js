@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { isGameContractDeployed } from "./authoritativeGameContractView.js";
+import { buildEntryPaymentTransaction } from "../../payment/buildEntryPaymentTransaction.js";
 import {
     canDeployDeposit,
     canFundSeat,
@@ -826,3 +827,38 @@ test("R18-S90: Page4 sendTransaction rejection dumps original error and does not
 });
 
 
+
+test("R18-S17 C11: Mainnet Page4 entry payment targets authoritative Room Wallet", () => {
+
+    const mainnetRoomWallet = "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j";
+
+    const paymentSession = {
+        network: "mainnet",
+        roomWalletAddress: mainnetRoomWallet,
+        status: "WAITING_FOR_PAYMENTS",
+        participants: [{
+            playerId: "p1",
+            status: "AWAITING_PLAYER_CONFIRMATION",
+            playerIndex: 0,
+            requiredGram: 1,
+            contractAddress: mainnetRoomWallet
+        }]
+    };
+
+    const destination = paymentSession.roomWalletAddress;
+
+    assert.equal(destination, mainnetRoomWallet);
+
+    const tx = buildEntryPaymentTransaction({
+        gameEscrowOnly: true,
+        includeStake: true,
+        paymentDestination: destination,
+        requiredGram: paymentSession.participants[0].requiredGram,
+        nowMs: 1_000_000
+    });
+
+    assert.equal(tx.messages.length, 1);
+    assert.equal(tx.messages[0].address, mainnetRoomWallet);
+    assert.equal(tx.messages[0].amount, "1000000000");
+    assert.equal(tx.messages[0].payload, undefined);
+});
