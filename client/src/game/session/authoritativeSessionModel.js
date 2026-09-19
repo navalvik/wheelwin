@@ -534,6 +534,11 @@ export function authoritativeSessionReducer(state, action) {
             return stamp({
                 ...state,
                 gameId: payload.gameId ?? state.gameId,
+                paymentNetwork: payload.paymentNetwork
+                    ?? payload.network
+                    ?? payload.tonNetwork
+                    ?? state.paymentNetwork
+                    ?? null,
                 winner: Object.freeze({ ...payload })
             }, action.type);
 
