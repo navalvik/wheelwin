@@ -271,12 +271,12 @@ export function evaluateMainnetReadiness(input = {}) {
 
     }
 
-    // R8.1A — Mainnet must remain on v4 until an explicit launch stage enables game.
-    if (escrowModeOk && profile.gameEscrowMode !== GAME_ESCROW_MODE_V4) {
+    // Mainnet GameEscrow is the intended production payment path.
+    // v4 remains the explicit rollback mode; readiness must not reject game mode.
+    if (escrowModeOk && profile.gameEscrowMode === GAME_ESCROW_MODE_V4) {
 
         reasons.push(
-            `Mainnet escrow mode is "${profile.gameEscrowMode}" — `
-                + "R8.1A keeps mainnet on v4 (GameEscrow not production-enabled)"
+            "Mainnet escrow mode is v4 — real Mainnet GameEscrow payment flow is not enabled"
         );
 
     }
@@ -433,7 +433,7 @@ export function evaluateMainnetReadiness(input = {}) {
 
     }
 
-    const rollbackAvailable = isMainnetRollbackSafe(profile.gameEscrowMode);
+    const rollbackAvailable = isMainnetRollbackSafe(GAME_ESCROW_MODE_V4);
 
     if (!rollbackAvailable) {
 
