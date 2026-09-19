@@ -33,6 +33,8 @@ import { DepositOrchestrator } from "../deposit/DepositOrchestrator.js";
 import { GameContractManager } from "../gameplay/GameContractManager.js";
 import { PaymentSession } from "../models/PaymentSession.js";
 import { SettlementSession } from "../payment/SettlementSession.js";
+import { RoomWalletRegistry } from "../payment/roomWallet/RoomWalletRegistry.js";
+import { resolveIntendedRoomWalletAddress } from "../payment/roomWallet/RoomWalletIncomingObserver.js";
 import {
     assertAuthorizationReadyForDeploy,
     resolveAuthorizationNetwork
@@ -1390,6 +1392,52 @@ function test22_paymentSessionPublishesRoomWalletDestination() {
 
 }
 
+
+// Test 23 — explicit Mainnet payment sessions cannot resolve a Testnet Room Wallet.
+function test23_roomWalletResolutionFailsClosedAcrossNetworks() {
+
+    const registry = new RoomWalletRegistry({
+        entries: [
+            {
+                roomNumber: 7,
+                address: "EQTestnetRoomWallet",
+                network: "testnet"
+            }
+        ]
+    });
+
+    const mainnetAddress = resolveIntendedRoomWalletAddress({
+        roomNumber: 7,
+        paymentNetwork: "mainnet"
+    }, registry);
+
+    const testnetAddress = resolveIntendedRoomWalletAddress({
+        roomNumber: 7,
+        paymentNetwork: "testnet"
+    }, registry);
+
+    assert.equal(
+        mainnetAddress,
+        null,
+        "Mainnet payment must never resolve a Testnet Room Wallet"
+    );
+    assert.equal(
+        testnetAddress,
+        "EQTestnetRoomWallet",
+        "Testnet payment must resolve the matching Testnet Room Wallet"
+    );
+
+    assert(
+        registry.getForNetwork(7, "mainnet") === null,
+        "registry network lookup must fail closed for mismatched network"
+    );
+
+    console.log(
+        "Test 23 — Room Wallet resolution fails closed across networks: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1422,6 +1470,7 @@ async function main() {
     test17_settlementSessionRestartPreservesNetwork();
     test18_mainnetDeployUsesSnapshotNetwork();
     test22_paymentSessionPublishesRoomWalletDestination();
+    test23_roomWalletResolutionFailsClosedAcrossNetworks();
 
     console.log("all assertions passed");
 
