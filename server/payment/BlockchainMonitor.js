@@ -2429,11 +2429,13 @@ export class BlockchainMonitor {
 
             let contractStatus = watch.contractStatus;
 
-            if (contractStatus == null && this._tonService?.runGetMethod) {
+            const networkService = this._registryServiceFor(watch);
+
+            if (contractStatus == null && (networkService?.runGetMethod || this._tonService?.runGetMethod)) {
 
                 try {
 
-                    const stack = await this._tonService.runGetMethod(
+                    const stack = await (networkService ?? this._tonService).runGetMethod(
                         watch.escrowAddress,
                         "get_status"
                     );
