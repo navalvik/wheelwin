@@ -130,28 +130,6 @@ function resolvePage4LocalPlayerId({
 
     }
 
-    // TonConnect SDK state is not guaranteed to be exposed on every
-    // Telegram WebView render. The authoritative server wallet/session
-    // payload is sufficient to resolve the local seat.
-    const authoritativeConnectionSeat = Array.isArray(walletConnection?.players)
-        ? walletConnection.players.find(
-            (player) => (
-                player?.status === WALLET_CONNECTION_STATUS.CONNECTED
-                || player?.status === "CONNECTED"
-            )
-            && Boolean(
-                player?.connectedWallet
-                || player?.sessionWallet
-            )
-        )
-        : null;
-
-    if (authoritativeConnectionSeat?.playerId) {
-
-        return authoritativeConnectionSeat.playerId;
-
-    }
-
     return null;
 
 }
@@ -879,7 +857,8 @@ export default function Page4Payment({ onNavigate }) {
         identityPlayerId: identity.playerId ?? null,
         players: authoritative.players,
         verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted),
-        walletAddress: resolveTonConnectSdkAddress(tonConnectUI, tonWallet),
+        walletAddress: lastWalletProofEmitRef.current
+            ?? resolveTonConnectSdkAddress(tonConnectUI, tonWallet),
         paymentSession: authoritative?.paymentSession ?? null,
         walletConnection: authoritative?.walletConnection ?? null
     });
