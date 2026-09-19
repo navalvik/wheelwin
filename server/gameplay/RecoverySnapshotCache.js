@@ -274,6 +274,12 @@ export class RecoverySnapshotCache {
 
         entry.payment = this._paymentEngine?.getPayment(gameId) ?? entry.payment;
 
+        entry.paymentNetwork = entry.payment?.paymentNetwork
+            ?? entry.payment?.network
+            ?? entry.payment?.tonNetwork
+            ?? entry.paymentNetwork
+            ?? null;
+
         this._logStep(`Payment status refreshed for ${gameId}`);
 
     }
@@ -306,6 +312,10 @@ export class RecoverySnapshotCache {
                 snapshot,
                 payment: this._paymentEngine?.getPayment(gameId) ?? null,
                 paymentStatus: this._resolvePaymentStatus(gameId),
+                paymentNetwork: this._paymentEngine?.getPayment(gameId)?.paymentNetwork
+                    ?? this._paymentEngine?.getPayment(gameId)?.network
+                    ?? this._paymentEngine?.getPayment(gameId)?.tonNetwork
+                    ?? null,
                 auditStatus: this._resolveAuditStatus(gameId),
                 // Preserve Page6 stamp across late RESULT re-captures.
                 page6Opened: previous?.page6Opened === true,
