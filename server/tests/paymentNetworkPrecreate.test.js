@@ -1654,3 +1654,29 @@ main().catch((error) => {
 
 
 
+
+test("R18-S17 C12: payment completion event carries immutable contract network", () => {
+
+    const source = readFileSync(
+        join(__dirname, "../gameplay/GameContractManager.js"),
+        "utf8"
+    );
+
+    assert.match(
+        source,
+        /GAME_CONTRACT_PAYMENTS_COMPLETE,\s*\{[\s\S]*paymentNetwork:\s*contract\.tonNetwork/
+    );
+    assert.match(
+        source,
+        /tonNetwork:\s*contract\.tonNetwork/
+    );
+    assert.match(
+        source,
+        /contract\.snapshot\?\.network/
+    );
+
+    console.log(
+        "Test 28 — Game Contract payment completion network propagation: passed"
+    );
+
+});
