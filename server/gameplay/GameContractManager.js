@@ -794,6 +794,17 @@ export class GameContractManager {
             contractId: contract.contractId,
             paymentsCompletedAt: contract.paymentsCompletedAt,
             correlationId: contract.correlationId,
+            // R18-S17 C12 — propagate the immutable contract payment network
+            // with the lifecycle event; consumers must not rediscover it from
+            // the current runtime TON network.
+            paymentNetwork: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
+            tonNetwork: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
             timestamp: Date.now()
         });
 
