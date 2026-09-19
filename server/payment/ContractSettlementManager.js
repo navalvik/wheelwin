@@ -1969,23 +1969,37 @@ export class ContractSettlementManager {
 
         }
 
-        const request = this._withAuthoritativeRoomNumber(
-            session.request ?? Object.freeze({
-            gameId: ctx.gameId,
-            contractId: contract.contractId,
-            contractAddress: contract.contractAddress,
-            winnerId: ctx.winnerId,
-            winnerWallet,
-            ownerWallet,
-            winnerAmount,
-            organizerAmount,
-            totalPot: ctx.totalPot,
-            traceSeed: ctx.traceSeed,
-            timestamp: startedAt,
+        // R18-S17 A4 — persist the authoritative payment network explicitly
+        // on the settlement handoff. This survives restart and gives the
+        // adapter an immutable room-specific routing hint alongside snapshot.
+
+        const persistedRequest = {
+            ...(session.request ?? {}),
+            gameId: session.request?.gameId ?? ctx.gameId,
+            contractId: session.request?.contractId ?? contract.contractId,
+            contractAddress: session.request?.contractAddress ?? contract.contractAddress,
+            winnerId: session.request?.winnerId ?? ctx.winnerId,
+            winnerWallet: session.request?.winnerWallet ?? winnerWallet,
+            ownerWallet: session.request?.ownerWallet ?? ownerWallet,
+            winnerAmount: session.request?.winnerAmount ?? winnerAmount,
+            organizerAmount: session.request?.organizerAmount ?? organizerAmount,
+            totalPot: session.request?.totalPot ?? ctx.totalPot,
+            traceSeed: session.request?.traceSeed ?? ctx.traceSeed,
+            timestamp: session.request?.timestamp ?? startedAt,
             snapshot: contract.snapshot,
             snapshotHash: contract.snapshotHash ?? null,
-            gameEscrowMode: this._resolveEscrowMode(contract)
-        })
+            paymentNetwork: session.request?.paymentNetwork
+                ?? contract.snapshot?.network
+                ?? contract.tonNetwork
+                ?? null,
+            gameEscrowMode: this._resolveEscrowMode(
+                contract,
+                session.request
+            )
+        };
+
+        const request = this._withAuthoritativeRoomNumber(
+            persistedRequest
         );
 
         session.request = request;
