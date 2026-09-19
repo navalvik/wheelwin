@@ -864,7 +864,10 @@ export function authoritativeSessionReducer(state, action) {
                 paymentSession: Object.freeze({
                     paymentSessionId: record.paymentSessionId ?? null,
                     roomId: record.roomId ?? null,
+                    roomNumber: record.roomNumber ?? null,
                     gameId: record.gameId ?? null,
+                    network: record.network ?? null,
+                    roomWalletAddress: record.roomWalletAddress ?? null,
                     createdAt: record.createdAt ?? null,
                     expiresAt: record.expiresAt ?? null,
                     completedAt: record.completedAt ?? null,
