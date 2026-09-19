@@ -31,6 +31,8 @@ import { LOBBY_SERVER_EVENTS } from "../socket/lobbyProtocol.js";
 import { RoomLobbyBridge } from "../socket/RoomLobbyBridge.js";
 import { DepositOrchestrator } from "../deposit/DepositOrchestrator.js";
 import { GameContractManager } from "../gameplay/GameContractManager.js";
+import { PaymentSession } from "../models/PaymentSession.js";
+import { SettlementSession } from "../payment/SettlementSession.js";
 import {
     assertAuthorizationReadyForDeploy,
     resolveAuthorizationNetwork
@@ -920,6 +922,156 @@ function test12_settlementHandoffCarriesPaymentNetwork() {
 
 }
 
+// Test 16 — PaymentSession restart recovery preserves Mainnet network.
+function test16_paymentSessionRestartPreservesNetwork() {
+
+    const restored = PaymentSession.fromRecord({
+        recordId: "pay-mainnet-recovered",
+        tonNetwork: "mainnet",
+        payload: {
+            paymentSessionId: "pay-mainnet-recovered",
+            roomId: "room-mainnet",
+            gameId: "game-mainnet",
+            network: "mainnet",
+            status: "WAITING_FOR_PAYMENTS",
+            participants: []
+        }
+    });
+
+    assert.equal(
+        restored.network,
+        "mainnet",
+        "PaymentSession restore must preserve the persisted Mainnet network"
+    );
+
+    const legacyRecord = PaymentSession.fromRecord({
+        recordId: "pay-mainnet-legacy",
+        tonNetwork: "mainnet",
+        payload: {
+            paymentSessionId: "pay-mainnet-legacy",
+            roomId: "room-mainnet",
+            gameId: "game-mainnet",
+            status: "WAITING_FOR_PAYMENTS",
+            participants: []
+        }
+    });
+
+    assert.equal(
+        legacyRecord.network,
+        "mainnet",
+        "legacy PaymentSession records must recover network from tonNetwork"
+    );
+
+    console.log(
+        "Test 16 — PaymentSession restart preserves network: passed"
+    );
+
+}
+
+// Test 17 — SettlementSession restart recovery preserves network from all durable sources.
+function test17_settlementSessionRestartPreservesNetwork() {
+
+    const fromPayload = SettlementSession.fromRecord({
+        payload: {
+            settlementSessionId: "settle-mainnet-1",
+            gameId: "game-mainnet",
+            roomId: "room-mainnet",
+            network: "mainnet",
+            request: {
+                paymentNetwork: "mainnet"
+            }
+        }
+    });
+
+    assert.equal(
+        fromPayload.network,
+        "mainnet",
+        "SettlementSession restore must preserve payload.network"
+    );
+
+    const fromRequest = SettlementSession.fromRecord({
+        payload: {
+            settlementSessionId: "settle-mainnet-2",
+            gameId: "game-mainnet",
+            roomId: "room-mainnet",
+            request: {
+                paymentNetwork: "mainnet"
+            }
+        }
+    });
+
+    assert.equal(
+        fromRequest.network,
+        "mainnet",
+        "SettlementSession restore must recover Mainnet from persisted request.paymentNetwork"
+    );
+
+    const fromSnapshot = SettlementSession.fromRecord({
+        payload: {
+            settlementSessionId: "settle-mainnet-3",
+            gameId: "game-mainnet",
+            roomId: "room-mainnet",
+            request: {
+                snapshot: {
+                    network: "mainnet"
+                }
+            }
+        }
+    });
+
+    assert.equal(
+        fromSnapshot.network,
+        "mainnet",
+        "SettlementSession restore must recover Mainnet from the authoritative snapshot"
+    );
+
+    console.log(
+        "Test 17 — SettlementSession restart preserves network: passed"
+    );
+
+}
+
+// Test 18 — Mainnet deployment configuration is selected from the snapshot network,
+// even when the process-level runtime network remains Testnet.
+function test18_mainnetDeployUsesSnapshotNetwork() {
+
+    const adapterSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "payment/TonGameContractAdapter.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        adapterSource.includes(
+            "const paymentNetwork = snapshot?.network"
+        ),
+        "deployment must derive paymentNetwork from the authoritative snapshot"
+    );
+    assert(
+        adapterSource.includes(
+            "const tonConfig = this._tonConfigForNetwork(paymentNetwork);"
+        ),
+        "deployment must resolve TON config by payment network"
+    );
+    assert(
+        adapterSource.includes(
+            "this._sendOracleMessage({"
+        )
+            && adapterSource.includes(
+                "paymentNetwork\n        });"
+            ),
+        "deployment broadcast must carry the selected paymentNetwork"
+    );
+
+    console.log(
+        "Test 18 — Mainnet deploy uses snapshot network: passed"
+    );
+
+}
+
 // Test 15 — deployment authorization retains the authoritative Mainnet network.
 function test15_deploymentAuthorizationNetworkIsAuthoritative() {
 
@@ -1098,6 +1250,9 @@ async function main() {
     test13_blockchainCheckpointRetainsPaymentNetwork();
     test14_adapterSettlementAndCancelUsePaymentNetwork();
     test15_deploymentAuthorizationNetworkIsAuthoritative();
+    test16_paymentSessionRestartPreservesNetwork();
+    test17_settlementSessionRestartPreservesNetwork();
+    test18_mainnetDeployUsesSnapshotNetwork();
 
     console.log("all assertions passed");
 
