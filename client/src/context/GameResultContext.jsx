@@ -151,6 +151,10 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
             publishPaymentStatus({
                 gameId: snapshot.gameId ?? null,
                 status: snapshot.payment.status,
+                paymentNetwork: snapshot.payment.paymentNetwork
+                    ?? snapshot.payment.network
+                    ?? snapshot.payment.tonNetwork
+                    ?? null,
                 winnerId: snapshot.gameResult?.winner?.id ?? null,
                 winnerAmount: snapshot.payment.winnerAmount ?? null,
                 reason: snapshot.payment.reason ?? null,
