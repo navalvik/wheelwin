@@ -76,24 +76,13 @@ function resolvePage4LocalPlayerId({
     players = {},
     verifyCompleted = false,
     walletAddress = null,
-    paymentSession = null,
-    walletConnection = null
+    paymentSession = null
 } = {}) {
-
-    const resolved = resolveLocalPlayerId(
-        identityPlayerId,
-        players,
-        { verifyCompleted }
-    );
-
-    if (resolved) {
-
-        return resolved;
-
-    }
 
     const normalizedWallet = toSessionWalletAddress(walletAddress);
 
+    // Page4 must prefer the authoritative PaymentSession wallet binding.
+    // PlayerIdentity can be stale after VERIFY/Telegram WebView restoration.
     if (normalizedWallet) {
 
         const paymentSeat = Array.isArray(paymentSession?.participants)
@@ -113,30 +102,44 @@ function resolvePage4LocalPlayerId({
 
         }
 
-        const connectionSeat = Array.isArray(walletConnection?.players)
-            ? walletConnection.players.find(
-                (player) => (
-                    toSessionWalletAddress(
-                        player?.walletAddress
-                            ?? player?.wallet
-                            ?? player?.connectedWallet
-                            ?? player?.sessionWallet
-                            ?? null
-                    ) === normalizedWallet
-                )
-            )
-            : null;
+    }
 
-        if (connectionSeat?.playerId) {
+    const resolved = resolveLocalPlayerId(
+        identityPlayerId,
+        players,
+        { verifyCompleted }
+    );
 
-            return connectionSeat.playerId;
+    if (resolved) {
+
+        return resolved;
+
+    }
+
+    // Final authoritative fallback: match the connected wallet against
+    // the server's player wallet fields.
+    if (normalizedWallet) {
+
+        const playerSeat = Object.values(players ?? {}).find(
+            (player) => {
+                const playerWallet = toSessionWalletAddress(
+                    player?.walletAddress
+                        ?? player?.wallet
+                        ?? null
+                );
+
+                return Boolean(playerWallet)
+                    && playerWallet === normalizedWallet;
+            }
+        );
+
+        if (playerSeat?.playerId) {
+
+            return playerSeat.playerId;
 
         }
 
     }
-
-    // Do not guess a seat when wallet matching failed.
-    // Page4 payment must remain bound to an exact authoritative wallet.
 
     return null;
 
@@ -867,8 +870,7 @@ export default function Page4Payment({ onNavigate }) {
             verifyCompleted: Boolean(lifecycle?.verifyCompleted),
             walletAddress: lastWalletProofEmitRef.current
                 ?? resolveTonConnectSdkAddress(tonConnectUI, tonWallet),
-            paymentSession: authoritative?.paymentSession ?? null,
-            walletConnection: authoritative?.walletConnection ?? null
+            paymentSession: authoritative?.paymentSession ?? null
         });
         const paymentRequest = getLocalPaymentRequest(paymentSession, localPlayerId);
         const roomWalletDestination = resolvePlayerPaymentDestination({
@@ -1249,8 +1251,7 @@ export default function Page4Payment({ onNavigate }) {
         verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted),
         walletAddress: lastWalletProofEmitRef.current
             ?? resolveTonConnectSdkAddress(tonConnectUI, tonWallet),
-        paymentSession: authoritative?.paymentSession ?? null,
-        walletConnection: authoritative?.walletConnection ?? null
+        paymentSession: authoritative?.paymentSession ?? null
     });
 
     const paymentPhase = resolvePage4PaymentPhase({
