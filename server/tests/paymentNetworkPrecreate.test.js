@@ -1620,6 +1620,58 @@ test("R18-S17 C13: settlement handoff persists contract payment network", () => 
 
 
 
+test("R18-S17 C14: settlement adapter keeps explicit payment network through broadcast and confirmation", () => {
+
+    const source = readFileSync(
+        join(__dirname, "../payment/TonGameContractAdapter.js"),
+        "utf8"
+    );
+
+    assert.match(
+        source,
+        /const paymentNetwork = settlementRequest\?\.paymentNetwork\s*\n\s*\?\? settlementRequest\?\.network/
+    );
+    assert.match(
+        source,
+        /_tonConfigForNetwork\(paymentNetwork\)/
+    );
+    assert.match(
+        source,
+        /_canBroadcast\(paymentNetwork\)/
+    );
+    assert.match(
+        source,
+        /_broadcastSettle\(settlementRequest, paymentNetwork\)/
+    );
+    assert.match(
+        source,
+        /operation:\s*"SETTLE"[\s\S]*paymentNetwork/
+    );
+    assert.match(
+        source,
+        /_service\(paymentNetwork\)\.broadcastTransaction/
+    );
+    assert.match(
+        source,
+        /_waitForDeployerSeqnoAdvance\([\s\S]*paymentNetwork/
+    );
+    assert.match(
+        source,
+        /_lookupDeployerAccountTxHash\([\s\S]*paymentNetwork/
+    );
+    assert.match(
+        source,
+        /_parseAddress\(contractAddress, paymentNetwork\)/
+    );
+
+    console.log(
+        "Test 30 — Settlement adapter preserves payment network through broadcast/confirmation: passed"
+    );
+
+});
+
+
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
