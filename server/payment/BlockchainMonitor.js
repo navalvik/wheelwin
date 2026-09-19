@@ -2253,6 +2253,7 @@ export class BlockchainMonitor {
                 escrowAddress: watch.escrowAddress,
                 settleTxHash: watch.settleTxHash,
                 reason: "observation_timeout",
+                network: watch.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: watch.correlationId
             });
@@ -2339,6 +2340,7 @@ export class BlockchainMonitor {
                             winnerPayoutTx: result.winnerPayoutTx,
                             ownerPayoutTx: result.ownerPayoutTx,
                             reason: result.reason,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId
                         },
@@ -2369,6 +2371,7 @@ export class BlockchainMonitor {
                     ownerPayoutTx: result.ownerPayoutTx,
                     winnerAddress: watch.winnerAddress,
                     ownerAddress: watch.ownerAddress,
+                    network: watch.paymentNetwork ?? this._network,
                     timestamp: this._now(),
                     correlationId: watch.correlationId
                 },
@@ -2417,6 +2420,7 @@ export class BlockchainMonitor {
                 escrowAddress: watch.escrowAddress,
                 cancelTxHash: watch.cancelTxHash,
                 reason: "observation_timeout",
+                network: watch.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: watch.correlationId
             });
@@ -2429,7 +2433,7 @@ export class BlockchainMonitor {
 
             const transactions = await this._fetchTransactions(watch.escrowAddress, {
                 limit: 40
-            });
+            }, watch);
 
             let contractStatus = watch.contractStatus;
 
@@ -2528,6 +2532,7 @@ export class BlockchainMonitor {
                             refundTxs: result.refundTxs,
                             confirmedMask: result.confirmedMask,
                             reason: result.reason,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId
                         },
@@ -2555,6 +2560,7 @@ export class BlockchainMonitor {
                     escrowAddress: watch.escrowAddress,
                     cancelTxHash: result.cancelTxHash,
                     refundMask: result.confirmedMask,
+                    network: watch.paymentNetwork ?? this._network,
                     timestamp: this._now(),
                     correlationId: watch.correlationId
                 },
