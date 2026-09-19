@@ -1,7 +1,7 @@
 /**
  * R18-S16 — Page4 payment-phase coordinator (pure).
- * One wallet action covers Deposit deploy (creator), FundSeat, and GameEscrow STAKE.
- * Does not invent funding, activation, or Page5 navigation.
+ * Game Escrow (`escrowMode=game`): STAKE only, equal for all players.
+ * Legacy v4 / Deposit path: creator deploy + FundSeat + STAKE.
  */
 
 import {
@@ -27,6 +27,214 @@ export const DEPOSIT_ACTIVATION_VERIFIED_STATUSES = Object.freeze([
     "VERIFIED",
     "ALREADY_VERIFIED"
 ]);
+
+function hasLegacyDepositPackage(deposit = null) {
+
+    if (!deposit || typeof deposit !== "object") {
+
+        return false;
+
+    }
+
+    const depositId = String(deposit.depositId ?? "").trim();
+    const depositAddress = String(deposit.depositAddress ?? "").trim();
+    const pkg = deposit.package && typeof deposit.package === "object"
+        ? deposit.package
+        : null;
+    const hasStateInit = Boolean(
+        pkg?.stateInit?.codeBoc
+        || pkg?.stateInit?.dataBoc
+        || pkg?.stateInitBocB64
+        || pkg?.codeBocB64
+        || pkg?.dataBocB64
+    );
+    const deployValue = Number(pkg?.deployValueNanotons);
+
+    return Boolean(depositId)
+        || Boolean(depositAddress)
+        || hasStateInit
+        || (Number.isFinite(deployValue) && deployValue > 0);
+
+}
+
+function paymentSessionGameEscrowTarget(paymentSession = null) {
+
+    const participants = Array.isArray(paymentSession?.participants)
+        ? paymentSession.participants
+        : [];
+
+    for (const participant of participants) {
+
+        const address = String(participant?.contractAddress ?? "").trim();
+        const required = Number(participant?.requiredGram);
+
+        if (address && Number.isFinite(required) && required > 0) {
+
+            return address;
+
+        }
+
+    }
+
+    return "";
+
+}
+
+export function resolvePlayerPaymentDestination({
+    paymentSession = null,
+    localPlayerId = null
+} = {}) {
+
+    const sessionAddress = String(paymentSession?.roomWalletAddress ?? "").trim();
+
+    if (sessionAddress) {
+
+        return sessionAddress;
+
+    }
+
+    const seat = Array.isArray(paymentSession?.participants)
+        ? paymentSession.participants.find(
+            (participant) => String(participant?.playerId) === String(localPlayerId)
+        )
+        : null;
+
+    const seatAddress = String(seat?.contractAddress ?? "").trim();
+
+    if (seatAddress) {
+
+        return seatAddress;
+
+    }
+
+    return paymentSessionGameEscrowTarget(paymentSession) || null;
+
+}
+
+function depositOwnedByCurrentSession(deposit, context = null, gameContract = null) {
+
+    if (!deposit) {
+
+        return null;
+
+    }
+
+    const roomId = context?.roomId
+        ?? context?.paymentSession?.roomId
+        ?? gameContract?.roomId
+        ?? null;
+    const gameId = context?.gameId
+        ?? context?.paymentSession?.gameId
+        ?? gameContract?.gameId
+        ?? null;
+
+    if (
+        deposit.roomId
+        && roomId
+        && String(deposit.roomId) !== String(roomId)
+    ) {
+
+        return null;
+
+    }
+
+    if (
+        deposit.gameId
+        && gameId
+        && String(deposit.gameId) !== String(gameId)
+    ) {
+
+        return null;
+
+    }
+
+    return deposit;
+
+}
+
+/**
+ * Game-Escrow-only player payment (`GAME_ESCROW_MODE=game`).
+ * Prefer explicit `escrowMode`, then infer from server payment state when
+ * Production clients never received `escrowMode` on the contract mirror.
+ * Do not infer while a real Deposit package is present (legacy `v4`).
+ * Ignore leftover Deposit from a previous room/game.
+ */
+export function isGameEscrowOnlyPlayerPayment(gameContract = null, context = null) {
+
+    const mode = String(gameContract?.escrowMode ?? "").trim().toLowerCase();
+
+    if (mode === "game") {
+
+        return true;
+
+    }
+
+    if (mode === "v4") {
+
+        return false;
+
+    }
+
+    const deposit = depositOwnedByCurrentSession(
+        context?.deposit ?? null,
+        context,
+        gameContract
+    );
+    const paymentSession = context?.paymentSession ?? null;
+    const paymentTarget = String(paymentSession?.roomWalletAddress ?? "").trim()
+        || paymentSessionGameEscrowTarget(paymentSession);
+
+    if (hasLegacyDepositPackage(deposit)) {
+
+        return false;
+
+    }
+
+    if (paymentTarget) {
+
+        return true;
+
+    }
+
+    return isGameContractDeployed(gameContract);
+
+}
+
+export function shouldShowWaitingCreatorDeposit({
+    paymentPhase = null,
+    gameContract = null,
+    deposit = null,
+    paymentSession = null
+} = {}) {
+
+    if (paymentPhase !== PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
+
+        return false;
+
+    }
+
+    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
+
+        return false;
+
+    }
+
+    const ownedDeposit = depositOwnedByCurrentSession(deposit, {
+        deposit,
+        paymentSession,
+        roomId: gameContract?.roomId,
+        gameId: gameContract?.gameId
+    }, gameContract);
+
+    if (!hasLegacyDepositPackage(ownedDeposit)) {
+
+        return false;
+
+    }
+
+    return ownedDeposit?.isCreator !== true;
+
+}
 
 export function isDepositActivationVerified(deposit = null, lifecycle = null) {
 
@@ -114,8 +322,13 @@ export function canStakeGameEscrow({
     localPlayerId = null
 } = {}) {
 
+    void gameContract;
+
     return canConfirmLocalPayment(paymentSession, localPlayerId)
-        && isGameContractDeployed(gameContract);
+        && Boolean(resolvePlayerPaymentDestination({
+            paymentSession,
+            localPlayerId
+        }));
 
 }
 
@@ -173,6 +386,20 @@ export function resolveEntryPaymentComponents({
     lifecycle = null
 } = {}) {
 
+    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
+
+        return Object.freeze({
+            includeDeploy: false,
+            includeFund: false,
+            includeStake: canStakeGameEscrow({
+                paymentSession,
+                gameContract,
+                localPlayerId
+            })
+        });
+
+    }
+
     const includeDeploy = canDeployDeposit(deposit, lifecycle);
     const includeFund = canIncludeFundSeatInEntry(deposit, lifecycle);
     const includeStake = canStakeGameEscrow({
@@ -196,6 +423,16 @@ export function canSubmitEntryPayment({
     localPlayerId = null,
     lifecycle = null
 } = {}) {
+
+    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
+
+        return canStakeGameEscrow({
+            paymentSession,
+            gameContract,
+            localPlayerId
+        });
+
+    }
 
     if (!isGameContractDeployed(gameContract)) {
 
@@ -240,8 +477,9 @@ export function canSubmitEntryPayment({
 }
 
 /**
- * PAYMENT_CONNECTION_READY must not select GAMEESCROW_STAKE / ENTRY_PAYMENT.
- * One-wallet entry only after GameEscrow is deployed and OPEN for STAKE.
+ * PAYMENT_CONNECTION_READY must not select GAMEESCROW_STAKE / ENTRY_PAYMENT
+ * on the legacy Deposit path. Game Escrow-only waits for server deploy, then
+ * every player with a STAKE obligation gets the same payment action.
  */
 export function resolvePage4PaymentPhase({
     deposit = null,
@@ -255,6 +493,37 @@ export function resolvePage4PaymentPhase({
     if (paymentSession?.status === "COMPLETED") {
 
         return PAGE4_PAYMENT_PHASE.WAITING_PAGE5;
+
+    }
+
+    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
+
+        if (canSubmitEntryPayment({
+            deposit,
+            paymentSession,
+            gameContract,
+            localPlayerId,
+            lifecycle
+        })) {
+
+            return PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
+
+        }
+
+        if (
+            Boolean(resolvePlayerPaymentDestination({
+                paymentSession,
+                localPlayerId
+            }))
+            || hasPaymentSession(paymentSession)
+            || paymentConnectionReady
+        ) {
+
+            return PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE;
+
+        }
+
+        return PAGE4_PAYMENT_PHASE.WALLET;
 
     }
 
