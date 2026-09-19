@@ -14,6 +14,7 @@ import { RoomWalletSettlementAdapter } from "./RoomWalletSettlementAdapter.js";
 
 export function createRoomWalletService({
     tonService,
+    tonNetworkServiceRegistry = null,
     logger = null,
     env = process.env,
     gasReserveNano = undefined
@@ -26,6 +27,7 @@ export function createRoomWalletService({
     const walletResolver = createRoomWalletRuntimeResolver({ env, registry });
     const roomWalletAdapter = new RoomWalletAdapter({
         tonService,
+        tonNetworkServiceRegistry,
         walletResolver,
         logger,
         ...(gasReserveNano === undefined ? {} : { gasReserveNano })
