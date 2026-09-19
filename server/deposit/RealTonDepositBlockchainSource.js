@@ -820,7 +820,11 @@ export class RealTonDepositBlockchainSource {
         const credited2 = await this._runIntGetter(friendly, "get_credited_amount2", resolved);
         const surplusNano = await this._runIntGetter(friendly, "get_surplus_nano", resolved);
         const expiresAt = await this._runIntGetter(friendly, "get_expires_at", resolved);
-        const networkTag = await this._runIntGetter(friendly, "get_network_tag", resolved); version,
+        const networkTag = await this._runIntGetter(friendly, "get_network_tag", resolved);
+
+        return Object.freeze({
+            address: friendly,
+            contractVersion: version,
             depositIdHash,
             roomIdHash,
             gameIdHash,
