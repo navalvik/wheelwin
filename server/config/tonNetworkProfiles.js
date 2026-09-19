@@ -182,8 +182,9 @@ export function loadTestnetTonProfile(env = process.env) {
 }
 
 /**
- * Mainnet profile for readiness / dry-run / future launch.
- * Escrow mode defaults to v4 — R8.1A does NOT enable GameEscrow on mainnet.
+ * Mainnet profile for readiness and payment-network routing.
+ * Escrow mode defaults to GameEscrow; Mainnet gameplay is still controlled
+ * by the authoritative room/payment flow and is not enabled by this profile alone.
  *
  * Mainnet fields use dedicated TON_MAINNET_* keys only (no cross-network fallback).
  *
