@@ -2016,6 +2016,49 @@ function test38_paymentStatusViewPreservesNetwork() {
 
 }
 
+
+// Test 39 — Final Page6 boundary: presentation must not derive payment network
+// from client runtime configuration or wallet-chain state.
+function test39_page6PresentationDoesNotReDeriveNetwork() {
+
+    const page6Source = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "..",
+            "client/src/pages/Page6Result.jsx"
+        ),
+        "utf8"
+    );
+
+    const resultContextSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "..",
+            "client/src/context/GameResultContext.jsx"
+        ),
+        "utf8"
+    );
+
+    assert(
+        !page6Source.includes("TON_NETWORK")
+            && !page6Source.includes("TonConnect")
+            && !page6Source.includes("wallet.chain"),
+        "Page6 must not derive payment network from runtime or wallet-chain state"
+    );
+
+    assert(
+        resultContextSource.includes("paymentNetwork"),
+        "GameResultContext recovery path must retain authoritative payment network"
+    );
+
+    console.log(
+        "Test 39 — Page6 presentation does not re-derive payment network: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -2061,6 +2104,7 @@ async function main() {
     test36_page6PaymentNetworkPropagation();
     test37_resultRecoveryNetworkPropagation();
     test38_paymentStatusViewPreservesNetwork();
+    test39_page6PresentationDoesNotReDeriveNetwork();
 
     console.log("all assertions passed");
 
