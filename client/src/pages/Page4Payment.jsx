@@ -99,7 +99,11 @@ function resolvePage4LocalPlayerId({
         const paymentSeat = Array.isArray(paymentSession?.participants)
             ? paymentSession.participants.find(
                 (participant) =>
-                    toSessionWalletAddress(participant?.wallet) === normalizedWallet
+                    toSessionWalletAddress(
+                        participant?.walletAddress
+                            ?? participant?.wallet
+                            ?? null
+                    ) === normalizedWallet
             )
             : null;
 
@@ -113,7 +117,11 @@ function resolvePage4LocalPlayerId({
             ? walletConnection.players.find(
                 (player) => (
                     toSessionWalletAddress(
-                        player?.connectedWallet ?? player?.sessionWallet
+                        player?.walletAddress
+                            ?? player?.wallet
+                            ?? player?.connectedWallet
+                            ?? player?.sessionWallet
+                            ?? null
                     ) === normalizedWallet
                 )
             )
@@ -127,24 +135,8 @@ function resolvePage4LocalPlayerId({
 
     }
 
-    const authoritativeConnectionSeat = Array.isArray(walletConnection?.players)
-        ? walletConnection.players.find(
-            (player) => (
-                player?.status === WALLET_CONNECTION_STATUS.CONNECTED
-                || player?.status === "CONNECTED"
-            )
-            && Boolean(
-                player?.connectedWallet
-                || player?.sessionWallet
-            )
-        )
-        : null;
-
-    if (authoritativeConnectionSeat?.playerId) {
-
-        return authoritativeConnectionSeat.playerId;
-
-    }
+    // Do not guess a seat when wallet matching failed.
+    // Page4 payment must remain bound to an exact authoritative wallet.
 
     return null;
 
