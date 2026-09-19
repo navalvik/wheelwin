@@ -1596,6 +1596,30 @@ function test26_roomWalletRecoveryNetworkRoutingSourceContract() {
 
 }
 
+test("R18-S17 C13: settlement handoff persists contract payment network", () => {
+
+    const source = readFileSync(
+        join(__dirname, "../payment/ContractSettlementManager.js"),
+        "utf8"
+    );
+
+    assert.match(
+        source,
+        /paymentNetwork:\s*contract\.tonNetwork\s*[\s\S]*contract\.snapshot\?\.network/
+    );
+    assert.match(
+        source,
+        /network:\s*contract\.tonNetwork\s*[\s\S]*contract\.snapshot\?\.network\s*[\s\S]*contract\.snapshot\?\.paymentNetwork\s*[\s\S]*null/
+    );
+
+    console.log(
+        "Test 29 — Settlement handoff persists contract payment network: passed"
+    );
+
+});
+
+
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
