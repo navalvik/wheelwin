@@ -1943,6 +1943,50 @@ function test36_page6PaymentNetworkPropagation() {
 
 }
 
+
+// Test 37 — Recovery cache and authoritative session retain payment network
+// through RESULT → Page6 recovery.
+function test37_resultRecoveryNetworkPropagation() {
+
+    const cacheSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "gameplay/RecoverySnapshotCache.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        cacheSource.includes("paymentNetwork:")
+            && cacheSource.includes("payment?.paymentNetwork")
+            && cacheSource.includes("payment?.tonNetwork"),
+        "RecoverySnapshotCache must retain the authoritative payment network"
+    );
+
+    const sessionSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "..",
+            "client/src/game/session/authoritativeSessionModel.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        sessionSource.includes("paymentNetwork: payload.paymentNetwork")
+            && sessionSource.includes("payload.payment?.paymentNetwork")
+            && sessionSource.includes("payload.gameContract?.tonNetwork"),
+        "authoritative result session must preserve payment network during recovery"
+    );
+
+    console.log(
+        "Test 37 — Result recovery network propagation: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1986,6 +2030,7 @@ async function main() {
     test34_gameContractLifecycleNetworkPropagation();
     test35_archivedContractNetworkPersistence();
     test36_page6PaymentNetworkPropagation();
+    test37_resultRecoveryNetworkPropagation();
 
     console.log("all assertions passed");
 
