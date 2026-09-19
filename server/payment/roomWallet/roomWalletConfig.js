@@ -39,8 +39,14 @@ export function isRoomWalletOnlyFinancialPath({
     env = process.env,
     gameEscrowMode = null
 } = {}) {
-    return isGameEscrowOnlyPlayerPayment(gameEscrowMode)
-        || isRoomWalletPaymentIntakeEnabled(env);
+    void gameEscrowMode;
+
+    // GameEscrow mode is NOT a Room Wallet-only financial path.
+    // When GAME_ESCROW_MODE=game, GameContractManager MUST deploy GameEscrow
+    // and Page4 must wait for its contract address before exposing STAKE.
+    // Only explicit ROOM_WALLET payment intake is allowed to activate the
+    // legacy Room Wallet-only path.
+    return isRoomWalletPaymentIntakeEnabled(env);
 }
 
 /**
