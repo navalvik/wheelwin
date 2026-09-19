@@ -95,7 +95,7 @@ for (const candidate of [
 
 async function probeWallet(profile) {
 
-    const mnemonic = process.env.TON_MAINNET_DEPLOYER_MNEMONIC?.trim() || null;
+    const mnemonic = process.env.TON_DEPLOYER_MNEMONIC?.trim() || null;
 
     if (!mnemonic) {
 
@@ -130,7 +130,7 @@ async function probeWallet(profile) {
         tonConfig: {
             network: "mainnet",
             endpoint: profile.endpoint,
-            apiKey: process.env.TON_MAINNET_API_KEY?.trim() || process.env.TON_API_KEY || null,
+            apiKey: process.env.TON_API_KEY || null,
             pollIntervalMs: 2000,
             deployMode: "stub",
             gameEscrowMode: profile.gameEscrowMode
@@ -204,7 +204,7 @@ async function main() {
 
     const profile = loadMainnetTonProfile(process.env);
     const wallet = await probeWallet(profile);
-    const requireLiveWallet = Boolean(process.env.TON_MAINNET_DEPLOYER_MNEMONIC?.trim());
+    const requireLiveWallet = Boolean(process.env.TON_DEPLOYER_MNEMONIC?.trim());
 
     const readiness = evaluateMainnetReadiness({
         env: process.env,
