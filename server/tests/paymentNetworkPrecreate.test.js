@@ -1521,6 +1521,33 @@ async function test25_roomWalletAdapterUsesPaymentNetworkService() {
 }
 
 
+function test27_roomWalletIncomingAttributionUsesSessionNetwork() {
+
+    const source = readFileSync(
+        join(__dirname, "../payment/roomWallet/RoomWalletIncomingObserver.js"),
+        "utf8"
+    );
+
+    assert(
+        source.includes("paymentNetwork: session.network"),
+        "incoming attribution must resolve the intended Room Wallet using the session payment network"
+    );
+    assert(
+        source.includes("tonNetwork: fields.network ?? this._network"),
+        "incoming observation persistence must retain the transaction/session payment network"
+    );
+    assert(
+        source.includes("network: session.network ?? this._network"),
+        "incoming payment events must propagate the authoritative session payment network"
+    );
+
+    console.log(
+        "Test 27 — Room Wallet incoming attribution preserves session network: passed"
+    );
+
+}
+
+
 function test26_roomWalletRecoveryNetworkRoutingSourceContract() {
 
     const workerSource = readFileSync(
@@ -1605,6 +1632,7 @@ async function main() {
     test24_roomWalletRegistrySupportsPerNetworkCatalogs();
     await test25_roomWalletAdapterUsesPaymentNetworkService();
     test26_roomWalletRecoveryNetworkRoutingSourceContract();
+    test27_roomWalletIncomingAttributionUsesSessionNetwork();
 
     console.log("all assertions passed");
 
