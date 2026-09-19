@@ -30,6 +30,7 @@ export function buildPaymentStatusPayload(eventType, paymentPayload) {
 
     return {
         gameId: paymentPayload?.gameId ?? null,
+        paymentNetwork: paymentPayload?.paymentNetwork ?? paymentPayload?.network ?? null,
         status: EVENT_TO_STATUS[eventType] ?? null,
         winnerId: paymentPayload?.winnerId ?? null,
         winnerAmount: paymentPayload?.winnerAmount ?? null,
