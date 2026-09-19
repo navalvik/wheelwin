@@ -732,6 +732,60 @@ function test8_depositOrchestratorFinancialsFollowRoomNetwork() {
 
 }
 
+
+// Test 10 — GameContract oracle follows the authoritative payment network.
+function test10_gameContractOracleFollowsRoomNetwork() {
+
+    const manager = new GameContractManager({
+        tonNetwork: "testnet",
+        deployAdapter: {
+            _tonConfig: {
+                network: "testnet",
+                oracleAddress: "EQTESTNET_RUNTIME_ORACLE"
+            }
+        }
+    });
+
+    const profiles = {
+        testnet: { oracleWallet: "EQTESTNET_PROFILE_ORACLE" },
+        mainnet: { oracleWallet: "EQMAINNET_PROFILE_ORACLE" }
+    };
+
+    assert.equal(
+        manager._resolveContractOracleWallet("testnet", {
+            network: "testnet",
+            oracleAddress: "EQTESTNET_RUNTIME_ORACLE",
+            profiles
+        }),
+        "EQTESTNET_PROFILE_ORACLE",
+        "Testnet snapshot must use the Testnet profile oracle"
+    );
+
+    assert.equal(
+        manager._resolveContractOracleWallet("mainnet", {
+            network: "testnet",
+            oracleAddress: "EQTESTNET_RUNTIME_ORACLE",
+            profiles
+        }),
+        "EQMAINNET_PROFILE_ORACLE",
+        "Mainnet snapshot must use the Mainnet profile oracle, not runtime Testnet"
+    );
+
+    assert.equal(
+        manager._resolveContractOracleWallet("mainnet", {
+            network: "testnet",
+            oracleAddress: "EQTESTNET_RUNTIME_ORACLE"
+        }),
+        null,
+        "Mainnet must not fall back to the runtime Testnet oracle"
+    );
+
+    console.log(
+        "Test 10 — GameContract oracle follows room payment network: passed"
+    );
+
+}
+
 // Test 9 — GameContractManager snapshot network follows the room network.
 function test9_gameContractNetworkFollowsRoomPaymentNetwork() {
 
@@ -791,6 +845,7 @@ async function main() {
     test8_depositOrchestratorFinancialsFollowRoomNetwork();
 
     test9_gameContractNetworkFollowsRoomPaymentNetwork();
+    test10_gameContractOracleFollowsRoomNetwork();
 
     console.log("all assertions passed");
 
