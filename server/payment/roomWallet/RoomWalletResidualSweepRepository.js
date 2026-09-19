@@ -67,6 +67,7 @@ export class RoomWalletResidualSweepRepository {
         destinationAddress,
         observedBalanceNano,
         amountNano = ROOM_WALLET_POLICY.residualSweepNano,
+        network = null,
         retainedFloorNano = ROOM_WALLET_POLICY.residualRetainedFloorNano,
         sweepGasNano = ROOM_WALLET_POLICY.residualSweepGasNano,
         safetyMarginNano = ROOM_WALLET_POLICY.residualSafetyMarginNano,
@@ -94,6 +95,7 @@ export class RoomWalletResidualSweepRepository {
         const payload = {
             id: recordId,
             roomNumber: normalizedRoomNumber,
+            network: network == null ? null : String(network).trim().toLowerCase(),
             sourceAddress: source,
             destinationAddress: destination,
             amountNano: nanoToRecordString(amountNano),
