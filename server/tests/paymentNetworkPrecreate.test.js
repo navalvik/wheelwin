@@ -1725,6 +1725,43 @@ function test31_gameEscrowConfirmationNetworkPropagation() {
 }
 
 
+// Test 32 — Settlement completion/reconnect outputs retain the authoritative network.
+function test32_settlementCompletionNetworkPropagation() {
+
+    const source = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "payment/ContractSettlementManager.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        source.includes("paymentNetwork: session.network")
+            && source.includes("network: session.network"),
+        "settlement completion outputs must publish the authoritative session network"
+    );
+
+    assert(
+        source.includes("network: session.network ?? session.request?.paymentNetwork")
+            && source.includes("paymentNetwork: session.network ?? session.request?.paymentNetwork"),
+        "settlement reconnect snapshot must retain the authoritative network"
+    );
+
+    assert(
+        source.includes("settlementTxHash: session.settlementTransactionHash")
+            && source.includes("network: session.network ?? session.request?.paymentNetwork"),
+        "settlement completion audit must retain the authoritative network"
+    );
+
+    console.log(
+        "Test 32 — Settlement completion network propagation: passed"
+    );
+
+}
+
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1763,6 +1800,7 @@ async function main() {
     test26_roomWalletRecoveryNetworkRoutingSourceContract();
     test27_roomWalletIncomingAttributionUsesSessionNetwork();
     test31_gameEscrowConfirmationNetworkPropagation();
+    test32_settlementCompletionNetworkPropagation();
 
     console.log("all assertions passed");
 
