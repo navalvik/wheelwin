@@ -33,7 +33,6 @@ import { buildEntryPaymentTransaction, nanotonsToTonDisplay, sumAuthoritativeEnt
 import { requiredGramToNanotonString } from "../payment/buildTonConnectPaymentTransaction";
 import {
     classifyDepositWalletError,
-    describePage4SendTransactionForensicContext,
     describeTonConnectResult,
     describeTonConnectSendRequestDiagnostics,
     logPage4DepositDeploy
@@ -142,6 +141,38 @@ function resolvePage4LocalPlayerId({
     }
 
     return null;
+
+}
+
+function describePage4SendTransactionForensicContext({
+    roomId = null,
+    gameId = null,
+    localPlayerId = null,
+    playerIndex = null,
+    playerWalletAddress = null,
+    paymentDestination = null,
+    requiredGram = null,
+    requestDiagnostics = null,
+    reusedExistingSdkConnection = false,
+    autopsySessionId = null,
+    attemptId = 0,
+    nowEpochSeconds = null
+} = {}) {
+
+    return {
+        roomId,
+        gameId,
+        localPlayerId,
+        playerIndex,
+        playerWalletAddress,
+        paymentDestination,
+        requiredGram,
+        requestDiagnostics,
+        reusedExistingSdkConnection,
+        autopsySessionId,
+        attemptId,
+        nowEpochSeconds
+    };
 
 }
 
