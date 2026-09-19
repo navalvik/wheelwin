@@ -71,6 +71,85 @@ import "../styles/page4payment.css";
  * R7.26 — TonConnect SDK is the source of truth for connector state.
  * Resolve the active account address from React hook and/or UI instance.
  */
+function resolvePage4LocalPlayerId({
+    identityPlayerId = null,
+    players = {},
+    verifyCompleted = false,
+    walletAddress = null,
+    paymentSession = null,
+    walletConnection = null
+} = {}) {
+
+    const resolved = resolveLocalPlayerId(
+        identityPlayerId,
+        players,
+        { verifyCompleted }
+    );
+
+    if (resolved) {
+
+        return resolved;
+
+    }
+
+    const normalizedWallet = toSessionWalletAddress(walletAddress);
+
+    if (normalizedWallet) {
+
+        const paymentSeat = Array.isArray(paymentSession?.participants)
+            ? paymentSession.participants.find(
+                (participant) =>
+                    toSessionWalletAddress(participant?.wallet) === normalizedWallet
+            )
+            : null;
+
+        if (paymentSeat?.playerId) {
+
+            return paymentSeat.playerId;
+
+        }
+
+        const connectionSeat = Array.isArray(walletConnection?.players)
+            ? walletConnection.players.find(
+                (player) => (
+                    toSessionWalletAddress(
+                        player?.connectedWallet ?? player?.sessionWallet
+                    ) === normalizedWallet
+                )
+            )
+            : null;
+
+        if (connectionSeat?.playerId) {
+
+            return connectionSeat.playerId;
+
+        }
+
+    }
+
+    const authoritativeConnectionSeat = Array.isArray(walletConnection?.players)
+        ? walletConnection.players.find(
+            (player) => (
+                player?.status === WALLET_CONNECTION_STATUS.CONNECTED
+                || player?.status === "CONNECTED"
+            )
+            && Boolean(
+                player?.connectedWallet
+                || player?.sessionWallet
+            )
+        )
+        : null;
+
+    if (authoritativeConnectionSeat?.playerId) {
+
+        return authoritativeConnectionSeat.playerId;
+
+    }
+
+    return null;
+
+}
+
 function resolveTonConnectSdkAddress(tonConnectUI, tonWallet) {
 
     return tonWallet?.account?.address
@@ -790,13 +869,15 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-        const localPlayerId = resolveLocalPlayerId(
-            identity.playerId ?? null,
-            authoritative.players,
-            {
-                verifyCompleted: Boolean(lifecycle?.verifyCompleted)
-            }
-        );
+        const localPlayerId = resolvePage4LocalPlayerId({
+            identityPlayerId: identity.playerId ?? null,
+            players: authoritative.players,
+            verifyCompleted: Boolean(lifecycle?.verifyCompleted),
+            walletAddress: lastWalletProofEmitRef.current
+                ?? resolveTonConnectSdkAddress(tonConnectUI, tonWallet),
+            paymentSession: authoritative?.paymentSession ?? null,
+            walletConnection: authoritative?.walletConnection ?? null
+        });
         const paymentRequest = getLocalPaymentRequest(paymentSession, localPlayerId);
         const roomWalletDestination = resolvePlayerPaymentDestination({
             paymentSession,
@@ -1170,13 +1251,15 @@ export default function Page4Payment({ onNavigate }) {
     const paymentConnectionReady = authoritative.lifecycle
         ?.paymentConnectionReady === true;
 
-    const localPlayerId = resolveLocalPlayerId(
-        identity.playerId ?? null,
-        authoritative.players,
-        {
-            verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted)
-        }
-    );
+    const localPlayerId = resolvePage4LocalPlayerId({
+        identityPlayerId: identity.playerId ?? null,
+        players: authoritative.players,
+        verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted),
+        walletAddress: lastWalletProofEmitRef.current
+            ?? resolveTonConnectSdkAddress(tonConnectUI, tonWallet),
+        paymentSession: authoritative?.paymentSession ?? null,
+        walletConnection: authoritative?.walletConnection ?? null
+    });
 
     const paymentPhase = resolvePage4PaymentPhase({
         deposit: depositProjection,
