@@ -46,14 +46,42 @@ export function buildTonServiceConfigForNetwork(network, env = process.env) {
 
     const deployMode = String(env.TON_DEPLOY_MODE || "stub").trim().toLowerCase();
 
+    // Financial room routing may use Mainnet while the process runtime stays
+    // on Testnet. Signing material is therefore network-scoped: Mainnet MUST
+    // never fall back to the Testnet/runtime deployer mnemonic.
+    const deployerMnemonic = normalized === "mainnet"
+        ? (
+            typeof env.TON_MAINNET_DEPLOYER_MNEMONIC === "string"
+            && env.TON_MAINNET_DEPLOYER_MNEMONIC.trim()
+                ? env.TON_MAINNET_DEPLOYER_MNEMONIC.trim()
+                : null
+        )
+        : (
+            typeof env.TON_TESTNET_DEPLOYER_MNEMONIC === "string"
+            && env.TON_TESTNET_DEPLOYER_MNEMONIC.trim()
+                ? env.TON_TESTNET_DEPLOYER_MNEMONIC.trim()
+                : (
+                    typeof env.TON_DEPLOYER_MNEMONIC === "string"
+                    && env.TON_DEPLOYER_MNEMONIC.trim()
+                        ? env.TON_DEPLOYER_MNEMONIC.trim()
+                        : null
+                )
+        );
+
+    const apiKey = normalized === "mainnet"
+        ? (
+            typeof env.TON_MAINNET_API_KEY === "string"
+            && env.TON_MAINNET_API_KEY.trim()
+                ? env.TON_MAINNET_API_KEY.trim()
+                : (env.TON_API_KEY || null)
+        )
+        : (env.TON_API_KEY || null);
+
     return Object.freeze({
         network: normalized,
-        apiKey: env.TON_API_KEY || null,
+        apiKey,
         endpoint: profile.endpoint,
-        deployerMnemonic: typeof env.TON_DEPLOYER_MNEMONIC === "string"
-            && env.TON_DEPLOYER_MNEMONIC.trim()
-            ? env.TON_DEPLOYER_MNEMONIC.trim()
-            : null,
+        deployerMnemonic,
         deployerExpectedAddress: profile.deployerExpectedAddress,
         expectedWalletAddress: profile.expectedWalletAddress ?? null,
         oracleAddress: profile.oracleWallet,
