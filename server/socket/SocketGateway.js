@@ -815,10 +815,18 @@ export class SocketGateway {
 
         }
 
-        socket.on(LOBBY_CLIENT_EVENTS.CREATE_ROOM, () => {
+        // Pre-create payment network (testnet|mainnet). ONLY the requested
+        // payment network is forwarded; ownership, identity, roomId and any
+        // other payload fields are ignored — they are resolved server-side
+        // from the authenticated socket context.
+        socket.on(LOBBY_CLIENT_EVENTS.CREATE_ROOM, (payload) => {
 
             this._emitLobbyRequest(EVENT_TYPES.LOBBY_CREATE_ROOM_REQUEST, {
-                socketId: socket.id
+                socketId: socket.id,
+                // Task: pre-create payment network. Client may request ONLY
+                // paymentNetwork = testnet | mainnet. Normalization/commit is
+                // authoritative server-side (RoomLobbyBridge).
+                paymentNetwork: payload?.paymentNetwork ?? null
             });
 
         });
@@ -857,6 +865,11 @@ export class SocketGateway {
             });
 
         });
+
+        // Pre-create payment network (task 2026-09-17): the room network
+        // selection moved to CREATE_ROOM. The old R24.1
+        // "selectRoomNetwork" post-CREATE-ROOM path is retired — payment
+        // routing is committed once at CREATE_ROOM and never re-selected.
 
         socket.on(LOBBY_CLIENT_EVENTS.CONFIRM_VERIFY, () => {
 
