@@ -3019,3 +3019,681 @@ export default function Page4Payment({ onNavigate }) {
 
                     console.log(
                         "[TonConnect AUTOPSY] wallet/SDK nested payload fields (exact, no mapping):"
+                    );
+
+                    console.log({
+                        payload: error?.payload,
+                        data: error?.data,
+                        response: error?.response,
+                        details: error?.details,
+                        info: error?.info,
+                        cause: error?.cause,
+                        walletPayload
+                    });
+
+                    recordAutopsyFinding({
+                        sdkError: error,
+                        walletError: walletPayload,
+                        rawObject: error,
+                        stackTrace: error?.stack ?? null,
+                        origin: dumped.origin,
+                        failureStep: "ON_STATUS_CHANGE_ERROR"
+                    });
+
+                    pushHandshakeTrace("ON_STATUS_CHANGE_ERROR", {
+                        message: error?.message ?? String(error),
+                        name: error?.name ?? null,
+                        code: error?.code ?? error?.errorCode ?? null,
+                        origin: dumped.origin
+                    });
+
+                    try {
+
+                        pushAutopsyWalletEvent({
+                            status: "error",
+                            wallet: tonConnectUI.wallet ?? null,
+                            error,
+                            detail: { walletPayload }
+                        });
+
+                        pushAutopsyTimeline({
+                            event: "onStatusChange error",
+                            stage: "onStatusChange",
+                            payloadSummary: {
+                                message: error?.message ?? String(error),
+                                name: error?.name ?? null,
+                                code: error?.code ?? error?.errorCode ?? null
+                            }
+                        });
+
+                    } catch {
+
+                        // diagnostics only
+                    }
+
+                    dumpHandshakeSummary("onStatusChange_error_wallet_rejection");
+
+                });
+
+            }
+        );
+
+        return () => {
+
+            unsubscribe?.();
+
+        };
+
+    }, [
+        tonConnectUI,
+        pushHandshakeTrace,
+        dumpHandshakeSummary,
+        runAutopsyGuardedCallback,
+        recordAutopsyFinding
+    ]);
+
+    async function handleCopyTonConnectLink() {
+
+        if (!tonConnectUniversalLink) {
+
+            return;
+
+        }
+
+        try {
+
+            if (navigator.clipboard?.writeText) {
+
+                await navigator.clipboard.writeText(tonConnectUniversalLink);
+
+            } else {
+
+                const textArea = document.createElement("textarea");
+
+                textArea.value = tonConnectUniversalLink;
+
+                textArea.setAttribute("readonly", "");
+
+                textArea.style.position = "fixed";
+
+                textArea.style.left = "-9999px";
+
+                document.body.appendChild(textArea);
+
+                textArea.select();
+
+                document.execCommand("copy");
+
+                document.body.removeChild(textArea);
+
+            }
+
+            setTonConnectLinkCopied(true);
+
+            window.setTimeout(() => {
+
+                setTonConnectLinkCopied(false);
+
+            }, 1500);
+
+        } catch {
+
+            setTonConnectLinkCopied(false);
+
+        }
+
+    }
+
+    // R6.11A / R18-S16 — Open the SDK Universal Link.
+    // Telegram Mini App + Gram Wallet: Telegram.WebApp.openLink (Mini App
+    // stays open). Ordinary browser: window.open / <a target="_blank">.
+    function handleOpenTonConnectLink() {
+
+        const link = tonConnectUniversalLink;
+
+        if (!link) {
+
+            return;
+
+        }
+
+        launchGramWalletHandoff(link, {
+            createAnchorClick: (href) => {
+
+                const anchor = document.createElement("a");
+
+                anchor.href = href;
+
+                anchor.target = "_blank";
+
+                anchor.rel = "noopener noreferrer";
+
+                anchor.style.display = "none";
+
+                document.body.appendChild(anchor);
+
+                anchor.click();
+
+                document.body.removeChild(anchor);
+
+            }
+        });
+
+    }
+
+    async function handleConnectWallet() {
+
+        handshakeAttemptIdRef.current += 1;
+
+        handshakeTraceRef.current = [];
+
+        beginAutopsyAttempt(handshakeAttemptIdRef.current);
+
+        const sdkConnected = isTonConnectSdkConnected(tonConnectUI, tonWallet);
+
+        const sdkAddress = resolveTonConnectSdkAddress(tonConnectUI, tonWallet);
+
+        const mayInitiateConnect = mayInitiateTonConnectConnect(
+            tonConnectUI,
+            tonWallet
+        );
+
+        console.log("[TonConnect] CONNECT TELEGRAM WALLET click", {
+            timestamp: Date.now(),
+            attemptId: handshakeAttemptIdRef.current,
+            roomId: authoritative.roomId ?? null,
+            playerId: localPlayerId,
+            walletRequested: "telegram",
+            canConnect,
+            currentStatus: localWalletStatus,
+            paymentPhase,
+            callingOpenModal: mayInitiateConnect,
+            hasTonConnectUI: Boolean(tonConnectUI),
+            alreadyConnected: sdkConnected,
+            currentWallet: summarizeTonWalletFields(tonConnectUI?.wallet ?? null),
+            sdkAddress
+        });
+
+        pushHandshakeTrace("CONNECT_BUTTON_CLICK", {
+            walletRequested: "telegram",
+            canConnect,
+            currentStatus: localWalletStatus,
+            sdkConnected,
+            mayInitiateConnect
+        });
+
+        if (!canConnect) {
+
+            console.log(
+                "[TonConnect TRACE] EARLY RETURN | reason=canConnect == false",
+                {
+                    localWalletStatus,
+                    inPostWalletPhase,
+                    connecting
+                }
+            );
+
+            pushHandshakeTrace("CONNECT_BLOCKED", {
+                reason: "canConnect_false",
+                localWalletStatus,
+                inPostWalletPhase,
+                connecting
+            });
+
+            dumpHandshakeSummary("connect_blocked");
+
+            return;
+
+        }
+
+        setLocalError("");
+
+        // R7.26 — SDK already connected: reuse wallet, never openModal/connect.
+        if (!mayInitiateConnect) {
+
+            pushHandshakeTrace("SDK_ALREADY_CONNECTED", {
+                source: "handleConnectWallet",
+                sdkAddress,
+                uiConnected: tonConnectUI?.connected === true,
+                connectorConnected: tonConnectUI?.connector?.connected === true
+            });
+
+            pushHandshakeTrace("CONNECT_SKIPPED", {
+                reason: "sdk_already_connected"
+            });
+
+            if (!sdkAddress) {
+
+                setLocalError(
+                    t("payment.telegramSessionNoAddress")
+                );
+
+                dumpHandshakeSummary("reuse_blocked_no_address");
+
+                return;
+
+            }
+
+            pushHandshakeTrace("REUSE_EXISTING_WALLET", {
+                source: "handleConnectWallet",
+                sdkAddress
+            });
+
+            setConnecting(false);
+
+            reportConnectedWallet(sdkAddress);
+
+            pushHandshakeTrace("SERVER_SYNCHRONIZED", {
+                path: "reuse_existing_wallet_click"
+            });
+
+            dumpHandshakeSummary("reuse_existing_wallet");
+
+            return;
+
+        }
+
+        setConnecting(true);
+
+        // R7.36 — do not emit WALLET_CONNECT_STARTED here.
+        // Server CONNECTING waits until wallet proof → reportConnectedWallet.
+
+        try {
+
+            console.log("[TonConnect TRACE] openModal BEFORE", {
+                timestamp: Date.now()
+            });
+
+            pushHandshakeTrace("OPEN_MODAL_BEFORE");
+
+            try {
+
+                pushAutopsyTimeline({
+                    event: "openModal start",
+                    stage: "openModal",
+                    payloadSummary: { attemptId: handshakeAttemptIdRef.current }
+                });
+
+            } catch {
+
+                // diagnostics only
+            }
+
+            await tonConnectUI.openModal();
+
+            console.log("[TonConnect TRACE] openModal AFTER (resolved)", {
+                timestamp: Date.now()
+            });
+
+            pushHandshakeTrace("OPEN_MODAL_AFTER");
+
+            try {
+
+                pushAutopsyTimeline({
+                    event: "openModal resolved",
+                    stage: "openModal",
+                    payloadSummary: { attemptId: handshakeAttemptIdRef.current }
+                });
+
+            } catch {
+
+                // diagnostics only
+            }
+
+        } catch (error) {
+
+            const dumped = dumpTonConnectError("openModal exception", error);
+
+            recordAutopsyFinding({
+                sdkError: error,
+                rawObject: error,
+                stackTrace: error?.stack ?? null,
+                origin: dumped.origin,
+                failureStep: "OPEN_MODAL_EXCEPTION"
+            });
+
+            pushHandshakeTrace("OPEN_MODAL_EXCEPTION", {
+                message: error?.message ?? String(error),
+                name: error?.name ?? null,
+                code: error?.code ?? error?.errorCode ?? null
+            });
+
+            dumpHandshakeSummary("openModal_exception");
+
+            setConnecting(false);
+
+            emitWalletSocketEvent(
+                LOBBY_OUTGOING_EVENTS.WALLET_DISCONNECT_REPORT
+            );
+
+            setLocalError(t("payment.unableOpenTelegramWallet"));
+
+        }
+
+    }
+
+    async function handleDisconnectWallet() {
+
+        setLocalError("");
+
+        console.log("[TonConnect] DISCONNECT click", {
+            timestamp: Date.now(),
+            playerId: localPlayerId,
+            roomId: authoritative.roomId ?? null,
+            currentWallet: summarizeTonWalletFields(tonWallet ?? null)
+        });
+
+        pushHandshakeTrace("DISCONNECT_CLICK");
+
+        lastWalletProofEmitRef.current = null;
+
+        try {
+
+            console.log("[TonConnect TRACE] disconnect BEFORE");
+
+            await tonConnectUI.disconnect();
+
+            console.log("[TonConnect TRACE] disconnect AFTER");
+
+            pushHandshakeTrace("DISCONNECT_AFTER");
+
+        } catch (error) {
+
+            const dumped = dumpTonConnectError("disconnect exception", error);
+
+            recordAutopsyFinding({
+                sdkError: error,
+                rawObject: error,
+                stackTrace: error?.stack ?? null,
+                origin: dumped.origin,
+                failureStep: "DISCONNECT_EXCEPTION"
+            });
+
+            pushHandshakeTrace("DISCONNECT_EXCEPTION", {
+                message: error?.message ?? String(error)
+            });
+
+            // Still report disconnect so the room returns to WAITING.
+        }
+
+        emitWalletSocketEvent(LOBBY_OUTGOING_EVENTS.WALLET_DISCONNECT_REPORT);
+
+        dumpHandshakeSummary("disconnect_complete");
+
+        setConnecting(false);
+
+    }
+
+    return (
+
+        <GameLayout
+
+            message={t("page.payment.title")}
+
+            backEnabled={walletPhase}
+
+            onBack={() => onNavigate(5)}
+
+            nextEnabled={false}
+
+            onNext={() => {}}
+
+        >
+
+            <div className="page4">
+
+                <div className="paymentPanel">
+
+                    <div className="paymentPlayers">
+
+                        {players.map((player) => (
+
+                            <PlayerPaymentRow
+
+                                key={player.key}
+
+                                labelTitle={player.labelTitle}
+
+                                nickname={player.nickname}
+
+                                icon={player.icon}
+
+                                connectionStatus={
+                                    showPaymentRows
+                                        ? undefined
+                                        : player.status
+                                }
+
+                                connectionStatusLabel={
+                                    showPaymentRows
+                                        ? undefined
+                                        : player.statusLabel
+                                }
+
+                                paymentStatus={
+                                    showPaymentRows
+                                        ? player.status
+                                        : undefined
+                                }
+
+                                paymentStatusLabel={
+                                    showPaymentRows
+                                        ? player.statusLabel
+                                        : undefined
+                                }
+
+                                walletRegistered={
+                                    showPaymentRows
+                                        ? Boolean(player.wallet)
+                                        : undefined
+                                }
+
+                            />
+
+                        ))}
+
+                    </div>
+
+                    {localError && (
+
+                        <div
+                            className="paymentPlayersWaiting"
+                            aria-live="assertive"
+                        >
+
+                            {localError}
+
+                        </div>
+
+                    )}
+
+                    {!walletPhase ? (
+
+                        <div className="page4__connectActions">
+
+                            {depositSubmitError && (
+
+                                <div
+                                    className="paymentPlayersWaiting"
+                                    aria-live="assertive"
+                                >
+
+                                    {depositSubmitError}
+
+                                </div>
+
+                            )}
+
+                            {depositStatusText ? (
+
+                                <div className="smartContractStatus">
+
+                                    {depositStatusText}
+
+                                </div>
+
+                            ) : null}
+
+                            {paymentPhase === PAGE4_PAYMENT_PHASE.WAITING_PAGE5
+                                || paymentSession?.status === "COMPLETED" ? (
+
+                                <div className="smartContractStatus">
+
+                                    {t("payment.allConfirmed")}
+
+                                </div>
+
+                            ) : paymentSession?.status === "FAILED"
+                                || gameContract?.status === "DEPLOY_FAILED" ? (
+
+                                <div className="smartContractStatus">
+
+                                    {gameContract?.status === "DEPLOY_FAILED"
+                                        ? t("payment.deploymentFailed")
+                                        : t("payment.sessionFailed")}
+
+                                </div>
+
+                            ) : showEntryAction ? (
+
+                                <button
+                                    type="button"
+                                    className="page4__connectButton"
+                                    disabled={!entryActionEnabled || depositSubmitting}
+                                    onClick={handleConfirmInTelegramWallet}
+                                >
+
+                                    {depositSubmitting
+                                        ? t("payment.openingWallet")
+                                        : entryTotalLabel
+                                            ? t("payment.payAmount", { amount: entryTotalLabel })
+                                            : t("payment.confirmInWallet")}
+
+                                </button>
+
+                            ) : null}
+
+                        </div>
+
+                    ) : (
+
+                        <div className="page4__connectActions">
+
+                            <button
+                                type="button"
+                                className="page4__connectButton"
+                                disabled={!canConnect}
+                                onClick={handleConnectWallet}
+                            >
+
+                                {t("payment.connectWallet")}
+
+                            </button>
+
+                            {(
+                                localWalletStatus === WALLET_CONNECTION_STATUS.CONNECTED
+                                || localWalletStatus === WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH
+                                || Boolean(tonWallet)
+                            ) && (
+
+                                <button
+                                    type="button"
+                                    className="page4__disconnectButton"
+                                    onClick={handleDisconnectWallet}
+                                >
+
+                                    {t("payment.disconnect")}
+
+                                </button>
+
+                            )}
+
+                            {/*
+                              R6.11A — Desktop Connection block lives on Page4
+                              (not inside @tonconnect/ui modal): the QR modal is
+                              third-party and cannot be extended without editing
+                              node_modules. Link is the exact string returned by
+                              tonConnectUI.connector.connect() — same value the
+                              UI modal stores as universalLink for QR sourceUrl.
+                            */}
+                            {tonConnectModalOpen
+                                && tonConnectUniversalLink && (
+
+                                <div
+                                    className="page4__desktopConnection"
+                                    aria-label={t("payment.desktopConnection")}
+                                >
+
+                                    <div className="page4__desktopConnectionTitle">
+
+                                        {t("payment.desktopConnection")}
+
+                                    </div>
+
+                                    <label
+                                        className="page4__desktopConnectionLabel"
+                                        htmlFor="page4-tonconnect-link"
+                                    >
+
+                                        {t("payment.universalLink")}
+
+                                    </label>
+
+                                    <div className="page4__desktopConnectionRow">
+
+                                        <input
+                                            id="page4-tonconnect-link"
+                                            className="page4__desktopConnectionInput"
+                                            type="text"
+                                            readOnly
+                                            value={tonConnectUniversalLink}
+                                            onFocus={(event) => {
+                                                event.target.select();
+                                            }}
+                                        />
+
+                                    </div>
+
+                                    <div className="page4__desktopConnectionActions">
+
+                                        <button
+                                            type="button"
+                                            className="page4__desktopConnectionCopy"
+                                            onClick={handleCopyTonConnectLink}
+                                        >
+
+                                            {tonConnectLinkCopied
+                                                ? t("common.copied")
+                                                : t("common.copy")}
+
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            className="page4__desktopConnectionOpen"
+                                            onClick={handleOpenTonConnectLink}
+                                        >
+
+                                            {t("payment.openWallet")}
+
+                                        </button>
+
+                                    </div>
+
+                                </div>
+
+                            )}
+
+                    </div>
+
+                    )}
+
+                </div>
+
+            </div>
+
+        </GameLayout>
+
+    );
+
+}
