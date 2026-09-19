@@ -161,6 +161,8 @@ export const TRANSLATIONS = Object.freeze({
         "payment.stakeFailed": "Game stake transaction failed.",
         "payment.serverStateMismatch":
             "Server payment state does not match this session.",
+        "payment.walletNetworkMismatch":
+            "Your connected wallet is on a different TON network than this game ({network}). Switch the wallet network and reconnect before paying.",
         "payment.depositSeatsProgress": "{funded} of 3 seats funded",
         "payment.mySeatFunded": "Your seat is funded",
         "payment.mySeatPending": "Your seat is not funded yet",
