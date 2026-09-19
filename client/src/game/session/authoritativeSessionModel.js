@@ -876,6 +876,7 @@ export function authoritativeSessionReducer(state, action) {
                     tonNetwork: record.tonNetwork
                         ?? record.network
                         ?? null,
+                    roomWalletAddress: record.roomWalletAddress ?? null,
                     participants
                 }),
                 lifecycle: Object.freeze({
