@@ -1186,10 +1186,16 @@ export default function Page4Payment({ onNavigate }) {
         ? (
             Array.isArray(paymentSession?.participants)
                 ? paymentSession.participants.find(
-                    (participant) => (
-                        String(participant?.walletAddress ?? "") === String(connectedWalletAddress)
-                        || String(participant?.wallet ?? "") === String(connectedWalletAddress)
-                    )
+                    (participant) => {
+                        const participantWallet = toSessionWalletAddress(
+                            participant?.walletAddress
+                                ?? participant?.wallet
+                                ?? null
+                        );
+
+                        return Boolean(participantWallet)
+                            && participantWallet === connectedWalletAddress;
+                    }
                 )?.playerId ?? null
                 : null
         )
