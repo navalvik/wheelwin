@@ -102,11 +102,11 @@ function main() {
         assert.equal(ton.network, "testnet");
         assert.equal(ton.gameEscrowMode, GAME_ESCROW_MODE_GAME);
         assert.ok(ton.profiles?.mainnet);
-        assert.equal(ton.profiles.mainnet.gameEscrowMode, GAME_ESCROW_MODE_V4);
+        assert.equal(ton.profiles.mainnet.gameEscrowMode, GAME_ESCROW_MODE_GAME);
 
         const main = loadTonConfig({ TON_NETWORK: "mainnet" });
         assert.equal(main.network, "mainnet");
-        assert.equal(main.gameEscrowMode, GAME_ESCROW_MODE_V4);
+        assert.equal(main.gameEscrowMode, GAME_ESCROW_MODE_GAME);
         console.log("  loadTonConfig profiles: OK");
     }
 
