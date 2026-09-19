@@ -37,7 +37,7 @@ export function loadTonConfig(env = process.env) {
 
     const deployMode = requestedMode === "live" ? "live" : "stub";
 
-    // Active network escrow mode (testnet default game; mainnet default v4).
+    // Active network escrow mode (testnet and mainnet default game).
     const gameEscrowMode = resolveGameEscrowMode(null, {
         ...env,
         TON_NETWORK: normalizedNetwork
