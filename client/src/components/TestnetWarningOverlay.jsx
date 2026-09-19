@@ -1,32 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { SHOW_TESTNET_WARNING } from "../config/features";
-import { useLanguage } from "../context/LanguageContext";
 
 import "../styles/testnetWarningOverlay.css";
 
 const FADE_MS = 280;
 
-const isTestnet = typeof window !== "undefined" && (
-    window.location.hostname.includes("nine") ||
-    window.location.hostname.includes("testnet")
-);
-
-const MAINNET_TITLE = "⚠️ MAINNET";
-const MAINNET_BODY =
-    "THIS PROJECT IS CURRENTLY RUNNING ON THE TON MAINNET.";
-const MAINNET_WALLETS_ONLY = "USE TELEGRAM WALLET ONLY.";
+const NETWORK_TITLE = "⚠️ NETWORK NOTICE";
+const NETWORK_BODY =
+    "THIS PROJECT OPERATES ON TON TESTNET AND TON MAINNET.";
+const NETWORK_WALLETS_ONLY =
+    "USE THE CORRESPONDING TESTNET OR MAINNET TON WALLET.";
+const DISMISS_HINT = "Tap anywhere on this message to continue.";
 
 /**
- * R6.5 — Page1 network warning overlay.
- * Visible once per page mount when SHOW_TESTNET_WARNING is true.
- * Testnet keeps the existing translated warning; Mainnet shows the
- * corresponding Mainnet warning instead of Testnet text.
- * Dismissed by clicking / tapping the warning card.
+ * Page1 network warning overlay.
+ *
+ * The message is intentionally kept in English and describes both supported
+ * financial networks. Network selection itself is made when the room owner
+ * creates the room on Page2.
  */
 export default function TestnetWarningOverlay() {
-
-    const { t } = useLanguage();
 
     const [visible, setVisible] = useState(SHOW_TESTNET_WARNING);
 
@@ -68,12 +62,6 @@ export default function TestnetWarningOverlay() {
 
     }
 
-    const title = isTestnet ? t("welcome.testMode") : MAINNET_TITLE;
-    const body = isTestnet ? t("welcome.testnetBody") : MAINNET_BODY;
-    const wallets = isTestnet
-        ? t("welcome.testnetWalletsOnly")
-        : MAINNET_WALLETS_ONLY;
-
     return (
 
         <div
@@ -98,25 +86,25 @@ export default function TestnetWarningOverlay() {
                     className="testnetWarningOverlay__eyebrow"
                 >
 
-                    {title}
+                    {NETWORK_TITLE}
 
                 </div>
 
                 <p className="testnetWarningOverlay__body">
 
-                    {body}
+                    {NETWORK_BODY}
 
                 </p>
 
                 <p className="testnetWarningOverlay__body">
 
-                    {wallets}
+                    {NETWORK_WALLETS_ONLY}
 
                 </p>
 
                 <p className="testnetWarningOverlay__hint">
 
-                    {t("welcome.testnetDismiss")}
+                    {DISMISS_HINT}
 
                 </p>
 
