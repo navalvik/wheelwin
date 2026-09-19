@@ -378,6 +378,7 @@ function assert(condition, message) {
                 roomId: "ROOM01",
                 gameId: "G1",
                 status: "ACTIVE",
+                network: "mainnet",
                 expiresAt: 123456,
                 participants: [
                     {
@@ -398,6 +399,16 @@ function assert(condition, message) {
     assert(
         state.paymentSession?.paymentSessionId === "pay_1",
         "paymentSession id stamped"
+    );
+
+    assert(
+        state.paymentSession?.network === "mainnet",
+        "paymentSession network must come from server"
+    );
+
+    assert(
+        state.paymentSession?.tonNetwork === "mainnet",
+        "paymentSession tonNetwork alias must come from server"
     );
 
     assert(
@@ -502,6 +513,8 @@ function assert(condition, message) {
                 roomId: "ROOM01",
                 gameId: "G1",
                 status: "AWAITING_PAYMENTS",
+                network: "mainnet",
+                tonNetwork: "mainnet",
                 createdAt: 99
             }
         }
@@ -515,6 +528,16 @@ function assert(condition, message) {
     assert(
         state.gameContract?.status === "AWAITING_PAYMENTS",
         "gameContract status mirrored"
+    );
+
+    assert(
+        state.gameContract?.network === "mainnet",
+        "gameContract network must come from server"
+    );
+
+    assert(
+        state.gameContract?.tonNetwork === "mainnet",
+        "gameContract tonNetwork must come from server"
     );
 
     assert(
