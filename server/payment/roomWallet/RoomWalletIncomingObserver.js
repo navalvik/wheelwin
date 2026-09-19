@@ -221,6 +221,8 @@ export function resolveIntendedRoomWalletAddress(context, registry) {
         identity?.paymentNetwork
             ?? identity?.network
             ?? identity?.tonNetwork
+            ?? identity?.session?.network
+            ?? identity?.session?.tonNetwork
             ?? ""
     ).trim().toLowerCase();
 
