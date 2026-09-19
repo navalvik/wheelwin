@@ -1072,6 +1072,69 @@ function test18_mainnetDeployUsesSnapshotNetwork() {
 
 }
 
+// Test 19 — blockchain escrow status reads never fall back to global Testnet
+// when a room has an explicit payment network.
+function test19_blockchainMonitorNetworkRoutingIsStrict() {
+
+    const source = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "payment/BlockchainMonitor.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        source.includes(
+            "const statusService = watch.paymentNetwork != null"
+        ),
+        "escrow status reads must select the room network service when network is explicit"
+    );
+    assert(
+        source.includes(
+            "? networkService\n                : this._tonService"
+        ),
+        "global TonService may only be used when no room payment network is specified"
+    );
+
+    console.log(
+        "Test 19 — BlockchainMonitor network routing is strict: passed"
+    );
+
+}
+
+// Test 20 — GameContractManager cancel keeps the immutable contract network.
+function test20_cancelCarriesContractNetwork() {
+
+    const source = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "gameplay/GameContractManager.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        source.includes(
+            "paymentNetwork: contract?.snapshot?.network"
+        ),
+        "cancel must use the contract snapshot network"
+    );
+    assert(
+        source.includes(
+            "contract?.snapshot?.paymentNetwork"
+        ),
+        "cancel must retain the paymentNetwork snapshot fallback"
+    );
+
+    console.log(
+        "Test 20 — cancel carries contract network: passed"
+    );
+
+}
+
 // Test 15 — deployment authorization retains the authoritative Mainnet network.
 function test15_deploymentAuthorizationNetworkIsAuthoritative() {
 
@@ -1250,6 +1313,8 @@ async function main() {
     test13_blockchainCheckpointRetainsPaymentNetwork();
     test14_adapterSettlementAndCancelUsePaymentNetwork();
     test15_deploymentAuthorizationNetworkIsAuthoritative();
+    test19_blockchainMonitorNetworkRoutingIsStrict();
+    test20_cancelCarriesContractNetwork();
     test16_paymentSessionRestartPreservesNetwork();
     test17_settlementSessionRestartPreservesNetwork();
     test18_mainnetDeployUsesSnapshotNetwork();
