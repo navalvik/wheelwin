@@ -64,11 +64,12 @@ export function loadRoomWalletRuntimeConfig(env = process.env) {
     for (const entry of parsed) {
         const normalized = normalizeEntry(entry);
 
-        if (seenRoomNumbers.has(normalized.roomNumber)) {
+        const roomNetworkKey = `${normalized.roomNumber}::${normalized.network ?? ""}`;
+        if (seenRoomNumbers.has(roomNetworkKey)) {
             throw new Error(`duplicate roomNumber ${normalized.roomNumber}`);
         }
 
-        seenRoomNumbers.add(normalized.roomNumber);
+        seenRoomNumbers.add(roomNetworkKey);
 
         if (seenAddresses.has(normalized.address)) {
             throw new Error(`duplicate Room Wallet address for room ${normalized.roomNumber}`);
@@ -94,7 +95,7 @@ export function loadRoomWalletRuntimeConfig(env = process.env) {
     }
 
     if (intakeEnabled) {
-        assertCompleteRoomWalletCatalog(entries);
+        assertCompleteRoomWalletCatalog(entries, "testnet");
     }
 
     return Object.freeze({ entries });
@@ -145,19 +146,20 @@ function isRoomWalletPaymentIntakeModeEnabled(env) {
     return String(env?.ROOM_WALLET_PAYMENT_INTAKE_MODE || "").trim().toUpperCase() === "ROOM_WALLET";
 }
 
-function assertCompleteRoomWalletCatalog(entries) {
-    if (entries.length !== ROOM_WALLET_COUNT) {
+function assertCompleteRoomWalletCatalog(entries, network = "testnet") {
+    const networkEntries = entries.filter((entry) => entry.network === network);
+    if (networkEntries.length !== ROOM_WALLET_COUNT) {
         throw new RangeError(
-            `ROOM_WALLETS_JSON must contain exactly ${ROOM_WALLET_COUNT} wallets when Room Wallet intake is enabled`
+            `ROOM_WALLETS_JSON must contain exactly ${ROOM_WALLET_COUNT} ${network} wallets when Room Wallet intake is enabled`
         );
     }
 
-    const present = new Set(entries.map((entry) => entry.roomNumber));
+    const present = new Set(networkEntries.map((entry) => entry.roomNumber));
 
     for (let roomNumber = 1; roomNumber <= ROOM_WALLET_COUNT; roomNumber += 1) {
         if (!present.has(roomNumber)) {
             throw new RangeError(
-                `ROOM_WALLETS_JSON is missing roomNumber ${roomNumber}`
+                `ROOM_WALLETS_JSON is missing ${network} roomNumber ${roomNumber}`
             );
         }
     }
