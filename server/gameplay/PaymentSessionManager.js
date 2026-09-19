@@ -545,7 +545,7 @@ export class PaymentSessionManager {
             });
 
             const roomWalletAddress = this._roomWalletPaymentIntakeEnabled
-                ? this._resolveRoomWalletPaymentAddress(room)
+                ? this._resolveRoomWalletPaymentAddress(room, activeNetwork)
                 : null;
 
             if (this._roomWalletPaymentIntakeEnabled) {
@@ -2735,7 +2735,7 @@ export class PaymentSessionManager {
 
     }
 
-    _resolveRoomWalletPaymentAddress(room) {
+    _resolveRoomWalletPaymentAddress(room, paymentNetwork = null) {
 
         if (!room) {
 
@@ -2743,8 +2743,9 @@ export class PaymentSessionManager {
 
         }
 
-        const paymentNetwork = String(
-            room?.paymentNetwork
+        const resolvedNetwork = String(
+            paymentNetwork
+                ?? room?.paymentNetwork
                 ?? room?.network
                 ?? room?.tonNetwork
                 ?? ""
@@ -2754,7 +2755,7 @@ export class PaymentSessionManager {
             roomId: room.roomId,
             roomNumber: room.roomNumber ?? null,
             roomManager: this._roomManager,
-            paymentNetwork
+            paymentNetwork: resolvedNetwork
         }, this._roomWalletRegistry);
 
     }
