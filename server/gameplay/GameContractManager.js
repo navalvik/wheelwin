@@ -86,7 +86,8 @@ export class GameContractManager {
         creatingDelayMs = 0,
         deployDelayMs = 0,
         deployTimeoutMs = 2 * 60 * 1000,
-        devMode = false
+        devMode = false,
+        skipBlockchainDeploy = false
     }) {
 
         this._logger = logger;
@@ -121,6 +122,12 @@ export class GameContractManager {
 
         this._tonNetwork = tonNetwork ?? null;
 
+        // Task 2026-09-17 — optional authoritative per-room payment network
+        // resolver (set via setPaymentNetworkResolver from app.js). When
+        // present, the contract snapshot's financial network comes from the
+        // pre-create payment selection instead of the server runtime.
+        this._paymentNetworkResolver = null;
+
         this._deployTimeoutMs = Number.isFinite(deployTimeoutMs)
             && deployTimeoutMs > 0
             ? deployTimeoutMs
@@ -130,6 +137,8 @@ export class GameContractManager {
             && creatingDelayMs >= 0
             ? creatingDelayMs
             : 0;
+
+        this._skipBlockchainDeploy = skipBlockchainDeploy === true;
 
         this._devMode = devMode;
 
@@ -534,7 +543,7 @@ export class GameContractManager {
 
         }
 
-        const network = this._resolveTonNetwork();
+        const network = this._resolveContractNetwork(roomId);
 
         const adapterIdentity = this._deployAdapter?.constructor?.name
             ?? "GameContractDeployAdapter";
@@ -547,8 +556,13 @@ export class GameContractManager {
             sessionWalletStore: this._sessionWalletStore,
             configuration,
             paymentRules: this._paymentRules ?? undefined,
-            // R7.70C2.4 — freeze platform oracle into snapshot for StateInit.
-            oracleWallet: tonConfig.oracleAddress ?? null,
+            // R7.70C2.4 / R18-S17 A2 — freeze the oracle belonging to the
+            // authoritative payment network. Never leak the active runtime
+            // Testnet oracle into a Mainnet room.
+            oracleWallet: this._resolveContractOracleWallet(
+                network,
+                tonConfig
+            ),
             // R13.1H — freeze escrow lifecycle configuration at create.
             escrowMode,
             network,
@@ -756,7 +770,13 @@ export class GameContractManager {
 
         }
 
-        if (contract.status !== GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS) {
+        const roomWalletPaymentsComplete = this._skipBlockchainDeploy === true
+            && contract.status === GAME_CONTRACT_STATUS.AWAITING_PAYMENTS;
+
+        if (
+            contract.status !== GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS
+            && !roomWalletPaymentsComplete
+        ) {
 
             return contract;
 
@@ -774,6 +794,17 @@ export class GameContractManager {
             contractId: contract.contractId,
             paymentsCompletedAt: contract.paymentsCompletedAt,
             correlationId: contract.correlationId,
+            // R18-S17 C12 — propagate the immutable contract payment network
+            // with the lifecycle event; consumers must not rediscover it from
+            // the current runtime TON network.
+            paymentNetwork: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
+            tonNetwork: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
             timestamp: Date.now()
         });
 
@@ -1212,12 +1243,23 @@ export class GameContractManager {
 
         }
 
-        const resolvedNetwork = this._resolveTonNetwork();
+        // Task 2026-09-17 — the authorization network is the authoritative
+        // pre-create payment network for this room. With the resolver wired,
+        // the contract snapshot network is derived from the same source, so
+        // the comparison is against the room's payment network — NOT the
+        // gameplay server runtime. A valid Mainnet payment authorization must
+        // never be rejected merely because the runtime is Testnet.
+        const authoritativeNetwork = this._paymentNetworkResolver
+            ? this._resolveContractNetwork(roomId)
+            : null;
+
+        const expectedNetwork = authoritativeNetwork
+            ?? this._resolveTonNetwork();
 
         if (
-            resolvedNetwork
+            expectedNetwork
             && authorization.network
-            && authorization.network !== resolvedNetwork
+            && authorization.network !== expectedNetwork
         ) {
 
             this._logger?.error?.(
@@ -1283,6 +1325,18 @@ export class GameContractManager {
                 GAME_CONTRACT_STATUS.AWAITING_PAYMENTS,
                 { throwOnInvalid: false }
             );
+
+            if (this._skipBlockchainDeploy) {
+
+                this._log(
+                    `ROOM_WALLET_FINANCE | skip Game Escrow deploy | roomId=${current.roomId}`
+                );
+
+                this._emitClientUpdate(current);
+
+                return;
+
+            }
 
             this._transitionContract(
                 current,
@@ -1357,6 +1411,16 @@ export class GameContractManager {
      */
     async _beginDeploy(roomId) {
 
+        if (this._skipBlockchainDeploy) {
+
+            this._log(
+                `ROOM_WALLET_FINANCE | _beginDeploy skipped | roomId=${roomId}`
+            );
+
+            return;
+
+        }
+
         const contract = this._contractsByRoom.get(roomId);
 
         if (!contract) {
@@ -1409,7 +1473,14 @@ export class GameContractManager {
         return this._deploymentAuthorizationCoordinator.consumeValidForDeploy({
             roomId: contract.roomId,
             gameId: contract.gameId,
-            network: this._tonNetwork
+            // Task 2026-09-17 — the authorization was created from the room's
+            // authoritative pre-create payment network (DepositSession
+            // metadata), and the contract snapshot froze the same network.
+            // Compare against the contract's financial network — NOT the
+            // gameplay server runtime — so a valid Mainnet payment
+            // authorization is not rejected on a Testnet runtime.
+            network: contract.tonNetwork
+                ?? this._resolveContractNetwork(contract.roomId)
         });
 
     }
@@ -1760,6 +1831,9 @@ export class GameContractManager {
                     contractAddress: current.contractAddress,
                     oracle,
                     owner: current.snapshot?.ownerWallet ?? null,
+                    paymentNetwork: current.snapshot?.network
+                        ?? current.snapshot?.paymentNetwork
+                        ?? null,
                     contractIdHash,
                     snapshotHash
                 });
@@ -1772,7 +1846,10 @@ export class GameContractManager {
 
                 const open = await this._deployAdapter.openPayments({
                     contractAddress: current.contractAddress,
-                    players
+                    players,
+                    paymentNetwork: current.snapshot?.network
+                        ?? current.snapshot?.paymentNetwork
+                        ?? null
                 });
 
                 if (!open?.ok) {
@@ -1994,13 +2071,24 @@ export class GameContractManager {
     _hydrateFromPersistenceRecord(record) {
 
         const payload = record?.payload ?? {};
+        const snapshot = payload.snapshot ?? null;
+
+        // R18-S17 A4 — the immutable snapshot is the financial source of
+        // truth during restart recovery. If an older persistence record lacks
+        // the top-level tonNetwork field, recover it from snapshot.network
+        // rather than falling back to the current server runtime network.
+
+        const persistedNetwork = payload.tonNetwork
+            ?? record.tonNetwork
+            ?? snapshot?.network
+            ?? null;
 
         return new GameContract({
             contractId: payload.contractId ?? record.recordId,
             gameId: payload.gameId ?? record.gameId,
             roomId: payload.roomId ?? record.roomId,
             status: payload.status ?? record.status,
-            snapshot: payload.snapshot ?? null,
+            snapshot,
             createdAt: record.createdAt ?? payload.createdAt ?? null,
             updatedAt: record.updatedAt ?? payload.updatedAt ?? null,
             contractAddress: payload.contractAddress ?? null,
@@ -2009,7 +2097,7 @@ export class GameContractManager {
             deploymentTxId: payload.deploymentTxId ?? null,
             deployError: payload.deployError ?? null,
             paymentsCompletedAt: payload.paymentsCompletedAt ?? null,
-            tonNetwork: payload.tonNetwork ?? record.tonNetwork ?? null,
+            tonNetwork: persistedNetwork,
             correlationId: record.correlationId ?? payload.correlationId ?? null,
             snapshotHash: payload.snapshotHash ?? null,
             version: payload.version ?? record.version ?? 1,
@@ -2106,6 +2194,82 @@ export class GameContractManager {
 
     }
 
+    /**
+     * Task 2026-09-17 — inject the authoritative per-room payment network
+     * resolver (roomId → "testnet" | "mainnet"). The resolver MUST come from
+     * the server-owned RoomLobbyBridge payment state (pre-create selection),
+     * never from a client payload.
+     */
+    setPaymentNetworkResolver(resolver) {
+
+        this._paymentNetworkResolver =
+            typeof resolver === "function" ? resolver : null;
+
+    }
+
+    /**
+     * R18-S17 A2 — resolve the oracle from the same immutable payment-network
+     * selection used by the GameContract snapshot.
+     *
+     * A Mainnet room must never inherit tonConfig.oracleAddress when the
+     * process runtime is Testnet. Profiles are the network-scoped source.
+     */
+    _resolveContractOracleWallet(network, tonConfig = this._deployAdapter?._tonConfig ?? {}) {
+
+        const normalized = String(network ?? "").trim().toLowerCase();
+
+        if (normalized !== "mainnet" && normalized !== "testnet") {
+
+            return null;
+
+        }
+
+        const profileOracle = tonConfig?.profiles?.[normalized]?.oracleWallet;
+
+        if (typeof profileOracle === "string" && profileOracle.trim()) {
+
+            return profileOracle.trim();
+
+        }
+
+        // Backward-compatible fallback for test fixtures / legacy configs:
+        // only use the active runtime oracle when its network matches.
+        const runtimeNetwork = String(tonConfig?.network ?? "")
+            .trim()
+            .toLowerCase();
+
+        if (runtimeNetwork === normalized) {
+
+            return typeof tonConfig?.oracleAddress === "string"
+                && tonConfig.oracleAddress.trim()
+                ? tonConfig.oracleAddress.trim()
+                : null;
+
+        }
+
+        return null;
+
+    }
+
+    /**
+     * Task 2026-09-17 — financial network for a room's GameContract snapshot.
+     * Priority: authoritative per-room payment network → runtime TON network.
+     * The snapshot network stays immutable once created.
+     */
+    _resolveContractNetwork(roomId) {
+
+        const roomNetwork = this._paymentNetworkResolver?.(roomId) ?? null;
+
+        if (roomNetwork === "mainnet" || roomNetwork === "testnet") {
+
+            return roomNetwork;
+
+        }
+
+        return this._resolveTonNetwork();
+
+    }
+
     async _withLock(contractId, operation, fn) {
 
         const existing = this._operationLocks.get(contractId);
@@ -2175,10 +2339,33 @@ export class GameContractManager {
 
         }
 
+        const contractNetwork = String(
+            contract?.tonNetwork
+                ?? contract?.snapshot?.network
+                ?? contract?.snapshot?.paymentNetwork
+                ?? ""
+        ).trim().toLowerCase();
+
+        const networkProfile = this._deployAdapter?._tonConfig?.profiles?.[
+            contractNetwork
+        ] ?? null;
+
+        const runtimeNetwork = String(
+            this._deployAdapter?._tonConfig?.network ?? ""
+        ).trim().toLowerCase();
+
         const deployWallet = String(
-            this._deployAdapter?._tonConfig?.deployerExpectedAddress
-            ?? contract?.snapshot?.oracleWallet
-            ?? this._deployAdapter?._tonConfig?.oracleAddress
+            networkProfile?.deployerExpectedAddress
+            ?? (
+                runtimeNetwork === contractNetwork
+                    ? this._deployAdapter?._tonConfig?.deployerExpectedAddress
+                    : null
+            )
+            ?? (
+                runtimeNetwork === contractNetwork
+                    ? this._deployAdapter?._tonConfig?.oracleAddress
+                    : null
+            )
             ?? ""
         ).trim();
 
@@ -2200,6 +2387,10 @@ export class GameContractManager {
             contractAddress,
             deploymentTxHash,
             deployWallet,
+            network: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? this._resolveContractNetwork(contract.roomId),
             deployedAt: contract.deployedAt ?? Date.now(),
             timestamp: Date.now()
         }));
@@ -2215,6 +2406,20 @@ export class GameContractManager {
             state: contract.status,
             timestamp: Date.now(),
             correlationId: contract.correlationId,
+            // R18-S17 C18 — lifecycle consumers must receive the immutable
+            // contract payment network directly; never infer it from runtime TON config.
+            network: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
+            paymentNetwork: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
+            tonNetwork: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
             ...extra
         });
 
@@ -2364,7 +2569,10 @@ export class GameContractManager {
 
             result = await this._deployAdapter.cancel({
                 contractAddress,
-                reasonCode: 0
+                reasonCode: 0,
+                paymentNetwork: contract?.snapshot?.network
+                    ?? contract?.snapshot?.paymentNetwork
+                    ?? null
             });
 
         } catch (error) {
