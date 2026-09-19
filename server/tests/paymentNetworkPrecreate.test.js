@@ -826,6 +826,130 @@ function test9_gameContractNetworkFollowsRoomPaymentNetwork() {
 
 }
 
+// Test 11 — GameContract restart recovery preserves Mainnet from the immutable snapshot.
+function test11_gameContractRestartPreservesSnapshotNetwork() {
+
+    const manager = new GameContractManager({
+        tonNetwork: "testnet",
+        deployAdapter: {
+            _tonConfig: {
+                network: "testnet",
+                oracleAddress: "EQTESTNET_RUNTIME_ORACLE"
+            }
+        }
+    });
+
+    const restored = manager._hydrateFromPersistenceRecord({
+        recordId: "contract-mainnet-recovered",
+        roomId: "room-mainnet",
+        gameId: "game-mainnet",
+        status: "AWAITING_PLAYER_PAYMENTS",
+        tonNetwork: null,
+        payload: {
+            contractId: "contract-mainnet-recovered",
+            roomId: "room-mainnet",
+            gameId: "game-mainnet",
+            status: "AWAITING_PLAYER_PAYMENTS",
+            snapshot: {
+                network: "mainnet",
+                oracleWallet: "EQMAINNET_PROFILE_ORACLE",
+                escrowMode: "game"
+            }
+        }
+    });
+
+    assert.equal(
+        restored.tonNetwork,
+        "mainnet",
+        "restart recovery must use snapshot.network when top-level tonNetwork is absent"
+    );
+    assert.equal(
+        restored.snapshot.network,
+        "mainnet",
+        "recovered snapshot must remain Mainnet"
+    );
+    assert.equal(
+        restored.snapshot.oracleWallet,
+        "EQMAINNET_PROFILE_ORACLE",
+        "recovered snapshot must preserve Mainnet oracle"
+    );
+    assert.equal(
+        restored.snapshot.escrowMode,
+        "game",
+        "recovered snapshot must preserve GameEscrow mode"
+    );
+
+    console.log(
+        "Test 11 — GameContract restart preserves snapshot network: passed"
+    );
+
+}
+
+// Test 12 — settlement handoff persists an explicit network routing hint.
+function test12_settlementHandoffCarriesPaymentNetwork() {
+
+    const settlementSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "payment/ContractSettlementManager.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        settlementSource.includes("paymentNetwork: session.request?.paymentNetwork"),
+        "settlement handoff must persist paymentNetwork"
+    );
+    assert(
+        settlementSource.includes("contract.snapshot?.network"),
+        "settlement handoff must derive network from the authoritative snapshot"
+    );
+    assert(
+        settlementSource.includes("contract.tonNetwork"),
+        "settlement handoff must retain the contract network fallback"
+    );
+
+    console.log(
+        "Test 12 — settlement handoff carries paymentNetwork: passed"
+    );
+
+}
+
+// Test 13 — restored GameEscrow/refund watches retain the per-room network.
+function test13_blockchainCheckpointRetainsPaymentNetwork() {
+
+    const monitorSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "payment/BlockchainMonitor.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        monitorSource.includes(
+            "paymentNetwork: watch.paymentNetwork ?? null"
+        ),
+        "BlockchainMonitor checkpoint must persist paymentNetwork"
+    );
+    assert(
+        monitorSource.includes(
+            "this._gameEscrowRefunds.set(entry.watchId, {"
+        )
+            && monitorSource.includes(
+                "paymentNetwork: watch.paymentNetwork ?? null"
+            ),
+        "GameEscrow refund checkpoint must retain paymentNetwork"
+    );
+
+    console.log(
+        "Test 13 — BlockchainMonitor checkpoint retains paymentNetwork: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -846,6 +970,9 @@ async function main() {
 
     test9_gameContractNetworkFollowsRoomPaymentNetwork();
     test10_gameContractOracleFollowsRoomNetwork();
+    test11_gameContractRestartPreservesSnapshotNetwork();
+    test12_settlementHandoffCarriesPaymentNetwork();
+    test13_blockchainCheckpointRetainsPaymentNetwork();
 
     console.log("all assertions passed");
 
