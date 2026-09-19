@@ -550,6 +550,7 @@ export class RoomWalletResidualSweepWorker {
         this._logSweep({
             event: "sweep_eligibility",
             roomNumber,
+            network,
             sourceAddress,
             destinationAddress: destination.address,
             observedBalanceNano: balanceNano.toString(10),
@@ -643,6 +644,7 @@ export class RoomWalletResidualSweepWorker {
         }
 
         const sourceAddress = record.payload?.sourceAddress ?? null;
+        const network = resolvePaymentNetwork(record.payload);
         const selfTransfer = assertSweepSourceDiffersFromDestination(
             sourceAddress,
             destination.address
@@ -693,10 +695,11 @@ export class RoomWalletResidualSweepWorker {
         }
 
         const roomNumber = tryNormalizeRoomNumber(record.payload.roomNumber);
+        const network = resolvePaymentNetwork(record.payload);
         let balanceNano;
 
         try {
-            balanceNano = await adapter.getBalance(roomNumber);
+            balanceNano = await adapter.getBalance(roomNumber, network);
         } catch (error) {
             this._repository.markFailed(record.recordId, {
                 terminal: false,
