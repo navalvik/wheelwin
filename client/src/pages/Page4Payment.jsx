@@ -97,34 +97,62 @@ function resolvePage4LocalPlayerId({
 
     const normalizedWallet = toSessionWalletAddress(walletAddress);
 
-    if (!normalizedWallet) {
+    if (normalizedWallet) {
 
-        return null;
+        const paymentSeat = Array.isArray(paymentSession?.participants)
+            ? paymentSession.participants.find(
+                (participant) =>
+                    toSessionWalletAddress(participant?.wallet) === normalizedWallet
+            )
+            : null;
+
+        if (paymentSeat?.playerId) {
+
+            return paymentSeat.playerId;
+
+        }
+
+        const connectionSeat = Array.isArray(walletConnection?.players)
+            ? walletConnection.players.find(
+                (player) => (
+                    toSessionWalletAddress(
+                        player?.connectedWallet ?? player?.sessionWallet
+                    ) === normalizedWallet
+                )
+            )
+            : null;
+
+        if (connectionSeat?.playerId) {
+
+            return connectionSeat.playerId;
+
+        }
 
     }
 
-    const paymentSeat = Array.isArray(paymentSession?.participants)
-        ? paymentSession.participants.find(
-            (participant) => toSessionWalletAddress(participant?.wallet) === normalizedWallet
-        )
-        : null;
-
-    if (paymentSeat?.playerId) {
-
-        return paymentSeat.playerId;
-
-    }
-
-    const connectionSeat = Array.isArray(walletConnection?.players)
+    // TonConnect SDK state is not guaranteed to be exposed on every
+    // Telegram WebView render. The authoritative server wallet/session
+    // payload is sufficient to resolve the local seat.
+    const authoritativeConnectionSeat = Array.isArray(walletConnection?.players)
         ? walletConnection.players.find(
             (player) => (
-                toSessionWalletAddress(player?.connectedWallet ?? player?.sessionWallet)
-                === normalizedWallet
+                player?.status === WALLET_CONNECTION_STATUS.CONNECTED
+                || player?.status === "CONNECTED"
+            )
+            && Boolean(
+                player?.connectedWallet
+                || player?.sessionWallet
             )
         )
         : null;
 
-    return connectionSeat?.playerId ?? null;
+    if (authoritativeConnectionSeat?.playerId) {
+
+        return authoritativeConnectionSeat.playerId;
+
+    }
+
+    return null;
 
 }
 
