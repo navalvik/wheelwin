@@ -1182,7 +1182,21 @@ export default function Page4Payment({ onNavigate }) {
         )
     );
 
-    const localPlayerId = resolvedIdentityPlayerId
+    const paymentSessionWalletPlayerId = connectedWalletAddress
+        ? (
+            Array.isArray(paymentSession?.participants)
+                ? paymentSession.participants.find(
+                    (participant) => (
+                        String(participant?.walletAddress ?? "") === String(connectedWalletAddress)
+                        || String(participant?.wallet ?? "") === String(connectedWalletAddress)
+                    )
+                )?.playerId ?? null
+                : null
+        )
+        : null;
+
+    const localPlayerId = paymentSessionWalletPlayerId
+        ?? resolvedIdentityPlayerId
         ?? (
             connectedWalletAddress
                 ? Object.values(authoritative.players ?? {}).find(
