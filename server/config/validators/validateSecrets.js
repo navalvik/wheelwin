@@ -5,6 +5,8 @@
 import { DEVELOPER_SCHEMA } from "../schemas/developerSchema.js";
 import { isMissing, parseBooleanStrict, parseIntegerStrict } from "../parseHelpers.js";
 import { isInsecureSecretDefault } from "../secrets.js";
+import { isRoomWalletPaymentIntakeEnabled } from "../../payment/roomWallet/roomWalletConfig.js";
+import { loadRoomWalletRuntimeConfig } from "../../payment/roomWallet/RoomWalletRuntimeResolver.js";
 
 function requiresHardenedAuth(nodeEnv) {
 
@@ -203,6 +205,43 @@ export function validateSecrets(collector, env, context) {
                 expectedType: "secret",
                 received: env.TON_DEPLOYER_MNEMONIC,
                 suggestedFix: "Set TON_DEPLOYER_MNEMONIC when TON_DEPLOY_MODE=live."
+            });
+
+        }
+
+    }
+
+    const roomWalletsRaw = env.ROOM_WALLETS_JSON;
+    const roomWalletIntakeEnabled = isRoomWalletPaymentIntakeEnabled(env);
+
+    if (roomWalletIntakeEnabled && isMissing(roomWalletsRaw)) {
+
+        collector.add({
+            key: "ROOM_WALLETS_JSON",
+            reason: "Room Wallet intake requires ROOM_WALLETS_JSON",
+            expectedType: "secret",
+            received: roomWalletsRaw,
+            suggestedFix:
+                "Set ROOM_WALLETS_JSON to a valid 64-entry catalog when "
+                + "ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET, or leave intake unset."
+        });
+
+    } else if (!isMissing(roomWalletsRaw)) {
+
+        try {
+
+            loadRoomWalletRuntimeConfig(env);
+
+        } catch (error) {
+
+            collector.add({
+                key: "ROOM_WALLETS_JSON",
+                reason: error?.message || "Invalid Room Wallet runtime configuration",
+                expectedType: "secret",
+                received: roomWalletsRaw,
+                suggestedFix:
+                    "Provide a parseable ROOM_WALLETS_JSON array whose keys derive "
+                    + "the configured addresses. Never log or commit this value."
             });
 
         }
