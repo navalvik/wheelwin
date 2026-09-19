@@ -263,6 +263,7 @@ export class RoomWalletIncomingObserver {
         ledgerRegistry = null,
         transport = null,
         tonService = null,
+        tonNetworkServiceRegistry = null,
         auditLedger = null,
         network = null,
         now = () => Date.now(),
@@ -283,6 +284,7 @@ export class RoomWalletIncomingObserver {
         this._ledgerRegistry = ledgerRegistry;
         this._transport = transport;
         this._tonService = tonService;
+        this._tonNetworkServiceRegistry = tonNetworkServiceRegistry;
         this._auditLedger = auditLedger;
         this._network = network;
         this._now = now;
@@ -1148,14 +1150,24 @@ export class RoomWalletIncomingObserver {
     }
 
     async _fetchTransactionsRaw(address, query) {
-        // Prefer transport so observer 429s are not multiplied by TonService
-        // executeWithRetry (maxAttempts 3). Local policy is applied above.
-        if (this._transport?.getTransactions) {
-            return this._transport.getTransactions(address, query);
+        const record = typeof this._registry?.getByAddress === "function"
+            ? this._registry.getByAddress(address)
+            : null;
+        const network = String(record?.network ?? this._network ?? "").trim().toLowerCase();
+        const networkService = network && typeof this._tonNetworkServiceRegistry?.get === "function"
+            ? this._tonNetworkServiceRegistry.get(network)
+            : null;
+        const transport = networkService?.getTransport?.() ?? (network ? null : this._transport);
+        const tonService = networkService ?? (network ? null : this._tonService);
+
+        // Prefer network-specific transport so Mainnet observations never hit
+        // the process-global Testnet TonService.
+        if (transport?.getTransactions) {
+            return transport.getTransactions(address, query);
         }
 
-        if (this._tonService?.getTransactions) {
-            return this._tonService.getTransactions(address, query, {
+        if (tonService?.getTransactions) {
+            return tonService.getTransactions(address, query, {
                 retryPolicy: {
                     maxAttempts: 1,
                     timeoutMs: this._fetchTimeoutMs
@@ -1200,7 +1212,7 @@ export class RoomWalletIncomingObserver {
             source: EVENT_SOURCES.ROOM_WALLET_INCOMING_OBSERVER,
             type,
             payload: {
-                network: this._network,
+                network: payload?.network ?? this._network,
                 timestamp: this._now(),
                 ...payload
             }
