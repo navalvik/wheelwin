@@ -217,7 +217,18 @@ export function resolveIntendedRoomWalletAddress(context, registry) {
         return null;
     }
 
-    const record = typeof registry.get === "function" ? registry.get(roomNumber) : null;
+    const requestedNetwork = String(
+        identity?.paymentNetwork
+            ?? identity?.network
+            ?? identity?.tonNetwork
+            ?? ""
+    ).trim().toLowerCase();
+
+    const record = requestedNetwork && typeof registry.getForNetwork === "function"
+        ? registry.getForNetwork(roomNumber, requestedNetwork)
+        : typeof registry.get === "function"
+            ? registry.get(roomNumber)
+            : null;
 
     return canonicalizeTonWalletAddress(record?.address) ?? record?.address ?? null;
 }
