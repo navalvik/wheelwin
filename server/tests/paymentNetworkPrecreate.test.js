@@ -31,6 +31,10 @@ import { LOBBY_SERVER_EVENTS } from "../socket/lobbyProtocol.js";
 import { RoomLobbyBridge } from "../socket/RoomLobbyBridge.js";
 import { DepositOrchestrator } from "../deposit/DepositOrchestrator.js";
 import { GameContractManager } from "../gameplay/GameContractManager.js";
+import {
+    assertAuthorizationReadyForDeploy,
+    resolveAuthorizationNetwork
+} from "../deposit/deploymentAuthorizationValidation.js";
 
 function assert(condition, message) {
 
@@ -916,6 +920,82 @@ function test12_settlementHandoffCarriesPaymentNetwork() {
 
 }
 
+// Test 15 — deployment authorization retains the authoritative Mainnet network.
+function test15_deploymentAuthorizationNetworkIsAuthoritative() {
+
+    const mainnetSession = {
+        depositId: "dep-mainnet",
+        roomId: "room-mainnet",
+        gameId: "game-mainnet",
+        state: "DEPOSIT_FULL",
+        bindingHash: "binding-mainnet",
+        metadata: {
+            network: "mainnet"
+        },
+        bindings: [
+            { playerId: "p1", wallet: "EQMAINNETP1" }
+        ]
+    };
+
+    assert.equal(
+        resolveAuthorizationNetwork(mainnetSession),
+        "mainnet",
+        "authorization network must come from the DepositSession metadata"
+    );
+
+    assert.equal(
+        resolveAuthorizationNetwork(mainnetSession, { network: "mainnet" }),
+        "mainnet",
+        "explicit Mainnet authorization override must remain Mainnet"
+    );
+
+    const authorization = {
+        network: "mainnet",
+        status: "VALID",
+        expiresAt: Date.now() + 60_000
+    };
+
+    const ready = assertAuthorizationReadyForDeploy(
+        authorization,
+        {
+            roomId: "room-mainnet",
+            gameId: "game-mainnet",
+            network: "mainnet"
+        }
+    );
+
+    assert.equal(
+        ready.network,
+        "mainnet",
+        "deploy authorization must validate against Mainnet"
+    );
+
+    let mismatchRejected = false;
+
+    try {
+        assertAuthorizationReadyForDeploy(
+            authorization,
+            {
+                roomId: "room-mainnet",
+                gameId: "game-mainnet",
+                network: "testnet"
+            }
+        );
+    } catch {
+        mismatchRejected = true;
+    }
+
+    assert(
+        mismatchRejected,
+        "Mainnet authorization must be rejected for a Testnet deployment request"
+    );
+
+    console.log(
+        "Test 15 — deployment authorization network is authoritative: passed"
+    );
+
+}
+
 // Test 14 — settlement/cancel adapter paths are explicitly network-routed.
 function test14_adapterSettlementAndCancelUsePaymentNetwork() {
 
@@ -1017,6 +1097,7 @@ async function main() {
     test12_settlementHandoffCarriesPaymentNetwork();
     test13_blockchainCheckpointRetainsPaymentNetwork();
     test14_adapterSettlementAndCancelUsePaymentNetwork();
+    test15_deploymentAuthorizationNetworkIsAuthoritative();
 
     console.log("all assertions passed");
 
