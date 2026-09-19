@@ -916,6 +916,49 @@ function test12_settlementHandoffCarriesPaymentNetwork() {
 
 }
 
+// Test 14 — settlement/cancel adapter paths are explicitly network-routed.
+function test14_adapterSettlementAndCancelUsePaymentNetwork() {
+
+    const adapterSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "payment/TonGameContractAdapter.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        adapterSource.includes(
+            "const paymentNetwork = settlementRequest?.paymentNetwork"
+        ),
+        "settlement adapter must read the persisted paymentNetwork"
+    );
+    assert(
+        adapterSource.includes(
+            "this._service(paymentNetwork)"
+        ),
+        "settlement adapter must select the network-specific TON service"
+    );
+    assert(
+        adapterSource.includes(
+            "async cancel({ contractAddress, reasonCode = 0, paymentNetwork = null })"
+        ),
+        "cancel path must accept the authoritative paymentNetwork"
+    );
+    assert(
+        adapterSource.includes(
+            "this._parseAddress(contractAddress, paymentNetwork)"
+        ),
+        "cancel path must parse the contract address on the selected network"
+    );
+
+    console.log(
+        "Test 14 — adapter settlement/cancel use paymentNetwork: passed"
+    );
+
+}
+
 // Test 13 — restored GameEscrow/refund watches retain the per-room network.
 function test13_blockchainCheckpointRetainsPaymentNetwork() {
 
@@ -973,6 +1016,7 @@ async function main() {
     test11_gameContractRestartPreservesSnapshotNetwork();
     test12_settlementHandoffCarriesPaymentNetwork();
     test13_blockchainCheckpointRetainsPaymentNetwork();
+    test14_adapterSettlementAndCancelUsePaymentNetwork();
 
     console.log("all assertions passed");
 
