@@ -1333,6 +1333,63 @@ function test21_deploymentCostCapturePreservesNetwork() {
 
 }
 
+
+// Test 22 — Room Wallet destination is published in every authoritative PaymentSession view.
+function test22_paymentSessionPublishesRoomWalletDestination() {
+
+    const session = new PaymentSession({
+        paymentSessionId: "pay-mainnet-room-wallet",
+        roomId: "room-mainnet",
+        roomNumber: 42,
+        gameId: "game-mainnet",
+        network: "mainnet",
+        roomWalletAddress: "EQRoomWalletMainnet",
+        participants: []
+    });
+
+    const payload = session.toPayload();
+    const snapshot = session.toSnapshot();
+    const dashboard = session.toDashboardSnapshot();
+
+    assert.equal(
+        payload.roomWalletAddress,
+        "EQRoomWalletMainnet",
+        "PaymentSession persistence payload must retain Room Wallet destination"
+    );
+    assert.equal(
+        snapshot.roomWalletAddress,
+        "EQRoomWalletMainnet",
+        "PAYMENT_SESSION authoritative snapshot must publish Room Wallet destination"
+    );
+    assert.equal(
+        dashboard.roomWalletAddress,
+        "EQRoomWalletMainnet",
+        "PaymentSession dashboard view must retain Room Wallet destination"
+    );
+
+    const restored = PaymentSession.fromRecord({
+        payload: {
+            paymentSessionId: "pay-mainnet-room-wallet-restored",
+            roomId: "room-mainnet",
+            gameId: "game-mainnet",
+            network: "mainnet",
+            roomWalletAddress: "EQRoomWalletMainnet",
+            participants: []
+        }
+    });
+
+    assert.equal(
+        restored.roomWalletAddress,
+        "EQRoomWalletMainnet",
+        "PaymentSession restart recovery must preserve Room Wallet destination"
+    );
+
+    console.log(
+        "Test 22 — PaymentSession publishes Room Wallet destination: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1364,6 +1421,7 @@ async function main() {
     test16_paymentSessionRestartPreservesNetwork();
     test17_settlementSessionRestartPreservesNetwork();
     test18_mainnetDeployUsesSnapshotNetwork();
+    test22_paymentSessionPublishesRoomWalletDestination();
 
     console.log("all assertions passed");
 
