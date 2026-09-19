@@ -94,7 +94,7 @@ export class RoomWalletRegistry {
         const record = this.get(roomNumber);
 
         if (!record) {
-            throw new Error(`room wallet is not registered for room ${roomNumber}`);
+            throw new Error(`room wallet is not uniquely registered for room ${roomNumber}; specify network`);
         }
 
         return record;
