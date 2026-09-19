@@ -1725,6 +1725,32 @@ function test31_gameEscrowConfirmationNetworkPropagation() {
 }
 
 
+// Test 34 — GameContract lifecycle events retain the authoritative payment network.
+function test34_gameContractLifecycleNetworkPropagation() {
+
+    const source = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "gameplay/GameContractManager.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        source.includes("_emitDomainLifecycle(type, contract, extra = {})")
+            && source.includes("network: contract.tonNetwork")
+            && source.includes("paymentNetwork: contract.tonNetwork")
+            && source.includes("tonNetwork: contract.tonNetwork"),
+        "GameContract lifecycle events must publish the immutable contract payment network"
+    );
+
+    console.log(
+        "Test 34 — GameContract lifecycle network propagation: passed"
+    );
+
+}
+
 // Test 33 — Legacy settlement consumers retain the authoritative payment network.
 function test33_settlementLegacyRecordNetworkPropagation() {
 
@@ -1826,6 +1852,7 @@ async function main() {
     test31_gameEscrowConfirmationNetworkPropagation();
     test32_settlementCompletionNetworkPropagation();
     test33_settlementLegacyRecordNetworkPropagation();
+    test34_gameContractLifecycleNetworkPropagation();
 
     console.log("all assertions passed");
 
