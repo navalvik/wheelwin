@@ -50,35 +50,15 @@ export function loadTonConfig(env = process.env) {
             ? env.TON_DEPLOYER_EXPECTED_ADDRESS.trim()
             : null);
 
-    // Keep active-runtime configuration network-safe as well. Mainnet uses
-    // dedicated signing material; it never inherits a Testnet mnemonic.
-    const deployerMnemonic = normalizedNetwork === "mainnet"
-        ? (
-            typeof env.TON_MAINNET_DEPLOYER_MNEMONIC === "string"
-            && env.TON_MAINNET_DEPLOYER_MNEMONIC.trim()
-                ? env.TON_MAINNET_DEPLOYER_MNEMONIC.trim()
-                : null
-        )
-        : (
-            typeof env.TON_TESTNET_DEPLOYER_MNEMONIC === "string"
-            && env.TON_TESTNET_DEPLOYER_MNEMONIC.trim()
-                ? env.TON_TESTNET_DEPLOYER_MNEMONIC.trim()
-                : (
-                    typeof env.TON_DEPLOYER_MNEMONIC === "string"
-                    && env.TON_DEPLOYER_MNEMONIC.trim()
-                        ? env.TON_DEPLOYER_MNEMONIC.trim()
-                        : null
-                )
-        );
+    // One mnemonic is intentionally shared by Testnet and Mainnet.
+    // The derived wallet address is network-specific, so the same seed produces
+    // separate Testnet/Mainnet wallet identities without sharing balances.
+    const deployerMnemonic = typeof env.TON_DEPLOYER_MNEMONIC === "string"
+        && env.TON_DEPLOYER_MNEMONIC.trim()
+        ? env.TON_DEPLOYER_MNEMONIC.trim()
+        : null;
 
-    const apiKey = normalizedNetwork === "mainnet"
-        ? (
-            typeof env.TON_MAINNET_API_KEY === "string"
-            && env.TON_MAINNET_API_KEY.trim()
-                ? env.TON_MAINNET_API_KEY.trim()
-                : (env.TON_API_KEY || null)
-        )
-        : (env.TON_API_KEY || null);
+    const apiKey = env.TON_API_KEY || null;
 
     return {
         network: normalizedNetwork,
