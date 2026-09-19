@@ -1749,6 +1749,7 @@ class WheelWinApplication {
             ledgerRegistry: this._roomWalletLedgerRegistry,
             transport: this._services?.tonService?.getTransport?.() ?? null,
             tonService: this._services?.tonService ?? null,
+            tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
             auditLedger: this._entryPaymentAuditLedger,
             network: this._tonConfig?.network ?? null
         });
