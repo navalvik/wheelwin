@@ -26,79 +26,42 @@ const SECRET_KEY_BYTES = 64;
 const ROOM_WALLET_WORKCHAIN = 0;
 const ROOM_WALLET_NETWORKS = Object.freeze(["testnet", "mainnet"]);
 
-export function loadRoomWalletRuntimeConfig(env = process.env) {
-    const raw = String(env.ROOM_WALLETS_JSON ?? "").trim();
-    const intakeEnabled = isRoomWalletPaymentIntakeModeEnabled(env);
+export const ROOM_WALLETS_MAINNET_JSON_ENV = "ROOM_WALLETS_MAINNET_JSON";
 
-    if (!raw) {
-        if (intakeEnabled) {
+export function loadRoomWalletRuntimeConfig(env = process.env) {
+    const testnetEntries = parseRuntimeCatalog(
+        env.ROOM_WALLETS_JSON,
+        "ROOM_WALLETS_JSON",
+        "testnet"
+    );
+    const mainnetEntries = parseRuntimeCatalog(
+        env[ROOM_WALLETS_MAINNET_JSON_ENV],
+        ROOM_WALLETS_MAINNET_JSON_ENV,
+        "mainnet"
+    );
+
+    const entries = [...testnetEntries, ...mainnetEntries];
+    const seen = new Set();
+
+    for (const entry of entries) {
+        const key = entry.roomNumber + "::" + entry.network;
+        if (seen.has(key)) {
             throw new Error(
-                "ROOM_WALLETS_JSON is required when ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET"
+                "duplicate roomNumber " + entry.roomNumber
+                + " for network " + entry.network
             );
         }
-
-        return Object.freeze({ entries: [] });
+        seen.add(key);
     }
 
-    let parsed;
-    try {
-        parsed = JSON.parse(raw);
-    } catch {
-        throw new Error("ROOM_WALLETS_JSON is not valid JSON");
-    }
-
-    if (!Array.isArray(parsed)) {
-        throw new TypeError("ROOM_WALLETS_JSON must contain an array");
-    }
-
-    if (parsed.length > ROOM_WALLET_COUNT) {
-        throw new RangeError(`ROOM_WALLETS_JSON cannot contain more than ${ROOM_WALLET_COUNT} wallets`);
-    }
-
-    const envNetwork = normalizeOptionalNetwork(env.TON_NETWORK);
-    const entries = [];
-    const seenRoomNumbers = new Set();
-    const seenAddresses = new Set();
-    const seenNetworks = new Set();
-
-    for (const entry of parsed) {
-        const normalized = normalizeEntry(entry);
-
-        const roomNetworkKey = `${normalized.roomNumber}::${normalized.network ?? ""}`;
-        if (seenRoomNumbers.has(roomNetworkKey)) {
-            throw new Error(`duplicate roomNumber ${normalized.roomNumber}`);
-        }
-
-        seenRoomNumbers.add(roomNetworkKey);
-
-        if (seenAddresses.has(normalized.address)) {
-            throw new Error(`duplicate Room Wallet address for room ${normalized.roomNumber}`);
-        }
-
-        seenAddresses.add(normalized.address);
-
-        if (normalized.network) {
-            seenNetworks.add(normalized.network);
-
-            if (envNetwork && normalized.network !== envNetwork) {
-                throw new Error(
-                    `room ${normalized.roomNumber} network does not match TON_NETWORK`
-                );
-            }
-        }
-
-        entries.push(normalized);
-    }
-
-    if (seenNetworks.size > 1) {
-        throw new Error("ROOM_WALLETS_JSON cannot mix network values");
-    }
-
+    const intakeEnabled = isRoomWalletPaymentIntakeModeEnabled(env);
     if (intakeEnabled) {
-        assertCompleteRoomWalletCatalog(entries, "testnet");
+        assertCompleteRoomWalletCatalog(testnetEntries, "testnet");
     }
 
-    return Object.freeze({ entries });
+    return Object.freeze({
+        entries: Object.freeze(entries)
+    });
 }
 
 export function createRoomWalletRuntimeResolver({ env = process.env, registry = null } = {}) {
@@ -112,19 +75,29 @@ export function createRoomWalletRuntimeResolver({ env = process.env, registry = 
     });
 
     const identities = new Map(
-        runtimeConfig.entries.map((entry) => [entry.roomNumber, Object.freeze(entry)])
+        runtimeConfig.entries.map((entry) => [
+            makeIdentityKey(entry.roomNumber, entry.network),
+            Object.freeze(entry)
+        ])
     );
 
-    return Object.freeze(async (roomNumber) => {
-        const record = resolvedRegistry.require(roomNumber);
-        const identity = identities.get(record.roomNumber);
+    return Object.freeze(async (roomNumber, network = null) => {
+        const record = network == null
+            ? resolvedRegistry.require(roomNumber)
+            : resolvedRegistry.require(roomNumber, network);
+        const identity = identities.get(
+            makeIdentityKey(record.roomNumber, record.network)
+        );
 
         if (!identity) {
-            throw new Error(`signing material is unavailable for room ${record.roomNumber}`);
+            throw new Error(
+                "signing material is unavailable for room "
+                + record.roomNumber + " on network " + (record.network ?? "unspecified")
+            );
         }
 
         if (identity.address !== record.address) {
-            throw new Error(`room ${record.roomNumber} wallet identity drift`);
+            throw new Error("room " + record.roomNumber + " wallet identity drift");
         }
 
         return identity;
@@ -142,6 +115,40 @@ export function createRoomWalletRegistryFromEnv(env = process.env) {
     });
 }
 
+function parseRuntimeCatalog(rawValue, label, defaultNetwork) {
+    const raw = String(rawValue ?? "").trim();
+
+    if (!raw) {
+        return [];
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        throw new Error(label + " is not valid JSON");
+    }
+
+    if (!Array.isArray(parsed)) {
+        throw new TypeError(label + " must contain an array");
+    }
+
+    if (parsed.length > ROOM_WALLET_COUNT) {
+        throw new RangeError(
+            label + " cannot contain more than " + ROOM_WALLET_COUNT + " wallets"
+        );
+    }
+
+    return parsed.map((entry) => normalizeEntry(
+        entry,
+        defaultNetwork
+    ));
+}
+
+function makeIdentityKey(roomNumber, network) {
+    return String(roomNumber) + "::" + (network ?? "unspecified");
+}
+
 function isRoomWalletPaymentIntakeModeEnabled(env) {
     return String(env?.ROOM_WALLET_PAYMENT_INTAKE_MODE || "").trim().toUpperCase() === "ROOM_WALLET";
 }
@@ -150,7 +157,11 @@ function assertCompleteRoomWalletCatalog(entries, network = "testnet") {
     const networkEntries = entries.filter((entry) => entry.network === network);
     if (networkEntries.length !== ROOM_WALLET_COUNT) {
         throw new RangeError(
-            `ROOM_WALLETS_JSON must contain exactly ${ROOM_WALLET_COUNT} ${network} wallets when Room Wallet intake is enabled`
+            "ROOM_WALLETS_JSON must contain exactly "
+            + ROOM_WALLET_COUNT
+            + " "
+            + network
+            + " wallets when Room Wallet intake is enabled"
         );
     }
 
@@ -159,13 +170,16 @@ function assertCompleteRoomWalletCatalog(entries, network = "testnet") {
     for (let roomNumber = 1; roomNumber <= ROOM_WALLET_COUNT; roomNumber += 1) {
         if (!present.has(roomNumber)) {
             throw new RangeError(
-                `ROOM_WALLETS_JSON is missing ${network} roomNumber ${roomNumber}`
+                "ROOM_WALLETS_JSON is missing "
+                + network
+                + " roomNumber "
+                + roomNumber
             );
         }
     }
 }
 
-function normalizeEntry(entry) {
+function normalizeEntry(entry, defaultNetwork = null) {
     if (!entry || typeof entry !== "object") {
         throw new TypeError("each Room Wallet entry must be an object");
     }
@@ -194,7 +208,7 @@ function normalizeEntry(entry) {
         );
     }
 
-    const network = normalizeOptionalNetwork(entry.network);
+    const network = normalizeOptionalNetwork(entry.network ?? defaultNetwork);
 
     if (entry.network != null && String(entry.network).trim() !== "" && !network) {
         throw new TypeError(`network must be testnet or mainnet for room ${roomNumber}`);
