@@ -49,6 +49,61 @@ function testIndependentServices() {
     console.log("Dual-network registry isolation: passed");
 }
 
+
+function testNetworkScopedSigningMaterial() {
+    const registry = new TonNetworkServiceRegistry({
+        env: {
+            TON_TESTNET_ENDPOINT: "https://testnet.example.invalid",
+            TON_MAINNET_ENDPOINT: "https://mainnet.example.invalid",
+            TON_POLL_INTERVAL_MS: "2000",
+            TON_DEPLOY_MODE: "live",
+            TON_DEPLOYER_MNEMONIC: "legacy-testnet-mnemonic",
+            TON_TESTNET_DEPLOYER_MNEMONIC: "dedicated-testnet-mnemonic",
+            TON_MAINNET_DEPLOYER_MNEMONIC: "dedicated-mainnet-mnemonic",
+            TON_API_KEY: "legacy-api-key",
+            TON_MAINNET_API_KEY: "dedicated-mainnet-api-key"
+        },
+        createService: ({ network }) => createFakeService(network)
+    });
+
+    const testnet = registry.getConfig("testnet");
+    const mainnet = registry.getConfig("mainnet");
+
+    assert(
+        testnet.deployerMnemonic === "dedicated-testnet-mnemonic",
+        "Testnet must prefer its dedicated deployer mnemonic"
+    );
+    assert(
+        mainnet.deployerMnemonic === "dedicated-mainnet-mnemonic",
+        "Mainnet must use its dedicated deployer mnemonic"
+    );
+    assert(
+        mainnet.deployerMnemonic !== "legacy-testnet-mnemonic",
+        "Mainnet must never inherit the legacy runtime/Testnet mnemonic"
+    );
+    assert(
+        mainnet.apiKey === "dedicated-mainnet-api-key",
+        "Mainnet must prefer its dedicated API key"
+    );
+
+    const mainnetWithoutDedicatedMnemonic = new TonNetworkServiceRegistry({
+        env: {
+            TON_MAINNET_ENDPOINT: "https://mainnet.example.invalid",
+            TON_POLL_INTERVAL_MS: "2000",
+            TON_DEPLOY_MODE: "live",
+            TON_DEPLOYER_MNEMONIC: "legacy-testnet-mnemonic"
+        },
+        createService: ({ network }) => createFakeService(network)
+    });
+
+    assert(
+        mainnetWithoutDedicatedMnemonic.getConfig("mainnet").deployerMnemonic === null,
+        "Mainnet must fail closed when dedicated signing material is absent"
+    );
+
+    console.log("Network-scoped signing material isolation: passed");
+}
+
 function testInvalidNetworkRejected() {
     const registry = new TonNetworkServiceRegistry({
         createService: ({ network }) => createFakeService(network)
@@ -68,3 +123,6 @@ function testInvalidNetworkRejected() {
 
 testIndependentServices();
 testInvalidNetworkRejected();
+
+
+testNetworkScopedSigningMaterial();
