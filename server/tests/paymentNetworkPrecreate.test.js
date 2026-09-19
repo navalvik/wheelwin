@@ -1868,6 +1868,81 @@ function test35_archivedContractNetworkPersistence() {
 
 }
 
+
+// Test 36 — Page6 payment/result views preserve the authoritative payment network
+// instead of deriving it from the client runtime or wallet chain.
+function test36_page6PaymentNetworkPropagation() {
+
+    const paymentEngineSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "engines/PaymentEngine.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        paymentEngineSource.includes("_resolvePaymentNetwork(gameId)")
+            && paymentEngineSource.includes("paymentNetwork,"),
+        "PaymentEngine must attach the authoritative GameContract network to payment events"
+    );
+
+    const protocolSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "socket/gameplayPaymentProtocol.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        protocolSource.includes(
+            "paymentNetwork: paymentPayload?.paymentNetwork ?? paymentPayload?.network ?? null"
+        ),
+        "payment status protocol must expose the authoritative payment network"
+    );
+
+    const resultSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "..",
+            "client/src/game/result/gameResultFlow.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        resultSource.includes(
+            "paymentNetwork: payload.paymentNetwork ?? payload.network ?? null"
+        ),
+        "Page6 result/payment view must preserve the server payment network"
+    );
+
+    const recoverySource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "..",
+            "client/src/game/sessionRecovery/sessionSnapshotUtils.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        recoverySource.includes("snapshot.payment?.paymentNetwork")
+            && recoverySource.includes("snapshot.gameContract?.tonNetwork"),
+        "Page6 recovery must retain the authoritative payment network"
+    );
+
+    console.log(
+        "Test 36 — Page6 payment network propagation: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1910,6 +1985,7 @@ async function main() {
     test33_settlementLegacyRecordNetworkPropagation();
     test34_gameContractLifecycleNetworkPropagation();
     test35_archivedContractNetworkPersistence();
+    test36_page6PaymentNetworkPropagation();
 
     console.log("all assertions passed");
 
