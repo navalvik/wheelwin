@@ -42,6 +42,7 @@ export class RoomWalletResidualSweepWorker {
         logger = null,
         env = process.env,
         tonService = null,
+        tonNetworkServiceRegistry = null,
         pollIntervalMs = 5_000
     } = {}) {
         if (!repository) {
@@ -57,6 +58,7 @@ export class RoomWalletResidualSweepWorker {
         this._logger = logger;
         this._env = env;
         this._tonService = tonService;
+        this._tonNetworkServiceRegistry = tonNetworkServiceRegistry;
         this._pollIntervalMs = Number.isFinite(Number(pollIntervalMs))
             ? Math.max(1_000, Number(pollIntervalMs))
             : 5_000;
@@ -341,6 +343,7 @@ export class RoomWalletResidualSweepWorker {
 
         const service = createRoomWalletService({
             tonService: this._tonService,
+            tonNetworkServiceRegistry: this._tonNetworkServiceRegistry,
             logger: this._logger,
             env: this._env
         });
