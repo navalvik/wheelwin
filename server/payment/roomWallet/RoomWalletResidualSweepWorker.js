@@ -178,7 +178,8 @@ export class RoomWalletResidualSweepWorker {
 
         return this.processRoom(roomNumber, {
             trigger: "SETTLEMENT_CONFIRMED",
-            gameId: payload.gameId ?? null
+            gameId: payload.gameId ?? null,
+            network: resolvePaymentNetwork(payload)
         });
     }
 
@@ -259,7 +260,7 @@ export class RoomWalletResidualSweepWorker {
         });
     }
 
-    async processRoom(roomNumber, { trigger = "manual" } = {}) {
+    async processRoom(roomNumber, { trigger = "manual", network = null } = {}) {
         if (!isRoomWalletResidualSweepEnabled(this._env)) {
             return Object.freeze({
                 ok: false,
@@ -277,7 +278,7 @@ export class RoomWalletResidualSweepWorker {
         }
 
         return this._withRoomLock(normalizedRoomNumber, () => (
-            this._processRoomLocked(normalizedRoomNumber, { trigger })
+            this._processRoomLocked(normalizedRoomNumber, { trigger, network })
         ));
     }
 
@@ -349,7 +350,7 @@ export class RoomWalletResidualSweepWorker {
         return this._roomWalletAdapter;
     }
 
-    async _processRoomLocked(roomNumber, { trigger }) {
+    async _processRoomLocked(roomNumber, { trigger, network = null }) {
         const inFlight = this._repository.findInFlightByRoomNumber(roomNumber);
 
         if (inFlight) {
@@ -443,7 +444,8 @@ export class RoomWalletResidualSweepWorker {
         let sourceAddress;
 
         try {
-            sourceAddress = this._registry?.require?.(roomNumber)?.address
+            sourceAddress = this._registry?.getForNetwork?.(roomNumber, network)?.address
+                ?? this._registry?.require?.(roomNumber, network)?.address
                 ?? null;
         } catch (error) {
             this._logSweep({
@@ -527,7 +529,7 @@ export class RoomWalletResidualSweepWorker {
         let balanceNano;
 
         try {
-            balanceNano = await adapter.getBalance(roomNumber);
+            balanceNano = await adapter.getBalance(roomNumber, network);
         } catch (error) {
             this._logSweep({
                 event: "sweep_skip",
@@ -575,6 +577,7 @@ export class RoomWalletResidualSweepWorker {
         try {
             record = this._repository.create({
                 roomNumber,
+                network,
                 sourceAddress,
                 destinationAddress: destination.address,
                 observedBalanceNano: balanceNano,
@@ -734,8 +737,10 @@ export class RoomWalletResidualSweepWorker {
         try {
             sendResult = await adapter.sendTransfer({
                 roomNumber,
+                network,
                 destination: destination.address,
                 amountNano: ROOM_WALLET_POLICY.residualSweepNano,
+                network,
                 sourceReserveNano: ROOM_WALLET_POLICY.residualRetainedFloorNano,
                 sendMode: SendMode.PAY_GAS_SEPARATELY
             });
@@ -988,4 +993,15 @@ export class RoomWalletResidualSweepWorker {
 
         this._logger?.info?.(`RoomWalletResidualSweep | ${parts.join(" | ")}`);
     }
+}
+
+
+function resolvePaymentNetwork(payload = {}) {
+    const raw = payload.paymentNetwork
+        ?? payload.network
+        ?? payload.tonNetwork
+        ?? payload.snapshot?.network
+        ?? null;
+    const normalized = String(raw ?? "").trim().toLowerCase();
+    return normalized || null;
 }
