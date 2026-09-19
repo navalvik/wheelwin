@@ -86,6 +86,7 @@ export function mapAuditStatusToView(payload) {
 
     return {
         gameId: payload.gameId ?? null,
+        paymentNetwork: payload.paymentNetwork ?? payload.network ?? null,
         status: payload.status,
         auditId: payload.auditId ?? null,
         serverTimestamp: payload.serverTimestamp ?? null,
@@ -141,6 +142,7 @@ export function mapAuthoritativeResultToView(payload) {
 
     return {
         gameId: payload.gameId ?? null,
+        paymentNetwork: payload.paymentNetwork ?? payload.network ?? null,
         winner: {
             id: payload.winner.id ?? null,
             color: payload.winner.color ?? null,
