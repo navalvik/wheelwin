@@ -29,7 +29,7 @@ import {
 
 import { resolveLocalPlayerId } from "../game/session";
 
-import { buildEntryPaymentTransaction, nanotonsToTonDisplay, sumAuthoritativeEntryNanotons, toTonConnectSendTransactionRequest } from "../payment/buildEntryPaymentTransaction";
+import { buildEntryPaymentTransaction, nanotonsToTonDisplay, sumAuthoritativeEntryNanotons } from "../payment/buildEntryPaymentTransaction";
 import { requiredGramToNanotonString } from "../payment/buildTonConnectPaymentTransaction";
 import {
     classifyDepositWalletError,
@@ -954,16 +954,13 @@ export default function Page4Payment({ onNavigate }) {
                 network: gameEscrowOnly ? null : depositProjection.network,
                 paymentDestination: gameEscrowOnly ? roomWalletDestination : null,
                 gameEscrowAddress: gameEscrowOnly
-                    ? null
+                    ? (roomWalletDestination ?? paymentRequest?.contractAddress ?? null)
                     : (paymentRequest?.contractAddress ?? null),
                 requiredGram: paymentRequest?.requiredGram ?? null,
-                playerIndex: gameEscrowOnly ? null : playerIndex
+                playerIndex
             });
 
-            const { totalNanotons } = transactionObject;
-            const tonConnectTransaction = toTonConnectSendTransactionRequest(
-                transactionObject
-            );
+            const { totalNanotons, ...tonConnectTransaction } = transactionObject;
             const nowEpochSeconds = Math.floor(Date.now() / 1000);
             const authoritativeNetwork = paymentSession?.network
                 ?? depositProjection?.network
