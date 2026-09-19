@@ -51,62 +51,79 @@ export class RoomWalletRegistry {
             throw new TypeError("address is required");
         }
 
-        const existing = this._entries.get(normalizedRoomNumber);
+        const normalizedNetwork = normalizeNetwork(network);
+        const key = makeRegistryKey(normalizedRoomNumber, normalizedNetwork);
+        const existing = this._entries.get(key);
 
         if (
             existing
             && !tonWalletAccountsEqual(existing.address, normalizedAddress)
         ) {
-            throw new Error(`room ${normalizedRoomNumber} is already mapped to another wallet`);
+            throw new Error(
+                "room " + normalizedRoomNumber
+                + " is already mapped to another wallet on network "
+                + (normalizedNetwork ?? "unspecified")
+            );
         }
 
         const record = Object.freeze({
             roomNumber: normalizedRoomNumber,
             address: normalizedAddress,
-            network: network == null ? null : String(network).trim().toLowerCase()
+            network: normalizedNetwork
         });
 
-        this._entries.set(normalizedRoomNumber, record);
+        this._entries.set(key, record);
         return record;
     }
 
     get(roomNumber) {
-        return this._entries.get(normalizeRoomNumber(roomNumber)) ?? null;
+        const normalizedRoomNumber = normalizeRoomNumber(roomNumber);
+        const matches = [...this._entries.values()]
+            .filter((entry) => entry.roomNumber === normalizedRoomNumber);
+
+        return matches.length === 1 ? matches[0] : null;
     }
 
     getForNetwork(roomNumber, network) {
-        const record = this.get(roomNumber);
-
-        if (!record) {
-            return null;
-        }
-
-        const normalizedNetwork = String(network ?? "").trim().toLowerCase();
+        const normalizedRoomNumber = normalizeRoomNumber(roomNumber);
+        const normalizedNetwork = normalizeNetwork(network);
 
         if (!normalizedNetwork) {
-            return record;
+            return this.get(normalizedRoomNumber);
         }
 
-        return record.network === normalizedNetwork ? record : null;
+        return this._entries.get(
+            makeRegistryKey(normalizedRoomNumber, normalizedNetwork)
+        ) ?? null;
     }
 
-    require(roomNumber) {
-        const record = this.get(roomNumber);
+    require(roomNumber, network = null) {
+        const record = network == null
+            ? this.get(roomNumber)
+            : this.getForNetwork(roomNumber, network);
 
         if (!record) {
-            throw new Error(`room wallet is not uniquely registered for room ${roomNumber}; specify network`);
+            throw new Error(
+                "room wallet is not uniquely registered for room "
+                + roomNumber + "; specify network"
+            );
         }
 
         return record;
     }
 
-    has(roomNumber) {
-        return this._entries.has(normalizeRoomNumber(roomNumber));
+    has(roomNumber, network = null) {
+        return network == null
+            ? this.get(roomNumber) != null
+            : this.getForNetwork(roomNumber, network) != null;
     }
 
     list() {
         return Object.freeze(
-            [...this._entries.values()].sort((a, b) => a.roomNumber - b.roomNumber)
+            [...this._entries.values()].sort((a, b) =>
+                a.roomNumber - b.roomNumber
+                || String(a.network ?? "").localeCompare(String(b.network ?? ""))
+            )
         );
     }
 
@@ -127,4 +144,23 @@ export class RoomWalletRegistry {
 
         return null;
     }
+}
+
+
+function normalizeNetwork(network) {
+    if (network == null || String(network).trim() === "") {
+        return null;
+    }
+
+    const normalized = String(network).trim().toLowerCase();
+
+    if (normalized !== "testnet" && normalized !== "mainnet") {
+        throw new TypeError("network must be testnet or mainnet");
+    }
+
+    return normalized;
+}
+
+function makeRegistryKey(roomNumber, network) {
+    return String(roomNumber) + "::" + (network ?? "unspecified");
 }
