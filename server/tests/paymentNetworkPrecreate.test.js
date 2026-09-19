@@ -1480,13 +1480,6 @@ async function test25_roomWalletAdapterUsesPaymentNetworkService() {
         }
     };
 
-    const registry = new RoomWalletRegistry({
-        entries: [
-            { roomNumber: 7, address: "EQTestnetRoomWallet", network: "testnet" },
-            { roomNumber: 7, address: "EQMainnetRoomWallet", network: "mainnet" }
-        ]
-    });
-
     const adapter = new RoomWalletAdapter({
         tonService: testnetService,
         tonNetworkServiceRegistry: {
@@ -1496,15 +1489,16 @@ async function test25_roomWalletAdapterUsesPaymentNetworkService() {
                     : testnetService;
             }
         },
-        walletResolver: async (roomNumber, network) => {
-            const identity = registry.require(roomNumber, network);
-            return {
-                ...identity,
-                workchain: 0,
-                publicKey: Buffer.alloc(32),
-                secretKey: Buffer.alloc(64)
-            };
-        }
+        walletResolver: async (roomNumber, network) => ({
+            roomNumber,
+            address: network === "mainnet"
+                ? "EQMainnetRoomWallet"
+                : "EQTestnetRoomWallet",
+            network,
+            workchain: 0,
+            publicKey: Buffer.alloc(32),
+            secretKey: Buffer.alloc(64)
+        })
     });
 
     await adapter.canFundTransfer({
