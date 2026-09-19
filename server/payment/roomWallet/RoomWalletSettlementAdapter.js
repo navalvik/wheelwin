@@ -58,6 +58,7 @@ export class RoomWalletSettlementAdapter {
 
     async preflight(request = {}) {
         const roomNumber = resolveRoomNumber(request);
+        const paymentNetwork = resolvePaymentNetwork(request);
         const winnerAmountNano = resolveAuthoritativeWinnerAmountNano(request);
         const ownerGrossNano = resolveNano(
             request.organizerAmountNano,
@@ -71,7 +72,7 @@ export class RoomWalletSettlementAdapter {
         assertNonNegativeNano(gasReserveNano, "gasReserveNano");
 
         const ownerPlan = buildOwnerPayout({ ownerGrossNano });
-        const balanceNano = await this._roomWalletAdapter.getBalance(roomNumber);
+        const balanceNano = await this._roomWalletAdapter.getBalance(roomNumber, paymentNetwork);
         const totalPayoutNano = winnerAmountNano + ownerPlan.ownerPayoutNano;
         const totalGasReserveNano = gasReserveNano * 2n;
         const requiredNano = totalPayoutNano + totalGasReserveNano;
@@ -103,6 +104,7 @@ export class RoomWalletSettlementAdapter {
 
     async inspectSettlement(request = {}) {
         const roomNumber = resolveRoomNumber(request);
+        const paymentNetwork = resolvePaymentNetwork(request);
         const winnerWallet = requireWallet(request.winnerWallet, "winnerWallet");
         const ownerWallet = requireWallet(request.ownerWallet, "ownerWallet");
         const winnerAmountNano = resolveAuthoritativeWinnerAmountNano(request);
@@ -119,7 +121,7 @@ export class RoomWalletSettlementAdapter {
         }
 
         const roomWalletAddress = typeof this._roomWalletAdapter.getWalletAddress === "function"
-            ? await this._roomWalletAdapter.getWalletAddress(roomNumber)
+            ? await this._roomWalletAdapter.getWalletAddress(roomNumber, paymentNetwork)
             : request.roomWalletAddress ?? null;
 
         if (!roomWalletAddress) {
@@ -128,7 +130,7 @@ export class RoomWalletSettlementAdapter {
 
         try {
             const history = await this._inspectHistory({
-                tonService: createInspectTransport(this._roomWalletAdapter, roomNumber),
+                tonService: createInspectTransport(this._roomWalletAdapter, roomNumber, paymentNetwork),
                 roomWalletAddress,
                 cutoffLt: request.cutoffLt ?? null,
                 cutoffUtime: resolveCutoffUtime(request),
@@ -165,6 +167,7 @@ export class RoomWalletSettlementAdapter {
 
     async settleContract(request = {}) {
         const roomNumber = resolveRoomNumber(request);
+        const paymentNetwork = resolvePaymentNetwork(request);
         const winnerWallet = requireWallet(request.winnerWallet, "winnerWallet");
         const ownerWallet = requireWallet(request.ownerWallet, "ownerWallet");
         const winnerAmountNano = resolveAuthoritativeWinnerAmountNano(request);
@@ -275,6 +278,7 @@ export class RoomWalletSettlementAdapter {
         if (needWinner) {
             winnerResult = await this._roomWalletAdapter.sendTransfer({
                 roomNumber,
+                network: paymentNetwork,
                 destination: winnerWallet,
                 amountNano: winnerAmountNano,
                 queryId: request.winnerQueryId ?? null
@@ -298,6 +302,7 @@ export class RoomWalletSettlementAdapter {
         if (needOwner) {
             ownerResult = await this._roomWalletAdapter.sendTransfer({
                 roomNumber,
+                network: paymentNetwork,
                 destination: ownerWallet,
                 amountNano: ownerPlan.ownerPayoutNano,
                 queryId: request.ownerQueryId ?? null
@@ -461,22 +466,22 @@ function resolveCutoffUtime(request = {}) {
     return value > 1_000_000_000_000 ? Math.floor(value / 1000) : Math.floor(value);
 }
 
-function createInspectTransport(roomWalletAdapter, roomNumber) {
+function createInspectTransport(roomWalletAdapter, roomNumber, network = null) {
     return {
         async getBalance() {
-            return roomWalletAdapter.getBalance(roomNumber);
+            return roomWalletAdapter.getBalance(roomNumber, network);
         },
         async getTransactions(_address, query) {
             if (typeof roomWalletAdapter.getTransactions !== "function") {
                 return [];
             }
-            return roomWalletAdapter.getTransactions(roomNumber, query);
+            return roomWalletAdapter.getTransactions(roomNumber, query, network);
         },
         async getSeqno() {
             if (typeof roomWalletAdapter.getSeqno !== "function") {
                 return null;
             }
-            return roomWalletAdapter.getSeqno(roomNumber);
+            return roomWalletAdapter.getSeqno(roomNumber, network);
         }
     };
 }
@@ -562,4 +567,18 @@ function pushGramCandidate(candidates, value, key) {
     }
 
     throw new TypeError(`${key} must be a non-negative finite number or bigint`);
+}
+
+
+function resolvePaymentNetwork(request = {}) {
+    const network = request.paymentNetwork
+        ?? request.network
+        ?? request.tonNetwork
+        ?? request.snapshot?.network
+        ?? request.snapshot?.paymentNetwork
+        ?? null;
+
+    const normalized = String(network ?? "").trim().toLowerCase();
+
+    return normalized || null;
 }
