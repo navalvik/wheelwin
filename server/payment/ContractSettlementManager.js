@@ -1762,7 +1762,11 @@ export class ContractSettlementManager {
             timestamp: startedAt,
             snapshot: contract.snapshot,
             snapshotHash: contract.snapshotHash ?? null,
-            gameEscrowMode: this._resolveEscrowMode(contract)
+            gameEscrowMode: this._resolveEscrowMode(contract),
+            paymentNetwork: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null
         });
 
         const session = new SettlementSession({
@@ -1775,7 +1779,10 @@ export class ContractSettlementManager {
             prizeAmount: winnerAmount,
             organizerAmount,
             totalPot,
-            network: contract.tonNetwork ?? this._tonNetwork,
+            network: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
             status: SETTLEMENT_SESSION_STATUS.CREATED,
             ownerWallet,
             traceSeed,
