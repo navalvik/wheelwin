@@ -1206,10 +1206,16 @@ export default function Page4Payment({ onNavigate }) {
         ?? (
             connectedWalletAddress
                 ? Object.values(authoritative.players ?? {}).find(
-                    (player) => (
-                        String(player?.walletAddress ?? "") === String(connectedWalletAddress)
-                        || String(player?.wallet ?? "") === String(connectedWalletAddress)
-                    )
+                    (player) => {
+                        const playerWallet = toSessionWalletAddress(
+                            player?.walletAddress
+                                ?? player?.wallet
+                                ?? null
+                        );
+
+                        return Boolean(playerWallet)
+                            && playerWallet === connectedWalletAddress;
+                    }
                 )?.playerId ?? null
                 : null
         );
