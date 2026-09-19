@@ -870,6 +870,12 @@ export function authoritativeSessionReducer(state, action) {
                     completedAt: record.completedAt ?? null,
                     status: record.status ?? null,
                     reason: record.reason ?? null,
+                    network: record.network
+                        ?? record.tonNetwork
+                        ?? null,
+                    tonNetwork: record.tonNetwork
+                        ?? record.network
+                        ?? null,
                     participants
                 }),
                 lifecycle: Object.freeze({
@@ -935,6 +941,12 @@ export function authoritativeSessionReducer(state, action) {
                     deployedAt: record.deployedAt ?? null,
                     paymentsCompletedAt: record.paymentsCompletedAt ?? null,
                     deployError: record.deployError ?? null,
+                    network: record.network
+                        ?? record.tonNetwork
+                        ?? null,
+                    tonNetwork: record.tonNetwork
+                        ?? record.network
+                        ?? null,
                     escrowMode: record.escrowMode
                         ?? record.snapshot?.escrowMode
                         ?? state.gameContract?.escrowMode
