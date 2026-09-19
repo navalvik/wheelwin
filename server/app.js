@@ -44,6 +44,7 @@ import { OperationalMetrics } from "./services/OperationalMetrics.js";
 import { RandomService } from "./services/RandomService.js";
 import { TimerService } from "./services/TimerService.js";
 import { TonService } from "./services/TonService.js";
+import { TonNetworkServiceRegistry } from "./services/TonNetworkServiceRegistry.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
@@ -95,6 +96,12 @@ import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
+import { composeRoomWalletSettlementRouter, isRoomWalletOnlyFinancialPath } from "./payment/roomWallet/roomWalletConfig.js";
+import { createRoomWalletRegistryFromEnv } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
+import { RoomWalletIncomingObserver } from "./payment/roomWallet/RoomWalletIncomingObserver.js";
+import { RoomWalletLedgerRegistry } from "./payment/roomWallet/RoomWalletLedger.js";
+import { RoomWalletResidualSweepRepository } from "./payment/roomWallet/RoomWalletResidualSweepRepository.js";
+import { RoomWalletResidualSweepWorker } from "./payment/roomWallet/RoomWalletResidualSweepWorker.js";
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
 import { AudioRegistryService } from "./console/configuration/AudioRegistryService.js";
 import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
@@ -102,6 +109,7 @@ import { TIMER_PHASES } from "./catalog/Timers.js";
 import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
 import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
 import { TonGameContractAdapter } from "./payment/TonGameContractAdapter.js";
+import { isGameEscrowOnlyPlayerPayment } from "./config/gameEscrowMode.js";
 import { deriveDeployerWalletIdentity } from "./payment/ton/deriveDeployerWalletIdentity.js";
 import {
     assertDeployerWalletMatchesExpected,
@@ -151,6 +159,7 @@ import { DepositMonitor } from "./deposit/DepositMonitor.js";
 import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
 import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
 import { DepositActivationVerificationCoordinator } from "./deposit/DepositActivationVerificationCoordinator.js";
+import { GameEscrowDeploymentAuthorizationAutomation } from "./deposit/GameEscrowDeploymentAuthorizationAutomation.js";
 import { DepositOrchestrator } from "./deposit/DepositOrchestrator.js";
 import { resolveDepositOrchestrationFinancials } from "./deposit/resolveDepositOrchestrationFinancials.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
@@ -195,6 +204,7 @@ function resolveTonFinancialDataDir(env = process.env) {
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
+import { RoomWalletTerminalSettlementRecovery } from "./payment/roomWallet/RoomWalletTerminalSettlementRecovery.js";
 import { DeveloperConsoleGateway } from "./console/DeveloperConsoleGateway.js";
 import { DeveloperAuthService } from "./console/auth/DeveloperAuthService.js";
 import { createDeveloperAuthMiddleware } from "./console/auth/developerAuthMiddleware.js";
@@ -1323,6 +1333,7 @@ class WheelWinApplication {
             logger: this._logger,
             eventBus: this._eventBus,
             transport: this._services.tonService.getTransport(),
+            tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
             auditLedger: this._entryPaymentAuditLedger,
             pollIntervalMs: this._tonConfig.pollIntervalMs
         });
@@ -1342,7 +1353,11 @@ class WheelWinApplication {
             sessionWalletStore: this._sessionWalletStore,
             blockchainMonitor: this._blockchainMonitor,
             financialPersistence: this._financialPersistence,
-            devMode: this._productionConfig.isDevelopment
+            devMode: this._productionConfig.isDevelopment,
+            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
+                env: process.env,
+                gameEscrowMode: this._tonConfig?.gameEscrowMode
+            })
         });
 
         this._paymentSessionManager.initialize();
@@ -1362,6 +1377,7 @@ class WheelWinApplication {
             : new TonGameContractAdapter({
                 logger: this._logger,
                 tonConfig: this._tonConfig,
+                tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
                 transport: this._services.tonService.getTransport(),
                 tonClient: this._services.tonService.getClient()
             });
@@ -1384,7 +1400,11 @@ class WheelWinApplication {
             creatingDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
             deployTimeoutMs: this._roomConfig?.gameContractDeployTimeoutMs
                 ?? (2 * 60 * 1000),
-            devMode: this._productionConfig.isDevelopment
+            devMode: this._productionConfig.isDevelopment,
+            skipBlockchainDeploy: isRoomWalletOnlyFinancialPath({
+                env: process.env,
+                gameEscrowMode: this._tonConfig?.gameEscrowMode
+            })
         });
 
         this._gameContractManager.initialize();
@@ -1407,6 +1427,8 @@ class WheelWinApplication {
             }),
             eventBus: this._eventBus,
             transport: this._services?.tonService?.getTransport?.() ?? null,
+            tonNetworkRegistry: this._services?.tonNetworkServiceRegistry ?? null,
+            tonNetwork: this._tonConfig?.network ?? "testnet",
             logger: this._logger,
             env: process.env
         });
@@ -1521,9 +1543,26 @@ class WheelWinApplication {
 
         this._deploymentReimbursementWorker.initialize();
 
-        this._logger.startupLine("DeploymentReimbursementWorker");
+        this._logger.startupLine(
+            "DeploymentReimbursementWorker (send permanently retired)"
+        );
 
         const deployerWalletAddress = await this._resolveDeployerWalletAddress();
+
+        this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
+            legacySettlementAdapter: deployAdapter,
+            tonService: this._services?.tonService ?? null,
+            tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
+            logger: this._logger,
+            env: process.env,
+            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null
+        });
+
+        this._logger.startupLine(
+            this._roomWalletSettlementRouter.isEnabled()
+                ? "RoomWalletSettlementRouter (ROOM_WALLET)"
+                : "RoomWalletSettlementRouter (legacy)"
+        );
 
         this._contractSettlementManager = new ContractSettlementManager({
             logger: this._logger,
@@ -1531,13 +1570,14 @@ class WheelWinApplication {
             gameContractManager: this._gameContractManager,
             winnerEngine: this._engines.winnerEngine,
             configurationEngine: this._engines.configurationEngine,
-            settlementAdapter: deployAdapter,
+            settlementAdapter: this._roomWalletSettlementRouter,
             blockchainMonitor: this._blockchainMonitor,
             deployerWalletAddress,
             auditLedger: this._entryPaymentAuditLedger,
             paymentSessionManager: this._paymentSessionManager,
             gameplayContextResolver: this._gameplayContextResolver,
             gameManager: this._managers.gameManager,
+            roomManager: this._managers.roomManager,
             financialPersistence: this._financialPersistence,
             tonNetwork: this._tonConfig?.network ?? null,
             gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null,
@@ -1545,6 +1585,22 @@ class WheelWinApplication {
         });
 
         this._contractSettlementManager.initialize();
+
+        this._roomWalletTerminalSettlementRecovery = new RoomWalletTerminalSettlementRecovery({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            financialPersistence: this._financialPersistence,
+            sessionHistoryArchive: null,
+            settlementAdapter: this._roomWalletSettlementRouter,
+            tonService: this._services?.tonService ?? null,
+            tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
+            roomManager: this._managers.roomManager,
+            gameManager: this._managers.gameManager,
+            ownerConfiguration: OwnerConfiguration,
+            env: process.env
+        });
+
+        this._logger.startupLine("RoomWalletTerminalSettlementRecovery");
 
         // R5.19 — Page5 → Page6 must follow authoritative RESULT_COMPLETED →
         // OPEN_PAGE6. Settlement continues independently and must not gate
@@ -1642,9 +1698,23 @@ class WheelWinApplication {
 
         this._logger.startupLine("EntryDeploymentAuthorizationAutomation");
 
+        this._gameEscrowDeploymentAuthorizationAutomation =
+            new GameEscrowDeploymentAuthorizationAutomation({
+                logger: this._logger,
+                eventBus: this._eventBus,
+                paymentSessionManager: this._paymentSessionManager,
+                deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator,
+                enabled: isGameEscrowOnlyPlayerPayment(this._tonConfig?.gameEscrowMode)
+            });
+
+        this._gameEscrowDeploymentAuthorizationAutomation.initialize();
+
+        this._logger.startupLine("GameEscrowDeploymentAuthorizationAutomation");
+
         this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
             logger: this._logger,
             tonService: this._services.tonService,
+            tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
             network: this._tonConfig?.network ?? "testnet"
         });
 
@@ -1666,6 +1736,64 @@ class WheelWinApplication {
         this._blockchainMonitor.setDepositMonitor?.(this._depositMonitor);
 
         this._logger.startupLine("DepositMonitor");
+
+        this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
+
+        this._roomWalletLedgerRegistry = new RoomWalletLedgerRegistry();
+
+        this._roomWalletIncomingObserver = new RoomWalletIncomingObserver({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            paymentSessionManager: this._paymentSessionManager,
+            financialPersistence: this._financialPersistence,
+            registry: this._roomWalletRegistry,
+            roomManager: this._managers.roomManager,
+            ledgerRegistry: this._roomWalletLedgerRegistry,
+            transport: this._services?.tonService?.getTransport?.() ?? null,
+            tonService: this._services?.tonService ?? null,
+            tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
+            auditLedger: this._entryPaymentAuditLedger,
+            network: this._tonConfig?.network ?? null
+        });
+
+        this._blockchainMonitor.setRoomWalletIncomingObserver?.(
+            this._roomWalletIncomingObserver
+        );
+
+        this._logger.startupLine(
+            this._roomWalletRegistry.size() > 0
+                ? `RoomWalletIncomingObserver (${this._roomWalletRegistry.size()} wallets)`
+                : "RoomWalletIncomingObserver (unconfigured)"
+        );
+
+        this._paymentSessionManager.setRoomWalletFinance({
+            registry: this._roomWalletRegistry,
+            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
+                env: process.env,
+                gameEscrowMode: this._tonConfig?.gameEscrowMode
+            })
+        });
+
+        this._roomWalletResidualSweepRepository = new RoomWalletResidualSweepRepository({
+            persistence: this._financialPersistence,
+            tonNetwork: this._tonConfig?.network ?? "testnet"
+        });
+
+        this._roomWalletResidualSweepWorker = new RoomWalletResidualSweepWorker({
+            repository: this._roomWalletResidualSweepRepository,
+            registry: this._roomWalletRegistry,
+            roomManager: this._managers.roomManager,
+            blockchainMonitor: this._blockchainMonitor,
+            eventBus: this._eventBus,
+            logger: this._logger,
+            env: process.env,
+            tonService: this._services?.tonService ?? null,
+            tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null
+        });
+
+        this._roomWalletResidualSweepWorker.initialize();
+
+        this._logger.startupLine("RoomWalletResidualSweepWorker");
 
         await this._blockchainMonitor.start();
 
@@ -1692,6 +1820,7 @@ class WheelWinApplication {
             depositMonitor: this._depositMonitor,
             blockchainSource: this._tonDepositBlockchainSource,
             tonService: this._services.tonService,
+            tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
             network: this._tonConfig?.network ?? "testnet",
             roomManager: this._managers.roomManager
         });
@@ -1708,12 +1837,24 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             sessionWalletStore: this._sessionWalletStore,
             env: process.env,
-            resolveFinancialParameters: () => resolveDepositOrchestrationFinancials({
-                env: process.env,
-                network: this._tonConfig?.network ?? "testnet",
-                runtimeOverrides: this._runtimeConfigurationService?.getOverrides?.() ?? null,
-                paymentDurationMs: this._roomConfig?.paymentSessionDurationMs ?? null
-            })
+            // Task 2026-09-17 — accept the authoritative per-room payment
+            // network override when provided; otherwise the runtime TON
+            // network (unchanged historical behavior).
+            resolveFinancialParameters: (overrides = {}) =>
+                resolveDepositOrchestrationFinancials({
+                    env: process.env,
+                    network: overrides?.network
+                        ?? this._tonConfig?.network
+                        ?? "testnet",
+                    runtimeOverrides:
+                        this._runtimeConfigurationService?.getOverrides?.()
+                        ?? null,
+                    paymentDurationMs:
+                        this._roomConfig?.paymentSessionDurationMs ?? null
+                }),
+            gameEscrowOnlyPlayerPayment: isGameEscrowOnlyPlayerPayment(
+                this._tonConfig?.gameEscrowMode
+            )
         });
 
         this._depositOrchestrator.initialize();
@@ -1768,7 +1909,13 @@ class WheelWinApplication {
             auditLedger: this._entryPaymentAuditLedger,
             roomConfig: this._roomConfig,
             devMode: this._productionConfig.isDevelopment,
-            depositSessionCoordinator: this._depositSessionCoordinator
+            depositSessionCoordinator: this._depositSessionCoordinator,
+            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
+                env: process.env,
+                gameEscrowMode: this._tonConfig?.gameEscrowMode
+            }),
+            roomWalletLedgerRegistry: this._roomWalletLedgerRegistry,
+            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null
         });
 
         this._gameStartAuthorization.initialize();
@@ -1965,6 +2112,23 @@ class WheelWinApplication {
 
         this._roomLobbyBridge.initialize();
 
+        // Task 2026-09-17 — route the authoritative pre-create payment
+        // network ("testnet" | "mainnet") into the payment orchestration.
+        // Single source of truth: RoomLobbyBridge._paymentNetworkByRoom,
+        // committed at CREATE_ROOM from the client's paymentNetwork request.
+        // The gameplay/runtime TON network (TON_NETWORK) is unchanged; this
+        // is a per-room FINANCIAL payment-routing signal only.
+        const resolveRoomPaymentNetwork = (roomId) =>
+            this._roomLobbyBridge?.getPaymentNetwork?.(roomId) ?? "testnet";
+
+        this._depositOrchestrator?.setPaymentNetworkResolver?.(
+            resolveRoomPaymentNetwork
+        );
+
+        this._gameContractManager?.setPaymentNetworkResolver?.(
+            resolveRoomPaymentNetwork
+        );
+
         // R17.9T.6-D — production wiring of the trusted Telegram identity
         // resolver. The identity is read ONLY from the authenticated Socket.IO
         // socket context established by SocketGateway Telegram authentication
@@ -2118,6 +2282,12 @@ class WheelWinApplication {
 
         this._logger.startupLine("SessionHistoryArchiveManager");
 
+        if (this._roomWalletTerminalSettlementRecovery) {
+            this._roomWalletTerminalSettlementRecovery.bindSessionHistoryArchive(
+                this._sessionHistoryArchive
+            );
+        }
+
         // R13.9H — Forensic lifecycle archive (collect → ZIP → private Cloudflare R2).
         const forensicArchiveConfig = resolveForensicArchiveConfig();
 
@@ -2264,7 +2434,9 @@ class WheelWinApplication {
                 gameDiagnosticLogManager: this._gameDiagnosticLogManager,
                 sessionHistoryArchive: this._sessionHistoryArchive,
                 runtimeConfigurationService: this._runtimeConfigurationService,
-                audioRegistryService: this._audioRegistryService
+                audioRegistryService: this._audioRegistryService,
+                roomWalletTerminalSettlementRecovery:
+                    this._roomWalletTerminalSettlementRecovery
             }
         );
 
@@ -2449,6 +2621,26 @@ class WheelWinApplication {
             if (this._paymentSessionManager) {
 
                 this._paymentSessionManager.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("roomWalletIncomingObserver", () => {
+
+            if (this._roomWalletIncomingObserver) {
+
+                this._roomWalletIncomingObserver.shutdown();
+
+            }
+
+        });
+
+        this._safeShutdownStep("roomWalletResidualSweepWorker", () => {
+
+            if (this._roomWalletResidualSweepWorker) {
+
+                this._roomWalletResidualSweepWorker.shutdown();
 
             }
 
@@ -3460,10 +3652,17 @@ class WheelWinApplication {
             tonConfig
         });
 
+        // Room/payment blockchain I/O uses immutable per-network services.
+        // The process-global tonService remains unchanged for operational paths.
+        const tonNetworkServiceRegistry = new TonNetworkServiceRegistry({
+            logger: this._logger
+        });
+
         return {
             timerService,
             randomService,
-            tonService
+            tonService,
+            tonNetworkServiceRegistry
         };
 
     }
