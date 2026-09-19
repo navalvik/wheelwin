@@ -850,7 +850,8 @@ export class RoomWalletResidualSweepWorker {
                 transactionId: txHash,
                 address,
                 kind: RESIDUAL_SWEEP_WATCH_KIND,
-                correlationId: record.recordId
+                correlationId: record.recordId,
+                paymentNetwork: resolvePaymentNetwork(record.payload)
             });
         } catch (error) {
             this._logger?.warn?.(
