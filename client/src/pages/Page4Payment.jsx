@@ -13,24 +13,27 @@ import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import {
     canSubmitEntryPayment,
     getLocalPaymentRequest,
-    isGameContractDeployed,
+    isGameEscrowOnlyPlayerPayment,
     mapPaymentSessionRows,
     mapWalletConnectionRows,
     PAGE4_PAYMENT_PHASE,
     resolveEntryPaymentComponents,
     resolvePage4PaymentPhase,
+    resolvePlayerPaymentDestination,
     shouldShowEntryAction,
     shouldShowPaymentSessionRows,
+    shouldShowWaitingCreatorDeposit,
     shouldShowWalletActions,
     WALLET_CONNECTION_STATUS
 } from "../game/session";
 
 import { resolveLocalPlayerId } from "../game/session";
 
-import { buildEntryPaymentTransaction, nanotonsToTonDisplay, sumAuthoritativeEntryNanotons } from "../payment/buildEntryPaymentTransaction";
+import { buildEntryPaymentTransaction, nanotonsToTonDisplay, sumAuthoritativeEntryNanotons, toTonConnectSendTransactionRequest } from "../payment/buildEntryPaymentTransaction";
 import { requiredGramToNanotonString } from "../payment/buildTonConnectPaymentTransaction";
 import {
     classifyDepositWalletError,
+    describePage4SendTransactionForensicContext,
     describeTonConnectResult,
     describeTonConnectSendRequestDiagnostics,
     logPage4DepositDeploy
@@ -62,12 +65,15 @@ import { LOBBY_OUTGOING_EVENTS } from "../socket/socketEvents";
 import { resolveBackendUrl } from "../config/backendUrl.js";
 import { launchGramWalletHandoff } from "../tonconnect/telegramMiniAppGramWalletHandoff.js";
 
+import { isTonConnectChainCompatible, expectedTonConnectChain } from "../payment/tonConnectNetworkGuard.js";
+
 import "../styles/page4payment.css";
 
 /**
  * R7.26 — TonConnect SDK is the source of truth for connector state.
  * Resolve the active account address from React hook and/or UI instance.
  */
+
 function resolveTonConnectSdkAddress(tonConnectUI, tonWallet) {
 
     return tonWallet?.account?.address
@@ -757,25 +763,36 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-        if (!depositProjection) {
-
-            setDepositSubmitError(t("payment.serverStateMismatch"));
-
-            return;
-
-        }
-
-        if (depositProjection.isCreator !== true && depositProjection.isCreator !== false) {
-
-            setDepositSubmitError(t("payment.serverStateMismatch"));
-
-            return;
-
-        }
-
         const lifecycle = authoritative?.lifecycle ?? null;
         const paymentSession = authoritative?.paymentSession ?? null;
         const gameContract = authoritative?.gameContract ?? null;
+        const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract, {
+            deposit: depositProjection,
+            paymentSession,
+            roomId: authoritative?.roomId,
+            gameId: authoritative?.gameId
+        });
+
+        if (!gameEscrowOnly) {
+
+            if (!depositProjection) {
+
+                setDepositSubmitError(t("payment.serverStateMismatch"));
+
+                return;
+
+            }
+
+            if (depositProjection.isCreator !== true && depositProjection.isCreator !== false) {
+
+                setDepositSubmitError(t("payment.serverStateMismatch"));
+
+                return;
+
+            }
+
+        }
+
         const localPlayerId = resolveLocalPlayerId(
             identity.playerId ?? null,
             authoritative.players,
@@ -784,6 +801,10 @@ export default function Page4Payment({ onNavigate }) {
             }
         );
         const paymentRequest = getLocalPaymentRequest(paymentSession, localPlayerId);
+        const roomWalletDestination = resolvePlayerPaymentDestination({
+            paymentSession,
+            localPlayerId
+        });
         const components = resolveEntryPaymentComponents({
             deposit: depositProjection,
             paymentSession,
@@ -799,9 +820,7 @@ export default function Page4Payment({ onNavigate }) {
             action: "entry",
             deployValueNanotons: depositProjection?.package?.deployValueNanotons,
             depositAddress: depositProjection?.depositAddress,
-            gameEscrowAddress: paymentRequest?.contractAddress
-                ?? gameContract?.contractAddress
-                ?? null,
+            paymentDestination: roomWalletDestination,
             playerIndex: paymentRequest?.playerIndex ?? paymentRequest?.seatIndex ?? null
         });
 
@@ -823,6 +842,7 @@ export default function Page4Payment({ onNavigate }) {
 
         let sendAttempted = false;
         let tonConnectRuntimeDiagnostics = null;
+        let sendForensicContext = null;
 
         try {
 
@@ -830,12 +850,21 @@ export default function Page4Payment({ onNavigate }) {
                 ?? paymentRequest?.seatIndex
                 ?? null;
 
+            if (gameEscrowOnly && !roomWalletDestination) {
+
+                setDepositSubmitting(false);
+                setDepositSubmitError(t("payment.stakeUnavailable"));
+                return;
+
+            }
+
             const transactionObject = buildEntryPaymentTransaction({
-                isCreator: depositProjection.isCreator === true,
-                includeDeploy: components.includeDeploy,
-                includeFund: components.includeFund,
+                gameEscrowOnly,
+                isCreator: gameEscrowOnly ? false : depositProjection.isCreator === true,
+                includeDeploy: gameEscrowOnly ? false : components.includeDeploy,
+                includeFund: gameEscrowOnly ? false : components.includeFund,
                 includeStake: components.includeStake,
-                depositPackage: components.includeDeploy
+                depositPackage: !gameEscrowOnly && components.includeDeploy
                     ? {
                         stateInit: {
                             codeBoc: depositProjection.package.stateInit.codeBoc,
@@ -845,21 +874,60 @@ export default function Page4Payment({ onNavigate }) {
                         depositAddress: depositProjection.depositAddress
                     }
                     : null,
-                depositAddress: depositProjection.depositAddress,
-                mySeatIndex: depositProjection.mySeatIndex,
-                myExpectedAmountNanotons: depositProjection.myExpectedAmountNanotons,
-                network: depositProjection.network,
-                gameEscrowAddress: paymentRequest?.contractAddress
-                    ?? gameContract?.contractAddress
-                    ?? null,
+                depositAddress: gameEscrowOnly ? null : depositProjection.depositAddress,
+                mySeatIndex: gameEscrowOnly ? null : depositProjection.mySeatIndex,
+                myExpectedAmountNanotons: gameEscrowOnly
+                    ? null
+                    : depositProjection.myExpectedAmountNanotons,
+                network: gameEscrowOnly ? null : depositProjection.network,
+                paymentDestination: gameEscrowOnly ? roomWalletDestination : null,
+                gameEscrowAddress: gameEscrowOnly
+                    ? null
+                    : (paymentRequest?.contractAddress ?? null),
                 requiredGram: paymentRequest?.requiredGram ?? null,
-                playerIndex
+                playerIndex: gameEscrowOnly ? null : playerIndex
             });
 
-            const { totalNanotons, ...tonConnectTransaction } = transactionObject;
+            const { totalNanotons } = transactionObject;
+            const tonConnectTransaction = toTonConnectSendTransactionRequest(
+                transactionObject
+            );
+            const nowEpochSeconds = Math.floor(Date.now() / 1000);
+            const authoritativeNetwork = paymentSession?.network
+                ?? depositProjection?.network
+                ?? gameContract?.tonNetwork
+                ?? gameContract?.network
+                ?? null;
+            const walletChain = tonWallet?.account?.chain
+                ?? tonConnectUI?.wallet?.account?.chain
+                ?? tonConnectUI?.account?.chain
+                ?? null;
+
+            if (!isTonConnectChainCompatible(authoritativeNetwork, walletChain)) {
+
+                console.warn("[Page4 NETWORK GUARD] TonConnect wallet chain does not match authoritative payment network", {
+                    authoritativeNetwork,
+                    expectedChain: expectedTonConnectChain(authoritativeNetwork),
+                    walletChain
+                });
+
+                setDepositSubmitting(false);
+                setDepositSubmitError(
+                    t("payment.walletNetworkMismatch", {
+                        network: authoritativeNetwork
+                    })
+                );
+                return;
+
+            }
 
             tonConnectRuntimeDiagnostics = describeTonConnectSendRequestDiagnostics(
-                tonConnectTransaction
+                tonConnectTransaction,
+                {
+                    nowEpochSeconds,
+                    network: authoritativeNetwork,
+                    walletChain
+                }
             );
 
             logPage4DepositDeploy("BUILD", {
@@ -867,9 +935,9 @@ export default function Page4Payment({ onNavigate }) {
                 amount: totalNanotons,
                 messageCount: transactionObject.messages.length,
                 packageDeployValueNanotons: components.includeDeploy
-                    ? depositProjection.package.deployValueNanotons
+                    ? depositProjection?.package?.deployValueNanotons
                     : undefined,
-                depositAddress: depositProjection.depositAddress,
+                depositAddress: depositProjection?.depositAddress,
                 hasStateInit: Boolean(transactionObject.messages[0]?.stateInit)
             });
 
@@ -888,10 +956,35 @@ export default function Page4Payment({ onNavigate }) {
 
             try {
 
-                ensureTonConnectAutopsy({
+                const autopsyStore = ensureTonConnectAutopsy({
                     roomId: authoritative?.roomId ?? null,
                     playerId: localPlayerId
                 });
+                const reusedExistingSdkConnection = isTonConnectSdkConnected(
+                    tonConnectUI,
+                    tonWallet
+                );
+                const nextSendForensicContext = describePage4SendTransactionForensicContext({
+                    roomId: authoritative?.roomId ?? null,
+                    gameId: authoritative?.gameId ?? null,
+                    localPlayerId,
+                    playerIndex,
+                    playerWalletAddress: resolveTonConnectSdkAddress(
+                        tonConnectUI,
+                        tonWallet
+                    ),
+                    paymentDestination: roomWalletDestination,
+                    requiredGram: paymentRequest?.requiredGram ?? null,
+                    requestDiagnostics: tonConnectRuntimeDiagnostics,
+                    tonConnectUI,
+                    tonWallet,
+                    reusedExistingSdkConnection,
+                    autopsySessionId: autopsyStore?.sessionId ?? null,
+                    attemptId: handshakeAttemptIdRef.current,
+                    nowEpochSeconds
+                });
+                sendForensicContext = nextSendForensicContext;
+
                 pushAutopsyTimeline({
                     event: "PAGE4_SEND_TRANSACTION_REQUEST",
                     payloadSummary: {
@@ -902,9 +995,30 @@ export default function Page4Payment({ onNavigate }) {
                         messageCount: tonConnectRuntimeDiagnostics.messageCount,
                         messageTopLevelKeys:
                             tonConnectRuntimeDiagnostics.messageTopLevelKeys,
+                        messageDestination:
+                            tonConnectRuntimeDiagnostics.messageDestination,
+                        messageAmount:
+                            tonConnectRuntimeDiagnostics.messageAmount,
+                        hasPayload: tonConnectRuntimeDiagnostics.hasPayload,
+                        hasStateInit: tonConnectRuntimeDiagnostics.hasStateInit,
+                        validUntil: tonConnectRuntimeDiagnostics.validUntil,
+                        nowEpochSeconds:
+                            tonConnectRuntimeDiagnostics.nowEpochSeconds,
+                        validUntilRemainingSeconds:
+                            tonConnectRuntimeDiagnostics.validUntilRemainingSeconds,
+                        network: tonConnectRuntimeDiagnostics.network,
+                        walletChain: tonConnectRuntimeDiagnostics.walletChain,
                         sendTransactionCallCount:
-                            tonConnectRuntimeDiagnostics.sendTransactionCallCount
+                            tonConnectRuntimeDiagnostics.sendTransactionCallCount,
+                        reusedExistingSdkConnection,
+                        autopsySessionId: nextSendForensicContext.autopsySessionId,
+                        attemptId: nextSendForensicContext.attemptId
                     }
+                });
+                pushAutopsyRawObject({
+                    kind: "page4SendTransactionRequest",
+                    label: "PAGE4_SEND_TRANSACTION_REQUEST",
+                    value: nextSendForensicContext
                 });
 
             } catch {
@@ -930,6 +1044,43 @@ export default function Page4Payment({ onNavigate }) {
         } catch (error) {
 
             const validationError = String(error?.message ?? "").slice(0, 240);
+
+            if (sendAttempted) {
+
+                try {
+
+                    dumpTonConnectError(
+                        "PAGE4_SEND_TRANSACTION_REJECTION",
+                        error,
+                        sendForensicContext ?? {
+                            event: "PAGE4_SEND_TRANSACTION_REJECTION",
+                            roomId: authoritative?.roomId ?? null,
+                            gameId: authoritative?.gameId ?? null,
+                            localPlayerId: identity.playerId ?? null
+                        }
+                    );
+
+                } catch {
+
+                    // diagnostics only
+                }
+
+                try {
+
+                    pushAutopsyTimeline({
+                        event: "PAGE4_SEND_TRANSACTION_REJECTION",
+                        payloadSummary: {
+                            ...(sendForensicContext ?? {}),
+                            validationError
+                        }
+                    });
+
+                } catch {
+
+                    // diagnostics only
+                }
+
+            }
 
             logPage4DepositDeploy("WALLET_RESULT", {
                 action: "entry",
@@ -1110,11 +1261,18 @@ export default function Page4Payment({ onNavigate }) {
     }
 
     const confirmedSeatCount = Number(depositProjection?.confirmedSeats);
+    const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract, {
+        deposit: depositProjection,
+        paymentSession,
+        roomId: authoritative.roomId,
+        gameId: authoritative.gameId
+    });
 
     const depositStatusParts = [];
 
     if (
-        Number.isFinite(confirmedSeatCount)
+        !gameEscrowOnly
+        && Number.isFinite(confirmedSeatCount)
         && inPostWalletPhase
         && !showPaymentRows
     ) {
@@ -1125,17 +1283,22 @@ export default function Page4Payment({ onNavigate }) {
 
     }
 
-    if (paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
+    if (paymentPhase === PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE) {
 
-        if (isGameContractDeployed(gameContract) && depositProjection?.isCreator !== true) {
+        depositStatusParts.push(t("payment.waitingGameEscrow"));
 
-            depositStatusParts.push(t("payment.waitingCreatorDeposit"));
+    } else if (shouldShowWaitingCreatorDeposit({
+        paymentPhase,
+        gameContract,
+        deposit: depositProjection,
+        paymentSession
+    })) {
 
-        } else {
+        depositStatusParts.push(t("payment.waitingCreatorDeposit"));
 
-            depositStatusParts.push(t("payment.waitingGameEscrow"));
+    } else if (paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
 
-        }
+        depositStatusParts.push(t("payment.waitingGameEscrow"));
 
     } else if (
         paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_WAIT_FULL
