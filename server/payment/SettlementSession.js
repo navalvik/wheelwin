@@ -105,7 +105,11 @@ export class SettlementSession {
             prizeAmount: payload.prizeAmount ?? payload.winnerAmount ?? null,
             organizerAmount: payload.organizerAmount ?? null,
             totalPot: payload.totalPot ?? null,
-            network: payload.network ?? record?.tonNetwork ?? null,
+            network: payload.network
+                ?? record?.tonNetwork
+                ?? payload.request?.paymentNetwork
+                ?? payload.request?.snapshot?.network
+                ?? null,
             status: payload.status ?? SETTLEMENT_SESSION_STATUS.CREATED,
             settlementTransactionHash: payload.settlementTransactionHash
                 ?? payload.settlementTxHash
