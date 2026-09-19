@@ -37,7 +37,7 @@ export function loadTonConfig(env = process.env) {
 
     const deployMode = requestedMode === "live" ? "live" : "stub";
 
-    // Active network escrow mode (testnet default game; mainnet default v4).
+    // Active network escrow mode (testnet and mainnet default game).
     const gameEscrowMode = resolveGameEscrowMode(null, {
         ...env,
         TON_NETWORK: normalizedNetwork
@@ -50,14 +50,21 @@ export function loadTonConfig(env = process.env) {
             ? env.TON_DEPLOYER_EXPECTED_ADDRESS.trim()
             : null);
 
+    // One mnemonic is intentionally shared by Testnet and Mainnet.
+    // The derived wallet address is network-specific, so the same seed produces
+    // separate Testnet/Mainnet wallet identities without sharing balances.
+    const deployerMnemonic = typeof env.TON_DEPLOYER_MNEMONIC === "string"
+        && env.TON_DEPLOYER_MNEMONIC.trim()
+        ? env.TON_DEPLOYER_MNEMONIC.trim()
+        : null;
+
+    const apiKey = env.TON_API_KEY || null;
+
     return {
         network: normalizedNetwork,
-        apiKey: env.TON_API_KEY || null,
+        apiKey,
         endpoint,
-        deployerMnemonic: typeof env.TON_DEPLOYER_MNEMONIC === "string"
-            && env.TON_DEPLOYER_MNEMONIC.trim()
-            ? env.TON_DEPLOYER_MNEMONIC.trim()
-            : null,
+        deployerMnemonic,
         deployerExpectedAddress,
         oracleAddress: activeProfile.oracleWallet,
         oracleSource: activeProfile.oracleSource ?? null,
