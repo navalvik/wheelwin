@@ -35,6 +35,7 @@ import { PaymentSession } from "../models/PaymentSession.js";
 import { SettlementSession } from "../payment/SettlementSession.js";
 import { RoomWalletRegistry } from "../payment/roomWallet/RoomWalletRegistry.js";
 import { resolveIntendedRoomWalletAddress } from "../payment/roomWallet/RoomWalletIncomingObserver.js";
+import { RoomWalletAdapter } from "../payment/roomWallet/RoomWalletAdapter.js";
 import {
     assertAuthorizationReadyForDeploy,
     resolveAuthorizationNetwork
@@ -1459,6 +1460,72 @@ function test24_roomWalletRegistrySupportsPerNetworkCatalogs() {
 
 }
 
+
+// Test 25 — Room Wallet settlement transport follows the authoritative payment network.
+async function test25_roomWalletAdapterUsesPaymentNetworkService() {
+
+    const calls = [];
+
+    const testnetService = {
+        async getBalance() {
+            calls.push("testnet");
+            return 10_000n;
+        }
+    };
+
+    const mainnetService = {
+        async getBalance() {
+            calls.push("mainnet");
+            return 10_000n;
+        }
+    };
+
+    const registry = new RoomWalletRegistry({
+        entries: [
+            { roomNumber: 7, address: "EQTestnetRoomWallet", network: "testnet" },
+            { roomNumber: 7, address: "EQMainnetRoomWallet", network: "mainnet" }
+        ]
+    });
+
+    const adapter = new RoomWalletAdapter({
+        tonService: testnetService,
+        tonNetworkServiceRegistry: {
+            get(network) {
+                return network === "mainnet"
+                    ? mainnetService
+                    : testnetService;
+            }
+        },
+        walletResolver: async (roomNumber, network) => {
+            const identity = registry.require(roomNumber, network);
+            return {
+                ...identity,
+                workchain: 0,
+                publicKey: Buffer.alloc(32),
+                secretKey: Buffer.alloc(64)
+            };
+        }
+    });
+
+    await adapter.canFundTransfer({
+        roomNumber: 7,
+        network: "mainnet",
+        amountNano: 1n,
+        sourceReserveNano: 0n
+    });
+
+    assert.deepEqual(
+        calls,
+        ["mainnet"],
+        "Mainnet Room Wallet settlement must use the Mainnet TON service"
+    );
+
+    console.log(
+        "Test 25 — Room Wallet adapter uses payment-network service: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1493,6 +1560,7 @@ async function main() {
     test22_paymentSessionPublishesRoomWalletDestination();
     test23_roomWalletResolutionFailsClosedAcrossNetworks();
     test24_roomWalletRegistrySupportsPerNetworkCatalogs();
+    await test25_roomWalletAdapterUsesPaymentNetworkService();
 
     console.log("all assertions passed");
 
