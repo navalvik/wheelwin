@@ -66,8 +66,8 @@ function main() {
 
         const mainnet = loadMainnetTonProfile({});
         assert.equal(mainnet.network, "mainnet");
-        assert.equal(mainnet.gameEscrowMode, GAME_ESCROW_MODE_V4);
-        assert.equal(mainnet.escrowMode, GAME_ESCROW_MODE_V4);
+        assert.equal(mainnet.gameEscrowMode, GAME_ESCROW_MODE_GAME);
+        assert.equal(mainnet.escrowMode, GAME_ESCROW_MODE_GAME);
         assert.ok(mainnet.endpoint.includes("toncenter.com"));
         assert.equal(mainnet.oracleWallet, null);
         assert.equal(mainnet.deployWallet.type, "WalletContractV4R2");
