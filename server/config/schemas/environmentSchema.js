@@ -645,9 +645,9 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         defaultValue: false,
         category: "TON",
         suggestedFix:
-            "Set DEPLOYMENT_REIMBURSEMENT_ENABLED to true only after transfer wiring. Default false."
+            "DEPLOYMENT_REIMBURSEMENT_ENABLED has no send effect. "
+            + "Reimbursement transfers are permanently retired."
     }),
-    // R17.8V.2P.O / S — Emergency send gate (default false; fail-closed).
     REIMBURSEMENT_ENABLED: Object.freeze({
         key: "REIMBURSEMENT_ENABLED",
         type: "boolean",
@@ -655,7 +655,8 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         defaultValue: false,
         category: "TON",
         suggestedFix:
-            "Set REIMBURSEMENT_ENABLED=true explicitly to allow reimbursement sends (with DEPLOYMENT_REIMBURSEMENT_ENABLED)."
+            "REIMBURSEMENT_ENABLED cannot authorize sends. "
+            + "Reimbursement transfers are permanently retired."
     }),
     // R17.8V.2P.O — Per-transfer amount cap (TON decimal string).
     REIMBURSEMENT_MAX_TRANSFER: Object.freeze({
@@ -694,16 +695,17 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         required: false,
         category: "TON",
         suggestedFix:
-            "Set TON_REIMBURSEMENT_MNEMONIC in Railway secrets for the reimbursement wallet only."
+            "Compatibility secret for Residues Wallet identity only. "
+            + "Prefer TON_RESIDUES_MNEMONIC. Cannot authorize reimbursement sends."
     }),
-    // R17.8V.2P.M — Reimbursement wallet address pin only (never a mnemonic).
     TON_REIMBURSEMENT_EXPECTED_ADDRESS: Object.freeze({
         key: "TON_REIMBURSEMENT_EXPECTED_ADDRESS",
         type: "string",
         required: false,
         category: "TON",
         suggestedFix:
-            "Set TON_REIMBURSEMENT_EXPECTED_ADDRESS to the reimbursement wallet friendly address (address pin only)."
+            "Compatibility public pin for Residues Wallet. Prefer "
+            + "TON_RESIDUES_EXPECTED_ADDRESS. Must match the same physical address."
     }),
     // R7.68 — Mainnet readiness profile (does not enable mainnet by itself).
     TON_MAINNET_ENDPOINT: Object.freeze({
@@ -737,6 +739,27 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix:
             "Optional shared oracle fallback. Prefer TON_TESTNET_ORACLE_ADDRESS on Testnet."
+    }),
+    TON_MAINNET_DEPLOYER_MNEMONIC: Object.freeze({
+        key: "TON_MAINNET_DEPLOYER_MNEMONIC",
+        type: "secret",
+        required: false,
+        category: "TON",
+        suggestedFix: "Set the dedicated Mainnet deployer mnemonic for Mainnet payment routing."
+    }),
+    TON_TESTNET_DEPLOYER_MNEMONIC: Object.freeze({
+        key: "TON_TESTNET_DEPLOYER_MNEMONIC",
+        type: "secret",
+        required: false,
+        category: "TON",
+        suggestedFix: "Optional dedicated Testnet deployer mnemonic; TON_DEPLOYER_MNEMONIC remains the legacy fallback."
+    }),
+    TON_MAINNET_API_KEY: Object.freeze({
+        key: "TON_MAINNET_API_KEY",
+        type: "secret",
+        required: false,
+        category: "TON",
+        suggestedFix: "Optional dedicated Mainnet TON API key; TON_API_KEY remains the fallback."
     }),
     TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS: Object.freeze({
         key: "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS",
@@ -827,6 +850,54 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         min: 1,
         category: "Payments",
         suggestedFix: "Set GAME_START_AUTHORIZATION_DURATION_MS to a positive integer."
+    }),
+    ROOM_WALLET_PAYMENT_INTAKE_MODE: Object.freeze({
+        key: "ROOM_WALLET_PAYMENT_INTAKE_MODE",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Leave unset to keep legacy Deposit + GameEscrow readiness. "
+            + "Set ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET to enable Room Wallet intake."
+    }),
+    ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: Object.freeze({
+        key: "ROOM_WALLET_RESIDUAL_SWEEP_ENABLED",
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        category: "TON",
+        suggestedFix:
+            "Leave unset/false. Set ROOM_WALLET_RESIDUAL_SWEEP_ENABLED=true only after "
+            + "Residues destination is configured and sweep sends are explicitly authorized."
+    }),
+    TON_RESIDUES_EXPECTED_ADDRESS: Object.freeze({
+        key: "TON_RESIDUES_EXPECTED_ADDRESS",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Canonical public Residues Wallet bounceable address (former Reimbursement "
+            + "Wallet). Missing or invalid prevents residual sweep sends; the application "
+            + "still starts. Compatibility fallback: TON_REIMBURSEMENT_EXPECTED_ADDRESS."
+    }),
+    TON_RESIDUES_MNEMONIC: Object.freeze({
+        key: "TON_RESIDUES_MNEMONIC",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Canonical Residues Wallet mnemonic (same secret as the former Reimbursement "
+            + "Wallet). Never log. Compatibility fallback: TON_REIMBURSEMENT_MNEMONIC."
+    }),
+    ROOM_WALLETS_JSON: Object.freeze({
+        key: "ROOM_WALLETS_JSON",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix:
+            "Railway secret only; never commit. JSON array of 64 Room Wallet identities "
+            + "(roomNumber 1..64, address, publicKey, secretKey). Required when "
+            + "ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET."
     })
 });
 
