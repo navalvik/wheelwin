@@ -287,6 +287,8 @@ export class SettlementSession {
             winnerAmount: this.prizeAmount,
             organizerAmount: this.organizerAmount,
             totalPot: this.totalPot,
+            network: this.network,
+            paymentNetwork: this.network,
             settlementTxHash: this.settlementTransactionHash,
             startedAt: this.startedAt,
             completedAt: this.completedAt,
