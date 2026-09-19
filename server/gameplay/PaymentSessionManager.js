@@ -2743,10 +2743,18 @@ export class PaymentSessionManager {
 
         }
 
+        const paymentNetwork = String(
+            room?.paymentNetwork
+                ?? room?.network
+                ?? room?.tonNetwork
+                ?? ""
+        ).trim().toLowerCase();
+
         return resolveIntendedRoomWalletAddress({
             roomId: room.roomId,
             roomNumber: room.roomNumber ?? null,
-            roomManager: this._roomManager
+            roomManager: this._roomManager,
+            paymentNetwork
         }, this._roomWalletRegistry);
 
     }
