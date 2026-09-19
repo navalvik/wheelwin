@@ -73,11 +73,14 @@ export {
     canSubmitEntryPayment,
     isDepositActivationVerified,
     isDepositFull,
+    isGameEscrowOnlyPlayerPayment,
     resolveEntryPaymentComponents,
     resolvePage4PaymentPhase,
+    resolvePlayerPaymentDestination,
     shouldShowDepositAction,
     shouldShowEntryAction,
     shouldShowPaymentSessionRows,
     shouldShowStakeAction,
+    shouldShowWaitingCreatorDeposit,
     shouldShowWalletActions
 } from "./page4PaymentPhase.js";
