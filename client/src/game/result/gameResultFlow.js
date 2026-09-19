@@ -115,6 +115,7 @@ export function mapPaymentStatusToView(payload) {
 
     return {
         gameId: payload.gameId ?? null,
+        paymentNetwork: payload.paymentNetwork ?? payload.network ?? null,
         status: payload.status,
         winnerId: payload.winnerId ?? null,
         winnerAmount: payload.winnerAmount ?? null,
