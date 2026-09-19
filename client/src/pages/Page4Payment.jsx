@@ -1175,9 +1175,11 @@ export default function Page4Payment({ onNavigate }) {
     // binds each player to the wallet address entered on Page3. If the local
     // PlayerIdentity is temporarily missing, use the currently connected
     // TonConnect wallet only when it exactly matches that authoritative wallet.
-    const connectedWalletAddress = resolveTonConnectSdkAddress(
-        tonConnectUI,
-        tonWallet
+    const connectedWalletAddress = toSessionWalletAddress(
+        resolveTonConnectSdkAddress(
+            tonConnectUI,
+            tonWallet
+        )
     );
 
     const localPlayerId = resolvedIdentityPlayerId
