@@ -1725,6 +1725,30 @@ function test31_gameEscrowConfirmationNetworkPropagation() {
 }
 
 
+// Test 33 — Legacy settlement consumers retain the authoritative payment network.
+function test33_settlementLegacyRecordNetworkPropagation() {
+
+    const source = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "payment/SettlementSession.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        source.includes("network: this.network")
+            && source.includes("paymentNetwork: this.network"),
+        "legacy settlement record must retain the authoritative payment network"
+    );
+
+    console.log(
+        "Test 33 — Settlement legacy record network propagation: passed"
+    );
+
+}
+
 // Test 32 — Settlement completion/reconnect outputs retain the authoritative network.
 function test32_settlementCompletionNetworkPropagation() {
 
@@ -1801,6 +1825,7 @@ async function main() {
     test27_roomWalletIncomingAttributionUsesSessionNetwork();
     test31_gameEscrowConfirmationNetworkPropagation();
     test32_settlementCompletionNetworkPropagation();
+    test33_settlementLegacyRecordNetworkPropagation();
 
     console.log("all assertions passed");
 
