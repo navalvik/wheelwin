@@ -192,3 +192,38 @@
     flex:1;
 
 }
+
+.mainnetPaymentButton{
+
+    width:100%;
+    height:48px;
+
+    border:2px solid #B91C1C;
+    border-radius:10px;
+
+    background:#DC2626;
+    color:white;
+
+    font-size:16px;
+    font-weight:800;
+
+    cursor:pointer;
+}
+
+.mainnetPaymentButton:hover{
+    background:#B91C1C;
+}
+
+.mainnetPaymentButton.selected{
+    background:#991B1B;
+    border-color:#7F1D1D;
+}
+
+.mainnetPaymentButton:disabled{
+    opacity:0.75;
+    cursor:default;
+}
+
+.networkStatus{
+    font-weight:600;
+}
