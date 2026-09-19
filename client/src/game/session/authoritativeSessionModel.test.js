@@ -891,4 +891,40 @@ function assert(condition, message) {
     console.log("  RESET clears deposit (payment/game-contract preserved until reset) passed");
 }
 
+// R18-S17 C4 — Room Wallet destination must survive the authoritative
+// PAYMENT_SESSION mirror; otherwise Page4 can fall through to a GameEscrow
+// participant address and bypass the intended Room Wallet destination.
+{
+    const state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_UPDATED,
+            payload: {
+                paymentSessionId: "pay_room_wallet",
+                roomId: "room-mainnet",
+                gameId: "game-mainnet",
+                network: "mainnet",
+                roomWalletAddress: "EQRoomWalletMainnet",
+                participants: [
+                    {
+                        playerId: "p1",
+                        playerIndex: 0,
+                        requiredGram: 1,
+                        contractAddress: "EQGameEscrowShouldNotWin"
+                    }
+                ]
+            }
+        }
+    );
+
+    assert.equal(state.paymentSession.network, "mainnet");
+    assert.equal(state.paymentSession.roomWalletAddress, "EQRoomWalletMainnet");
+    assert.equal(
+        state.paymentSession.participants[0].contractAddress,
+        "EQGameEscrowShouldNotWin"
+    );
+
+    console.log("  PAYMENT_SESSION Room Wallet destination mirror passed");
+}
+
 console.log("authoritativeSessionModel.test.js: all assertions passed");
