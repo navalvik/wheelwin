@@ -1,10 +1,13 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import "../styles/createRoomPanel.css";
 import socket from "../socket/socket";
 
 import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
+
+const PAYMENT_NETWORK_TESTNET = "testnet";
+const PAYMENT_NETWORK_MAINNET = "mainnet";
 
 function applyRoomPayload(setRoomState, data) {
 
@@ -20,7 +23,11 @@ function applyRoomPayload(setRoomState, data) {
 
         maxPlayers: data.maxPlayers ?? 3,
 
-        players: data.players ?? []
+        players: data.players ?? [],
+
+        paymentNetwork: data.paymentNetwork ?? prev.paymentNetwork ?? PAYMENT_NETWORK_TESTNET,
+
+        ownerPlayerId: data.ownerPlayerId ?? prev.ownerPlayerId ?? null
 
     }));
 
@@ -38,17 +45,35 @@ export default function CreateRoomPanel({
 
     const { t } = useLanguage();
 
+    const [selectedPaymentNetwork, setSelectedPaymentNetwork] = useState(
+        PAYMENT_NETWORK_TESTNET
+    );
+
     useEffect(() => {
 
         function handleRoomState(data) {
 
             applyRoomPayload(setRoomState, data);
 
+            if (data?.paymentNetwork === PAYMENT_NETWORK_MAINNET
+                || data?.paymentNetwork === PAYMENT_NETWORK_TESTNET) {
+
+                setSelectedPaymentNetwork(data.paymentNetwork);
+
+            }
+
         }
 
         function handleRoomCreated(data) {
 
             applyRoomPayload(setRoomState, data);
+
+            if (data?.paymentNetwork === PAYMENT_NETWORK_MAINNET
+                || data?.paymentNetwork === PAYMENT_NETWORK_TESTNET) {
+
+                setSelectedPaymentNetwork(data.paymentNetwork);
+
+            }
 
             if (data?.roomId && data?.playerId) {
 
@@ -78,17 +103,49 @@ export default function CreateRoomPanel({
 
     }, [setRoomState, setIdentity]);
 
+    function toggleMainnet() {
+
+        if (roomState.roomCreated) {
+
+            return;
+
+        }
+
+        setSelectedPaymentNetwork((current) => (
+            current === PAYMENT_NETWORK_MAINNET
+                ? PAYMENT_NETWORK_TESTNET
+                : PAYMENT_NETWORK_MAINNET
+        ));
+
+    }
+
     function createRoom() {
 
         if (roomState.roomCreated) return;
 
-        socket.emit("createRoom");
+        socket.emit("createRoom", {
+            paymentNetwork: selectedPaymentNetwork
+        });
 
     }
 
     return (
 
         <div className="createRoomPanel">
+
+            <button
+                type="button"
+                className={
+                    selectedPaymentNetwork === PAYMENT_NETWORK_MAINNET
+                        ? "mainnetPaymentButton selected"
+                        : "mainnetPaymentButton"
+                }
+                onClick={toggleMainnet}
+                disabled={roomState.roomCreated}
+                aria-pressed={selectedPaymentNetwork === PAYMENT_NETWORK_MAINNET}
+            >
+                MAINNET
+            </button>
 
             <button
 
