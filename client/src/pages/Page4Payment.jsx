@@ -790,13 +790,6 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-        const localPlayerId = resolveLocalPlayerId(
-            identity.playerId ?? null,
-            authoritative.players,
-            {
-                verifyCompleted: Boolean(lifecycle?.verifyCompleted)
-            }
-        );
         const paymentRequest = getLocalPaymentRequest(paymentSession, localPlayerId);
         const roomWalletDestination = resolvePlayerPaymentDestination({
             paymentSession,
