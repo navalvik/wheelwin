@@ -363,6 +363,8 @@ export class ContractSettlementManager {
             gameId: session.gameId,
             roomId: session.roomId,
             contractId: session.contractId,
+            network: session.network ?? session.request?.paymentNetwork ?? session.request?.snapshot?.network ?? null,
+            paymentNetwork: session.network ?? session.request?.paymentNetwork ?? session.request?.snapshot?.network ?? null,
             status: session.status,
             winnerId: session.winnerId,
             winnerAmount: session.prizeAmount,
@@ -2567,6 +2569,7 @@ export class ContractSettlementManager {
             winnerAmount: session.prizeAmount,
             organizerAmount: session.organizerAmount,
             settlementTxHash: session.settlementTransactionHash,
+            network: session.network ?? session.request?.paymentNetwork ?? session.request?.snapshot?.network ?? null,
             at: session.completedAt,
             finalStatus: SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED
         });
@@ -2574,7 +2577,9 @@ export class ContractSettlementManager {
         this._emitDomain(EVENT_TYPES.SETTLEMENT_COMPLETED, session, {
             winnerAmount: session.prizeAmount,
             organizerAmount: session.organizerAmount,
-            transactionHash: session.settlementTransactionHash
+            transactionHash: session.settlementTransactionHash,
+            network: session.network ?? session.request?.paymentNetwork ?? session.request?.snapshot?.network ?? null,
+            paymentNetwork: session.network ?? session.request?.paymentNetwork ?? session.request?.snapshot?.network ?? null
         });
 
         this._emit(EVENT_TYPES.SETTLEMENT_COMPLETED, {
@@ -2586,6 +2591,8 @@ export class ContractSettlementManager {
             winnerAmount: session.prizeAmount,
             organizerAmount: session.organizerAmount,
             settlementTxHash: session.settlementTransactionHash,
+            network: session.network ?? session.request?.paymentNetwork ?? session.request?.snapshot?.network ?? null,
+            paymentNetwork: session.network ?? session.request?.paymentNetwork ?? session.request?.snapshot?.network ?? null,
             timestamp: session.completedAt
         });
 
