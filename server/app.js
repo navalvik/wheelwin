@@ -1786,7 +1786,8 @@ class WheelWinApplication {
             eventBus: this._eventBus,
             logger: this._logger,
             env: process.env,
-            tonService: this._services?.tonService ?? null
+            tonService: this._services?.tonService ?? null,
+            tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null
         });
 
         this._roomWalletResidualSweepWorker.initialize();
