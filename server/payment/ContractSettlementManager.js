@@ -1029,13 +1029,29 @@ export class ContractSettlementManager {
 
             let state = null;
 
+            const paymentNetwork = session?.network
+                ?? session?.request?.paymentNetwork
+                ?? session?.request?.snapshot?.network
+                ?? ctx?.contract?.tonNetwork
+                ?? ctx?.contract?.snapshot?.network
+                ?? null;
+
+            // Recovery probes MUST use the immutable settlement network. A
+            // Mainnet room can be recovered while the server runtime remains
+            // on Testnet, so omitting paymentNetwork would probe the wrong RPC.
             if (typeof this._settlementAdapter.getSettlementState === "function") {
 
-                state = await this._settlementAdapter.getSettlementState(address);
+                state = await this._settlementAdapter.getSettlementState(
+                    address,
+                    paymentNetwork
+                );
 
             } else if (typeof this._settlementAdapter.getContractState === "function") {
 
-                state = await this._settlementAdapter.getContractState(address);
+                state = await this._settlementAdapter.getContractState(
+                    address,
+                    paymentNetwork
+                );
 
             } else {
 
