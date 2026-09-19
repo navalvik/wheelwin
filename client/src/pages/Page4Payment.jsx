@@ -892,6 +892,7 @@ export default function Page4Payment({ onNavigate }) {
             const nowEpochSeconds = Math.floor(Date.now() / 1000);
             const authoritativeNetwork = paymentSession?.network
                 ?? depositProjection?.network
+                ?? gameContract?.tonNetwork
                 ?? gameContract?.network
                 ?? null;
             const walletChain = tonWallet?.account?.chain
