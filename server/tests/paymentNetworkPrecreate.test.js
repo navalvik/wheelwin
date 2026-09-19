@@ -1812,6 +1812,62 @@ function test32_settlementCompletionNetworkPropagation() {
 }
 
 
+
+// Test 35 — Archived contract records retain the authoritative payment network
+// after the active GameContract is moved to terminal storage.
+function test35_archivedContractNetworkPersistence() {
+
+    const source = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "persistence/TonFinancialPersistence.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        source.includes("TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT")
+            && source.includes("tonNetwork: contract.tonNetwork")
+            && source.includes('status: "ARCHIVED"'),
+        "archived contract persistence must retain the authoritative contract network"
+    );
+
+    const recoverySource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "recovery/TonFinancialRecovery.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        recoverySource.includes("GAME_CONTRACT_STATUS.ARCHIVED"),
+        "financial recovery must recognize archived contracts as terminal state"
+    );
+
+    const managerSource = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "gameplay/GameContractManager.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        managerSource.includes("this._financialPersistence.archive(contract.contractId")
+            && managerSource.includes("tonNetwork: contract.tonNetwork"),
+        "GameContractManager archive path must pass the immutable network to persistence"
+    );
+
+    console.log(
+        "Test 35 — Archived contract network persistence: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1853,6 +1909,7 @@ async function main() {
     test32_settlementCompletionNetworkPropagation();
     test33_settlementLegacyRecordNetworkPropagation();
     test34_gameContractLifecycleNetworkPropagation();
+    test35_archivedContractNetworkPersistence();
 
     console.log("all assertions passed");
 
