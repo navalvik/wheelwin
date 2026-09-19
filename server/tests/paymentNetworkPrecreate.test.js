@@ -1672,6 +1672,59 @@ test("R18-S17 C14: settlement adapter keeps explicit payment network through bro
 
 
 
+// Test 31 — GameEscrow confirmation/rejection/refund observations retain the authoritative network.
+function test31_gameEscrowConfirmationNetworkPropagation() {
+
+    const source = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "payment/BlockchainMonitor.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        source.includes(
+            "GAME_ESCROW_SETTLEMENT_VERIFIED"
+        )
+            && source.includes(
+                "winnerAddress: watch.winnerAddress,\n                    ownerAddress: watch.ownerAddress,\n                    network: watch.paymentNetwork ?? this._network"
+            ),
+        "GameEscrow settlement verification must publish the authoritative payment network"
+    );
+
+    assert(
+        source.includes(
+            "GAME_ESCROW_SETTLEMENT_REJECTED"
+        )
+            && source.includes(
+                "reason: result.reason,\n                            network: watch.paymentNetwork ?? this._network"
+            ),
+        "GameEscrow settlement rejection must publish the authoritative payment network"
+    );
+
+    assert(
+        source.includes(
+            "const transactions = await this._fetchTransactions(watch.escrowAddress, {\n                limit: 40\n            }, watch);"
+        ),
+        "GameEscrow refund observation must fetch transactions through the network-scoped watch"
+    );
+
+    assert(
+        source.includes(
+            "cancelTxHash: result.cancelTxHash,\n                    refundMask: result.confirmedMask,\n                    network: watch.paymentNetwork ?? this._network"
+        ),
+        "GameEscrow cancel confirmation must publish the authoritative payment network"
+    );
+
+    console.log(
+        "Test 31 — GameEscrow confirmation/refund network propagation: passed"
+    );
+
+}
+
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1709,6 +1762,7 @@ async function main() {
     await test25_roomWalletAdapterUsesPaymentNetworkService();
     test26_roomWalletRecoveryNetworkRoutingSourceContract();
     test27_roomWalletIncomingAttributionUsesSessionNetwork();
+    test31_gameEscrowConfirmationNetworkPropagation();
 
     console.log("all assertions passed");
 
