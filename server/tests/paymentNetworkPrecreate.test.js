@@ -1520,6 +1520,55 @@ async function test25_roomWalletAdapterUsesPaymentNetworkService() {
 
 }
 
+
+function test26_roomWalletRecoveryNetworkRoutingSourceContract() {
+
+    const workerSource = readFileSync(
+        join(__dirname, "../payment/roomWallet/RoomWalletResidualSweepWorker.js"),
+        "utf8"
+    );
+    const recoverySource = readFileSync(
+        join(__dirname, "../payment/roomWallet/RoomWalletTerminalSettlementRecovery.js"),
+        "utf8"
+    );
+
+    assert(
+        workerSource.includes("resolvePaymentNetwork(record.payload)"),
+        "residual sweep retry must recover its persisted payment network"
+    );
+    assert(
+        workerSource.includes("getBalance(roomNumber, network)"),
+        "residual sweep balance lookup must use payment network"
+    );
+    assert(
+        workerSource.includes("network,\n                destination: destination.address"),
+        "residual sweep transfer must carry payment network"
+    );
+    assert(
+        workerSource.includes("paymentNetwork: resolvePaymentNetwork(record.payload)"),
+        "residual sweep blockchain watch must carry payment network"
+    );
+
+    assert(
+        recoverySource.includes("this._serviceForNetwork(paymentNetwork)"),
+        "terminal recovery chain inspection/confirmation must use payment network service"
+    );
+    assert(
+        recoverySource.includes("registry.getForNetwork?.(roomNumber, paymentNetwork)"),
+        "terminal recovery must resolve Room Wallet by payment network"
+    );
+    assert(
+        recoverySource.includes("paymentNetwork")
+        && recoverySource.includes("reconstructed"),
+        "terminal recovery must reconstruct and propagate payment network"
+    );
+
+    console.log(
+        "Test 26 — Room Wallet recovery network routing source contract: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1555,6 +1604,7 @@ async function main() {
     test23_roomWalletResolutionFailsClosedAcrossNetworks();
     test24_roomWalletRegistrySupportsPerNetworkCatalogs();
     await test25_roomWalletAdapterUsesPaymentNetworkService();
+    test26_roomWalletRecoveryNetworkRoutingSourceContract();
 
     console.log("all assertions passed");
 
