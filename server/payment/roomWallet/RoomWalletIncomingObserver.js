@@ -642,7 +642,8 @@ export class RoomWalletIncomingObserver {
             playerId: participant.playerId,
             paymentReference: participant.paymentReference,
             paymentSessionId: session.paymentSessionId,
-            walletSessionId: participant.walletSessionId
+            walletSessionId: participant.walletSessionId,
+            network: session.network ?? this._network
         });
 
         if (accepted.duplicate) {
@@ -718,6 +719,7 @@ export class RoomWalletIncomingObserver {
                 roomId: session.roomId,
                 roomNumber: session.roomNumber,
                 roomManager: this._roomManager,
+                paymentNetwork: session.network,
                 session
             }, this._registry);
 
@@ -946,7 +948,7 @@ export class RoomWalletIncomingObserver {
                     roomNumber: fields.roomNumber ?? null,
                     gameId: fields.gameId ?? null,
                     status: fields.status,
-                    tonNetwork: this._network
+                    tonNetwork: fields.network ?? this._network
                 }
             );
 
