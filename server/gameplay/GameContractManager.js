@@ -556,8 +556,13 @@ export class GameContractManager {
             sessionWalletStore: this._sessionWalletStore,
             configuration,
             paymentRules: this._paymentRules ?? undefined,
-            // R7.70C2.4 — freeze platform oracle into snapshot for StateInit.
-            oracleWallet: tonConfig.oracleAddress ?? null,
+            // R7.70C2.4 / R18-S17 A2 — freeze the oracle belonging to the
+            // authoritative payment network. Never leak the active runtime
+            // Testnet oracle into a Mainnet room.
+            oracleWallet: this._resolveContractOracleWallet(
+                network,
+                tonConfig
+            ),
             // R13.1H — freeze escrow lifecycle configuration at create.
             escrowMode,
             network,
@@ -2177,6 +2182,50 @@ export class GameContractManager {
 
         this._paymentNetworkResolver =
             typeof resolver === "function" ? resolver : null;
+
+    }
+
+    /**
+     * R18-S17 A2 — resolve the oracle from the same immutable payment-network
+     * selection used by the GameContract snapshot.
+     *
+     * A Mainnet room must never inherit tonConfig.oracleAddress when the
+     * process runtime is Testnet. Profiles are the network-scoped source.
+     */
+    _resolveContractOracleWallet(network, tonConfig = this._deployAdapter?._tonConfig ?? {}) {
+
+        const normalized = String(network ?? "").trim().toLowerCase();
+
+        if (normalized !== "mainnet" && normalized !== "testnet") {
+
+            return null;
+
+        }
+
+        const profileOracle = tonConfig?.profiles?.[normalized]?.oracleWallet;
+
+        if (typeof profileOracle === "string" && profileOracle.trim()) {
+
+            return profileOracle.trim();
+
+        }
+
+        // Backward-compatible fallback for test fixtures / legacy configs:
+        // only use the active runtime oracle when its network matches.
+        const runtimeNetwork = String(tonConfig?.network ?? "")
+            .trim()
+            .toLowerCase();
+
+        if (runtimeNetwork === normalized) {
+
+            return typeof tonConfig?.oracleAddress === "string"
+                && tonConfig.oracleAddress.trim()
+                ? tonConfig.oracleAddress.trim()
+                : null;
+
+        }
+
+        return null;
 
     }
 
