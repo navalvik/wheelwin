@@ -74,6 +74,22 @@ export class RoomWalletRegistry {
         return this._entries.get(normalizeRoomNumber(roomNumber)) ?? null;
     }
 
+    getForNetwork(roomNumber, network) {
+        const record = this.get(roomNumber);
+
+        if (!record) {
+            return null;
+        }
+
+        const normalizedNetwork = String(network ?? "").trim().toLowerCase();
+
+        if (!normalizedNetwork) {
+            return record;
+        }
+
+        return record.network === normalizedNetwork ? record : null;
+    }
+
     require(roomNumber) {
         const record = this.get(roomNumber);
 
