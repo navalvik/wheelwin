@@ -644,7 +644,6 @@ export class RoomWalletResidualSweepWorker {
         }
 
         const sourceAddress = record.payload?.sourceAddress ?? null;
-        const network = resolvePaymentNetwork(record.payload);
         const selfTransfer = assertSweepSourceDiffersFromDestination(
             sourceAddress,
             destination.address
