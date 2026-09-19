@@ -50,14 +50,41 @@ export function loadTonConfig(env = process.env) {
             ? env.TON_DEPLOYER_EXPECTED_ADDRESS.trim()
             : null);
 
+    // Keep active-runtime configuration network-safe as well. Mainnet uses
+    // dedicated signing material; it never inherits a Testnet mnemonic.
+    const deployerMnemonic = normalizedNetwork === "mainnet"
+        ? (
+            typeof env.TON_MAINNET_DEPLOYER_MNEMONIC === "string"
+            && env.TON_MAINNET_DEPLOYER_MNEMONIC.trim()
+                ? env.TON_MAINNET_DEPLOYER_MNEMONIC.trim()
+                : null
+        )
+        : (
+            typeof env.TON_TESTNET_DEPLOYER_MNEMONIC === "string"
+            && env.TON_TESTNET_DEPLOYER_MNEMONIC.trim()
+                ? env.TON_TESTNET_DEPLOYER_MNEMONIC.trim()
+                : (
+                    typeof env.TON_DEPLOYER_MNEMONIC === "string"
+                    && env.TON_DEPLOYER_MNEMONIC.trim()
+                        ? env.TON_DEPLOYER_MNEMONIC.trim()
+                        : null
+                )
+        );
+
+    const apiKey = normalizedNetwork === "mainnet"
+        ? (
+            typeof env.TON_MAINNET_API_KEY === "string"
+            && env.TON_MAINNET_API_KEY.trim()
+                ? env.TON_MAINNET_API_KEY.trim()
+                : (env.TON_API_KEY || null)
+        )
+        : (env.TON_API_KEY || null);
+
     return {
         network: normalizedNetwork,
-        apiKey: env.TON_API_KEY || null,
+        apiKey,
         endpoint,
-        deployerMnemonic: typeof env.TON_DEPLOYER_MNEMONIC === "string"
-            && env.TON_DEPLOYER_MNEMONIC.trim()
-            ? env.TON_DEPLOYER_MNEMONIC.trim()
-            : null,
+        deployerMnemonic,
         deployerExpectedAddress,
         oracleAddress: activeProfile.oracleWallet,
         oracleSource: activeProfile.oracleSource ?? null,
