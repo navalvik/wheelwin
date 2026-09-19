@@ -50,6 +50,7 @@ export class RoomWalletTerminalSettlementRecovery {
         sessionHistoryArchive = null,
         settlementAdapter = null,
         tonService = null,
+        tonNetworkServiceRegistry = null,
         roomManager = null,
         gameManager = null,
         ownerConfiguration = null,
@@ -67,6 +68,7 @@ export class RoomWalletTerminalSettlementRecovery {
         this._sessionHistoryArchive = sessionHistoryArchive;
         this._settlementAdapter = settlementAdapter;
         this._tonService = tonService;
+        this._tonNetworkServiceRegistry = tonNetworkServiceRegistry;
         this._roomManager = roomManager;
         this._gameManager = gameManager;
         this._ownerConfiguration = ownerConfiguration;
@@ -78,6 +80,20 @@ export class RoomWalletTerminalSettlementRecovery {
         this._confirmTimeoutMs = confirmTimeoutMs;
         this._confirmPollMs = confirmPollMs;
         this._inflight = new Set();
+    }
+
+    _serviceForNetwork(network = null) {
+        const normalized = String(network ?? "").trim().toLowerCase();
+
+        if (normalized && typeof this._tonNetworkServiceRegistry?.get === "function") {
+            const service = this._tonNetworkServiceRegistry.get(normalized);
+            if (!service) {
+                throw new Error("TON service is unavailable for network " + normalized);
+            }
+            return service;
+        }
+
+        return this._tonService;
     }
 
     bindSessionHistoryArchive(archive) {
@@ -144,8 +160,11 @@ export class RoomWalletTerminalSettlementRecovery {
         }
 
         const reconstructed = evidence.evidence;
+        const paymentNetwork = resolvePaymentNetwork(reconstructed);
         const registry = this._registry ?? createRoomWalletRegistryFromEnv(this._env);
-        const catalogWallet = registry.get(roomNumber)?.address ?? null;
+        const catalogWallet = (paymentNetwork
+            ? registry.getForNetwork?.(roomNumber, paymentNetwork)
+            : registry.get?.(roomNumber))?.address ?? null;
         const configuredOwner = this._ownerConfiguration?.getOwnerWallet?.()
             ?? reconstructed.ownerWallet;
 
@@ -186,11 +205,12 @@ export class RoomWalletTerminalSettlementRecovery {
             winnerWallet: reconstructed.winnerWallet,
             ownerWallet: reconstructed.ownerWallet,
             winnerAmount: reconstructed.winnerAmount,
-            organizerAmount: reconstructed.organizerAmount
+            organizerAmount: reconstructed.organizerAmount,
+            paymentNetwork
         });
 
         const history = await this._inspectHistory({
-            tonService: this._tonService,
+            tonService: this._serviceForNetwork(paymentNetwork),
             roomWalletAddress,
             cutoffLt: reconstructed.lastInboundLt,
             cutoffUtime: reconstructed.lastInboundUtime,
@@ -349,7 +369,7 @@ export class RoomWalletTerminalSettlementRecovery {
             pollIntervalMs: this._confirmPollMs
         });
         const ownerConfirm = await this._confirmPayout({
-            tonService: this._tonService,
+            tonService: this._serviceForNetwork(paymentNetwork),
             roomWalletAddress,
             expectedHash: ownerTxHash,
             destination: reconstructed.ownerWallet,
@@ -643,4 +663,19 @@ function evidenceFromHistory(record, sealed) {
         lastInboundUtime: sealed?.lastInboundUtime,
         source: "session_history"
     };
+}
+
+
+function resolvePaymentNetwork(payload = {}) {
+    const raw = payload.paymentNetwork
+        ?? payload.network
+        ?? payload.tonNetwork
+        ?? payload.snapshot?.network
+        ?? payload.request?.paymentNetwork
+        ?? payload.request?.network
+        ?? payload.request?.snapshot?.network
+        ?? null;
+
+    const normalized = String(raw ?? "").trim().toLowerCase();
+    return normalized || null;
 }
