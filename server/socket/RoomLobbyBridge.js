@@ -180,6 +180,17 @@ export class RoomLobbyBridge {
         // never limited by this map. Released whenever the room is destroyed.
         this._activeRoomsByTelegramUser = new Map();
 
+        // Payment network pre-create selection (task 2026-09-17): authoritative
+        // FINANCIAL payment route per room. roomId → "testnet" | "mainnet".
+        // This is NOT the old R24.1 "room runtime network": it does not gate
+        // START_GAME, does not touch the RoomManager runtime network and does
+        // not change the server's TON runtime. It is a payment-routing signal
+        // consumed later by the Page4 payment orchestration. Committed at
+        // CREATE_ROOM from the client's paymentNetwork request; strictly
+        // normalized; in-memory only; released by the existing room
+        // destruction paths.
+        this._paymentNetworkByRoom = new Map();
+
         // Server-owned recovery identity keyed by socket id (CSR / same-id path).
         this._recoveryOwnershipBySocket = new Map();
 
@@ -335,7 +346,11 @@ export class RoomLobbyBridge {
             EVENT_TYPES.LOBBY_CREATE_ROOM_REQUEST,
             (envelope) => {
 
-                this._handleCreateRoom(envelope.payload.socketId);
+                this._handleCreateRoom(
+                    envelope.payload.socketId,
+                    // Pre-create payment network request (testnet|mainnet).
+                    envelope.payload.paymentNetwork
+                );
 
             }
         );
@@ -789,6 +804,9 @@ export class RoomLobbyBridge {
 
         this._roomCreators.clear();
 
+        // Pre-create payment network lifecycle map cleanup.
+        this._paymentNetworkByRoom.clear();
+
         this._activeRoomsByTelegramUser.clear();
 
         this._recoveryOwnershipBySocket.clear();
@@ -882,7 +900,7 @@ export class RoomLobbyBridge {
 
     }
 
-    _handleCreateRoom(socketId) {
+    _handleCreateRoom(socketId, requestedPaymentNetwork) {
 
         if (this._socketToPlayer.has(socketId)) {
 
@@ -1073,6 +1091,22 @@ export class RoomLobbyBridge {
 
         this._roomCreators.set(room.roomId, playerId);
 
+        // Pre-create payment network (task 2026-09-17) — authoritative
+        // FINANCIAL payment route for this room. Strictly normalized here:
+        // exactly "testnet" | "mainnet"; every other value (or an absent
+        // value) safely defaults to "testnet". This is a payment-routing
+        // signal only — it never changes the RoomManager/game runtime
+        // network and never gates START_GAME.
+        const paymentNetwork =
+            typeof requestedPaymentNetwork === "string"
+                ? requestedPaymentNetwork.trim().toLowerCase()
+                : "";
+
+        this._paymentNetworkByRoom.set(
+            room.roomId,
+            paymentNetwork === "mainnet" ? "mainnet" : "testnet"
+        );
+
         // R17.9T.6-C — occupy the Telegram creation quota for this room.
         this._activeRoomsByTelegramUser.set(
             creatorTelegramUserId,
@@ -1099,6 +1133,14 @@ export class RoomLobbyBridge {
         const roomCreatedPayload = {
             roomId: roomSnapshot.roomId,
             playerId,
+            // R24.1 — authoritative room Owner projection (this creator).
+            // Additive lobby-safe information; the selector uses it to
+            // re-appear after roomState hydration.
+            ownerPlayerId: playerId,
+            // Pre-create payment network — authoritative financial payment
+            // route selected by the Owner before CREATE ROOM. Lobby-safe.
+            paymentNetwork: this._paymentNetworkByRoom.get(room.roomId)
+                ?? "testnet",
             recoveryCredential,
             connectedPlayers: roomSnapshot.players.length,
             maxPlayers: roomSnapshot.maxPlayers,
@@ -2703,6 +2745,10 @@ export class RoomLobbyBridge {
 
             this._roomCreators.delete(roomId);
 
+            // Release the room's pre-create payment network state together
+            // with the existing lobby-map cleanup (same destruction site).
+            this._paymentNetworkByRoom.delete(roomId);
+
             this._releaseTelegramQuota(roomId);
 
             this._startedRooms.delete(roomId);
@@ -2758,6 +2804,12 @@ export class RoomLobbyBridge {
             return;
 
         }
+
+        // The pre-create payment network (paymentNetworkByRoom) is a
+        // payment-routing signal only. It MUST NOT gate START_GAME: the room
+        // and game setup lifecycle (Room full → game prep → startGame →
+        // Page3 wallet entry → Page4 payment) continues normally regardless
+        // of paymentNetwork = testnet or mainnet.
 
         // R1.1 — startGame (Page2 entry) fires at game prep / room-full,
         // not at GAME_INITIALIZED (which now waits for entry payment).
@@ -3094,6 +3146,10 @@ export class RoomLobbyBridge {
             this._roomManager.destroyRoom(roomId);
 
             this._roomCreators.delete(roomId);
+
+            // Release the room's pre-create payment network state together
+            // with the existing lobby-map cleanup (empty-room destruction).
+            this._paymentNetworkByRoom.delete(roomId);
 
             this._releaseTelegramQuota(roomId);
 
@@ -3458,6 +3514,10 @@ export class RoomLobbyBridge {
 
         this._roomCreators.delete(roomId);
 
+        // Release the room's pre-create payment network state together with
+        // the existing lobby-map cleanup (_closeRoom destruction path).
+        this._paymentNetworkByRoom.delete(roomId);
+
         this._releaseTelegramQuota(roomId);
 
         this._startedRooms.delete(roomId);
@@ -3518,7 +3578,18 @@ export class RoomLobbyBridge {
             connectedPlayers: room.players.length,
             maxPlayers: room.maxPlayers,
             players: this._buildPlayerList(room),
-            state: room.status
+            state: room.status,
+            // Pre-create payment network (task 2026-09-17) — authoritative
+            // financial payment route for this room. Included so roomState
+            // hydration (join / reconnect / recovery) restores the payment
+            // selection. This is NOT a runtime/game network.
+            paymentNetwork: this._paymentNetworkByRoom.get(room.roomId)
+                ?? "testnet",
+            // R24.1 — authoritative room Owner projection (playerId recorded
+            // in _roomCreators at CREATE_ROOM). Lobby-safe: it lets the
+            // creator's own UI re-derive the selector after hydration; it
+            // never grants selection rights (those stay server-side).
+            ownerPlayerId: this._roomCreators.get(room.roomId) ?? null
         };
 
     }
@@ -5716,6 +5787,25 @@ export class RoomLobbyBridge {
 
     }
 
+    /**
+     * Task 2026-09-17 — authoritative pre-create payment network accessor.
+     * Returns "testnet" | "mainnet" for an active room (defaults to the
+     * established safe default "testnet"). Used by app.js to hand the
+     * authoritative signal to the payment orchestration (DepositOrchestrator
+     * / GameContractManager) without any client-provided value.
+     */
+    getPaymentNetwork(roomId) {
+
+        if (!roomId) {
+
+            return null;
+
+        }
+
+        return this._paymentNetworkByRoom.get(roomId) ?? "testnet";
+
+    }
+
     _deliverPaymentConnectionReady(roomId) {
 
         this._clearWalletConnectionTimeout(roomId);
@@ -5740,7 +5830,15 @@ export class RoomLobbyBridge {
         this._eventBus.emit({
             source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
             type: EVENT_TYPES.PAYMENT_CONNECTION_READY,
-            payload: { roomId, timestamp: Date.now() }
+            payload: {
+                roomId,
+                // Pre-create payment network (task 2026-09-17) — the
+                // authoritative financial payment route committed at
+                // CREATE_ROOM. Server-owned state; never read from a client.
+                paymentNetwork: this._paymentNetworkByRoom.get(roomId)
+                    ?? "testnet",
+                timestamp: Date.now()
+            }
         });
 
         console.log("[R7.50 DIAG] PAYMENT_CONNECTION_READY emit returned", {
