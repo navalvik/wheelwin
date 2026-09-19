@@ -1987,6 +1987,35 @@ function test37_resultRecoveryNetworkPropagation() {
 
 }
 
+
+// Test 38 — Payment status view retains the authoritative payment network.
+// This closes the final RESULT → Page6 payment-view mapping gap: the network
+// must survive the reducer mapping exactly as supplied by the server.
+function test38_paymentStatusViewPreservesNetwork() {
+    
+    const source = readFileSync(
+        join(
+            dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "..",
+            "client/src/game/result/gameResultFlow.js"
+        ),
+        "utf8"
+    );
+
+    assert(
+        source.includes(
+            "paymentNetwork: payload.paymentNetwork ?? payload.network ?? null"
+        ),
+        "payment status view must preserve the authoritative payment network"
+    );
+
+    console.log(
+        "Test 38 — Payment status view preserves payment network: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -2031,6 +2060,7 @@ async function main() {
     test35_archivedContractNetworkPersistence();
     test36_page6PaymentNetworkPropagation();
     test37_resultRecoveryNetworkPropagation();
+    test38_paymentStatusViewPreservesNetwork();
 
     console.log("all assertions passed");
 
