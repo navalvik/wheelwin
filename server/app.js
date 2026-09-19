@@ -1593,6 +1593,7 @@ class WheelWinApplication {
             sessionHistoryArchive: null,
             settlementAdapter: this._roomWalletSettlementRouter,
             tonService: this._services?.tonService ?? null,
+            tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
             roomManager: this._managers.roomManager,
             gameManager: this._managers.gameManager,
             ownerConfiguration: OwnerConfiguration,
