@@ -39,8 +39,7 @@ export function isRoomWalletOnlyFinancialPath({
     env = process.env,
     gameEscrowMode = null
 } = {}) {
-    return isGameEscrowOnlyPlayerPayment(gameEscrowMode)
-        || isRoomWalletPaymentIntakeEnabled(env);
+    return isRoomWalletPaymentIntakeEnabled(env);
 }
 
 /**
