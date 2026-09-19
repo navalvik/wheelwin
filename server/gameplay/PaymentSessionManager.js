@@ -15,8 +15,10 @@ import {
     PaymentParticipant,
     PaymentSession
 } from "../models/PaymentSession.js";
+import { tonWalletAccountsEqual } from "../models/TonWalletAddress.js";
 import { amountsMatch } from "../payment/BlockchainMonitor.js";
 import { calculateRequiredGram } from "../payment/calculateRequiredGram.js";
+import { resolveIntendedRoomWalletAddress } from "../payment/roomWallet/RoomWalletIncomingObserver.js";
 import { TON_FINANCIAL_RECORD_TYPES } from "../persistence/TonFinancialPersistence.js";
 import { WALLET_SESSION_STATUS } from "../session/WalletSessionStates.js";
 import {
@@ -62,7 +64,8 @@ export class PaymentSessionManager {
         blockchainMonitor = null,
         financialPersistence = null,
         tonNetwork = null,
-        devMode = false
+        devMode = false,
+        roomWalletPaymentIntakeEnabled = false
     }) {
 
         this._logger = logger;
@@ -98,6 +101,10 @@ export class PaymentSessionManager {
             : DEFAULT_PAYMENT_SESSION_DURATION_MS;
 
         this._devMode = devMode;
+
+        this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
+
+        this._roomWalletRegistry = null;
 
         this._sessionsByRoom = new Map();
 
@@ -152,6 +159,25 @@ export class PaymentSessionManager {
         if (contractSettlementManager) {
 
             this._contractSettlementManager = contractSettlementManager;
+
+        }
+
+    }
+
+    setRoomWalletFinance({
+        registry = null,
+        roomWalletPaymentIntakeEnabled = null
+    } = {}) {
+
+        if (registry) {
+
+            this._roomWalletRegistry = registry;
+
+        }
+
+        if (roomWalletPaymentIntakeEnabled != null) {
+
+            this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
 
         }
 
@@ -216,10 +242,20 @@ export class PaymentSessionManager {
             (envelope) => this._handlePaymentTransactionConfirmed(envelope.payload)
         );
 
-        // R7.69A — GameEscrow STAKE is authoritative; PSM only synchronizes.
+        // Game Escrow STAKE is not financial authority on the Room Wallet path.
         this._subscribe(
             EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED,
-            (envelope) => this._handlePaymentTransactionConfirmed(envelope.payload)
+            (envelope) => {
+
+                if (this._roomWalletPaymentIntakeEnabled) {
+
+                    return;
+
+                }
+
+                this._handlePaymentTransactionConfirmed(envelope.payload);
+
+            }
         );
 
         // R7.69C — GameEscrow refunds are authoritative; PSM only synchronizes.
@@ -412,7 +448,11 @@ export class PaymentSessionManager {
 
             if (contract) {
 
-                this._assertContractReadyForPayments(contract);
+                if (!this._roomWalletPaymentIntakeEnabled) {
+
+                    this._assertContractReadyForPayments(contract);
+
+                }
 
                 if (contract.gameStartedAt != null) {
 
@@ -490,6 +530,7 @@ export class PaymentSessionManager {
             const session = new PaymentSession({
                 paymentSessionId: `pay_${randomUUID()}`,
                 roomId,
+                roomNumber: Number.isInteger(room.roomNumber) ? room.roomNumber : null,
                 gameId: resolvedGameId,
                 contractId: contract?.contractId ?? contractId ?? null,
                 network: activeNetwork,
@@ -502,6 +543,25 @@ export class PaymentSessionManager {
                 status: PAYMENT_SESSION_STATUS.CREATED,
                 correlationId: correlationId ?? randomUUID()
             });
+
+            const roomWalletAddress = this._roomWalletPaymentIntakeEnabled
+                ? this._resolveRoomWalletPaymentAddress(room, activeNetwork)
+                : null;
+
+            if (this._roomWalletPaymentIntakeEnabled) {
+
+                if (!roomWalletAddress) {
+
+                    throw new PaymentValidationError(
+                        "Room Wallet address is required for player payment",
+                        { roomId, roomNumber: room.roomNumber ?? null }
+                    );
+
+                }
+
+                session.roomWalletAddress = roomWalletAddress;
+
+            }
 
             session.transitionTo(PAYMENT_SESSION_STATUS.WAITING_FOR_PAYMENTS);
 
@@ -525,7 +585,14 @@ export class PaymentSessionManager {
                 gameId: resolvedGameId
             });
 
-            if (contractAddress || contract?.contractAddress) {
+            if (roomWalletAddress) {
+
+                this._activatePaymentRequests(session, {
+                    contractAddress: roomWalletAddress,
+                    paymentDeadline: deadline
+                });
+
+            } else if (contractAddress || contract?.contractAddress) {
 
                 this._activatePaymentRequests(session, {
                     contractAddress: contractAddress ?? contract.contractAddress,
@@ -553,7 +620,7 @@ export class PaymentSessionManager {
     /**
      * P6.3 legacy — idempotent create used by lobby flow.
      */
-    createAndRequest(roomId, { gameId = null } = {}) {
+    createAndRequest(roomId, { gameId = null, network = null } = {}) {
 
         this._assertInitialized();
 
@@ -605,7 +672,13 @@ export class PaymentSessionManager {
 
         try {
 
-            const created = this.createPaymentSession(roomId, { gameId });
+            const created = this.createPaymentSession(roomId, {
+                gameId,
+                // Task 2026-09-17 — authoritative pre-create payment network
+                // from the PAYMENT_CONNECTION_READY payload. null keeps the
+                // established resolution (contract.tonNetwork → runtime).
+                network
+            });
 
             console.log("[R7.50 DIAG] PaymentSession created", {
                 roomId,
@@ -677,6 +750,12 @@ export class PaymentSessionManager {
     } = {}) {
 
         this._assertInitialized();
+
+        if (this._roomWalletPaymentIntakeEnabled) {
+
+            return this._sessionsByRoom.get(roomId) ?? null;
+
+        }
 
         const session = this._sessionsByRoom.get(roomId);
 
@@ -844,7 +923,7 @@ export class PaymentSessionManager {
                     ?? session.participants?.[0]?.contractAddress
                     ?? null;
 
-                if (contractAddress) {
+                if (contractAddress && !this._roomWalletPaymentIntakeEnabled) {
 
                     if (session.status !== PAYMENT_SESSION_STATUS.CANCELLED) {
 
@@ -917,6 +996,17 @@ export class PaymentSessionManager {
     } = {}) {
 
         this._assertInitialized();
+
+        if (this._roomWalletPaymentIntakeEnabled) {
+
+            return Object.freeze({
+                ok: true,
+                synced: 0,
+                demoted: 0,
+                skipped: "room_wallet_intake"
+            });
+
+        }
 
         const session = this._sessionsByRoom.get(roomId);
 
@@ -997,7 +1087,10 @@ export class PaymentSessionManager {
 
             chainState = await this._blockchainMonitor.readGameEscrowPaymentState(
                 contractAddress,
-                { playerCount: session.participants.length }
+                {
+                    playerCount: session.participants.length,
+                    paymentNetwork: session.network ?? null
+                }
             );
 
         } catch (error) {
@@ -1153,7 +1246,10 @@ export class PaymentSessionManager {
 
             cancelState = await this._blockchainMonitor.readGameEscrowCancelState(
                 contractAddress,
-                { playerCount: session.participants.length }
+                {
+                    playerCount: session.participants.length,
+                    paymentNetwork: session.network ?? null
+                }
             );
 
         } catch (error) {
@@ -2119,7 +2215,11 @@ export class PaymentSessionManager {
         });
 
         const session = this.createAndRequest(payload?.roomId, {
-            gameId: payload?.gameId ?? null
+            gameId: payload?.gameId ?? null,
+            // Task 2026-09-17 — authoritative pre-create payment network
+            // ("testnet" | "mainnet") emitted by the server-owned
+            // RoomLobbyBridge state. Never a client-provided value.
+            network: payload?.paymentNetwork ?? null
         });
 
         console.log("[R7.50 DIAG] createAndRequest returned", {
@@ -2412,7 +2512,11 @@ export class PaymentSessionManager {
 
         }
 
-        this._registerBlockchainWatches(session, contractAddress);
+        if (!this._roomWalletPaymentIntakeEnabled) {
+
+            this._registerBlockchainWatches(session, contractAddress);
+
+        }
 
         this._persistSession(session, "update");
 
@@ -2467,7 +2571,8 @@ export class PaymentSessionManager {
             expectedGram: participant.requiredGram,
             expectedWallet: participant.wallet,
             paymentDeadline: session.paymentDeadline,
-            playerIndex: participant.playerIndex ?? null
+            playerIndex: participant.playerIndex ?? null,
+            paymentNetwork: session.network ?? null
         });
 
     }
@@ -2501,11 +2606,30 @@ export class PaymentSessionManager {
 
         }
 
+        const expectedDestination = session.roomWalletAddress
+            ?? participant.contractAddress
+            ?? null;
+
         const contract = this._resolveContract(session.roomId, session.contractId);
 
-        if (contract?.contractAddress && payload?.address) {
+        if (this._roomWalletPaymentIntakeEnabled) {
 
-            if (contract.contractAddress !== payload.address) {
+            if (expectedDestination && payload?.address) {
+
+                if (!tonWalletAccountsEqual(expectedDestination, payload.address)) {
+
+                    throw new PaymentValidationError("Payment sent to wrong contract", {
+                        expected: expectedDestination,
+                        actual: payload.address
+                    });
+
+                }
+
+            }
+
+        } else if (contract?.contractAddress && payload?.address) {
+
+            if (!tonWalletAccountsEqual(contract.contractAddress, payload.address)) {
 
                 throw new PaymentValidationError("Payment sent to wrong contract", {
                     expected: contract.contractAddress,
@@ -2516,12 +2640,16 @@ export class PaymentSessionManager {
 
         }
 
-        if (payload?.sender && participant.wallet && payload.sender !== participant.wallet) {
+        if (payload?.sender && participant.wallet) {
 
-            throw new PaymentValidationError("Payment from wrong wallet", {
-                expected: participant.wallet,
-                actual: payload.sender
-            });
+            if (!tonWalletAccountsEqual(payload.sender, participant.wallet)) {
+
+                throw new PaymentValidationError("Payment from wrong wallet", {
+                    expected: participant.wallet,
+                    actual: payload.sender
+                });
+
+            }
 
         }
 
@@ -2604,6 +2732,31 @@ export class PaymentSessionManager {
         return contractId
             ? this._gameContractManager.getContractById?.(contractId)
             : this._gameContractManager.getContract?.(roomId);
+
+    }
+
+    _resolveRoomWalletPaymentAddress(room, paymentNetwork = null) {
+
+        if (!room) {
+
+            return null;
+
+        }
+
+        const resolvedNetwork = String(
+            paymentNetwork
+                ?? room?.paymentNetwork
+                ?? room?.network
+                ?? room?.tonNetwork
+                ?? ""
+        ).trim().toLowerCase();
+
+        return resolveIntendedRoomWalletAddress({
+            roomId: room.roomId,
+            roomNumber: room.roomNumber ?? null,
+            roomManager: this._roomManager,
+            paymentNetwork: resolvedNetwork
+        }, this._roomWalletRegistry);
 
     }
 
