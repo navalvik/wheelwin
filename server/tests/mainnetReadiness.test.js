@@ -152,7 +152,7 @@ function main() {
         // Missing oracle address → FAIL
         const missingOracle = validateMainnetConfiguration({
             TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS: expected,
-            TON_MAINNET_GAME_ESCROW_MODE: "v4",
+            TON_MAINNET_GAME_ESCROW_MODE: "game",
             TON_GAME_ESCROW_ARTIFACT_SHA256: meta.sha256
         });
         assert.equal(missingOracle.ok, false);
@@ -202,7 +202,7 @@ function main() {
             TON_MAINNET_ENDPOINT: "https://toncenter.com/api/v2/jsonRPC",
             TON_MAINNET_ORACLE_ADDRESS: oracle,
             TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS: expected,
-            TON_MAINNET_GAME_ESCROW_MODE: "v4",
+            TON_MAINNET_GAME_ESCROW_MODE: "game",
             TON_GAME_ESCROW_ARTIFACT_SHA256: meta.sha256
         };
 
@@ -225,7 +225,7 @@ function main() {
         });
         assert.equal(pass.status, "PASS", pass.reasons.join("; "));
         assert.equal(pass.rollbackAvailable, true);
-        assert.equal(pass.escrowMode, GAME_ESCROW_MODE_V4);
+        assert.equal(pass.escrowMode, GAME_ESCROW_MODE_GAME);
         assert.equal(pass.checks.configuration, "PASS");
         assert.equal(pass.checks.networkProfile, "PASS");
         assert.equal(pass.checks.walletDerivation, "PASS");
@@ -316,7 +316,7 @@ function main() {
         );
         assert.equal(artifactMismatch.checks.artifact, "FAIL");
 
-        const gameBlocked = evaluateMainnetReadiness({
+        const gameReady = evaluateMainnetReadiness({
             env: {
                 ...passEnv,
                 TON_MAINNET_GAME_ESCROW_MODE: "game"
@@ -326,12 +326,9 @@ function main() {
             walletId: 698983191,
             walletAddress: expected
         });
-        assert.equal(gameBlocked.status, "FAIL");
-        assert.equal(gameBlocked.checks.rollbackSafety, "FAIL");
-        assert.ok(
-            gameBlocked.reasons.some((reason) => reason.includes("keeps mainnet on v4")
-                || reason.includes("GameEscrow not production"))
-        );
+        assert.equal(gameReady.status, "PASS", gameReady.reasons.join("; "));
+        assert.equal(gameReady.escrowMode, GAME_ESCROW_MODE_GAME);
+        assert.equal(gameReady.checks.rollbackSafety, "PASS");
         console.log("  mainnet readiness evaluate: OK");
     }
 
@@ -347,7 +344,7 @@ function main() {
             GAME_ESCROW_MODE: "game"
         });
         assert.equal(ton.gameEscrowMode, GAME_ESCROW_MODE_GAME);
-        assert.equal(ton.profiles.mainnet.gameEscrowMode, GAME_ESCROW_MODE_V4);
+        assert.equal(ton.profiles.mainnet.gameEscrowMode, GAME_ESCROW_MODE_GAME);
 
         assert.equal(isTonMainnetDryRunDebugEnabled("true"), true);
         assert.equal(isTonMainnetDryRunDebugEnabled("0"), false);
