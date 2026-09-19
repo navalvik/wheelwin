@@ -740,6 +740,27 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         suggestedFix:
             "Optional shared oracle fallback. Prefer TON_TESTNET_ORACLE_ADDRESS on Testnet."
     }),
+    TON_MAINNET_DEPLOYER_MNEMONIC: Object.freeze({
+        key: "TON_MAINNET_DEPLOYER_MNEMONIC",
+        type: "secret",
+        required: false,
+        category: "TON",
+        suggestedFix: "Set the dedicated Mainnet deployer mnemonic for Mainnet payment routing."
+    }),
+    TON_TESTNET_DEPLOYER_MNEMONIC: Object.freeze({
+        key: "TON_TESTNET_DEPLOYER_MNEMONIC",
+        type: "secret",
+        required: false,
+        category: "TON",
+        suggestedFix: "Optional dedicated Testnet deployer mnemonic; TON_DEPLOYER_MNEMONIC remains the legacy fallback."
+    }),
+    TON_MAINNET_API_KEY: Object.freeze({
+        key: "TON_MAINNET_API_KEY",
+        type: "secret",
+        required: false,
+        category: "TON",
+        suggestedFix: "Optional dedicated Mainnet TON API key; TON_API_KEY remains the fallback."
+    }),
     TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS: Object.freeze({
         key: "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS",
         type: "string",
