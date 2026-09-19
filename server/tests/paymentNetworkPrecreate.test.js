@@ -1438,6 +1438,27 @@ function test23_roomWalletResolutionFailsClosedAcrossNetworks() {
 
 }
 
+// Test 24 — Testnet and Mainnet Room Wallet records may coexist for one room number.
+function test24_roomWalletRegistrySupportsPerNetworkCatalogs() {
+
+    const registry = new RoomWalletRegistry({
+        entries: [
+            { roomNumber: 7, address: "EQTestnetRoomWallet", network: "testnet" },
+            { roomNumber: 7, address: "EQMainnetRoomWallet", network: "mainnet" }
+        ]
+    });
+
+    assert.equal(registry.getForNetwork(7, "testnet")?.address, "EQTestnetRoomWallet");
+    assert.equal(registry.getForNetwork(7, "mainnet")?.address, "EQMainnetRoomWallet");
+    assert.equal(registry.get(7), null, "ambiguous room lookup must not select a network implicitly");
+    assert.equal(registry.size(), 2);
+
+    console.log(
+        "Test 24 — Room Wallet registry supports per-network catalogs: passed"
+    );
+
+}
+
 async function main() {
 
     await test1_createRoomCarriesAndStoresPaymentNetwork();
@@ -1471,6 +1492,7 @@ async function main() {
     test18_mainnetDeployUsesSnapshotNetwork();
     test22_paymentSessionPublishesRoomWalletDestination();
     test23_roomWalletResolutionFailsClosedAcrossNetworks();
+    test24_roomWalletRegistrySupportsPerNetworkCatalogs();
 
     console.log("all assertions passed");
 
