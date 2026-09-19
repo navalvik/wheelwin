@@ -2271,11 +2271,13 @@ export class BlockchainMonitor {
 
             const networkService = this._registryServiceFor(watch);
 
-            if (contractStatus == null && (networkService?.runGetMethod || this._tonService?.runGetMethod)) {
+            const statusService = watch.paymentNetwork != null
+                ? networkService
+                : this._tonService;
+
+            if (contractStatus == null && statusService?.runGetMethod) {
 
                 try {
-
-                    const statusService = networkService ?? this._tonService;
                     const stack = await statusService.runGetMethod(
                         watch.escrowAddress,
                         "get_status",
@@ -2433,11 +2435,15 @@ export class BlockchainMonitor {
 
             const networkService = this._registryServiceFor(watch);
 
-            if (contractStatus == null && (networkService?.runGetMethod || this._tonService?.runGetMethod)) {
+            const statusService = watch.paymentNetwork != null
+                ? networkService
+                : this._tonService;
+
+            if (contractStatus == null && statusService?.runGetMethod) {
 
                 try {
 
-                    const stack = await (networkService ?? this._tonService).runGetMethod(
+                    const stack = await statusService.runGetMethod(
                         watch.escrowAddress,
                         "get_status"
                     );
