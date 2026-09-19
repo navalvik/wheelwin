@@ -79,6 +79,7 @@ export function assertRoomWalletSettlementCanBeEnabled(service) {
 export function composeRoomWalletSettlementRouter({
     legacySettlementAdapter,
     tonService = null,
+    tonNetworkServiceRegistry = null,
     logger = null,
     env = process.env,
     gameEscrowMode = null
@@ -105,6 +106,7 @@ export function composeRoomWalletSettlementRouter({
 
     const service = createRoomWalletService({
         tonService,
+        tonNetworkServiceRegistry,
         logger,
         env
     });
