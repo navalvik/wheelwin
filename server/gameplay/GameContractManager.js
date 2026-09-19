@@ -2060,13 +2060,24 @@ export class GameContractManager {
     _hydrateFromPersistenceRecord(record) {
 
         const payload = record?.payload ?? {};
+        const snapshot = payload.snapshot ?? null;
+
+        // R18-S17 A4 — the immutable snapshot is the financial source of
+        // truth during restart recovery. If an older persistence record lacks
+        // the top-level tonNetwork field, recover it from snapshot.network
+        // rather than falling back to the current server runtime network.
+
+        const persistedNetwork = payload.tonNetwork
+            ?? record.tonNetwork
+            ?? snapshot?.network
+            ?? null;
 
         return new GameContract({
             contractId: payload.contractId ?? record.recordId,
             gameId: payload.gameId ?? record.gameId,
             roomId: payload.roomId ?? record.roomId,
             status: payload.status ?? record.status,
-            snapshot: payload.snapshot ?? null,
+            snapshot,
             createdAt: record.createdAt ?? payload.createdAt ?? null,
             updatedAt: record.updatedAt ?? payload.updatedAt ?? null,
             contractAddress: payload.contractAddress ?? null,
@@ -2075,7 +2086,7 @@ export class GameContractManager {
             deploymentTxId: payload.deploymentTxId ?? null,
             deployError: payload.deployError ?? null,
             paymentsCompletedAt: payload.paymentsCompletedAt ?? null,
-            tonNetwork: payload.tonNetwork ?? record.tonNetwork ?? null,
+            tonNetwork: persistedNetwork,
             correlationId: record.correlationId ?? payload.correlationId ?? null,
             snapshotHash: payload.snapshotHash ?? null,
             version: payload.version ?? record.version ?? 1,
