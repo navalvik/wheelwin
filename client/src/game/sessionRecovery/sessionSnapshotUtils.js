@@ -78,6 +78,12 @@ export function normalizeSessionSnapshot(snapshot = {}) {
         phaseEndsAt: snapshot.phaseEndsAt ?? null,
         gameResult: snapshot.gameResult || null,
         payment: snapshot.payment || null,
+        paymentNetwork: snapshot.paymentNetwork
+            ?? snapshot.payment?.paymentNetwork
+            ?? snapshot.payment?.network
+            ?? snapshot.gameContract?.paymentNetwork
+            ?? snapshot.gameContract?.tonNetwork
+            ?? null,
         // R12.5C — preserve authoritative Page6 / Result Session recovery fields.
         openPage6: snapshot.openPage6 === true,
         resultSessionExpiresAt: Number.isFinite(snapshot.resultSessionExpiresAt)
