@@ -16,7 +16,7 @@ function main() {
     {
         assert.equal(defaultGameEscrowModeForNetwork("testnet"), GAME_ESCROW_MODE_GAME);
         assert.equal(defaultGameEscrowModeForNetwork("TESTNET"), GAME_ESCROW_MODE_GAME);
-        assert.equal(defaultGameEscrowModeForNetwork("mainnet"), GAME_ESCROW_MODE_V4);
+        assert.equal(defaultGameEscrowModeForNetwork("mainnet"), GAME_ESCROW_MODE_GAME);
         assert.equal(defaultGameEscrowModeForNetwork(undefined), GAME_ESCROW_MODE_V4);
         console.log("  network defaults: OK");
     }
