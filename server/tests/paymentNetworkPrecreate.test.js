@@ -1401,7 +1401,7 @@ function test23_roomWalletResolutionFailsClosedAcrossNetworks() {
         entries: [
             {
                 roomNumber: 7,
-                address: "EQTestnetRoomWallet",
+                address: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
                 network: "testnet"
             }
         ]
@@ -1424,7 +1424,7 @@ function test23_roomWalletResolutionFailsClosedAcrossNetworks() {
     );
     assert.equal(
         testnetAddress,
-        "EQTestnetRoomWallet",
+        "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
         "Testnet payment must resolve the matching Testnet Room Wallet"
     );
 
@@ -1444,13 +1444,13 @@ function test24_roomWalletRegistrySupportsPerNetworkCatalogs() {
 
     const registry = new RoomWalletRegistry({
         entries: [
-            { roomNumber: 7, address: "EQTestnetRoomWallet", network: "testnet" },
-            { roomNumber: 7, address: "EQMainnetRoomWallet", network: "mainnet" }
+            { roomNumber: 7, address: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c", network: "testnet" },
+            { roomNumber: 7, address: "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j", network: "mainnet" }
         ]
     });
 
-    assert.equal(registry.getForNetwork(7, "testnet")?.address, "EQTestnetRoomWallet");
-    assert.equal(registry.getForNetwork(7, "mainnet")?.address, "EQMainnetRoomWallet");
+    assert.equal(registry.getForNetwork(7, "testnet")?.address, "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c");
+    assert.equal(registry.getForNetwork(7, "mainnet")?.address, "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j");
     assert.equal(registry.get(7), null, "ambiguous room lookup must not select a network implicitly");
     assert.equal(registry.size(), 2);
 
@@ -1492,8 +1492,8 @@ async function test25_roomWalletAdapterUsesPaymentNetworkService() {
         walletResolver: async (roomNumber, network) => ({
             roomNumber,
             address: network === "mainnet"
-                ? "EQMainnetRoomWallet"
-                : "EQTestnetRoomWallet",
+                ? "EQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAc3j"
+                : "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
             network,
             workchain: 0,
             publicKey: Buffer.alloc(32),
