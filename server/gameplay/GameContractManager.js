@@ -2406,6 +2406,20 @@ export class GameContractManager {
             state: contract.status,
             timestamp: Date.now(),
             correlationId: contract.correlationId,
+            // R18-S17 C18 — lifecycle consumers must receive the immutable
+            // contract payment network directly; never infer it from runtime TON config.
+            network: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
+            paymentNetwork: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
+            tonNetwork: contract.tonNetwork
+                ?? contract.snapshot?.network
+                ?? contract.snapshot?.paymentNetwork
+                ?? null,
             ...extra
         });
 
