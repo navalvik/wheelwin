@@ -99,6 +99,78 @@ export function amountsMatch(expected, actual) {
 }
 
 /**
+ * True when the inbound value was returned as a bounce.
+ * TonCenter getTransactions often omits `aborted` / `success`; bounce is
+ * visible as an out_msg with opcode 0xffffffff / message `/////w==`.
+ */
+export function isBouncedTonTransaction(tx) {
+
+    if (!tx || typeof tx !== "object") {
+
+        return false;
+
+    }
+
+    const bouncePhase = tx.bounce_phase ?? tx.bouncePhase ?? null;
+
+    if (
+        bouncePhase === "TrPhaseBounceOk"
+        || (typeof bouncePhase === "string" && bouncePhase.toLowerCase().includes("bounce"))
+    ) {
+
+        return true;
+
+    }
+
+    const outs = tx.out_msgs ?? tx.outMessages ?? [];
+
+    if (!Array.isArray(outs)) {
+
+        return false;
+
+    }
+
+    for (const message of outs) {
+
+        if (!message || typeof message !== "object") {
+
+            continue;
+
+        }
+
+        if (message.bounced === true || message.decoded_op_name === "bounce") {
+
+            return true;
+
+        }
+
+        const op = message.op_code ?? message.op ?? message.opcode ?? null;
+
+        if (
+            op === "0xffffffff"
+            || op === -1
+            || op === 0xffffffff
+        ) {
+
+            return true;
+
+        }
+
+        const text = String(message.message ?? "").replace(/\s+/g, "");
+
+        if (text === "/////w==") {
+
+            return true;
+
+        }
+
+    }
+
+    return false;
+
+}
+
+/**
  * R7.69D — True when a TonCenter / SDK transaction aborted or failed compute.
  * Aborted inbound messages must never confirm GameEscrow payments.
  */
@@ -122,6 +194,12 @@ export function isFailedTonTransaction(tx) {
 
     }
 
+    if (isBouncedTonTransaction(tx)) {
+
+        return true;
+
+    }
+
     const compute = tx.compute_ph ?? tx.computePhase ?? tx.description?.computePh;
 
     if (compute?.success === false || compute?.skipped === true) {
@@ -136,6 +214,8 @@ export function isFailedTonTransaction(tx) {
 
 /**
  * Extract structured payment fields from a TonCenter transaction-like object.
+ * Address fields may be strings or `{ address: string }`; canonicalizeTonWalletAddress
+ * unwraps then fail-closes on invalid data (never String(object)).
  */
 export function parseDepositCandidate(tx) {
 
@@ -243,6 +323,7 @@ export class BlockchainMonitor {
         contractAdapter = null,
         depositMonitor = null,
         auditLedger = null,
+        tonNetworkRegistry = null,
         pollIntervalMs = 2000,
         transactionTimeoutMs = 120_000,
         deploymentTimeoutMs = 180_000,
@@ -259,10 +340,13 @@ export class BlockchainMonitor {
         this._transport = transport;
 
         this._tonService = tonService;
+        this._tonNetworkRegistry = tonNetworkRegistry;
 
         this._contractAdapter = contractAdapter;
 
         this._depositMonitor = depositMonitor;
+
+        this._roomWalletIncomingObserver = null;
 
         this._auditLedger = auditLedger;
 
@@ -325,6 +409,8 @@ export class BlockchainMonitor {
         this._network = null;
 
         this._globalPollTimer = null;
+
+        this._globalPollInFlight = false;
 
     }
 
@@ -504,7 +590,8 @@ export class BlockchainMonitor {
         roomId = null,
         gameId = null,
         correlationId = null,
-        expectDeployment = false
+        expectDeployment = false,
+        paymentNetwork = null
     } = {}) {
 
         this._assertReadyForWatch();
@@ -530,6 +617,9 @@ export class BlockchainMonitor {
             existing.gameId = gameId ?? existing.gameId;
 
             existing.correlationId = correlationId ?? existing.correlationId;
+            existing.paymentNetwork = paymentNetwork
+                ?? existing.paymentNetwork
+                ?? null;
 
             existing.expectDeployment = expectDeployment === true
                 || existing.expectDeployment === true;
@@ -546,6 +636,7 @@ export class BlockchainMonitor {
             roomId,
             gameId,
             correlationId: correlationId ?? null,
+            paymentNetwork: paymentNetwork ?? null,
             expectDeployment: expectDeployment === true,
             registeredAt: this._now(),
             updatedAt: this._now(),
@@ -622,6 +713,7 @@ export class BlockchainMonitor {
         gameId = null,
         correlationId = null,
         kind = "GENERIC",
+        paymentNetwork = null,
         timeoutMs = null
     }) {
 
@@ -652,6 +744,7 @@ export class BlockchainMonitor {
             gameId,
             correlationId,
             kind,
+            paymentNetwork: paymentNetwork ?? null,
             status: "PENDING",
             startedAt: this._now(),
             timeoutMs: Number.isFinite(timeoutMs)
@@ -685,6 +778,7 @@ export class BlockchainMonitor {
         gameId = null,
         correlationId = null,
         contractStatus = null,
+        paymentNetwork = null,
         timeoutMs = null
     }) {
 
@@ -724,6 +818,7 @@ export class BlockchainMonitor {
             roomId,
             gameId,
             correlationId,
+            paymentNetwork: paymentNetwork ?? null,
             status: "PENDING",
             startedAt: this._now(),
             timeoutMs: Number.isFinite(timeoutMs)
@@ -764,7 +859,8 @@ export class BlockchainMonitor {
             verifiedSettleTxHash: watch.verifiedSettleTxHash,
             contractId: watch.contractId,
             roomId: watch.roomId,
-            gameId: watch.gameId
+            gameId: watch.gameId,
+            paymentNetwork: watch.paymentNetwork ?? null
         });
 
     }
@@ -782,6 +878,7 @@ export class BlockchainMonitor {
         gameId = null,
         correlationId = null,
         contractStatus = null,
+        paymentNetwork = null,
         timeoutMs = null
     }) {
 
@@ -826,6 +923,7 @@ export class BlockchainMonitor {
             roomId,
             gameId,
             correlationId,
+            paymentNetwork: paymentNetwork ?? null,
             status: "PENDING",
             startedAt: this._now(),
             timeoutMs: Number.isFinite(timeoutMs)
@@ -864,7 +962,8 @@ export class BlockchainMonitor {
             verifiedCancelTxHash: watch.verifiedCancelTxHash,
             contractId: watch.contractId,
             roomId: watch.roomId,
-            gameId: watch.gameId
+            gameId: watch.gameId,
+            paymentNetwork: watch.paymentNetwork ?? null
         });
 
     }
@@ -995,17 +1094,22 @@ export class BlockchainMonitor {
             network: this._network,
             contracts: Object.freeze(
                 [...this._contracts.values()].map((watch) => Object.freeze({
-                    ...watch
+                    ...watch,
+                    paymentNetwork: watch.paymentNetwork ?? null
                 }))
             ),
             transactions: Object.freeze(
                 [...this._transactions.values()]
                     .filter((watch) => watch.status === "PENDING")
-                    .map((watch) => Object.freeze({ ...watch }))
+                    .map((watch) => Object.freeze({
+                        ...watch,
+                        paymentNetwork: watch.paymentNetwork ?? null
+                    }))
             ),
             paymentWatches: Object.freeze(
                 [...this._watches.values()].map((watch) => Object.freeze({
-                    ...watch
+                    ...watch,
+                    paymentNetwork: watch.paymentNetwork ?? null
                 }))
             ),
             gameEscrowRefundWatches: Object.freeze(
@@ -1013,6 +1117,7 @@ export class BlockchainMonitor {
                     .filter((watch) => watch.status === "PENDING")
                     .map((watch) => Object.freeze({
                         ...watch,
+                        paymentNetwork: watch.paymentNetwork ?? null,
                         refunds: Object.freeze([...(watch.refunds ?? [])]),
                         refundTxs: Object.freeze([...(watch.refundTxs ?? [])])
                     }))
@@ -1140,11 +1245,22 @@ export class BlockchainMonitor {
     }
 
     /**
+     * Room Wallet incoming observer shares the global poll timer.
+     * One poll per cycle; no per-transaction watchers.
+     */
+    setRoomWalletIncomingObserver(observer) {
+
+        this._roomWalletIncomingObserver = observer ?? null;
+
+    }
+
+    /**
      * R7.69B — Read authoritative GameEscrow payment state via getters.
      * Returns null when the adapter / getters are unavailable.
      */
     async readGameEscrowPaymentState(contractAddress, {
-        playerCount = 3
+        playerCount = 3,
+        paymentNetwork = null
     } = {}) {
 
         if (!contractAddress || !this._contractAdapter?.getPaidMask) {
@@ -1153,7 +1269,7 @@ export class BlockchainMonitor {
 
         }
 
-        const paidMask = Number(await this._contractAdapter.getPaidMask(contractAddress));
+        const paidMask = Number(await this._contractAdapter.getPaidMask(contractAddress, paymentNetwork));
 
         let totalPaid = null;
 
@@ -1161,13 +1277,13 @@ export class BlockchainMonitor {
 
         if (this._contractAdapter.getTotalPaid) {
 
-            totalPaid = await this._contractAdapter.getTotalPaid(contractAddress);
+            totalPaid = await this._contractAdapter.getTotalPaid(contractAddress, paymentNetwork);
 
         }
 
         if (this._contractAdapter.getRequiredTotal) {
 
-            requiredTotal = await this._contractAdapter.getRequiredTotal(contractAddress);
+            requiredTotal = await this._contractAdapter.getRequiredTotal(contractAddress, paymentNetwork);
 
         }
 
@@ -1194,7 +1310,8 @@ export class BlockchainMonitor {
 
                     const detail = await this._contractAdapter.getPlayerPayment(
                         contractAddress,
-                        index
+                        index,
+                        paymentNetwork
                     );
 
                     player = {
@@ -1231,7 +1348,8 @@ export class BlockchainMonitor {
      * Returns null when the adapter / getters are unavailable.
      */
     async readGameEscrowCancelState(contractAddress, {
-        playerCount = 3
+        playerCount = 3,
+        paymentNetwork = null
     } = {}) {
 
         if (!contractAddress || !this._contractAdapter) {
@@ -1244,7 +1362,7 @@ export class BlockchainMonitor {
 
         if (this._contractAdapter.getCancelStatus) {
 
-            cancelStatus = await this._contractAdapter.getCancelStatus(contractAddress);
+            cancelStatus = await this._contractAdapter.getCancelStatus(contractAddress, paymentNetwork);
 
         }
 
@@ -1252,7 +1370,7 @@ export class BlockchainMonitor {
 
         if (refundMask == null && this._contractAdapter.getRefundMask) {
 
-            refundMask = Number(await this._contractAdapter.getRefundMask(contractAddress));
+            refundMask = Number(await this._contractAdapter.getRefundMask(contractAddress, paymentNetwork));
 
         }
 
@@ -1260,7 +1378,7 @@ export class BlockchainMonitor {
 
         if (this._contractAdapter.getRefundedTotal) {
 
-            refundedTotal = await this._contractAdapter.getRefundedTotal(contractAddress);
+            refundedTotal = await this._contractAdapter.getRefundedTotal(contractAddress, paymentNetwork);
 
         }
 
@@ -1268,7 +1386,7 @@ export class BlockchainMonitor {
 
         if (this._contractAdapter.getPaidMask) {
 
-            paidMask = Number(await this._contractAdapter.getPaidMask(contractAddress));
+            paidMask = Number(await this._contractAdapter.getPaidMask(contractAddress, paymentNetwork));
 
         }
 
@@ -1298,7 +1416,8 @@ export class BlockchainMonitor {
 
                     const detail = await this._contractAdapter.getPlayerPayment(
                         contractAddress,
-                        index
+                        index,
+                        paymentNetwork
                     );
 
                     player = {
@@ -1352,7 +1471,8 @@ export class BlockchainMonitor {
         paymentDeadline = null,
         contractId = null,
         correlationId = null,
-        playerIndex = null
+        playerIndex = null,
+        paymentNetwork = null
     }) {
 
         if (!this._initialized) {
@@ -1379,6 +1499,7 @@ export class BlockchainMonitor {
             expectedWallet: canonicalizeTonWalletAddress(expectedWallet),
             paymentDeadline,
             playerIndex: playerIndex == null ? null : Number(playerIndex),
+            paymentNetwork: paymentNetwork ?? existing?.paymentNetwork ?? null,
             startedAt: existing?.startedAt ?? this._now()
         };
 
@@ -1574,6 +1695,18 @@ export class BlockchainMonitor {
 
         }
 
+        if (this._globalPollInFlight) {
+
+            this._logger?.info?.(
+                "BlockchainMonitor global poll skipped | in_flight"
+            );
+
+            return;
+
+        }
+
+        this._globalPollInFlight = true;
+
         try {
 
             let observed = false;
@@ -1630,6 +1763,14 @@ export class BlockchainMonitor {
 
             }
 
+            if (typeof this._roomWalletIncomingObserver?.poll === "function") {
+
+                await this._roomWalletIncomingObserver.poll();
+
+                observed = true;
+
+            }
+
             if (observed) {
 
                 this._lastSuccessfulCheck = this._now();
@@ -1651,6 +1792,10 @@ export class BlockchainMonitor {
             this._state = BLOCKCHAIN_MONITOR_STATE.DEGRADED;
 
             this._connected = false;
+
+        } finally {
+
+            this._globalPollInFlight = false;
 
         }
 
@@ -1712,7 +1857,7 @@ export class BlockchainMonitor {
 
             transactions = await this._fetchTransactions(contractAddress, {
                 limit: 30
-            });
+            }, watches[0]);
 
             this._lastSuccessfulCheck = this._now();
 
@@ -1806,7 +1951,8 @@ export class BlockchainMonitor {
             try {
 
                 const state = await this._contractAdapter.getContractState(
-                    watch.address
+                    watch.address,
+                    watch.paymentNetwork ?? null
                 );
 
                 const previous = watch.lastStatus;
@@ -1828,7 +1974,7 @@ export class BlockchainMonitor {
                         {
                             contractId: watch.contractId,
                             address: watch.address,
-                            network: this._network,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId,
                             previousStatus: previous,
@@ -1854,7 +2000,7 @@ export class BlockchainMonitor {
                         {
                             contractId: watch.contractId,
                             address: watch.address,
-                            network: this._network,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId,
                             status: watch.lastStatus
@@ -1876,7 +2022,7 @@ export class BlockchainMonitor {
                         {
                             contractId: watch.contractId,
                             address: watch.address,
-                            network: this._network,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId,
                             reason: "deployment_timeout"
@@ -1903,7 +2049,7 @@ export class BlockchainMonitor {
         // Fallback: account activity via transport / TonService.
         try {
 
-            const account = await this._fetchAccount(watch.address);
+            const account = await this._fetchAccount(watch.address, watch);
 
             watch.lastStatus = account?.state ?? watch.lastStatus;
 
@@ -1924,7 +2070,7 @@ export class BlockchainMonitor {
                     {
                         contractId: watch.contractId,
                         address: watch.address,
-                        network: this._network,
+                        network: watch.paymentNetwork ?? this._network,
                         timestamp: this._now(),
                         correlationId: watch.correlationId,
                         status: account.state
@@ -1963,7 +2109,7 @@ export class BlockchainMonitor {
                 contractId: watch.contractId,
                 transactionId: watch.transactionId,
                 address: watch.address,
-                network: this._network,
+                network: watch.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: watch.correlationId,
                 reason: "observation_timeout",
@@ -1978,7 +2124,7 @@ export class BlockchainMonitor {
 
             const transactions = await this._fetchTransactions(watch.address, {
                 limit: 30
-            });
+            }, watch);
 
             const match = (transactions ?? []).find((tx) => {
 
@@ -2013,7 +2159,7 @@ export class BlockchainMonitor {
                     contractId: watch.contractId,
                     transactionId: watch.transactionId,
                     address: watch.address,
-                    network: this._network,
+                    network: watch.paymentNetwork ?? this._network,
                     timestamp: this._now(),
                     correlationId: watch.correlationId,
                     kind: watch.kind
@@ -2035,7 +2181,7 @@ export class BlockchainMonitor {
                         contractId: watch.contractId,
                         transactionId: watch.transactionId,
                         address: watch.address,
-                        network: this._network,
+                        network: watch.paymentNetwork ?? this._network,
                         timestamp: this._now(),
                         correlationId: watch.correlationId
                     },
@@ -2050,11 +2196,27 @@ export class BlockchainMonitor {
                         contractId: watch.contractId,
                         transactionId: watch.transactionId,
                         address: watch.address,
-                        network: this._network,
+                        network: watch.paymentNetwork ?? this._network,
                         timestamp: this._now(),
                         correlationId: watch.correlationId
                     },
                     `payment-tx-confirmed:${watch.transactionId}`
+                );
+
+            } else if (watch.kind === "RESIDUAL_SWEEP") {
+
+                this._emitObservation(
+                    EVENT_TYPES.RESIDUAL_SWEEP_TRANSACTION_CONFIRMED,
+                    {
+                        contractId: watch.contractId,
+                        transactionId: watch.transactionId,
+                        address: watch.address,
+                        network: watch.paymentNetwork ?? this._network,
+                        timestamp: this._now(),
+                        correlationId: watch.correlationId,
+                        kind: "RESIDUAL_SWEEP"
+                    },
+                    `residual-sweep-confirmed:${watch.transactionId}`
                 );
 
             }
@@ -2091,6 +2253,7 @@ export class BlockchainMonitor {
                 escrowAddress: watch.escrowAddress,
                 settleTxHash: watch.settleTxHash,
                 reason: "observation_timeout",
+                network: watch.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: watch.correlationId
             });
@@ -2103,17 +2266,23 @@ export class BlockchainMonitor {
 
             const transactions = await this._fetchTransactions(watch.escrowAddress, {
                 limit: 40
-            });
+            }, watch);
 
             let contractStatus = watch.contractStatus;
 
-            if (contractStatus == null && this._tonService?.runGetMethod) {
+            const networkService = this._registryServiceFor(watch);
+
+            const statusService = watch.paymentNetwork != null
+                ? networkService
+                : this._tonService;
+
+            if (contractStatus == null && statusService?.runGetMethod) {
 
                 try {
-
-                    const stack = await this._tonService.runGetMethod(
+                    const stack = await statusService.runGetMethod(
                         watch.escrowAddress,
-                        "get_status"
+                        "get_status",
+                        []
                     );
                     const top = stack?.stack?.[0];
                     contractStatus = top?.value ?? top ?? null;
@@ -2171,6 +2340,7 @@ export class BlockchainMonitor {
                             winnerPayoutTx: result.winnerPayoutTx,
                             ownerPayoutTx: result.ownerPayoutTx,
                             reason: result.reason,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId
                         },
@@ -2201,6 +2371,7 @@ export class BlockchainMonitor {
                     ownerPayoutTx: result.ownerPayoutTx,
                     winnerAddress: watch.winnerAddress,
                     ownerAddress: watch.ownerAddress,
+                    network: watch.paymentNetwork ?? this._network,
                     timestamp: this._now(),
                     correlationId: watch.correlationId
                 },
@@ -2249,6 +2420,7 @@ export class BlockchainMonitor {
                 escrowAddress: watch.escrowAddress,
                 cancelTxHash: watch.cancelTxHash,
                 reason: "observation_timeout",
+                network: watch.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: watch.correlationId
             });
@@ -2261,15 +2433,21 @@ export class BlockchainMonitor {
 
             const transactions = await this._fetchTransactions(watch.escrowAddress, {
                 limit: 40
-            });
+            }, watch);
 
             let contractStatus = watch.contractStatus;
 
-            if (contractStatus == null && this._tonService?.runGetMethod) {
+            const networkService = this._registryServiceFor(watch);
+
+            const statusService = watch.paymentNetwork != null
+                ? networkService
+                : this._tonService;
+
+            if (contractStatus == null && statusService?.runGetMethod) {
 
                 try {
 
-                    const stack = await this._tonService.runGetMethod(
+                    const stack = await statusService.runGetMethod(
                         watch.escrowAddress,
                         "get_status"
                     );
@@ -2293,7 +2471,8 @@ export class BlockchainMonitor {
                 try {
 
                     const cancel = await this._contractAdapter.getCancelStatus(
-                        watch.escrowAddress
+                        watch.escrowAddress,
+                        watch.paymentNetwork ?? null
                     );
 
                     if (cancel?.cancelled === true) {
@@ -2353,6 +2532,7 @@ export class BlockchainMonitor {
                             refundTxs: result.refundTxs,
                             confirmedMask: result.confirmedMask,
                             reason: result.reason,
+                            network: watch.paymentNetwork ?? this._network,
                             timestamp: this._now(),
                             correlationId: watch.correlationId
                         },
@@ -2380,6 +2560,7 @@ export class BlockchainMonitor {
                     escrowAddress: watch.escrowAddress,
                     cancelTxHash: result.cancelTxHash,
                     refundMask: result.confirmedMask,
+                    network: watch.paymentNetwork ?? this._network,
                     timestamp: this._now(),
                     correlationId: watch.correlationId
                 },
@@ -2405,7 +2586,7 @@ export class BlockchainMonitor {
                         playerId: playerMeta?.playerId ?? null,
                         wallet: refund.wallet,
                         amount: refund.amount,
-                        network: this._network,
+                        network: watch.paymentNetwork ?? this._network,
                         timestamp: this._now(),
                         correlationId: watch.correlationId
                     },
@@ -2578,7 +2759,7 @@ export class BlockchainMonitor {
                 contractId: matchingWatch.contractId ?? null,
                 transactionId: txHash,
                 address: matchingWatch.contractAddress,
-                network: this._network,
+                network: matchingWatch?.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: matchingWatch.correlationId ?? null,
                 roomId,
@@ -2660,7 +2841,8 @@ export class BlockchainMonitor {
 
                 const paidMask = Number(
                     await this._contractAdapter.getPaidMask(
-                        matchingWatch.contractAddress
+                        matchingWatch.contractAddress,
+                        matchingWatch.paymentNetwork ?? null
                     )
                 );
 
@@ -2732,7 +2914,7 @@ export class BlockchainMonitor {
                 contractId: matchingWatch.contractId ?? null,
                 transactionId: txHash,
                 address: matchingWatch.contractAddress,
-                network: this._network,
+                network: matchingWatch?.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: matchingWatch.correlationId ?? null,
                 roomId,
@@ -2756,7 +2938,7 @@ export class BlockchainMonitor {
                 contractId: matchingWatch.contractId ?? null,
                 transactionId: txHash,
                 escrowAddress: matchingWatch.contractAddress,
-                network: this._network,
+                network: matchingWatch?.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: matchingWatch.correlationId ?? null,
                 roomId,
@@ -2798,7 +2980,32 @@ export class BlockchainMonitor {
     // Transport helpers (TonService preferred, transport fallback)
     // -------------------------------------------------------------------------
 
-    async _fetchTransactions(address, query = {}) {
+    _registryServiceFor(watch) {
+
+        const network = watch?.paymentNetwork ?? watch?.network ?? null;
+
+        if (!this._tonNetworkRegistry || !network) {
+            return null;
+        }
+
+        const normalized = String(network).trim().toLowerCase();
+
+        if (normalized !== "testnet" && normalized !== "mainnet") {
+            throw new InvalidBlockchainDataError(
+                `Unsupported payment network on watch | network=${JSON.stringify(network)}`
+            );
+        }
+
+        return this._tonNetworkRegistry.get(normalized);
+    }
+
+    async _fetchTransactions(address, query = {}, watch = null) {
+
+        const networkService = this._registryServiceFor(watch);
+
+        if (networkService?.getTransactions) {
+            return networkService.getTransactions(address, query);
+        }
 
         if (this._tonService?.getTransactions) {
 
@@ -2816,7 +3023,13 @@ export class BlockchainMonitor {
 
     }
 
-    async _fetchAccount(address) {
+    async _fetchAccount(address, watch = null) {
+
+        const networkService = this._registryServiceFor(watch);
+
+        if (networkService?.getAccount) {
+            return networkService.getAccount(address);
+        }
 
         if (this._tonService?.getAccount) {
 
@@ -2971,6 +3184,7 @@ export class BlockchainMonitor {
             contractId: watch.contractId,
             address: watch.address,
             roomId: watch.roomId,
+            paymentNetwork: watch.paymentNetwork ?? null,
             gameId: watch.gameId,
             correlationId: watch.correlationId,
             lastStatus: watch.lastStatus,
@@ -2990,6 +3204,7 @@ export class BlockchainMonitor {
             address: watch.address,
             contractId: watch.contractId,
             roomId: watch.roomId,
+            paymentNetwork: watch.paymentNetwork ?? null,
             gameId: watch.gameId,
             correlationId: watch.correlationId,
             kind: watch.kind,
