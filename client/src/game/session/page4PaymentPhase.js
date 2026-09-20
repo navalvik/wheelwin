@@ -1,7 +1,8 @@
 /**
- * R18-S16 — Page4 payment-phase coordinator (pure).
- * Game Escrow (`escrowMode=game`): STAKE only, equal for all players.
- * Legacy v4 / Deposit path: creator deploy + FundSeat + STAKE.
+ * Page4 payment-phase coordinator (pure).
+ * Player entry payment is a plain TON transfer to the server-selected
+ * Room Wallet for the current room. Smart-contract payment destinations
+ * are not valid player-payment fallbacks.
  */
 
 import {
@@ -57,27 +58,8 @@ function hasLegacyDepositPackage(deposit = null) {
 
 }
 
-function paymentSessionGameEscrowTarget(paymentSession = null) {
-
-    const participants = Array.isArray(paymentSession?.participants)
-        ? paymentSession.participants
-        : [];
-
-    for (const participant of participants) {
-
-        const address = String(participant?.contractAddress ?? "").trim();
-        const required = Number(participant?.requiredGram);
-
-        if (address && Number.isFinite(required) && required > 0) {
-
-            return address;
-
-        }
-
-    }
-
-    return "";
-
+function paymentSessionRoomWalletTarget(paymentSession = null) {
+    return String(paymentSession?.roomWalletAddress ?? "").trim();
 }
 
 export function resolvePlayerPaymentDestination({
@@ -85,29 +67,11 @@ export function resolvePlayerPaymentDestination({
     localPlayerId = null
 } = {}) {
 
-    const sessionAddress = String(paymentSession?.roomWalletAddress ?? "").trim();
+    void localPlayerId;
 
-    if (sessionAddress) {
+    const sessionAddress = paymentSessionRoomWalletTarget(paymentSession);
 
-        return sessionAddress;
-
-    }
-
-    const seat = Array.isArray(paymentSession?.participants)
-        ? paymentSession.participants.find(
-            (participant) => String(participant?.playerId) === String(localPlayerId)
-        )
-        : null;
-
-    const seatAddress = String(seat?.contractAddress ?? "").trim();
-
-    if (seatAddress) {
-
-        return seatAddress;
-
-    }
-
-    return paymentSessionGameEscrowTarget(paymentSession) || null;
+    return sessionAddress || null;
 
 }
 
@@ -153,11 +117,9 @@ function depositOwnedByCurrentSession(deposit, context = null, gameContract = nu
 }
 
 /**
- * Game-Escrow-only player payment (`GAME_ESCROW_MODE=game`).
- * Prefer explicit `escrowMode`, then infer from server payment state when
- * Production clients never received `escrowMode` on the contract mirror.
- * Do not infer while a real Deposit package is present (legacy `v4`).
- * Ignore leftover Deposit from a previous room/game.
+ * Room-Wallet-only player payment.
+ * The server must publish `paymentSession.roomWalletAddress`.
+ * A participant `contractAddress` is never a payment fallback.
  */
 export function isGameEscrowOnlyPlayerPayment(gameContract = null, context = null) {
 
@@ -181,8 +143,7 @@ export function isGameEscrowOnlyPlayerPayment(gameContract = null, context = nul
         gameContract
     );
     const paymentSession = context?.paymentSession ?? null;
-    const paymentTarget = String(paymentSession?.roomWalletAddress ?? "").trim()
-        || paymentSessionGameEscrowTarget(paymentSession);
+    const paymentTarget = paymentSessionRoomWalletTarget(paymentSession);
 
     if (hasLegacyDepositPackage(deposit)) {
 
