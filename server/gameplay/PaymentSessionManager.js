@@ -735,17 +735,11 @@ export class PaymentSessionManager {
     }
 
     issueDeployedPaymentRequests(roomId, {
-        contractAddress,
+        contractAddress = null,
         paymentDeadline = null
     } = {}) {
 
         this._assertInitialized();
-
-        if (this._roomWalletPaymentIntakeEnabled) {
-
-            return this._sessionsByRoom.get(roomId) ?? null;
-
-        }
 
         const session = this._sessionsByRoom.get(roomId);
 
@@ -755,14 +749,21 @@ export class PaymentSessionManager {
 
         }
 
-        if (!contractAddress) {
+        // Legacy GameEscrow/DepositContract activation is disabled.
+        // Payment requests are activated only against the authoritative
+        // Room Wallet selected when the PaymentSession was created.
+        const roomWalletAddress = String(session.roomWalletAddress ?? "").trim();
+
+        if (!roomWalletAddress) {
 
             return null;
 
         }
 
+        void contractAddress;
+
         return this._activatePaymentRequests(session, {
-            contractAddress,
+            contractAddress: roomWalletAddress,
             paymentDeadline
         });
 
@@ -2677,7 +2678,7 @@ export class PaymentSessionManager {
 
     }
 
-    _registerPlayerWatch(session, participant, contractAddress = participant.contractAddress) {
+    _registerPlayerWatch(session, participant, contractAddress = session.roomWalletAddress) {
 
         if (!this._blockchainMonitor || !contractAddress) {
 
