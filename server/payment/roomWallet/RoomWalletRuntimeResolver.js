@@ -19,6 +19,7 @@ import { Address } from "@ton/core";
 import { keyPairFromSeed } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
+import { isGameEscrowOnlyPlayerPayment } from "../../config/gameEscrowMode.js";
 import { ROOM_WALLET_COUNT, RoomWalletRegistry } from "./RoomWalletRegistry.js";
 
 const PUBLIC_KEY_BYTES = 32;
@@ -142,7 +143,17 @@ export function createRoomWalletRegistryFromEnv(env = process.env) {
 }
 
 function isRoomWalletPaymentIntakeModeEnabled(env) {
-    return String(env?.ROOM_WALLET_PAYMENT_INTAKE_MODE || "").trim().toUpperCase() === "ROOM_WALLET";
+    const explicit = String(env?.ROOM_WALLET_PAYMENT_INTAKE_MODE || "")
+        .trim()
+        .toUpperCase();
+
+    return explicit === "ROOM_WALLET"
+        || isGameEscrowOnlyPlayerPayment(
+            env?.GAME_ESCROW_MODE
+                ?? env?.TON_TESTNET_GAME_ESCROW_MODE
+                ?? env?.TON_MAINNET_GAME_ESCROW_MODE
+                ?? null
+        );
 }
 
 function assertCompleteRoomWalletCatalog(entries) {
