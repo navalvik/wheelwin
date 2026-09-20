@@ -26,9 +26,13 @@ export function isRoomWalletSettlementEnabled(env = process.env) {
  * Player-payment intake is independent of settlement.
  * ROOM_WALLET_SETTLEMENT_MODE does not enable this path.
  */
-export function isRoomWalletPaymentIntakeEnabled(env = process.env) {
+export function isRoomWalletPaymentIntakeEnabled(env = process.env, gameEscrowMode = null) {
     const value = String(env.ROOM_WALLET_PAYMENT_INTAKE_MODE || "").trim().toUpperCase();
-    return value === "ROOM_WALLET";
+
+    // Production financial architecture: GAME_ESCROW_MODE=game means
+    // player payments are Room-Wallet payments. No second opt-in flag.
+    return value === "ROOM_WALLET"
+        || isGameEscrowOnlyPlayerPayment(gameEscrowMode);
 }
 
 /**
