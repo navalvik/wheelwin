@@ -12,7 +12,10 @@
 
 import { EVENT_SOURCES } from "../../events/EventSources.js";
 import { EVENT_TYPES } from "../../events/EventTypes.js";
-import { canonicalizeTonWalletAddress } from "../../models/TonWalletAddress.js";
+import {
+    canonicalizeTonWalletAddress,
+    tonWalletAccountsEqual
+} from "../../models/TonWalletAddress.js";
 import {
     amountsMatch,
     isFailedTonTransaction,
@@ -709,7 +712,7 @@ export class RoomWalletIncomingObserver {
             for (const participant of session.participants ?? []) {
                 const wallet = canonicalizeTonWalletAddress(participant.wallet);
 
-                if (!wallet || wallet !== sender) {
+                if (!wallet || !tonWalletAccountsEqual(wallet, sender)) {
                     continue;
                 }
 
