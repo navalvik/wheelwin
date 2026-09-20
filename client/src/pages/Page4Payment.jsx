@@ -872,13 +872,11 @@ export default function Page4Payment({ onNavigate }) {
                 myExpectedAmountNanotons: gameEscrowOnly
                     ? null
                     : depositProjection.myExpectedAmountNanotons,
-                network: gameEscrowOnly ? null : depositProjection.network,
-                paymentDestination: gameEscrowOnly ? roomWalletDestination : null,
-                gameEscrowAddress: gameEscrowOnly
-                    ? null
-                    : (paymentRequest?.contractAddress ?? null),
+                network: null,
+                paymentDestination: roomWalletDestination,
+                roomWalletAddress: roomWalletDestination,
                 requiredGram: paymentRequest?.requiredGram ?? null,
-                playerIndex: gameEscrowOnly ? null : playerIndex
+                playerIndex: null
             });
 
             const { totalNanotons } = transactionObject;
