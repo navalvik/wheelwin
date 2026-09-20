@@ -56,7 +56,10 @@ import {
     syncAutopsyFromReport
 } from "../diagnostics/tonConnectAutopsy";
 
-import { toSessionWalletAddress } from "../utils/tonWalletAddress";
+import {
+    toSessionWalletAddress,
+    tonWalletAccountsEqual
+} from "../utils/tonWalletAddress";
 
 import socket from "../socket/socket";
 
@@ -1171,54 +1174,69 @@ export default function Page4Payment({ onNavigate }) {
         }
     );
 
-    // Page4 seat recovery: after VERIFY the authoritative payment session already
-    // binds each player to the wallet address entered on Page3. If the local
-    // PlayerIdentity is temporarily missing, use the currently connected
-    // TonConnect wallet only when it exactly matches that authoritative wallet.
+    // Page4 seat recovery is anchored to the authoritative wallet binding.
+    // TonConnect may expose a raw address while the Page3 session wallet is
+    // friendly (for example 0Q... on Testnet). Account equality must therefore
+    // ignore friendly-format flags while preserving the displayed session value.
+    // The last successful wallet proof is also retained as a recovery source
+    // because the SDK hook can briefly lag behind the already-connected wallet.
+    const connectedWalletRawAddress =
+        lastWalletProofEmitRef.current
+        ?? resolveTonConnectSdkAddress(tonConnectUI, tonWallet);
+
     const connectedWalletAddress = toSessionWalletAddress(
-        resolveTonConnectSdkAddress(
-            tonConnectUI,
-            tonWallet
-        )
+        connectedWalletRawAddress
     );
 
-    const paymentSessionWalletPlayerId = connectedWalletAddress
-        ? (
-            Array.isArray(paymentSession?.participants)
-                ? paymentSession.participants.find(
-                    (participant) => {
-                        const participantWallet = toSessionWalletAddress(
-                            participant?.walletAddress
-                                ?? participant?.wallet
-                                ?? null
-                        );
+    const findWalletBoundPlayerId = (entries, walletFields) => {
 
-                        return Boolean(participantWallet)
-                            && participantWallet === connectedWalletAddress;
-                    }
-                )?.playerId ?? null
-                : null
-        )
-        : null;
+        if (!Array.isArray(entries) || !connectedWalletRawAddress) {
+
+            return null;
+
+        }
+
+        const matched = entries.find((entry) => {
+
+            const candidate = walletFields
+                .map((field) => entry?.[field])
+                .find((value) => Boolean(value));
+
+            return Boolean(candidate)
+                && tonWalletAccountsEqual(candidate, connectedWalletRawAddress);
+
+        });
+
+        return matched?.playerId ?? null;
+
+    };
+
+    const paymentSessionWalletPlayerId = findWalletBoundPlayerId(
+        paymentSession?.participants,
+        ["walletAddress", "wallet"]
+    );
+
+    const walletConnectionPlayerId = findWalletBoundPlayerId(
+        walletConnection?.players,
+        ["connectedWallet", "sessionWallet"]
+    );
+
+    const authoritativePlayerWalletId = Object.values(
+        authoritative.players ?? {}
+    ).find((player) => {
+
+        const candidate = player?.walletAddress ?? player?.wallet ?? null;
+
+        return Boolean(candidate)
+            && Boolean(connectedWalletRawAddress)
+            && tonWalletAccountsEqual(candidate, connectedWalletRawAddress);
+
+    })?.playerId ?? null;
 
     const localPlayerId = paymentSessionWalletPlayerId
-        ?? resolvedIdentityPlayerId
-        ?? (
-            connectedWalletAddress
-                ? Object.values(authoritative.players ?? {}).find(
-                    (player) => {
-                        const playerWallet = toSessionWalletAddress(
-                            player?.walletAddress
-                                ?? player?.wallet
-                                ?? null
-                        );
-
-                        return Boolean(playerWallet)
-                            && playerWallet === connectedWalletAddress;
-                    }
-                )?.playerId ?? null
-                : null
-        );
+        ?? walletConnectionPlayerId
+        ?? authoritativePlayerWalletId
+        ?? resolvedIdentityPlayerId;
 
     const paymentPhase = resolvePage4PaymentPhase({
         deposit: depositProjection,
