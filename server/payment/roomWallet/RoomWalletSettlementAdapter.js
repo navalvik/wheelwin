@@ -204,6 +204,20 @@ export class RoomWalletSettlementAdapter {
                 continue;
             }
 
+            if (!sent.txHash) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: true,
+                    code: "REFUND_UNCERTAIN_BROADCAST",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano,
+                    txHash: null
+                }));
+                continue;
+            }
+
             const confirmed = await confirmPayoutOnChain({
                 tonService: createInspectTransport(this._roomWalletAdapter, normalizedRoomNumber),
                 roomWalletAddress: await this._roomWalletAdapter.getWalletAddress(normalizedRoomNumber),
