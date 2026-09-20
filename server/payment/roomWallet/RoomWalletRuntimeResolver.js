@@ -27,18 +27,42 @@ const SECRET_KEY_BYTES = 64;
 const ROOM_WALLET_WORKCHAIN = 0;
 const ROOM_WALLET_NETWORKS = Object.freeze(["testnet", "mainnet"]);
 
+const ROOM_WALLET_ENV_BY_NETWORK = Object.freeze({
+    testnet: "ROOM_WALLETS_TESTNET_JSON",
+    mainnet: "ROOM_WALLETS_MAINNET_JSON"
+});
+
 export function loadRoomWalletRuntimeConfig(env = process.env) {
-    const raw = String(env.ROOM_WALLETS_JSON ?? "").trim();
-    const intakeEnabled = isRoomWalletPaymentIntakeModeEnabled(env);
+    const network = normalizeOptionalNetwork(env.TON_NETWORK);
+
+    if (!network) {
+        throw new Error(
+            "TON_NETWORK must be explicitly set to testnet or mainnet for Room Wallet payments"
+        );
+    }
+
+    const networkEnvKey = ROOM_WALLET_ENV_BY_NETWORK[network];
+    const networkRaw = String(env?.[networkEnvKey] ?? "").trim();
+
+    // Testnet compatibility: existing deployments used ROOM_WALLETS_JSON.
+    // Mainnet deliberately has no cross-network fallback.
+    const raw = networkRaw
+        || (network === "testnet"
+            ? String(env.ROOM_WALLETS_JSON ?? "").trim()
+            : "");
+
+    const intakeEnabled = true;
 
     if (!raw) {
-        if (intakeEnabled) {
-            throw new Error(
-                "ROOM_WALLETS_JSON is required when ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET"
-            );
-        }
-
-        return Object.freeze({ entries: [] });
+        throw new Error(
+            networkEnvKey
+                + " is required for "
+                + network
+                + " Room Wallet payments"
+                + (network === "testnet"
+                    ? " (ROOM_WALLETS_JSON is accepted as a Testnet compatibility fallback)"
+                    : "")
+        );
     }
 
     let parsed;
@@ -56,7 +80,7 @@ export function loadRoomWalletRuntimeConfig(env = process.env) {
         throw new RangeError(`ROOM_WALLETS_JSON cannot contain more than ${ROOM_WALLET_COUNT} wallets`);
     }
 
-    const envNetwork = normalizeOptionalNetwork(env.TON_NETWORK);
+    const envNetwork = network;
     const entries = [];
     const seenRoomNumbers = new Set();
     const seenAddresses = new Set();
@@ -143,17 +167,8 @@ export function createRoomWalletRegistryFromEnv(env = process.env) {
 }
 
 function isRoomWalletPaymentIntakeModeEnabled(env) {
-    const explicit = String(env?.ROOM_WALLET_PAYMENT_INTAKE_MODE || "")
-        .trim()
-        .toUpperCase();
-
-    return explicit === "ROOM_WALLET"
-        || isGameEscrowOnlyPlayerPayment(
-            env?.GAME_ESCROW_MODE
-                ?? env?.TON_TESTNET_GAME_ESCROW_MODE
-                ?? env?.TON_MAINNET_GAME_ESCROW_MODE
-                ?? null
-        );
+    void env;
+    return true;
 }
 
 function assertCompleteRoomWalletCatalog(entries) {
