@@ -168,6 +168,6 @@ export function sessionWalletsMatch(sessionWallet, connectedWallet) {
 
     }
 
-    return left === right;
+    return result;
 
 }
