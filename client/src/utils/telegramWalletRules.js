@@ -7,7 +7,7 @@ import { Address } from "@ton/core";
 
 /**
  * @param {unknown} rawWallet
- * @returns {{ valid: true, address: import("@ton/core").Address } | { valid: false }}
+ * @returns {{ valid: true, address: import("@ton/core").Address, isBounceable: boolean, isTestOnly: boolean } | { valid: false }}
  */
 export function parseTonWallet(rawWallet) {
 
@@ -31,7 +31,9 @@ export function parseTonWallet(rawWallet) {
 
         return {
             valid: true,
-            address: parsed.address
+            address: parsed.address,
+            isBounceable: parsed.isBounceable,
+            isTestOnly: parsed.isTestOnly
         };
 
     } catch {
@@ -40,7 +42,9 @@ export function parseTonWallet(rawWallet) {
 
             return {
                 valid: true,
-                address: Address.parse(trimmed)
+                address: Address.parse(trimmed),
+                isBounceable: true,
+                isTestOnly: false
             };
 
         } catch {
@@ -64,7 +68,8 @@ export function normalizeTelegramWallet(rawWallet) {
     }
 
     return parsed.address.toString({
-        bounceable: true,
+        bounceable: parsed.isBounceable,
+        testOnly: parsed.isTestOnly,
         urlSafe: true
     });
 
