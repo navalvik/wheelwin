@@ -561,24 +561,21 @@ export class PaymentSessionManager {
                 correlationId: correlationId ?? randomUUID()
             });
 
-            const roomWalletAddress = this._roomWalletPaymentIntakeEnabled
-                ? this._resolveRoomWalletPaymentAddress(room)
-                : null;
+            // Player payments are Room-Wallet-only.
+            // Never create a payment session that lacks the server-selected
+            // Room Wallet destination.
+            const roomWalletAddress = this._resolveRoomWalletPaymentAddress(room);
 
-            if (this._roomWalletPaymentIntakeEnabled) {
+            if (!roomWalletAddress) {
 
-                if (!roomWalletAddress) {
-
-                    throw new PaymentValidationError(
-                        "Room Wallet address is required for player payment",
-                        { roomId, roomNumber: room.roomNumber ?? null }
-                    );
-
-                }
-
-                session.roomWalletAddress = roomWalletAddress;
+                throw new PaymentValidationError(
+                    "Room Wallet address is required for player payment",
+                    { roomId, roomNumber: room.roomNumber ?? null }
+                );
 
             }
+
+            session.roomWalletAddress = roomWalletAddress;
 
             session.transitionTo(PAYMENT_SESSION_STATUS.WAITING_FOR_PAYMENTS);
 
@@ -602,28 +599,10 @@ export class PaymentSessionManager {
                 gameId: resolvedGameId
             });
 
-            if (roomWalletAddress) {
-
-                this._activatePaymentRequests(session, {
-                    contractAddress: roomWalletAddress,
-                    paymentDeadline: deadline
-                });
-
-            } else if (contractAddress || contract?.contractAddress) {
-
-                this._activatePaymentRequests(session, {
-                    contractAddress: contractAddress ?? contract.contractAddress,
-                    paymentDeadline: deadline
-                });
-
-            } else {
-
-                // R17.9L.18 — seats are PAYMENT_REQUESTED without a Game Contract.
-                // PAYMENT_SESSION_UPDATED remains for lobby / session observers.
-                // GameContractManager must not start deploy from this event.
-                this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
-
-            }
+            this._activatePaymentRequests(session, {
+                contractAddress: roomWalletAddress,
+                paymentDeadline: deadline
+            });
 
             this._log(
                 `CREATED | roomId=${roomId} | gameId=${resolvedGameId} | `
@@ -2399,37 +2378,17 @@ export class PaymentSessionManager {
 
     _handleContractReadyForPayments(payload) {
 
-        const roomId = payload?.roomId;
-
-        const contractAddress = payload?.contractAddress;
-
-        if (!roomId || !contractAddress) {
-
-            return;
-
-        }
-
-        this.issueDeployedPaymentRequests(roomId, {
-            contractAddress,
-            paymentDeadline: payload?.paymentDeadline ?? null
-        });
+        // Smart-contract payment readiness is intentionally ignored.
+        // Player payments are activated only from the Room Wallet selected
+        // during authoritative PaymentSession creation.
+        void payload;
 
     }
 
     _handleContractDeploymentConfirmed(payload) {
 
-        const roomId = payload?.roomId;
-
-        if (!roomId || !payload?.address) {
-
-            return;
-
-        }
-
-        this.issueDeployedPaymentRequests(roomId, {
-            contractAddress: payload.address,
-            paymentDeadline: payload?.paymentDeadline ?? null
-        });
+        // Smart-contract deployment is not a player-payment prerequisite.
+        void payload;
 
     }
 
@@ -2770,37 +2729,24 @@ export class PaymentSessionManager {
 
         }
 
-        const expectedDestination = session.roomWalletAddress
-            ?? participant.contractAddress
-            ?? null;
+        const expectedDestination = session.roomWalletAddress ?? null;
 
         const contract = this._resolveContract(session.roomId, session.contractId);
 
-        if (this._roomWalletPaymentIntakeEnabled) {
+        if (!expectedDestination) {
 
-            if (expectedDestination && payload?.address) {
+            throw new PaymentValidationError(
+                "Authoritative Room Wallet destination is missing"
+            );
 
-                if (!tonWalletAccountsEqual(expectedDestination, payload.address)) {
+        }
 
-                    throw new PaymentValidationError("Payment sent to wrong contract", {
-                        expected: expectedDestination,
-                        actual: payload.address
-                    });
+        if (payload?.address && !tonWalletAccountsEqual(expectedDestination, payload.address)) {
 
-                }
-
-            }
-
-        } else if (contract?.contractAddress && payload?.address) {
-
-            if (!tonWalletAccountsEqual(contract.contractAddress, payload.address)) {
-
-                throw new PaymentValidationError("Payment sent to wrong contract", {
-                    expected: contract.contractAddress,
-                    actual: payload.address
-                });
-
-            }
+            throw new PaymentValidationError("Payment sent to wrong Room Wallet", {
+                expected: expectedDestination,
+                actual: payload.address
+            });
 
         }
 
