@@ -56,6 +56,20 @@ export class RoomWalletSettlementRouter {
         return this.activeAdapter.settleContract(request);
     }
 
+    async refundPayments(request) {
+        const adapter = this.activeAdapter;
+
+        if (typeof adapter.refundPayments !== "function") {
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_REFUND_UNSUPPORTED"
+            });
+        }
+
+        return adapter.refundPayments(request);
+    }
+
     async inspectSettlement(request) {
         const adapter = this.activeAdapter;
 
