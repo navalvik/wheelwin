@@ -284,7 +284,7 @@ export class RoomWalletSettlementAdapter {
                     transfer.success
                     && transfer.bounced !== true
                     && transfer.amountNano === amountNano
-                    && canonicalizeTonWalletAddress(transfer.destination) === destination
+                    && tonWalletAccountsEqual(transfer.destination, wallet)
                     && (cutoff == null || transfer.utime > cutoff)
                 ) {
                     return transfer;
