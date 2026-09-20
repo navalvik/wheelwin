@@ -9,8 +9,6 @@ import {
     canConfirmLocalPayment,
     hasPaymentSession
 } from "./authoritativePaymentSessionView.js";
-import { isGameContractDeployed } from "./authoritativeGameContractView.js";
-import { DEPOSIT_SESSION_STATUS } from "./depositSessionStatus.js";
 
 export const PAGE4_PAYMENT_PHASE = Object.freeze({
     WALLET: "WALLET",
@@ -123,157 +121,42 @@ function depositOwnedByCurrentSession(deposit, context = null, gameContract = nu
  */
 export function isGameEscrowOnlyPlayerPayment(gameContract = null, context = null) {
 
-    const mode = String(gameContract?.escrowMode ?? "").trim().toLowerCase();
+    void gameContract;
+    void context;
 
-    if (mode === "game") {
-
-        return true;
-
-    }
-
-    if (mode === "v4") {
-
-        return false;
-
-    }
-
-    const deposit = depositOwnedByCurrentSession(
-        context?.deposit ?? null,
-        context,
-        gameContract
-    );
-    const paymentSession = context?.paymentSession ?? null;
-    const paymentTarget = paymentSessionRoomWalletTarget(paymentSession);
-
-    if (hasLegacyDepositPackage(deposit)) {
-
-        return false;
-
-    }
-
-    if (paymentTarget) {
-
-        return true;
-
-    }
-
-    return isGameContractDeployed(gameContract);
+    // Smart-contract player-payment modes are disabled. Room Wallet is the
+    // only accepted financial path on both Testnet and Mainnet.
+    return true;
 
 }
 
-export function shouldShowWaitingCreatorDeposit({
-    paymentPhase = null,
-    gameContract = null,
-    deposit = null,
-    paymentSession = null
-} = {}) {
+export function shouldShowWaitingCreatorDeposit() {
 
-    if (paymentPhase !== PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
-
-        return false;
-
-    }
-
-    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
-
-        return false;
-
-    }
-
-    const ownedDeposit = depositOwnedByCurrentSession(deposit, {
-        deposit,
-        paymentSession,
-        roomId: gameContract?.roomId,
-        gameId: gameContract?.gameId
-    }, gameContract);
-
-    if (!hasLegacyDepositPackage(ownedDeposit)) {
-
-        return false;
-
-    }
-
-    return ownedDeposit?.isCreator !== true;
+    return false;
 
 }
 
-export function isDepositActivationVerified(deposit = null, lifecycle = null) {
+export function isDepositActivationVerified() {
 
-    const status = deposit?.activationStatus ?? null;
-
-    if (DEPOSIT_ACTIVATION_VERIFIED_STATUSES.includes(status)) {
-
-        return true;
-
-    }
-
-    return lifecycle?.depositActivationVerified === true;
+    return false;
 
 }
 
-export function isDepositFull(deposit = null) {
+export function isDepositFull() {
 
-    const phase = deposit?.phase ?? null;
-
-    if (
-        phase === DEPOSIT_SESSION_STATUS.DEPOSIT_FULL
-        || phase === DEPOSIT_SESSION_STATUS.DEPLOY_AUTHORIZED
-        || phase === DEPOSIT_SESSION_STATUS.GAME_CONTRACT_CREATED
-    ) {
-
-        return true;
-
-    }
-
-    const confirmed = Number(deposit?.confirmedSeats);
-
-    return Number.isFinite(confirmed) && confirmed >= 3;
+    return false;
 
 }
 
-export function canDeployDeposit(deposit = null, lifecycle = null) {
+export function canDeployDeposit() {
 
-    if (isDepositActivationVerified(deposit, lifecycle)) {
-
-        return false;
-
-    }
-
-    return deposit?.isCreator === true
-        && Boolean(deposit?.package?.stateInit?.codeBoc)
-        && Boolean(deposit?.package?.stateInit?.dataBoc)
-        && deposit?.package?.deployValueNanotons != null
-        && Boolean(deposit?.depositAddress);
+    return false;
 
 }
 
-export function canFundSeat(deposit = null, lifecycle = null) {
+export function canFundSeat() {
 
-    if (!isDepositActivationVerified(deposit, lifecycle)) {
-
-        return false;
-
-    }
-
-    if (deposit?.mySeatStatus === "FUNDED") {
-
-        return false;
-
-    }
-
-    if (deposit?.mySeatIndex == null) {
-
-        return false;
-
-    }
-
-    const seatIndex = Number(deposit.mySeatIndex);
-
-    return Number.isInteger(seatIndex)
-        && seatIndex >= 0
-        && seatIndex <= 2
-        && deposit?.myExpectedAmountNanotons != null
-        && Boolean(deposit?.depositAddress);
+    return false;
 
 }
 
@@ -293,147 +176,42 @@ export function canStakeGameEscrow({
 
 }
 
-function hasFundSeatInputs(deposit = null) {
 
-    if (deposit?.mySeatStatus === "FUNDED") {
+export function canIncludeFundSeatInEntry() {
 
-        return false;
-
-    }
-
-    if (deposit?.mySeatIndex == null) {
-
-        return false;
-
-    }
-
-    const seatIndex = Number(deposit.mySeatIndex);
-
-    return Number.isInteger(seatIndex)
-        && seatIndex >= 0
-        && seatIndex <= 2
-        && deposit?.myExpectedAmountNanotons != null
-        && Boolean(deposit?.depositAddress);
-
-}
-
-/**
- * Creator may FundSeat in the same wallet tx as StateInit deployment.
- * Players 2/3 still require verified deposit activation.
- */
-export function canIncludeFundSeatInEntry(deposit = null, lifecycle = null) {
-
-    if (!hasFundSeatInputs(deposit)) {
-
-        return false;
-
-    }
-
-    if (deposit?.isCreator === true && canDeployDeposit(deposit, lifecycle)) {
-
-        return true;
-
-    }
-
-    return canFundSeat(deposit, lifecycle);
+    return false;
 
 }
 
 export function resolveEntryPaymentComponents({
-    deposit = null,
     paymentSession = null,
     gameContract = null,
-    localPlayerId = null,
-    lifecycle = null
+    localPlayerId = null
 } = {}) {
 
-    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
-
-        return Object.freeze({
-            includeDeploy: false,
-            includeFund: false,
-            includeStake: canStakeGameEscrow({
-                paymentSession,
-                gameContract,
-                localPlayerId
-            })
-        });
-
-    }
-
-    const includeDeploy = canDeployDeposit(deposit, lifecycle);
-    const includeFund = canIncludeFundSeatInEntry(deposit, lifecycle);
-    const includeStake = canStakeGameEscrow({
-        paymentSession,
-        gameContract,
-        localPlayerId
-    });
-
     return Object.freeze({
-        includeDeploy,
-        includeFund,
-        includeStake
+        includeDeploy: false,
+        includeFund: false,
+        includeStake: canStakeGameEscrow({
+            paymentSession,
+            gameContract,
+            localPlayerId
+        })
     });
 
 }
 
 export function canSubmitEntryPayment({
-    deposit = null,
     paymentSession = null,
     gameContract = null,
-    localPlayerId = null,
-    lifecycle = null
+    localPlayerId = null
 } = {}) {
 
-    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
-
-        return canStakeGameEscrow({
-            paymentSession,
-            gameContract,
-            localPlayerId
-        });
-
-    }
-
-    if (!isGameContractDeployed(gameContract)) {
-
-        return false;
-
-    }
-
-    const components = resolveEntryPaymentComponents({
-        deposit,
+    return canStakeGameEscrow({
         paymentSession,
         gameContract,
-        localPlayerId,
-        lifecycle
+        localPlayerId
     });
-
-    if (deposit?.mySeatStatus !== "FUNDED" && !components.includeFund) {
-
-        return false;
-
-    }
-
-    if (!components.includeStake) {
-
-        return false;
-
-    }
-
-    if (
-        deposit?.isCreator === true
-        && !isDepositActivationVerified(deposit, lifecycle)
-        && !components.includeDeploy
-    ) {
-
-        return false;
-
-    }
-
-    return components.includeDeploy
-        || components.includeFund
-        || components.includeStake;
 
 }
 
@@ -443,12 +221,10 @@ export function canSubmitEntryPayment({
  * every player with a STAKE obligation gets the same payment action.
  */
 export function resolvePage4PaymentPhase({
-    deposit = null,
     paymentSession = null,
     gameContract = null,
     paymentConnectionReady = false,
-    localPlayerId = null,
-    lifecycle = null
+    localPlayerId = null
 } = {}) {
 
     if (paymentSession?.status === "COMPLETED") {
@@ -457,88 +233,19 @@ export function resolvePage4PaymentPhase({
 
     }
 
-    if (isGameEscrowOnlyPlayerPayment(gameContract, { deposit, paymentSession })) {
-
-        if (canSubmitEntryPayment({
-            deposit,
-            paymentSession,
-            gameContract,
-            localPlayerId,
-            lifecycle
-        })) {
-
-            return PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
-
-        }
-
-        if (
-            Boolean(resolvePlayerPaymentDestination({
-                paymentSession,
-                localPlayerId
-            }))
-            || hasPaymentSession(paymentSession)
-            || paymentConnectionReady
-        ) {
-
-            return PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE;
-
-        }
-
-        return PAGE4_PAYMENT_PHASE.WALLET;
-
-    }
-
-    if (canSubmitEntryPayment({
-        deposit,
-        paymentSession,
-        gameContract,
-        localPlayerId,
-        lifecycle
-    })) {
+    if (canSubmitEntryPayment({ paymentSession, gameContract, localPlayerId })) {
 
         return PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
 
     }
 
-    if (isGameContractDeployed(gameContract)) {
+    if (
+        Boolean(resolvePlayerPaymentDestination({ paymentSession, localPlayerId }))
+        || hasPaymentSession(paymentSession)
+        || paymentConnectionReady
+    ) {
 
-        if (deposit?.mySeatStatus === "FUNDED") {
-
-            return PAGE4_PAYMENT_PHASE.DEPOSIT_WAIT_FULL;
-
-        }
-
-        return PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION;
-
-    }
-
-    if (isDepositFull(deposit)) {
-
-        return PAGE4_PAYMENT_PHASE.DEPOSIT_FULL;
-
-    }
-
-    if (isDepositActivationVerified(deposit, lifecycle)) {
-
-        if (deposit?.mySeatStatus === "FUNDED") {
-
-            return PAGE4_PAYMENT_PHASE.DEPOSIT_WAIT_FULL;
-
-        }
-
-        return PAGE4_PAYMENT_PHASE.FUND_SEAT;
-
-    }
-
-    if (canDeployDeposit(deposit, lifecycle)) {
-
-        return PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION;
-
-    }
-
-    if (deposit || paymentConnectionReady || hasPaymentSession(paymentSession)) {
-
-        return PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION;
+        return PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE;
 
     }
 
@@ -560,9 +267,9 @@ export function shouldShowPaymentSessionRows(phase) {
 
 }
 
-export function shouldShowDepositAction(phase) {
+export function shouldShowDepositAction() {
 
-    return phase === PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
+    return false;
 
 }
 
