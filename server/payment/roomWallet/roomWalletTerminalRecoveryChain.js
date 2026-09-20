@@ -1,4 +1,7 @@
-import { canonicalizeTonWalletAddress } from "../../models/TonWalletAddress.js";
+import {
+    canonicalizeTonWalletAddress,
+    tonWalletAccountsEqual
+} from "../../models/TonWalletAddress.js";
 
 export function toNanoAmount(value) {
     if (typeof value === "bigint") {
@@ -234,7 +237,7 @@ export async function confirmPayoutOnChain({
                 continue;
             }
             for (const transfer of extractOutboundTransfers(tx)) {
-                const matchDest = canonicalizeTonWalletAddress(transfer.destination) === destCanon;
+                const matchDest = tonWalletAccountsEqual(transfer.destination, destination);
                 const matchAmount = transfer.amountNano === amountNano;
                 if (matchDest && matchAmount && transfer.success && transfer.bounced !== true) {
                     return Object.freeze({
