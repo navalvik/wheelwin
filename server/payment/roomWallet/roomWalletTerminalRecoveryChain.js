@@ -224,8 +224,6 @@ export async function confirmPayoutOnChain({
 }) {
     const deadline = now() + timeoutMs;
     const expected = String(expectedHash ?? "").toLowerCase();
-    const destCanon = canonicalizeTonWalletAddress(destination);
-
     while (now() < deadline) {
         const transactions = await tonService.getTransactions(
             roomWalletAddress,
