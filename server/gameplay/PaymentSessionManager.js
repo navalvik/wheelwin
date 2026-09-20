@@ -2054,9 +2054,12 @@ export class PaymentSessionManager {
         this._persistSession(session, "update");
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
+        const roomWalletAddress = session.roomWalletAddress
+            ?? session.participants?.find((participant) => participant?.contractAddress)?.contractAddress
+            ?? null;
+
         const roomNumber = session.roomNumber
-            ?? this._roomWalletRegistry?.getByAddress?.(session.roomWalletAddress)?.roomNumber
-            ?? this._roomWalletRegistry?.getByAddress?.(pendingRefunds[0]?.contractAddress)?.roomNumber
+            ?? this._roomWalletRegistry?.getByAddress?.(roomWalletAddress)?.roomNumber
             ?? null;
 
         if (roomNumber == null) {
