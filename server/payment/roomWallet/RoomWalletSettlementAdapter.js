@@ -4,7 +4,12 @@ import {
     assertNonNegativeNano
 } from "./RoomWalletFinancialPolicy.js";
 import { normalizeRoomNumber } from "./RoomWalletRegistry.js";
-import { inspectRoomWalletHistory } from "./roomWalletTerminalRecoveryChain.js";
+import { canonicalizeTonWalletAddress } from "../../models/TonWalletAddress.js";
+import {
+    confirmPayoutOnChain,
+    extractOutboundTransfers,
+    inspectRoomWalletHistory
+} from "./roomWalletTerminalRecoveryChain.js";
 
 export const ROOM_WALLET_SETTLEMENT_SAFETY_CODES = Object.freeze({
     WALLET_REUSED: "WALLET_REUSED",
@@ -99,6 +104,181 @@ export class RoomWalletSettlementAdapter {
                 ? 0n
                 : requiredNano - balanceNano
         });
+    }
+
+    /**
+     * R18-S17 — Refund confirmed Room-Wallet player payments when a game
+     * cannot reach Page5 after a partial payment. Refunds are sent from the
+     * same authoritative Room Wallet that received the player stakes.
+     *
+     * The operation is idempotent across process restarts: before broadcasting
+     * a refund we inspect recent Room-Wallet history for an already completed
+     * transfer to the same player for the same amount.
+     */
+    async refundPayments({
+        roomNumber,
+        refunds = [],
+        cutoffUtime = null,
+        confirmationTimeoutMs = 60_000
+    } = {}) {
+        const normalizedRoomNumber = resolveRoomNumber({ roomNumber });
+        const targets = Array.isArray(refunds) ? refunds : [];
+        const results = [];
+
+        for (const target of targets) {
+            const wallet = requireWallet(target?.wallet, "refund wallet");
+            const amountNano = resolveNano(
+                target?.amountNano,
+                target?.amount,
+                "refundAmount"
+            );
+
+            assertNonNegativeNano(amountNano, "refundAmountNano");
+
+            if (amountNano <= 0n) {
+                results.push(Object.freeze({
+                    ok: false,
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano,
+                    code: "INVALID_REFUND_AMOUNT"
+                }));
+                continue;
+            }
+
+            const existing = await this._findExistingRefund({
+                roomNumber: normalizedRoomNumber,
+                wallet,
+                amountNano,
+                cutoffUtime
+            });
+
+            if (existing) {
+                results.push(Object.freeze({
+                    ok: true,
+                    code: "REFUND_ADOPTED",
+                    confirmed: true,
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano,
+                    txHash: existing.hash ?? null
+                }));
+                continue;
+            }
+
+            let sent;
+            try {
+                sent = await this._roomWalletAdapter.sendTransfer({
+                    roomNumber: normalizedRoomNumber,
+                    destination: wallet,
+                    amountNano,
+                    queryId: target?.queryId ?? null
+                });
+            } catch (error) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: true,
+                    code: "REFUND_ADAPTER_ERROR",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano,
+                    error: error?.message ?? String(error)
+                }));
+                continue;
+            }
+
+            if (!sent?.ok) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: true,
+                    code: sent?.code ?? "REFUND_BROADCAST_FAILED",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano,
+                    txHash: sent?.txHash ?? null
+                }));
+                continue;
+            }
+
+            const confirmed = await confirmPayoutOnChain({
+                tonService: createInspectTransport(this._roomWalletAdapter, normalizedRoomNumber),
+                roomWalletAddress: await this._roomWalletAdapter.getWalletAddress(normalizedRoomNumber),
+                expectedHash: sent.txHash ?? null,
+                destination: wallet,
+                amountNano,
+                timeoutMs: confirmationTimeoutMs
+            });
+
+            if (!confirmed?.ok) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: true,
+                    code: "REFUND_NOT_CONFIRMED",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano,
+                    txHash: sent.txHash ?? null
+                }));
+                continue;
+            }
+
+            results.push(Object.freeze({
+                ok: true,
+                code: "REFUND_CONFIRMED",
+                confirmed: true,
+                playerId: target?.playerId ?? null,
+                playerIndex: target?.playerIndex ?? null,
+                wallet,
+                amountNano,
+                txHash: confirmed.hash ?? sent.txHash ?? null
+            }));
+        }
+
+        return Object.freeze({
+            ok: results.every((result) => result.ok === true),
+            roomNumber: normalizedRoomNumber,
+            results: Object.freeze(results)
+        });
+    }
+
+    async _findExistingRefund({
+        roomNumber,
+        wallet,
+        amountNano,
+        cutoffUtime
+    }) {
+        if (typeof this._roomWalletAdapter.getTransactions !== "function") {
+            return null;
+        }
+
+        const destination = canonicalizeTonWalletAddress(wallet);
+        const cutoff = resolveCutoffUtime({ cutoffUtime });
+        const transactions = await this._roomWalletAdapter.getTransactions(
+            roomNumber,
+            { limit: 40, archival: true }
+        );
+
+        for (const tx of transactions ?? []) {
+            const transfers = extractOutboundTransfers(tx);
+            for (const transfer of transfers) {
+                if (
+                    transfer.success
+                    && transfer.bounced !== true
+                    && transfer.amountNano === amountNano
+                    && canonicalizeTonWalletAddress(transfer.destination) === destination
+                    && (cutoff == null || transfer.utime > cutoff)
+                ) {
+                    return transfer;
+                }
+            }
+        }
+
+        return null;
     }
 
     async inspectSettlement(request = {}) {
