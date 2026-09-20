@@ -793,10 +793,40 @@ export default function Page4Payment({ onNavigate }) {
 
         }
 
-        const paymentRequest = getLocalPaymentRequest(paymentSession, localPlayerId);
+        const runtimeConnectedWallet =
+            lastWalletProofEmitRef.current
+            ?? resolveTonConnectSdkAddress(tonConnectUI, tonWallet);
+
+        const runtimeParticipant =
+            Array.isArray(paymentSession?.participants)
+                ? paymentSession.participants.find((participant) => {
+                    const candidate =
+                        participant?.walletAddress
+                        ?? participant?.wallet
+                        ?? null;
+
+                    return Boolean(candidate)
+                        && Boolean(runtimeConnectedWallet)
+                        && tonWalletAccountsEqual(
+                            candidate,
+                            runtimeConnectedWallet
+                        );
+                }) ?? null
+                : null;
+
+        const runtimeLocalPlayerId =
+            runtimeParticipant?.playerId
+            ?? localPlayerId
+            ?? identity.playerId
+            ?? null;
+
+        const paymentRequest = getLocalPaymentRequest(
+            paymentSession,
+            runtimeLocalPlayerId
+        );
         const roomWalletDestination = resolvePlayerPaymentDestination({
             paymentSession,
-            localPlayerId
+            localPlayerId: runtimeLocalPlayerId
         });
         const components = resolveEntryPaymentComponents({
             deposit: depositProjection,
@@ -939,7 +969,7 @@ export default function Page4Payment({ onNavigate }) {
                 const nextSendForensicContext = describePage4SendTransactionForensicContext({
                     roomId: authoritative?.roomId ?? null,
                     gameId: authoritative?.gameId ?? null,
-                    localPlayerId,
+                    localPlayerId: runtimeLocalPlayerId,
                     playerIndex,
                     playerWalletAddress: resolveTonConnectSdkAddress(
                         tonConnectUI,
@@ -1227,7 +1257,28 @@ export default function Page4Payment({ onNavigate }) {
 
     })?.playerId ?? null;
 
-    const localPlayerId = paymentSessionWalletPlayerId
+    // Payment button gating must use the authoritative Payment Session itself.
+    // A transient client identity/wallet-binding lag must not hide the action.
+    // The actual send handler still resolves the exact participant before sending.
+    const paymentParticipantForConnectedWallet =
+        Array.isArray(paymentSession?.participants)
+            ? paymentSession.participants.find((participant) => {
+                const candidate =
+                    participant?.walletAddress
+                    ?? participant?.wallet
+                    ?? null;
+
+                return Boolean(candidate)
+                    && Boolean(connectedWalletRawAddress)
+                    && tonWalletAccountsEqual(
+                        candidate,
+                        connectedWalletRawAddress
+                    );
+            }) ?? null
+            : null;
+
+    const localPlayerId = paymentParticipantForConnectedWallet?.playerId
+        ?? paymentSessionWalletPlayerId
         ?? walletConnectionPlayerId
         ?? authoritativePlayerWalletId
         ?? resolvedIdentityPlayerId;
@@ -1243,7 +1294,32 @@ export default function Page4Payment({ onNavigate }) {
 
     const walletPhase = shouldShowWalletActions(paymentPhase);
     const showPaymentRows = shouldShowPaymentSessionRows(paymentPhase);
-    const showEntryAction = shouldShowEntryAction(paymentPhase);
+
+    const roomWalletPaymentReady =
+        Boolean(paymentSession?.roomWalletAddress)
+        && (
+            paymentSession?.status === "ACTIVE"
+            || paymentSession?.status === "WAITING_FOR_PAYMENTS"
+            || paymentSession?.status === "PARTIALLY_PAID"
+            || paymentSession?.status === "RECOVERED"
+        );
+
+    const localParticipantPaymentReady =
+        paymentParticipantForConnectedWallet?.status === "AWAITING_PLAYER_CONFIRMATION"
+        || paymentParticipantForConnectedWallet?.status === "PAYMENT_REQUESTED"
+        || canSubmitEntryPayment({
+            deposit: depositProjection,
+            paymentSession,
+            gameContract,
+            localPlayerId,
+            lifecycle: authoritative.lifecycle
+        });
+
+    // Do not hide the payment button because localPlayerId was temporarily
+    // unresolved during a React/TonConnect synchronization frame.
+    const showEntryAction =
+        roomWalletPaymentReady && localParticipantPaymentReady;
+
     const inPostWalletPhase = paymentPhase !== PAGE4_PAYMENT_PHASE.WALLET;
 
     const entryComponents = resolveEntryPaymentComponents({
@@ -1254,13 +1330,9 @@ export default function Page4Payment({ onNavigate }) {
         lifecycle: authoritative.lifecycle
     });
 
-    const entryActionEnabled = canSubmitEntryPayment({
-        deposit: depositProjection,
-        paymentSession,
-        gameContract,
-        localPlayerId,
-        lifecycle: authoritative.lifecycle
-    });
+    const entryActionEnabled = roomWalletPaymentReady
+        && Boolean(localPlayerId)
+        && localParticipantPaymentReady;
 
     let entryTotalLabel = null;
 
