@@ -8,7 +8,8 @@ function createAdapter({
     balanceNano = 100n * GRAM_NANO,
     sendTransfer = null,
     inspectHistory = null,
-    getWalletAddress = null
+    getWalletAddress = null,
+    getTransactions = null
 } = {}) {
     const calls = [];
     const balanceCalls = [];
@@ -42,7 +43,8 @@ function createAdapter({
                 txHash: `tx-${calls.length}`
             };
         },
-        ...(typeof getWalletAddress === "function" ? { getWalletAddress } : {})
+        ...(typeof getWalletAddress === "function" ? { getWalletAddress } : {}),
+        ...(typeof getTransactions === "function" ? { getTransactions } : {})
     };
 
     return {
@@ -451,5 +453,85 @@ test("inspect RPC failure is retryable and does not send", async () => {
     assert.equal(result.ok, false);
     assert.equal(result.retryable, true);
     assert.equal(result.code, "CHAIN_INSPECT_UNKNOWN");
+    assert.equal(calls.length, 0);
+});
+
+
+test("partial room-wallet refunds return exactly the paid amount and confirm on chain", async () => {
+    const txs = [];
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => txs,
+        sendTransfer(input) {
+            calls.push(input);
+            const hash = "refund-" + calls.length;
+            txs.push({
+                transaction_id: { hash },
+                utime: Math.floor(Date.now() / 1000),
+                success: true,
+                out_msgs: [{
+                    destination: input.destination,
+                    value: input.amountNano.toString()
+                }]
+            });
+            return {
+                ok: true,
+                code: "SENT",
+                txHash: hash
+            };
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 7,
+        cutoffUtime: Date.now(),
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: WINNER,
+            amount: 1
+        }]
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.results.length, 1);
+    assert.equal(result.results[0].code, "REFUND_CONFIRMED");
+    assert.equal(result.results[0].amountNano, 1_000_000_000n);
+    assert.equal(result.results[0].txHash, "refund-1");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].roomNumber, 7);
+    assert.equal(calls[0].destination, WINNER);
+    assert.equal(calls[0].amountNano, 1_000_000_000n);
+});
+
+test("existing room-wallet refund is adopted without a second send", async () => {
+    const existingHash = "refund-existing";
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => [{
+            transaction_id: { hash: existingHash },
+            utime: Math.floor(Date.now() / 1000),
+            success: true,
+            out_msgs: [{
+                destination: WINNER,
+                value: "1000000000"
+            }]
+        }]
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 8,
+        cutoffUtime: Date.now() - 5_000,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: WINNER,
+            amount: 1
+        }]
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.results[0].code, "REFUND_ADOPTED");
+    assert.equal(result.results[0].txHash, existingHash);
     assert.equal(calls.length, 0);
 });
