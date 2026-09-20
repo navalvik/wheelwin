@@ -3639,8 +3639,15 @@ export class RoomLobbyBridge {
             ? sessionNeedsEscrowUnwind(paymentSession)
             : false;
 
+        const roomWalletPaymentIntakeEnabled =
+            this._paymentSessionManager?.isRoomWalletPaymentIntakeEnabled?.() === true;
+
         const willFailSession = Boolean(
-            unwindNeeded && contract?.contractAddress
+            unwindNeeded
+            && (
+                contract?.contractAddress
+                || roomWalletPaymentIntakeEnabled
+            )
         );
 
         this._logger.info(
