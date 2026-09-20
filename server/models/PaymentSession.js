@@ -47,6 +47,7 @@ export class PaymentParticipant {
         wallet = null,
         walletSessionId = null,
         paymentReference = null,
+        paymentDestination = null,
         contractAddress = null,
         txHash = null,
         paidAmount = 0,
@@ -69,6 +70,10 @@ export class PaymentParticipant {
 
         this.paymentReference = paymentReference ?? null;
 
+        this.paymentDestination = paymentDestination ?? null;
+
+        // Legacy field retained for historical records only. Active
+        // Room-Wallet payments never populate it.
         this.contractAddress = contractAddress ?? null;
 
         this.txHash = txHash ?? null;
@@ -98,6 +103,7 @@ export class PaymentParticipant {
             walletAddress: this.wallet,
             walletSessionId: this.walletSessionId,
             paymentReference: this.paymentReference,
+            paymentDestination: this.paymentDestination,
             contractAddress: this.contractAddress,
             txHash: this.txHash,
             transactionHash: this.txHash,
