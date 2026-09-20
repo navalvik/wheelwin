@@ -877,6 +877,20 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
             "Railway secret only; never commit. JSON array of 64 Room Wallet identities "
             + "(roomNumber 1..64, address, publicKey, secretKey). Required when "
             + "ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET."
+    }),
+    ROOM_WALLETS_TESTNET_JSON: Object.freeze({
+        key: "ROOM_WALLETS_TESTNET_JSON",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix: "Railway secret only; Testnet JSON catalog of exactly 64 Room Wallet identities."
+    }),
+    ROOM_WALLETS_MAINNET_JSON: Object.freeze({
+        key: "ROOM_WALLETS_MAINNET_JSON",
+        type: "string",
+        required: false,
+        category: "TON",
+        suggestedFix: "Railway secret only; Mainnet JSON catalog of exactly 64 Room Wallet identities."
     })
 });
 
