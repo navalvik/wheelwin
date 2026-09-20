@@ -3612,7 +3612,7 @@ export default function Page4Payment({ onNavigate }) {
 
                     )}
 
-                    {!walletPhase ? (
+                    {!walletPhase || showEntryAction ? (
 
                         <div className="page4__connectActions">
 
