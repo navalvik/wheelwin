@@ -92,6 +92,7 @@ export function mapPaymentSessionRows(paymentSession, playersById = {}) {
             requiredGram: seat.requiredGram ?? null,
             wallet: seat.wallet ?? null,
             paymentReference: seat.paymentReference ?? null,
+            paymentDestination: seat.paymentDestination ?? null,
             contractAddress: seat.contractAddress ?? null,
             status: seat.status ?? PAYMENT_PARTICIPANT_STATUS.WAITING,
             statusLabel: mapPaymentParticipantStatusLabel(seat.status)
