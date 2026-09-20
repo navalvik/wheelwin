@@ -7,7 +7,7 @@ import { Address } from "@ton/core";
 
 /**
  * @param {unknown} rawWallet
- * @returns {{ valid: true, address: import("@ton/core").Address } | { valid: false }}
+ * @returns {{ valid: true, address: import("@ton/core").Address, isBounceable: boolean, isTestOnly: boolean } | { valid: false }}
  */
 export function parseTonWallet(rawWallet) {
 
@@ -31,7 +31,9 @@ export function parseTonWallet(rawWallet) {
 
         return {
             valid: true,
-            address: parsed.address
+            address: parsed.address,
+            isBounceable: parsed.isBounceable,
+            isTestOnly: parsed.isTestOnly
         };
 
     } catch {
@@ -41,7 +43,9 @@ export function parseTonWallet(rawWallet) {
 
             return {
                 valid: true,
-                address: Address.parse(trimmed)
+                address: Address.parse(trimmed),
+                isBounceable: true,
+                isTestOnly: false
             };
 
         } catch {
@@ -55,7 +59,9 @@ export function parseTonWallet(rawWallet) {
 }
 
 /**
- * Normalize a wallet to bounceable url-safe friendly form, or null if invalid.
+ * Normalize a wallet while preserving friendly address flags. In particular,
+ * a Testnet non-bounceable 0Q address remains 0Q. Raw addresses have no
+ * friendly flags and therefore use the safe defaults.
  */
 export function normalizeTelegramWallet(rawWallet) {
 
@@ -68,7 +74,8 @@ export function normalizeTelegramWallet(rawWallet) {
     }
 
     return parsed.address.toString({
-        bounceable: true,
+        bounceable: parsed.isBounceable,
+        testOnly: parsed.isTestOnly,
         urlSafe: true
     });
 
