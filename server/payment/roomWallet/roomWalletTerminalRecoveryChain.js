@@ -150,8 +150,6 @@ export async function inspectRoomWalletHistory({
     }
 
     const cutoff = cutoffLt == null ? null : BigInt(cutoffLt);
-    const winnerCanon = canonicalizeTonWalletAddress(winnerWallet);
-    const ownerCanon = canonicalizeTonWalletAddress(ownerWallet);
     const later = [];
     const winnerMatches = [];
     const ownerMatches = [];
@@ -164,7 +162,7 @@ export async function inspectRoomWalletHistory({
         for (const transfer of extractOutboundTransfers(tx)) {
             if (
                 transfer.amountNano === winnerAmountNano
-                && canonicalizeTonWalletAddress(transfer.destination) === winnerCanon
+                && tonWalletAccountsEqual(transfer.destination, winnerWallet)
                 && transfer.success
                 && transfer.bounced !== true
             ) {
@@ -172,7 +170,7 @@ export async function inspectRoomWalletHistory({
             }
             if (
                 transfer.amountNano === ownerAmountNano
-                && canonicalizeTonWalletAddress(transfer.destination) === ownerCanon
+                && tonWalletAccountsEqual(transfer.destination, ownerWallet)
                 && transfer.success
                 && transfer.bounced !== true
             ) {
@@ -190,11 +188,11 @@ export async function inspectRoomWalletHistory({
         return !transfers.every((transfer) => (
             (
                 transfer.amountNano === winnerAmountNano
-                && canonicalizeTonWalletAddress(transfer.destination) === winnerCanon
+                && tonWalletAccountsEqual(transfer.destination, winnerWallet)
             )
             || (
                 transfer.amountNano === ownerAmountNano
-                && canonicalizeTonWalletAddress(transfer.destination) === ownerCanon
+                && tonWalletAccountsEqual(transfer.destination, ownerWallet)
             )
         ));
     });
