@@ -132,7 +132,10 @@ export function canConfirmLocalPayment(paymentSession, localPlayerId) {
         (participant) => String(participant.playerId) === String(localPlayerId)
     );
 
-    return seat?.status === PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION;
+    return (
+        seat?.status === PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
+        || seat?.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
+    );
 
 }
 
