@@ -485,7 +485,8 @@ export class PaymentSession {
             completedAt: this.completedAt,
             correlationId: this.correlationId,
             version: this.version,
-            recoveryMetadata: this.recoveryMetadata
+            recoveryMetadata: this.recoveryMetadata,
+            roomWalletAddress: this.roomWalletAddress
         });
 
     }
