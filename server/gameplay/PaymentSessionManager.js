@@ -30,6 +30,7 @@ import {
 import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
 import {
     allConfirmedParticipantsRefunded,
+    buildPartialPaymentRefundTargets,
     sessionNeedsEscrowUnwind
 } from "./partialPaymentEscrowUnwind.js";
 
@@ -65,7 +66,8 @@ export class PaymentSessionManager {
         financialPersistence = null,
         tonNetwork = null,
         devMode = false,
-        roomWalletPaymentIntakeEnabled = false
+        roomWalletPaymentIntakeEnabled = false,
+        roomWalletSettlementAdapter = null
     }) {
 
         this._logger = logger;
@@ -103,6 +105,8 @@ export class PaymentSessionManager {
         this._devMode = devMode;
 
         this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
+
+        this._roomWalletSettlementAdapter = roomWalletSettlementAdapter ?? null;
 
         this._roomWalletRegistry = null;
 
@@ -166,7 +170,8 @@ export class PaymentSessionManager {
 
     setRoomWalletFinance({
         registry = null,
-        roomWalletPaymentIntakeEnabled = null
+        roomWalletPaymentIntakeEnabled = null,
+        settlementAdapter = null
     } = {}) {
 
         if (registry) {
@@ -180,6 +185,18 @@ export class PaymentSessionManager {
             this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
 
         }
+
+        if (settlementAdapter) {
+
+            this._roomWalletSettlementAdapter = settlementAdapter;
+
+        }
+
+    }
+
+    isRoomWalletPaymentIntakeEnabled() {
+
+        return this._roomWalletPaymentIntakeEnabled === true;
 
     }
 
@@ -860,6 +877,26 @@ export class PaymentSessionManager {
                 }
 
                 pendingSync.push(session);
+
+                if (
+                    this._roomWalletPaymentIntakeEnabled
+                    && sessionNeedsEscrowUnwind(session)
+                    && (
+                        session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING
+                        || Number(session.paymentDeadline ?? 0) <= Date.now()
+                        || !this._roomManager?.getRoom?.(session.roomId)
+                    )
+                ) {
+                    void this._requestRoomWalletPartialPaymentRefund(
+                        session,
+                        session.recoveryMetadata?.unwindReason ?? "room_destroyed"
+                    ).catch((error) => {
+                        this._logger?.error?.(
+                            "Room-Wallet refund recovery failed | roomId=" + session.roomId + " | "
+                                + (error?.message ?? error)
+                        );
+                    });
+                }
 
                 this._emitDomain(EVENT_TYPES.PAYMENT_SESSION_RECOVERED, session);
 
@@ -1975,6 +2012,118 @@ export class PaymentSessionManager {
 
     }
 
+    async _requestRoomWalletPartialPaymentRefund(session, reason = "payment_failed") {
+
+        if (
+            !session
+            || !this._roomWalletPaymentIntakeEnabled
+            || typeof this._roomWalletSettlementAdapter?.refundPayments !== "function"
+        ) {
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_REFUND_UNAVAILABLE"
+            });
+        }
+
+        const { refunds } = buildPartialPaymentRefundTargets(session);
+        const pendingRefunds = refunds.filter((refund) => {
+            const participant = session.findParticipant(refund.playerId);
+            return participant?.refunded !== true;
+        });
+
+        if (pendingRefunds.length === 0) {
+            this._finalizePartialPaymentUnwind(session);
+            return Object.freeze({ ok: true, code: "ALREADY_REFUNDED" });
+        }
+
+        const refundRequestedAt = Number(
+            session.recoveryMetadata?.refundRequestedAt ?? Date.now()
+        );
+
+        session.recoveryMetadata = {
+            ...(session.recoveryMetadata ?? {}),
+            unwindReason: reason,
+            refundRequestedAt
+        };
+
+        if (session.status !== PAYMENT_SESSION_STATUS.REFUND_PENDING) {
+            session.markRefundPending();
+        }
+
+        this._persistSession(session, "update");
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+        const roomNumber = session.roomNumber
+            ?? this._roomWalletRegistry?.getByAddress?.(session.roomWalletAddress)?.roomNumber
+            ?? this._roomWalletRegistry?.getByAddress?.(pendingRefunds[0]?.contractAddress)?.roomNumber
+            ?? null;
+
+        if (roomNumber == null) {
+            this._logger?.error?.(
+                "Room-Wallet refund blocked: room number unavailable | roomId=" + session.roomId
+            );
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_ROOM_NUMBER_UNAVAILABLE"
+            });
+        }
+
+        let result;
+        try {
+            result = await this._roomWalletSettlementAdapter.refundPayments({
+                roomNumber,
+                gameId: session.gameId ?? null,
+                paymentSessionId: session.paymentSessionId,
+                refunds: pendingRefunds,
+                cutoffUtime: refundRequestedAt,
+                confirmationTimeoutMs: 60_000
+            });
+        } catch (error) {
+            this._logger?.error?.(
+                "Room-Wallet partial refund failed | roomId=" + session.roomId + " | "
+                    + (error?.message ?? error)
+            );
+            return Object.freeze({
+                ok: false,
+                retryable: true,
+                code: "ROOM_WALLET_REFUND_ERROR"
+            });
+        }
+
+        for (const refund of result?.results ?? []) {
+            if (refund?.ok !== true) {
+                continue;
+            }
+
+            const participant = session.findParticipant(refund.playerId);
+            if (!participant) {
+                continue;
+            }
+
+            participant.refunded = true;
+            participant.refundTxHash = refund.txHash ?? null;
+        }
+
+        this._persistSession(session, "update");
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+
+        if (allConfirmedParticipantsRefunded(session)) {
+            this._finalizePartialPaymentUnwind(session);
+        }
+
+        return Object.freeze({
+            ok: result?.ok === true && allConfirmedParticipantsRefunded(session),
+            retryable: result?.ok !== true,
+            code: result?.ok === true
+                ? "ROOM_WALLET_REFUNDS_CONFIRMED"
+                : "ROOM_WALLET_REFUND_PENDING",
+            result
+        });
+
+    }
+
     failSession(roomId, reason = "payment_failed") {
 
         const session = this._sessionsByRoom.get(roomId);
@@ -2039,6 +2188,10 @@ export class PaymentSessionManager {
             && typeof this._gameContractManager?.requestPartialPaymentEscrowUnwind
                 === "function";
 
+        const needsRoomWalletRefund = sessionNeedsEscrowUnwind(session)
+            && this._roomWalletPaymentIntakeEnabled
+            && typeof this._roomWalletSettlementAdapter?.refundPayments === "function";
+
         if (reason === "payment_timeout") {
 
             session.markTimedOut();
@@ -2048,6 +2201,31 @@ export class PaymentSessionManager {
         } else {
 
             session.markFailed();
+
+        }
+
+        if (needsRoomWalletRefund) {
+
+            void this._requestRoomWalletPartialPaymentRefund(session, reason).catch((error) => {
+
+                this._logger?.error?.(
+                    "Room-Wallet partial refund orchestration failed | roomId=" + roomId + " | "
+                        + (error?.message ?? error)
+                );
+
+            });
+
+            this._logger.decisionTrace({
+                stage: "TERMINAL_FAILURE",
+                decision: "UNWIND",
+                reason: reason ?? "payment_failed",
+                caller: "PaymentSessionManager.failSession",
+                nextAction: "_requestRoomWalletPartialPaymentRefund",
+                roomId,
+                gameId: session.gameId ?? null
+            });
+
+            return session;
 
         }
 
