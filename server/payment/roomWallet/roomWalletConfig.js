@@ -43,8 +43,11 @@ export function isRoomWalletOnlyFinancialPath({
     env = process.env,
     gameEscrowMode = null
 } = {}) {
-    return isGameEscrowOnlyPlayerPayment(gameEscrowMode)
-        || isRoomWalletPaymentIntakeEnabled(env);
+    void gameEscrowMode;
+
+    // WheelWin player finance is Room-Wallet-only on both networks.
+    // Smart-contract player-payment paths are intentionally not a fallback.
+    return true;
 }
 /**
  * Residual sweep send gate. Default OFF. Independent of payment intake
@@ -75,9 +78,8 @@ export function assertRoomWalletSettlementCanBeEnabled(service) {
 /**
  * Compose the settlement adapter passed to ContractSettlementManager.
  *
- * Default (v4 / flags absent): legacy GameEscrow adapter via a disabled router.
- * GAME_ESCROW_MODE=game or ROOM_WALLET_SETTLEMENT_MODE=ROOM_WALLET requires
- * valid runtime wallet config and fails closed when that configuration is missing.
+ * Room Wallet is the only player-financial settlement path on Testnet and
+ * Mainnet. Legacy GameEscrow settlement is not an active fallback.
  */
 export function composeRoomWalletSettlementRouter({
     legacySettlementAdapter,
@@ -90,8 +92,10 @@ export function composeRoomWalletSettlementRouter({
         throw new Error("composeRoomWalletSettlementRouter requires legacySettlementAdapter");
     }
 
-    const enableSettlement = isGameEscrowOnlyPlayerPayment(gameEscrowMode)
-        || isRoomWalletSettlementEnabled(env);
+    const enableSettlement = isRoomWalletOnlyFinancialPath({
+        env,
+        gameEscrowMode
+    });
 
     if (!enableSettlement) {
         return new RoomWalletSettlementRouter({
