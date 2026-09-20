@@ -33,8 +33,8 @@ for (const [prefix, wallet] of Object.entries(VALID)) {
 
     assert.equal(
         normalizeTelegramWallet(` ${wallet} `),
-        VALID.EQ,
-        `${prefix} → bounceable`
+        wallet,
+        `${prefix} preserves its friendly address flags`
     );
 
 }
