@@ -1,8 +1,9 @@
 /**
- * R18-S16 — One TonConnect sendTransaction for full game entry.
+ * WheelWin player entry payment.
  *
- * Assembles server-authoritative component messages. Does not invent
- * amounts, seats, addresses, or StateInit. Does not call TonConnect.
+ * The only player-payment message is a plain TON transfer to the
+ * server-authoritative Room Wallet for the current game room.
+ * Smart-contract deployment/funding/staking is not a player-payment path.
  */
 
 import { buildDepositDeploymentTransaction } from "./buildDepositDeploymentTransaction.js";
@@ -143,8 +144,16 @@ export function buildEntryPaymentTransaction({
     nowMs = Date.now()
 } = {}) {
 
-    const allowDeploy = gameEscrowOnly === true ? false : includeDeploy === true;
-    const allowFund = gameEscrowOnly === true ? false : includeFund === true;
+    // WheelWin player finance is Room-Wallet-only.
+    // DepositContract/GameEscrow payment components are intentionally disabled.
+    void gameEscrowOnly;
+    void includeDeploy;
+    void includeFund;
+    void gameEscrowAddress;
+    void playerIndex;
+
+    const allowDeploy = false;
+    const allowFund = false;
     const allowStake = includeStake === true;
 
     if (allowDeploy !== true && allowFund !== true && allowStake !== true) {
@@ -202,53 +211,27 @@ export function buildEntryPaymentTransaction({
 
     if (allowStake === true) {
 
-        if (gameEscrowOnly === true) {
+        const destination = String(paymentDestination ?? roomWalletAddress ?? "").trim();
 
-            const destination = String(paymentDestination ?? roomWalletAddress ?? "").trim();
+        if (!destination) {
 
-            if (!destination) {
-
-                throw new Error("Room Wallet address is required for player payment");
-
-            }
-
-            const stakeTx = buildTonConnectPaymentTransaction({
-                contractAddress: destination,
-                requiredGram,
-                plainTransfer: true,
-                validUntilSeconds,
-                nowMs
-            });
-
-            messages.push(...stakeTx.messages);
-            totalNanotons = addNanotons(
-                totalNanotons,
-                stakeTx.messages[0].amount
-            );
-
-        } else {
-
-            if (playerIndex == null || playerIndex === "") {
-
-                throw new Error("playerIndex is required for GameEscrow STAKE payment");
-
-            }
-
-            const stakeTx = buildTonConnectPaymentTransaction({
-                contractAddress: gameEscrowAddress,
-                requiredGram,
-                playerIndex,
-                validUntilSeconds,
-                nowMs
-            });
-
-            messages.push(...stakeTx.messages);
-            totalNanotons = addNanotons(
-                totalNanotons,
-                stakeTx.messages[0].amount
-            );
+            throw new Error("Room Wallet address is required for player payment");
 
         }
+
+        const stakeTx = buildTonConnectPaymentTransaction({
+            contractAddress: destination,
+            requiredGram,
+            plainTransfer: true,
+            validUntilSeconds,
+            nowMs
+        });
+
+        messages.push(...stakeTx.messages);
+        totalNanotons = addNanotons(
+            totalNanotons,
+            stakeTx.messages[0].amount
+        );
 
     }
 
