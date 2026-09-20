@@ -19,7 +19,6 @@ import { Address } from "@ton/core";
 import { keyPairFromSeed } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
-import { isGameEscrowOnlyPlayerPayment } from "../../config/gameEscrowMode.js";
 import { ROOM_WALLET_COUNT, RoomWalletRegistry } from "./RoomWalletRegistry.js";
 
 const PUBLIC_KEY_BYTES = 32;
