@@ -2614,7 +2614,8 @@ export class PaymentSessionManager {
 
             }
 
-            participant.contractAddress = contractAddress;
+            participant.paymentDestination = contractAddress;
+            participant.contractAddress = null;
 
             participant.paymentReference = `payref_${session.paymentSessionId}_${participant.playerId}`;
 
@@ -2630,7 +2631,7 @@ export class PaymentSessionManager {
                 playerIndex: index,
                 requiredGram: participant.requiredGram,
                 paymentDeadline: session.paymentDeadline,
-                contractAddress,
+                paymentDestination: contractAddress,
                 paymentReference: participant.paymentReference
             });
 
