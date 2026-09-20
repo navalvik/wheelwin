@@ -1184,10 +1184,6 @@ export default function Page4Payment({ onNavigate }) {
         lastWalletProofEmitRef.current
         ?? resolveTonConnectSdkAddress(tonConnectUI, tonWallet);
 
-    const connectedWalletAddress = toSessionWalletAddress(
-        connectedWalletRawAddress
-    );
-
     const findWalletBoundPlayerId = (entries, walletFields) => {
 
         if (!Array.isArray(entries) || !connectedWalletRawAddress) {
