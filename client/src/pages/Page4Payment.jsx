@@ -3793,6 +3793,20 @@ export default function Page4Payment({ onNavigate }) {
 
                     )}
 
+                    {/* TEMPORARY PAYMENT DIAGNOSTIC BUTTON.
+                        Intentionally independent of all Page4 visibility/state gates.
+                        Keep visible until the real payment flow is verified. */}
+                    <button
+                        type="button"
+                        className="page4__connectButton"
+                        disabled={false}
+                        onClick={handleConfirmInTelegramWallet}
+                    >
+                        {depositSubmitting
+                            ? t("payment.openingWallet")
+                            : t("payment.confirmInWallet")}
+                    </button>
+
                 </div>
 
             </div>
