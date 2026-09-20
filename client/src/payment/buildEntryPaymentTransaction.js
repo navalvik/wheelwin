@@ -6,8 +6,6 @@
  * Smart-contract deployment/funding/staking is not a player-payment path.
  */
 
-import { buildDepositDeploymentTransaction } from "./buildDepositDeploymentTransaction.js";
-import { buildFundDepositTransaction } from "./buildFundDepositTransaction.js";
 import { buildTonConnectPaymentTransaction } from "./buildTonConnectPaymentTransaction.js";
 
 const DEFAULT_VALID_UNTIL_SECONDS = 600;
@@ -168,72 +166,24 @@ export function buildEntryPaymentTransaction({
 
     }
 
-    const messages = [];
-    let totalNanotons = "0";
+    const destination = String(paymentDestination ?? roomWalletAddress ?? "").trim();
 
-    if (allowDeploy === true) {
+    if (!destination) {
 
-        const deployTx = buildDepositDeploymentTransaction({
-            depositPackage,
-            depositAddress,
-            isCreator: true,
-            network,
-            validUntilSeconds,
-            nowMs
-        });
-
-        messages.push(...deployTx.messages);
-        totalNanotons = addNanotons(
-            totalNanotons,
-            deployTx.messages[0].amount
-        );
+        throw new Error("Room Wallet address is required for player payment");
 
     }
 
-    if (allowFund === true) {
+    const amount = buildTonConnectPaymentTransaction({
+        contractAddress: destination,
+        requiredGram,
+        plainTransfer: true,
+        validUntilSeconds,
+        nowMs
+    });
 
-        const fundTx = buildFundDepositTransaction({
-            depositAddress,
-            mySeatIndex,
-            myExpectedAmountNanotons,
-            network,
-            validUntilSeconds,
-            nowMs
-        });
-
-        messages.push(...fundTx.messages);
-        totalNanotons = addNanotons(
-            totalNanotons,
-            fundTx.messages[0].amount
-        );
-
-    }
-
-    if (allowStake === true) {
-
-        const destination = String(paymentDestination ?? roomWalletAddress ?? "").trim();
-
-        if (!destination) {
-
-            throw new Error("Room Wallet address is required for player payment");
-
-        }
-
-        const stakeTx = buildTonConnectPaymentTransaction({
-            contractAddress: destination,
-            requiredGram,
-            plainTransfer: true,
-            validUntilSeconds,
-            nowMs
-        });
-
-        messages.push(...stakeTx.messages);
-        totalNanotons = addNanotons(
-            totalNanotons,
-            stakeTx.messages[0].amount
-        );
-
-    }
+    const messages = amount.messages;
+    const totalNanotons = amount.messages[0]?.amount ?? "0";
 
     const ttl = Number(validUntilSeconds);
 
