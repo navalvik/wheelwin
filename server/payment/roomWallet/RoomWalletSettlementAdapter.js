@@ -270,7 +270,6 @@ export class RoomWalletSettlementAdapter {
             return null;
         }
 
-        const destination = canonicalizeTonWalletAddress(wallet);
         const cutoff = resolveCutoffUtime({ cutoffUtime });
         const transactions = await this._roomWalletAdapter.getTransactions(
             roomNumber,
