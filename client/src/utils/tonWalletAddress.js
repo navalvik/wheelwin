@@ -32,8 +32,22 @@ export function toSessionWalletAddress(rawAddress) {
     }
 
     return parsed.address.toString({
-        bounceable: true,
+        bounceable: parsed.isBounceable,
+        testOnly: parsed.isTestOnly,
         urlSafe: true
     });
+
+}
+
+export function tonWalletAccountsEqual(left, right) {
+
+    const leftParsed = parseTonWallet(left);
+    const rightParsed = parseTonWallet(right);
+
+    return Boolean(
+        leftParsed.valid
+        && rightParsed.valid
+        && leftParsed.address.equals(rightParsed.address)
+    );
 
 }
