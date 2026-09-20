@@ -37,11 +37,11 @@ const eq = ZERO.toString({ bounceable: true, urlSafe: true, testOnly: false });
 
 assert.equal(canonicalizeTonWalletAddress(friendly), friendly);
 
-assert.equal(canonicalizeTonWalletAddress(uq), eq);
+assert.equal(canonicalizeTonWalletAddress(uq), uq);
 
-assert.equal(canonicalizeTonWalletAddress(kq), eq);
+assert.equal(canonicalizeTonWalletAddress(kq), kq);
 
-assert.equal(canonicalizeTonWalletAddress(zq), eq);
+assert.equal(canonicalizeTonWalletAddress(zq), zq);
 
 assert.equal(canonicalizeTonWalletAddress("EQ123"), null);
 
@@ -64,6 +64,12 @@ assert.equal(
 assert.equal(
     sessionWalletsMatch(friendly, "EQnot-the-same-wallet-address-xxxxxxxxxxxx"),
     false
+);
+
+assert.equal(
+    sessionWalletsMatch(zq, eq),
+    true,
+    "0Q and EQ forms of the same account must match"
 );
 
 const session = WalletConnectionSession.createInitial("room-1", [
