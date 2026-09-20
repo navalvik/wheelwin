@@ -832,7 +832,7 @@ export default function Page4Payment({ onNavigate }) {
             deposit: depositProjection,
             paymentSession,
             gameContract,
-            localPlayerId,
+            localPlayerId: runtimeLocalPlayerId,
             lifecycle
         });
 
@@ -851,7 +851,7 @@ export default function Page4Payment({ onNavigate }) {
             deposit: depositProjection,
             paymentSession,
             gameContract,
-            localPlayerId,
+            localPlayerId: runtimeLocalPlayerId,
             lifecycle
         })) {
 
