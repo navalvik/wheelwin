@@ -1763,6 +1763,7 @@ class WheelWinApplication {
 
         this._paymentSessionManager.setRoomWalletFinance({
             registry: this._roomWalletRegistry,
+            settlementAdapter: this._roomWalletSettlementRouter,
             roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
                 env: process.env,
                 gameEscrowMode: this._tonConfig?.gameEscrowMode
