@@ -5,14 +5,15 @@
  * environment configuration. No private key material belongs in source control
  * or in RoomWalletRegistry.
  *
- * Expected environment variable:
- *   ROOM_WALLETS_JSON='[{"roomNumber":1,"address":"...","publicKey":"hex","secretKey":"hex","workchain":0}]'
+ * Expected environment variables:
+ *   Testnet: ROOM_WALLETS_TESTNET_JSON (ROOM_WALLETS_JSON is a legacy Testnet fallback)
+ *   Mainnet: ROOM_WALLETS_MAINNET_JSON
  *
  * publicKey/secretKey may be hex (preferred) or base64. The parser validates
  * the basic byte lengths required by WalletContractV4, that secretKey derives
  * publicKey, and that address is the WalletContractV4 address for that key.
  *
- * ROOM_WALLETS_JSON is a secret. Never log, print, or return its raw value.
+ * Room Wallet catalog variables are secrets. Never log, print, or return raw values.
  */
 
 import { Address } from "@ton/core";
@@ -68,15 +69,15 @@ export function loadRoomWalletRuntimeConfig(env = process.env) {
     try {
         parsed = JSON.parse(raw);
     } catch {
-        throw new Error("ROOM_WALLETS_JSON is not valid JSON");
+        throw new Error("Room Wallet catalog is not valid JSON");
     }
 
     if (!Array.isArray(parsed)) {
-        throw new TypeError("ROOM_WALLETS_JSON must contain an array");
+        throw new TypeError("Room Wallet catalog must contain an array");
     }
 
     if (parsed.length > ROOM_WALLET_COUNT) {
-        throw new RangeError(`ROOM_WALLETS_JSON cannot contain more than ${ROOM_WALLET_COUNT} wallets`);
+        throw new RangeError(`Room Wallet catalog cannot contain more than ${ROOM_WALLET_COUNT} wallets`);
     }
 
     const envNetwork = network;
@@ -114,7 +115,7 @@ export function loadRoomWalletRuntimeConfig(env = process.env) {
     }
 
     if (seenNetworks.size > 1) {
-        throw new Error("ROOM_WALLETS_JSON cannot mix network values");
+        throw new Error("Room Wallet catalog cannot mix network values");
     }
 
     if (intakeEnabled) {
@@ -173,7 +174,7 @@ function isRoomWalletPaymentIntakeModeEnabled(env) {
 function assertCompleteRoomWalletCatalog(entries) {
     if (entries.length !== ROOM_WALLET_COUNT) {
         throw new RangeError(
-            `ROOM_WALLETS_JSON must contain exactly ${ROOM_WALLET_COUNT} wallets when Room Wallet intake is enabled`
+            `Room Wallet catalog must contain exactly ${ROOM_WALLET_COUNT} wallets when Room Wallet intake is enabled`
         );
     }
 
@@ -182,7 +183,7 @@ function assertCompleteRoomWalletCatalog(entries) {
     for (let roomNumber = 1; roomNumber <= ROOM_WALLET_COUNT; roomNumber += 1) {
         if (!present.has(roomNumber)) {
             throw new RangeError(
-                `ROOM_WALLETS_JSON is missing roomNumber ${roomNumber}`
+                `Room Wallet catalog is missing roomNumber ${roomNumber}`
             );
         }
     }
