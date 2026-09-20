@@ -33,7 +33,9 @@ export function extractTonWalletAddressInput(rawWallet) {
 /**
  * P6.2 / R6.x — Compare a TON Connect address to a session wallet.
  * Server-authoritative; official @ton/core parser only (no prefix / length gates).
- * Canonical form is bounceable URL-safe friendly (workchain + account hash).
+ * Canonical form preserves the friendly bounceable/non-bounceable and
+ * testnet-only flags supplied by the caller. Account equality below remains
+ * flag-independent because those flags are presentation/network metadata.
  */
 export function canonicalizeTonWalletAddress(rawWallet) {
 
@@ -50,7 +52,8 @@ export function canonicalizeTonWalletAddress(rawWallet) {
         const parsed = Address.parseFriendly(trimmed);
 
         return parsed.address.toString({
-            bounceable: true,
+            bounceable: parsed.isBounceable,
+            testOnly: parsed.isTestOnly,
             urlSafe: true
         });
 
@@ -79,11 +82,24 @@ export function canonicalizeTonWalletAddress(rawWallet) {
  */
 export function tonWalletAccountsEqual(left, right) {
 
-    const canonicalLeft = canonicalizeTonWalletAddress(left);
+    const leftInput = extractTonWalletAddressInput(left);
+    const rightInput = extractTonWalletAddressInput(right);
 
-    const canonicalRight = canonicalizeTonWalletAddress(right);
+    if (!leftInput || !rightInput) {
 
-    return Boolean(canonicalLeft && canonicalRight && canonicalLeft === canonicalRight);
+        return false;
+
+    }
+
+    try {
+
+        return Address.parse(leftInput).equals(Address.parse(rightInput));
+
+    } catch {
+
+        return false;
+
+    }
 
 }
 
@@ -135,7 +151,7 @@ export function sessionWalletsMatch(sessionWallet, connectedWallet) {
 
     const right = canonicalizeTonWalletAddress(connectedWallet);
 
-    const result = Boolean(left && right && left === right);
+    const result = tonWalletAccountsEqual(sessionWallet, connectedWallet);
 
     // R6.3 TEMP DEBUG — remove after runtime trace
     console.log("[R6.3 TRACE] sessionWalletsMatch", {
