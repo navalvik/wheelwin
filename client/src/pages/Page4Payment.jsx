@@ -55,7 +55,10 @@ import {
     syncAutopsyFromReport
 } from "../diagnostics/tonConnectAutopsy";
 
-import { toSessionWalletAddress } from "../utils/tonWalletAddress";
+import {
+    toSessionWalletAddress,
+    tonWalletAccountsEqual
+} from "../utils/tonWalletAddress";
 
 import socket from "../socket/socket";
 
@@ -75,31 +78,73 @@ function resolvePage4LocalPlayerId({
     players = {},
     verifyCompleted = false,
     walletAddress = null,
-    paymentSession = null
+    paymentSession = null,
+    walletConnection = null
 } = {}) {
 
-    const normalizedWallet = toSessionWalletAddress(walletAddress);
+    // Page4 seat identity is authoritative by wallet account, not by friendly
+    // representation. This covers TonConnect raw addresses and Testnet 0Q...
+    // addresses without collapsing the displayed Testnet flag.
+    const walletInput = walletAddress;
 
-    // Page4 must prefer the authoritative PaymentSession wallet binding.
-    // PlayerIdentity can be stale after VERIFY/Telegram WebView restoration.
-    if (normalizedWallet) {
+    const findWalletBoundPlayerId = (entries, walletFields) => {
 
-        const paymentSeat = Array.isArray(paymentSession?.participants)
-            ? paymentSession.participants.find(
-                (participant) =>
-                    toSessionWalletAddress(
-                        participant?.walletAddress
-                            ?? participant?.wallet
-                            ?? null
-                    ) === normalizedWallet
-            )
-            : null;
+        if (!Array.isArray(entries) || !walletInput) {
 
-        if (paymentSeat?.playerId) {
-
-            return paymentSeat.playerId;
+            return null;
 
         }
+
+        const matched = entries.find((entry) => {
+
+            const candidate = walletFields
+                .map((field) => entry?.[field])
+                .find((value) => Boolean(value));
+
+            return Boolean(candidate)
+                && tonWalletAccountsEqual(candidate, walletInput);
+
+        });
+
+        return matched?.playerId ?? null;
+
+    };
+
+    const paymentSeatPlayerId = findWalletBoundPlayerId(
+        paymentSession?.participants,
+        ["walletAddress", "wallet"]
+    );
+
+    if (paymentSeatPlayerId) {
+
+        return paymentSeatPlayerId;
+
+    }
+
+    const walletConnectionPlayerId = findWalletBoundPlayerId(
+        walletConnection?.players,
+        ["connectedWallet", "sessionWallet"]
+    );
+
+    if (walletConnectionPlayerId) {
+
+        return walletConnectionPlayerId;
+
+    }
+
+    const authoritativePlayerWalletId = Object.values(players ?? {}).find(
+        (player) => {
+            const candidate = player?.walletAddress ?? player?.wallet ?? null;
+
+            return Boolean(candidate)
+                && Boolean(walletInput)
+                && tonWalletAccountsEqual(candidate, walletInput);
+        }
+    )?.playerId ?? null;
+
+    if (authoritativePlayerWalletId) {
+
+        return authoritativePlayerWalletId;
 
     }
 
@@ -109,41 +154,9 @@ function resolvePage4LocalPlayerId({
         { verifyCompleted }
     );
 
-    if (resolved) {
-
-        return resolved;
-
-    }
-
-    // Final authoritative fallback: match the connected wallet against
-    // the server's player wallet fields.
-    if (normalizedWallet) {
-
-        const playerSeat = Object.values(players ?? {}).find(
-            (player) => {
-                const playerWallet = toSessionWalletAddress(
-                    player?.walletAddress
-                        ?? player?.wallet
-                        ?? null
-                );
-
-                return Boolean(playerWallet)
-                    && playerWallet === normalizedWallet;
-            }
-        );
-
-        if (playerSeat?.playerId) {
-
-            return playerSeat.playerId;
-
-        }
-
-    }
-
-    return null;
+    return resolved ?? null;
 
 }
-
 function describePage4SendTransactionForensicContext({
     roomId = null,
     gameId = null,
@@ -1279,7 +1292,8 @@ export default function Page4Payment({ onNavigate }) {
         verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted),
         walletAddress: lastWalletProofEmitRef.current
             ?? resolveTonConnectSdkAddress(tonConnectUI, tonWallet),
-        paymentSession: authoritative?.paymentSession ?? null
+        paymentSession: authoritative?.paymentSession ?? null,
+        walletConnection
     });
 
     const paymentPhase = resolvePage4PaymentPhase({
