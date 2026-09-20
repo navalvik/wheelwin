@@ -702,12 +702,19 @@ export class RoomWalletIncomingObserver {
         const now = this._now();
 
         for (const session of sessions) {
-            const intended = resolveIntendedRoomWalletAddress({
+            // The PaymentSession is authoritative for the active payment
+            // destination. The registry is only the catalog/identity source
+            // used when a session has no persisted destination (legacy recovery).
+            const persistedDestination = canonicalizeTonWalletAddress(
+                session.roomWalletAddress
+            );
+            const catalogDestination = resolveIntendedRoomWalletAddress({
                 roomId: session.roomId,
                 roomNumber: session.roomNumber,
                 roomManager: this._roomManager,
                 session
             }, this._registry);
+            const intended = persistedDestination ?? catalogDestination;
 
             for (const participant of session.participants ?? []) {
                 const wallet = canonicalizeTonWalletAddress(participant.wallet);
