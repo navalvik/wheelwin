@@ -844,7 +844,14 @@ export function authoritativeSessionReducer(state, action) {
                         playerIndex: participant?.playerIndex ?? null,
                         requiredGram: participant?.requiredGram ?? null,
                         status: participant?.status ?? "WAITING",
-                        wallet: participant?.wallet ?? null,
+                        wallet: participant?.wallet
+                            ?? participant?.walletAddress
+                            ?? null,
+                        walletAddress: participant?.walletAddress
+                            ?? participant?.wallet
+                            ?? null,
+                        paymentDestination: participant?.paymentDestination
+                            ?? null,
                         paymentReference: participant?.paymentReference ?? null,
                         contractAddress: participant?.contractAddress ?? null,
                         txHash: participant?.txHash ?? null
