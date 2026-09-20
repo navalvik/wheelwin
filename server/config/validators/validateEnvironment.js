@@ -720,4 +720,16 @@ export function validateEnvironment(collector, env) {
         env.ROOM_WALLETS_JSON
     );
 
+    validateStringField(
+        collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLETS_TESTNET_JSON,
+        env.ROOM_WALLETS_TESTNET_JSON
+    );
+
+    validateStringField(
+        collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLETS_MAINNET_JSON,
+        env.ROOM_WALLETS_MAINNET_JSON
+    );
+
 }
