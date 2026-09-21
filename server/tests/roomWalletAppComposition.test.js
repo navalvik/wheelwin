@@ -268,7 +268,8 @@ test("app.js wires the Room Wallet router into ContractSettlementManager", () =>
     );
     assert.match(
         source,
-        /skipBlockchainDeploy:\s*isRoomWalletOnlyFinancialPath\(\{/\n    );
+        /skipBlockchainDeploy:\s*isRoomWalletOnlyFinancialPath\(\{/
+    );
     assert.match(source, /RoomWalletResidualSweepWorker/);
     assert.match(source, /new RoomWalletResidualSweepRepository/);
 });
