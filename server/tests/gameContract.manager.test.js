@@ -435,6 +435,22 @@ async function main() {
 
     {
         const { eventBus, manager } = createHarness({ skipBlockchainDeploy: true });
+        const deployCalls = [];
+
+        manager._deployAdapter = {
+            async deploy(payload) {
+
+                deployCalls.push(payload);
+
+                return {
+                    ok: true,
+                    contractAddress: "EQmust-not-deploy",
+                    deploymentTxId: "tx-must-not-deploy",
+                    deployedAt: Date.now()
+                };
+
+            }
+        };
 
         manager.createContract("room-1", { gameId: "game-1" });
 
@@ -443,6 +459,10 @@ async function main() {
         const waiting = manager.getContract("room-1");
 
         assert.equal(waiting.status, GAME_CONTRACT_STATUS.AWAITING_PAYMENTS);
+        assert.equal(deployCalls.length, 0);
+        assert.equal(waiting.contractAddress, null);
+        assert.ok(waiting.snapshotHash);
+        assert.ok(waiting.snapshot);
 
         assert.throws(
             () => manager.markWinnerPending("room-1"),
