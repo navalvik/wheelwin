@@ -7,18 +7,31 @@
  *
  * Expected environment variables:
  *   Testnet: ROOM_WALLETS_TESTNET_JSON (ROOM_WALLETS_JSON is a legacy Testnet fallback)
+ *            ROOM_WALLETS_TESTNET_JSON_PATH (local file-path source; points to the
+ *            catalog JSON file. Relative paths are resolved from the server project
+ *            root; absolute paths are used as-is. Used only when the direct
+ *            ROOM_WALLETS_TESTNET_JSON value is absent.)
  *   Mainnet: ROOM_WALLETS_MAINNET_JSON
+ *
+ * Testnet source precedence: ROOM_WALLETS_TESTNET_JSON →
+ * ROOM_WALLETS_TESTNET_JSON_PATH → ROOM_WALLETS_JSON (legacy).
+ * Mainnet keeps its single direct variable with no fallback.
  *
  * publicKey/secretKey may be hex (preferred) or base64. The parser validates
  * the basic byte lengths required by WalletContractV4, that secretKey derives
  * publicKey, and that address is the WalletContractV4 address for that key.
  *
  * Room Wallet catalog variables are secrets. Never log, print, or return raw values.
+ * File-path sources are read without ever logging file contents; failures report
+ * only the resolved path and a failure reason.
  */
 
+import { readFileSync } from "node:fs";
 import { Address } from "@ton/core";
 import { keyPairFromSeed } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { ROOM_WALLET_COUNT, RoomWalletRegistry } from "./RoomWalletRegistry.js";
 
@@ -32,6 +45,19 @@ const ROOM_WALLET_ENV_BY_NETWORK = Object.freeze({
     mainnet: "ROOM_WALLETS_MAINNET_JSON"
 });
 
+const ROOM_WALLETS_TESTNET_JSON_PATH_ENV = "ROOM_WALLETS_TESTNET_JSON_PATH";
+
+/**
+ * Server project root (…/server), derived from this module's location so that
+ * relative ROOM_WALLETS_TESTNET_JSON_PATH values resolve identically regardless
+ * of the process working directory.
+ */
+const SERVER_PROJECT_ROOT = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    ".."
+);
+
 export function loadRoomWalletRuntimeConfig(env = process.env) {
     const network = normalizeOptionalNetwork(env.TON_NETWORK);
 
@@ -44,12 +70,22 @@ export function loadRoomWalletRuntimeConfig(env = process.env) {
     const networkEnvKey = ROOM_WALLET_ENV_BY_NETWORK[network];
     const networkRaw = String(env?.[networkEnvKey] ?? "").trim();
 
+    let raw = networkRaw;
+
+    // Local file-path source (Testnet only). Evaluated lazily and only when the
+    // direct ROOM_WALLETS_TESTNET_JSON value is absent, so deployments that
+    // supply the catalog directly (e.g. Railway Variables) never touch the file.
+    if (!raw && network === "testnet") {
+        raw = readTestnetRoomWalletCatalogFromPath(
+            env?.[ROOM_WALLETS_TESTNET_JSON_PATH_ENV]
+        );
+    }
+
     // Testnet compatibility: existing deployments used ROOM_WALLETS_JSON.
     // Mainnet deliberately has no cross-network fallback.
-    const raw = networkRaw
-        || (network === "testnet"
-            ? String(env.ROOM_WALLETS_JSON ?? "").trim()
-            : "");
+    if (!raw && network === "testnet") {
+        raw = String(env.ROOM_WALLETS_JSON ?? "").trim();
+    }
 
     const intakeEnabled = true;
 
@@ -187,6 +223,66 @@ function assertCompleteRoomWalletCatalog(entries) {
             );
         }
     }
+}
+
+/**
+ * Local file-path source for the Testnet Room Wallet catalog.
+ *
+ * Returns "" when the path variable is absent so the legacy compatibility
+ * fallback (and finally the existing configuration error) still applies.
+ * Reads the file without ever exposing its contents: every failure message
+ * carries only the resolved path and a failure reason.
+ */
+function readTestnetRoomWalletCatalogFromPath(rawValue) {
+    const configuredPath = String(rawValue ?? "").trim();
+
+    if (!configuredPath) {
+        return "";
+    }
+
+    const resolvedPath = isAbsolute(configuredPath)
+        ? configuredPath
+        : resolve(SERVER_PROJECT_ROOT, configuredPath);
+
+    let contents;
+
+    try {
+        contents = readFileSync(resolvedPath, "utf8");
+    } catch (error) {
+        if (error?.code === "ENOENT") {
+            throw new Error(
+                ROOM_WALLETS_TESTNET_JSON_PATH_ENV
+                    + " file not found: "
+                    + resolvedPath
+            );
+        }
+
+        throw new Error(
+            ROOM_WALLETS_TESTNET_JSON_PATH_ENV
+                + " could not be read ("
+                + (error?.code ?? "unknown error")
+                + "): "
+                + resolvedPath
+        );
+    }
+
+    const raw = String(contents).trim();
+
+    if (!raw) {
+        throw new Error(
+            "Room Wallet catalog file is empty: " + resolvedPath
+        );
+    }
+
+    try {
+        JSON.parse(raw);
+    } catch {
+        throw new Error(
+            "Room Wallet catalog file is not valid JSON: " + resolvedPath
+        );
+    }
+
+    return raw;
 }
 
 function normalizeEntry(entry) {

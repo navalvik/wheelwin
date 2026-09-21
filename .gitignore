@@ -40,3 +40,6 @@ server/room-wallet-provisioning/
 server/scripts/room-wallet-provisioning/
 *room-wallets-testnet*.json
 *ROOM_WALLETS_JSON.json
+
+# Local Testnet Room Wallet runtime catalog (copied from offline secrets — never commit)
+server/config/room-wallets-testnet-ROOM_WALLETS_JSON.json
