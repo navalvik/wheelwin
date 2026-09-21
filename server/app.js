@@ -1353,6 +1353,7 @@ class WheelWinApplication {
             sessionWalletStore: this._sessionWalletStore,
             blockchainMonitor: this._blockchainMonitor,
             financialPersistence: this._financialPersistence,
+            tonNetwork: this._tonConfig?.network ?? null,
             devMode: this._productionConfig.isDevelopment,
             roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
                 env: process.env,
@@ -1699,7 +1700,13 @@ class WheelWinApplication {
                 eventBus: this._eventBus,
                 paymentSessionManager: this._paymentSessionManager,
                 deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator,
+                // Room Wallet is the only active player-financial path.
+                // Do not create GameEscrow deployment authorizations for Room-Wallet games.
                 enabled: isGameEscrowOnlyPlayerPayment(this._tonConfig?.gameEscrowMode)
+                    && !isRoomWalletOnlyFinancialPath({
+                        env: process.env,
+                        gameEscrowMode: this._tonConfig?.gameEscrowMode
+                    })
             });
 
         this._gameEscrowDeploymentAuthorizationAutomation.initialize();

@@ -2520,7 +2520,11 @@ export class ContractSettlementManager {
         }
 
         session.transitionTo(SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED, {
-            completedAt: Date.now()
+            completedAt: Date.now(),
+            // Retryable intermediate reasons (for example UNCERTAIN_BROADCAST)
+            // must not survive into a terminal successful settlement record.
+            reason: null,
+            failedAt: null
         });
 
         this._gameContractManager.completeContract?.(session.roomId);
