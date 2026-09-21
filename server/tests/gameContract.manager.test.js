@@ -464,6 +464,12 @@ async function main() {
         assert.ok(waiting.snapshotHash);
         assert.ok(waiting.snapshot);
 
+        // Direct/manual deploy entry must also remain a hard no-op in Room Wallet mode.
+        const directResult = await manager.deployContract("room-1");
+        assert.equal(directResult.contractId, waiting.contractId);
+        assert.equal(deployCalls.length, 0);
+        assert.equal(manager.getContract("room-1").status, GAME_CONTRACT_STATUS.AWAITING_PAYMENTS);
+
         assert.throws(
             () => manager.markWinnerPending("room-1"),
             InvalidContractStateTransitionError
