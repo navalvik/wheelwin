@@ -13,6 +13,7 @@ import {
     GameContract
 } from "../models/GameContract.js";
 import { ContractSettlementManager } from "../payment/ContractSettlementManager.js";
+import { RoomWalletSettlementRouter } from "../payment/RoomWalletSettlementRouter.js";
 import { SettlementSession } from "../payment/SettlementSession.js";
 import { SETTLEMENT_SESSION_STATUS } from "../payment/SettlementSessionStates.js";
 import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
@@ -119,6 +120,7 @@ function createManager({
     eventBus,
     contract,
     adapter,
+    settlementAdapter = adapter,
     blockchainMonitor = null
 }) {
 
@@ -163,7 +165,7 @@ function createManager({
 
             }
         },
-        settlementAdapter: adapter,
+        settlementAdapter,
         financialPersistence: persistence,
         deployerWalletAddress: DEPLOYER,
         blockchainMonitor: blockchainMonitor ?? {
@@ -599,6 +601,82 @@ async function main() {
         eventBus.shutdown();
 
         console.log("  TEST D duplicate recovery: OK");
+
+    }
+
+    // --- TEST E: ROOM_WALLET router after restart → legacy adapter never used ---
+
+    {
+        const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-r94-room-wallet-"));
+
+        const persistence = new TonFinancialPersistence({
+            dataDir,
+            autoCheckpoint: false
+        });
+
+        persistence.initialize();
+
+        const contract = buildContract("game-e", "room-e");
+
+        seedPersistedSession({
+            persistence,
+            contract,
+            status: SETTLEMENT_SESSION_STATUS.CREATED
+        });
+
+        persistence.shutdown({ checkpoint: false });
+
+        const persistence2 = new TonFinancialPersistence({
+            dataDir,
+            autoCheckpoint: false
+        });
+
+        persistence2.initialize();
+
+        const eventBus = new EventBus({
+            logger: createLogger(),
+            eventBusConfig: { logEvents: false, showDebugPanel: false }
+        });
+
+        eventBus.initialize();
+
+        const legacy = createAdapterCounter();
+        const roomWallet = createAdapterCounter();
+        const router = new RoomWalletSettlementRouter({
+            legacySettlementAdapter: legacy,
+            roomWalletSettlementAdapter: roomWallet,
+            enabled: true
+        });
+
+        const manager = createManager({
+            persistence: persistence2,
+            eventBus,
+            contract,
+            adapter: legacy,
+            settlementAdapter: router
+        });
+
+        manager.initialize();
+
+        const restored = manager.restoreSettlementSessions();
+        assert.equal(restored.restored, 1, "TEST E: restored CREATED");
+
+        const resume = await manager.resumeRestoredSettlements();
+
+        assert.equal(resume.resumed, 1, "TEST E: Room Wallet settlement resumed");
+        assert.equal(roomWallet.state.calls, 1, "TEST E: Room Wallet adapter called once");
+        assert.equal(legacy.state.calls, 0, "TEST E: legacy adapter must not be called");
+        assert.equal(
+            manager.getSettlementSession("game-e").status,
+            SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
+        );
+
+        manager.shutdown();
+        persistence2.shutdown({ checkpoint: false });
+        TonFinancialPersistence.destroyStorage(dataDir);
+        eventBus.shutdown();
+
+        console.log("  TEST E ROOM_WALLET router resume: OK");
 
     }
 
