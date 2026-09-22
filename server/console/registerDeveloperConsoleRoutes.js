@@ -216,13 +216,13 @@ export function registerDeveloperConsoleRoutes(
      */
     app.post("/console/settlements/operator-recovery", adminGate, async (req, res) => {
 
-        if (!req.app?.locals?.roomWalletTerminalSettlementRecovery) {
+        if (!roomWalletTerminalSettlementRecovery) {
             res.status(503).json({ error: "Terminal settlement recovery unavailable" });
             return;
         }
 
         try {
-            const result = await req.app.locals.roomWalletTerminalSettlementRecovery.recover({
+            const result = await roomWalletTerminalSettlementRecovery.recover({
                 gameId: req.body?.gameId,
                 roomNumber: req.body?.roomNumber,
                 roomWalletAddress: req.body?.roomWalletAddress
