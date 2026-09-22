@@ -631,20 +631,49 @@ function evidenceFromHistory(record, sealed) {
     const settlement = record.blockchain?.settlement
         ?? record.settlement
         ?? {};
+    const gameResult = record.gameResult
+        ?? record.finalSnapshot?.gameResult
+        ?? null;
+    const paymentPreparation = record.paymentPreparation
+        ?? record.finalSnapshot?.paymentPreparation
+        ?? null;
+
+    const winnerId = settlement.winnerId
+        ?? gameResult?.winningPlayerId
+        ?? paymentPreparation?.winnerId
+        ?? null;
+
+    const winnerWallet = settlement.winnerWallet
+        ?? (Array.isArray(record.players)
+            ? record.players.find(
+                (player) => String(player?.playerId) === String(winnerId)
+            )?.walletAddress
+            : null)
+        ?? null;
+
     return {
         gameId: record.gameId,
         roomId: record.roomId,
         roomNumber: sealed?.roomNumber,
         roomWalletAddress: sealed?.roomWalletAddress,
-        winnerId: settlement.winnerId ?? null,
-        winnerWallet: settlement.winnerWallet,
+        winnerId,
+        winnerWallet,
         ownerWallet: settlement.commissionWallet ?? sealed?.ownerWallet,
-        winnerAmount: settlement.winnerAmount,
-        organizerAmount: settlement.commissionAmount ?? settlement.organizerAmount,
+        winnerAmount: settlement.winnerAmount
+            ?? paymentPreparation?.winnerAmount
+            ?? null,
+        organizerAmount: settlement.commissionAmount
+            ?? settlement.organizerAmount
+            ?? paymentPreparation?.organizerAmount
+            ?? null,
         originalStatus: settlement.status ?? sealed?.originalStatus,
         originalFailureReason: settlement.error ?? sealed?.originalFailureReason,
         lastInboundLt: sealed?.lastInboundLt,
         lastInboundUtime: sealed?.lastInboundUtime,
-        source: "session_history"
+        source: settlement.winnerId
+            || settlement.winnerWallet
+            || settlement.winnerAmount != null
+            ? "session_history_settlement"
+            : "session_history_result"
     };
 }
