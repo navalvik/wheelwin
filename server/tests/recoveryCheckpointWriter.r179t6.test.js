@@ -323,6 +323,7 @@ function buildGraph(prefix) {
             return {
                 paymentSessionId: PAYMENT_SESSION_ID,
                 network: "testnet",
+                roomWalletAddress: `EQroomwallet_${prefix}`,
                 participants: playerIds.map((playerId, index) => ({
                     playerId,
                     wallet: `EQwallet_${prefix}_${index}`
@@ -1384,6 +1385,7 @@ function advanceThroughPhases(graph, { stopPhysicsAtEnd = false } = {}) {
             getSessionByGameId: () => ({
                 paymentSessionId: PAYMENT_SESSION_ID,
                 network: "testnet",
+                roomWalletAddress: `EQroomwallet_${prefix}`,
                 participants: graph.playerIds.map((playerId, index) => ({
                     playerId,
                     wallet: `EQwallet_fail_${index}`
