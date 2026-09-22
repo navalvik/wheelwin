@@ -51,7 +51,6 @@ export class GameplayLifecycle {
         waitForAudit = false,
         gameManager,
         contractSettlementManager = null,
-        gameContractManager = null,
         devMode = false
     }) {
 
@@ -94,8 +93,6 @@ export class GameplayLifecycle {
         this._gameManager = gameManager;
 
         this._contractSettlementManager = contractSettlementManager;
-
-        this._gameContractManager = gameContractManager;
 
         this._devMode = devMode;
 
@@ -186,12 +183,6 @@ export class GameplayLifecycle {
         if (contractSettlementManager) {
 
             this._contractSettlementManager = contractSettlementManager;
-
-        }
-
-        if (gameContractManager) {
-
-            this._gameContractManager = gameContractManager;
 
         }
 
@@ -418,7 +409,7 @@ export class GameplayLifecycle {
      * R8.6 / R8.8 — Winner required. Financially activated / contracted games
      * wait for settlement terminal. Missing contract after entry-payment is
      * UNKNOWN → keep game alive (never treat as unpaid).
-     * ContractSettlementManager / GameContract evidence is never deleted here.
+     * ContractSettlementManager evidence is never deleted here.
      */
     _isSettlementReadyForTeardown(gameId) {
 
@@ -444,16 +435,6 @@ export class GameplayLifecycle {
 
         }
 
-        const contract = this._gameContractManager
-            ?.getContractByGameId?.(gameId)
-            ?? null;
-
-        if (contract) {
-
-            return false;
-
-        }
-
         // R8.8 — ENTRY_PAYMENT_COMPLETED activation ⇒ financially relevant.
         // Absent live contract/session is NOT proof of unpaid.
         if (this._gameManager?.wasEntryPaymentActivated?.(gameId)) {
@@ -469,13 +450,6 @@ export class GameplayLifecycle {
         const snapshot = this._gameManager?.getGame?.(gameId);
 
         const roomId = snapshot?.roomId ?? null;
-
-        if (roomId
-            && this._gameContractManager?.getContract?.(roomId)) {
-
-            return false;
-
-        }
 
         if (roomId
             && this._gameManager?.hasInitializedGameplay?.(roomId)
