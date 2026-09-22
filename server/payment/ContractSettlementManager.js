@@ -2344,22 +2344,20 @@ export class ContractSettlementManager {
 
     _validateSettlement(gameId, winnerPayload) {
 
-        const roomId = this._gameplayContextResolver
-            ?.resolveRoomByGameId?.(gameId)
-            ?? this._gameContractManager?.getContractByGameId?.(gameId)?.roomId
-            ?? null;
-
         const roomWalletActive = this._isRoomWalletSettlementActive();
 
-        let contract = this._gameContractManager?.getContractByGameId?.(gameId)
-            ?? (roomId
-                ? this._gameContractManager?.getContract?.(roomId)
-                : null);
+        const roomId = this._gameplayContextResolver
+            ?.resolveRoomByGameId?.(gameId)
+            ?? null;
 
         // Room Wallet settlement is intentionally independent of GameContract.
         // Testnet payments are held by the authoritative Room Wallet and the
         // entry PaymentSession is the source of truth for paid seats/amounts.
-        if (roomWalletActive && !contract) {
+        // Do not consult a legacy GameContract even if stale contract data
+        // happens to exist for the same game.
+        let contract = null;
+
+        if (roomWalletActive) {
 
             const paymentSession = roomId
                 ? this._paymentSessionManager?.getSession?.(roomId)
