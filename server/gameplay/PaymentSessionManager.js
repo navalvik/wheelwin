@@ -7,6 +7,7 @@ import {
 } from "../diagnostics/DeployPipelineForensics.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import {
     PAYMENT_CONFIRMATION_STATUS,
     PAYMENT_PARTICIPANT_STATUS,
@@ -35,6 +36,11 @@ import {
 
 const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 * 60 * 1000;
 
+const PAYMENT_READY_CONTRACT_STATUSES = new Set([
+    GAME_CONTRACT_STATUS.DEPLOYED,
+    GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS
+]);
+
 /**
  * P6.3 / T2.7 — Authoritative Payment Session manager.
  *
@@ -54,6 +60,7 @@ export class PaymentSessionManager {
         sessionWalletStore = null,
         sessionWalletStoreForWatch = null,
         walletManager = null,
+        gameContractManager = null,
         contractSettlementManager = null,
         blockchainMonitor = null,
         financialPersistence = null,
@@ -79,6 +86,8 @@ export class PaymentSessionManager {
             ?? sessionWalletStoreForWatch;
 
         this._walletManager = walletManager;
+
+        this._gameContractManager = gameContractManager;
 
         this._contractSettlementManager = contractSettlementManager;
 
@@ -141,8 +150,15 @@ export class PaymentSessionManager {
      * R8.8 — Late-bind settlement/contract refs for financial retention checks.
      */
     setFinancialEvidenceDeps({
+        gameContractManager = null,
         contractSettlementManager = null
     } = {}) {
+
+        if (gameContractManager) {
+
+            this._gameContractManager = gameContractManager;
+
+        }
 
         if (contractSettlementManager) {
 
@@ -190,7 +206,9 @@ export class PaymentSessionManager {
             roomId,
             gameManager: this._gameManager,
             contractSettlementManager: this._contractSettlementManager,
-            paymentSessionManager: this        });
+            gameContractManager: this._gameContractManager,
+            paymentSessionManager: this
+        });
 
     }
 
@@ -200,6 +218,33 @@ export class PaymentSessionManager {
             EVENT_TYPES.PAYMENT_CONNECTION_READY,
             (envelope) => this._handlePaymentConnectionReady(envelope.payload)
         );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS,
+            (envelope) => this._handleContractReadyForPayments(envelope.payload)
+        );
+
+        this._subscribe(
+            EVENT_TYPES.CONTRACT_DEPLOYMENT_CONFIRMED,
+            (envelope) => this._handleContractDeploymentConfirmed(envelope.payload)
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
+            (envelope) => {
+
+                printDeployBlock("SUBSCRIBER EXECUTING — PaymentSessionManager", {
+                    EventName: EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
+                    Subscriber: "PaymentSessionManager.initialize → failSession",
+                    RoomId: envelope.payload?.roomId ?? null,
+                    Reason: envelope.payload?.reason ?? null,
+                    Timestamp: new Date().toISOString()
+                });
+
+                this.failSession(
+                    envelope.payload?.roomId,
+                    envelope.payload?.reason ?? "deploy_failed"
+                );
 
             }
         );
@@ -231,6 +276,16 @@ export class PaymentSessionManager {
         );
 
         // R7.69C — GameEscrow refunds are authoritative; PSM only synchronizes.
+        this._subscribe(
+            EVENT_TYPES.GAME_ESCROW_REFUND_CONFIRMED,
+            (envelope) => this._handleGameEscrowRefundConfirmed(envelope.payload)
+        );
+
+        this._subscribe(
+            EVENT_TYPES.GAME_ESCROW_CANCEL_CONFIRMED,
+            (envelope) => this._handleGameEscrowCancelConfirmed(envelope.payload)
+        );
+
         this._subscribe(
             EVENT_TYPES.TRANSACTION_FAILED,
             (envelope) => this._handleTransactionFailed(envelope.payload)
@@ -2109,7 +2164,65 @@ export class PaymentSessionManager {
 
         this._blockchainMonitor?.stopRoom?.(roomId);
 
-        this._persistSession(session, "update");
+        const contract = this._gameContractManager?.getContract?.(roomId) ?? null;
+
+        const needsEscrowUnwind = sessionNeedsEscrowUnwind(session)
+            && Boolean(contract?.contractAddress)
+            && typeof this._gameContractManager?.requestPartialPaymentEscrowUnwind
+                === "function";
+
+        const needsRoomWalletRefund = sessionNeedsEscrowUnwind(session)
+            && this._roomWalletPaymentIntakeEnabled
+            && typeof this._roomWalletSettlementAdapter?.refundPayments === "function";
+
+        if (reason === "payment_timeout") {
+
+            session.markTimedOut();
+
+            this._emitDomain(EVENT_TYPES.PAYMENT_TIMEOUT, session, { reason });
+
+        } else {
+
+            session.markFailed();
+
+        }
+
+        if (needsRoomWalletRefund) {
+
+            void this._requestRoomWalletPartialPaymentRefund(session, reason).catch((error) => {
+
+                this._logger?.error?.(
+                    "Room-Wallet partial refund orchestration failed | roomId=" + roomId + " | "
+                        + (error?.message ?? error)
+                );
+
+            });
+
+            this._logger.decisionTrace({
+                stage: "TERMINAL_FAILURE",
+                decision: "UNWIND",
+                reason: reason ?? "payment_failed",
+                caller: "PaymentSessionManager.failSession",
+                nextAction: "_requestRoomWalletPartialPaymentRefund",
+                roomId,
+                gameId: session.gameId ?? null
+            });
+
+            return session;
+
+        }
+
+        if (needsEscrowUnwind) {
+
+            session.recoveryMetadata = {
+                ...(session.recoveryMetadata ?? {}),
+                unwindReason: reason,
+                escrowUnwindRequestedAt: Date.now()
+            };
+
+            session.markRefundPending();
+
+            this._persistSession(session, "update");
 
             this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
