@@ -7,7 +7,6 @@ import {
 } from "../diagnostics/DeployPipelineForensics.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
-import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import {
     PAYMENT_CONFIRMATION_STATUS,
     PAYMENT_PARTICIPANT_STATUS,
@@ -45,7 +44,7 @@ const PAYMENT_READY_CONTRACT_STATUSES = new Set([
  * P6.3 / T2.7 — Authoritative Payment Session manager.
  *
  * Owns payment orchestration only. Never communicates with TON directly —
- * GameEscrow reads go through BlockchainMonitor (+ TonGameContractAdapter).
+ * Room Wallet incoming payments are observed by BlockchainMonitor.
  */
 export class PaymentSessionManager {
 
@@ -60,7 +59,6 @@ export class PaymentSessionManager {
         sessionWalletStore = null,
         sessionWalletStoreForWatch = null,
         walletManager = null,
-        gameContractManager = null,
         contractSettlementManager = null,
         blockchainMonitor = null,
         financialPersistence = null,
@@ -86,8 +84,6 @@ export class PaymentSessionManager {
             ?? sessionWalletStoreForWatch;
 
         this._walletManager = walletManager;
-
-        this._gameContractManager = gameContractManager;
 
         this._contractSettlementManager = contractSettlementManager;
 
@@ -149,16 +145,7 @@ export class PaymentSessionManager {
     /**
      * R8.8 — Late-bind settlement/contract refs for financial retention checks.
      */
-    setFinancialEvidenceDeps({
-        gameContractManager = null,
-        contractSettlementManager = null
-    } = {}) {
-
-        if (gameContractManager) {
-
-            this._gameContractManager = gameContractManager;
-
-        }
+    setFinancialEvidenceDeps({ contractSettlementManager = null } = {}) {
 
         if (contractSettlementManager) {
 
@@ -218,33 +205,6 @@ export class PaymentSessionManager {
             EVENT_TYPES.PAYMENT_CONNECTION_READY,
             (envelope) => this._handlePaymentConnectionReady(envelope.payload)
         );
-
-        this._subscribe(
-            EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS,
-            (envelope) => this._handleContractReadyForPayments(envelope.payload)
-        );
-
-        this._subscribe(
-            EVENT_TYPES.CONTRACT_DEPLOYMENT_CONFIRMED,
-            (envelope) => this._handleContractDeploymentConfirmed(envelope.payload)
-        );
-
-        this._subscribe(
-            EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
-            (envelope) => {
-
-                printDeployBlock("SUBSCRIBER EXECUTING — PaymentSessionManager", {
-                    EventName: EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
-                    Subscriber: "PaymentSessionManager.initialize → failSession",
-                    RoomId: envelope.payload?.roomId ?? null,
-                    Reason: envelope.payload?.reason ?? null,
-                    Timestamp: new Date().toISOString()
-                });
-
-                this.failSession(
-                    envelope.payload?.roomId,
-                    envelope.payload?.reason ?? "deploy_failed"
-                );
 
             }
         );
@@ -928,9 +888,7 @@ export class PaymentSessionManager {
 
                 }
 
-                const contract = this._resolveContract(session.roomId, session.contractId);
-
-                const contractAddress = contract?.contractAddress
+                        const contractAddress = contract?.contractAddress
                     ?? session.participants?.[0]?.contractAddress
                     ?? null;
 
@@ -960,41 +918,7 @@ export class PaymentSessionManager {
 
         };
 
-        if (
-            pendingSync.length === 0
-            || !this._blockchainMonitor?.readGameEscrowPaymentState
-        ) {
-
-            return applyWatches(0);
-
-        }
-
-        return (async () => {
-
-            let syncedFromChain = 0;
-
-            for (const session of pendingSync) {
-
-                try {
-
-                    const sync = await this.syncFromGameEscrow(session.roomId);
-
-                    syncedFromChain += sync?.synced ?? 0;
-
-                } catch (error) {
-
-                    this._logger?.warn?.(
-                        `GameEscrow payment sync skipped on restore | `
-                            + `roomId=${session.roomId} | ${error?.message ?? error}`
-                    );
-
-                }
-
-            }
-
-            return applyWatches(syncedFromChain);
-
-        })();
+        return applyWatches(0);
 
     }
 
@@ -1002,9 +926,7 @@ export class PaymentSessionManager {
      * R7.69B — Align PaymentSession participants with GameEscrow paidMask.
      * GameEscrow is authoritative; backend cache never overrides chain.
      */
-    async syncFromGameEscrow(roomId, {
-        contractAddress: explicitAddress = null
-    } = {}) {
+ = {}) {
 
         this._assertInitialized();
 
@@ -1226,329 +1148,9 @@ export class PaymentSessionManager {
      * R7.69C — Align PaymentSession with GameEscrow cancel / refundMask.
      * Does not resend refunds; chain is source of truth.
      */
-    async _syncCancelFromGameEscrow(session, contractAddress) {
-
-        if (!session || !contractAddress) {
-
-            return Object.freeze({
-                cancelled: false,
-                refundSynced: 0,
-                refundMask: null
-            });
-
-        }
-
-        if (!this._blockchainMonitor?.readGameEscrowCancelState) {
-
-            return Object.freeze({
-                cancelled: false,
-                refundSynced: 0,
-                refundMask: null
-            });
-
-        }
-
-        let cancelState;
-
-        try {
-
-            cancelState = await this._blockchainMonitor.readGameEscrowCancelState(
-                contractAddress,
-                { playerCount: session.participants.length }
-            );
-
-        } catch (error) {
-
-            this._logger?.warn?.(
-                `GameEscrow cancel state read failed | roomId=${session.roomId} | `
-                    + `${error?.message ?? error}`
-            );
-
-            return Object.freeze({
-                cancelled: false,
-                refundSynced: 0,
-                refundMask: null
-            });
-
-        }
-
-        if (!cancelState?.cancelled) {
-
-            return Object.freeze({
-                cancelled: false,
-                refundSynced: 0,
-                refundMask: cancelState?.refundMask ?? null
-            });
-
-        }
-
-        let refundSynced = 0;
-
-        let changed = false;
-
-        const refundMask = Number(cancelState.refundMask) || 0;
-
-        session.participants.forEach((participant, index) => {
-
-            if (participant.playerIndex == null) {
-
-                participant.playerIndex = index;
-
-            }
-
-            const seatIndex = Number(participant.playerIndex);
-
-            const bit = 1 << seatIndex;
-
-            const onChainRefunded = (refundMask & bit) !== 0;
-
-            const playerDetail = cancelState.players?.find(
-                (entry) => Number(entry.index) === seatIndex
-            );
-
-            const refunded = playerDetail?.refunded === true || onChainRefunded;
-
-            if (refunded && participant.refunded !== true) {
-
-                participant.refunded = true;
-
-                refundSynced += 1;
-
-                changed = true;
-
-            }
-
-            this._blockchainMonitor?.unwatchPayment?.(
-                session.roomId,
-                participant.playerId
-            );
-
-        });
-
-        if (session.status !== PAYMENT_SESSION_STATUS.CANCELLED && session.isInProgress()) {
-
-            try {
-
-                session.markCancelled();
-
-                changed = true;
-
-            } catch (error) {
-
-                this._logger?.warn?.(
-                    `PaymentSession cancel transition skipped | roomId=${session.roomId} | `
-                        + `${error?.message ?? error}`
-                );
-
-            }
-
-        }
-
-        if (
-            session.status !== PAYMENT_SESSION_STATUS.CANCELLED
-            && session.status === PAYMENT_SESSION_STATUS.FULLY_PAID
-        ) {
-
-            try {
-
-                session.markCancelled();
-
-                changed = true;
-
-                this._log(
-                    `AUTHORIZED_EMERGENCY_CANCEL | roomId=${session.roomId} | `
-                        + `source=GAME_ESCROW_CANCEL_SYNC | from=FULLY_PAID`
-                );
-
-            } catch (error) {
-
-                this._logger?.warn?.(
-                    `PaymentSession cancel from FULLY_PAID skipped | roomId=${session.roomId} | `
-                        + `${error?.message ?? error}`
-                );
-
-            }
-
-        }
-
-        if (changed) {
-
-            this._clearExpiry(session.roomId);
-
-            this._blockchainMonitor?.stopRoom?.(session.roomId);
-
-            this._persistSession(session, "update");
-
-            this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
-
-        }
-
-        this._log(
-            `GAME_ESCROW_CANCEL_SYNC | roomId=${session.roomId} | `
-                + `refundMask=${refundMask} | refundSynced=${refundSynced}`
-        );
-
-        return Object.freeze({
-            cancelled: true,
-            refundSynced,
-            refundMask
-        });
-
-    }
-
     /**
      * R7.69C — Apply a single on-chain refund confirmation (idempotent).
      */
-    _handleGameEscrowRefundConfirmed(payload) {
-
-        const roomId = payload?.roomId;
-
-        if (!roomId || !this._initialized) {
-
-            return;
-
-        }
-
-        const session = this._sessionsByRoom.get(roomId);
-
-        if (!session) {
-
-            return;
-
-        }
-
-        let participant = null;
-
-        if (payload.playerId) {
-
-            participant = session.findParticipant(payload.playerId);
-
-        }
-
-        if (!participant && payload.playerIndex != null) {
-
-            participant = session.participants.find(
-                (entry) => Number(entry.playerIndex) === Number(payload.playerIndex)
-            );
-
-        }
-
-        if (!participant) {
-
-            return;
-
-        }
-
-        if (participant.refunded === true) {
-
-            return;
-
-        }
-
-        participant.refunded = true;
-
-        participant.refundTxHash = payload.transactionId ?? payload.txHash ?? null;
-
-        this._persistSession(session, "update");
-
-        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
-
-        if (session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING) {
-
-            this._emit(EVENT_TYPES.ESCROW_REFUND_CONFIRMED, {
-                roomId: session.roomId,
-                gameId: session.gameId ?? null,
-                playerId: participant.playerId ?? null,
-                playerIndex: participant.playerIndex ?? null,
-                transactionHash: participant.refundTxHash,
-                timestamp: Date.now()
-            });
-
-            if (allConfirmedParticipantsRefunded(session)) {
-
-                this._finalizePartialPaymentUnwind(session);
-
-            }
-
-        }
-
-    }
-
-    noteEscrowCancelTx(roomId, cancelTxHash) {
-
-        const session = this._sessionsByRoom.get(roomId);
-
-        if (!session || !cancelTxHash) {
-
-            return;
-
-        }
-
-        session.recoveryMetadata = {
-            ...(session.recoveryMetadata ?? {}),
-            cancelTxHash
-        };
-
-        this._persistSession(session, "update");
-
-    }
-
-    _finalizePartialPaymentUnwind(session) {
-
-        if (!session || session.status !== PAYMENT_SESSION_STATUS.REFUND_PENDING) {
-
-            return;
-
-        }
-
-        const reason = session.recoveryMetadata?.unwindReason ?? "payment_failed";
-
-        try {
-
-            session.markCancelled();
-
-        } catch (error) {
-
-            this._logger?.warn?.(
-                `Partial payment unwind finalize skipped | roomId=${session.roomId} | `
-                    + `${error?.message ?? error}`
-            );
-
-            return;
-
-        }
-
-        this._clearExpiry(session.roomId);
-
-        this._blockchainMonitor?.stopRoom?.(session.roomId);
-
-        this._persistSession(session, "update");
-
-        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
-
-        const failedPayload = {
-            ...session.toSnapshot(),
-            reason
-        };
-
-        this._emit(EVENT_TYPES.PAYMENT_SESSION_FAILED, failedPayload);
-
-        this._log(
-            `PARTIAL_PAYMENT_UNWIND_COMPLETE | roomId=${session.roomId} | reason=${reason}`
-        );
-
-        this._logger.decisionTrace({
-            stage: "TERMINAL_FAILURE",
-            decision: "FAIL",
-            reason,
-            caller: "PaymentSessionManager._finalizePartialPaymentUnwind",
-            nextAction: "Room close / cleanup",
-            roomId: session.roomId,
-            gameId: session.gameId ?? null
-        });
-
-    }
-
     /**
      * R7.69C — Mark payment session CANCELLED after cancel confirmed on-chain.
      *
@@ -1559,86 +1161,11 @@ export class PaymentSessionManager {
      * room LOCKED. O.1 finalize remains the sole CANCELLED + PAYMENT_SESSION_FAILED
      * owner for partial-payment unwind.
      */
-    _handleGameEscrowCancelConfirmed(payload) {
-
-        const roomId = payload?.roomId;
-
-        if (!roomId || !this._initialized) {
-
-            return;
-
-        }
-
-        const session = this._sessionsByRoom.get(roomId);
-
-        if (!session || session.status === PAYMENT_SESSION_STATUS.CANCELLED) {
-
-            return;
-
-        }
-
-        if (session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING) {
-
-            const cancelTxHash = payload?.cancelTxHash
-                ?? payload?.transactionHash
-                ?? null;
-
-            if (cancelTxHash) {
-
-                this.noteEscrowCancelTx(roomId, cancelTxHash);
-
-            }
-
-            this._log(
-                `GAME_ESCROW_CANCEL_CONFIRMED keep REFUND_PENDING | roomId=${roomId} | `
-                    + `paymentSessionId=${session.paymentSessionId} | `
-                    + `nextAction=_finalizePartialPaymentUnwind after refunds`
-            );
-
-            return;
-
-        }
-
-        if (
-            !session.isInProgress()
-            && session.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
-        ) {
-
-            return;
-
-        }
-
-        try {
-
-            session.markCancelled();
-
-        } catch {
-
-            return;
-
-        }
-
-        this._clearExpiry(session.roomId);
-
-        this._blockchainMonitor?.stopRoom?.(session.roomId);
-
-        this._persistSession(session, "update");
-
-        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
-
-        this._log(
-            `AUTHORIZED_EMERGENCY_CANCEL | roomId=${roomId} | `
-                + `paymentSessionId=${session.paymentSessionId} | `
-                + `source=GAME_ESCROW_CANCEL_CONFIRMED`
-        );
-
-    }
-
     /**
      * R7.69B — Mark seat paid from GameEscrow without emitting stake-confirmed
      * observation events (avoids duplicate GAME_ESCROW_STAKE_CONFIRMED).
      */
-    _applyGameEscrowConfirmed(session, participant, { amount = null } = {}) {
+ = {}) {
 
         if (participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED) {
 
@@ -2164,13 +1691,6 @@ export class PaymentSessionManager {
 
         this._blockchainMonitor?.stopRoom?.(roomId);
 
-        const contract = this._gameContractManager?.getContract?.(roomId) ?? null;
-
-        const needsEscrowUnwind = sessionNeedsEscrowUnwind(session)
-            && Boolean(contract?.contractAddress)
-            && typeof this._gameContractManager?.requestPartialPaymentEscrowUnwind
-                === "function";
-
         const needsRoomWalletRefund = sessionNeedsEscrowUnwind(session)
             && this._roomWalletPaymentIntakeEnabled
             && typeof this._roomWalletSettlementAdapter?.refundPayments === "function";
@@ -2212,17 +1732,7 @@ export class PaymentSessionManager {
 
         }
 
-        if (needsEscrowUnwind) {
-
-            session.recoveryMetadata = {
-                ...(session.recoveryMetadata ?? {}),
-                unwindReason: reason,
-                escrowUnwindRequestedAt: Date.now()
-            };
-
-            session.markRefundPending();
-
-            this._persistSession(session, "update");
+        this._persistSession(session, "update");
 
             this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
@@ -2374,22 +1884,6 @@ export class PaymentSessionManager {
             status: session?.status ?? null,
             timestamp: Date.now()
         });
-
-    }
-
-    _handleContractReadyForPayments(payload) {
-
-        // Smart-contract payment readiness is intentionally ignored.
-        // Player payments are activated only from the Room Wallet selected
-        // during authoritative PaymentSession creation.
-        void payload;
-
-    }
-
-    _handleContractDeploymentConfirmed(payload) {
-
-        // Smart-contract deployment is not a player-payment prerequisite.
-        void payload;
 
     }
 
@@ -2833,20 +2327,6 @@ export class PaymentSessionManager {
 
     }
 
-    _resolveContract(roomId, contractId = null) {
-
-        if (!this._gameContractManager) {
-
-            return null;
-
-        }
-
-        return contractId
-            ? this._gameContractManager.getContractById?.(contractId)
-            : this._gameContractManager.getContract?.(roomId);
-
-    }
-
     _resolveRoomWalletPaymentAddress(room) {
 
         if (!room) {
@@ -2860,28 +2340,6 @@ export class PaymentSessionManager {
             roomNumber: room.roomNumber ?? null,
             roomManager: this._roomManager
         }, this._roomWalletRegistry);
-
-    }
-
-    _assertContractReadyForPayments(contract) {
-
-        if (!PAYMENT_READY_CONTRACT_STATUSES.has(contract.status)) {
-
-            throw new PaymentValidationError(
-                `Contract not ready for payments | status=${contract.status}`,
-                { contractId: contract.contractId, status: contract.status }
-            );
-
-        }
-
-        if (!contract.contractAddress) {
-
-            throw new PaymentValidationError(
-                "Contract address missing",
-                { contractId: contract.contractId }
-            );
-
-        }
 
     }
 
