@@ -40,7 +40,8 @@ export class GameStartAuthorization {
         auditLedger = null,
         roomConfig = null,
         devMode = false,
-        depositSessionCoordinator = null
+        depositSessionCoordinator = null,
+        roomWalletPaymentIntakeEnabled = false
     }) {
 
         this._logger = logger;
@@ -80,6 +81,10 @@ export class GameStartAuthorization {
         this._devMode = devMode;
 
         this._depositSessionCoordinator = depositSessionCoordinator;
+
+        // Room Wallet payment path has no Game Contract. When enabled, the
+        // fully-confirmed PaymentSession is the financial start gate.
+        this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
 
         // roomId → { phase, gameId, authorizedAt, initializingAt, openPage5At }
         this._lifecycleByRoom = new Map();
@@ -387,8 +392,11 @@ export class GameStartAuthorization {
         const contract = this._gameContractManager?.getContract(roomId);
 
         if (
-            !contract
-            || contract.status !== GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
+            !this._roomWalletPaymentIntakeEnabled
+            && (
+                !contract
+                || contract.status !== GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
+            )
         ) {
 
             return { ok: false, reason: "contract_not_payments_complete" };
@@ -396,7 +404,7 @@ export class GameStartAuthorization {
         }
 
         const gameId = session.gameId
-            ?? contract.gameId
+            ?? contract?.gameId
             ?? this._gameManager?.getPendingGameplayGameId?.(roomId)
             ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
             ?? null;
@@ -420,7 +428,7 @@ export class GameStartAuthorization {
             contract,
             gameId,
             blockchainCompletedAt: session.completedAt
-                ?? contract.paymentsCompletedAt
+                ?? contract?.paymentsCompletedAt
                 ?? Date.now()
         };
 
