@@ -540,6 +540,7 @@ export class ContractSettlementManager {
                 if (
                     session.status
                         === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION
+                    && !this._isRoomWalletSettlementActive()
                 ) {
 
                     rewatched += this._registerGameEscrowPayoutWatch(session);
@@ -896,7 +897,77 @@ export class ContractSettlementManager {
 
         const roomId = session.roomId
             ?? this._gameplayContextResolver?.resolveRoomByGameId?.(gameId)
+            ?? session.request?.roomId
             ?? null;
+
+        // Room Wallet is the active production settlement path. Its durable
+        // SettlementSession request already contains the authoritative payout
+        // snapshot, so recovery must not depend on a legacy GameContract object.
+        if (this._isRoomWalletSettlementActive()) {
+
+            const request = session.request ?? null;
+            const snapshot = request?.snapshot ?? null;
+
+            if (!snapshot || typeof snapshot !== "object") {
+
+                return null;
+
+            }
+
+            const winnerId = session.winnerId
+                ?? request?.winnerId
+                ?? null;
+            const winnerWallet = session.winnerWallet
+                ?? request?.winnerWallet
+                ?? null;
+            const ownerWallet = session.ownerWallet
+                ?? request?.ownerWallet
+                ?? snapshot.ownerWallet
+                ?? null;
+            const winnerAmount = session.prizeAmount
+                ?? request?.winnerAmount
+                ?? Number(snapshot.payoutAmount);
+            const organizerAmount = session.organizerAmount
+                ?? request?.organizerAmount
+                ?? Number(snapshot.organizerFee);
+            const totalPot = session.totalPot
+                ?? request?.totalPot
+                ?? Number(snapshot.totalPot);
+
+            if (!winnerId || !winnerWallet || !ownerWallet) {
+
+                return null;
+
+            }
+
+            if (!Number.isFinite(winnerAmount) || !Number.isFinite(organizerAmount)) {
+
+                return null;
+
+            }
+
+            return {
+                ok: true,
+                gameId,
+                roomId,
+                contract: {
+                    contractId: session.contractId ?? request.contractId ?? null,
+                    gameId,
+                    roomId,
+                    contractAddress: null,
+                    snapshot,
+                    snapshotHash: request.snapshotHash ?? null
+                },
+                winnerId,
+                winnerWallet,
+                ownerWallet,
+                winnerAmount,
+                organizerAmount,
+                totalPot,
+                traceSeed: session.traceSeed ?? request.traceSeed ?? null
+            };
+
+        }
 
         const contract = this._gameContractManager?.getContractByGameId?.(gameId)
             ?? (roomId
@@ -905,44 +976,31 @@ export class ContractSettlementManager {
             ?? (session.contractId
                 ? this._gameContractManager?.getContractById?.(session.contractId)
                 : null)
-            ?? this._contractFromSettlementRequest(session)
             ?? null;
 
-        if (!contract?.snapshot) {
-
-            return null;
-
-        }
-
-        if (!this._isRoomWalletSettlementActive() && !contract.contractAddress) {
+        if (!contract?.snapshot || !contract.contractAddress) {
 
             return null;
 
         }
 
         const request = session.request ?? null;
-
         const winnerId = session.winnerId
             ?? request?.winnerId
             ?? null;
-
         const winnerWallet = session.winnerWallet
             ?? request?.winnerWallet
             ?? null;
-
         const ownerWallet = session.ownerWallet
             ?? request?.ownerWallet
             ?? contract.snapshot.ownerWallet
             ?? null;
-
         const winnerAmount = session.prizeAmount
             ?? request?.winnerAmount
             ?? Number(contract.snapshot.payoutAmount);
-
         const organizerAmount = session.organizerAmount
             ?? request?.organizerAmount
             ?? Number(contract.snapshot.organizerFee);
-
         const totalPot = session.totalPot
             ?? request?.totalPot
             ?? Number(contract.snapshot.totalPot);
@@ -1429,7 +1487,11 @@ export class ContractSettlementManager {
 
         session.version += 1;
 
-        this._gameContractManager?.markSettlementPending?.(ctx.roomId);
+        if (!this._isRoomWalletSettlementActive()) {
+
+            this._gameContractManager?.markSettlementPending?.(ctx.roomId);
+
+        }
 
         this._persistSession(session, "update");
 
@@ -1849,7 +1911,11 @@ export class ContractSettlementManager {
 
         session.transitionTo(SETTLEMENT_SESSION_STATUS.PREPARING);
 
-        this._gameContractManager?.markWinnerPending?.(roomId);
+        if (!this._isRoomWalletSettlementActive()) {
+
+            this._gameContractManager?.markWinnerPending?.(roomId);
+
+        }
 
         this._persistSession(session, "update");
 
@@ -2245,7 +2311,11 @@ export class ContractSettlementManager {
             settlementTransactionHash: settlementTxHash
         });
 
-        this._gameContractManager?.markSettlementPending?.(roomId);
+        if (!this._isRoomWalletSettlementActive()) {
+
+            this._gameContractManager?.markSettlementPending?.(roomId);
+
+        }
 
         this._persistSession(session, "update");
 
