@@ -73,6 +73,7 @@ import {
     TON_FINANCIAL_SCHEMA_VERSION
 } from "../persistence/TonFinancialRecordTypes.js";
 import { computePayloadChecksum } from "../persistence/tonFinancialRecordUtils.js";
+import { isRoomWalletOnlyFinancialPath } from "../payment/roomWallet/roomWalletConfig.js";
 
 /**
  * Local monotonic phase ranking (forward-only progression guard).
@@ -445,27 +446,43 @@ export class RecoveryCheckpointManager {
 
         // --- Financial references (references ONLY) --------------------------
 
-        const contract = this._safeCall(
-            () => this._gameContractManager?.getContractByGameId?.(gameId)
-                ?? null
-        );
+        const roomWalletOnly = isRoomWalletOnlyFinancialPath();
+
+        const contract = roomWalletOnly
+            ? null
+            : this._safeCall(
+                () => this._gameContractManager?.getContractByGameId?.(gameId)
+                    ?? null
+            );
 
         const session = this._safeCall(
             () => this._paymentSessionManager?.getSessionByGameId?.(gameId)
                 ?? null
         );
 
-        const contractId = contract?.contractId ?? null;
+        const contractId = roomWalletOnly
+            ? null
+            : contract?.contractId ?? null;
 
-        const tonNetwork = contract?.tonNetwork ?? null;
+        const tonNetwork = roomWalletOnly
+            ? session?.network ?? null
+            : contract?.tonNetwork ?? null;
 
-        const snapshotHash = contract?.snapshotHash ?? null;
+        const snapshotHash = roomWalletOnly
+            ? null
+            : contract?.snapshotHash ?? null;
 
-        const correlationId = contract?.correlationId ?? null;
+        const correlationId = roomWalletOnly
+            ? session?.correlationId ?? null
+            : contract?.correlationId ?? null;
 
         const paymentSessionId = session?.paymentSessionId ?? null;
 
-        if (!contractId || !tonNetwork || !snapshotHash || !paymentSessionId) {
+        if (
+            !paymentSessionId
+            || !tonNetwork
+            || (!roomWalletOnly && (!contractId || !snapshotHash))
+        ) {
 
             return this._skip(
                 gameId,
@@ -794,10 +811,18 @@ export class RecoveryCheckpointManager {
             "recoveryRecordId",
             "roomId",
             "gameId",
-            "contractId",
             "paymentSessionId",
             "tonNetwork"
         ];
+
+        // Room-Wallet checkpoints have no GameContract identity. Preserve
+        // contractId conflict checking for legacy contract-backed records.
+        if (
+            persistedPayload.contractId != null
+            || incomingPayload.contractId != null
+        ) {
+            identityFields.push("contractId");
+        }
 
         for (const field of identityFields) {
 
@@ -816,10 +841,17 @@ export class RecoveryCheckpointManager {
 
         }
 
-        if (persistedPayload.snapshotHash !== incomingPayload.snapshotHash) {
+        // Room-Wallet checkpoints intentionally carry no GameContract
+        // snapshotHash. Compare it only when either record actually has one.
+        if (
+            persistedPayload.snapshotHash != null
+            || incomingPayload.snapshotHash != null
+        ) {
+            if (persistedPayload.snapshotHash !== incomingPayload.snapshotHash) {
 
-            return true;
+                return true;
 
+            }
         }
 
         const persistedPlayerIds = Array.isArray(persistedPayload.players)
