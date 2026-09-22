@@ -13,7 +13,6 @@ import { isSettlementSessionTerminal } from "../payment/SettlementSessionStates.
  *   roomId?: string|null,
  *   gameManager?: object|null,
  *   contractSettlementManager?: object|null,
- *   gameContractManager?: object|null,
  *   paymentSessionManager?: object|null
  * }} deps
  * @returns {boolean} true → do not destroy financial objects
@@ -22,7 +21,6 @@ export function shouldPreserveFinancialEvidence({
     roomId = null,
     gameManager = null,
     contractSettlementManager = null,
-    gameContractManager = null,
     paymentSessionManager = null
 } = {}) {
 
@@ -33,7 +31,6 @@ export function shouldPreserveFinancialEvidence({
     }
 
     const gameId = gameManager?.getGameIdByRoomId?.(roomId)
-        ?? gameContractManager?.getContract?.(roomId)?.gameId
         ?? paymentSessionManager?.getSession?.(roomId)?.gameId
         ?? null;
 
@@ -59,16 +56,11 @@ export function shouldPreserveFinancialEvidence({
         gameId && gameManager?.wasEntryPaymentActivated?.(gameId)
     );
 
-    const hasContract = Boolean(
-        gameContractManager?.getContract?.(roomId)
-        || (gameId && gameContractManager?.getContractByGameId?.(gameId))
-    );
-
     const hasPayment = Boolean(paymentSessionManager?.getSession?.(roomId));
 
     // Post-init financially relevant OR entry-paid with missing settlement =
     // UNKNOWN / incomplete → keep evidence.
-    if (initialized && (entryPaid || hasContract || hasPayment)) {
+    if (initialized && (entryPaid || hasPayment)) {
 
         return true;
 
