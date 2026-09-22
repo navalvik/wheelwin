@@ -1551,12 +1551,10 @@ class WheelWinApplication {
         // R8.6 — GAME_DESTROYED waits for settlement terminal; OPEN_PAGE6 stays ungated.
         this._gameplayLifecycle.configureSettlementTeardownGate({
             contractSettlementManager: this._contractSettlementManager,
-            gameContractManager: this._gameContractManager
         });
 
         // R8.8 — Cross-wire financial retention checks (SESSION_FINISHED / room).
         this._paymentSessionManager.setFinancialEvidenceDeps({
-            gameContractManager: this._gameContractManager,
             contractSettlementManager: this._contractSettlementManager
         });
 
@@ -2595,16 +2593,6 @@ class WheelWinApplication {
             if (this._blockchainMonitor) {
 
                 this._blockchainMonitor.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("gameContractManager", () => {
-
-            if (this._gameContractManager) {
-
-                this._gameContractManager.shutdown();
 
             }
 
