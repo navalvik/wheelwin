@@ -73,7 +73,6 @@ import {
     TON_FINANCIAL_SCHEMA_VERSION
 } from "../persistence/TonFinancialRecordTypes.js";
 import { computePayloadChecksum } from "../persistence/tonFinancialRecordUtils.js";
-import { isRoomWalletOnlyFinancialPath } from "../payment/roomWallet/roomWalletConfig.js";
 
 /**
  * Local monotonic phase ranking (forward-only progression guard).
@@ -446,7 +445,15 @@ export class RecoveryCheckpointManager {
 
         // --- Financial references (references ONLY) --------------------------
 
-        const roomWalletOnly = isRoomWalletOnlyFinancialPath();
+        const session = this._safeCall(
+            () => this._paymentSessionManager?.getSessionByGameId?.(gameId)
+                ?? null
+        );
+
+        // A live PaymentSession carrying the authoritative Room Wallet
+        // destination is the narrowest runtime discriminator. This keeps the
+        // recovery writer independent from settlement/router construction.
+        const roomWalletOnly = session?.roomWalletAddress != null;
 
         const contract = roomWalletOnly
             ? null
@@ -454,11 +461,6 @@ export class RecoveryCheckpointManager {
                 () => this._gameContractManager?.getContractByGameId?.(gameId)
                     ?? null
             );
-
-        const session = this._safeCall(
-            () => this._paymentSessionManager?.getSessionByGameId?.(gameId)
-                ?? null
-        );
 
         const contractId = roomWalletOnly
             ? null
