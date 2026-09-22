@@ -1515,7 +1515,6 @@ class WheelWinApplication {
             roomManager: this._managers.roomManager,
             financialPersistence: this._financialPersistence,
             tonNetwork: this._tonConfig?.network ?? null,
-            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null,
             devMode: this._productionConfig.isDevelopment
         });
 
