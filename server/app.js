@@ -106,7 +106,6 @@ import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
 import { loadMainnetTonProfile } from "./config/tonNetworkProfiles.js";
 import { TIMER_PHASES } from "./catalog/Timers.js";
 import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
-import { isGameEscrowOnlyPlayerPayment } from "./config/gameEscrowMode.js";
 import { deriveDeployerWalletIdentity } from "./payment/ton/deriveDeployerWalletIdentity.js";
 import {
     assertDeployerWalletMatchesExpected,
