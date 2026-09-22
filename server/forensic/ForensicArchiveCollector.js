@@ -26,7 +26,8 @@ export class ForensicArchiveCollector {
         diagnosticLogsDir,
         tonFinancialDataDir,
         sessionHistoryArchive = null,
-        financialPersistence = null
+        financialPersistence = null,
+        gameReportEngine = null
     }) {
 
         this._sessionHistoryDir = sessionHistoryDir;
@@ -34,6 +35,7 @@ export class ForensicArchiveCollector {
         this._tonFinancialDataDir = tonFinancialDataDir;
         this._sessionHistoryArchive = sessionHistoryArchive;
         this._financialPersistence = financialPersistence;
+        this._gameReportEngine = gameReportEngine;
 
     }
 
@@ -148,6 +150,22 @@ export class ForensicArchiveCollector {
                 file.absolutePath,
                 join("ton-financial", file.relativePath)
             );
+
+        }
+
+        const gameReport = this._gameReportEngine?.resolveReport?.(gameId)
+            ?? this._gameReportEngine?.getReport?.(gameId)
+            ?? null;
+
+        if (gameReport) {
+
+            entries.push({
+                inlineContent: JSON.stringify(gameReport, null, 2) + "\n",
+                zipPath: join(
+                    "game-report",
+                    `${safeFilenameSegment(gameReport.reportId ?? gameId)}.json`
+                )
+            });
 
         }
 
@@ -297,6 +315,26 @@ export class ForensicArchiveCollector {
             archive.pipe(output);
 
             for (const entry of entries) {
+
+                if (entry.inlineContent != null) {
+
+                    const sha256 = createHash("sha256")
+                        .update(entry.inlineContent, "utf8")
+                        .digest("hex");
+
+                    onFileAdded(
+                        "[generated]",
+                        entry.zipPath,
+                        sha256
+                    );
+
+                    archive.append(entry.inlineContent, {
+                        name: entry.zipPath
+                    });
+
+                    continue;
+
+                }
 
                 const sha256 = this._sha256File(entry.sourcePath);
 
