@@ -677,6 +677,145 @@ export class TonFinancialRecovery {
 
     }
 
+    _validateWalletSessions(warnings, consistencyErrors) {
+
+        const sessions = this._sessionWalletStore?.listAllSessions?.() ?? [];
+
+        for (const session of sessions) {
+
+            if (!session?.playerId) {
+
+                continue;
+
+            }
+
+            if (
+                this._playerManager?.hasPlayer
+                && !this._playerManager.hasPlayer(session.playerId)
+            ) {
+
+                consistencyErrors.push(
+                    `wallet_session_orphan_player:${session.walletSessionId}:${session.playerId}`
+                );
+
+            }
+
+            if (
+                session.roomId
+                && this._roomManager?.hasRoom
+                && !this._roomManager.hasRoom(session.roomId)
+            ) {
+
+                warnings.push(
+                    `wallet_session_missing_room:${session.walletSessionId}:${session.roomId}`
+                );
+
+            }
+
+        }
+
+    }
+
+    _validatePaymentSessions(warnings, consistencyErrors) {
+
+        if (!this._paymentSessionManager?.listSessionRoomIds) {
+
+            return;
+
+        }
+
+        for (const roomId of this._paymentSessionManager.listSessionRoomIds()) {
+
+            const session = this._paymentSessionManager.getSession(roomId);
+
+            if (!session) {
+
+                continue;
+
+            }
+
+            for (const participant of session.participants ?? []) {
+
+                const walletSession = this._sessionWalletStore?.findByPlayer?.(
+                    participant.playerId,
+                    { roomId, activeOnly: false }
+                ) ?? null;
+
+                if (
+                    participant.walletSessionId
+                    && !walletSession
+                    && participant.wallet
+                ) {
+
+                    warnings.push(
+                        `payment_wallet_session_missing:${roomId}:${participant.playerId}`
+                    );
+
+                }
+
+                if (
+                    this._playerManager?.hasPlayer
+                    && !this._playerManager.hasPlayer(participant.playerId)
+                ) {
+
+                    consistencyErrors.push(
+                        `payment_session_orphan_player:${roomId}:${participant.playerId}`
+                    );
+
+                }
+
+            }
+
+        }
+
+    }
+
+    _validateContracts(warnings, consistencyErrors) {}
+
+    _validateSettlements(warnings, consistencyErrors) {
+
+        if (!this._contractSettlementManager?.getSettlementSession) {
+
+            return;
+
+        }
+
+        const snapshots = this._contractSettlementManager.listSettlementSnapshots?.() ?? [];
+
+        for (const snapshot of snapshots) {
+
+            const session = this._contractSettlementManager.getSettlementSession(
+                snapshot.gameId
+            );
+
+            if (!session || session.isTerminal?.()) {
+
+                continue;
+
+            }
+
+            const paymentSession = this._paymentSessionManager?.getSessionByGameId?.(
+                session.gameId
+            );
+
+            if (
+                paymentSession
+                && paymentSession.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
+                && !paymentSession.isTerminal?.()
+            ) {
+
+                consistencyErrors.push(
+                    `settlement_before_payment_complete:${session.gameId}`
+                );
+
+            }
+
+        }
+
+    }
+
+    _validateBlockchainWatches(warnings, consistencyErrors) {}
+
     validateRecovery() {
 
         this._assertInitialized();
