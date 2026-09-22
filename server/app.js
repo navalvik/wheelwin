@@ -92,7 +92,6 @@ import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
-import { GameContractManager } from "./gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
 import { composeRoomWalletSettlementRouter, isRoomWalletOnlyFinancialPath } from "./payment/roomWallet/roomWalletConfig.js";
@@ -107,8 +106,6 @@ import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
 import { loadMainnetTonProfile } from "./config/tonNetworkProfiles.js";
 import { TIMER_PHASES } from "./catalog/Timers.js";
 import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
-import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
-import { TonGameContractAdapter } from "./payment/TonGameContractAdapter.js";
 import { isGameEscrowOnlyPlayerPayment } from "./config/gameEscrowMode.js";
 import { deriveDeployerWalletIdentity } from "./payment/ton/deriveDeployerWalletIdentity.js";
 import {
@@ -159,7 +156,6 @@ import { DepositMonitor } from "./deposit/DepositMonitor.js";
 import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
 import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
 import { DepositActivationVerificationCoordinator } from "./deposit/DepositActivationVerificationCoordinator.js";
-import { GameEscrowDeploymentAuthorizationAutomation } from "./deposit/GameEscrowDeploymentAuthorizationAutomation.js";
 import { resolveDepositOrchestrationFinancials } from "./deposit/resolveDepositOrchestrationFinancials.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
@@ -1369,56 +1365,6 @@ class WheelWinApplication {
             this._paymentSessionManager
         );
 
-        const deployAdapter = this._tonConfig.deployMode === "stub"
-            ? new GameContractDeployAdapter({
-                logger: this._logger,
-                deployDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
-                network: this._tonConfig.network
-            })
-            : new TonGameContractAdapter({
-                logger: this._logger,
-                tonConfig: this._tonConfig,
-                transport: this._services.tonService.getTransport(),
-                tonClient: this._services.tonService.getClient()
-            });
-
-        this._gameContractDeployAdapter = deployAdapter;
-
-        // R7.69B — GameEscrow getters for payment recovery / reconnect sync.
-        this._blockchainMonitor.setContractAdapter?.(deployAdapter);
-
-        this._gameContractManager = new GameContractManager({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            playerManager: this._managers.playerManager,
-            roomManager: this._managers.roomManager,
-            gameManager: this._managers.gameManager,
-            sessionWalletStore: this._sessionWalletStore,
-            configurationEngine: this._engines.configurationEngine,
-            deployAdapter,
-            financialPersistence: this._financialPersistence,
-            creatingDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
-            deployTimeoutMs: this._roomConfig?.gameContractDeployTimeoutMs
-                ?? (2 * 60 * 1000),
-            devMode: this._productionConfig.isDevelopment,
-            skipBlockchainDeploy: isRoomWalletOnlyFinancialPath({
-                env: process.env,
-                gameEscrowMode: this._tonConfig?.gameEscrowMode
-            })
-        });
-
-        this._gameContractManager.initialize();
-
-        this._engines.paymentEngine.setGameContractManager(
-            this._gameContractManager
-        );
-
-        this._auditEngine.setGameContractManager(
-            this._gameContractManager
-        );
-
-        this._logger.startupLine("GameContractManager");
-
         // R17.8V.2P.J / R17.8V.2P.K — Deployment cost snapshot capture + freeze.
         this._deploymentCostService = new DeploymentCostService({
             repository: new DeploymentCostSnapshotRepository({
@@ -1564,7 +1510,6 @@ class WheelWinApplication {
         this._contractSettlementManager = new ContractSettlementManager({
             logger: this._logger,
             eventBus: this._eventBus,
-            gameContractManager: this._gameContractManager,
             winnerEngine: this._engines.winnerEngine,
             configurationEngine: this._engines.configurationEngine,
             settlementAdapter: this._roomWalletSettlementRouter,
@@ -1616,15 +1561,6 @@ class WheelWinApplication {
             contractSettlementManager: this._contractSettlementManager
         });
 
-        this._gameContractManager.setFinancialEvidenceDeps({
-            paymentSessionManager: this._paymentSessionManager,
-            contractSettlementManager: this._contractSettlementManager
-        });
-
-        this._gameContractManager.setEscrowUnwindDeps({
-            blockchainMonitor: this._blockchainMonitor
-        });
-
         this._setupSessionLifecycle.setEscrowUnwindBridgeDeps({
             paymentSessionManager: this._paymentSessionManager
         });
@@ -1670,10 +1606,6 @@ class WheelWinApplication {
 
         this._logger.startupLine("DeploymentAuthorizationCoordinator");
 
-        this._gameContractManager.setDeploymentAuthorizationCoordinator(
-            this._deploymentAuthorizationCoordinator
-        );
-
         this._depositFullAuthorizationAutomation = new DepositFullAuthorizationAutomation({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1693,25 +1625,6 @@ class WheelWinApplication {
         this._entryDeploymentAuthorizationAutomation.initialize();
 
         this._logger.startupLine("EntryDeploymentAuthorizationAutomation");
-
-        this._gameEscrowDeploymentAuthorizationAutomation =
-            new GameEscrowDeploymentAuthorizationAutomation({
-                logger: this._logger,
-                eventBus: this._eventBus,
-                paymentSessionManager: this._paymentSessionManager,
-                deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator,
-                // Room Wallet is the only active player-financial path.
-                // Do not create GameEscrow deployment authorizations for Room-Wallet games.
-                enabled: isGameEscrowOnlyPlayerPayment(this._tonConfig?.gameEscrowMode)
-                    && !isRoomWalletOnlyFinancialPath({
-                        env: process.env,
-                        gameEscrowMode: this._tonConfig?.gameEscrowMode
-                    })
-            });
-
-        this._gameEscrowDeploymentAuthorizationAutomation.initialize();
-
-        this._logger.startupLine("GameEscrowDeploymentAuthorizationAutomation");
 
         this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
             logger: this._logger,
@@ -4962,7 +4875,6 @@ class WheelWinApplication {
                 };
 
                 this._gameCatalog.configurePaymentRules(nextRules);
-                this._gameContractManager?.setPaymentRules?.(nextRules);
 
             }
         };
