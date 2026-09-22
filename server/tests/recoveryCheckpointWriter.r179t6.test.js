@@ -322,6 +322,7 @@ function buildGraph(prefix) {
 
             return {
                 paymentSessionId: PAYMENT_SESSION_ID,
+                network: "testnet",
                 participants: playerIds.map((playerId, index) => ({
                     playerId,
                     wallet: `EQwallet_${prefix}_${index}`
@@ -673,12 +674,13 @@ function advanceThroughPhases(graph, { stopPhysicsAtEnd = false } = {}) {
 
     assert(payload.roomId === roomId, "A: roomId mismatch");
     assert(payload.gameId === gameId, "A: gameId mismatch");
-    assert(payload.contractId === CONTRACT_ID, "A: contractId mismatch");
+    assert(payload.contractId === null, "A: Room-Wallet checkpoint must not require contractId");
     assert(
         payload.paymentSessionId === PAYMENT_SESSION_ID,
         "A: paymentSessionId mismatch"
     );
     assert(payload.tonNetwork === "testnet", "A: tonNetwork mismatch");
+    assert(payload.snapshotHash === null, "A: Room-Wallet checkpoint must not require snapshotHash");
     assert(payload.correlationId === "corr-writer-001", "A: correlationId mismatch");
 
     const configuration = configurationEngine.getConfiguration(gameId);
@@ -1381,6 +1383,7 @@ function advanceThroughPhases(graph, { stopPhysicsAtEnd = false } = {}) {
         paymentSessionManager: {
             getSessionByGameId: () => ({
                 paymentSessionId: PAYMENT_SESSION_ID,
+                network: "testnet",
                 participants: graph.playerIds.map((playerId, index) => ({
                     playerId,
                     wallet: `EQwallet_fail_${index}`
