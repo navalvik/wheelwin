@@ -75,6 +75,24 @@ export class RoomWalletSettlementAdapter {
         });
     }
 
+    async refundTransfer(request = {}) {
+        const roomNumber = resolveRoomNumber(request);
+        const destination = requireWallet(request.destination, "destination");
+        const amountNano = resolveNano(request.amountNano, request.amount, "amount");
+        const gasReserveNano = this._roomWalletAdapter.getGasReserveNano?.() ?? 0n;
+
+        assertNonNegativeNano(amountNano, "amountNano");
+        assertNonNegativeNano(gasReserveNano, "gasReserveNano");
+
+        return this._roomWalletAdapter.sendTransfer({
+            roomNumber,
+            destination,
+            amountNano,
+            bounce: request.bounce ?? true,
+            queryId: request.queryId ?? null
+        });
+    }
+
     async settleContract(request = {}) {
         const roomNumber = resolveRoomNumber(request);
         const winnerWallet = requireWallet(request.winnerWallet, "winnerWallet");
