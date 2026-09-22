@@ -81,7 +81,6 @@ export class ContractSettlementManager {
     constructor({
         logger,
         eventBus,
-        gameContractManager,
         winnerEngine,
         configurationEngine = null,
         settlementAdapter,
@@ -96,7 +95,6 @@ export class ContractSettlementManager {
         roomManager = null,
         ownerConfiguration = OwnerConfiguration,
         tonNetwork = null,
-        gameEscrowMode = null,
         settlementTimeoutMs = DEFAULT_SETTLEMENT_TIMEOUT_MS,
         roomWalletRetryDelayMs = 2_000,
         devMode = false
@@ -105,8 +103,6 @@ export class ContractSettlementManager {
         this._logger = logger;
 
         this._eventBus = eventBus;
-
-        this._gameContractManager = gameContractManager;
 
         this._winnerEngine = winnerEngine;
 
@@ -139,9 +135,6 @@ export class ContractSettlementManager {
         this._ownerConfiguration = ownerConfiguration;
 
         this._tonNetwork = tonNetwork ?? null;
-
-        // R7.66F — v4 (default) keeps legacy settle; game uses GameEscrow SETTLE ABI.
-        this._gameEscrowMode = resolveGameEscrowMode(gameEscrowMode);
 
         this._settlementTimeoutMs = Number.isFinite(settlementTimeoutMs)
             && settlementTimeoutMs > 0
