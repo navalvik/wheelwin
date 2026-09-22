@@ -255,25 +255,35 @@ export class ContractSettlementManager {
             (envelope) => this._handleSettlementTransactionConfirmed(envelope.payload)
         );
 
-        this._subscribe(
-            EVENT_TYPES.GAME_ESCROW_SETTLEMENT_VERIFIED,
-            (envelope) => this._handleGameEscrowSettlementVerified(envelope.payload)
-        );
+        // Room Wallet is the active settlement path. Legacy GameEscrow
+        // settlement events must not enter the live settlement state machine.
+        if (!this._isRoomWalletSettlementActive()) {
 
-        this._subscribe(
-            EVENT_TYPES.GAME_ESCROW_SETTLEMENT_REJECTED,
-            (envelope) => this._handleGameEscrowSettlementRejected(envelope.payload)
-        );
+            this._subscribe(
+                EVENT_TYPES.GAME_ESCROW_SETTLEMENT_VERIFIED,
+                (envelope) => this._handleGameEscrowSettlementVerified(envelope.payload)
+            );
+
+            this._subscribe(
+                EVENT_TYPES.GAME_ESCROW_SETTLEMENT_REJECTED,
+                (envelope) => this._handleGameEscrowSettlementRejected(envelope.payload)
+            );
+
+        }
 
         this._subscribe(
             EVENT_TYPES.TRANSACTION_FAILED,
             (envelope) => this._handleTransactionFailed(envelope.payload)
         );
 
-        this._subscribe(
-            EVENT_TYPES.BLOCKCHAIN_CONTRACT_STATE_CHANGED,
-            (envelope) => this._handleContractStateChanged(envelope.payload)
-        );
+        if (!this._isRoomWalletSettlementActive()) {
+
+            this._subscribe(
+                EVENT_TYPES.BLOCKCHAIN_CONTRACT_STATE_CHANGED,
+                (envelope) => this._handleContractStateChanged(envelope.payload)
+            );
+
+        }
 
         this._subscribe(
             EVENT_TYPES.ROOM_DESTROYED,
