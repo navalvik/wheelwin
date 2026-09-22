@@ -25,8 +25,7 @@ export function isRoomWalletSettlementEnabled(env = process.env) {
  * Player-payment intake is independent of settlement.
  * ROOM_WALLET_SETTLEMENT_MODE does not enable this path.
  */
-export function isRoomWalletPaymentIntakeEnabled(env = process.env, gameEscrowMode = null) {
-    void gameEscrowMode;
+export function isRoomWalletPaymentIntakeEnabled(env = process.env) {
 
     const value = String(env.ROOM_WALLET_PAYMENT_INTAKE_MODE || "").trim().toUpperCase();
 
@@ -39,10 +38,8 @@ export function isRoomWalletPaymentIntakeEnabled(env = process.env, gameEscrowMo
  * Production new-game architecture and must not wait for an extra env flag.
  */
 export function isRoomWalletOnlyFinancialPath({
-    env = process.env,
-    gameEscrowMode = null
+    env = process.env
 } = {}) {
-    void gameEscrowMode;
 
     // WheelWin player finance is Room-Wallet-only on both networks.
     // Smart-contract player-payment paths are intentionally not a fallback.
@@ -83,13 +80,9 @@ export function assertRoomWalletSettlementCanBeEnabled(service) {
 export function composeRoomWalletSettlementRouter({
     tonService = null,
     logger = null,
-    env = process.env,
-    gameEscrowMode = null
+    env = process.env
 } = {}) {
-    const enableSettlement = isRoomWalletOnlyFinancialPath({
-        env,
-        gameEscrowMode
-    });
+    const enableSettlement = isRoomWalletOnlyFinancialPath({ env });
 
     if (!enableSettlement) {
         return new RoomWalletSettlementRouter({
