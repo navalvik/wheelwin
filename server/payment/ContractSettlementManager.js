@@ -2137,7 +2137,11 @@ export class ContractSettlementManager {
 
             }
 
-            this._gameContractManager.markSettlementPending?.(roomId);
+            if (!this._isRoomWalletSettlementActive()) {
+
+                this._gameContractManager.markSettlementPending?.(roomId);
+
+            }
 
             this._persistSession(session, "update");
 
@@ -2596,10 +2600,14 @@ export class ContractSettlementManager {
                 settlementTransactionHash: settlementTxHash ?? session.settlementTransactionHash
             });
 
-            this._gameContractManager.updateContractState?.(
-                session.roomId,
-                GAME_CONTRACT_STATUS.SETTLEMENT_CONFIRMED
-            );
+            if (!this._isRoomWalletSettlementActive()) {
+
+                this._gameContractManager.updateContractState?.(
+                    session.roomId,
+                    GAME_CONTRACT_STATUS.SETTLEMENT_CONFIRMED
+                );
+
+            }
 
             this._persistSession(session, "update");
 
@@ -2618,7 +2626,11 @@ export class ContractSettlementManager {
             failedAt: null
         });
 
-        this._gameContractManager.completeContract?.(session.roomId);
+        if (!this._isRoomWalletSettlementActive()) {
+
+            this._gameContractManager.completeContract?.(session.roomId);
+
+        }
 
         this._clearExpiry(session.gameId);
 
