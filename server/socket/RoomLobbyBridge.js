@@ -75,7 +75,6 @@ export class RoomLobbyBridge {
         setupSessionLifecycle = null,
         resultSessionLifecycle = null,
         paymentSessionManager = null,
-        gameContractManager = null,
         gameStartAuthorization = null,
         contractSettlementManager = null,
         sessionWalletStore = null,
@@ -104,8 +103,6 @@ export class RoomLobbyBridge {
         this._resultSessionLifecycle = resultSessionLifecycle;
 
         this._paymentSessionManager = paymentSessionManager;
-
-        this._gameContractManager = gameContractManager;
 
         this._gameStartAuthorization = gameStartAuthorization;
 
@@ -869,33 +866,6 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handlePaymentCancelIntent(envelope.payload.socketId);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.GAME_CONTRACT_UPDATED,
-            (envelope) => {
-
-                this._deliverGameContractUpdated(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.GAME_CONTRACT_DEPLOYED,
-            (envelope) => {
-
-                this._deliverGameContractDeployed(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
-            (envelope) => {
-
-                this._handleGameContractDeployFailed(envelope.payload);
 
             }
         );
@@ -2351,10 +2321,6 @@ export class RoomLobbyBridge {
             ? this._paymentSessionManager?.getSession?.(roomId) ?? null
             : null;
 
-        const contract = roomId
-            ? this._gameContractManager?.getContract?.(roomId) ?? null
-            : null;
-
         const stage = roomId
             ? (this._paymentStageReadyByRoom.has(roomId)
                 ? "PAYMENT"
@@ -3106,77 +3072,6 @@ export class RoomLobbyBridge {
                     paymentSession.toSnapshot()
                 );
 
-                // R7.69B — GameEscrow is payment authority. Re-query chain and
-                // re-deliver if seats change (missed confirmation / multi-player).
-                // In-memory confirmed seats already show paid on first delivery
-                // (browser refresh after live confirmation).
-                if (
-                    paymentSession.isInProgress?.()
-                    && this._paymentSessionManager?.syncFromGameEscrow
-                ) {
-
-                    Promise.resolve(
-                        this._paymentSessionManager.syncFromGameEscrow(roomId)
-                    ).then((result) => {
-
-                        if (
-                            !result?.ok
-                            || ((result.synced ?? 0) === 0
-                                && (result.demoted ?? 0) === 0)
-                        ) {
-
-                            return;
-
-                        }
-
-                        const updated = this._paymentSessionManager
-                            .getSession(roomId);
-
-                        if (!updated) {
-
-                            return;
-
-                        }
-
-                        this._deliverToSocket(
-                            socketId,
-                            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_UPDATED,
-                            updated.toSnapshot()
-                        );
-
-                        this._deliverToRoom(
-                            roomId,
-                            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_UPDATED,
-                            updated.toSnapshot()
-                        );
-
-                    }).catch((error) => {
-
-                        this._logger?.warn?.(
-                            `GameEscrow payment sync skipped on reconnect | `
-                                + `roomId=${roomId} | ${error?.message ?? error}`
-                        );
-
-                    });
-
-                }
-
-            }
-
-            const gameContract = this._gameContractManager
-                ?.getContract(roomId);
-
-            if (gameContract) {
-
-                this._deliverToSocket(
-                    socketId,
-                    LOBBY_SERVER_EVENTS.GAME_CONTRACT_UPDATED,
-                    gameContract.toClientSnapshot()
-                );
-
-            }
-
-            // P6.7 — restore authoritative start gate without re-initializing.
             const gameStart = this._gameStartAuthorization
                 ?.getReconnectSnapshot?.(roomId);
 
@@ -3633,8 +3528,6 @@ export class RoomLobbyBridge {
 
         const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
 
-        const contract = this._gameContractManager?.getContract?.(roomId);
-
         const unwindNeeded = paymentSession
             ? sessionNeedsEscrowUnwind(paymentSession)
             : false;
@@ -3645,18 +3538,16 @@ export class RoomLobbyBridge {
         const willFailSession = Boolean(
             unwindNeeded
             && (
-                contract?.contractAddress
-                || roomWalletPaymentIntakeEnabled
+roomWalletPaymentIntakeEnabled
             )
         );
 
         this._logger.info(
             `SETUP_SESSION_EXPIRED unwind check | roomId=${roomId}`
-                + ` | gameId=${paymentSession?.gameId ?? contract?.gameId ?? payload?.gameId ?? "null"}`
+                + ` | gameId=${paymentSession?.gameId ?? payload?.gameId ?? "null"}`
                 + ` | paymentSessionId=${paymentSession?.paymentSessionId ?? "null"}`
                 + ` | paymentSession.status=${paymentSession?.status ?? "null"}`
                 + ` | sessionNeedsEscrowUnwind=${unwindNeeded}`
-                + ` | contractAddress=${contract?.contractAddress ?? "null"}`
                 + ` | timestamp=${new Date().toISOString()}`
                 + ` | reason=setup_expired`
                 + ` | nextAction=${willFailSession ? "failSession" : "_closeRoom"}`
@@ -4067,7 +3958,6 @@ export class RoomLobbyBridge {
     _resolveGameManager() {
 
         return this._paymentSessionManager?._gameManager
-            ?? this._gameContractManager?._gameManager
             ?? null;
 
     }
@@ -4271,9 +4161,6 @@ export class RoomLobbyBridge {
             HasPaymentSession: Boolean(
                 this._paymentSessionManager?.getSession?.(roomId)
             ),
-            HasContract: Boolean(
-                this._gameContractManager?.getContract?.(roomId)
-            )
         });
         console.trace("RoomLobbyBridge._closeRoom trace");
         console.log("======================================================");
@@ -6975,63 +6862,6 @@ export class RoomLobbyBridge {
 
     }
 
-    _deliverGameContractUpdated(payload) {
-
-        const roomId = payload?.roomId;
-
-        if (!roomId) {
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.GAME_CONTRACT_UPDATED,
-            payload
-        );
-
-    }
-
-    _deliverGameContractDeployed(payload) {
-
-        const roomId = payload?.roomId;
-
-        if (!roomId) {
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.GAME_CONTRACT_DEPLOYED,
-            payload
-        );
-
-    }
-
-    _handleGameContractDeployFailed(payload) {
-
-        const roomId = payload?.roomId;
-
-        if (!roomId) {
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
-            payload
-        );
-
-        // PaymentSessionManager fails the session on the same EventBus event;
-        // room cancellation follows PAYMENT_SESSION_FAILED.
-
-    }
-
     /**
      * R18 S4 / R18-S16 — single requester-scoped Deposit restore.
      * Reads live DepositSession via projectDepositForPlayer. Never uses the
@@ -7689,9 +7519,8 @@ export class RoomLobbyBridge {
 
         this._tonConnectAutopsyByRoom.delete(roomId);
 
-        // R8.8 — never wipe PaymentSession/GameContract after gameplay init.
+        // R8.8 — never wipe PaymentSession after gameplay init.
         const gameManager = this._paymentSessionManager?._gameManager
-            ?? this._gameContractManager?._gameManager
             ?? null;
 
         if (gameManager?.hasInitializedGameplay?.(roomId)) {
@@ -7702,7 +7531,6 @@ export class RoomLobbyBridge {
 
         this._paymentSessionManager?.destroySession(roomId);
 
-        this._gameContractManager?.destroyContract(roomId);
 
     }
 
