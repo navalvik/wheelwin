@@ -3198,12 +3198,6 @@ export class RoomLobbyBridge {
 
     }
 
-    reconnectGameplaySession(socketId, claim = null) {
-
-        return this.reconnectSession(socketId, claim);
-
-    }
-
     /**
      * R18-S16 — Restore the live Deposit projection to an already-bound socket.
      *
