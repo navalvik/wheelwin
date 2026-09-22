@@ -31,7 +31,8 @@ function createHarness({
     recoveryPending = false,
     simulationMissing = false,
     clockMissing = false,
-    depositSessionCoordinator = null
+    depositSessionCoordinator = null,
+    roomWalletPaymentIntakeEnabled = false
 } = {}) {
 
     const logger = createLogger();
@@ -180,7 +181,8 @@ function createHarness({
         },
         auditLedger,
         roomConfig: { maxPlayers: 3 },
-        depositSessionCoordinator
+        depositSessionCoordinator,
+        roomWalletPaymentIntakeEnabled
     });
 
     auth.initialize();
@@ -209,6 +211,37 @@ function createHarness({
 
         }
     };
+
+}
+
+{
+    const harness = createHarness({
+        roomWalletPaymentIntakeEnabled: true
+    });
+
+    harness.gameContractManager = null;
+
+    harness.emitPaymentsComplete();
+
+    assert.equal(
+        harness.auth.getLifecycle("room-1")?.phase,
+        GAME_START_PHASE.OPENED,
+        "Room Wallet path authorizes Page5 without a Game Contract"
+    );
+
+    assert.deepEqual(
+        harness.collected,
+        [
+            EVENT_TYPES.GAME_START_AUTHORIZED,
+            EVENT_TYPES.GAME_INITIALIZING,
+            EVENT_TYPES.GAME_START_BOOTSTRAP_READY
+        ],
+        "Room Wallet path emits the normal start lifecycle"
+    );
+
+    console.log("  GameStartAuthorization Room Wallet path passed");
+
+    harness.auth.shutdown();
 
 }
 
