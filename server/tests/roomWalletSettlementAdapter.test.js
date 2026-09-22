@@ -36,6 +36,24 @@ function createAdapter({ balanceNano = 100n * GRAM_NANO } = {}) {
     };
 }
 
+test("Room Wallet refund sends the exact paid amount and uses the source wallet gas reserve", async () => {
+    const { adapter, calls } = createAdapter();
+
+    const result = await adapter.refundTransfer({
+        roomNumber: "07",
+        destination: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+        amountNano: 1_000_000_000n,
+        queryId: 123n
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].roomNumber, "07");
+    assert.equal(calls[0].amountNano, 1_000_000_000n);
+    assert.equal(calls[0].destination, "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c");
+    assert.equal(calls[0].queryId, 123n);
+});
+
 test("owner payout retains exactly 0.01 Gram from owner gross share", async () => {
     const { adapter, calls } = createAdapter();
 
