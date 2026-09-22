@@ -5,7 +5,6 @@
  * new settlement path unless explicitly requested by configuration.
  */
 
-import { isGameEscrowOnlyPlayerPayment } from "../../config/gameEscrowMode.js";
 import { RoomWalletSettlementRouter } from "../RoomWalletSettlementRouter.js";
 import { createRoomWalletService } from "./RoomWalletService.js";
 import {
@@ -27,12 +26,12 @@ export function isRoomWalletSettlementEnabled(env = process.env) {
  * ROOM_WALLET_SETTLEMENT_MODE does not enable this path.
  */
 export function isRoomWalletPaymentIntakeEnabled(env = process.env, gameEscrowMode = null) {
+    void gameEscrowMode;
+
     const value = String(env.ROOM_WALLET_PAYMENT_INTAKE_MODE || "").trim().toUpperCase();
 
-    // Production financial architecture: GAME_ESCROW_MODE=game means
-    // player payments are Room-Wallet payments. No second opt-in flag.
-    return value === "ROOM_WALLET"
-        || isGameEscrowOnlyPlayerPayment(gameEscrowMode);
+    // Room Wallet is the only player-payment intake architecture.
+    return value === "ROOM_WALLET";
 }
 
 /**
