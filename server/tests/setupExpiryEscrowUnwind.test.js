@@ -69,7 +69,8 @@ function partialSession(roomId = "room-setup") {
 }
 
 function buildStack({
-    cancelResult = { ok: true, txId: "cancel-setup-tx" }
+    cancelResult = { ok: true, txId: "cancel-setup-tx" },
+    roomWalletMode = false
 } = {}) {
 
     const logger = createLogger();
@@ -151,10 +152,21 @@ function buildStack({
         roomManager,
         gameContractManager,
         blockchainMonitor,
+        roomWalletPaymentIntakeEnabled: roomWalletMode,
         devMode: false
     });
 
     paymentSessionManager.initialize();
+
+    const refundCalls = [];
+    if (roomWalletMode) {
+        paymentSessionManager.setRoomWalletRefundAdapter({
+            async refundTransfer(request) {
+                refundCalls.push(request);
+                return { ok: true, code: "SENT", txHash: `refund-${refundCalls.length}` };
+            }
+        });
+    }
 
     gameContractManager.setFinancialEvidenceDeps({ paymentSessionManager });
 
@@ -204,6 +216,7 @@ function buildStack({
         gameContractManager,
         cancelCalls,
         closeRoomCalls,
+        refundCalls,
         shutdown() {
 
             roomLobbyBridge.shutdown();
@@ -454,6 +467,54 @@ console.log("R17.8O.4 setup expiry escrow unwind bridge tests");
     console.log(
         "  E. cancel→refunds→PAYMENT_SESSION_FAILED→_closeRoom (prod order)"
     );
+
+}
+
+// F — Room Wallet setup expiry refunds confirmed payments, then closes the room.
+{
+
+    const stack = buildStack({ roomWalletMode: true });
+
+    seedArchivedSetup(stack.setupSessionLifecycle, stack.roomId);
+
+    const session = new PaymentSession({
+        paymentSessionId: "pay-room-wallet-expiry",
+        roomId: stack.roomId,
+        roomNumber: 1,
+        gameId: "game-setup",
+        status: PAYMENT_SESSION_STATUS.FULLY_PAID,
+        participants: [
+            {
+                playerId: "p1", wallet: "wallet-A", requiredGram: 1,
+                paidAmount: 1, status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+            },
+            {
+                playerId: "p2", wallet: "wallet-B", requiredGram: 1,
+                paidAmount: 1, status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+            },
+            {
+                playerId: "p3", wallet: "wallet-C", requiredGram: 1,
+                paidAmount: 1, status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+            }
+        ]
+    });
+
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    await triggerSetupExpiry(stack);
+    await waitForAsync();
+
+    assert.equal(stack.refundCalls.length, 3, "all confirmed Room Wallet payments must be refunded");
+    assert.equal(stack.refundCalls[0].roomNumber, 1);
+    assert.equal(stack.refundCalls[0].amountNano, 1_000_000_000n);
+    assert.equal(stack.paymentSessionManager.getSession(stack.roomId).status, PAYMENT_SESSION_STATUS.CANCELLED);
+    assert.equal(stack.closeRoomCalls.length, 1, "room closes only after all refunds complete");
+    assert.equal(stack.closeRoomCalls[0].reason, "setup_expired");
+    assert.equal(stack.roomManager.getRoom(stack.roomId) != null, true, "test stub keeps room object after close hook");
+
+    stack.shutdown();
+
+    console.log("  F. Room Wallet expiry → refunds → PAYMENT_SESSION_FAILED → _closeRoom");
 
 }
 
