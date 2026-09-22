@@ -2147,12 +2147,6 @@ export class ContractSettlementManager {
 
             }
 
-            if (!this._isRoomWalletSettlementActive()) {
-
-                this._gameContractManager?.markSettlementPending?.(roomId);
-
-            }
-
             this._persistSession(session, "update");
 
             this._emitDomain(EVENT_TYPES.SETTLEMENT_PENDING, session, {
