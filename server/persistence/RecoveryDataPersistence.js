@@ -336,6 +336,12 @@ export class RecoveryDataPersistence {
 
         const payload = record.payload ?? {};
 
+        // Room-Wallet recovery references intentionally have no GameContract
+        // identity. Both fields must be absent/null together; a partially
+        // populated pair remains invalid.
+        const roomWalletPayload =
+            payload.contractId == null && payload.snapshotHash == null;
+
         // --- Recovery contract version ---
 
         const recoveryContractVersion = payload.recoveryContractVersion;
@@ -362,10 +368,14 @@ export class RecoveryDataPersistence {
 
         for (const field of REQUIRED_IDENTITY_FIELDS) {
 
-            if (payload[field] == null || payload[field] === "") {
-
+            if (
+                payload[field] == null
+                || payload[field] === ""
+            ) {
+                if (roomWalletPayload && field === "contractId") {
+                    continue;
+                }
                 errors.push(`identity_missing:${field}`);
-
             }
 
         }
@@ -375,9 +385,10 @@ export class RecoveryDataPersistence {
         for (const field of REQUIRED_CONFIGURATION_FIELDS) {
 
             if (payload[field] == null || payload[field] === "") {
-
+                if (roomWalletPayload && field === "snapshotHash") {
+                    continue;
+                }
                 errors.push(`configuration_missing:${field}`);
-
             }
 
         }
@@ -552,9 +563,15 @@ export class RecoveryDataPersistence {
 
         // --- Identity fields ---
 
+        const roomWalletPayload =
+            payload.contractId == null && payload.snapshotHash == null;
+
         for (const field of REQUIRED_IDENTITY_FIELDS) {
 
             if (payload[field] == null || payload[field] === "") {
+                if (roomWalletPayload && field === "contractId") {
+                    continue;
+                }
 
                 throw new TonFinancialPersistenceError(
                     `Recovery data payload missing required identity field: ${field}`
@@ -569,6 +586,9 @@ export class RecoveryDataPersistence {
         for (const field of REQUIRED_CONFIGURATION_FIELDS) {
 
             if (payload[field] == null || payload[field] === "") {
+                if (roomWalletPayload && field === "snapshotHash") {
+                    continue;
+                }
 
                 throw new TonFinancialPersistenceError(
                     `Recovery data payload missing required configuration field: ${field}`
