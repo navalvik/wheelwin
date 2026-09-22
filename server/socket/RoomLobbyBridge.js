@@ -2769,8 +2769,12 @@ export class RoomLobbyBridge {
             ? sessionNeedsEscrowUnwind(paymentSession)
             : false;
 
+        const roomWalletRefundNeeded = this._paymentSessionManager
+            ?.shouldProtectRoomFromFinancialClose?.(roomId) === true;
+
         const willFailSession = Boolean(
-            unwindNeeded && contract?.contractAddress
+            roomWalletRefundNeeded
+            || (unwindNeeded && contract?.contractAddress)
         );
 
         this._logger.info(
@@ -2779,6 +2783,7 @@ export class RoomLobbyBridge {
                 + ` | paymentSessionId=${paymentSession?.paymentSessionId ?? "null"}`
                 + ` | paymentSession.status=${paymentSession?.status ?? "null"}`
                 + ` | sessionNeedsEscrowUnwind=${unwindNeeded}`
+                + ` | roomWalletRefundNeeded=${roomWalletRefundNeeded}`
                 + ` | contractAddress=${contract?.contractAddress ?? "null"}`
                 + ` | timestamp=${new Date().toISOString()}`
                 + ` | reason=setup_expired`
