@@ -1564,6 +1564,10 @@ class WheelWinApplication {
                 : "RoomWalletSettlementRouter (legacy)"
         );
 
+        this._paymentSessionManager.setRoomWalletRefundAdapter?.(
+            this._roomWalletSettlementRouter
+        );
+
         this._contractSettlementManager = new ContractSettlementManager({
             logger: this._logger,
             eventBus: this._eventBus,
