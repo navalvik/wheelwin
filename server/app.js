@@ -1349,10 +1349,7 @@ class WheelWinApplication {
             financialPersistence: this._financialPersistence,
             tonNetwork: this._tonConfig?.network ?? null,
             devMode: this._productionConfig.isDevelopment,
-            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
-                env: process.env,
-                gameEscrowMode: this._tonConfig?.gameEscrowMode
-            })
+            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({ env: process.env })
         });
 
         this._paymentSessionManager.initialize();
@@ -1677,10 +1674,7 @@ class WheelWinApplication {
         this._paymentSessionManager.setRoomWalletFinance({
             registry: this._roomWalletRegistry,
             settlementAdapter: this._roomWalletSettlementRouter,
-            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
-                env: process.env,
-                gameEscrowMode: this._tonConfig?.gameEscrowMode
-            })
+            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({ env: process.env })
         });
 
         this._roomWalletResidualSweepRepository = new RoomWalletResidualSweepRepository({
@@ -1783,10 +1777,7 @@ class WheelWinApplication {
             auditLedger: this._entryPaymentAuditLedger,
             roomConfig: this._roomConfig,
             devMode: this._productionConfig.isDevelopment,
-            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
-                env: process.env,
-                gameEscrowMode: this._tonConfig?.gameEscrowMode
-            }),
+            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({ env: process.env }),
             roomWalletLedgerRegistry: this._roomWalletLedgerRegistry
         });
 
