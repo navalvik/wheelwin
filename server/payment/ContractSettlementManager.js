@@ -1393,7 +1393,7 @@ export class ContractSettlementManager {
 
             }
 
-            this._gameContractManager.markSettlementPending?.(ctx.roomId);
+            this._gameContractManager?.markSettlementPending?.(ctx.roomId);
 
             this._persistSession(session, "update");
 
@@ -1419,7 +1419,7 @@ export class ContractSettlementManager {
 
         session.version += 1;
 
-        this._gameContractManager.markSettlementPending?.(ctx.roomId);
+        this._gameContractManager?.markSettlementPending?.(ctx.roomId);
 
         this._persistSession(session, "update");
 
@@ -1485,7 +1485,7 @@ export class ContractSettlementManager {
 
             session.transitionTo(SETTLEMENT_SESSION_STATUS.PREPARING);
 
-            this._gameContractManager.markWinnerPending?.(roomId);
+            this._gameContractManager?.markWinnerPending?.(roomId);
 
             this._persistSession(session, "update");
 
@@ -1839,7 +1839,7 @@ export class ContractSettlementManager {
 
         session.transitionTo(SETTLEMENT_SESSION_STATUS.PREPARING);
 
-        this._gameContractManager.markWinnerPending?.(roomId);
+        this._gameContractManager?.markWinnerPending?.(roomId);
 
         this._persistSession(session, "update");
 
@@ -2139,7 +2139,7 @@ export class ContractSettlementManager {
 
             if (!this._isRoomWalletSettlementActive()) {
 
-                this._gameContractManager.markSettlementPending?.(roomId);
+                this._gameContractManager?.markSettlementPending?.(roomId);
 
             }
 
@@ -2198,7 +2198,7 @@ export class ContractSettlementManager {
                 }
             );
 
-            this._gameContractManager.markSettlementPending?.(roomId);
+            this._gameContractManager?.markSettlementPending?.(roomId);
 
             this._persistSession(session, "update");
 
@@ -2241,7 +2241,7 @@ export class ContractSettlementManager {
             settlementTransactionHash: settlementTxHash
         });
 
-        this._gameContractManager.markSettlementPending?.(roomId);
+        this._gameContractManager?.markSettlementPending?.(roomId);
 
         this._persistSession(session, "update");
 
@@ -2275,14 +2275,14 @@ export class ContractSettlementManager {
 
         const roomId = this._gameplayContextResolver
             ?.resolveRoomByGameId?.(gameId)
-            ?? this._gameContractManager.getContractByGameId?.(gameId)?.roomId
+            ?? this._gameContractManager?.getContractByGameId?.(gameId)?.roomId
             ?? null;
 
         const roomWalletActive = this._isRoomWalletSettlementActive();
 
-        let contract = this._gameContractManager.getContractByGameId?.(gameId)
+        let contract = this._gameContractManager?.getContractByGameId?.(gameId)
             ?? (roomId
-                ? this._gameContractManager.getContract?.(roomId)
+                ? this._gameContractManager?.getContract?.(roomId)
                 : null);
 
         // Room Wallet settlement is intentionally independent of GameContract.
@@ -2602,7 +2602,7 @@ export class ContractSettlementManager {
 
             if (!this._isRoomWalletSettlementActive()) {
 
-                this._gameContractManager.updateContractState?.(
+                this._gameContractManager?.updateContractState?.(
                     session.roomId,
                     GAME_CONTRACT_STATUS.SETTLEMENT_CONFIRMED
                 );
@@ -2628,7 +2628,7 @@ export class ContractSettlementManager {
 
         if (!this._isRoomWalletSettlementActive()) {
 
-            this._gameContractManager.completeContract?.(session.roomId);
+            this._gameContractManager?.completeContract?.(session.roomId);
 
         }
 
@@ -3164,7 +3164,7 @@ export class ContractSettlementManager {
 
         if (validation.contractId && roomId) {
 
-            this._gameContractManager.failContract?.(roomId, validation.reason);
+            this._gameContractManager?.failContract?.(roomId, validation.reason);
 
         }
 
@@ -3213,7 +3213,7 @@ export class ContractSettlementManager {
             reason
         });
 
-        this._gameContractManager.failContract?.(session.roomId, reason);
+        this._gameContractManager?.failContract?.(session.roomId, reason);
 
         this._persistSession(session, "update");
 
@@ -3359,7 +3359,7 @@ export class ContractSettlementManager {
 
         }
 
-        return this._gameContractManager.getContractById?.(contractId)?.gameId ?? null;
+        return this._gameContractManager?.getContractById?.(contractId)?.gameId ?? null;
 
     }
 
@@ -3455,7 +3455,7 @@ export class ContractSettlementManager {
             reason: "settlement_timeout"
         });
 
-        this._gameContractManager.failContract?.(session.roomId, "settlement_timeout");
+        this._gameContractManager?.failContract?.(session.roomId, "settlement_timeout");
 
         this._persistSession(session, "update");
 
