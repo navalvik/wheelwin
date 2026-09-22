@@ -1491,8 +1491,7 @@ class WheelWinApplication {
         this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
             tonService: this._services?.tonService ?? null,
             logger: this._logger,
-            env: process.env,
-            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null
+            env: process.env
         });
 
         this._logger.startupLine(
