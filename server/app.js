@@ -1493,7 +1493,6 @@ class WheelWinApplication {
         const deployerWalletAddress = await this._resolveDeployerWalletAddress();
 
         this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
-            legacySettlementAdapter: null,
             tonService: this._services?.tonService ?? null,
             logger: this._logger,
             env: process.env,
