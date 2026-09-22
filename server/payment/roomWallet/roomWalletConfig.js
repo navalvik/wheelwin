@@ -82,7 +82,6 @@ export function assertRoomWalletSettlementCanBeEnabled(service) {
  * Mainnet. Legacy GameEscrow settlement is not an active fallback.
  */
 export function composeRoomWalletSettlementRouter({
-    legacySettlementAdapter,
     tonService = null,
     logger = null,
     env = process.env,
@@ -95,7 +94,6 @@ export function composeRoomWalletSettlementRouter({
 
     if (!enableSettlement) {
         return new RoomWalletSettlementRouter({
-            legacySettlementAdapter,
             enabled: false
         });
     }
@@ -115,7 +113,6 @@ export function composeRoomWalletSettlementRouter({
     assertRoomWalletSettlementCanBeEnabled(service);
 
     return new RoomWalletSettlementRouter({
-        legacySettlementAdapter,
         roomWalletSettlementAdapter: service.settlementAdapter,
         enabled: true
     });
