@@ -2194,7 +2194,8 @@ class WheelWinApplication {
             config: forensicArchiveConfig,
             uploader: forensicArchiveUploader,
             sessionHistoryArchive: this._sessionHistoryArchive,
-            financialPersistence: this._financialPersistence
+            financialPersistence: this._financialPersistence,
+            gameReportEngine: this._gameReportEngine
         });
 
         this._roomLobbyBridge.configureForensicArchiveService(
