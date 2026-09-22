@@ -138,7 +138,7 @@ export class RoomWalletTerminalSettlementRecovery {
             });
         }
 
-        const evidence = this._reconstructEvidence(gameId);
+        const evidence = this._reconstructEvidence(gameId, { roomNumber, roomWalletAddress });
         if (!evidence.ok) {
             return this._blocked(evidence.code, { detail: evidence.detail });
         }
@@ -389,7 +389,7 @@ export class RoomWalletTerminalSettlementRecovery {
         });
     }
 
-    _reconstructEvidence(gameId) {
+    _reconstructEvidence(gameId, identity = {}) {
         const persisted = this._loadPersistedSettlement(gameId);
         const history = this._loadHistory(gameId);
         const sealed = this._getSealedEvidence(gameId);
@@ -417,6 +417,10 @@ export class RoomWalletTerminalSettlementRecovery {
                 ok: false,
                 code: OPERATOR_RECOVERY_CODES.EVIDENCE_MISSING
             };
+        }
+
+        if (candidate && !candidate.roomWalletAddress && identity.roomWalletAddress) {
+            candidate.roomWalletAddress = identity.roomWalletAddress;
         }
 
         if (sealed) {
