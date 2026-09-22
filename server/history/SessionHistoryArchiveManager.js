@@ -442,6 +442,81 @@ export class SessionHistoryArchiveManager {
 
         });
 
+        // Persist authoritative gameplay result independently of settlement.
+        // The result is emitted before Page6 and must survive teardown.
+        this._subscribe(EVENT_TYPES.WINNER_DETERMINED, (envelope) => {
+
+            const roomId = this._resolvePendingRoomId(envelope.payload);
+            const pending = this._ensurePending(roomId);
+
+            if (!pending) {
+
+                return;
+
+            }
+
+            if (envelope.payload?.gameId) {
+
+                pending.gameId = envelope.payload.gameId;
+
+            }
+
+            pending.gameResult = Object.freeze({
+                gameId: envelope.payload?.gameId ?? pending.gameId ?? null,
+                winningSector: envelope.payload?.winningSector ?? null,
+                winningPlayerId: envelope.payload?.winnerPlayerId
+                    ?? envelope.payload?.winningPlayerId
+                    ?? null,
+                winningPlayerColor: envelope.payload?.winningPlayerColor ?? null,
+                winningPlayerIcon: envelope.payload?.winningPlayerIcon ?? null,
+                winnerSectorIndex: envelope.payload?.winnerSectorIndex ?? null,
+                finalWheelAngle: envelope.payload?.finalWheelAngle
+                    ?? envelope.payload?.wheelFinalAngle
+                    ?? null,
+                triangleFinalAngle: envelope.payload?.triangleFinalAngle ?? null,
+                resolvedAt: envelope.payload?.resolvedAt
+                    ?? envelope.payload?.serverTimestamp
+                    ?? Date.now()
+            });
+
+            this._pushTimeline(roomId, "RESULT", "WINNER_DETERMINED — authoritative result persisted");
+
+        });
+
+        // Persist payment preparation facts separately from settlement. These
+        // are server-produced financial references used only as recovery evidence.
+        this._subscribe(EVENT_TYPES.PAYMENT_PREPARED, (envelope) => {
+
+            const roomId = this._resolvePendingRoomId(envelope.payload);
+            const pending = this._ensurePending(roomId);
+
+            if (!pending) {
+
+                return;
+
+            }
+
+            if (envelope.payload?.gameId) {
+
+                pending.gameId = envelope.payload.gameId;
+
+            }
+
+            pending.paymentPreparation = Object.freeze({
+                gameId: envelope.payload?.gameId ?? pending.gameId ?? null,
+                winnerId: envelope.payload?.winnerId ?? null,
+                totalPrize: envelope.payload?.totalPrize ?? null,
+                winnerAmount: envelope.payload?.winnerAmount ?? null,
+                organizerAmount: envelope.payload?.organizerAmount
+                    ?? envelope.payload?.commissionAmount
+                    ?? envelope.payload?.platformFee
+                    ?? null,
+                traceSeed: envelope.payload?.traceSeed ?? null,
+                timestamp: envelope.payload?.timestamp ?? Date.now()
+            });
+
+        });
+
         this._subscribe(EVENT_TYPES.SESSION_FINISHED, (envelope) => {
 
             const roomId = envelope.payload?.roomId;
@@ -947,7 +1022,9 @@ export class SessionHistoryArchiveManager {
                 game: null,
                 frozen: null
             },
-            blockchain: createBlockchainTrack()
+            blockchain: createBlockchainTrack(),
+            gameResult: null,
+            paymentPreparation: null
         });
 
         this._pushTimeline(roomId, "ROOM", "Room created");
@@ -1533,6 +1610,9 @@ export class SessionHistoryArchiveManager {
             tonConnect: tonConnect ?? null,
             tonDeployDebug: tonDeployDebug ?? null,
             blockchainLifecycle,
+            // Authoritative gameplay result is preserved even when settlement fails.
+            gameResult: pending.gameResult ?? null,
+            paymentPreparation: pending.paymentPreparation ?? null,
             walletConnectionSession: tonConnect
                 ? Object.freeze({
                     paymentConnectionReady: tonConnect.paymentConnectionReady,
