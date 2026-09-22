@@ -209,6 +209,34 @@ export function registerDeveloperConsoleRoutes(
 
     });
 
+    /**
+     * Administrator-only terminal settlement recovery.
+     * Accepts only reconstruction pins; financial values are reconstructed
+     * from sealed/persisted evidence by RoomWalletTerminalSettlementRecovery.
+     */
+    app.post("/console/settlements/operator-recovery", adminGate, async (req, res) => {
+
+        if (!req.app?.locals?.roomWalletTerminalSettlementRecovery) {
+            res.status(503).json({ error: "Terminal settlement recovery unavailable" });
+            return;
+        }
+
+        try {
+            const result = await req.app.locals.roomWalletTerminalSettlementRecovery.recover({
+                gameId: req.body?.gameId,
+                roomNumber: req.body?.roomNumber,
+                roomWalletAddress: req.body?.roomWalletAddress
+            });
+
+            res.status(result?.ok ? 200 : 409).json(result);
+        } catch (error) {
+            res.status(500).json({
+                error: "Terminal settlement recovery failed",
+                message: error?.message ?? "Unknown error"
+            });
+        }
+    });
+
     app.get("/console/blockchain", (req, res) => {
 
         res.json(projectionService.buildBlockchainStatus());
