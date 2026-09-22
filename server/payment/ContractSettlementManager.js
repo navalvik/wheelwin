@@ -1557,7 +1557,11 @@ export class ContractSettlementManager {
 
             session.transitionTo(SETTLEMENT_SESSION_STATUS.PREPARING);
 
-            this._gameContractManager?.markWinnerPending?.(roomId);
+            if (!this._isRoomWalletSettlementActive()) {
+
+                this._gameContractManager?.markWinnerPending?.(roomId);
+
+            }
 
             this._persistSession(session, "update");
 
