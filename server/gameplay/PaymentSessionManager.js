@@ -141,15 +141,8 @@ export class PaymentSessionManager {
      * R8.8 — Late-bind settlement/contract refs for financial retention checks.
      */
     setFinancialEvidenceDeps({
-        gameContractManager = null,
         contractSettlementManager = null
     } = {}) {
-
-        if (gameContractManager) {
-
-            this._gameContractManager = gameContractManager;
-
-        }
 
         if (contractSettlementManager) {
 
@@ -2116,65 +2109,7 @@ export class PaymentSessionManager {
 
         this._blockchainMonitor?.stopRoom?.(roomId);
 
-        const contract = this._gameContractManager?.getContract?.(roomId) ?? null;
-
-        const needsEscrowUnwind = sessionNeedsEscrowUnwind(session)
-            && Boolean(contract?.contractAddress)
-            && typeof this._gameContractManager?.requestPartialPaymentEscrowUnwind
-                === "function";
-
-        const needsRoomWalletRefund = sessionNeedsEscrowUnwind(session)
-            && this._roomWalletPaymentIntakeEnabled
-            && typeof this._roomWalletSettlementAdapter?.refundPayments === "function";
-
-        if (reason === "payment_timeout") {
-
-            session.markTimedOut();
-
-            this._emitDomain(EVENT_TYPES.PAYMENT_TIMEOUT, session, { reason });
-
-        } else {
-
-            session.markFailed();
-
-        }
-
-        if (needsRoomWalletRefund) {
-
-            void this._requestRoomWalletPartialPaymentRefund(session, reason).catch((error) => {
-
-                this._logger?.error?.(
-                    "Room-Wallet partial refund orchestration failed | roomId=" + roomId + " | "
-                        + (error?.message ?? error)
-                );
-
-            });
-
-            this._logger.decisionTrace({
-                stage: "TERMINAL_FAILURE",
-                decision: "UNWIND",
-                reason: reason ?? "payment_failed",
-                caller: "PaymentSessionManager.failSession",
-                nextAction: "_requestRoomWalletPartialPaymentRefund",
-                roomId,
-                gameId: session.gameId ?? null
-            });
-
-            return session;
-
-        }
-
-        if (needsEscrowUnwind) {
-
-            session.recoveryMetadata = {
-                ...(session.recoveryMetadata ?? {}),
-                unwindReason: reason,
-                escrowUnwindRequestedAt: Date.now()
-            };
-
-            session.markRefundPending();
-
-            this._persistSession(session, "update");
+        this._persistSession(session, "update");
 
             this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
