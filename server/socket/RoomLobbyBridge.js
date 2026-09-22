@@ -3072,6 +3072,8 @@ export class RoomLobbyBridge {
                     paymentSession.toSnapshot()
                 );
 
+            }
+
             const gameStart = this._gameStartAuthorization
                 ?.getReconnectSnapshot?.(roomId);
 
@@ -3195,6 +3197,12 @@ export class RoomLobbyBridge {
             gameId,
             setupActive
         };
+
+    }
+
+    reconnectGameplaySession(socketId, claim = null) {
+
+        return this.reconnectSession(socketId, claim);
 
     }
 
