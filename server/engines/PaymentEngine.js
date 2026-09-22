@@ -14,7 +14,6 @@ export class PaymentEngine {
         winnerEngine,
         configurationEngine,
         gameCatalog,
-        gameContractManager = null,
         telegramWalletAdapter,
         metricsService = null
     }) {
@@ -29,8 +28,6 @@ export class PaymentEngine {
 
         this._gameCatalog = gameCatalog;
 
-        this._gameContractManager = gameContractManager;
-
         this._telegramWalletAdapter = telegramWalletAdapter;
 
         this._metricsService = metricsService;
@@ -44,12 +41,6 @@ export class PaymentEngine {
         this._infrastructureHandlers = [];
 
         this._initialized = false;
-
-    }
-
-    setGameContractManager(gameContractManager) {
-
-        this._gameContractManager = gameContractManager ?? null;
 
     }
 
@@ -357,7 +348,6 @@ export class PaymentEngine {
     _resolvePaymentRules(gameId) {
 
         const resolved = resolveGameFinancialRules(gameId, {
-            gameContractManager: this._gameContractManager,
             configurationEngine: this._configurationEngine,
             gameCatalog: this._gameCatalog
         });
