@@ -1,13 +1,10 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
-import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import {
     PAYMENT_PARTICIPANT_STATUS,
     PAYMENT_SESSION_STATUS
 } from "../models/PaymentSession.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
-import { DEPOSIT_SESSION_STATUS } from "../deposit/DepositSessionStates.js";
-import { isGameEscrowOnlyPlayerPayment } from "../config/gameEscrowMode.js";
 
 /**
  * P6.7 — Authoritative gameplay start after blockchain payment confirmation.
@@ -32,7 +29,6 @@ export class GameStartAuthorization {
         playerManager,
         gameManager,
         paymentSessionManager,
-        gameContractManager,
         configurationEngine,
         physicsEngine = null,
         gameClockEngine = null,
@@ -41,10 +37,8 @@ export class GameStartAuthorization {
         auditLedger = null,
         roomConfig = null,
         devMode = false,
-        depositSessionCoordinator = null,
         roomWalletPaymentIntakeEnabled = false,
         roomWalletLedgerRegistry = null,
-        gameEscrowMode = null
     }) {
 
         this._logger = logger;
@@ -59,7 +53,6 @@ export class GameStartAuthorization {
 
         this._paymentSessionManager = paymentSessionManager;
 
-        this._gameContractManager = gameContractManager;
 
         this._configurationEngine = configurationEngine;
 
@@ -83,13 +76,9 @@ export class GameStartAuthorization {
 
         this._devMode = devMode;
 
-        this._depositSessionCoordinator = depositSessionCoordinator;
-
         this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
 
         this._roomWalletLedgerRegistry = roomWalletLedgerRegistry;
-
-        this._gameEscrowMode = gameEscrowMode ?? null;
 
         // roomId → { phase, gameId, authorizedAt, initializingAt, openPage5At }
         this._lifecycleByRoom = new Map();
@@ -107,15 +96,6 @@ export class GameStartAuthorization {
 
         this._subscribe(
             EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
-            (envelope) => {
-
-                this._evaluate(envelope.payload?.roomId);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.GAME_CONTRACT_PAYMENTS_COMPLETE,
             (envelope) => {
 
                 this._evaluate(envelope.payload?.roomId);
@@ -401,58 +381,15 @@ export class GameStartAuthorization {
 
         }
 
-        const contractForMode = this._gameContractManager?.getContract(roomId);
+        const ledgerGate = this._checkRoomWalletLedger(session);
 
-        if (
-            this._roomWalletPaymentIntakeEnabled
-            || this._isGameEscrowOnlyPlayerPayment(contractForMode)
-        ) {
+        if (!ledgerGate.ok) {
 
-            const ledgerGate = this._checkRoomWalletLedger(session);
-
-            if (!ledgerGate.ok) {
-
-                return ledgerGate;
-
-            }
-
-        } else {
-
-            if (
-                this._depositSessionCoordinator
-                && !this._isGameEscrowOnlyPlayerPayment(contractForMode)
-            ) {
-
-                const deposit = this._depositSessionCoordinator.getByRoomAndGame?.(
-                    roomId,
-                    session.gameId
-                ) ?? null;
-
-                if (!isDepositLayerComplete(deposit)) {
-
-                    return { ok: false, reason: "deposit_not_full", gameId: session.gameId };
-
-                }
-
-            }
-
-            const contract = contractForMode;
-
-            if (
-                !contract
-                || contract.status !== GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
-            ) {
-
-                return { ok: false, reason: "contract_not_payments_complete" };
-
-            }
+            return ledgerGate;
 
         }
 
-        const contract = this._gameContractManager?.getContract(roomId);
-
         const gameId = session.gameId
-            ?? contract?.gameId
             ?? this._gameManager?.getPendingGameplayGameId?.(roomId)
             ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
             ?? null;
@@ -881,26 +818,6 @@ export class GameStartAuthorization {
 
     }
 
-    _isGameEscrowOnlyPlayerPayment(contract) {
-
-        const snapshotMode = contract?.snapshot?.escrowMode ?? null;
-
-        if (isGameEscrowOnlyPlayerPayment(snapshotMode)) {
-
-            return true;
-
-        }
-
-        if (snapshotMode === "v4") {
-
-            return false;
-
-        }
-
-        return isGameEscrowOnlyPlayerPayment(this._gameEscrowMode);
-
-    }
-
     _log(message) {
 
         this._logger.info(`[GameStartAuthorization] ${message}`);
@@ -909,21 +826,3 @@ export class GameStartAuthorization {
 
 }
 
-const DEPOSIT_LAYER_COMPLETE_STATES = Object.freeze([
-    DEPOSIT_SESSION_STATUS.DEPOSIT_FULL,
-    DEPOSIT_SESSION_STATUS.DEPLOY_AUTHORIZED,
-    DEPOSIT_SESSION_STATUS.GAME_CONTRACT_CREATED,
-    DEPOSIT_SESSION_STATUS.RELEASED
-]);
-
-function isDepositLayerComplete(session) {
-
-    if (!session) {
-
-        return false;
-
-    }
-
-    return DEPOSIT_LAYER_COMPLETE_STATES.includes(session.state);
-
-}
