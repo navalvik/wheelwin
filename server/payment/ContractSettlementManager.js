@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { OwnerConfiguration } from "../config/OwnerConfiguration.js";
+import { PAYMENT_RULES } from "../catalog/PaymentRules.js";
 import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import { PAYMENT_SESSION_STATUS } from "../models/PaymentSession.js";
 import {
@@ -1462,7 +1463,24 @@ export class ContractSettlementManager {
                 + `tx=${settlementTxHash ?? "unknown"}`
         );
 
-        // Reach READY using legal transitions (no new statuses).
+        // A restored Room Wallet session may already be PENDING. If the
+        // blockchain probe proves the payouts are present, adopt that evidence
+        // directly; never attempt the illegal PENDING -> READY transition.
+        if (
+            this._isRoomWalletSettlementActive()
+            && (
+                session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
+                || session.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING_CONFIRMATION
+            )
+        ) {
+
+            await this._confirmSettlement(session, settlementTxHash);
+
+            return;
+
+        }
+
+        // For CREATED/PREPARING legacy sessions, build the normal READY path.
         if (session.status === SETTLEMENT_SESSION_STATUS.CREATED) {
 
             session.transitionTo(SETTLEMENT_SESSION_STATUS.PREPARING);
@@ -2256,10 +2274,83 @@ export class ContractSettlementManager {
             ?? this._gameContractManager.getContractByGameId?.(gameId)?.roomId
             ?? null;
 
-        const contract = this._gameContractManager.getContractByGameId?.(gameId)
+        const roomWalletActive = this._isRoomWalletSettlementActive();
+
+        let contract = this._gameContractManager.getContractByGameId?.(gameId)
             ?? (roomId
                 ? this._gameContractManager.getContract?.(roomId)
                 : null);
+
+        // Room Wallet settlement is intentionally independent of GameContract.
+        // Testnet payments are held by the authoritative Room Wallet and the
+        // entry PaymentSession is the source of truth for paid seats/amounts.
+        if (roomWalletActive && !contract) {
+
+            const paymentSession = roomId
+                ? this._paymentSessionManager?.getSession?.(roomId)
+                : null;
+
+            if (!paymentSession) {
+
+                return { ok: false, gameId, roomId, reason: "payment_session_missing" };
+
+            }
+
+            const players = (paymentSession.participants ?? []).map((participant) => ({
+                playerId: participant.playerId,
+                wallet: participant.wallet,
+                requiredAmount: Number(participant.requiredGram),
+                paidAmount: Number(participant.paidAmount)
+            }));
+
+            const totalPot = players.reduce(
+                (sum, player) => sum + (Number.isFinite(player.requiredAmount) ? player.requiredAmount : 0),
+                0
+            );
+
+            if (!Number.isFinite(totalPot) || totalPot <= 0) {
+
+                return { ok: false, gameId, roomId, reason: "payment_amounts_invalid" };
+
+            }
+
+            const organizerFee = Number(
+                (totalPot * PAYMENT_RULES.platformFeeRate).toFixed(2)
+            );
+            const payoutAmount = Number((totalPot - organizerFee).toFixed(2));
+
+            let ownerWallet = null;
+
+            try {
+
+                ownerWallet = this._ownerConfiguration.getOwnerWallet();
+
+            } catch {
+
+                ownerWallet = null;
+
+            }
+
+            contract = {
+                contractId: null,
+                gameId,
+                roomId,
+                contractAddress: null,
+                tonNetwork: paymentSession.network ?? this._tonNetwork,
+                correlationId: paymentSession.correlationId ?? null,
+                snapshotHash: null,
+                snapshot: Object.freeze({
+                    gameId,
+                    roomId,
+                    ownerWallet,
+                    players: Object.freeze(players),
+                    totalPot,
+                    organizerFee,
+                    payoutAmount
+                })
+            };
+
+        }
 
         if (!contract) {
 
@@ -2279,7 +2370,7 @@ export class ContractSettlementManager {
 
         }
 
-        if (!this._isRoomWalletSettlementActive()) {
+        if (!roomWalletActive) {
 
             if (!contract.contractAddress) {
 
