@@ -315,7 +315,6 @@ class WheelWinApplication {
 
         this._paymentSessionManager = null;
 
-        this._gameContractManager = null;
 
         this._deploymentCostService = null;
 
@@ -1824,7 +1823,6 @@ class WheelWinApplication {
             physicsEngine: this._engines.physicsEngine,
             winnerEngine: this._engines.winnerEngine,
             inputAuthority: this._inputAuthority,
-            gameContractManager: this._gameContractManager,
             paymentSessionManager: this._paymentSessionManager
         });
 
@@ -2064,7 +2062,6 @@ class WheelWinApplication {
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
             paymentSessionManager: Boolean(this._paymentSessionManager),
-            gameContractManager: Boolean(this._gameContractManager),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
