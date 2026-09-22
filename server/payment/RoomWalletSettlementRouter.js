@@ -10,7 +10,6 @@
  */
 export class RoomWalletSettlementRouter {
     constructor({
-        legacySettlementAdapter,
         roomWalletSettlementAdapter = null,
         enabled = false
     }) {
@@ -20,7 +19,6 @@ export class RoomWalletSettlementRouter {
             );
         }
 
-        this._legacySettlementAdapter = legacySettlementAdapter;
         this._roomWalletSettlementAdapter = roomWalletSettlementAdapter;
         this._enabled = enabled === true;
     }
@@ -43,13 +41,21 @@ export class RoomWalletSettlementRouter {
     }
 
     get activeAdapter() {
-        return this._enabled
-            ? this._roomWalletSettlementAdapter
-            : this._legacySettlementAdapter;
+        return this._roomWalletSettlementAdapter;
     }
 
     async settleContract(request) {
-        return this.activeAdapter.settleContract(request);
+        const adapter = this.activeAdapter;
+
+        if (!adapter || typeof adapter.settleContract !== "function") {
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_SETTLEMENT_UNAVAILABLE"
+            });
+        }
+
+        return adapter.settleContract(request);
     }
 
     async refundPayments(request) {
