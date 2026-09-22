@@ -220,36 +220,6 @@ export class PaymentSessionManager {
         );
 
         this._subscribe(
-            EVENT_TYPES.GAME_CONTRACT_READY_FOR_PAYMENTS,
-            (envelope) => this._handleContractReadyForPayments(envelope.payload)
-        );
-
-        this._subscribe(
-            EVENT_TYPES.CONTRACT_DEPLOYMENT_CONFIRMED,
-            (envelope) => this._handleContractDeploymentConfirmed(envelope.payload)
-        );
-
-        this._subscribe(
-            EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
-            (envelope) => {
-
-                printDeployBlock("SUBSCRIBER EXECUTING — PaymentSessionManager", {
-                    EventName: EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED,
-                    Subscriber: "PaymentSessionManager.initialize → failSession",
-                    RoomId: envelope.payload?.roomId ?? null,
-                    Reason: envelope.payload?.reason ?? null,
-                    Timestamp: new Date().toISOString()
-                });
-
-                this.failSession(
-                    envelope.payload?.roomId,
-                    envelope.payload?.reason ?? "deploy_failed"
-                );
-
-            }
-        );
-
-        this._subscribe(
             EVENT_TYPES.PAYMENT_TRANSACTION_DETECTED,
             (envelope) => this._handlePaymentTransactionDetected(envelope.payload)
         );
@@ -257,33 +227,6 @@ export class PaymentSessionManager {
         this._subscribe(
             EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED,
             (envelope) => this._handlePaymentTransactionConfirmed(envelope.payload)
-        );
-
-        // Game Escrow STAKE is not financial authority on the Room Wallet path.
-        this._subscribe(
-            EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED,
-            (envelope) => {
-
-                if (this._roomWalletPaymentIntakeEnabled) {
-
-                    return;
-
-                }
-
-                this._handlePaymentTransactionConfirmed(envelope.payload);
-
-            }
-        );
-
-        // R7.69C — GameEscrow refunds are authoritative; PSM only synchronizes.
-        this._subscribe(
-            EVENT_TYPES.GAME_ESCROW_REFUND_CONFIRMED,
-            (envelope) => this._handleGameEscrowRefundConfirmed(envelope.payload)
-        );
-
-        this._subscribe(
-            EVENT_TYPES.GAME_ESCROW_CANCEL_CONFIRMED,
-            (envelope) => this._handleGameEscrowCancelConfirmed(envelope.payload)
         );
 
         this._subscribe(
@@ -2163,13 +2106,6 @@ export class PaymentSessionManager {
         this._clearExpiry(roomId);
 
         this._blockchainMonitor?.stopRoom?.(roomId);
-
-        const contract = this._gameContractManager?.getContract?.(roomId) ?? null;
-
-        const needsEscrowUnwind = sessionNeedsEscrowUnwind(session)
-            && Boolean(contract?.contractAddress)
-            && typeof this._gameContractManager?.requestPartialPaymentEscrowUnwind
-                === "function";
 
         const needsRoomWalletRefund = sessionNeedsEscrowUnwind(session)
             && this._roomWalletPaymentIntakeEnabled
