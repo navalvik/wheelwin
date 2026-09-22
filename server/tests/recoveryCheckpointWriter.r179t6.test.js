@@ -1385,7 +1385,7 @@ function advanceThroughPhases(graph, { stopPhysicsAtEnd = false } = {}) {
             getSessionByGameId: () => ({
                 paymentSessionId: PAYMENT_SESSION_ID,
                 network: "testnet",
-                roomWalletAddress: `EQroomwallet_${prefix}`,
+                roomWalletAddress: "EQroomwallet_fail",
                 participants: graph.playerIds.map((playerId, index) => ({
                     playerId,
                     wallet: `EQwallet_fail_${index}`
