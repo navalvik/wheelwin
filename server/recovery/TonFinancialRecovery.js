@@ -9,7 +9,6 @@ import { randomUUID } from "node:crypto";
 
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
-import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import {
     PAYMENT_PARTICIPANT_STATUS,
     PAYMENT_SESSION_STATUS
@@ -33,13 +32,6 @@ import {
 
 const BLOCKCHAIN_CHECKPOINT_KIND = "blockchain_monitor";
 
-const TERMINAL_CONTRACT_STATUSES = new Set([
-    GAME_CONTRACT_STATUS.ARCHIVED,
-    GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED,
-    GAME_CONTRACT_STATUS.DEPLOY_FAILED,
-    GAME_CONTRACT_STATUS.SETTLEMENT_FAILED
-]);
-
 const EMPTY_MONITOR_CHECKPOINT = Object.freeze({
     contracts: Object.freeze([]),
     transactions: Object.freeze([]),
@@ -56,7 +48,6 @@ const EMPTY_MONITOR_CHECKPOINT = Object.freeze({
  * @property {import("../session/WalletManager.js").WalletManager} [walletManager]
  * @property {import("../session/SessionWalletStore.js").SessionWalletStore} [sessionWalletStore]
  * @property {import("../gameplay/PaymentSessionManager.js").PaymentSessionManager} [paymentSessionManager]
- * @property {import("../gameplay/GameContractManager.js").GameContractManager} [gameContractManager]
  * @property {import("../payment/ContractSettlementManager.js").ContractSettlementManager} [contractSettlementManager]
  * @property {import("../payment/BlockchainMonitor.js").BlockchainMonitor} [blockchainMonitor]
  * @property {import("../persistence/TonFinancialPersistence.js").TonFinancialPersistence} [financialPersistence]
@@ -75,7 +66,6 @@ export class TonFinancialRecovery {
         walletManager = null,
         sessionWalletStore = null,
         paymentSessionManager = null,
-        gameContractManager = null,
         contractSettlementManager = null,
         blockchainMonitor = null,
         financialPersistence = null,
@@ -96,8 +86,6 @@ export class TonFinancialRecovery {
         this._sessionWalletStore = sessionWalletStore;
 
         this._paymentSessionManager = paymentSessionManager;
-
-        this._gameContractManager = gameContractManager;
 
         this._contractSettlementManager = contractSettlementManager;
 
@@ -474,44 +462,16 @@ export class TonFinancialRecovery {
     recoverContracts() {
 
         this._assertInitialized();
-
         this._assertRecoveryPhaseOrder(2, FINANCIAL_RECOVERY_PHASE.CONTRACTS);
-
         this._state = FINANCIAL_RECOVERY_STATE.RESTORING_CONTRACTS;
-
         this._currentPhase = FINANCIAL_RECOVERY_PHASE.CONTRACTS;
-
         this._emitProgress(FINANCIAL_RECOVERY_PHASE.CONTRACTS, 0.25);
 
-        if (!this._gameContractManager?.restoreContracts) {
-
-            return Object.freeze({
-                ok: true,
-                restored: 0,
-                warning: "contract_recovery_skipped_no_manager"
-            });
-
-        }
-
-        try {
-
-            const summary = this._gameContractManager.restoreContracts();
-
-            return Object.freeze({
-                ok: true,
-                restored: summary.restored ?? 0,
-                summary
-            });
-
-        } catch (error) {
-
-            return Object.freeze({
-                ok: false,
-                restored: 0,
-                error: error?.message ?? String(error)
-            });
-
-        }
+        return Object.freeze({
+            ok: true,
+            restored: 0,
+            warning: "contract_recovery_disabled_room_wallet_only"
+        });
 
     }
 
@@ -1084,7 +1044,6 @@ export class TonFinancialRecovery {
     async _reregisterBlockchainWatches() {
 
         if (!this._blockchainMonitor) {
-
             return Object.freeze({
                 contractWatches: 0,
                 paymentWatches: 0,
@@ -1093,320 +1052,16 @@ export class TonFinancialRecovery {
                 totalWatches: 0,
                 warning: "watch_registration_skipped_no_monitor"
             });
-
-        }
-
-        let contractWatches = 0;
-
-        let paymentWatches = 0;
-
-        let settlementWatches = 0;
-
-        let refundWatches = 0;
-
-        if (this._gameContractManager?.listContracts) {
-
-            for (const contract of this._gameContractManager.listContracts()) {
-
-                if (
-                    !contract?.contractId
-                    || !contract?.contractAddress
-                    || TERMINAL_CONTRACT_STATUSES.has(contract.status)
-                ) {
-
-                    continue;
-
-                }
-
-                try {
-
-                    this._blockchainMonitor.registerContract?.(
-                        contract.contractId,
-                        contract.contractAddress,
-                        {
-                            roomId: contract.roomId,
-                            gameId: contract.gameId,
-                            correlationId: contract.correlationId ?? null,
-                            expectDeployment: contract.status === GAME_CONTRACT_STATUS.DEPLOYING
-                        }
-                    );
-
-                    contractWatches += 1;
-
-                } catch (error) {
-
-                    this._logger?.warn?.(
-                        `Contract watch registration skipped | `
-                            + `contractId=${contract.contractId} | ${error?.message ?? error}`
-                    );
-
-                }
-
-            }
-
-        }
-
-        if (this._paymentSessionManager?.listSessionRoomIds) {
-
-            for (const roomId of this._paymentSessionManager.listSessionRoomIds()) {
-
-                const session = this._paymentSessionManager.getSession(roomId);
-
-                if (
-                    !session
-                    || (
-                        !session.isInProgress?.()
-                        && session.status !== PAYMENT_SESSION_STATUS.CANCELLED
-                        && session.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
-                    )
-                ) {
-
-                    continue;
-
-                }
-
-                const contract = this._gameContractManager?.getContract?.(roomId);
-
-                const contractAddress = contract?.contractAddress
-                    ?? session.contractAddress
-                    ?? session.participants?.find?.((p) => p.contractAddress)?.contractAddress
-                    ?? null;
-
-                if (!contractAddress) {
-
-                    continue;
-
-                }
-
-                // R7.69B — GameEscrow is payment authority before re-registering watches.
-                if (this._paymentSessionManager.syncFromGameEscrow) {
-
-                    try {
-
-                        await this._paymentSessionManager.syncFromGameEscrow(roomId, {
-                            contractAddress
-                        });
-
-                    } catch (error) {
-
-                        this._logger?.warn?.(
-                            `GameEscrow payment sync skipped before watches | `
-                                + `roomId=${roomId} | ${error?.message ?? error}`
-                        );
-
-                    }
-
-                }
-
-                // Refresh session after possible cancel sync.
-                const syncedSession = this._paymentSessionManager.getSession(roomId)
-                    ?? session;
-
-                if (syncedSession.status === PAYMENT_SESSION_STATUS.CANCELLED) {
-
-                    // R7.69C — restore refund observation only; never resend refunds.
-                    refundWatches += this._registerRefundWatchFromSession(
-                        syncedSession,
-                        contractAddress
-                    );
-
-                    continue;
-
-                }
-
-                for (const participant of syncedSession.participants ?? []) {
-
-                    if (participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED) {
-
-                        continue;
-
-                    }
-
-                    try {
-
-                        this._blockchainMonitor.watchPayment?.({
-                            roomId: syncedSession.roomId,
-                            gameId: syncedSession.gameId,
-                            playerId: participant.playerId,
-                            contractAddress,
-                            contractId: syncedSession.contractId,
-                            correlationId: syncedSession.correlationId,
-                            paymentReference: participant.paymentReference,
-                            expectedGram: participant.requiredGram,
-                            expectedWallet: participant.wallet,
-                            paymentDeadline: syncedSession.paymentDeadline,
-                            playerIndex: participant.playerIndex ?? null
-                        });
-
-                        paymentWatches += 1;
-
-                    } catch (error) {
-
-                        this._logger?.warn?.(
-                            `Payment watch registration skipped | roomId=${roomId} | `
-                                + `playerId=${participant.playerId} | ${error?.message ?? error}`
-                        );
-
-                    }
-
-                }
-
-            }
-
-        }
-
-        if (this._contractSettlementManager?.getSettlementSession) {
-
-            const gameIds = this._contractSettlementManager.listSettlementSnapshots?.()
-                ?.map((snapshot) => snapshot.gameId)
-                .filter(Boolean)
-                ?? [];
-
-            for (const gameId of gameIds) {
-
-                const session = this._contractSettlementManager.getSettlementSession(gameId);
-
-                if (
-                    !session
-                    || session.status !== SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
-                    || !session.settlementTransactionHash
-                ) {
-
-                    continue;
-
-                }
-
-                const contract = this._gameContractManager?.getContract?.(session.roomId);
-
-                try {
-
-                    this._blockchainMonitor.watchTransaction?.({
-                        transactionId: session.settlementTransactionHash,
-                        address: contract?.contractAddress,
-                        contractId: session.contractId,
-                        roomId: session.roomId,
-                        gameId: session.gameId,
-                        correlationId: session.correlationId,
-                        kind: "SETTLEMENT",
-                        timeoutMs: session.settlementDeadline
-                            ? Math.max(0, session.settlementDeadline - Date.now())
-                            : null
-                    });
-
-                    settlementWatches += 1;
-
-                } catch (error) {
-
-                    this._logger?.warn?.(
-                        `Settlement watch registration skipped | gameId=${gameId} | `
-                            + `${error?.message ?? error}`
-                    );
-
-                }
-
-            }
-
         }
 
         return Object.freeze({
-            contractWatches,
-            paymentWatches,
-            settlementWatches,
-            refundWatches,
-            totalWatches: contractWatches
-                + paymentWatches
-                + settlementWatches
-                + refundWatches
+            contractWatches: 0,
+            paymentWatches: 0,
+            settlementWatches: 0,
+            refundWatches: 0,
+            totalWatches: 0,
+            warning: "contract_watch_reregistration_disabled_room_wallet_only"
         });
-
-    }
-
-    /**
-     * R7.69C — Re-register refund observation watches after restart.
-     * Observation only — never resends EMERGENCY_CANCEL / refunds.
-     */
-    _registerRefundWatchFromSession(session, contractAddress) {
-
-        if (
-            !this._blockchainMonitor?.watchGameEscrowRefunds
-            || !session
-            || !contractAddress
-        ) {
-
-            return 0;
-
-        }
-
-        const pendingRefunds = (session.participants ?? [])
-            .filter((participant) => {
-                const paid = participant.status
-                    === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
-                    || Number(participant.paidAmount) > 0;
-                return paid && participant.refunded !== true;
-            })
-            .map((participant) => ({
-                playerIndex: participant.playerIndex,
-                playerId: participant.playerId,
-                wallet: participant.wallet,
-                amount: participant.paidAmount || participant.requiredGram
-            }))
-            .filter((entry) => entry.wallet && entry.amount != null);
-
-        // Even with empty pending list, restore a watch when session is cancelled
-        // so chain confirmation can complete idempotently.
-        try {
-
-            const expectedRefundMask = (session.participants ?? []).reduce(
-                (mask, participant, index) => {
-                    const seat = participant.playerIndex == null
-                        ? index
-                        : Number(participant.playerIndex);
-                    const paid = participant.status
-                        === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
-                        || Number(participant.paidAmount) > 0;
-                    return paid ? (mask | (1 << seat)) : mask;
-                },
-                0
-            );
-
-            this._blockchainMonitor.watchGameEscrowRefunds({
-                escrowAddress: contractAddress,
-                cancelTxHash: session.recoveryMetadata?.cancelTxHash ?? null,
-                refunds: pendingRefunds.length > 0
-                    ? pendingRefunds
-                    : (session.participants ?? [])
-                        .filter((participant) => {
-                            const paid = participant.status
-                                === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
-                                || Number(participant.paidAmount) > 0;
-                            return paid;
-                        })
-                        .map((participant) => ({
-                            playerIndex: participant.playerIndex,
-                            playerId: participant.playerId,
-                            wallet: participant.wallet,
-                            amount: participant.paidAmount || participant.requiredGram
-                        })),
-                expectedRefundMask,
-                contractId: session.contractId,
-                roomId: session.roomId,
-                gameId: session.gameId,
-                correlationId: session.correlationId,
-                contractStatus: 9
-            });
-
-            return 1;
-
-        } catch (error) {
-
-            this._logger?.warn?.(
-                `Refund watch registration skipped | roomId=${session.roomId} | `
-                    + `${error?.message ?? error}`
-            );
-
-            return 0;
-
-        }
 
     }
 
@@ -1499,163 +1154,11 @@ export class TonFinancialRecovery {
 
             }
 
-            if (
-                session.contractId
-                && this._gameContractManager?.getContractById
-                && !this._gameContractManager.getContractById(session.contractId)
-            ) {
-
-                consistencyErrors.push(
-                    `payment_session_missing_contract:${roomId}:${session.contractId}`
-                );
-
-            }
-
         }
 
     }
 
-    _validateContracts(warnings, consistencyErrors) {
-
-        if (!this._gameContractManager?.listContracts) {
-
-            return;
-
-        }
-
-        for (const contract of this._gameContractManager.listContracts()) {
-
-            if (!contract?.gameId) {
-
-                warnings.push(`contract_missing_game_id:${contract?.contractId ?? "unknown"}`);
-
-                continue;
-
-            }
-
-            if (
-                this._roomManager?.hasRoom
-                && contract.roomId
-                && !this._roomManager.hasRoom(contract.roomId)
-            ) {
-
-                warnings.push(
-                    `contract_missing_room:${contract.contractId}:${contract.roomId}`
-                );
-
-            }
-
-            const paymentSession = this._paymentSessionManager?.getSessionByGameId?.(
-                contract.gameId
-            );
-
-            if (
-                contract.status === GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
-                && paymentSession
-                && paymentSession.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
-            ) {
-
-                warnings.push(
-                    `contract_payments_complete_without_fully_paid_session:${contract.contractId}`
-                );
-
-            }
-
-        }
-
-    }
-
-    _validateSettlements(warnings, consistencyErrors) {
-
-        if (!this._contractSettlementManager?.getSettlementSession) {
-
-            return;
-
-        }
-
-        const snapshots = this._contractSettlementManager.listSettlementSnapshots?.() ?? [];
-
-        for (const snapshot of snapshots) {
-
-            const session = this._contractSettlementManager.getSettlementSession(
-                snapshot.gameId
-            );
-
-            if (!session || session.isTerminal?.()) {
-
-                continue;
-
-            }
-
-            const paymentSession = this._paymentSessionManager?.getSessionByGameId?.(
-                session.gameId
-            );
-
-            if (
-                paymentSession
-                && paymentSession.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
-                && !paymentSession.isTerminal?.()
-            ) {
-
-                consistencyErrors.push(
-                    `settlement_before_payment_complete:${session.gameId}`
-                );
-
-            }
-
-            if (
-                session.contractId
-                && this._gameContractManager?.getContractById
-                && !this._gameContractManager.getContractById(session.contractId)
-            ) {
-
-                warnings.push(
-                    `settlement_missing_contract:${session.gameId}:${session.contractId}`
-                );
-
-            }
-
-        }
-
-    }
-
-    _validateBlockchainWatches(warnings, consistencyErrors) {
-
-        if (!this._blockchainMonitor?.listWatchedContracts) {
-
-            return;
-
-        }
-
-        const watchedContracts = this._blockchainMonitor.listWatchedContracts();
-
-        for (const watch of watchedContracts) {
-
-            const contract = this._gameContractManager?.getContractById?.(
-                watch.contractId
-            );
-
-            if (!contract) {
-
-                consistencyErrors.push(
-                    `blockchain_watch_orphan_contract:${watch.contractId}`
-                );
-
-                continue;
-
-            }
-
-            if (TERMINAL_CONTRACT_STATUSES.has(contract.status)) {
-
-                warnings.push(
-                    `blockchain_watch_terminal_contract:${watch.contractId}:${contract.status}`
-                );
-
-            }
-
-        }
-
-    }
+    _validateBlockchainWatches(warnings, consistencyErrors) {}
 
     _buildRecoveredManagersList(report) {
 
@@ -1664,12 +1167,6 @@ export class TonFinancialRecovery {
         if (report.walletSessionsRecovered > 0 || this._walletManager || this._sessionWalletStore) {
 
             managers.push("wallets");
-
-        }
-
-        if (report.contractsRecovered > 0 || this._gameContractManager) {
-
-            managers.push("contracts");
 
         }
 
