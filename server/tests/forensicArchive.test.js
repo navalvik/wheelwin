@@ -97,6 +97,31 @@ function buildFixture() {
 
     writeFileSync(paymentPath, paymentBody, "utf8");
 
+    const gameReportEngine = {
+        resolveReport(game) {
+
+            if (game !== gameId) {
+
+                return null;
+
+            }
+
+            return {
+                reportId: "report_test_001",
+                gameId,
+                roomId,
+                winningPlayer: {
+                    playerId: "player-1"
+                },
+                winnerPayout: 5.7,
+                wheelWinCommission: 0.3,
+                totalPrizePool: 6,
+                currency: "GRM"
+            };
+
+        }
+    };
+
     const financialPersistence = {
         findByGame(game) {
 
@@ -178,6 +203,7 @@ function buildFixture() {
         logFilename,
         paymentRelative: paymentRelative.split("\\").join("/"),
         financialPersistence,
+        gameReportEngine,
         sessionHistoryArchive
     };
 
@@ -204,7 +230,8 @@ async function testArchiveCreation() {
         diagnosticLogsDir: fixture.diagnosticLogsDir,
         tonFinancialDataDir: fixture.tonFinancialDataDir,
         sessionHistoryArchive: fixture.sessionHistoryArchive,
-        financialPersistence: fixture.financialPersistence
+        financialPersistence: fixture.financialPersistence,
+        gameReportEngine: fixture.gameReportEngine
     });
 
     const manifest = await collector.collectToZip({
@@ -214,14 +241,20 @@ async function testArchiveCreation() {
         archiveFilename
     });
 
-    assert.equal(manifest.files.length, 3);
-    verifySourceFilesUnchanged(manifest.files);
+    assert.equal(manifest.files.length, 4);
+    verifySourceFilesUnchanged(
+        manifest.files.filter((entry) => entry.sourcePath !== "[generated]")
+    );
 
     assert(zipContainsPath(zipPath, `session-history/${fixture.historyFilename}`));
     assert(zipContainsPath(zipPath, `diagnostic-logs/${fixture.logFilename}`));
     assert(zipContainsPath(
         zipPath,
         `ton-financial/${fixture.paymentRelative}`
+    ));
+    assert(zipContainsPath(
+        zipPath,
+        "game-report/report_test_001.json"
     ));
 
     rmSync(fixture.root, { recursive: true, force: true });
