@@ -138,7 +138,7 @@ function createHarness({
         gameContractManager: {
             getContract(roomId) {
 
-                return roomId === "room-1" ? contract : null;
+                return roomId === "room-1" && !roomWalletPaymentIntakeEnabled ? contract : null;
 
             }
         },
@@ -219,7 +219,6 @@ function createHarness({
         roomWalletPaymentIntakeEnabled: true
     });
 
-    harness.gameContractManager = null;
 
     harness.emitPaymentsComplete();
 
