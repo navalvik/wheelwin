@@ -88,10 +88,6 @@ export function composeRoomWalletSettlementRouter({
     env = process.env,
     gameEscrowMode = null
 } = {}) {
-    if (!legacySettlementAdapter) {
-        throw new Error("composeRoomWalletSettlementRouter requires legacySettlementAdapter");
-    }
-
     const enableSettlement = isRoomWalletOnlyFinancialPath({
         env,
         gameEscrowMode
