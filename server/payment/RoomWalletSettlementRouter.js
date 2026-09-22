@@ -46,6 +46,14 @@ export class RoomWalletSettlementRouter {
         return this.activeAdapter.settleContract(request);
     }
 
+    async refundTransfer(request) {
+        if (!this._enabled || typeof this._roomWalletSettlementAdapter.refundTransfer !== "function") {
+            throw new Error("Room Wallet refund transfer is unavailable");
+        }
+
+        return this._roomWalletSettlementAdapter.refundTransfer(request);
+    }
+
     async getSettlementState(address) {
         const adapter = this.activeAdapter;
 
