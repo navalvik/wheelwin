@@ -1868,7 +1868,6 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             gameManager: this._managers.gameManager,
             paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
             configurationEngine: this._engines.configurationEngine,
             physicsEngine: this._engines.physicsEngine,
             gameClockEngine: this._engines.gameClockEngine,
@@ -1877,13 +1876,11 @@ class WheelWinApplication {
             auditLedger: this._entryPaymentAuditLedger,
             roomConfig: this._roomConfig,
             devMode: this._productionConfig.isDevelopment,
-            depositSessionCoordinator: this._depositSessionCoordinator,
             roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
                 env: process.env,
                 gameEscrowMode: this._tonConfig?.gameEscrowMode
             }),
-            roomWalletLedgerRegistry: this._roomWalletLedgerRegistry,
-            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null
+            roomWalletLedgerRegistry: this._roomWalletLedgerRegistry
         });
 
         this._gameStartAuthorization.initialize();
