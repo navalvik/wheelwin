@@ -14,10 +14,6 @@ export class RoomWalletSettlementRouter {
         roomWalletSettlementAdapter = null,
         enabled = false
     }) {
-        if (!legacySettlementAdapter) {
-            throw new Error("RoomWalletSettlementRouter requires legacySettlementAdapter");
-        }
-
         if (enabled === true && !roomWalletSettlementAdapter) {
             throw new Error(
                 "RoomWalletSettlementRouter requires roomWalletSettlementAdapter when enabled"
