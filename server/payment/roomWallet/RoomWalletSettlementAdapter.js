@@ -4,7 +4,10 @@ import {
     assertNonNegativeNano
 } from "./RoomWalletFinancialPolicy.js";
 import { normalizeRoomNumber } from "./RoomWalletRegistry.js";
-import { canonicalizeTonWalletAddress } from "../../models/TonWalletAddress.js";
+import {
+    canonicalizeTonWalletAddress,
+    tonWalletAccountsEqual
+} from "../../models/TonWalletAddress.js";
 import {
     confirmPayoutOnChain,
     extractOutboundTransfers,
