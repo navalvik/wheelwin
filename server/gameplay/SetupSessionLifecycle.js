@@ -502,9 +502,9 @@ export class SetupSessionLifecycle {
     }
 
     /**
-     * R6.38 / R7.70C23 — Ownership transfer at PAYMENT_STAGE_READY.
-     * Archives session for payment reconnect/SYNC; wall-clock expiresAt still
-     * terminates the room via SETUP_SESSION_EXPIRED when the Setup Timer hits 0.
+     * R6.38 — Ownership transfer at PAYMENT_STAGE_READY.
+     * Archives session for payment reconnect/SYNC and clears Setup Timer
+     * destroy authority. Page4 is governed by Payment Session lifecycle.
      *
      * @returns {object | null} archived sync snapshot, or null if no handoff
      */
@@ -668,8 +668,10 @@ export class SetupSessionLifecycle {
 
         session.archive();
 
-        // R7.70C23 — PAYMENT must still honor the original Setup Timer expiresAt.
-        this._rescheduleExpiry(session);
+        // R6.38 — Setup Timer ends its destroy authority at PAYMENT_STAGE_READY.
+        // PaymentSessionManager owns the Page4 payment deadline from here. Keep
+        // the immutable expiresAt only for historical/SYNC visibility.
+        this._clearExpiry(roomId);
 
         const snapshot = session.toSnapshot();
 
@@ -783,8 +785,8 @@ export class SetupSessionLifecycle {
 
         }
 
-        // Do not clear the wall-clock expiry timer — COMPLETED prep pages still
-        // count down to expiresAt, and SETUP_SESSION_EXPIRED must fire then.
+        // Setup Timer owns preparation only. Once preparation completes, the
+        // PAYMENT_STAGE_READY handoff will clear its destroy authority.
         session.complete();
 
         const snapshot = session.toSnapshot();
@@ -799,8 +801,8 @@ export class SetupSessionLifecycle {
             snapshot
         });
 
-        // Keep COMPLETED session until ROOM_DESTROYED / EXPIRED so prep pages
-        // can still SYNC expiresAt for the Setup Timer (InfoBar).
+        // Keep COMPLETED session until PAYMENT_STAGE_READY / ROOM_DESTROYED so
+        // prep pages can still SYNC the immutable preparation deadline.
 
         return true;
 
@@ -907,8 +909,8 @@ export class SetupSessionLifecycle {
 
         }
 
-        // R7.70C23 — ACTIVE, COMPLETED prep, and ARCHIVED (PAYMENT) honor
-        // the authoritative Setup Timer expiresAt (InfoBar on every prep page).
+        // ACTIVE / COMPLETED are preparation states. ARCHIVED means PAYMENT
+        // owns the room lifecycle, so a stale Setup Timer must not destroy it.
         if (session.state !== SETUP_SESSION_STATUS.ACTIVE
             && session.state !== SETUP_SESSION_STATUS.COMPLETED
             && session.state !== SETUP_SESSION_STATUS.ARCHIVED) {
