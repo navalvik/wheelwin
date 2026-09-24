@@ -72,6 +72,38 @@ test("R18-S16: Page4 declares language/TonConnect hooks before Deposit handler",
 
 });
 
+test("Room Wallet: authoritative destination enables the Page4 payment action without a Game Contract", () => {
+
+    const paymentSession = {
+        status: "WAITING_FOR_PAYMENTS",
+        roomWalletAddress: "EQDROOMWALLET",
+        participants: [{
+            playerId: "p1",
+            status: "AWAITING_PLAYER_CONFIRMATION",
+            playerIndex: 0,
+            requiredGram: 1
+        }]
+    };
+
+    const phase = resolvePage4PaymentPhase({
+        paymentSession,
+        gameContract: null,
+        localPlayerId: "p1"
+    });
+
+    assert.equal(phase, PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT);
+    assert.equal(shouldShowEntryAction(phase), true);
+    assert.equal(
+        canSubmitEntryPayment({
+            paymentSession,
+            gameContract: null,
+            localPlayerId: "p1"
+        }),
+        true
+    );
+
+});
+
 test("R18-S16: PAYMENT_CONNECTION_READY does not select GameEscrow STAKE", () => {
 
     const phase = resolvePage4PaymentPhase({
