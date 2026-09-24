@@ -92,8 +92,8 @@ function wait(ms) {
     );
     assert.equal(
         lifecycle.isRecoverable(roomId),
-        false,
-        "ARCHIVED payment handoff is no longer Setup-recoverable"
+        true,
+        "ARCHIVED payment handoff remains recoverable for payment reconnect/SYNC"
     );
     assert.equal(
         roomManager.hasRoom(roomId),
