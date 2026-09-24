@@ -1,5 +1,6 @@
 /**
- * R7.70C23 — ARCHIVED (PAYMENT) Setup Timer expiry + reconnect rejection.
+ * R6.38 — PAYMENT_STAGE_READY transfers room lifecycle ownership away from
+ * Setup Timer; PaymentSession owns the Page4 payment deadline.
  */
 import assert from "node:assert/strict";
 
@@ -84,17 +85,20 @@ function wait(ms) {
 
     await wait(80);
 
-    assert.equal(expired.length, 1, "SETUP_SESSION_EXPIRED emits once for ARCHIVED");
-    assert.equal(expired[0]?.roomId, roomId);
+    assert.equal(
+        expired.length,
+        0,
+        "ARCHIVED payment handoff must not fire Setup Timer expiry"
+    );
     assert.equal(
         lifecycle.isRecoverable(roomId),
         false,
-        "not recoverable after Setup Timer expiry"
+        "ARCHIVED payment handoff is no longer Setup-recoverable"
     );
     assert.equal(
         roomManager.hasRoom(roomId),
-        false,
-        "room destroyed on ARCHIVED setup expiry"
+        true,
+        "Setup Timer must not destroy a room after PAYMENT_STAGE_READY"
     );
 
     lifecycle.shutdown();
