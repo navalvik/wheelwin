@@ -124,6 +124,7 @@ export class PaymentSession {
         gameId = null,
         contractId = null,
         network = null,
+        roomWalletAddress = null,
         participants,
         walletSessions = [],
         requiredPayments = null,
@@ -148,6 +149,10 @@ export class PaymentSession {
         this.contractId = contractId ?? null;
 
         this.network = network ?? null;
+
+        // Testnet Room Wallet payment destination. This is authoritative
+        // session state and must be exposed to Page4 clients.
+        this.roomWalletAddress = roomWalletAddress ?? null;
 
         this.createdAt = createdAt;
 
@@ -199,6 +204,7 @@ export class PaymentSession {
             gameId: payload.gameId ?? null,
             contractId: payload.contractId ?? null,
             network: payload.network ?? record?.tonNetwork ?? null,
+            roomWalletAddress: payload.roomWalletAddress ?? null,
             participants: payload.participants ?? [],
             walletSessions: payload.walletSessions ?? [],
             requiredPayments: payload.requiredPayments ?? null,
@@ -458,6 +464,7 @@ export class PaymentSession {
             gameId: this.gameId,
             contractId: this.contractId,
             network: this.network,
+            roomWalletAddress: this.roomWalletAddress,
             players: this.participants.map((participant) => participant.playerId),
             walletSessions: this.walletSessions,
             requiredPayments: this.requiredPayments,
@@ -518,6 +525,7 @@ export class PaymentSession {
             gameId: this.gameId,
             contractId: this.contractId,
             network: this.network,
+            roomWalletAddress: this.roomWalletAddress,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt,
             expiresAt: this.expiresAt,
