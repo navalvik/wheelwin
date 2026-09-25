@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import { isGameContractDeployed } from "./authoritativeGameContractView.js";
 import {
+    AUTHORITATIVE_SESSION_ACTIONS,
+    AUTHORITATIVE_SESSION_INITIAL_STATE,
+    authoritativeSessionReducer
+} from "./authoritativeSessionModel.js";
+import {
     canDeployDeposit,
     canFundSeat,
     canStakeGameEscrow,
@@ -100,6 +105,80 @@ test("Room Wallet: authoritative destination enables the Page4 payment action wi
             localPlayerId: "p1"
         }),
         true
+    );
+
+});
+
+test("Room Wallet: client authoritative mirror preserves destination and payment amount", () => {
+
+    const state = authoritativeSessionReducer(
+        AUTHORITATIVE_SESSION_INITIAL_STATE,
+        {
+            type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_CREATED,
+            payload: {
+                roomId: "7NZU",
+                gameId: "game_1",
+                paymentSessionId: "pay_1",
+                network: "testnet",
+                roomWalletAddress: "EQDROOMWALLET",
+                status: "WAITING_FOR_PAYMENTS",
+                participants: [{
+                    playerId: "p1",
+                    playerIndex: 0,
+                    requiredGram: 1,
+                    status: "AWAITING_PLAYER_CONFIRMATION",
+                    paidAmount: 0,
+                    confirmationStatus: "NONE"
+                }]
+            }
+        }
+    );
+
+    assert.equal(
+        state.paymentSession.roomWalletAddress,
+        "EQDROOMWALLET"
+    );
+    assert.equal(
+        state.paymentSession.participants[0].requiredGram,
+        1
+    );
+    assert.equal(
+        state.paymentSession.participants[0].confirmationStatus,
+        "NONE"
+    );
+
+});
+
+test("Room Wallet: Page4 action stays visible even when destination is temporarily missing", () => {
+
+    const phase = resolvePage4PaymentPhase({
+        paymentSession: {
+            status: "WAITING_FOR_PAYMENTS",
+            participants: [{
+                playerId: "p1",
+                status: "AWAITING_PLAYER_CONFIRMATION",
+                requiredGram: 1
+            }]
+        },
+        gameContract: null,
+        localPlayerId: "p1"
+    });
+
+    assert.equal(phase, PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE);
+    assert.equal(
+        canSubmitEntryPayment({
+            paymentSession: {
+                status: "WAITING_FOR_PAYMENTS",
+                participants: [{
+                    playerId: "p1",
+                    status: "AWAITING_PLAYER_CONFIRMATION",
+                    requiredGram: 1
+                }]
+            },
+            gameContract: null,
+            localPlayerId: "p1
+        }),
+        false
     );
 
 });
