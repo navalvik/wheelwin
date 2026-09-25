@@ -5833,3 +5833,5 @@ application.start().catch((error) => {
     process.exit(1);
 
 });
+
+// Deployment sync marker: keep Railway main-branch source revision aligned with GitHub main.
