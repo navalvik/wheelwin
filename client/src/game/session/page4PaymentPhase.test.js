@@ -176,7 +176,7 @@ test("Room Wallet: Page4 action stays visible even when destination is temporari
                 }]
             },
             gameContract: null,
-            localPlayerId: "p1
+            localPlayerId: "p1"
         }),
         false
     );
