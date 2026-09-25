@@ -316,6 +316,14 @@ export function canFundSeat(deposit = null, lifecycle = null) {
 
 }
 
+function isRoomWalletPaymentSession(paymentSession = null) {
+
+    return Boolean(
+        String(paymentSession?.roomWalletAddress ?? "").trim()
+    );
+
+}
+
 export function canStakeGameEscrow({
     paymentSession = null,
     gameContract = null,
@@ -493,6 +501,27 @@ export function resolvePage4PaymentPhase({
     if (paymentSession?.status === "COMPLETED") {
 
         return PAGE4_PAYMENT_PHASE.WAITING_PAGE5;
+
+    }
+
+    if (isRoomWalletPaymentSession(paymentSession)) {
+
+        // Testnet Room Wallet is the real Page4 payment path. Once the
+        // authoritative seat is awaiting payment, the button is visible.
+        // Destination availability controls only whether it is enabled.
+        if (canConfirmLocalPayment(paymentSession, localPlayerId)) {
+
+            return PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT;
+
+        }
+
+        if (paymentSession?.status === "COMPLETED") {
+
+            return PAGE4_PAYMENT_PHASE.WAITING_PAGE5;
+
+        }
+
+        return PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE;
 
     }
 
