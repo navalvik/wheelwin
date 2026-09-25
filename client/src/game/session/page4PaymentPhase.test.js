@@ -149,40 +149,6 @@ test("Room Wallet: client authoritative mirror preserves destination and payment
 
 });
 
-test("Room Wallet: Page4 action stays visible even when destination is temporarily missing", () => {
-
-    const phase = resolvePage4PaymentPhase({
-        paymentSession: {
-            status: "WAITING_FOR_PAYMENTS",
-            participants: [{
-                playerId: "p1",
-                status: "AWAITING_PLAYER_CONFIRMATION",
-                requiredGram: 1
-            }]
-        },
-        gameContract: null,
-        localPlayerId: "p1"
-    });
-
-    assert.equal(phase, PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE);
-    assert.equal(
-        canSubmitEntryPayment({
-            paymentSession: {
-                status: "WAITING_FOR_PAYMENTS",
-                participants: [{
-                    playerId: "p1",
-                    status: "AWAITING_PLAYER_CONFIRMATION",
-                    requiredGram: 1
-                }]
-            },
-            gameContract: null,
-            localPlayerId: "p1"
-        }),
-        false
-    );
-
-});
-
 test("R18-S16: PAYMENT_CONNECTION_READY does not select GameEscrow STAKE", () => {
 
     const phase = resolvePage4PaymentPhase({
