@@ -2144,6 +2144,27 @@ export class RoomLobbyBridge {
                 syncPayload
             );
 
+        }
+
+        // R18-S17 — Recovery must also rehydrate the legacy RoomLobby mirror.
+        // The authoritative reclaim above restores the player/socket binding,
+        // but RoomLobby keeps its own roomState projection on the client. A
+        // reconnecting lobby client therefore needs the same ROOM_STATE that a
+        // normal join receives; otherwise its UI remains stale and the player
+        // can be driven into a second JOIN_ROOM attempt, which is correctly
+        // rejected as PLAYER_ALREADY_CONNECTED.
+        if (room) {
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.ROOM_STATE,
+                this._buildRoomState(room)
+            );
+
+        }
+
+        if (syncPayload) {
+
             this._logger.info(
                 `[R6.2A Recovery] SETUP_SESSION_SYNC emitted`
                 + ` | roomId=${roomId}`
