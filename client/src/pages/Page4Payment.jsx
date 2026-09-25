@@ -1328,14 +1328,17 @@ export default function Page4Payment({ onNavigate }) {
 
     let entryTotalLabel = null;
 
-    if (showEntryAction && entryActionEnabled) {
+    if (showEntryAction) {
 
         try {
 
-            const stakeNanotons = entryComponents.includeStake
-                ? requiredGramToNanotonString(
-                    getLocalPaymentRequest(paymentSession, localPlayerId)?.requiredGram
-                )
+            const localPaymentRequest = getLocalPaymentRequest(
+                paymentSession,
+                localPlayerId
+            );
+
+            const stakeNanotons = localPaymentRequest?.requiredGram != null
+                ? requiredGramToNanotonString(localPaymentRequest.requiredGram)
                 : null;
             const totalNanotons = sumAuthoritativeEntryNanotons({
                 deployValueNanotons: entryComponents.includeDeploy
