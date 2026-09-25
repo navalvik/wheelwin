@@ -712,7 +712,13 @@ export function authoritativeSessionReducer(state, action) {
                         wallet: participant?.wallet ?? null,
                         paymentReference: participant?.paymentReference ?? null,
                         contractAddress: participant?.contractAddress ?? null,
-                        txHash: participant?.txHash ?? null
+                        txHash: participant?.txHash ?? null,
+                        transactionHash: participant?.transactionHash ?? null,
+                        paidAmount: participant?.paidAmount ?? 0,
+                        confirmationStatus: participant?.confirmationStatus ?? "NONE",
+                        confirmedAt: participant?.confirmedAt ?? null,
+                        refunded: participant?.refunded === true,
+                        refundTxHash: participant?.refundTxHash ?? null
                     }))
                 )
                 : Object.freeze([]);
@@ -725,6 +731,8 @@ export function authoritativeSessionReducer(state, action) {
                     paymentSessionId: payload.paymentSessionId ?? null,
                     roomId: payload.roomId ?? null,
                     gameId: payload.gameId ?? null,
+                    network: payload.network ?? null,
+                    roomWalletAddress: payload.roomWalletAddress ?? null,
                     createdAt: payload.createdAt ?? null,
                     expiresAt: payload.expiresAt ?? null,
                     completedAt: payload.completedAt ?? null,
