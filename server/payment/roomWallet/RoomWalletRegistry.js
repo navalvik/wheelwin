@@ -5,9 +5,14 @@
  * Secret material is resolved by the runtime wallet provider.
  */
 
+import {
+    canonicalizeTonWalletAddress,
+    tonWalletAccountsEqual
+} from "../../models/TonWalletAddress.js";
+
 export const ROOM_WALLET_COUNT = 64;
 
-function normalizeRoomNumber(roomNumber) {
+export function normalizeRoomNumber(roomNumber) {
     const value = Number(roomNumber);
 
     if (!Number.isInteger(value) || value < 1 || value > ROOM_WALLET_COUNT) {
@@ -15,6 +20,14 @@ function normalizeRoomNumber(roomNumber) {
     }
 
     return value;
+}
+
+export function tryNormalizeRoomNumber(roomNumber) {
+    try {
+        return normalizeRoomNumber(roomNumber);
+    } catch {
+        return null;
+    }
 }
 
 export class RoomWalletRegistry {
@@ -32,7 +45,7 @@ export class RoomWalletRegistry {
 
     register({ roomNumber, address, network = null } = {}) {
         const normalizedRoomNumber = normalizeRoomNumber(roomNumber);
-        const normalizedAddress = String(address ?? "").trim();
+        const normalizedAddress = canonicalizeTonWalletAddress(address);
 
         if (!normalizedAddress) {
             throw new TypeError("address is required");
@@ -40,7 +53,10 @@ export class RoomWalletRegistry {
 
         const existing = this._entries.get(normalizedRoomNumber);
 
-        if (existing && existing.address !== normalizedAddress) {
+        if (
+            existing
+            && !tonWalletAccountsEqual(existing.address, normalizedAddress)
+        ) {
             throw new Error(`room ${normalizedRoomNumber} is already mapped to another wallet`);
         }
 
@@ -80,5 +96,19 @@ export class RoomWalletRegistry {
 
     size() {
         return this._entries.size;
+    }
+
+    getByAddress(address) {
+        if (!address) {
+            return null;
+        }
+
+        for (const record of this._entries.values()) {
+            if (tonWalletAccountsEqual(record.address, address)) {
+                return record;
+            }
+        }
+
+        return null;
     }
 }
