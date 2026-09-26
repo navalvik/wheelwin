@@ -1355,7 +1355,7 @@ class WheelWinApplication {
             devMode: this._productionConfig.isDevelopment,
             roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
                 env: process.env,
-                gameEscrowMode: this._tonConfig?.gameEscrowMode
+                
             })
         });
 
@@ -1508,13 +1508,11 @@ class WheelWinApplication {
             tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
             logger: this._logger,
             env: process.env,
-            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null
+             ?? null
         });
 
         this._logger.startupLine(
-            this._roomWalletSettlementRouter.isEnabled()
-                ? "RoomWalletSettlementRouter (ROOM_WALLET)"
-                : "RoomWalletSettlementRouter (legacy)"
+            this._roomWalletSettlementRouter.isEnabled() ? "RoomWalletSettlementRouter (ROOM_WALLET)" : "RoomWalletSettlementRouter (ROOM_WALLET)"
         );
 
         this._paymentSessionManager.setRoomWalletRefundAdapter?.(
@@ -1537,7 +1535,7 @@ class WheelWinApplication {
             roomManager: this._managers.roomManager,
             financialPersistence: this._financialPersistence,
             tonNetwork: this._tonConfig?.network ?? null,
-            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null,
+             ?? null,
             devMode: this._productionConfig.isDevelopment
         });
 
@@ -1716,7 +1714,7 @@ class WheelWinApplication {
             registry: this._roomWalletRegistry,
             roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
                 env: process.env,
-                gameEscrowMode: this._tonConfig?.gameEscrowMode
+                
             })
         });
 
@@ -1855,10 +1853,10 @@ class WheelWinApplication {
             depositSessionCoordinator: this._depositSessionCoordinator,
             roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
                 env: process.env,
-                gameEscrowMode: this._tonConfig?.gameEscrowMode
+                
             }),
             roomWalletLedgerRegistry: this._roomWalletLedgerRegistry,
-            gameEscrowMode: this._tonConfig?.gameEscrowMode ?? null
+             ?? null
         });
 
         this._gameStartAuthorization.initialize();
@@ -3630,11 +3628,8 @@ class WheelWinApplication {
 
         this._logger.startupLine("TonService");
 
-        // R7.67A — surface active escrow mode at startup (v4 | game).
-        this._logger.startupLine(
-            `GameEscrowMode=${this._tonConfig?.gameEscrowMode ?? "unknown"} `
-                + `(network=${this._tonConfig?.network ?? "unknown"})`
-        );
+        // Room Wallet is the only active financial architecture.
+        this._logger.startupLine("FinancialArchitecture=ROOM_WALLET");
 
         // R7.70A.2 — Testnet oracle diagnostics (public address only).
         if ((this._tonConfig?.network ?? "").toLowerCase() === "testnet") {
@@ -3743,7 +3738,7 @@ class WheelWinApplication {
 
         const walletReadiness = evaluateTonTestnetWalletReadiness({
             network: this._tonConfig?.network,
-            gameEscrowMode: this._tonConfig?.gameEscrowMode,
+            ,
             deployAddress,
             deployWalletId,
             deployBalanceTon,
