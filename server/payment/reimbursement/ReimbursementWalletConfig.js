@@ -8,7 +8,6 @@ import { Address } from "@ton/core";
 import { mnemonicToPrivateKey } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
-import { isDeploymentReimbursementEnabled } from "./deploymentReimbursementConfig.js";
 import { tonStringToNanoton } from "./nanoton.js";
 
 export const TON_REIMBURSEMENT_MNEMONIC_ENV = "TON_REIMBURSEMENT_MNEMONIC";
@@ -56,8 +55,7 @@ export function isReimbursementEmergencySendAllowed(env = process.env) {
  */
 export function isReimbursementSendAllowed(env = process.env) {
 
-    return isDeploymentReimbursementEnabled(env)
-        && isReimbursementEmergencySendAllowed(env);
+    return isReimbursementEmergencySendAllowed(env);
 
 }
 
