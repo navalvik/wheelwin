@@ -2135,6 +2135,8 @@ export class RoomLobbyBridge {
                     paymentSession.toSnapshot()
                 );
 
+            }
+
             // P6.7 — restore authoritative start gate without re-initializing.
             const gameStart = this._gameStartAuthorization
                 ?.getReconnectSnapshot?.(roomId);
