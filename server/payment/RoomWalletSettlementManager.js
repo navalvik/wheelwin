@@ -879,8 +879,7 @@ export class RoomWalletSettlementManager {
         if (shouldPreserveFinancialEvidence({
             roomId,
             gameManager: this._gameManager,
-            contractSettlementManager: this,
-            gameContractManager: null,
+            settlementManager: this,
             paymentSessionManager: this._paymentSessionManager
         })) return;
 
