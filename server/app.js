@@ -95,7 +95,7 @@ import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
-import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
+import { RoomWalletSettlementManager } from "./payment/RoomWalletSettlementManager.js";
 import { composeRoomWalletSettlementRouter, isRoomWalletOnlyFinancialPath } from "./payment/roomWallet/roomWalletConfig.js";
 import { createRoomWalletRegistryFromEnv } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { RoomWalletIncomingObserver } from "./payment/roomWallet/RoomWalletIncomingObserver.js";
@@ -322,7 +322,7 @@ class WheelWinApplication {
 
         this._gameStartAuthorization = null;
 
-        this._contractSettlementManager = null;
+        this._settlementManager = null;
 
         this._runtimeConfigurationService = null;
 
@@ -1500,15 +1500,11 @@ class WheelWinApplication {
             "DeploymentReimbursementWorker (send permanently retired)"
         );
 
-        const deployerWalletAddress = await this._resolveDeployerWalletAddress();
-
         this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
-            legacySettlementAdapter: null,
             tonService: this._services?.tonService ?? null,
             tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
             logger: this._logger,
-            env: process.env,
-             ?? null
+            env: process.env
         });
 
         this._logger.startupLine(
@@ -1519,15 +1515,13 @@ class WheelWinApplication {
             this._roomWalletSettlementRouter
         );
 
-        this._contractSettlementManager = new ContractSettlementManager({
+        this._settlementManager = new RoomWalletSettlementManager({
             logger: this._logger,
             eventBus: this._eventBus,
-
             winnerEngine: this._engines.winnerEngine,
             configurationEngine: this._engines.configurationEngine,
+            gameCatalog: this._gameCatalog,
             settlementAdapter: this._roomWalletSettlementRouter,
-            blockchainMonitor: this._blockchainMonitor,
-            deployerWalletAddress,
             auditLedger: this._entryPaymentAuditLedger,
             paymentSessionManager: this._paymentSessionManager,
             gameplayContextResolver: this._gameplayContextResolver,
@@ -1535,11 +1529,12 @@ class WheelWinApplication {
             roomManager: this._managers.roomManager,
             financialPersistence: this._financialPersistence,
             tonNetwork: this._tonConfig?.network ?? null,
-             ?? null,
-            devMode: this._productionConfig.isDevelopment
+            ownerConfiguration: OwnerConfiguration,
+            settlementTimeoutMs: this._runtimeConfig?.payments?.settlementTimeoutMs,
+            roomWalletRetryDelayMs: this._runtimeConfig?.payments?.roomWalletRetryDelayMs
         });
 
-        this._contractSettlementManager.initialize();
+        this._settlementManager.initialize();
 
         this._roomWalletTerminalSettlementRecovery = new RoomWalletTerminalSettlementRecovery({
             logger: this._logger,
@@ -1565,19 +1560,19 @@ class WheelWinApplication {
 
         // R8.6 — GAME_DESTROYED waits for settlement terminal; OPEN_PAGE6 stays ungated.
         this._gameplayLifecycle.configureSettlementTeardownGate({
-            contractSettlementManager: this._contractSettlementManager,
+            contractSettlementManager: this._settlementManager,
             gameContractManager: this._gameContractManager
         });
 
         // R8.8 — Cross-wire financial retention checks (SESSION_FINISHED / room).
         this._paymentSessionManager.setFinancialEvidenceDeps({
 
-            contractSettlementManager: this._contractSettlementManager
+            contractSettlementManager: this._settlementManager
         });
 
         this._gameContractManager?.setFinancialEvidenceDeps?.({
             paymentSessionManager: this._paymentSessionManager,
-            contractSettlementManager: this._contractSettlementManager
+            contractSettlementManager: this._settlementManager
         });
 
         this._gameContractManager?.setEscrowUnwindDeps?.({
@@ -1588,7 +1583,7 @@ class WheelWinApplication {
             paymentSessionManager: this._paymentSessionManager
         });
 
-        this._logger.startupLine("ContractSettlementManager");
+        this._logger.startupLine("RoomWalletSettlementManager");
 
         // R17.9G.1 — Durable runtime configuration overrides (future sessions only).
         this._runtimeConfigurationService = new RuntimeConfigurationService({
@@ -1808,7 +1803,7 @@ class WheelWinApplication {
             sessionWalletStore: this._sessionWalletStore,
             paymentSessionManager: this._paymentSessionManager,
 
-            contractSettlementManager: this._contractSettlementManager,
+            contractSettlementManager: this._settlementManager,
             blockchainMonitor: this._blockchainMonitor,
             playerManager: this._managers.playerManager,
             roomManager: this._managers.roomManager,
@@ -2042,7 +2037,7 @@ class WheelWinApplication {
             paymentSessionManager: this._paymentSessionManager,
 
             gameStartAuthorization: this._gameStartAuthorization,
-            contractSettlementManager: this._contractSettlementManager,
+            contractSettlementManager: this._settlementManager,
             sessionWalletStore: this._sessionWalletStore,
             isDevelopment: this._productionConfig.isDevelopment,
             lifecycleManager: this._lifecycleManager,
@@ -2180,7 +2175,7 @@ class WheelWinApplication {
             setupSessionLifecycle: this._setupSessionLifecycle,
             paymentSessionManager: this._paymentSessionManager,
 
-            contractSettlementManager: this._contractSettlementManager,
+            contractSettlementManager: this._settlementManager,
             gameStartAuthorization: this._gameStartAuthorization,
             resultSessionLifecycle: this._resultSessionLifecycle,
             recoveryEngine: this._recoveryEngine,
@@ -2669,9 +2664,9 @@ class WheelWinApplication {
 
         this._safeShutdownStep("contractSettlementManager", () => {
 
-            if (this._contractSettlementManager) {
+            if (this._settlementManager) {
 
-                this._contractSettlementManager.shutdown();
+                this._settlementManager.shutdown();
 
             }
 
@@ -3119,7 +3114,7 @@ class WheelWinApplication {
                 resultSessionLifecycle: this._resultSessionLifecycle,
                 paymentSessionManager: this._paymentSessionManager,
                 paymentEngine: this._engines?.paymentEngine,
-                contractSettlementManager: this._contractSettlementManager,
+                contractSettlementManager: this._settlementManager,
                 recoveryEngine: this._recoveryEngine,
                 simulationLoop: this._simulationLoop,
                 physicsEngine: this._engines?.physicsEngine,
@@ -3416,7 +3411,7 @@ class WheelWinApplication {
             pendingPayments:
                 this._engines?.paymentEngine?.getActivePaymentCount?.() ?? 0,
             settlements:
-                this._contractSettlementManager?.getActiveSettlementCount?.()
+                this._settlementManager?.getActiveSettlementCount?.()
                     ?? 0,
             pendingTeardowns:
                 this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
@@ -4751,7 +4746,7 @@ class WheelWinApplication {
             },
             setSettlementTimeoutMs: (timeoutMs) => {
 
-                this._contractSettlementManager?.setSettlementTimeoutMs?.(timeoutMs);
+                this._settlementManager?.setSettlementTimeoutMs?.(timeoutMs);
 
             },
             setFinancialOverrides: ({
