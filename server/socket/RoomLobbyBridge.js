@@ -49,6 +49,7 @@ import {
 } from "./lobbyProtocol.js";
 
 import { SessionWalletStore } from "../session/SessionWalletStore.js";
+import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import {
     RecoveryCredentialStore
 } from "../gameplay/RecoveryCredentialStore.js";
@@ -70,6 +71,7 @@ export class RoomLobbyBridge {
         isDevelopment = false,
         lifecycleManager = null,
         roomConfig = null,
+        telegramWalletAdapter = null,
         telegramIdentityResolver = null,
         metricsService = null,
     }) {
