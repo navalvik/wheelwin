@@ -258,7 +258,6 @@ export class DeveloperConsoleProjectionService {
             tonService: this._tonService,
             blockchainMonitor: this._blockchainMonitor,
             walletManager: this._walletManager,
-            gameContractManager: this._gameContractManager,
             paymentSessionManager: this._paymentSessionManager,
             settlementManager: this._settlementManager,
             tonFinancialRecovery: this._tonFinancialRecovery
