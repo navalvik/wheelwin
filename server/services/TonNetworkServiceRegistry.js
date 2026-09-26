@@ -64,15 +64,12 @@ export function buildTonServiceConfigForNetwork(network, env = process.env) {
         expectedWalletAddress: profile.expectedWalletAddress ?? null,
         oracleAddress: profile.oracleWallet,
         oracleSource: profile.oracleSource ?? null,
-        artifactSha256Expected: profile.artifactSha256,
         grmJettonMaster: typeof env.TON_GRM_JETTON_MASTER === "string"
             && env.TON_GRM_JETTON_MASTER.trim()
             ? env.TON_GRM_JETTON_MASTER.trim()
             : null,
         pollIntervalMs,
         deployMode: deployMode === "live" ? "live" : "stub",
-        gameEscrowMode: profile.gameEscrowMode,
-        escrowMode: profile.escrowMode ?? profile.gameEscrowMode
     });
 }
 
