@@ -76,7 +76,6 @@ export class TonFinancialPersistence {
         this._indexes = {
             byRoom: new Map(),
             byGame: new Map(),
-            byContract: new Map()
         };
 
     }
@@ -287,55 +286,6 @@ export class TonFinancialPersistence {
 
     }
 
-    archive(contractId, metadata = {}) {
-
-        this._assertReady();
-
-        const contract = this._getRecord(
-            TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT,
-            contractId
-        );
-
-        const archivedPayload = Object.freeze({
-            ...contract.payload,
-            archivedAt: metadata.archivedAt ?? Date.now(),
-            archiveReason: metadata.archiveReason ?? "archived"
-        });
-
-        const archived = this.create(
-            TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT,
-            archivedPayload,
-            {
-                ...metadata,
-                contractId,
-                roomId: contract.roomId,
-                gameId: contract.gameId,
-                tonNetwork: contract.tonNetwork,
-                correlationId: metadata.correlationId ?? contract.correlationId,
-                status: "ARCHIVED"
-            }
-        );
-
-        const activeKey = this._recordKey(
-            TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT,
-            contractId
-        );
-
-        this._safeUnlink(this._recordPath(
-            TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT,
-            contractId
-        ));
-
-        this._unindexRecord(this._records.get(activeKey));
-
-        this._records.delete(activeKey);
-
-        this._maybeCheckpoint("archive", TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT, contractId);
-
-        return archived;
-
-    }
-
     restore() {
 
         this._records.clear();
@@ -344,7 +294,6 @@ export class TonFinancialPersistence {
 
         this._indexes.byGame.clear();
 
-        this._indexes.byContract.clear();
 
         const errors = [];
 
@@ -471,7 +420,6 @@ export class TonFinancialPersistence {
             indexes: Object.freeze({
                 rooms: this._indexes.byRoom.size,
                 games: this._indexes.byGame.size,
-                contracts: this._indexes.byContract.size
             })
         });
 
@@ -577,16 +525,6 @@ export class TonFinancialPersistence {
 
     }
 
-    listArchived() {
-
-        this._assertReady();
-
-        return this._listRecords(
-            (envelope) => envelope.recordType === TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT
-        );
-
-    }
-
     findByRoom(roomId) {
 
         this._assertReady();
@@ -603,40 +541,9 @@ export class TonFinancialPersistence {
 
     }
 
-    findByContract(contractId) {
-
-        this._assertReady();
-
-        return this._findByIndex(this._indexes.byContract, contractId);
-
-    }
-
     // -------------------------------------------------------------------------
     // Typed convenience API
     // -------------------------------------------------------------------------
-
-    createGameContract(payload, metadata = {}) {
-
-        return this.create(TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT, payload, metadata);
-
-    }
-
-    updateGameContract(contractId, payload, metadata = {}) {
-
-        return this.update(
-            TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT,
-            contractId,
-            payload,
-            metadata
-        );
-
-    }
-
-    loadGameContract(contractId) {
-
-        return this.load(TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT, contractId);
-
-    }
 
     createPaymentSession(payload, metadata = {}) {
 
@@ -1009,69 +916,6 @@ export class TonFinancialPersistence {
     /**
      * R17.8V.2P.H — Deployment cost snapshot (active until FROZEN).
      */
-    createDeploymentCostSnapshotRecord(payload, metadata = {}) {
-
-        return this.create(
-            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT,
-            payload,
-            metadata
-        );
-
-    }
-
-    updateDeploymentCostSnapshotRecord(recordId, payload, metadata = {}) {
-
-        return this.update(
-            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT,
-            recordId,
-            payload,
-            metadata
-        );
-
-    }
-
-    loadDeploymentCostSnapshotRecord(recordId) {
-
-        return this.load(
-            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT,
-            recordId
-        );
-
-    }
-
-    /**
-     * R17.8V.2P.M — Deployment reimbursement queue record.
-     */
-    createDeploymentReimbursementRecord(payload, metadata = {}) {
-
-        return this.create(
-            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT,
-            payload,
-            metadata
-        );
-
-    }
-
-    updateDeploymentReimbursementRecord(recordId, payload, metadata = {}) {
-
-        return this.update(
-            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT,
-            recordId,
-            payload,
-            metadata
-        );
-
-    }
-
-    loadDeploymentReimbursementRecord(recordId) {
-
-        return this.load(
-            TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT,
-            recordId
-        );
-
-    }
-
     createRecoveryCheckpoint(payload, metadata = {}) {
 
         return this.create(
@@ -1097,12 +941,6 @@ export class TonFinancialPersistence {
             TON_FINANCIAL_RECORD_TYPES.RECOVERY_CHECKPOINT,
             checkpointId
         );
-
-    }
-
-    loadArchivedContract(contractId) {
-
-        return this.load(TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT, contractId);
 
     }
 
@@ -1338,7 +1176,6 @@ export class TonFinancialPersistence {
 
         this._addIndexEntry(this._indexes.byGame, envelope.gameId, envelope);
 
-        this._addIndexEntry(this._indexes.byContract, envelope.contractId, envelope);
 
     }
 
@@ -1354,7 +1191,6 @@ export class TonFinancialPersistence {
 
         this._removeIndexEntry(this._indexes.byGame, envelope.gameId, envelope);
 
-        this._removeIndexEntry(this._indexes.byContract, envelope.contractId, envelope);
 
     }
 
