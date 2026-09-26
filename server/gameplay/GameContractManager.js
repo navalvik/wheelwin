@@ -247,23 +247,27 @@ export class GameContractManager {
         // remains the production handoff. consumeValidForDeploy remains inside
         // _beginDeploy.
 
-        this._subscribe(
-            EVENT_TYPES.DEPLOY_AUTHORIZATION_VALID,
-            (envelope) => {
+        if (!this._skipBlockchainDeploy) {
+            this._subscribe(
+                EVENT_TYPES.DEPLOY_AUTHORIZATION_VALID,
+                (envelope) => {
 
-                this._handleDeploymentAuthorizationValid(envelope.payload);
+                    this._handleDeploymentAuthorizationValid(envelope.payload);
 
-            }
-        );
+                }
+            );
+        }
 
-        this._subscribe(
-            EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
-            (envelope) => {
+        if (!this._skipBlockchainDeploy) {
+            this._subscribe(
+                EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
+                (envelope) => {
 
-                this._handlePaymentSessionCompleted(envelope.payload);
+                    this._handlePaymentSessionCompleted(envelope.payload);
 
-            }
-        );
+                }
+            );
+        }
 
         this._subscribe(
             EVENT_TYPES.PAYMENT_SESSION_FAILED,
