@@ -3297,7 +3297,6 @@ class WheelWinApplication {
 
         const walletReadiness = evaluateTonTestnetWalletReadiness({
             network: this._tonConfig?.network,
-            ,
             deployAddress,
             deployWalletId,
             deployBalanceTon,
