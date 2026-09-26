@@ -1172,41 +1172,6 @@ export class PaymentSessionManager {
 
         this._persistSession(session, "update");
 
-            this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
-
-            void this._gameContractManager.requestPartialPaymentEscrowUnwind({
-                roomId,
-                reason,
-                session
-            }).catch((error) => {
-
-                this._logger?.error?.(
-                    `Partial payment escrow unwind failed | roomId=${roomId} | `
-                        + `${error?.message ?? error}`
-                );
-
-            });
-
-            this._log(
-                `ESCROW_UNWIND_REQUESTED | roomId=${roomId} | reason=${reason}`
-            );
-
-            this._logger.decisionTrace({
-                stage: "TERMINAL_FAILURE",
-                decision: "UNWIND",
-                reason: reason ?? "payment_failed",
-                caller: "PaymentSessionManager.failSession",
-                nextAction: "GameContractManager.requestPartialPaymentEscrowUnwind",
-                roomId,
-                gameId: session.gameId ?? null
-            });
-
-            return session;
-
-        }
-
-        this._persistSession(session, "update");
-
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
         const failedPayload = {
