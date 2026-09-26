@@ -8,9 +8,8 @@ const SERVICE_LABELS = Object.freeze({
     tonService: "TonService",
     blockchainMonitor: "BlockchainMonitor",
     walletManager: "WalletManager",
-    contractManager: "ContractManager",
     paymentSessionManager: "PaymentSessionManager",
-    contractSettlementManager: "ContractSettlementManager",
+    settlementManager: "SettlementManager",
     tonFinancialRecovery: "TonFinancialRecovery"
 });
 
