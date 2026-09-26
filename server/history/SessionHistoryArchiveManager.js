@@ -582,12 +582,6 @@ export class SessionHistoryArchiveManager {
         });
 
 
-            this._onPaymentConfirmationLifecycle(
-                envelope.payload
-            );
-
-        });
-
         this._subscribe(EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED, (envelope) => {
 
             this._onPaymentConfirmationLifecycle(
