@@ -21,8 +21,7 @@ import { isSettlementSessionTerminal } from "../payment/SettlementSessionStates.
 export function shouldPreserveFinancialEvidence({
     roomId = null,
     gameManager = null,
-    contractSettlementManager = null,
-    gameContractManager = null,
+    settlementManager = null,
     paymentSessionManager = null
 } = {}) {
 
@@ -33,12 +32,11 @@ export function shouldPreserveFinancialEvidence({
     }
 
     const gameId = gameManager?.getGameIdByRoomId?.(roomId)
-        ?? gameContractManager?.getContract?.(roomId)?.gameId
         ?? paymentSessionManager?.getSession?.(roomId)?.gameId
         ?? null;
 
     const session = gameId
-        ? contractSettlementManager?.getSettlementSession?.(gameId) ?? null
+        ? settlementManager?.getSettlementSession?.(gameId) ?? null
         : null;
 
     if (session && isSettlementSessionTerminal(session.status)) {
@@ -59,16 +57,11 @@ export function shouldPreserveFinancialEvidence({
         gameId && gameManager?.wasEntryPaymentActivated?.(gameId)
     );
 
-    const hasContract = Boolean(
-        gameContractManager?.getContract?.(roomId)
-        || (gameId && gameContractManager?.getContractByGameId?.(gameId))
-    );
-
     const hasPayment = Boolean(paymentSessionManager?.getSession?.(roomId));
 
     // Post-init financially relevant OR entry-paid with missing settlement =
     // UNKNOWN / incomplete → keep evidence.
-    if (initialized && (entryPaid || hasContract || hasPayment)) {
+    if (initialized && (entryPaid || hasPayment)) {
 
         return true;
 
