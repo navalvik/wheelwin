@@ -93,7 +93,7 @@ import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
-import { GameContractManager } from "./gameplay/GameContractManager.js";
+
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
 import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
 import { composeRoomWalletSettlementRouter, isRoomWalletOnlyFinancialPath } from "./payment/roomWallet/roomWalletConfig.js";
@@ -107,9 +107,9 @@ import { AudioRegistryService } from "./console/configuration/AudioRegistryServi
 import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
 import { TIMER_PHASES } from "./catalog/Timers.js";
 import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
-import { GameContractDeployAdapter } from "./payment/GameContractDeployAdapter.js";
-import { TonGameContractAdapter } from "./payment/TonGameContractAdapter.js";
-import { isGameEscrowOnlyPlayerPayment } from "./config/gameEscrowMode.js";
+
+
+
 import { deriveDeployerWalletIdentity } from "./payment/ton/deriveDeployerWalletIdentity.js";
 import {
     assertDeployerWalletMatchesExpected,
@@ -137,7 +137,7 @@ import {
     printTonTestnetWalletReadiness,
     setTonTestnetWalletReadiness
 } from "./diagnostics/TonTestnetWalletReadiness.js";
-import { verifyGameEscrowArtifact } from "./payment/ton/verifyGameEscrowArtifact.js";
+
 import {
     BlockchainMonitor,
     EntryPaymentAuditLedger
@@ -1367,73 +1367,10 @@ class WheelWinApplication {
             this._paymentSessionManager
         );
 
-        const roomWalletOnlyFinancialPath = isRoomWalletOnlyFinancialPath({
-            env: process.env,
-            gameEscrowMode: this._tonConfig?.gameEscrowMode
-        });
-
-        const deployAdapter = roomWalletOnlyFinancialPath
-            ? null
-            : (
-                this._tonConfig.deployMode === "stub"
-                    ? new GameContractDeployAdapter({
-                        logger: this._logger,
-                        deployDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
-                        network: this._tonConfig.network
-                    })
-                    : new TonGameContractAdapter({
-                        logger: this._logger,
-                        tonConfig: this._tonConfig,
-                        tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
-                        transport: this._services.tonService.getTransport(),
-                        tonClient: this._services.tonService.getClient()
-                    })
-            );
-
-        this._gameContractDeployAdapter = deployAdapter;
-
-        // Room Wallet financial path has no gameplay smart-contract adapter.
-        if (deployAdapter) {
-            this._blockchainMonitor.setContractAdapter?.(deployAdapter);
-        }
-
-        this._gameContractManager = roomWalletOnlyFinancialPath
-            ? null
-            : new GameContractManager({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            playerManager: this._managers.playerManager,
-            roomManager: this._managers.roomManager,
-            gameManager: this._managers.gameManager,
-            sessionWalletStore: this._sessionWalletStore,
-            configurationEngine: this._engines.configurationEngine,
-            deployAdapter,
-            financialPersistence: this._financialPersistence,
-            creatingDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
-            deployTimeoutMs: this._roomConfig?.gameContractDeployTimeoutMs
-                ?? (2 * 60 * 1000),
-            devMode: this._productionConfig.isDevelopment,
-            skipBlockchainDeploy: isRoomWalletOnlyFinancialPath({
-                env: process.env,
-                gameEscrowMode: this._tonConfig?.gameEscrowMode
-            })
-            });
-
-        if (this._gameContractManager) {
-            this._gameContractManager.initialize();
-        }
-
-        this._engines.paymentEngine.setGameContractManager?.(
-            this._gameContractManager
-        );
-
-        this._auditEngine.setGameContractManager?.(
-            this._gameContractManager
-        );
-
-        if (this._gameContractManager) {
-            this._logger.startupLine("GameContractManager");
-        }
+        // WheelWin financial architecture: Room Wallet only.
+        // No gameplay smart-contract manager or deployment adapter exists in runtime.
+        this._gameContractDeployAdapter = null;
+        this._gameContractManager = null;
 
         // R17.8V.2P.J / R17.8V.2P.K — Deployment cost snapshot capture + freeze.
         this._deploymentCostService = new DeploymentCostService({
@@ -1566,7 +1503,7 @@ class WheelWinApplication {
         const deployerWalletAddress = await this._resolveDeployerWalletAddress();
 
         this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
-            legacySettlementAdapter: deployAdapter,
+            legacySettlementAdapter: null,
             tonService: this._services?.tonService ?? null,
             tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
             logger: this._logger,
@@ -1587,7 +1524,7 @@ class WheelWinApplication {
         this._contractSettlementManager = new ContractSettlementManager({
             logger: this._logger,
             eventBus: this._eventBus,
-            gameContractManager: this._gameContractManager,
+
             winnerEngine: this._engines.winnerEngine,
             configurationEngine: this._engines.configurationEngine,
             settlementAdapter: this._roomWalletSettlementRouter,
@@ -1636,7 +1573,7 @@ class WheelWinApplication {
 
         // R8.8 — Cross-wire financial retention checks (SESSION_FINISHED / room).
         this._paymentSessionManager.setFinancialEvidenceDeps({
-            gameContractManager: this._gameContractManager,
+
             contractSettlementManager: this._contractSettlementManager
         });
 
@@ -1860,10 +1797,7 @@ class WheelWinApplication {
                         ?? null,
                     paymentDurationMs:
                         this._roomConfig?.paymentSessionDurationMs ?? null
-                }),
-            gameEscrowOnlyPlayerPayment: isGameEscrowOnlyPlayerPayment(
-                this._tonConfig?.gameEscrowMode
-            )
+                })
         });
 
         this._depositOrchestrator.initialize();
@@ -1875,7 +1809,7 @@ class WheelWinApplication {
             eventBus: this._eventBus,
             sessionWalletStore: this._sessionWalletStore,
             paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
+
             contractSettlementManager: this._contractSettlementManager,
             blockchainMonitor: this._blockchainMonitor,
             playerManager: this._managers.playerManager,
@@ -1897,7 +1831,7 @@ class WheelWinApplication {
         this._logger.startupLine("TonFinancialRecovery");
 
         // R17.9L.6 — DepositFull → DeploymentAuthorization VALID automation.
-        // No TON and no GameContractManager calls; only ensures VALID authorizations exist.
+
         this._depositFullAuthorizationAutomation.syncFromActiveDepositSessions();
 
         this._depositOnChainVerification.syncFromPersistedObservations();
@@ -1909,7 +1843,7 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             gameManager: this._managers.gameManager,
             paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
+
             configurationEngine: this._engines.configurationEngine,
             physicsEngine: this._engines.physicsEngine,
             gameClockEngine: this._engines.gameClockEngine,
@@ -1955,7 +1889,7 @@ class WheelWinApplication {
             physicsEngine: this._engines.physicsEngine,
             winnerEngine: this._engines.winnerEngine,
             inputAuthority: this._inputAuthority,
-            gameContractManager: this._gameContractManager,
+
             paymentSessionManager: this._paymentSessionManager
         });
 
@@ -2108,7 +2042,7 @@ class WheelWinApplication {
             setupSessionLifecycle: this._setupSessionLifecycle,
             resultSessionLifecycle: this._resultSessionLifecycle,
             paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
+
             gameStartAuthorization: this._gameStartAuthorization,
             contractSettlementManager: this._contractSettlementManager,
             sessionWalletStore: this._sessionWalletStore,
@@ -2247,7 +2181,7 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             setupSessionLifecycle: this._setupSessionLifecycle,
             paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
+
             contractSettlementManager: this._contractSettlementManager,
             gameStartAuthorization: this._gameStartAuthorization,
             resultSessionLifecycle: this._resultSessionLifecycle,
@@ -4694,46 +4628,6 @@ class WheelWinApplication {
                 );
 
             }
-
-        }
-
-        const artifact = verifyGameEscrowArtifact({
-            expectedSha256: this._tonConfig?.artifactSha256Expected
-                ?? mainnetProfile?.artifactSha256
-                ?? null,
-            requirePresent: network === "mainnet"
-                || this._tonConfig?.gameEscrowMode === "game",
-            requireLoadable: network === "mainnet"
-                || this._tonConfig?.gameEscrowMode === "game"
-        });
-
-        // Integrity: when an expected hash is known, mismatch fails on any network.
-        if (artifact.expectedSha256 && artifact.present && artifact.match === false) {
-
-            throw new Error(artifact.reasons[0] ?? "GameEscrow artifact SHA256 mismatch");
-
-        }
-
-        if (
-            (network === "mainnet" || this._tonConfig?.gameEscrowMode === "game")
-            && !artifact.present
-        ) {
-
-            throw new Error(
-                artifact.reasons[0] ?? "GameEscrow artifact missing"
-            );
-
-        }
-
-        if (
-            (network === "mainnet" || this._tonConfig?.gameEscrowMode === "game")
-            && artifact.loadable === false
-        ) {
-
-            throw new Error(
-                artifact.reasons.find((reason) => reason.includes("loadable"))
-                    ?? "GameEscrow artifact not loadable by StateInit builder"
-            );
 
         }
 
