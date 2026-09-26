@@ -95,48 +95,30 @@ export function buildEntryPaymentTransaction({
     nowMs = Date.now()
 } = {}) {
 
-    if (includeDeploy !== true && includeFund !== true && includeStake !== true) {
+    void isCreator;
+    void depositPackage;
+    void depositAddress;
+    void mySeatIndex;
+    void myExpectedAmountNanotons;
+    void network;
+    void legacyPaymentDestination;
 
-        throw new Error("entry payment requires at least one authoritative component");
-
+    if (includeStake !== true || includeDeploy === true || includeFund === true) {
+        throw new Error("Room Wallet entry payment requires the stake component only");
     }
 
-    if (includeDeploy === true || includeFund === true) {
+    const stakeTx = buildTonConnectPaymentTransaction({
+        paymentDestination,
+        requiredGram,
+        validUntilSeconds,
+        nowMs
+    });
 
-        throw new Error("Legacy DepositContract payment components are disabled; use Room Wallet direct payment");
-
-    }
-
-    if (includeStake === true) {
-
-        const stakeTx = buildTonConnectPaymentTransaction({
-            paymentDestination: paymentDestination ?? legacyPaymentDestination,
-            requiredGram,
-            playerIndex: paymentDestination ? null : playerIndex,
-            directTransfer: Boolean(paymentDestination),
-            validUntilSeconds,
-            nowMs
-        });
-
-        messages.push(...stakeTx.messages);
-        totalNanotons = addNanotons(
-            totalNanotons,
-            stakeTx.messages[0].amount
-        );
-
-    }
-
-    const ttl = Number(validUntilSeconds);
-
-    if (!Number.isFinite(ttl) || ttl <= 0) {
-
-        throw new Error("validUntilSeconds must be a positive number");
-
-    }
+    const totalNanotons = stakeTx.messages[0].amount;
 
     return {
-        validUntil: Math.floor(Number(nowMs) / 1000) + ttl,
-        messages,
+        validUntil: stakeTx.validUntil,
+        messages: stakeTx.messages,
         totalNanotons
     };
 
