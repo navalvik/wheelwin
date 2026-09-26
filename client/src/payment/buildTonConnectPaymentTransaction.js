@@ -33,30 +33,18 @@ export function requiredGramToNanotonString(requiredGram) {
 }
 
 export function buildTonConnectPaymentTransaction({
-    contractAddress = null,
     paymentDestination = null,
     requiredGram,
-    paymentReference = null,
-    allowLegacyComment = false,
-    directTransfer = true,
     validUntilSeconds = DEFAULT_VALID_UNTIL_SECONDS,
     nowMs = Date.now()
 } = {}) {
-    const destination = String(paymentDestination ?? contractAddress ?? "").trim();
+    const destination = String(paymentDestination ?? "").trim();
     if (!destination) {
         throw new Error("payment destination is required for TonConnect transaction");
     }
 
     const amount = requiredGramToNanotonString(requiredGram);
-    let payload;
-
-    if (directTransfer === true) {
-        payload = undefined;
-    } else if (allowLegacyComment === true) {
-        payload = buildTonCommentPayload(paymentReference);
-    } else {
-        throw new Error("direct transfer is required for the active Room Wallet payment path");
-    }
+    const payload = undefined;
 
     const ttl = Number(validUntilSeconds);
     if (!Number.isFinite(ttl) || ttl <= 0) {
