@@ -604,43 +604,8 @@ export function validateEnvironment(collector, env) {
 
     }
 
-    // R7.67A — refuse ambiguous GAME_ESCROW_MODE when the variable is present.
-    if (!isMissing(env.GAME_ESCROW_MODE)) {
-
-        const mode = String(env.GAME_ESCROW_MODE).trim().toLowerCase();
-
-        if (mode !== "v4" && mode !== "game") {
-
-            collector.add({
-                key: ENVIRONMENT_SCHEMA.GAME_ESCROW_MODE.key,
-                reason: "Ambiguous or invalid escrow mode",
-                expectedType: "v4|game",
-                received: env.GAME_ESCROW_MODE,
-                suggestedFix: ENVIRONMENT_SCHEMA.GAME_ESCROW_MODE.suggestedFix
-            });
-
-        }
-
-    }
 
     // R7.68 / R8.1A — Mainnet profile escrow mode must be explicit when set.
-    if (!isMissing(env.TON_MAINNET_GAME_ESCROW_MODE)) {
-
-        const mode = String(env.TON_MAINNET_GAME_ESCROW_MODE).trim().toLowerCase();
-
-        if (mode !== "v4" && mode !== "game") {
-
-            collector.add({
-                key: ENVIRONMENT_SCHEMA.TON_MAINNET_GAME_ESCROW_MODE.key,
-                reason: "Ambiguous or invalid mainnet escrow mode",
-                expectedType: "v4|game",
-                received: env.TON_MAINNET_GAME_ESCROW_MODE,
-                suggestedFix: ENVIRONMENT_SCHEMA.TON_MAINNET_GAME_ESCROW_MODE.suggestedFix
-            });
-
-        }
-
-    }
 
     validateBooleanField(
         collector,
@@ -680,9 +645,6 @@ export function validateEnvironment(collector, env) {
 
     validateIntegerField(
         collector,
-        ENVIRONMENT_SCHEMA.GAME_CONTRACT_DEPLOY_TIMEOUT_MS,
-        env.GAME_CONTRACT_DEPLOY_TIMEOUT_MS
-    );
 
     validateIntegerField(
         collector,
