@@ -13,7 +13,6 @@ import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import {
     canSubmitEntryPayment,
     getLocalPaymentRequest,
-    isGameEscrowOnlyPlayerPayment,
     mapPaymentSessionRows,
     mapWalletConnectionRows,
     PAGE4_PAYMENT_PHASE,
@@ -881,14 +880,9 @@ export default function Page4Payment({ onNavigate }) {
         const lifecycle = authoritative?.lifecycle ?? null;
         const paymentSession = authoritative?.paymentSession ?? null;
         const gameContract = authoritative?.gameContract ?? null;
-        const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract, {
-            deposit: depositProjection,
-            paymentSession,
-            roomId: authoritative?.roomId,
-            gameId: authoritative?.gameId
-        });
+        const roomWalletOnly = isRoomWalletPaymentSession(paymentSession);
 
-        if (!gameEscrowOnly) {
+        if (!roomWalletOnly) {
 
             if (!depositProjection) {
 
@@ -966,7 +960,7 @@ export default function Page4Payment({ onNavigate }) {
                 ?? paymentRequest?.seatIndex
                 ?? null;
 
-            if (gameEscrowOnly && !roomWalletDestination) {
+            if (roomWalletOnly && !roomWalletDestination) {
 
                 setDepositSubmitting(false);
                 setDepositSubmitError(t("payment.stakeUnavailable"));
@@ -975,12 +969,12 @@ export default function Page4Payment({ onNavigate }) {
             }
 
             const transactionObject = buildEntryPaymentTransaction({
-                gameEscrowOnly,
-                isCreator: gameEscrowOnly ? false : depositProjection.isCreator === true,
-                includeDeploy: gameEscrowOnly ? false : components.includeDeploy,
-                includeFund: gameEscrowOnly ? false : components.includeFund,
+                roomWalletOnly,
+                isCreator: roomWalletOnly ? false : depositProjection.isCreator === true,
+                includeDeploy: roomWalletOnly ? false : components.includeDeploy,
+                includeFund: roomWalletOnly ? false : components.includeFund,
                 includeStake: components.includeStake,
-                depositPackage: !gameEscrowOnly && components.includeDeploy
+                depositPackage: !roomWalletOnly && components.includeDeploy
                     ? {
                         stateInit: {
                             codeBoc: depositProjection.package.stateInit.codeBoc,
@@ -990,14 +984,14 @@ export default function Page4Payment({ onNavigate }) {
                         depositAddress: depositProjection.depositAddress
                     }
                     : null,
-                depositAddress: gameEscrowOnly ? null : depositProjection.depositAddress,
-                mySeatIndex: gameEscrowOnly ? null : depositProjection.mySeatIndex,
-                myExpectedAmountNanotons: gameEscrowOnly
+                depositAddress: roomWalletOnly ? null : depositProjection.depositAddress,
+                mySeatIndex: roomWalletOnly ? null : depositProjection.mySeatIndex,
+                myExpectedAmountNanotons: roomWalletOnly
                     ? null
                     : depositProjection.myExpectedAmountNanotons,
-                network: gameEscrowOnly ? null : depositProjection.network,
-                paymentDestination: gameEscrowOnly ? roomWalletDestination : null,
-                gameEscrowAddress: gameEscrowOnly
+                network: roomWalletOnly ? null : depositProjection.network,
+                paymentDestination: roomWalletOnly ? roomWalletDestination : null,
+                gameEscrowAddress: roomWalletOnly
                     ? (roomWalletDestination ?? paymentRequest?.contractAddress ?? null)
                     : (paymentRequest?.contractAddress ?? null),
                 requiredGram: paymentRequest?.requiredGram ?? null,
@@ -1360,17 +1354,12 @@ export default function Page4Payment({ onNavigate }) {
     }
 
     const confirmedSeatCount = Number(depositProjection?.confirmedSeats);
-    const gameEscrowOnly = isGameEscrowOnlyPlayerPayment(gameContract, {
-        deposit: depositProjection,
-        paymentSession,
-        roomId: authoritative.roomId,
-        gameId: authoritative.gameId
-    });
+    const roomWalletOnly = isRoomWalletPaymentSession(paymentSession);
 
     const depositStatusParts = [];
 
     if (
-        !gameEscrowOnly
+        !roomWalletOnly
         && Number.isFinite(confirmedSeatCount)
         && inPostWalletPhase
         && !showPaymentRows
@@ -1382,7 +1371,7 @@ export default function Page4Payment({ onNavigate }) {
 
     }
 
-    if (paymentPhase === PAGE4_PAYMENT_PHASE.GAMEESCROW_STAKE) {
+    if (paymentPhase === PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT) {
 
         depositStatusParts.push(t("payment.waitingGameEscrow"));
 
