@@ -27,7 +27,6 @@ import {
     EntryPaymentSession
 } from "../models/EntryPaymentSession.js";
 import { EntryPaymentLifecycle } from "../gameplay/EntryPaymentLifecycle.js";
-import { sessionNeedsEscrowUnwind } from "../gameplay/partialPaymentEscrowUnwind.js";
 import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import {
     isValidRoomId,
@@ -2784,28 +2783,17 @@ export class RoomLobbyBridge {
 
         const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
 
-        const contract = this._gameContractManager?.getContract?.(roomId);
-
-        const unwindNeeded = paymentSession
-            ? sessionNeedsEscrowUnwind(paymentSession)
-            : false;
-
         const roomWalletRefundNeeded = this._paymentSessionManager
             ?.shouldProtectRoomFromFinancialClose?.(roomId) === true;
 
-        const willFailSession = Boolean(
-            roomWalletRefundNeeded
-            || (unwindNeeded && contract?.contractAddress)
-        );
+        const willFailSession = roomWalletRefundNeeded;
 
         this._logger.info(
-            `SETUP_SESSION_EXPIRED unwind check | roomId=${roomId}`
-                + ` | gameId=${paymentSession?.gameId ?? contract?.gameId ?? payload?.gameId ?? "null"}`
+            `SETUP_SESSION_EXPIRED Room Wallet check | roomId=${roomId}`
+                + ` | gameId=${paymentSession?.gameId ?? payload?.gameId ?? "null"}`
                 + ` | paymentSessionId=${paymentSession?.paymentSessionId ?? "null"}`
                 + ` | paymentSession.status=${paymentSession?.status ?? "null"}`
-                + ` | sessionNeedsEscrowUnwind=${unwindNeeded}`
                 + ` | roomWalletRefundNeeded=${roomWalletRefundNeeded}`
-                + ` | contractAddress=${contract?.contractAddress ?? "null"}`
                 + ` | timestamp=${new Date().toISOString()}`
                 + ` | reason=setup_expired`
                 + ` | nextAction=${willFailSession ? "failSession" : "_closeRoom"}`
