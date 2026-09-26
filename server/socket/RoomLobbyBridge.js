@@ -21,7 +21,6 @@ import {
     SECRET_MATRIX_STATUS_REASONS
 } from "../models/SecretMatrixStatus.js";
 import { normalizeTelegramWallet } from "../models/TelegramWalletRules.js";
-import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import {
     isValidRoomId,
     normalizeRoomId
@@ -68,8 +67,6 @@ export class RoomLobbyBridge {
         gameStartAuthorization = null,
         contractSettlementManager = null,
         sessionWalletStore = null,
-        telegramWalletAdapter = null,
-        entryPaymentDelays = null,
         isDevelopment = false,
         lifecycleManager = null,
         roomConfig = null,
@@ -106,10 +103,6 @@ export class RoomLobbyBridge {
         // Never gates behavior; increment() no-ops when disabled/absent.
         this._metricsService = metricsService;
 
-        // R18 S3 — authoritative DepositSession source for requester-scoped
-        // client-facing projections. Optional; bridge fails closed when absent.
-        this._depositSessionCoordinator = depositSessionCoordinator;
-
         // R7.24 — post-ARCHIVED stage timers (wallet connection barrier).
         this._walletConnectionDurationMs = Number.isFinite(
             roomConfig?.walletConnectionDurationMs
@@ -126,27 +119,9 @@ export class RoomLobbyBridge {
         this._telegramWalletAdapter = telegramWalletAdapter
             ?? new TelegramWalletAdapter({ logger });
 
-        this._entryPaymentLifecycle = new EntryPaymentLifecycle({
-            logger,
-            telegramWalletAdapter: this._telegramWalletAdapter,
-            applySessionUpdate: (roomId, updater) => (
-                this._applyEntryPaymentUpdate(roomId, updater)
-            ),
-            playerPaymentDelayMs: entryPaymentDelays?.playerPaymentDelayMs
-                ?? 750,
-            smartContractDelayMs: entryPaymentDelays?.smartContractDelayMs
-                ?? 500
-        });
+        // ENTRY_PAYMENT_COMPLETED is retained only as a local lifecycle signal;
+        // no smart-contract payment lifecycle is instantiated.
 
-        // C5.8E — authoritative 3s display after smartContractStatus=created.
-        this._entryPaymentCompletionDelayMs = entryPaymentDelays
-            ?.completionDelayMs
-            ?? 3000;
-
-        // roomId → { timeoutId, startedAt, durationMs }
-        this._entryPaymentCompletionTimerByRoom = new Map();
-
-        // Rooms that have already emitted ENTRY_PAYMENT_COMPLETED.
         this._entryPaymentCompletedByRoom = new Set();
 
         this._socketToPlayer = new Map();
@@ -224,7 +199,6 @@ export class RoomLobbyBridge {
 
         // C5.8C — Entry Payment Session (Page4). One per room.
         // Separate from winner-settlement PaymentEngine.
-        this._entryPaymentByRoom = new Map();
 
         // P6.2 — Telegram Wallet connection session (Page4). One per room.
         this._walletConnectionByRoom = new Map();
@@ -761,8 +735,6 @@ export class RoomLobbyBridge {
 
         this._paymentStageReadyByRoom.clear();
 
-        this._entryPaymentLifecycle.shutdown();
-
         for (const roomId of [
             ...this._entryPaymentCompletionTimerByRoom.keys()
         ]) {
@@ -779,7 +751,6 @@ export class RoomLobbyBridge {
 
         }
 
-        this._entryPaymentByRoom.clear();
 
         this._entryPaymentCompletedByRoom.clear();
 
@@ -2131,18 +2102,6 @@ export class RoomLobbyBridge {
                 LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
                 { roomId }
             );
-
-            const entryPayment = this._entryPaymentByRoom.get(roomId);
-
-            if (entryPayment) {
-
-                this._deliverToSocket(
-                    socketId,
-                    LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
-                    entryPayment.toSnapshot()
-                );
-
-            }
 
             const walletConnection = this._walletConnectionByRoom.get(roomId);
 
@@ -4500,10 +4459,6 @@ export class RoomLobbyBridge {
         // P6.2 — start wallet connection barrier (no payment simulation).
         this._createAndBroadcastWalletConnectionSession(roomId);
 
-        // Keep EntryPaymentSession shell for DEBUG_START_GAME / later stages,
-        // but do not auto-run TelegramWalletAdapter simulation.
-        this._createEntryPaymentSessionShell(roomId);
-
     }
 
     _createAndBroadcastWalletConnectionSession(roomId) {
@@ -4563,81 +4518,6 @@ export class RoomLobbyBridge {
 
         this._logger.info(
             `Wallet connection session created | roomId=${roomId} | `
-                + `players=${session.players.length}`
-        );
-
-    }
-
-    _createEntryPaymentSessionShell(roomId) {
-
-        if (this._entryPaymentByRoom.has(roomId)) {
-
-            return;
-
-        }
-
-        const room = this._roomManager.getRoom(roomId);
-
-        if (!room) {
-
-            return;
-
-        }
-
-        const roster = room.players.map((playerId) => ({
-            playerId,
-            wallet: this._sessionWalletStore.getWallet(roomId, playerId)
-        }));
-
-        const session = EntryPaymentSession.createInitial(roomId, roster);
-
-        this._entryPaymentByRoom.set(roomId, session);
-
-        this._logger.info(
-            `Entry payment session shell created | roomId=${roomId} | `
-                + `players=${session.players.length}`
-        );
-
-    }
-
-    _createAndBroadcastEntryPaymentSession(roomId) {
-
-        if (this._entryPaymentByRoom.has(roomId)) {
-
-            this._broadcastEntryPaymentSession(roomId);
-
-            return;
-
-        }
-
-        const room = this._roomManager.getRoom(roomId);
-
-        if (!room) {
-
-            return;
-
-        }
-
-        const roster = room.players.map((playerId) => {
-
-            return {
-                playerId,
-                wallet: this._sessionWalletStore.getWallet(roomId, playerId)
-            };
-
-        });
-
-        const session = EntryPaymentSession.createInitial(roomId, roster);
-
-        this._entryPaymentByRoom.set(roomId, session);
-
-        this._broadcastEntryPaymentSession(roomId);
-
-        // Legacy simulation path retained for explicit callers only (not P6.2).
-        this._entryPaymentLifecycle.start(roomId, session);
-
-        this._logger.info(
-            `Entry payment session created | roomId=${roomId} | `
                 + `players=${session.players.length}`
         );
 
@@ -6027,71 +5907,6 @@ export class RoomLobbyBridge {
 
     }
 
-    _applyEntryPaymentUpdate(roomId, updater) {
-
-        const current = this._entryPaymentByRoom.get(roomId);
-
-        if (!current) {
-
-            return null;
-
-        }
-
-        const next = updater(current);
-
-        if (!next || next === current) {
-
-            return current;
-
-        }
-
-        this._entryPaymentByRoom.set(roomId, next);
-
-        this._broadcastEntryPaymentSession(roomId);
-
-
-        return next;
-
-    }
-
-    _startEntryPaymentCompletionTimer(roomId) {
-
-        if (this._entryPaymentCompletedByRoom.has(roomId)) {
-
-            return;
-
-        }
-
-        // Do not restart — reconnect during the 3s display keeps this timer.
-        if (this._entryPaymentCompletionTimerByRoom.has(roomId)) {
-
-            return;
-
-        }
-
-        const durationMs = this._entryPaymentCompletionDelayMs;
-
-        const startedAt = Date.now();
-
-        const timeoutId = setTimeout(() => {
-
-            this._completeEntryPayment(roomId);
-
-        }, durationMs);
-
-        this._entryPaymentCompletionTimerByRoom.set(roomId, {
-            timeoutId,
-            startedAt,
-            durationMs
-        });
-
-        this._logger.info(
-            `Entry payment completion timer started | roomId=${roomId} | `
-                + `durationMs=${durationMs}`
-        );
-
-    }
-
     _completeEntryPayment(roomId) {
 
         if (this._entryPaymentCompletedByRoom.has(roomId)) {
@@ -6118,11 +5933,6 @@ export class RoomLobbyBridge {
         });
 
         this._logger.info(`Entry payment completed | roomId=${roomId}`);
-
-        // Lifecycle timers are finished; keep EntryPaymentSession until room
-        // cleanup so late reconnect can still restore the final snapshot +
-        // ENTRY_PAYMENT_COMPLETED.
-        this._entryPaymentLifecycle.cancel(roomId);
 
         // R1.3D — production + debug share one Page5 open signal (after
         // ENTRY_PAYMENT_COMPLETED activation has run synchronously).
@@ -6329,69 +6139,11 @@ export class RoomLobbyBridge {
 
     }
 
-    _clearEntryPaymentCompletionTimer(roomId) {
-
-        const active = this._entryPaymentCompletionTimerByRoom.get(roomId);
-
-        if (!active) {
-
-            return;
-
-        }
-
-        clearTimeout(active.timeoutId);
-
-        this._entryPaymentCompletionTimerByRoom.delete(roomId);
-
-    }
-
     _destroyEntryPaymentArtifacts(roomId) {
 
-        this._entryPaymentLifecycle.cancel(roomId);
-
-        this._clearEntryPaymentCompletionTimer(roomId);
-
-        this._entryPaymentByRoom.delete(roomId);
+        if (!roomId) return;
 
         this._entryPaymentCompletedByRoom.delete(roomId);
-
-        this._walletConnectionByRoom.delete(roomId);
-
-        this._tonConnectEventsByRoom.delete(roomId);
-
-        this._tonConnectPlayerMetaByRoom.delete(roomId);
-
-        this._tonConnectAutopsyByRoom.delete(roomId);
-
-        // R8.8 — never wipe PaymentSession after gameplay init.
-        const gameManager = this._paymentSessionManager?._gameManager ?? null;
-
-        if (gameManager?.hasInitializedGameplay?.(roomId)) {
-
-            return;
-
-        }
-
-        this._paymentSessionManager?.destroySession(roomId);
-
-
-    }
-
-    _broadcastEntryPaymentSession(roomId) {
-
-        const session = this._entryPaymentByRoom.get(roomId);
-
-        if (!session) {
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
-            session.toSnapshot()
-        );
 
     }
 
