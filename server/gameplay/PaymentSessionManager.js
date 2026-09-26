@@ -842,10 +842,19 @@ export class PaymentSessionManager {
 
                 }
 
-                // R7.69C — restore CANCELLED sessions for refund sync / watch recovery.
+                // Room Wallet timeout sessions with immutable accepted incoming
+                // evidence must survive restart long enough to complete refunds.
                 const isCancelled = session.status === PAYMENT_SESSION_STATUS.CANCELLED;
+                const isRoomWalletTimeout =
+                    this._roomWalletPaymentIntakeEnabled
+                    && session.status === PAYMENT_SESSION_STATUS.PAYMENT_TIMEOUT;
+                const reconciledRoomWalletPayments = isRoomWalletTimeout
+                    ? this._reconcileRoomWalletAcceptedEvidence(session)
+                    : 0;
+                const requiresRoomWalletRefundRecovery =
+                    isRoomWalletTimeout && reconciledRoomWalletPayments > 0;
 
-                if (session.isTerminal() && !isCancelled) {
+                if (session.isTerminal() && !isCancelled && !requiresRoomWalletRefundRecovery) {
 
                     continue;
 
@@ -880,8 +889,19 @@ export class PaymentSessionManager {
 
                 this._indexSession(session);
 
+                if (requiresRoomWalletRefundRecovery) {
+                    session.recoveryMetadata = {
+                        ...(session.recoveryMetadata ?? {}),
+                        roomWalletRefundRecoveredAt: Date.now()
+                    };
+                    session.markRefundPending();
+                    this._persistSession(session, "update");
+                    void this._runRoomWalletRefunds(session, "payment_timeout_recovery");
+                }
+
                 if (
                     !isCancelled
+                    && !requiresRoomWalletRefundRecovery
                     && session.paymentDeadline
                     && session.paymentDeadline > Date.now()
                 ) {
