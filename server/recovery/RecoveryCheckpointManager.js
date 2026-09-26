@@ -14,8 +14,7 @@
  *   - assemble the recovery payload exclusively from authoritative runtime
  *     owners (RoomManager, PlayerManager, GameManager, ConfigurationEngine,
  *     GameStateEngine, GameClockEngine, PhysicsEngine, WinnerEngine) and
- *     existing financial reference identifiers (GameContractManager,
- *     PaymentSessionManager — references ONLY, zero financial authority);
+ *     existing PaymentSessionManager reference identifiers only;
  *   - validate checkpoint safety before writing (clock unpaused, physics
  *     CREATED for pre-motion phases / STOPPED with finite final angles for
  *     RESULT, input registry in safe default shape, exactly 3 ordered players);
@@ -123,7 +122,6 @@ export class RecoveryCheckpointManager {
         physicsEngine,
         winnerEngine,
         inputAuthority,
-        gameContractManager = null,
         paymentSessionManager = null
     } = {}) {
 
