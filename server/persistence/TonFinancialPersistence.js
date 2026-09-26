@@ -1280,7 +1280,6 @@ export class TonFinancialPersistence {
             correlationId: envelope.correlationId,
             roomId: envelope.roomId,
             gameId: envelope.gameId,
-            contractId: envelope.contractId,
             tonNetwork: envelope.tonNetwork,
             immutable: envelope.immutable,
             checksum: envelope.checksum,
