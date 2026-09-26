@@ -2,8 +2,6 @@
  * R7.19 — Temporary SetupSession._sessions storage forensics (diagnostics only).
  */
 
-import { getLastDeployStage } from "./DeployPipelineForensics.js";
-
 const _paymentReadyByRoom = new Set();
 
 /**
@@ -27,7 +25,7 @@ export function getSetupStorageStageContext(roomId) {
 
     const key = String(roomId ?? "");
 
-    const deployEntry = getLastDeployStage(key);
+    const deployEntry = null;
 
     return {
         PaymentStage: _paymentReadyByRoom.has(key) ? "PAYMENT_STAGE_READY" : null,
