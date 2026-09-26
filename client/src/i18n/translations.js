@@ -107,7 +107,6 @@ export const TRANSLATIONS = Object.freeze({
         "payment.disconnect": "DISCONNECT",
         "payment.confirmInWallet": "CONFIRM IN TELEGRAM WALLET",
         "payment.payAmount": "PAY {amount} TON",
-        "payment.waitingGameEscrow": "Preparing game payment…",
         "payment.waitingCreatorDeposit":
             "Waiting for the room creator to deploy the deposit…",
         "payment.entryFailed": "Entry payment failed.",
@@ -312,7 +311,6 @@ export const TRANSLATIONS = Object.freeze({
         "payment.disconnect": "DESCONECTAR",
         "payment.confirmInWallet": "CONFIRMAR EN TELEGRAM WALLET",
         "payment.payAmount": "PAGAR {amount} TON",
-        "payment.waitingGameEscrow": "Preparando el pago del juego…",
         "payment.waitingCreatorDeposit":
             "Esperando a que el creador de la sala despliegue el depósito…",
         "payment.entryFailed": "El pago de entrada falló.",
@@ -517,7 +515,6 @@ export const TRANSLATIONS = Object.freeze({
         "payment.disconnect": "DESCONECTAR",
         "payment.confirmInWallet": "CONFIRMAR NA TELEGRAM WALLET",
         "payment.payAmount": "PAGAR {amount} TON",
-        "payment.waitingGameEscrow": "Preparando o pagamento do jogo…",
         "payment.waitingCreatorDeposit":
             "Aguardando o criador da sala implantar o depósito…",
         "payment.entryFailed": "O pagamento de entrada falhou.",
@@ -722,7 +719,6 @@ export const TRANSLATIONS = Object.freeze({
         "payment.disconnect": "DÉCONNECTER",
         "payment.confirmInWallet": "CONFIRMER DANS TELEGRAM WALLET",
         "payment.payAmount": "PAYER {amount} TON",
-        "payment.waitingGameEscrow": "Préparation du paiement de la partie…",
         "payment.waitingCreatorDeposit":
             "En attente que le créateur de la salle déploie le dépôt…",
         "payment.entryFailed": "Le paiement d’entrée a échoué.",
@@ -927,7 +923,6 @@ export const TRANSLATIONS = Object.freeze({
         "payment.disconnect": "断开连接",
         "payment.confirmInWallet": "在 TELEGRAM WALLET 中确认",
         "payment.payAmount": "支付 {amount} TON",
-        "payment.waitingGameEscrow": "正在准备游戏付款…",
         "payment.waitingCreatorDeposit": "正在等待房主部署押金合约…",
         "payment.entryFailed": "入场支付失败。",
         "payment.openingWallet": "正在打开 Wallet…",
