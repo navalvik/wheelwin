@@ -16,7 +16,6 @@ import {
 import { join } from "node:path";
 
 import { OwnerConfiguration } from "../config/OwnerConfiguration.js";
-import { getTonDeployDebug } from "../diagnostics/DeployPipelineForensics.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import {
     buildBlockchainLifecycle,
@@ -522,44 +521,6 @@ export class SessionHistoryArchiveManager {
 
         });
 
-        // R7.57 — observe deploy / settlement events into pending forensic track
-        // (managers clear themselves on ROOM_DESTROYED before archive finalize).
-        this._subscribe(EVENT_TYPES.CONTRACT_DEPLOYING, (envelope) => {
-
-            this._onDeployLifecycle("BEGIN_DEPLOY", envelope.payload);
-
-        });
-
-
-            this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
-                status: "SUCCESS",
-                contractAddress: envelope.payload?.contractAddress ?? null,
-                transactionHash: envelope.payload?.deploymentTxId
-                    ?? envelope.payload?.deploymentTxHash
-                    ?? null
-            });
-
-        });
-
-
-            this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
-                status: "FAILED",
-                error: envelope.payload?.reason
-                    ?? envelope.payload?.deployError
-                    ?? envelope.payload?.failureReason
-                    ?? null
-            });
-
-        });
-
-        this._subscribe(EVENT_TYPES.CONTRACT_DEPLOYED, (envelope) => {
-
-            this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
-                status: "SUCCESS"
-            });
-
-        });
-
         this._subscribe(EVENT_TYPES.SETTLEMENT_STARTED, (envelope) => {
 
             this._onSettlementLifecycle("SETTLEMENT_STARTED", envelope.payload);
@@ -980,61 +941,6 @@ export class SessionHistoryArchiveManager {
 
     }
 
-    _onDeployLifecycle(stage, payload, fields = {}) {
-
-        const roomId = this._resolvePendingRoomId(payload);
-        const pending = this._ensurePending(roomId);
-
-        if (!pending) {
-
-            return;
-
-        }
-
-        if (payload?.gameId && !pending.gameId) {
-
-            pending.gameId = payload.gameId;
-
-        }
-
-        const deploy = pending.blockchain.deploy;
-
-        deploy.began = true;
-
-        if (stage && !deploy.stages.includes(stage)) {
-
-            deploy.stages.push(stage);
-
-        }
-
-        if (fields.status) {
-
-            deploy.status = fields.status;
-
-        }
-
-        if (fields.contractAddress) {
-
-            deploy.contractAddress = fields.contractAddress;
-
-        }
-
-        if (fields.transactionHash) {
-
-            deploy.transactionHash = fields.transactionHash;
-
-        }
-
-        if (fields.error) {
-
-            deploy.error = fields.error;
-
-        }
-
-        this._pushTimeline(roomId, "BLOCKCHAIN", stage);
-
-    }
-
     _onSettlementLifecycle(stage, payload, fields = {}) {
 
         const roomId = this._resolvePendingRoomId(payload);
@@ -1417,8 +1323,6 @@ export class SessionHistoryArchiveManager {
         })();
 
         const blockchainLifecycle = buildBlockchainLifecycle({
-            tonDeployDebug,
-            deployTrack: pending.blockchain?.deploy ?? null,
             settlementTrack: pending.blockchain?.settlement ?? null,
             paymentConfirmationTrack: pending.blockchain?.paymentConfirmation ?? null
         });
