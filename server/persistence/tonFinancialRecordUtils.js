@@ -160,7 +160,6 @@ export function buildRecordEnvelope({
         correlationId: metadata.correlationId ?? null,
         roomId: metadata.roomId ?? payload?.roomId ?? null,
         gameId: metadata.gameId ?? payload?.gameId ?? null,
-        contractId: metadata.contractId ?? payload?.contractId ?? null,
         tonNetwork: metadata.tonNetwork ?? payload?.tonNetwork ?? null,
         immutable: immutable ?? isImmutableRecord(recordType, metadata.status ?? payload?.status),
         payload: payload ?? {}
