@@ -212,7 +212,7 @@ export const EVENT_TYPES = Object.freeze({
     SETTLEMENT_COMPLETED: "SETTLEMENT_COMPLETED",
     SETTLEMENT_FAILED: "SETTLEMENT_FAILED",
 
-    // T2.8 — ContractSettlementManager domain lifecycle events.
+    // T2.8 — Settlement manager domain lifecycle events.
     SETTLEMENT_SESSION_CREATED: "SETTLEMENT_SESSION_CREATED",
     SETTLEMENT_PENDING: "SETTLEMENT_PENDING",
     SETTLEMENT_TIMEOUT: "SETTLEMENT_TIMEOUT",
