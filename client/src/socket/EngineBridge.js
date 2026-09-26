@@ -238,21 +238,6 @@ export class EngineBridge {
                 session()?.onPaymentSessionFailed?.(payload);
 
             },
-            [INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED]: (payload) => {
-
-                session()?.onGameContractUpdated?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED]: (payload) => {
-
-                session()?.onGameContractDeployed?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED]: (payload) => {
-
-                session()?.onGameContractDeployFailed?.(payload);
-
-            },
             // R18 S4 — requester-scoped Deposit package (informational mirror).
             [INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED]: (payload) => {
 
