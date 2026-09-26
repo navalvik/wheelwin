@@ -308,7 +308,6 @@ export function parseDepositCandidate(tx) {
  * P6.6 / T2.5 — Observes TON blockchain facts for WheelWin contracts.
  *
  * Reports observation events only. Never owns payment / settlement decisions.
- * Communicates via TonService transport and optional TonGameContractAdapter.
  * Never imports @ton/* SDK.
  */
 export class BlockchainMonitor {
@@ -863,7 +862,6 @@ export class BlockchainMonitor {
     }
 
     /**
-     * R7.69B — Attach TonGameContractAdapter after construction (app.js creates
      * the adapter after BlockchainMonitor).
      */
 
@@ -1720,66 +1718,6 @@ export class BlockchainMonitor {
 
         }
 
-        // R7.69D — GameEscrow seats: confirm only when paidMask bit is set on-chain.
-        // Do not markSeen on getter lag so the next poll can re-check.
-        // R7.70C16 — capture paidMask for persisted confirmation evidence (no gate change).
-        let confirmedPaidMask = null;
-        let confirmedPaidMaskBit = null;
-
-        if (
-            matchingWatch.playerIndex != null
-            && this._contractAdapter?.getPaidMask
-        ) {
-
-            try {
-
-                const paidMask = Number(
-                    await this._contractAdapter.getPaidMask(
-                        matchingWatch.contractAddress,
-                        matchingWatch.paymentNetwork ?? null
-                    )
-                );
-
-                const bit = 1 << Number(matchingWatch.playerIndex);
-
-                if ((paidMask & bit) === 0) {
-
-                    this._audit(roomId, {
-                        type: "INVALID_PAYMENT",
-                        txHash,
-                        playerId: matchingWatch.playerId,
-                        reason: "paid_mask_not_set",
-                        sender: deposit.sender,
-                        amount: deposit.amountGram,
-                        playerIndex: matchingWatch.playerIndex,
-                        paidMask
-                    });
-
-                    return;
-
-                }
-
-                confirmedPaidMask = paidMask;
-                confirmedPaidMaskBit = bit;
-
-            } catch (error) {
-
-                this._audit(roomId, {
-                    type: "INVALID_PAYMENT",
-                    txHash,
-                    playerId: matchingWatch.playerId,
-                    reason: "paid_mask_read_failed",
-                    sender: deposit.sender,
-                    amount: deposit.amountGram,
-                    detail: error?.message ?? String(error)
-                });
-
-                return;
-
-            }
-
-        }
-
         this._markSeen(roomId, txHash);
 
         const confirmedRefs = this._confirmedRefsByRoom.get(roomId) ?? new Set();
@@ -1798,8 +1736,6 @@ export class BlockchainMonitor {
             contractAddress: matchingWatch.contractAddress,
             confirmationTime: this._now(),
             playerIndex: matchingWatch.playerIndex ?? null,
-            paidMask: confirmedPaidMask,
-            paidMaskBit: confirmedPaidMaskBit
         });
 
         this._emitObservation(
@@ -1819,34 +1755,8 @@ export class BlockchainMonitor {
                 amount: deposit.amountGram,
                 expectedGram: matchingWatch.expectedGram ?? null,
                 sender: deposit.sender,
-                paidMask: confirmedPaidMask,
-                paidMaskBit: confirmedPaidMaskBit
             },
             txHash ? `payment-confirmed:${txHash}` : null
-        );
-
-        // R7.69A — explicit GameEscrow STAKE confirmation (observer fact).
-        this._emitObservation(
-            EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED,
-            {
-                contractId: matchingWatch.contractId ?? null,
-                transactionId: txHash,
-                escrowAddress: matchingWatch.contractAddress,
-                network: matchingWatch?.paymentNetwork ?? this._network,
-                timestamp: this._now(),
-                correlationId: matchingWatch.correlationId ?? null,
-                roomId,
-                gameId: matchingWatch.gameId,
-                playerId: matchingWatch.playerId,
-                playerIndex: matchingWatch.playerIndex ?? null,
-                amount: deposit.amountGram,
-                expectedGram: matchingWatch.expectedGram ?? null,
-                sender: deposit.sender,
-                paymentReference: matchingWatch.paymentReference,
-                paidMask: confirmedPaidMask,
-                paidMaskBit: confirmedPaidMaskBit
-            },
-            txHash ? `game-escrow-stake-confirmed:${txHash}` : null
         );
 
         // Business-facing fact for PaymentSessionManager (unchanged semantics).
@@ -1862,8 +1772,6 @@ export class BlockchainMonitor {
             paymentReference: matchingWatch.paymentReference,
             contractAddress: matchingWatch.contractAddress,
             confirmedAt: this._now(),
-            paidMask: confirmedPaidMask,
-            paidMaskBit: confirmedPaidMaskBit
         });
 
         this.unwatchPayment(roomId, matchingWatch.playerId);
