@@ -202,12 +202,6 @@ export class TonFinancialRecovery {
 
             this._mergePhaseResult(
                 report,
-                FINANCIAL_RECOVERY_PHASE.CONTRACTS,
-                this.recoverContracts()
-            );
-
-            this._mergePhaseResult(
-                report,
                 FINANCIAL_RECOVERY_PHASE.PAYMENTS,
                 await this.recoverPayments()
             );
@@ -233,7 +227,7 @@ export class TonFinancialRecovery {
                 await this.recoverBlockchain()
             );
 
-            // R9.4 — Resume CREATED/PREPARING/READY after contracts + settlements
+            // R9.4 — Resume CREATED/PREPARING/READY after payments + settlements
             // are restored (does not reorder the mandatory recovery phases).
             if (this._settlementManager?.resumeRestoredSettlements) {
 
@@ -458,16 +452,6 @@ export class TonFinancialRecovery {
 
     }
 
-    recoverContracts() {
-        this._assertInitialized();
-        this._assertRecoveryPhaseOrder(2, FINANCIAL_RECOVERY_PHASE.CONTRACTS);
-        this._state = FINANCIAL_RECOVERY_STATE.RESTORING_CONTRACTS;
-        this._currentPhase = FINANCIAL_RECOVERY_PHASE.CONTRACTS;
-        this._emitProgress(FINANCIAL_RECOVERY_PHASE.CONTRACTS, 0.25);
-        return Object.freeze({ ok: true, restored: 0, skipped: "game_contract_architecture_retired" });
-    }
-
-
     recoverDeposits() {
 
         this._assertInitialized();
@@ -524,7 +508,7 @@ export class TonFinancialRecovery {
 
         this._assertInitialized();
 
-        this._assertRecoveryPhaseOrder(3, FINANCIAL_RECOVERY_PHASE.PAYMENTS);
+        this._assertRecoveryPhaseOrder(2, FINANCIAL_RECOVERY_PHASE.PAYMENTS);
 
         this._state = FINANCIAL_RECOVERY_STATE.RESTORING_PAYMENTS;
 
@@ -568,7 +552,7 @@ export class TonFinancialRecovery {
 
         this._assertInitialized();
 
-        this._assertRecoveryPhaseOrder(4, FINANCIAL_RECOVERY_PHASE.SETTLEMENTS);
+        this._assertRecoveryPhaseOrder(3, FINANCIAL_RECOVERY_PHASE.SETTLEMENTS);
 
         this._state = FINANCIAL_RECOVERY_STATE.RESTORING_SETTLEMENTS;
 
@@ -612,7 +596,7 @@ export class TonFinancialRecovery {
 
         this._assertInitialized();
 
-        this._assertRecoveryPhaseOrder(5, FINANCIAL_RECOVERY_PHASE.BLOCKCHAIN);
+        this._assertRecoveryPhaseOrder(4, FINANCIAL_RECOVERY_PHASE.BLOCKCHAIN);
 
         this._state = FINANCIAL_RECOVERY_STATE.RESTORING_BLOCKCHAIN;
 
@@ -684,11 +668,9 @@ export class TonFinancialRecovery {
 
         this._validatePaymentSessions(warnings, consistencyErrors);
 
-        this._validateContracts(warnings, consistencyErrors);
 
         this._validateSettlements(warnings, consistencyErrors);
 
-        this._validateBlockchainWatches(warnings, consistencyErrors);
 
         if (consistencyErrors.length > 0) {
 
@@ -734,7 +716,6 @@ export class TonFinancialRecovery {
             return Object.freeze({
                 walletSessionsRecovered: 0,
                 paymentSessionsRecovered: 0,
-                contractsRecovered: 0,
                 settlementsRecovered: 0,
                 blockchainWatchesRecovered: 0,
                 failedRecoveries: Object.freeze([]),
@@ -763,7 +744,6 @@ export class TonFinancialRecovery {
             recoveredObjects: Object.freeze({
                 walletSessions: report.walletSessionsRecovered,
                 paymentSessions: report.paymentSessionsRecovered,
-                contracts: report.contractsRecovered,
                 settlements: report.settlementsRecovered,
                 blockchainWatches: report.blockchainWatchesRecovered
             }),
@@ -814,7 +794,6 @@ export class TonFinancialRecovery {
             reason,
             walletSessionsRecovered: 0,
             paymentSessionsRecovered: 0,
-            contractsRecovered: 0,
             settlementsRecovered: 0,
             blockchainWatchesRecovered: 0,
             failedRecoveries: [],
@@ -848,12 +827,6 @@ export class TonFinancialRecovery {
         if (phase === FINANCIAL_RECOVERY_PHASE.WALLETS) {
 
             report.walletSessionsRecovered += result?.restored ?? 0;
-
-        }
-
-        if (phase === FINANCIAL_RECOVERY_PHASE.CONTRACTS) {
-
-            report.contractsRecovered += result?.restored ?? 0;
 
         }
 
@@ -1037,17 +1010,13 @@ export class TonFinancialRecovery {
     async _reregisterBlockchainWatches() {
         if (!this._blockchainMonitor) {
             return Object.freeze({
-                contractWatches: 0, paymentWatches: 0, settlementWatches: 0,
-                refundWatches: 0, totalWatches: 0,
+                totalWatches: 0,
                 warning: "watch_registration_skipped_no_monitor"
             });
         }
-        // Room Wallet payment/settlement truth is handled by the dedicated
-        // RoomWalletIncomingObserver and RoomWalletSettlementManager.
-        // This recovery phase restores only the generic blockchain checkpoint.
+
         return Object.freeze({
-            contractWatches: 0, paymentWatches: 0, settlementWatches: 0,
-            refundWatches: 0, totalWatches: 0
+            totalWatches: 0
         });
     }
 
@@ -1147,27 +1116,9 @@ export class TonFinancialRecovery {
 
             }
 
-            if (
-                session.contractId
-                && null?.getContractById
-                && !null.getContractById(session.contractId)
-            ) {
-
-                consistencyErrors.push(
-                    `payment_session_missing_contract:${roomId}:${session.contractId}`
-                );
-
-            }
-
         }
 
     }
-
-    _validateContracts(warnings, consistencyErrors) {
-        void warnings;
-        void consistencyErrors;
-    }
-
 
     _validateSettlements(warnings, consistencyErrors) {
 
@@ -1207,56 +1158,6 @@ export class TonFinancialRecovery {
 
             }
 
-            if (
-                session.contractId
-                && null?.getContractById
-                && !null.getContractById(session.contractId)
-            ) {
-
-                warnings.push(
-                    `settlement_missing_contract:${session.gameId}:${session.contractId}`
-                );
-
-            }
-
-        }
-
-    }
-
-    _validateBlockchainWatches(warnings, consistencyErrors) {
-
-        if (!this._blockchainMonitor?.listWatchedContracts) {
-
-            return;
-
-        }
-
-        const watchedContracts = this._blockchainMonitor.listWatchedContracts();
-
-        for (const watch of watchedContracts) {
-
-            const contract = null?.getContractById?.(
-                watch.contractId
-            );
-
-            if (!contract) {
-
-                consistencyErrors.push(
-                    `blockchain_watch_orphan_contract:${watch.contractId}`
-                );
-
-                continue;
-
-            }
-
-            if (TERMINAL_CONTRACT_STATUSES.has(contract.status)) {
-
-                warnings.push(
-                    `blockchain_watch_terminal_contract:${watch.contractId}:${contract.status}`
-                );
-
-            }
-
         }
 
     }
@@ -1268,12 +1169,6 @@ export class TonFinancialRecovery {
         if (report.walletSessionsRecovered > 0 || this._walletManager || this._sessionWalletStore) {
 
             managers.push("wallets");
-
-        }
-
-        if (report.contractsRecovered > 0 || null) {
-
-            managers.push("contracts");
 
         }
 
