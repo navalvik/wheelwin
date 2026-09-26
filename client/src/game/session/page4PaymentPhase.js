@@ -35,7 +35,7 @@ export function resolvePlayerPaymentDestination({
     return address || null;
 }
 
-function isRoomWalletPaymentSession(paymentSession = null) {
+export function isRoomWalletPaymentSession(paymentSession = null) {
     return Boolean(String(paymentSession?.roomWalletAddress ?? "").trim());
 }
 
@@ -87,7 +87,7 @@ export function canFundSeat(deposit = null, lifecycle = null) {
         && Boolean(deposit?.depositAddress);
 }
 
-export function canStakeGameEscrow({ paymentSession = null, localPlayerId = null } = {}) {
+export function canSubmitRoomWalletPayment({ paymentSession = null, localPlayerId = null } = {}) {
     return canConfirmLocalPayment(paymentSession, localPlayerId)
         && Boolean(resolvePlayerPaymentDestination({ paymentSession, localPlayerId }));
 }
