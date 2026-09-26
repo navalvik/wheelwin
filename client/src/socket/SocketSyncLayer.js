@@ -359,33 +359,6 @@ export class SocketSyncLayer {
 
         };
 
-        this._handleGameContractUpdated = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED,
-                payload
-            });
-
-        };
-
-        this._handleGameContractDeployed = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED,
-                payload
-            });
-
-        };
-
-        this._handleGameContractDeployFailed = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
-                payload
-            });
-
-        };
-
         // R18 S4 — requester-scoped Deposit package (informational mirror).
         this._handleDepositPackagePublished = (payload) => {
 
@@ -581,21 +554,6 @@ export class SocketSyncLayer {
         );
 
         this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED,
-            this._handleGameContractUpdated
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED,
-            this._handleGameContractDeployed
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
-            this._handleGameContractDeployFailed
-        );
-
-        this._socket.on(
             INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
             this._handleDepositPackagePublished
         );
@@ -750,21 +708,6 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED,
             this._handlePaymentSessionFailed
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED,
-            this._handleGameContractUpdated
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED,
-            this._handleGameContractDeployed
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
-            this._handleGameContractDeployFailed
         );
 
         this._socket.off(
