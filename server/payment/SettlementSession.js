@@ -13,7 +13,6 @@ export class SettlementSession {
 
     constructor({
         settlementSessionId,
-        contractId,
         gameId,
         roomId,
         winnerId,
@@ -41,7 +40,6 @@ export class SettlementSession {
 
         this.settlementSessionId = settlementSessionId;
 
-        this.contractId = contractId;
 
         this.gameId = gameId;
 
@@ -97,7 +95,6 @@ export class SettlementSession {
 
         return new SettlementSession({
             settlementSessionId: payload.settlementSessionId ?? record?.recordId,
-            contractId: payload.contractId ?? record?.contractId ?? null,
             gameId: payload.gameId ?? record?.gameId ?? null,
             roomId: payload.roomId ?? record?.roomId ?? null,
             winnerId: payload.winnerId ?? null,
@@ -213,7 +210,6 @@ export class SettlementSession {
 
         return Object.freeze({
             settlementSessionId: this.settlementSessionId,
-            contractId: this.contractId,
             gameId: this.gameId,
             roomId: this.roomId,
             winnerId: this.winnerId,
@@ -254,7 +250,6 @@ export class SettlementSession {
 
         return Object.freeze({
             settlementSessionId: this.settlementSessionId,
-            contractId: this.contractId,
             gameId: this.gameId,
             roomId: this.roomId,
             winnerId: this.winnerId,
@@ -275,7 +270,6 @@ export class SettlementSession {
         return {
             gameId: this.gameId,
             roomId: this.roomId,
-            contractId: this.contractId,
             status: this.status,
             winnerId: this.winnerId,
             winnerWallet: this.winnerWallet,
