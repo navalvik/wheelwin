@@ -1441,12 +1441,6 @@ export class PaymentSessionManager {
     }
 
 
-    }
-
-
-
-
-
     _validateIncomingPayment(session, payload) {
 
         const participant = session.findParticipant(payload.playerId);
