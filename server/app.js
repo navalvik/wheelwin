@@ -1563,15 +1563,6 @@ class WheelWinApplication {
             contractSettlementManager: this._settlementManager
         });
 
-        this._gameContractManager?.setFinancialEvidenceDeps?.({
-            paymentSessionManager: this._paymentSessionManager,
-            contractSettlementManager: this._settlementManager
-        });
-
-        this._gameContractManager?.setEscrowUnwindDeps?.({
-            blockchainMonitor: this._blockchainMonitor
-        });
-
         this._setupSessionLifecycle.setEscrowUnwindBridgeDeps({
             paymentSessionManager: this._paymentSessionManager
         });
@@ -1637,7 +1628,7 @@ class WheelWinApplication {
 
         this._logger.startupLine("EntryDeploymentAuthorizationAutomation");
 
-        // Room Wallet architecture: no GameEscrow deployment authorization automation.
+        // Room Wallet architecture: no gameplay contract deployment automation.
 
         this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
             logger: this._logger,
@@ -4434,7 +4425,7 @@ class WheelWinApplication {
     /**
      * R7.67B — Derive WalletContractV4R2 identity, log TON_WALLET_IDENTITY_DEBUG,
      * check balance, and fail startup if derived address ≠ expected pin.
-     * Never logs mnemonic. Does not change wallet type or payment/GameEscrow paths.
+     * Never logs mnemonic. Does not change wallet type or Room Wallet payment paths.
      */
     async _runTonWalletIdentityDiagnostics() {
 
@@ -4526,7 +4517,7 @@ class WheelWinApplication {
     /**
      * R7.68 / R8.1A / R8.1B — Print TON_MAINNET_READINESS and fail-fast when active network is mainnet.
      * Testnet runtime stays unchanged (report may FAIL until mainnet env is filled).
-     * Does not enable Mainnet GameEscrow gameplay.
+     * Does not enable Mainnet gameplay.
      */
     async _runTonMainnetReadinessDiagnostics() {
 
