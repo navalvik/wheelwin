@@ -2,9 +2,7 @@
  * Runtime configuration for the Room Wallet architecture.
  *
  * Room Wallet is the active player-payment and settlement architecture.
- * It is enabled only by the explicit ROOM_WALLET_* settings below.
- * GAME_ESCROW_MODE is not a Room Wallet switch.
- */
+ * It is enabled only by the explicit ROOM_WALLET_* settings below. */
 
 import { RoomWalletSettlementRouter } from "../RoomWalletSettlementRouter.js";
 import { createRoomWalletService } from "./RoomWalletService.js";
@@ -33,11 +31,9 @@ export function isRoomWalletPaymentIntakeEnabled(env = process.env) {
 
 /**
  * Room-Wallet-only player-payment path.
- * This must never be inferred from GAME_ESCROW_MODE.
  */
 export function isRoomWalletOnlyFinancialPath({
-    env = process.env,
-    gameEscrowMode = null
+    env = process.env
 } = {}) {
     return isRoomWalletPaymentIntakeEnabled(env);
 }
@@ -72,13 +68,11 @@ export function assertRoomWalletSettlementCanBeEnabled(service) {
  * Compose the settlement adapter passed to RoomWalletSettlementManager.
  *
  * Room Wallet settlement is enabled only by ROOM_WALLET_SETTLEMENT_MODE=ROOM_WALLET.
- * No GameEscrow mode may enable this path.
  */
 export function composeRoomWalletSettlementRouter({
     tonService = null,
     logger = null,
-    env = process.env,
-    gameEscrowMode = null
+    env = process.env
 } = {}) {
     const enableSettlement = isRoomWalletSettlementEnabled(env);
 
