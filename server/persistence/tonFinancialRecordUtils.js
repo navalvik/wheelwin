@@ -7,8 +7,6 @@ import { createHash, randomUUID } from "node:crypto";
 import {
     IMMUTABLE_ON_CREATE_TYPES,
     SETTLEMENT_TERMINAL_STATUSES,
-    DEPLOYMENT_COST_SNAPSHOT_TERMINAL_STATUSES,
-    DEPLOYMENT_REIMBURSEMENT_TERMINAL_STATUSES,
     DEPOSIT_SESSION_TERMINAL_STATUSES,
     DEPLOYMENT_AUTHORIZATION_TERMINAL_STATUSES,
     RECOVERY_DATA_TERMINAL_STATUSES,
@@ -62,12 +60,6 @@ export function resolveRecordId(recordType, payload, metadata = {}) {
 
     switch (recordType) {
 
-        case TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT:
-        case TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT:
-            return metadata.contractId
-                ?? payload?.contractId
-                ?? null;
-
         case TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION:
             return metadata.paymentSessionId
                 ?? payload?.paymentSessionId
@@ -102,13 +94,11 @@ export function resolveRecordId(recordType, payload, metadata = {}) {
                 ?? payload?.auditId
                 ?? randomUUID();
 
-        case TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT:
             return metadata.recordId
                 ?? payload?.id
                 ?? payload?.deploymentTxHash
                 ?? null;
 
-        case TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT:
             return metadata.recordId
                 ?? payload?.id
                 ?? null;
@@ -196,15 +186,11 @@ export function isImmutableRecord(recordType, status = null) {
 
     }
 
-    if (recordType === TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_COST_SNAPSHOT) {
 
-        return DEPLOYMENT_COST_SNAPSHOT_TERMINAL_STATUSES.includes(status);
 
     }
 
-    if (recordType === TON_FINANCIAL_RECORD_TYPES.DEPLOYMENT_REIMBURSEMENT) {
 
-        return DEPLOYMENT_REIMBURSEMENT_TERMINAL_STATUSES.includes(status);
 
     }
 
