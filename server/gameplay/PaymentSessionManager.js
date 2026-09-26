@@ -1489,15 +1489,6 @@ export class PaymentSessionManager {
         return session;
     }
 
-        this._persistSession(session, "update");
-
-        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
-
-        this._log(
-            `PAYMENT_REQUESTS_ISSUED | roomId=${session.roomId} | address=${contractAddress}`
-        );
-
-        return session;
 
     }
 
