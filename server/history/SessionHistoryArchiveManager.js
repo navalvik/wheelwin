@@ -1088,11 +1088,6 @@ export class SessionHistoryArchiveManager {
             ?? payload.transactionHash
             ?? null;
 
-        const contractAddress = payload.contractAddress
-            ?? payload.escrowAddress
-            ?? payload.address
-            ?? null;
-
         const at = payload.timestamp
             ?? payload.confirmedAt
             ?? Date.now();
@@ -1104,7 +1099,6 @@ export class SessionHistoryArchiveManager {
             gameId: payload.gameId ?? pending.gameId ?? null,
             playerId: payload.playerId ?? null,
             playerIndex: Number.isFinite(playerIndex) ? playerIndex : null,
-            contractAddress,
             paymentReference: payload.paymentReference ?? null,
             transactionHash,
             expectedGram: payload.expectedGram ?? null,
@@ -1299,28 +1293,6 @@ export class SessionHistoryArchiveManager {
         const tonConnect = this._roomLobbyBridge?.getTonConnectDiagnostics?.(roomId)
             ?? roomDetail?.tonConnect
             ?? null;
-
-        // R7.51.30 — persist last TON deploy diagnostics into ROOM_DESTROYED JSON.
-        // Prefer room-scoped match; never include mnemonic/secret material.
-        const tonDeployDebugRaw = getTonDeployDebug();
-        const tonDeployDebug = (() => {
-
-            if (!tonDeployDebugRaw) {
-
-                return null;
-
-            }
-
-            if (tonDeployDebugRaw.roomId != null
-                && String(tonDeployDebugRaw.roomId) !== String(roomId)) {
-
-                return null;
-
-            }
-
-            return tonDeployDebugRaw;
-
-        })();
 
         const blockchainLifecycle = buildBlockchainLifecycle({
             settlementTrack: pending.blockchain?.settlement ?? null,
