@@ -47,7 +47,6 @@ export class PaymentParticipant {
         wallet = null,
         walletSessionId = null,
         paymentReference = null,
-        contractAddress = null,
         txHash = null,
         paidAmount = 0,
         confirmationStatus = PAYMENT_CONFIRMATION_STATUS.NONE,
@@ -69,7 +68,6 @@ export class PaymentParticipant {
 
         this.paymentReference = paymentReference ?? null;
 
-        this.contractAddress = contractAddress ?? null;
 
         this.txHash = txHash ?? null;
 
@@ -98,7 +96,6 @@ export class PaymentParticipant {
             walletAddress: this.wallet,
             walletSessionId: this.walletSessionId,
             paymentReference: this.paymentReference,
-            contractAddress: this.contractAddress,
             txHash: this.txHash,
             transactionHash: this.txHash,
             paidAmount: this.paidAmount,
