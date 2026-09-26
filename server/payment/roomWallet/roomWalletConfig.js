@@ -75,24 +75,12 @@ export function assertRoomWalletSettlementCanBeEnabled(service) {
  * No GameEscrow mode may enable this path.
  */
 export function composeRoomWalletSettlementRouter({
-    legacySettlementAdapter,
     tonService = null,
     logger = null,
     env = process.env,
     gameEscrowMode = null
 } = {}) {
-    if (!legacySettlementAdapter) {
-        throw new Error("composeRoomWalletSettlementRouter requires legacySettlementAdapter");
-    }
-
     const enableSettlement = isRoomWalletSettlementEnabled(env);
-
-    if (!enableSettlement) {
-        return new RoomWalletSettlementRouter({
-            legacySettlementAdapter,
-            enabled: false
-        });
-    }
 
     if (!tonService) {
         throw new Error(
