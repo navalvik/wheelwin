@@ -9,8 +9,6 @@ import {
     MonitorRecoveryError,
     ObservationTimeoutError
 } from "./BlockchainMonitorErrors.js";
-import { verifyGameEscrowPayouts } from "./ton/verifyGameEscrowPayouts.js";
-import { verifyGameEscrowRefunds } from "./ton/verifyGameEscrowRefunds.js";
 
 /**
  * T2.5 — BlockchainMonitor lifecycle states.
@@ -385,11 +383,6 @@ export class BlockchainMonitor {
         // watchId → transaction watch descriptor
         this._transactions = new Map();
 
-        // R7.66G — GameEscrow payout confirmation watches
-        this._gameEscrowSettlements = new Map();
-
-        // R7.69C — GameEscrow cancel / refund confirmation watches
-        this._gameEscrowRefunds = new Map();
 
         // global observation keys for duplicate protection
         this._emittedObservations = new Set();
@@ -586,13 +579,7 @@ export class BlockchainMonitor {
     // Contract watch
     // -------------------------------------------------------------------------
 
-    registerContract(contractId, address, {
-        roomId = null,
-        gameId = null,
-        correlationId = null,
-        expectDeployment = false,
-        paymentNetwork = null
-    } = {}) {
+ = {}) {
 
         this._assertReadyForWatch();
 
@@ -653,53 +640,13 @@ export class BlockchainMonitor {
 
     }
 
-    unregisterContract(contractId) {
 
-        this._contracts.delete(contractId);
 
-        return true;
 
-    }
 
-    watchContract(contractId) {
 
-        this._assertRunning();
 
-        const watch = this._contracts.get(contractId);
 
-        if (!watch) {
-
-            throw new InvalidBlockchainDataError(
-                `Contract is not registered | contractId=${contractId}`
-            );
-
-        }
-
-        return this._observeContract(watch);
-
-    }
-
-    getContractStatus(contractId) {
-
-        const watch = this._contracts.get(contractId);
-
-        if (!watch) {
-
-            return null;
-
-        }
-
-        return this._publicContractWatch(watch);
-
-    }
-
-    listWatchedContracts() {
-
-        return Object.freeze(
-            [...this._contracts.values()].map((watch) => this._publicContractWatch(watch))
-        );
-
-    }
 
     // -------------------------------------------------------------------------
     // Transaction watch
@@ -766,21 +713,7 @@ export class BlockchainMonitor {
     /**
      * R7.66G — Watch escrow for winner/owner payout proofs after GameEscrow SETTLE.
      */
-    watchGameEscrowSettlement({
-        escrowAddress,
-        settleTxHash = null,
-        winnerAddress,
-        ownerAddress,
-        winnerAmount,
-        ownerAmount,
-        contractId = null,
-        roomId = null,
-        gameId = null,
-        correlationId = null,
-        contractStatus = null,
-        paymentNetwork = null,
-        timeoutMs = null
-    }) {
+) {
 
         this._assertReadyForWatch();
 
@@ -840,47 +773,12 @@ export class BlockchainMonitor {
 
     }
 
-    _publicGameEscrowSettlementWatch(watch) {
 
-        return Object.freeze({
-            watchId: watch.watchId,
-            escrowAddress: watch.escrowAddress,
-            settleTxHash: watch.settleTxHash,
-            winnerAddress: watch.winnerAddress,
-            ownerAddress: watch.ownerAddress,
-            winnerAmount: watch.winnerAmount,
-            ownerAmount: watch.ownerAmount,
-            status: watch.status,
-            reason: watch.reason,
-            confirmedAt: watch.confirmedAt,
-            failedAt: watch.failedAt,
-            winnerPayoutTx: watch.winnerPayoutTx,
-            ownerPayoutTx: watch.ownerPayoutTx,
-            verifiedSettleTxHash: watch.verifiedSettleTxHash,
-            contractId: watch.contractId,
-            roomId: watch.roomId,
-            gameId: watch.gameId,
-            paymentNetwork: watch.paymentNetwork ?? null
-        });
-
-    }
 
     /**
      * R7.69C — Watch escrow for exact player refund proofs after EMERGENCY_CANCEL.
      */
-    watchGameEscrowRefunds({
-        escrowAddress,
-        cancelTxHash = null,
-        refunds = [],
-        expectedRefundMask = null,
-        contractId = null,
-        roomId = null,
-        gameId = null,
-        correlationId = null,
-        contractStatus = null,
-        paymentNetwork = null,
-        timeoutMs = null
-    }) {
+) {
 
         this._assertReadyForWatch();
 
@@ -945,28 +843,7 @@ export class BlockchainMonitor {
 
     }
 
-    _publicGameEscrowRefundWatch(watch) {
 
-        return Object.freeze({
-            watchId: watch.watchId,
-            escrowAddress: watch.escrowAddress,
-            cancelTxHash: watch.cancelTxHash,
-            refunds: Object.freeze([...(watch.refunds ?? [])]),
-            expectedRefundMask: watch.expectedRefundMask,
-            status: watch.status,
-            reason: watch.reason,
-            confirmedAt: watch.confirmedAt,
-            failedAt: watch.failedAt,
-            refundTxs: Object.freeze([...(watch.refundTxs ?? [])]),
-            confirmedMask: watch.confirmedMask,
-            verifiedCancelTxHash: watch.verifiedCancelTxHash,
-            contractId: watch.contractId,
-            roomId: watch.roomId,
-            gameId: watch.gameId,
-            paymentNetwork: watch.paymentNetwork ?? null
-        });
-
-    }
 
     async waitForConfirmation({
         transactionId,
@@ -1179,19 +1056,8 @@ export class BlockchainMonitor {
 
             }
 
-            this._gameEscrowRefunds.clear();
-
-            for (const entry of checkpoint.gameEscrowRefundWatches ?? []) {
-
-                this._gameEscrowRefunds.set(entry.watchId, {
-                    ...entry,
-                    refunds: [...(entry.refunds ?? [])],
-                    refundTxs: [...(entry.refundTxs ?? [])]
-                });
-
-            }
-
-            this._seenTxByRoom.clear();
+    
+                this._seenTxByRoom.clear();
 
             for (const [roomId, hashes] of Object.entries(checkpoint.seenTxByRoom ?? {})) {
 
@@ -1228,11 +1094,7 @@ export class BlockchainMonitor {
      * R7.69B — Attach TonGameContractAdapter after construction (app.js creates
      * the adapter after BlockchainMonitor).
      */
-    setContractAdapter(contractAdapter) {
 
-        this._contractAdapter = contractAdapter ?? null;
-
-    }
 
     /**
      * R17.9L.13 — Attach DepositMonitor so the global poll can pull TON
@@ -1258,10 +1120,7 @@ export class BlockchainMonitor {
      * R7.69B — Read authoritative GameEscrow payment state via getters.
      * Returns null when the adapter / getters are unavailable.
      */
-    async readGameEscrowPaymentState(contractAddress, {
-        playerCount = 3,
-        paymentNetwork = null
-    } = {}) {
+ = {}) {
 
         if (!contractAddress || !this._contractAdapter?.getPaidMask) {
 
@@ -1347,10 +1206,7 @@ export class BlockchainMonitor {
      * R7.69C — Read authoritative GameEscrow cancel / refund state via getters.
      * Returns null when the adapter / getters are unavailable.
      */
-    async readGameEscrowCancelState(contractAddress, {
-        playerCount = 3,
-        paymentNetwork = null
-    } = {}) {
+ = {}) {
 
         if (!contractAddress || !this._contractAdapter) {
 
@@ -1731,27 +1587,7 @@ export class BlockchainMonitor {
 
             }
 
-            for (const watch of [...this._gameEscrowSettlements.values()]) {
-
-                if (watch.status === "PENDING") {
-
-                    await this._observeGameEscrowSettlement(watch);
-
-                    observed = true;
-
-                }
-
             }
-
-            for (const watch of [...this._gameEscrowRefunds.values()]) {
-
-                if (watch.status === "PENDING") {
-
-                    await this._observeGameEscrowRefunds(watch);
-
-                    observed = true;
-
-                }
 
             }
 
@@ -1942,155 +1778,7 @@ export class BlockchainMonitor {
 
     }
 
-    async _observeContract(watch) {
 
-        watch.lastSeenAt = this._now();
-
-        if (this._contractAdapter?.getContractState) {
-
-            try {
-
-                const state = await this._contractAdapter.getContractState(
-                    watch.address,
-                    watch.paymentNetwork ?? null
-                );
-
-                const previous = watch.lastStatus;
-
-                watch.lastStatus = state?.status ?? null;
-
-                watch.updatedAt = this._now();
-
-                this._lastSuccessfulCheck = this._now();
-
-                if (
-                    previous
-                    && watch.lastStatus
-                    && previous !== watch.lastStatus
-                ) {
-
-                    this._emitObservation(
-                        EVENT_TYPES.BLOCKCHAIN_CONTRACT_STATE_CHANGED,
-                        {
-                            contractId: watch.contractId,
-                            address: watch.address,
-                            network: watch.paymentNetwork ?? this._network,
-                            timestamp: this._now(),
-                            correlationId: watch.correlationId,
-                            previousStatus: previous,
-                            status: watch.lastStatus
-                        },
-                        `contract-state:${watch.contractId}:${watch.lastStatus}`
-                    );
-
-                }
-
-                if (
-                    watch.expectDeployment
-                    && !watch.deploymentConfirmed
-                    && state?.exists !== false
-                    && watch.lastStatus
-                    && watch.lastStatus !== "UNINITIALIZED"
-                ) {
-
-                    watch.deploymentConfirmed = true;
-
-                    this._emitObservation(
-                        EVENT_TYPES.CONTRACT_DEPLOYMENT_CONFIRMED,
-                        {
-                            contractId: watch.contractId,
-                            address: watch.address,
-                            network: watch.paymentNetwork ?? this._network,
-                            timestamp: this._now(),
-                            correlationId: watch.correlationId,
-                            status: watch.lastStatus
-                        },
-                        `deploy-confirmed:${watch.contractId}`
-                    );
-
-                }
-
-                if (
-                    watch.expectDeployment
-                    && !watch.deploymentConfirmed
-                    && Number.isFinite(this._deploymentTimeoutMs)
-                    && (this._now() - watch.registeredAt) > this._deploymentTimeoutMs
-                ) {
-
-                    this._emitObservation(
-                        EVENT_TYPES.CONTRACT_DEPLOYMENT_FAILED,
-                        {
-                            contractId: watch.contractId,
-                            address: watch.address,
-                            network: watch.paymentNetwork ?? this._network,
-                            timestamp: this._now(),
-                            correlationId: watch.correlationId,
-                            reason: "deployment_timeout"
-                        },
-                        `deploy-failed:${watch.contractId}`
-                    );
-
-                    watch.expectDeployment = false;
-
-                }
-
-                return this._publicContractWatch(watch);
-
-            } catch (error) {
-
-                this._recordFailure("observe_contract", error);
-
-                this._state = BLOCKCHAIN_MONITOR_STATE.DEGRADED;
-
-            }
-
-        }
-
-        // Fallback: account activity via transport / TonService.
-        try {
-
-            const account = await this._fetchAccount(watch.address, watch);
-
-            watch.lastStatus = account?.state ?? watch.lastStatus;
-
-            watch.updatedAt = this._now();
-
-            this._lastSuccessfulCheck = this._now();
-
-            if (
-                watch.expectDeployment
-                && !watch.deploymentConfirmed
-                && account?.state === "active"
-            ) {
-
-                watch.deploymentConfirmed = true;
-
-                this._emitObservation(
-                    EVENT_TYPES.CONTRACT_DEPLOYMENT_CONFIRMED,
-                    {
-                        contractId: watch.contractId,
-                        address: watch.address,
-                        network: watch.paymentNetwork ?? this._network,
-                        timestamp: this._now(),
-                        correlationId: watch.correlationId,
-                        status: account.state
-                    },
-                    `deploy-confirmed:${watch.contractId}`
-                );
-
-            }
-
-        } catch (error) {
-
-            this._recordFailure("observe_contract_account", error);
-
-            this._state = BLOCKCHAIN_MONITOR_STATE.DEGRADED;
-
-        }
-
-        return this._publicContractWatch(watch);
-
-    }
 
     async _observeTransaction(watch) {
 
@@ -2235,381 +1923,13 @@ export class BlockchainMonitor {
 
     }
 
-    async _observeGameEscrowSettlement(watch) {
 
-        if (
-            Number.isFinite(watch.timeoutMs)
-            && (this._now() - watch.startedAt) > watch.timeoutMs
-        ) {
-
-            watch.status = "FAILED";
-            watch.failedAt = this._now();
-            watch.reason = "observation_timeout";
-
-            this._emitObservation(EVENT_TYPES.GAME_ESCROW_SETTLEMENT_REJECTED, {
-                contractId: watch.contractId,
-                gameId: watch.gameId,
-                roomId: watch.roomId,
-                escrowAddress: watch.escrowAddress,
-                settleTxHash: watch.settleTxHash,
-                reason: "observation_timeout",
-                network: watch.paymentNetwork ?? this._network,
-                timestamp: this._now(),
-                correlationId: watch.correlationId
-            });
-
-            return this._publicGameEscrowSettlementWatch(watch);
-
-        }
-
-        try {
-
-            const transactions = await this._fetchTransactions(watch.escrowAddress, {
-                limit: 40
-            }, watch);
-
-            let contractStatus = watch.contractStatus;
-
-            const networkService = this._registryServiceFor(watch);
-
-            const statusService = watch.paymentNetwork != null
-                ? networkService
-                : this._tonService;
-
-            if (contractStatus == null && statusService?.runGetMethod) {
-
-                try {
-                    const stack = await statusService.runGetMethod(
-                        watch.escrowAddress,
-                        "get_status",
-                        []
-                    );
-                    const top = stack?.stack?.[0];
-                    contractStatus = top?.value ?? top ?? null;
-                    watch.contractStatus = contractStatus;
-
-                } catch {
-
-                    contractStatus = null;
-
-                }
-
-            }
-
-            const result = verifyGameEscrowPayouts({
-                transactions,
-                winnerAddress: watch.winnerAddress,
-                ownerAddress: watch.ownerAddress,
-                winnerAmount: watch.winnerAmount,
-                ownerAmount: watch.ownerAmount,
-                settleTxHash: watch.settleTxHash,
-                contractStatus
-            });
-
-            this._lastSuccessfulCheck = this._now();
-
-            if (result.status === "PENDING") {
-
-                return this._publicGameEscrowSettlementWatch(watch);
-
-            }
-
-            if (!result.ok) {
-
-                if (
-                    result.reason === "amount_mismatch"
-                    || result.reason === "missing_owner_payout"
-                    || result.reason === "missing_winner_payout"
-                    || result.reason === "contract_not_settled"
-                ) {
-
-                    watch.status = "FAILED";
-                    watch.failedAt = this._now();
-                    watch.reason = result.reason;
-                    watch.winnerPayoutTx = result.winnerPayoutTx;
-                    watch.ownerPayoutTx = result.ownerPayoutTx;
-
-                    this._emitObservation(
-                        EVENT_TYPES.GAME_ESCROW_SETTLEMENT_REJECTED,
-                        {
-                            contractId: watch.contractId,
-                            gameId: watch.gameId,
-                            roomId: watch.roomId,
-                            escrowAddress: watch.escrowAddress,
-                            settleTxHash: watch.settleTxHash,
-                            winnerPayoutTx: result.winnerPayoutTx,
-                            ownerPayoutTx: result.ownerPayoutTx,
-                            reason: result.reason,
-                            network: watch.paymentNetwork ?? this._network,
-                            timestamp: this._now(),
-                            correlationId: watch.correlationId
-                        },
-                        `game-escrow-settlement-rejected:${watch.watchId}`
-                    );
-
-                }
-
-                return this._publicGameEscrowSettlementWatch(watch);
-
-            }
-
-            watch.status = "CONFIRMED";
-            watch.confirmedAt = this._now();
-            watch.winnerPayoutTx = result.winnerPayoutTx;
-            watch.ownerPayoutTx = result.ownerPayoutTx;
-            watch.verifiedSettleTxHash = result.settleTxHash;
-
-            this._emitObservation(
-                EVENT_TYPES.GAME_ESCROW_SETTLEMENT_VERIFIED,
-                {
-                    contractId: watch.contractId,
-                    gameId: watch.gameId,
-                    roomId: watch.roomId,
-                    escrowAddress: watch.escrowAddress,
-                    settleTxHash: result.settleTxHash,
-                    winnerPayoutTx: result.winnerPayoutTx,
-                    ownerPayoutTx: result.ownerPayoutTx,
-                    winnerAddress: watch.winnerAddress,
-                    ownerAddress: watch.ownerAddress,
-                    network: watch.paymentNetwork ?? this._network,
-                    timestamp: this._now(),
-                    correlationId: watch.correlationId
-                },
-                `game-escrow-settlement-verified:${watch.watchId}`
-            );
-
-            return this._publicGameEscrowSettlementWatch(watch);
-
-        } catch (error) {
-
-            this._recordFailure("observe_game_escrow_settlement", error);
-
-            this._state = BLOCKCHAIN_MONITOR_STATE.DEGRADED;
-
-            return this._publicGameEscrowSettlementWatch(watch);
-
-        }
-
-    }
 
     /**
      * R7.69C — Observe escrow out-msgs for exact paid-seat refunds after cancel.
      * Emits GAME_ESCROW_REFUND_CONFIRMED only after chain confirmation (no optimistic).
      */
-    async _observeGameEscrowRefunds(watch) {
 
-        if (watch.status !== "PENDING") {
-
-            return this._publicGameEscrowRefundWatch(watch);
-
-        }
-
-        if (
-            Number.isFinite(watch.timeoutMs)
-            && (this._now() - watch.startedAt) > watch.timeoutMs
-        ) {
-
-            watch.status = "FAILED";
-            watch.failedAt = this._now();
-            watch.reason = "observation_timeout";
-
-            this._emitObservation(EVENT_TYPES.GAME_ESCROW_REFUND_REJECTED, {
-                contractId: watch.contractId,
-                gameId: watch.gameId,
-                roomId: watch.roomId,
-                escrowAddress: watch.escrowAddress,
-                cancelTxHash: watch.cancelTxHash,
-                reason: "observation_timeout",
-                network: watch.paymentNetwork ?? this._network,
-                timestamp: this._now(),
-                correlationId: watch.correlationId
-            });
-
-            return this._publicGameEscrowRefundWatch(watch);
-
-        }
-
-        try {
-
-            const transactions = await this._fetchTransactions(watch.escrowAddress, {
-                limit: 40
-            }, watch);
-
-            let contractStatus = watch.contractStatus;
-
-            const networkService = this._registryServiceFor(watch);
-
-            const statusService = watch.paymentNetwork != null
-                ? networkService
-                : this._tonService;
-
-            if (contractStatus == null && statusService?.runGetMethod) {
-
-                try {
-
-                    const stack = await statusService.runGetMethod(
-                        watch.escrowAddress,
-                        "get_status"
-                    );
-                    const top = stack?.stack?.[0];
-                    contractStatus = top?.value ?? top ?? null;
-                    watch.contractStatus = contractStatus;
-
-                } catch {
-
-                    contractStatus = null;
-
-                }
-
-            }
-
-            if (
-                contractStatus == null
-                && this._contractAdapter?.getCancelStatus
-            ) {
-
-                try {
-
-                    const cancel = await this._contractAdapter.getCancelStatus(
-                        watch.escrowAddress,
-                        watch.paymentNetwork ?? null
-                    );
-
-                    if (cancel?.cancelled === true) {
-
-                        contractStatus = 9;
-                        watch.contractStatus = contractStatus;
-
-                    }
-
-                } catch {
-
-                    // Keep pending until chain status is readable.
-
-                }
-
-            }
-
-            const result = verifyGameEscrowRefunds({
-                transactions,
-                refunds: watch.refunds,
-                expectedRefundMask: watch.expectedRefundMask,
-                cancelTxHash: watch.cancelTxHash,
-                contractStatus
-            });
-
-            this._lastSuccessfulCheck = this._now();
-
-            if (result.status === "PENDING") {
-
-                return this._publicGameEscrowRefundWatch(watch);
-
-            }
-
-            if (!result.ok) {
-
-                if (
-                    result.reason === "amount_mismatch"
-                    || result.reason === "refund_mask_mismatch"
-                    || result.reason === "contract_not_cancelled"
-                    || result.reason === "refund_targets_missing"
-                ) {
-
-                    watch.status = "FAILED";
-                    watch.failedAt = this._now();
-                    watch.reason = result.reason;
-                    watch.refundTxs = result.refundTxs ?? [];
-                    watch.confirmedMask = result.confirmedMask ?? 0;
-
-                    this._emitObservation(
-                        EVENT_TYPES.GAME_ESCROW_REFUND_REJECTED,
-                        {
-                            contractId: watch.contractId,
-                            gameId: watch.gameId,
-                            roomId: watch.roomId,
-                            escrowAddress: watch.escrowAddress,
-                            cancelTxHash: watch.cancelTxHash,
-                            refundTxs: result.refundTxs,
-                            confirmedMask: result.confirmedMask,
-                            reason: result.reason,
-                            network: watch.paymentNetwork ?? this._network,
-                            timestamp: this._now(),
-                            correlationId: watch.correlationId
-                        },
-                        `game-escrow-refund-rejected:${watch.watchId}`
-                    );
-
-                }
-
-                return this._publicGameEscrowRefundWatch(watch);
-
-            }
-
-            watch.status = "CONFIRMED";
-            watch.confirmedAt = this._now();
-            watch.refundTxs = result.refundTxs ?? [];
-            watch.confirmedMask = result.confirmedMask ?? 0;
-            watch.verifiedCancelTxHash = result.cancelTxHash;
-
-            this._emitObservation(
-                EVENT_TYPES.GAME_ESCROW_CANCEL_CONFIRMED,
-                {
-                    contractId: watch.contractId,
-                    gameId: watch.gameId,
-                    roomId: watch.roomId,
-                    escrowAddress: watch.escrowAddress,
-                    cancelTxHash: result.cancelTxHash,
-                    refundMask: result.confirmedMask,
-                    network: watch.paymentNetwork ?? this._network,
-                    timestamp: this._now(),
-                    correlationId: watch.correlationId
-                },
-                `game-escrow-cancel-confirmed:${watch.watchId}`
-            );
-
-            for (const refund of result.refundTxs ?? []) {
-
-                const playerMeta = (watch.refunds ?? []).find(
-                    (entry) => Number(entry.playerIndex) === Number(refund.playerIndex)
-                );
-
-                this._emitObservation(
-                    EVENT_TYPES.GAME_ESCROW_REFUND_CONFIRMED,
-                    {
-                        contractId: watch.contractId,
-                        gameId: watch.gameId,
-                        roomId: watch.roomId,
-                        escrowAddress: watch.escrowAddress,
-                        cancelTxHash: result.cancelTxHash,
-                        transactionId: refund.txHash,
-                        playerIndex: refund.playerIndex,
-                        playerId: playerMeta?.playerId ?? null,
-                        wallet: refund.wallet,
-                        amount: refund.amount,
-                        network: watch.paymentNetwork ?? this._network,
-                        timestamp: this._now(),
-                        correlationId: watch.correlationId
-                    },
-                    refund.txHash
-                        ? `game-escrow-refund-confirmed:${refund.txHash}:${refund.playerIndex}`
-                        : `game-escrow-refund-confirmed:${watch.watchId}:${refund.playerIndex}`
-                );
-
-            }
-
-            return this._publicGameEscrowRefundWatch(watch);
-
-        } catch (error) {
-
-            this._recordFailure("observe_game_escrow_refunds", error);
-
-            this._state = BLOCKCHAIN_MONITOR_STATE.DEGRADED;
-
-            return this._publicGameEscrowRefundWatch(watch);
-
-        }
-
-    }
 
     async _evaluateTransaction(contractAddress, tx, watches) {
 
@@ -3178,23 +2498,7 @@ export class BlockchainMonitor {
 
     }
 
-    _publicContractWatch(watch) {
 
-        return Object.freeze({
-            contractId: watch.contractId,
-            address: watch.address,
-            roomId: watch.roomId,
-            paymentNetwork: watch.paymentNetwork ?? null,
-            gameId: watch.gameId,
-            correlationId: watch.correlationId,
-            lastStatus: watch.lastStatus,
-            deploymentConfirmed: watch.deploymentConfirmed === true,
-            registeredAt: watch.registeredAt,
-            updatedAt: watch.updatedAt,
-            lastSeenAt: watch.lastSeenAt
-        });
-
-    }
 
     _publicTransactionWatch(watch) {
 
