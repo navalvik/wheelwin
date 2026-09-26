@@ -75,7 +75,7 @@ export function buildBlockchainStatus({
                 activeSessions: paymentHealth?.activeSessions ?? 0,
                 pendingPayments: paymentHealth?.pendingPayments ?? 0
             }),
-            contractSettlementManager: Object.freeze({
+            settlementManager: Object.freeze({
                 status: mapManagerStatus(settlementHealth, {
                     initialized: settlementManager != null
                 }),
