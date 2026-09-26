@@ -50,8 +50,7 @@ export class GameplayLifecycle {
         auditActivation = null,
         waitForAudit = false,
         gameManager,
-        contractSettlementManager = null,
-        gameContractManager = null,
+        settlementManager = null,
         devMode = false
     }) {
 
@@ -93,9 +92,7 @@ export class GameplayLifecycle {
 
         this._gameManager = gameManager;
 
-        this._contractSettlementManager = contractSettlementManager;
-
-        this._gameContractManager = gameContractManager;
+        this._settlementManager = settlementManager;
 
         this._devMode = devMode;
 
@@ -179,19 +176,12 @@ export class GameplayLifecycle {
      * Does not affect OPEN_PAGE6 (owned by GameplayPhaseLifecycle / R5.19).
      */
     configureSettlementTeardownGate({
-        contractSettlementManager = null,
-        gameContractManager = null
+        settlementManager = null
     } = {}) {
 
-        if (contractSettlementManager) {
+        if (settlementManager) {
 
-            this._contractSettlementManager = contractSettlementManager;
-
-        }
-
-        if (gameContractManager) {
-
-            this._gameContractManager = gameContractManager;
+            this._settlementManager = settlementManager;
 
         }
 
@@ -415,10 +405,8 @@ export class GameplayLifecycle {
     }
 
     /**
-     * R8.6 / R8.8 — Winner required. Financially activated / contracted games
-     * wait for settlement terminal. Missing contract after entry-payment is
-     * UNKNOWN → keep game alive (never treat as unpaid).
-     * ContractSettlementManager / GameContract evidence is never deleted here.
+     * R8.6 / R8.8 — Winner required. Financially activated games wait for
+     * Room Wallet settlement terminal state before teardown.
      */
     _isSettlementReadyForTeardown(gameId) {
 
@@ -428,29 +416,19 @@ export class GameplayLifecycle {
 
         }
 
-        if (!this._contractSettlementManager) {
+        if (!this._settlementManager) {
 
             return true;
 
         }
 
-        const session = this._contractSettlementManager
+        const session = this._settlementManager
             .getSettlementSession?.(gameId)
             ?? null;
 
         if (session) {
 
             return isSettlementSessionTerminal(session.status);
-
-        }
-
-        const contract = this._gameContractManager
-            ?.getContractByGameId?.(gameId)
-            ?? null;
-
-        if (contract) {
-
-            return false;
 
         }
 
