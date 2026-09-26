@@ -1799,7 +1799,7 @@ class WheelWinApplication {
             setupSessionLifecycle: this._setupSessionLifecycle,
             paymentSessionManager: this._paymentSessionManager,
 
-            contractSettlementManager: this._settlementManager,
+            settlementManager: this._settlementManager,
             gameStartAuthorization: this._gameStartAuthorization,
             resultSessionLifecycle: this._resultSessionLifecycle,
             recoveryEngine: this._recoveryEngine,
@@ -2226,7 +2226,7 @@ class WheelWinApplication {
 
         });
 
-        this._safeShutdownStep("contractSettlementManager", () => {
+        this._safeShutdownStep("settlementManager", () => {
 
             if (this._settlementManager) {
 
@@ -2678,7 +2678,7 @@ class WheelWinApplication {
                 resultSessionLifecycle: this._resultSessionLifecycle,
                 paymentSessionManager: this._paymentSessionManager,
                 paymentEngine: this._engines?.paymentEngine,
-                contractSettlementManager: this._settlementManager,
+                settlementManager: this._settlementManager,
                 recoveryEngine: this._recoveryEngine,
                 simulationLoop: this._simulationLoop,
                 physicsEngine: this._engines?.physicsEngine,
