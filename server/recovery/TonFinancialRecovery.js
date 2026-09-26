@@ -213,7 +213,6 @@ export class TonFinancialRecovery {
             );
 
             // R17.9L.4 — Restore durable DepositSessions without a new recovery phase
-            // (does not trigger deploy, GameContract creation, or authorization).
             this._restoreDepositSessions(report);
 
             // R17.9L.22 — Re-verify chain before restoring deposit watches.
