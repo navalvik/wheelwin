@@ -2,14 +2,9 @@ import {
     PAYMENT_PARTICIPANT_STATUS,
     PAYMENT_SESSION_STATUS
 } from "../../models/PaymentSession.js";
-import { GAME_CONTRACT_STATUS } from "../../models/GameContract.js";
+import { IN_PROGRESS_SETTLEMENT_SESSION_STATUSES, SETTLEMENT_SESSION_STATUS } from "../../payment/SettlementSessionStates.js";
 
-const SETTLING_STATUSES = new Set([
-    GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING,
-    GAME_CONTRACT_STATUS.SETTLEMENT_SUBMITTED,
-    GAME_CONTRACT_STATUS.SETTLEMENT_PENDING,
-    GAME_CONTRACT_STATUS.SETTLEMENT_CONFIRMED
-]);
+const SETTLING_STATUSES = new Set(IN_PROGRESS_SETTLEMENT_SESSION_STATUSES);
 
 /**
  * R6.0C — Payments overview (no organizer/private wallet data).
@@ -110,7 +105,7 @@ export function buildPaymentsOverview({
 
         }
 
-        if (settlement.status === GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED) {
+        if (settlement.status === SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED) {
 
             completed += 1;
 
