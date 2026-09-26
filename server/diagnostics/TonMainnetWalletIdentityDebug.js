@@ -1,10 +1,13 @@
 /**
  * R8.1B — TON_MAINNET_WALLET_IDENTITY_DEBUG (Railway-visible, no secrets).
  */
-import { printDeployBlock } from "./DeployPipelineForensics.js";
 
 /** @type {null | Record<string, unknown>} */
 let _tonMainnetWalletIdentityDebug = null;
+
+function printDiagnosticBlock(title, payload) {
+    console.log(`[${title}]`, payload);
+}
 
 /**
  * @param {string|null|undefined} raw
@@ -102,7 +105,7 @@ export function printTonMainnetWalletIdentityDebug(
 
     }
 
-    printDeployBlock("TON_MAINNET_WALLET_IDENTITY_DEBUG", {
+    printDiagnosticBlock("TON_MAINNET_WALLET_IDENTITY_DEBUG", {
         network: snapshot.network ?? "mainnet",
         walletType: snapshot.walletType ?? null,
         workchain: snapshot.workchain ?? null,
