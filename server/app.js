@@ -148,19 +148,6 @@ import { RecoveryCheckpointManager } from "./recovery/RecoveryCheckpointManager.
 import { RecoveryOrchestrator } from "./recovery/RecoveryOrchestrator.js";
 import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
-import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
-import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
-import { DeploymentAuthorizationCoordinator } from "./deposit/DeploymentAuthorizationCoordinator.js";
-import { TonFinancialDeploymentAuthorizationPersistence } from "./deposit/DeploymentAuthorizationPersistencePort.js";
-import { TonFinancialDepositObservationPersistence } from "./deposit/DepositObservationPersistencePort.js";
-import { DepositFullAuthorizationAutomation } from "./deposit/DepositFullAuthorizationAutomation.js";
-import { EntryDeploymentAuthorizationAutomation } from "./deposit/EntryDeploymentAuthorizationAutomation.js";
-import { DepositMonitor } from "./deposit/DepositMonitor.js";
-import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
-import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
-import { DepositActivationVerificationCoordinator } from "./deposit/DepositActivationVerificationCoordinator.js";
-import { DepositOrchestrator } from "./deposit/DepositOrchestrator.js";
-import { resolveDepositOrchestrationFinancials } from "./deposit/resolveDepositOrchestrationFinancials.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
 import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
 import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
@@ -1592,190 +1579,9 @@ class WheelWinApplication {
 
         this._logger.startupLine("AudioRegistryService");
 
-        this._depositSessionCoordinator = new DepositSessionCoordinator({
-            eventBus: this._eventBus,
-            persistence: new TonFinancialDepositPersistence(this._financialPersistence)
-        });
+        // Legacy DepositContract / DeploymentAuthorization runtime removed. Room Wallet is the sole payment path.
 
-        this._logger.startupLine("DepositSessionCoordinator");
 
-        this._deploymentAuthorizationCoordinator = new DeploymentAuthorizationCoordinator({
-            eventBus: this._eventBus,
-            persistence: new TonFinancialDeploymentAuthorizationPersistence(
-                this._financialPersistence
-            )
-        });
-
-        this._logger.startupLine("DeploymentAuthorizationCoordinator");
-
-        this._depositFullAuthorizationAutomation = new DepositFullAuthorizationAutomation({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator
-        });
-
-        this._depositFullAuthorizationAutomation.initialize();
-
-        this._entryDeploymentAuthorizationAutomation = new EntryDeploymentAuthorizationAutomation({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator
-        });
-
-        this._entryDeploymentAuthorizationAutomation.initialize();
-
-        this._logger.startupLine("EntryDeploymentAuthorizationAutomation");
-
-        // Room Wallet architecture: no gameplay contract deployment automation.
-
-        this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
-            logger: this._logger,
-            tonService: this._services.tonService,
-            tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
-            network: this._tonConfig?.network ?? "testnet"
-        });
-
-        this._depositMonitor = new DepositMonitor({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            persistence: new TonFinancialDepositObservationPersistence(
-                this._financialPersistence
-            ),
-            blockchainSource: this._tonDepositBlockchainSource,
-            network: this._tonConfig?.network ?? "testnet",
-            requireActivationVerification: true,
-            roomManager: this._managers.roomManager
-        });
-
-        this._depositMonitor.initialize();
-
-        this._blockchainMonitor.setDepositMonitor?.(this._depositMonitor);
-
-        this._logger.startupLine("DepositMonitor");
-
-        this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
-
-        this._roomWalletLedgerRegistry = new RoomWalletLedgerRegistry();
-
-        this._roomWalletIncomingObserver = new RoomWalletIncomingObserver({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            paymentSessionManager: this._paymentSessionManager,
-            financialPersistence: this._financialPersistence,
-            registry: this._roomWalletRegistry,
-            roomManager: this._managers.roomManager,
-            ledgerRegistry: this._roomWalletLedgerRegistry,
-            transport: this._services?.tonService?.getTransport?.() ?? null,
-            tonService: this._services?.tonService ?? null,
-            tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
-            auditLedger: this._entryPaymentAuditLedger,
-            network: this._tonConfig?.network ?? null
-        });
-
-        this._blockchainMonitor.setRoomWalletIncomingObserver?.(
-            this._roomWalletIncomingObserver
-        );
-
-        this._logger.startupLine(
-            this._roomWalletRegistry.size() > 0
-                ? `RoomWalletIncomingObserver (${this._roomWalletRegistry.size()} wallets)`
-                : "RoomWalletIncomingObserver (unconfigured)"
-        );
-
-        this._paymentSessionManager.setRoomWalletFinance({
-            registry: this._roomWalletRegistry,
-            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
-                env: process.env,
-                
-            })
-        });
-
-        this._roomWalletResidualSweepRepository = new RoomWalletResidualSweepRepository({
-            persistence: this._financialPersistence,
-            tonNetwork: this._tonConfig?.network ?? "testnet"
-        });
-
-        this._roomWalletResidualSweepWorker = new RoomWalletResidualSweepWorker({
-            repository: this._roomWalletResidualSweepRepository,
-            registry: this._roomWalletRegistry,
-            roomManager: this._managers.roomManager,
-            blockchainMonitor: this._blockchainMonitor,
-            eventBus: this._eventBus,
-            logger: this._logger,
-            env: process.env,
-            tonService: this._services?.tonService ?? null,
-            tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null
-        });
-
-        this._roomWalletResidualSweepWorker.initialize();
-
-        this._logger.startupLine("RoomWalletResidualSweepWorker");
-
-        await this._blockchainMonitor.start();
-
-        this._logger.startupLine("BlockchainMonitor started");
-
-        this._depositOnChainVerification = new DepositOnChainVerificationCoordinator({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            observationPersistence: new TonFinancialDepositObservationPersistence(
-                this._financialPersistence
-            ),
-            network: this._tonConfig?.network ?? "testnet"
-        });
-
-        this._depositOnChainVerification.initialize();
-
-        this._logger.startupLine("DepositOnChainVerificationCoordinator");
-
-        this._depositActivationVerification = new DepositActivationVerificationCoordinator({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            depositMonitor: this._depositMonitor,
-            blockchainSource: this._tonDepositBlockchainSource,
-            tonService: this._services.tonService,
-            tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
-            network: this._tonConfig?.network ?? "testnet",
-            roomManager: this._managers.roomManager
-        });
-
-        this._logger.startupLine("DepositActivationVerificationCoordinator");
-
-        this._depositOrchestrator = new DepositOrchestrator({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            depositActivationVerificationCoordinator: this._depositActivationVerification,
-            gameplayContextResolver: this._gameplayContextResolver,
-            roomManager: this._managers.roomManager,
-            playerManager: this._managers.playerManager,
-            sessionWalletStore: this._sessionWalletStore,
-            env: process.env,
-            // Task 2026-09-17 — accept the authoritative per-room payment
-            // network override when provided; otherwise the runtime TON
-            // network (unchanged historical behavior).
-            resolveFinancialParameters: (overrides = {}) =>
-                resolveDepositOrchestrationFinancials({
-                    env: process.env,
-                    network: overrides?.network
-                        ?? this._tonConfig?.network
-                        ?? "testnet",
-                    runtimeOverrides:
-                        this._runtimeConfigurationService?.getOverrides?.()
-                        ?? null,
-                    paymentDurationMs:
-                        this._roomConfig?.paymentSessionDurationMs ?? null
-                })
-        });
-
-        this._depositOrchestrator.initialize();
-
-        this._logger.startupLine("DepositOrchestrator");
 
         this._tonFinancialRecovery = new TonFinancialRecovery({
             logger: this._logger,
@@ -1788,10 +1594,6 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             roomManager: this._managers.roomManager,
             financialPersistence: this._financialPersistence,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator,
-            depositMonitor: this._depositMonitor,
-            depositActivationVerificationCoordinator: this._depositActivationVerification
         });
 
         this._tonFinancialRecovery.initialize();
@@ -1802,12 +1604,6 @@ class WheelWinApplication {
         });
 
         this._logger.startupLine("TonFinancialRecovery");
-
-        // R17.9L.6 — DepositFull → DeploymentAuthorization VALID automation.
-
-        this._depositFullAuthorizationAutomation.syncFromActiveDepositSessions();
-
-        this._depositOnChainVerification.syncFromPersistedObservations();
 
         this._gameStartAuthorization = new GameStartAuthorization({
             logger: this._logger,
@@ -1825,7 +1621,6 @@ class WheelWinApplication {
             auditLedger: this._entryPaymentAuditLedger,
             roomConfig: this._roomConfig,
             devMode: this._productionConfig.isDevelopment,
-            depositSessionCoordinator: this._depositSessionCoordinator,
             roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({
                 env: process.env,
                 
@@ -2022,7 +1817,6 @@ class WheelWinApplication {
             lifecycleManager: this._lifecycleManager,
             roomConfig: this._roomConfig,
             metricsService: this._metricsService,
-            depositSessionCoordinator: this._depositSessionCoordinator
         });
 
         this._roomLobbyBridge.initialize();
@@ -2036,9 +1830,6 @@ class WheelWinApplication {
         const resolveRoomPaymentNetwork = (roomId) =>
             this._roomLobbyBridge?.getPaymentNetwork?.(roomId) ?? "testnet";
 
-        this._depositOrchestrator?.setPaymentNetworkResolver?.(
-            resolveRoomPaymentNetwork
-        );
 
         // R17.9T.6-D — production wiring of the trusted Telegram identity
         // resolver. The identity is read ONLY from the authenticated Socket.IO
