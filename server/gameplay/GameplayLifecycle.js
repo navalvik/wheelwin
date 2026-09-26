@@ -433,7 +433,6 @@ export class GameplayLifecycle {
         }
 
         // R8.8 — ENTRY_PAYMENT_COMPLETED activation ⇒ financially relevant.
-        // Absent live contract/session is NOT proof of unpaid.
         if (this._gameManager?.wasEntryPaymentActivated?.(gameId)) {
 
             this._logStep(
@@ -449,13 +448,6 @@ export class GameplayLifecycle {
         const roomId = snapshot?.roomId ?? null;
 
         if (roomId
-            && this._gameContractManager?.getContract?.(roomId)) {
-
-            return false;
-
-        }
-
-        if (roomId
             && this._gameManager?.hasInitializedGameplay?.(roomId)
             && this._gameManager?.wasEntryPaymentActivated?.(gameId)) {
 
@@ -463,7 +455,7 @@ export class GameplayLifecycle {
 
         }
 
-        // Proven non-financial / legacy stack (no entry-payment activation).
+        // No financially activated gameplay remains to protect.
         return true;
 
     }
