@@ -6,7 +6,6 @@
  * GAME_ESCROW_MODE is not a Room Wallet switch.
  */
 
-import { isGameEscrowOnlyPlayerPayment } from "../../config/gameEscrowMode.js";
 import { RoomWalletSettlementRouter } from "../RoomWalletSettlementRouter.js";
 import { createRoomWalletService } from "./RoomWalletService.js";
 import {
