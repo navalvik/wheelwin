@@ -862,6 +862,7 @@ export class PaymentSessionManager {
 
                 if (
                     !isCancelled
+                    && !requiresRoomWalletRefundRecovery
                     && !session.isInProgress()
                     && session.status !== PAYMENT_SESSION_STATUS.RECOVERED
                 ) {
@@ -2818,7 +2819,15 @@ export class PaymentSessionManager {
 
         let records = [];
         try {
-            records = this._financialPersistence.findByRoom(session.roomId) ?? [];
+            const byRoom = this._financialPersistence.findByRoom(session.roomId) ?? [];
+            const byGame = this._financialPersistence.findByGame?.(session.gameId) ?? [];
+            const seen = new Set();
+            records = [...byRoom, ...byGame].filter((record) => {
+                const key = `${record?.recordType ?? ""}:${record?.recordId ?? ""}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
         } catch (error) {
             this._logger?.error?.(
                 `Room Wallet accepted-payment evidence lookup failed | roomId=${session.roomId} | ${error?.message ?? error}`
