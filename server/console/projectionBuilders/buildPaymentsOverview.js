@@ -11,12 +11,10 @@ const SETTLING_STATUSES = new Set(IN_PROGRESS_SETTLEMENT_SESSION_STATUSES);
  */
 export function buildPaymentsOverview({
     paymentSessionManager,
-    gameContractManager,
     contractSettlementManager
 }) {
 
     const roomIds = paymentSessionManager?.listSessionRoomIds?.() ?? [];
-    const contractRoomIds = gameContractManager?.listContractRoomIds?.() ?? [];
     const settlements = contractSettlementManager?.listSettlementSnapshots?.()
         ?? [];
 
@@ -68,28 +66,6 @@ export function buildPaymentsOverview({
             createdAt: snapshot.createdAt,
             expiresAt: snapshot.expiresAt ?? null,
             completedAt: snapshot.completedAt ?? null
-        }));
-
-    }
-
-    const contracts = [];
-
-    for (const roomId of contractRoomIds) {
-
-        const contract = gameContractManager.getContract(roomId);
-
-        if (!contract) {
-
-            continue;
-
-        }
-
-        contracts.push(Object.freeze({
-            contractId: contract.contractId,
-            roomId: contract.roomId,
-            gameId: contract.gameId,
-            status: contract.status,
-            createdAt: contract.createdAt
         }));
 
     }
