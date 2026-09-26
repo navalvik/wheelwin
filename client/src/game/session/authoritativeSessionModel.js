@@ -80,7 +80,6 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     entryPayment: null,
     walletConnection: null,
     paymentSession: null,
-    gameContract: null,
     // R18 S4 — requester-scoped Deposit projection mirror (informational only).
     deposit: null,
     audit: null,
