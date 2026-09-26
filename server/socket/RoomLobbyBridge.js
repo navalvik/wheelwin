@@ -1459,11 +1459,6 @@ export class RoomLobbyBridge {
                     status: paymentSession.status ?? null
                 }
                 : null,
-            DeployState: contract
-                ? {
-                    status: contract.status ?? null
-                }
-                : null,
             Creator: creatorId,
             RoomPlayerCount: room?.players.length ?? 0,
             RoomSocketCount: socketCount,
