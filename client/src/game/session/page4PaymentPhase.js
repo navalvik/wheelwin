@@ -2,7 +2,6 @@
  * Page4 payment-phase coordinator.
  *
  * Active architecture: direct player-to-Room-Wallet payment only.
- * No DepositContract, GameEscrow, deployment, or seat-funding path exists.
  */
 import {
     canConfirmLocalPayment,
