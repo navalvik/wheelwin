@@ -307,12 +307,6 @@ export class PaymentSession {
 
         }
 
-        if (patch.contractId !== undefined) {
-
-            this.contractId = patch.contractId;
-
-        }
-
         if (patch.network !== undefined) {
 
             this.network = patch.network;
