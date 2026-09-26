@@ -148,18 +148,6 @@ import { RecoveryCheckpointManager } from "./recovery/RecoveryCheckpointManager.
 import { RecoveryOrchestrator } from "./recovery/RecoveryOrchestrator.js";
 import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
-import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
-import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
-import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
-import { DeploymentReimbursementService } from "./payment/reimbursement/DeploymentReimbursementService.js";
-import { DeploymentReimbursementWorker } from "./payment/reimbursement/DeploymentReimbursementWorker.js";
-import { ReimbursementTransferService } from "./payment/reimbursement/ReimbursementTransferService.js";
-import { ReimbursementWalletAdapter } from "./payment/reimbursement/ReimbursementWalletAdapter.js";
-import { ReimbursementConfirmationService } from "./payment/reimbursement/ReimbursementConfirmationService.js";
-import { ReimbursementPolicy } from "./payment/reimbursement/ReimbursementPolicy.js";
-import { ReimbursementWalletMonitor } from "./payment/reimbursement/ReimbursementWalletMonitor.js";
-import { ReimbursementTransactionScanner } from "./payment/reimbursement/ReimbursementTransactionScanner.js";
-import { isDeploymentReimbursementEnabled } from "./payment/reimbursement/deploymentReimbursementConfig.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
@@ -304,7 +292,6 @@ class WheelWinApplication {
         this._paymentSessionManager = null;
 
 
-        this._deploymentCostService = null;
 
         this._gameStartAuthorization = null;
 
@@ -1353,134 +1340,6 @@ class WheelWinApplication {
             this._paymentSessionManager
         );
 
-        // R17.8V.2P.J / R17.8V.2P.K — Deployment cost snapshot capture + freeze.
-        this._deploymentCostService = new DeploymentCostService({
-            repository: new DeploymentCostSnapshotRepository({
-                persistence: this._financialPersistence,
-                tonNetwork: this._tonConfig?.network ?? "testnet"
-            }),
-            eventBus: this._eventBus,
-            transport: this._services?.tonService?.getTransport?.() ?? null,
-            tonNetworkRegistry: this._services?.tonNetworkServiceRegistry ?? null,
-            tonNetwork: this._tonConfig?.network ?? "testnet",
-            logger: this._logger,
-            env: process.env
-        });
-
-        this._deploymentCostService.initialize();
-
-        this._logger.startupLine("DeploymentCostService");
-
-        // R17.8V.2P.M — Deployment reimbursement queue foundation (no TON send).
-        this._deploymentReimbursementRepository = new DeploymentReimbursementRepository({
-            persistence: this._financialPersistence,
-            tonNetwork: this._tonConfig?.network ?? "testnet"
-        });
-
-        // R17.8V.2P.N — Settlement → reimbursement queue (async; no TON send).
-        this._deploymentReimbursementService = new DeploymentReimbursementService({
-            repository: this._deploymentReimbursementRepository,
-            snapshotRepository: new DeploymentCostSnapshotRepository({
-                persistence: this._financialPersistence,
-                tonNetwork: this._tonConfig?.network ?? "testnet"
-            }),
-            financialPersistence: this._financialPersistence,
-            eventBus: this._eventBus,
-            logger: this._logger,
-            env: process.env
-        });
-
-        this._deploymentReimbursementService.initialize();
-
-        this._logger.startupLine("DeploymentReimbursementService");
-
-        // R17.8V.2P.O / Q — Transfer boundary with production safety gates.
-        const reimbursementSnapshotRepository = new DeploymentCostSnapshotRepository({
-            persistence: this._financialPersistence,
-            tonNetwork: this._tonConfig?.network ?? "testnet"
-        });
-
-        const reimbursementAdapter = new ReimbursementWalletAdapter({
-            tonService: this._services?.tonService ?? null,
-            logger: this._logger,
-            env: process.env
-        });
-
-        const reimbursementPolicy = new ReimbursementPolicy({
-            repository: this._deploymentReimbursementRepository,
-            env: process.env,
-            eventBus: this._eventBus,
-            logger: this._logger
-        });
-
-        const reimbursementWalletMonitor = new ReimbursementWalletMonitor({
-            tonService: this._services?.tonService ?? null,
-            getAddress: () => reimbursementAdapter.getAddress(),
-            env: process.env,
-            eventBus: this._eventBus,
-            logger: this._logger
-        });
-
-        this._reimbursementTransferService = new ReimbursementTransferService({
-            adapter: reimbursementAdapter,
-            snapshotRepository: reimbursementSnapshotRepository,
-            policy: reimbursementPolicy,
-            walletMonitor: reimbursementWalletMonitor,
-            logger: this._logger,
-            env: process.env
-        });
-
-        await this._reimbursementTransferService.initialize();
-
-        const reimbursementTransport =
-            this._services?.tonService?.getTransport?.() ?? null;
-
-        // R17.8V.2P.P / Q — Chain confirmation + deep hash recovery (no new sends).
-        this._reimbursementConfirmationService = new ReimbursementConfirmationService({
-            repository: this._deploymentReimbursementRepository,
-            transport: reimbursementTransport,
-            scanner: new ReimbursementTransactionScanner({
-                transport: reimbursementTransport,
-                logger: this._logger
-            }),
-            eventBus: this._eventBus,
-            logger: this._logger,
-            env: process.env
-        });
-
-        this._reimbursementConfirmationService.initialize();
-
-        if (isDeploymentReimbursementEnabled(process.env)) {
-
-            void this._reimbursementConfirmationService
-                .recoverPendingConfirmations()
-                .catch((error) => {
-
-                    this._logger?.error?.(
-                        `ReimbursementConfirmationService recovery failed | `
-                            + `${error?.message ?? error}`
-                    );
-
-                });
-
-        }
-
-        this._logger.startupLine("ReimbursementConfirmationService");
-
-        this._deploymentReimbursementWorker = new DeploymentReimbursementWorker({
-            repository: this._deploymentReimbursementRepository,
-            transferService: this._reimbursementTransferService,
-            confirmationService: this._reimbursementConfirmationService,
-            logger: this._logger,
-            env: process.env
-        });
-
-        this._deploymentReimbursementWorker.initialize();
-
-        this._logger.startupLine(
-            "DeploymentReimbursementWorker (send permanently retired)"
-        );
-
         this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
             tonService: this._services?.tonService ?? null,
             tonNetworkServiceRegistry: this._services?.tonNetworkServiceRegistry ?? null,
@@ -2352,56 +2211,6 @@ class WheelWinApplication {
             if (this._blockchainMonitor) {
 
                 this._blockchainMonitor.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("deploymentCostService", () => {
-
-            if (this._deploymentCostService) {
-
-                this._deploymentCostService.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("deploymentReimbursementWorker", () => {
-
-            if (this._deploymentReimbursementWorker) {
-
-                this._deploymentReimbursementWorker.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("reimbursementTransferService", () => {
-
-            if (this._reimbursementTransferService) {
-
-                this._reimbursementTransferService.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("reimbursementConfirmationService", () => {
-
-            if (this._reimbursementConfirmationService) {
-
-                this._reimbursementConfirmationService.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("deploymentReimbursementService", () => {
-
-            if (this._deploymentReimbursementService) {
-
-                this._deploymentReimbursementService.shutdown();
 
             }
 
