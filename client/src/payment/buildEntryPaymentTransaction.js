@@ -5,17 +5,9 @@
  * amounts, seats, addresses, or StateInit. Does not call TonConnect.
  */
 
-import { buildDepositDeploymentTransaction } from "./buildDepositDeploymentTransaction.js";
-import { buildFundDepositTransaction } from "./buildFundDepositTransaction.js";
 import { buildTonConnectPaymentTransaction } from "./buildTonConnectPaymentTransaction.js";
 
 const DEFAULT_VALID_UNTIL_SECONDS = 600;
-
-function addNanotons(left, right) {
-
-    return (BigInt(left) + BigInt(right)).toString();
-
-}
 
 /**
  * Display helper. Does not compute stake or fees — only formats a nano total
@@ -109,50 +101,9 @@ export function buildEntryPaymentTransaction({
 
     }
 
-    if (includeDeploy === true && isCreator !== true) {
+    if (includeDeploy === true || includeFund === true) {
 
-        throw new Error("Only the Room Creator may include DepositContract deployment");
-
-    }
-
-    const messages = [];
-    let totalNanotons = "0";
-
-    if (includeDeploy === true) {
-
-        const deployTx = buildDepositDeploymentTransaction({
-            depositPackage,
-            depositAddress,
-            isCreator: true,
-            network,
-            validUntilSeconds,
-            nowMs
-        });
-
-        messages.push(...deployTx.messages);
-        totalNanotons = addNanotons(
-            totalNanotons,
-            deployTx.messages[0].amount
-        );
-
-    }
-
-    if (includeFund === true) {
-
-        const fundTx = buildFundDepositTransaction({
-            depositAddress,
-            mySeatIndex,
-            myExpectedAmountNanotons,
-            network,
-            validUntilSeconds,
-            nowMs
-        });
-
-        messages.push(...fundTx.messages);
-        totalNanotons = addNanotons(
-            totalNanotons,
-            fundTx.messages[0].amount
-        );
+        throw new Error("Legacy DepositContract payment components are disabled; use Room Wallet direct payment");
 
     }
 
