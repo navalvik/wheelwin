@@ -645,9 +645,6 @@ export function validateEnvironment(collector, env) {
 
     validateIntegerField(
         collector,
-
-    validateIntegerField(
-        collector,
         ENVIRONMENT_SCHEMA.GAME_START_AUTHORIZATION_DURATION_MS,
         env.GAME_START_AUTHORIZATION_DURATION_MS
     );
