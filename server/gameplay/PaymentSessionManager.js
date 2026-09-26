@@ -157,11 +157,8 @@ export class PaymentSessionManager {
 
         }
 
-        if (roomWalletPaymentIntakeEnabled != null) {
-
-            this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
-
-        }
+        // Room Wallet is the sole active gameplay payment path.
+        this._roomWalletPaymentIntakeEnabled = true;
 
     }
 
