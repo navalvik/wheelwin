@@ -1314,6 +1314,10 @@ class WheelWinApplication {
 
         this._logger.startupLine("BlockchainMonitor");
 
+        // Room Wallet is the sole gameplay payment path. Build the authoritative
+        // room-number -> wallet registry once from Railway environment variables.
+        this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
+
         this._paymentSessionManager = new PaymentSessionManager({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1333,6 +1337,31 @@ class WheelWinApplication {
         });
 
         this._paymentSessionManager.initialize();
+
+        this._paymentSessionManager.setRoomWalletFinance({
+            registry: this._roomWalletRegistry,
+            roomWalletPaymentIntakeEnabled: true
+        });
+
+        // Room Wallet incoming transfers share the existing BlockchainMonitor
+        // poll loop. No contract/deployment observer is involved.
+        this._roomWalletIncomingObserver = new RoomWalletIncomingObserver({
+            logger: this._logger,
+            eventBus: this._eventBus,
+            paymentSessionManager: this._paymentSessionManager,
+            financialPersistence: this._financialPersistence,
+            registry: this._roomWalletRegistry,
+            roomManager: this._managers.roomManager,
+            ledgerRegistry: this._roomWalletLedgerRegistry,
+            transport: this._services?.tonService?.getTransport?.() ?? null,
+            tonService: this._services?.tonService ?? null,
+            auditLedger: this._entryPaymentAuditLedger,
+            network: this._tonConfig?.network ?? null,
+            env: process.env
+        });
+        this._blockchainMonitor.setRoomWalletIncomingObserver(
+            this._roomWalletIncomingObserver
+        );
 
         this._logger.startupLine("PaymentSessionManager");
 
