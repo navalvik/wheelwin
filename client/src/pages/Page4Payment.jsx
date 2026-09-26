@@ -992,7 +992,7 @@ export default function Page4Payment({ onNavigate }) {
                     : depositProjection.myExpectedAmountNanotons,
                 network: roomWalletOnly ? null : depositProjection.network,
                 paymentDestination: roomWalletOnly ? roomWalletDestination : null,
-                gameEscrowAddress: roomWalletOnly
+                legacyPaymentDestination: roomWalletOnly
                     ? (roomWalletDestination ?? paymentRequest?.contractAddress ?? null)
                     : (paymentRequest?.contractAddress ?? null),
                 requiredGram: paymentRequest?.requiredGram ?? null,
