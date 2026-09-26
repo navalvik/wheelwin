@@ -3,8 +3,6 @@
  */
 import { Address } from "@ton/core";
 
-import { printDeployBlock } from "./DeployPipelineForensics.js";
-
 /** @type {null | Record<string, unknown>} */
 let _tonWalletIdentityDebug = null;
 
@@ -63,7 +61,7 @@ export function printTonWalletIdentityDebug(fields = null) {
 
     }
 
-    printDeployBlock("TON_WALLET_IDENTITY_DEBUG", {
+    console.log("[TON_WALLET_IDENTITY_DEBUG]", {
         walletContractType: snapshot.walletContractType,
         workchain: snapshot.workchain,
         walletId: snapshot.walletId,
