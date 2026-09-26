@@ -676,6 +676,27 @@ export class RoomWalletIncomingObserver {
         this._emit(EVENT_TYPES.PAYMENT_TRANSACTION_DETECTED, payload, `rwin-detected:${txHash}`);
         this._emit(EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED, payload, `rwin-confirmed:${txHash}`);
 
+        // The immutable observation is already validated above. Reconcile once
+        // directly as a safety net in case the EventBus subscriber path fails.
+        // If the event path already confirmed the seat, confirmBlockchainPayment
+        // is idempotent and returns the existing session unchanged.
+        try {
+            this._paymentSessionManager?.confirmBlockchainPayment?.(
+                session.roomId,
+                participant.playerId,
+                {
+                    txHash,
+                    amount: amountGram,
+                    sender
+                }
+            );
+        } catch (error) {
+            this._log(
+                "error",
+                `Room Wallet payment reconciliation failed | roomId=${session.roomId} | playerId=${participant.playerId} | tx=${txHash} | ${error?.message ?? error}`
+            );
+        }
+
         this._log(
             "info",
             `Room Wallet incoming payment credited | roomId=${session.roomId} | `
