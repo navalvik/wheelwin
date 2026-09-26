@@ -158,15 +158,7 @@ export function buildBlockchainLifecycle({
         ?? tonDeployDebug?.errorMessage
         ?? null;
 
-    const deploy = Object.freeze({
-        status: deployStatus,
-        stages: Object.freeze([...deployStages]),
-        contractAddress: deployTrack?.contractAddress
-            ?? tonDeployDebug?.escrowAddress
-            ?? null,
-        transactionHash: deployTrack?.transactionHash ?? null,
-        error: deployError
-    });
+    const deploy = null;
 
     const settlementStages = [];
 
