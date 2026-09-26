@@ -66,31 +66,6 @@ function projectSetupSession(session) {
 
 }
 
-function projectContract(contract) {
-
-    if (!contract) {
-
-        return null;
-
-    }
-
-    const snapshot = typeof contract.toSnapshot === "function"
-        ? contract.toSnapshot()
-        : contract;
-
-    return Object.freeze({
-        contractId: snapshot.contractId,
-        gameId: snapshot.gameId,
-        roomId: snapshot.roomId,
-        status: snapshot.status,
-        createdAt: snapshot.createdAt,
-        deploymentStatus: snapshot.deploymentStatus ?? null,
-        deployedAt: snapshot.deployedAt ?? null
-        // contractAddress / economic snapshot omitted from room detail
-    });
-
-}
-
 /**
  * R6.0C — Room detail DTO (no physics snapshots).
  */
@@ -100,7 +75,6 @@ export function buildRoomDetail(roomId, {
     gameManager,
     setupSessionLifecycle,
     paymentSessionManager,
-    gameContractManager,
     gameStartAuthorization,
     gameStateEngine,
     gameClockEngine,
@@ -147,14 +121,12 @@ export function buildRoomDetail(roomId, {
 
     const setupSession = setupSessionLifecycle?.getSession?.(roomId) ?? null;
     const paymentSession = paymentSessionManager?.getSession?.(roomId) ?? null;
-    const contract = gameContractManager?.getContract?.(roomId) ?? null;
     const gameStart = gameStartAuthorization?.getReconnectSnapshot?.(roomId)
         ?? null;
     const resultSession = resultSessionLifecycle?.getSession?.(roomId) ?? null;
 
     let gameId = gameStart?.gameId
         ?? paymentSession?.gameId
-        ?? contract?.gameId
         ?? null;
 
     if (!gameId && gameplayContextResolver?.resolveGameIdByRoomId) {
@@ -201,7 +173,6 @@ export function buildRoomDetail(roomId, {
             })
             : null,
         paymentSession: projectPaymentSession(paymentSession),
-        contract: projectContract(contract),
         gameStart,
         currentState: gameState,
         currentPage,
