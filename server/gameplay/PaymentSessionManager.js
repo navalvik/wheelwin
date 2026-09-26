@@ -445,7 +445,6 @@ export class PaymentSessionManager {
                 roomId,
                 roomNumber: Number.isInteger(room.roomNumber) ? room.roomNumber : null,
                 gameId: resolvedGameId,
-                contractId: null,
                 network: activeNetwork,
                 participants,
                 walletSessions,
@@ -1855,7 +1854,6 @@ export class PaymentSessionManager {
             paymentSessionId: session.paymentSessionId,
             roomId: session.roomId,
             gameId: session.gameId,
-            contractId: session.contractId,
             tonNetwork: session.network,
             correlationId: session.correlationId,
             status: session.status
@@ -1995,7 +1993,6 @@ export class PaymentSessionManager {
             paymentSessionId: session.paymentSessionId,
             roomId: session.roomId,
             gameId: session.gameId,
-            contractId: session.contractId,
             status: session.status,
             timestamp: Date.now(),
             correlationId: session.correlationId,
