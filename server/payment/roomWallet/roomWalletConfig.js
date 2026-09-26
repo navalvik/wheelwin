@@ -69,7 +69,7 @@ export function assertRoomWalletSettlementCanBeEnabled(service) {
 }
 
 /**
- * Compose the settlement adapter passed to ContractSettlementManager.
+ * Compose the settlement adapter passed to RoomWalletSettlementManager.
  *
  * Room Wallet settlement is enabled only by ROOM_WALLET_SETTLEMENT_MODE=ROOM_WALLET.
  * No GameEscrow mode may enable this path.
@@ -97,7 +97,6 @@ export function composeRoomWalletSettlementRouter({
     assertRoomWalletSettlementCanBeEnabled(service);
 
     return new RoomWalletSettlementRouter({
-        legacySettlementAdapter,
         roomWalletSettlementAdapter: service.settlementAdapter,
         enabled: true
     });
