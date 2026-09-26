@@ -628,7 +628,6 @@ export class BlockchainMonitor {
 
     }
 
-    /**
     async waitForConfirmation({
         transactionId,
         address,
@@ -753,13 +752,7 @@ export class BlockchainMonitor {
         return Object.freeze({
             exportedAt: this._now(),
             network: this._network,
-            contracts: Object.freeze(
-                [...this._contracts.values()].map((watch) => Object.freeze({
-                    ...watch,
-                    paymentNetwork: watch.paymentNetwork ?? null
-                }))
-            ),
-            transactions: Object.freeze(
+           transactions: Object.freeze(
                 [...this._transactions.values()]
                     .filter((watch) => watch.status === "PENDING")
                     .map((watch) => Object.freeze({
@@ -816,11 +809,6 @@ export class BlockchainMonitor {
 
             this._contracts.clear();
 
-            for (const entry of checkpoint.contracts ?? []) {
-
-                this._contracts.set(entry.contractId, { ...entry });
-
-            }
 
             this._transactions.clear();
 
