@@ -159,7 +159,6 @@ import { DepositMonitor } from "./deposit/DepositMonitor.js";
 import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
 import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
 import { DepositActivationVerificationCoordinator } from "./deposit/DepositActivationVerificationCoordinator.js";
-import { GameEscrowDeploymentAuthorizationAutomation } from "./deposit/GameEscrowDeploymentAuthorizationAutomation.js";
 import { DepositOrchestrator } from "./deposit/DepositOrchestrator.js";
 import { resolveDepositOrchestrationFinancials } from "./deposit/resolveDepositOrchestrationFinancials.js";
 import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
@@ -1368,24 +1367,35 @@ class WheelWinApplication {
             this._paymentSessionManager
         );
 
-        const deployAdapter = this._tonConfig.deployMode === "stub"
-            ? new GameContractDeployAdapter({
-                logger: this._logger,
-                deployDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
-                network: this._tonConfig.network
-            })
-            : new TonGameContractAdapter({
-                logger: this._logger,
-                tonConfig: this._tonConfig,
-                tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
-                transport: this._services.tonService.getTransport(),
-                tonClient: this._services.tonService.getClient()
-            });
+        const roomWalletOnlyFinancialPath = isRoomWalletOnlyFinancialPath({
+            env: process.env,
+            gameEscrowMode: this._tonConfig?.gameEscrowMode
+        });
+
+        const deployAdapter = roomWalletOnlyFinancialPath
+            ? null
+            : (
+                this._tonConfig.deployMode === "stub"
+                    ? new GameContractDeployAdapter({
+                        logger: this._logger,
+                        deployDelayMs: this._productionConfig.isDevelopment ? 40 : 0,
+                        network: this._tonConfig.network
+                    })
+                    : new TonGameContractAdapter({
+                        logger: this._logger,
+                        tonConfig: this._tonConfig,
+                        tonNetworkRegistry: this._services.tonNetworkServiceRegistry,
+                        transport: this._services.tonService.getTransport(),
+                        tonClient: this._services.tonService.getClient()
+                    })
+            );
 
         this._gameContractDeployAdapter = deployAdapter;
 
-        // R7.69B — GameEscrow getters for payment recovery / reconnect sync.
-        this._blockchainMonitor.setContractAdapter?.(deployAdapter);
+        // Room Wallet financial path has no gameplay smart-contract adapter.
+        if (deployAdapter) {
+            this._blockchainMonitor.setContractAdapter?.(deployAdapter);
+        }
 
         this._gameContractManager = new GameContractManager({
             logger: this._logger,
@@ -1702,18 +1712,7 @@ class WheelWinApplication {
 
         this._logger.startupLine("EntryDeploymentAuthorizationAutomation");
 
-        this._gameEscrowDeploymentAuthorizationAutomation =
-            new GameEscrowDeploymentAuthorizationAutomation({
-                logger: this._logger,
-                eventBus: this._eventBus,
-                paymentSessionManager: this._paymentSessionManager,
-                deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator,
-                enabled: isGameEscrowOnlyPlayerPayment(this._tonConfig?.gameEscrowMode)
-            });
-
-        this._gameEscrowDeploymentAuthorizationAutomation.initialize();
-
-        this._logger.startupLine("GameEscrowDeploymentAuthorizationAutomation");
+        // Room Wallet architecture: no GameEscrow deployment authorization automation.
 
         this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
             logger: this._logger,
