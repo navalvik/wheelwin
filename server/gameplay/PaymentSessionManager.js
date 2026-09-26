@@ -204,11 +204,6 @@ export class PaymentSessionManager {
         );
 
         this._subscribe(
-            EVENT_TYPES.CONTRACT_DEPLOYMENT_CONFIRMED,
-            (envelope) => this._handleContractDeploymentConfirmed(envelope.payload)
-        );
-
-        this._subscribe(
             EVENT_TYPES.PAYMENT_TRANSACTION_DETECTED,
             (envelope) => this._handlePaymentTransactionDetected(envelope.payload)
         );
@@ -218,7 +213,6 @@ export class PaymentSessionManager {
             (envelope) => this._handlePaymentTransactionConfirmed(envelope.payload)
         );
 
-        // Game Escrow STAKE is not financial authority on the Room Wallet path.
         this._subscribe(
             EVENT_TYPES.TRANSACTION_FAILED,
             (envelope) => this._handleTransactionFailed(envelope.payload)
