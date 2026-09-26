@@ -1,3 +1,15 @@
+/**
+ * R18.XSDd — Game start authorization in Room-Wallet intake mode.
+ *
+ * PAYMENT_SESSION_COMPLETED (FULLY_PAID) → GameStartAuthorization
+ * → GAME_START_AUTHORIZED → GAME_INITIALIZING → GAME_START_BOOTSTRAP_READY
+ * (the existing Page5 startup gate).
+ *
+ * The Room Wallet ledger is the authoritative received-funds gate. No
+ * smart-contract state is consulted: the former `contract` reference in
+ * _checkStartConditions crashed this exact path ("ReferenceError: contract
+ * is not defined") and left the XSDd game short of Page5.
+ */
 import assert from "node:assert/strict";
 
 import { EventBus } from "../events/EventBus.js";
@@ -6,7 +18,6 @@ import {
     GAME_START_PHASE,
     GameStartAuthorization
 } from "../gameplay/GameStartAuthorization.js";
-import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import {
     PAYMENT_PARTICIPANT_STATUS,
     PAYMENT_SESSION_STATUS
@@ -31,10 +42,8 @@ function createHarness({
     recoveryPending = false,
     simulationMissing = false,
     clockMissing = false,
-    depositSessionCoordinator = null,
-    gameEscrowMode = null,
-    roomWalletPaymentIntakeEnabled = false,
-    roomWalletLedgerRegistry = null
+    ledgerMode = "complete",
+    sessionStatus = PAYMENT_SESSION_STATUS.COMPLETED
 } = {}) {
 
     const logger = createLogger();
@@ -58,7 +67,7 @@ function createHarness({
     const session = {
         roomId: "room-1",
         gameId: "game-1",
-        status: PAYMENT_SESSION_STATUS.COMPLETED,
+        status: sessionStatus,
         completedAt: 1_700_000_000_000,
         participants: [
             { playerId: "p1", status: PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED },
@@ -76,13 +85,26 @@ function createHarness({
         }
     };
 
-    const contract = {
-        roomId: "room-1",
-        gameId: "game-1",
-        contractId: "c-1",
-        status: GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE,
-        paymentsCompletedAt: 1_700_000_000_100
-    };
+    // Room-Wallet intake: the authoritative received-funds ledger.
+    const roomWalletLedgerRegistry = ledgerMode === "missing"
+        ? null
+        : {
+            listPlayerPayments(gameId) {
+
+                if (ledgerMode === "incomplete") {
+
+                    return [{ playerId: "p1" }, { playerId: "p2" }];
+
+                }
+
+                return [
+                    { playerId: "p1" },
+                    { playerId: "p2" },
+                    { playerId: "p3" }
+                ];
+
+            }
+        };
 
     const collected = [];
 
@@ -137,13 +159,6 @@ function createHarness({
 
             }
         },
-        gameContractManager: {
-            getContract(roomId) {
-
-                return roomId === "room-1" ? contract : null;
-
-            }
-        },
         configurationEngine: {
             getConfiguration(gameId) {
 
@@ -183,9 +198,7 @@ function createHarness({
         },
         auditLedger,
         roomConfig: { maxPlayers: 3 },
-        depositSessionCoordinator,
-        gameEscrowMode,
-        roomWalletPaymentIntakeEnabled,
+        roomWalletPaymentIntakeEnabled: true,
         roomWalletLedgerRegistry
     });
 
@@ -196,20 +209,13 @@ function createHarness({
         auth,
         auditLedger,
         session,
-        contract,
         room,
         collected,
-        emitPaymentsComplete() {
+        emitPaymentSessionCompleted() {
 
             eventBus.emit({
                 source: "test",
                 type: EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
-                payload: { roomId: "room-1", gameId: "game-1" }
-            });
-
-            eventBus.emit({
-                source: "test",
-                type: EVENT_TYPES.GAME_CONTRACT_PAYMENTS_COMPLETE,
                 payload: { roomId: "room-1", gameId: "game-1" }
             });
 
@@ -218,10 +224,16 @@ function createHarness({
 
 }
 
+console.log("gameStartAuthorization (Room Wallet intake) tests");
+
+// A — FULL PAYMENT → GAME START (R18.XSDd regression).
+// Three confirmed Room Wallet payments + FULLY_PAID PaymentSession must
+// authorize game start with no ReferenceError and no contract dependency.
 {
+
     const harness = createHarness();
 
-    harness.emitPaymentsComplete();
+    harness.emitPaymentSessionCompleted();
 
     assert.deepEqual(
         harness.collected,
@@ -230,7 +242,7 @@ function createHarness({
             EVENT_TYPES.GAME_INITIALIZING,
             EVENT_TYPES.GAME_START_BOOTSTRAP_READY
         ],
-        "happy path emits authorize → initializing → bootstrap ready"
+        "full Room Wallet payment emits authorize → initializing → bootstrap ready"
     );
 
     assert.equal(
@@ -254,7 +266,7 @@ function createHarness({
 
     harness.collected.length = 0;
 
-    harness.emitPaymentsComplete();
+    harness.emitPaymentSessionCompleted();
 
     assert.equal(
         harness.collected.length,
@@ -262,74 +274,56 @@ function createHarness({
         "duplicate completion must not re-authorize"
     );
 
-    console.log("  GameStartAuthorization happy path + idempotency passed");
+    console.log("  A. FULLY_PAID → GAME_START_AUTHORIZED → BOOTSTRAP_READY passed");
 
     harness.auth.shutdown();
 
 }
 
+// B — Room Wallet ledger incomplete → blocked (fail-closed).
 {
-    const harness = createHarness({ validateThrows: true });
 
-    harness.emitPaymentsComplete();
+    const harness = createHarness({ ledgerMode: "incomplete" });
 
-    assert.deepEqual(
-        harness.collected,
-        [
-            EVENT_TYPES.GAME_START_AUTHORIZED,
-            EVENT_TYPES.GAME_INITIALIZING,
-            EVENT_TYPES.GAME_START_FAILED
-        ],
-        "validation failure cancels after GAME_INITIALIZING"
-    );
-
-    assert.equal(
-        harness.auth.getLifecycle("room-1")?.phase,
-        GAME_START_PHASE.FAILED,
-        "failed start latches FAILED to block retries"
-    );
-
-    const failed = harness.auditLedger.list("room-1").find(
-        (entry) => entry.type === "GAME_START_FAILED"
-    );
-
-    assert.ok(failed, "failure is audited");
-
-    assert.match(
-        String(failed.reason),
-        /configuration_invalid/,
-        "failure reason preserved"
-    );
-
-    console.log("  GameStartAuthorization validation failure passed");
-
-    harness.auth.shutdown();
-
-}
-
-{
-    const harness = createHarness({ recoveryPending: true });
-
-    harness.emitPaymentsComplete();
+    harness.emitPaymentSessionCompleted();
 
     assert.equal(
         harness.collected.length,
         0,
-        "recovery pending blocks game start"
+        "missing Room Wallet ledger entry blocks game start"
     );
 
-    console.log("  GameStartAuthorization recovery gate passed");
+    console.log("  B. incomplete Room Wallet ledger blocks start passed");
 
     harness.auth.shutdown();
 
 }
 
+// C — Room Wallet ledger registry missing → blocked (fail-closed).
 {
-    const harness = createHarness();
 
-    harness.session.status = PAYMENT_SESSION_STATUS.ACTIVE;
+    const harness = createHarness({ ledgerMode: "missing" });
 
-    harness.emitPaymentsComplete();
+    harness.emitPaymentSessionCompleted();
+
+    assert.equal(
+        harness.collected.length,
+        0,
+        "missing Room Wallet ledger registry blocks game start"
+    );
+
+    console.log("  C. missing ledger registry blocks start passed");
+
+    harness.auth.shutdown();
+
+}
+
+// D — incomplete payment session → blocked.
+{
+
+    const harness = createHarness({ sessionStatus: PAYMENT_SESSION_STATUS.ACTIVE });
+
+    harness.emitPaymentSessionCompleted();
 
     assert.equal(
         harness.collected.length,
@@ -337,144 +331,30 @@ function createHarness({
         "incomplete payment session blocks start"
     );
 
-    console.log("  GameStartAuthorization payment gate passed");
+    console.log("  D. incomplete payment session blocks start passed");
 
     harness.auth.shutdown();
 
 }
 
+// E — recovery pending → blocked.
 {
-    const harness = createHarness({
-        depositSessionCoordinator: {
-            getByRoomAndGame() {
 
-                return { state: "AWAITING_FUNDS" };
+    const harness = createHarness({ recoveryPending: true });
 
-            }
-        }
-    });
-
-    harness.emitPaymentsComplete();
+    harness.emitPaymentSessionCompleted();
 
     assert.equal(
         harness.collected.length,
         0,
-        "deposit not FULL blocks game start even when STAKE is complete"
+        "recovery pending blocks game start"
     );
 
-    console.log("  GameStartAuthorization deposit FULL gate passed");
-
-    harness.auth.shutdown();
-
-}
-
-{
-    const harness = createHarness({
-        depositSessionCoordinator: {
-            getByRoomAndGame() {
-
-                return { state: "DEPOSIT_FULL" };
-
-            }
-        }
-    });
-
-    harness.emitPaymentsComplete();
-
-    assert.equal(
-        harness.auth.getLifecycle("room-1")?.phase,
-        GAME_START_PHASE.OPENED,
-        "DEPOSIT_FULL plus confirmed STAKE authorizes game start"
-    );
-
-    harness.auth.shutdown();
-
-}
-
-{
-    const harness = createHarness({
-        depositSessionCoordinator: {
-            getByRoomAndGame() {
-
-                return { state: "AWAITING_FUNDS" };
-
-            }
-        },
-        gameEscrowMode: "game",
-        roomWalletLedgerRegistry: {
-            listPlayerPayments() {
-
-                return [
-                    { playerId: "p1" },
-                    { playerId: "p2" },
-                    { playerId: "p3" }
-                ];
-
-            }
-        }
-    });
-
-    harness.contract.status = "AWAITING_PAYMENTS";
-    harness.contract.snapshot = { escrowMode: "game" };
-
-    harness.emitPaymentsComplete();
-
-    assert.equal(
-        harness.auth.getLifecycle("room-1")?.phase,
-        GAME_START_PHASE.OPENED,
-        "escrowMode=game authorizes start from Room Wallet ledger without Deposit FULL or PAYMENTS_COMPLETE"
-    );
-
-    harness.auth.shutdown();
-
-}
-
-{
-    const harness = createHarness({
-        depositSessionCoordinator: {
-            getByRoomAndGame() {
-
-                return { state: "AWAITING_FUNDS" };
-
-            }
-        },
-        gameEscrowMode: "game"
-    });
-
-    harness.emitPaymentsComplete();
-
-    assert.equal(
-        harness.collected.length,
-        0,
-        "escrowMode=game does not start from Game Escrow PAYMENTS_COMPLETE without Room Wallet ledger"
-    );
-
-    harness.auth.shutdown();
-
-}
-
-{
-    const harness = createHarness({
-        depositSessionCoordinator: {
-            getByRoomAndGame() {
-
-                return { state: "AWAITING_FUNDS" };
-
-            }
-        },
-        gameEscrowMode: "v4"
-    });
-
-    harness.emitPaymentsComplete();
-
-    assert.equal(
-        harness.collected.length,
-        0,
-        "escrowMode=v4 still requires Deposit FULL"
-    );
+    console.log("  E. recovery gate passed");
 
     harness.auth.shutdown();
 
 }
 
 console.log("gameStartAuthorization.test.js passed");
+

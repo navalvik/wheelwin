@@ -44,7 +44,11 @@ export const PAYMENT_SESSION_TRANSITIONS = Object.freeze({
     ]),
     [PAYMENT_SESSION_LIFECYCLE_STATUS.FULLY_PAID]: Object.freeze([
         // R7.69C — EMERGENCY_CANCEL allowed on-chain after READY / before SETTLE.
-        PAYMENT_SESSION_LIFECYCLE_STATUS.CANCELLED
+        PAYMENT_SESSION_LIFECYCLE_STATUS.CANCELLED,
+        // Room-Wallet intake (R18.XSDd) — a FULLY_PAID session whose player
+        // funds must be returned (e.g. setup expiry before GAME_INITIALIZED)
+        // re-enters the standard REFUND_PENDING → CANCELLED unwind flow.
+        PAYMENT_SESSION_LIFECYCLE_STATUS.REFUND_PENDING
     ]),
     [PAYMENT_SESSION_LIFECYCLE_STATUS.PAYMENT_TIMEOUT]: Object.freeze([
         PAYMENT_SESSION_LIFECYCLE_STATUS.REFUND_PENDING,

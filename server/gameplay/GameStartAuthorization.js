@@ -416,11 +416,8 @@ export class GameStartAuthorization {
             ok: true,
             room,
             session,
-            contract,
             gameId,
-            blockchainCompletedAt: session.completedAt
-                ?? contract?.paymentsCompletedAt
-                ?? Date.now()
+            blockchainCompletedAt: session.completedAt ?? Date.now()
         };
 
     }
@@ -678,7 +675,7 @@ export class GameStartAuthorization {
 
         }
 
-        // Re-check payment / contract gates immediately before open.
+        // Re-check payment / Room Wallet ledger gates immediately before open.
         const gate = this._checkStartConditions(roomId);
 
         if (!gate.ok) {

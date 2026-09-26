@@ -26,6 +26,41 @@ export function sessionNeedsEscrowUnwind(session) {
 
 }
 
+/**
+ * R18.XSDd — Room-Wallet paid-funds check for setup-expiry refunds.
+ *
+ * Unlike sessionNeedsEscrowUnwind (escrow-era semantics: false when
+ * allConfirmed), this returns true whenever the session still holds
+ * received/confirmed player funds that have not been refunded —
+ * including a FULLY_PAID session. A fully paid setup session that
+ * expires before GAME_INITIALIZED must refund all three payments
+ * from the Room Wallet.
+ */
+export function sessionHasUnrefundedPaidFunds(session) {
+
+    if (!session) {
+
+        return false;
+
+    }
+
+    for (const participant of session.participants ?? []) {
+
+        const paid = participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+            || Number(participant.paidAmount) > 0;
+
+        if (paid && participant.refunded !== true) {
+
+            return true;
+
+        }
+
+    }
+
+    return false;
+
+}
+
 export function buildPartialPaymentRefundTargets(session) {
 
     const refunds = [];

@@ -31,6 +31,7 @@ import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
 import {
     allConfirmedParticipantsRefunded,
     buildPartialPaymentRefundTargets,
+    sessionHasUnrefundedPaidFunds,
     sessionNeedsEscrowUnwind
 } from "./partialPaymentEscrowUnwind.js";
 
@@ -2077,7 +2078,18 @@ export class PaymentSessionManager {
 
         }
 
-        if (session.isTerminal()) {
+        const roomWalletRefundAvailable = this._roomWalletPaymentIntakeEnabled
+            && typeof this._roomWalletSettlementAdapter?.refundPayments === "function";
+
+        // R18.XSDd — a FULLY_PAID session still holds real Room Wallet funds.
+        // When the setup session expires before GAME_INITIALIZED, those funds
+        // must be refunded; terminal status alone must not abort the refund.
+        const refundableFullyPaidSetupExpiry = reason === "setup_expired"
+            && session.status === PAYMENT_SESSION_STATUS.FULLY_PAID
+            && roomWalletRefundAvailable
+            && sessionHasUnrefundedPaidFunds(session);
+
+        if (session.isTerminal() && !refundableFullyPaidSetupExpiry) {
 
             printDeployBlock("PaymentSessionManager.failSession ABORT", {
                 RoomId: roomId,
@@ -2107,17 +2119,30 @@ export class PaymentSessionManager {
 
         this._blockchainMonitor?.stopRoom?.(roomId);
 
-        const needsRoomWalletRefund = sessionNeedsEscrowUnwind(session)
-            && this._roomWalletPaymentIntakeEnabled
-            && typeof this._roomWalletSettlementAdapter?.refundPayments === "function";
+        const needsRoomWalletRefund = roomWalletRefundAvailable
+            && (
+                refundableFullyPaidSetupExpiry
+                || sessionNeedsEscrowUnwind(session)
+            );
 
-        if (reason === "payment_timeout") {
+        // Legacy (non-intake) escrow unwind — retained for GameEscrow-era
+        // deployments. Never fires in Room-Wallet intake mode.
+        const needsEscrowUnwind = !this._roomWalletPaymentIntakeEnabled
+            && sessionNeedsEscrowUnwind(session)
+            && typeof this._gameContractManager?.requestPartialPaymentEscrowUnwind
+                === "function";
+
+        // FULLY_PAID has no transition to PAYMENT_TIMEOUT / PAYMENT_FAILED;
+        // status stays FULLY_PAID until the refund flow marks REFUND_PENDING.
+        const isFullyPaidSession = session.status === PAYMENT_SESSION_STATUS.FULLY_PAID;
+
+        if (reason === "payment_timeout" && !isFullyPaidSession) {
 
             session.markTimedOut();
 
             this._emitDomain(EVENT_TYPES.PAYMENT_TIMEOUT, session, { reason });
 
-        } else {
+        } else if (!isFullyPaidSession) {
 
             session.markFailed();
 

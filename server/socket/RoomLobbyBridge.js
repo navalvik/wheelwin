@@ -27,7 +27,10 @@ import {
     EntryPaymentSession
 } from "../models/EntryPaymentSession.js";
 import { EntryPaymentLifecycle } from "../gameplay/EntryPaymentLifecycle.js";
-import { sessionNeedsEscrowUnwind } from "../gameplay/partialPaymentEscrowUnwind.js";
+import {
+    sessionHasUnrefundedPaidFunds,
+    sessionNeedsEscrowUnwind
+} from "../gameplay/partialPaymentEscrowUnwind.js";
 import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import {
     isValidRoomId,
@@ -2402,12 +2405,7 @@ export class RoomLobbyBridge {
                     status: paymentSession.status ?? null
                 }
                 : null,
-            DeployState: contract
-                ? {
-                    contractId: contract.contractId ?? null,
-                    status: contract.status ?? null
-                }
-                : null,
+            RoomWallet: paymentSession?.roomWalletAddress ?? null,
             Creator: creatorId,
             RoomPlayerCount: room?.players.length ?? 0,
             RoomSocketCount: socketCount,
@@ -3530,32 +3528,34 @@ export class RoomLobbyBridge {
 
         const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
 
-        const unwindNeeded = paymentSession
-            ? sessionNeedsEscrowUnwind(paymentSession)
+        // R18.XSDd — the refund decision is based on actual Room Wallet paid
+        // funds, not escrow-era unwind semantics. A FULLY_PAID session still
+        // holds received player funds and must be refunded on setup expiry.
+        const paidFundsPendingRefund = paymentSession
+            ? sessionHasUnrefundedPaidFunds(paymentSession)
             : false;
 
         const roomWalletPaymentIntakeEnabled =
             this._paymentSessionManager?.isRoomWalletPaymentIntakeEnabled?.() === true;
 
-        const willFailSession = Boolean(
-            unwindNeeded
-            && (
-roomWalletPaymentIntakeEnabled
-            )
+        const willRefundPaidFunds = Boolean(
+            paidFundsPendingRefund
+            && roomWalletPaymentIntakeEnabled
         );
 
         this._logger.info(
-            `SETUP_SESSION_EXPIRED unwind check | roomId=${roomId}`
+            `SETUP_SESSION_EXPIRED refund check | roomId=${roomId}`
                 + ` | gameId=${paymentSession?.gameId ?? payload?.gameId ?? "null"}`
                 + ` | paymentSessionId=${paymentSession?.paymentSessionId ?? "null"}`
                 + ` | paymentSession.status=${paymentSession?.status ?? "null"}`
-                + ` | sessionNeedsEscrowUnwind=${unwindNeeded}`
+                + ` | sessionHasUnrefundedPaidFunds=${paidFundsPendingRefund}`
+                + ` | roomWalletPaymentIntakeEnabled=${roomWalletPaymentIntakeEnabled}`
                 + ` | timestamp=${new Date().toISOString()}`
                 + ` | reason=setup_expired`
-                + ` | nextAction=${willFailSession ? "failSession" : "_closeRoom"}`
+                + ` | nextAction=${willRefundPaidFunds ? "failSession (room wallet refund)" : "_closeRoom"}`
         );
 
-        if (willFailSession) {
+        if (willRefundPaidFunds) {
 
             this._paymentSessionManager.failSession(roomId, "setup_expired");
 
