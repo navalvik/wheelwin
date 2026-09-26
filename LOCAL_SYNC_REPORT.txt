@@ -1,0 +1,229 @@
+=====================================================================
+WHEELWIN - LOCAL WORKING COPY SYNCHRONIZATION REPORT
+=====================================================================
+Date: 2026-09-20
+Task: Restore and synchronize local working copy from GitHub
+Type: Synchronization/recovery only. No application code modified.
+
+---------------------------------------------------------------------
+1. LOCAL REPOSITORY
+---------------------------------------------------------------------
+Path:            G:\WheelWin
+Git version:     git version 2.55.0.windows.1
+Repository ok:   YES (valid git work tree; metadata intact)
+
+---------------------------------------------------------------------
+2. REMOTE
+---------------------------------------------------------------------
+Name:            origin
+URL (fetch):     https://github.com/navalvik/wheelwin.git
+URL (push):      https://github.com/navalvik/wheelwin.git
+Verified match:  YES - exactly the required URL.
+
+---------------------------------------------------------------------
+3. TARGET BRANCH
+---------------------------------------------------------------------
+Local branch:    payment/room-wallet-integration
+Upstream:        origin/payment/room-wallet-integration (tracking active)
+Checked out:     YES - current branch after synchronization.
+
+---------------------------------------------------------------------
+4. HEADS
+---------------------------------------------------------------------
+Previous local HEAD (before sync; was checked out on branch
+mainnet/payment-network-precreate):
+  eca415d948e1734ff109e86e0e7c7ed0e4a7e7d5
+  "docs: finalize payment network precreate report"
+
+Pre-sync local pointer of payment/room-wallet-integration:
+  bf9caf834ac337b022cefd145ffc10471ca59480
+
+Synchronized local HEAD:
+  511d8cada12935f68d4136fa2feceb587c365a3b
+  "Trigger Vercel deployment for Page4 payment diagnostic"
+
+Remote HEAD (origin/payment/room-wallet-integration):
+  511d8cada12935f68d4136fa2feceb587c365a3b
+  "Trigger Vercel deployment for Page4 payment diagnostic"
+
+Local HEAD == Remote HEAD:  YES - identical full SHA.
+
+---------------------------------------------------------------------
+5. SYNCHRONIZATION OPERATIONS PERFORMED (in order)
+---------------------------------------------------------------------
+1) git fetch --all --prune
+   - origin/payment/room-wallet-integration: bf9caf8..511d8ca (updated)
+   - origin/mainnet/payment-network-precreate: eca415d..a1864cd (informational)
+2) git checkout -f payment/room-wallet-integration
+   - git reported: "Your branch is behind
+     'origin/payment/room-wallet-integration' by 73 commits, and can be
+     fast-forwarded."
+3) git reset --hard origin/payment/room-wallet-integration
+   - git reported: "HEAD is now at 511d8cad Trigger Vercel deployment
+     for Page4 payment diagnostic"
+4) git clean -n -d  (dry run - 281 untracked non-ignored entries
+   identified and reviewed BEFORE removal)
+5) git clean -f -d  (executed; NOT -fdx)
+
+No merge. No rebase. No commits created. No files authored/edited in
+the codebase by the operator.
+
+---------------------------------------------------------------------
+6. DISCARDED LOCAL CONTENT
+---------------------------------------------------------------------
+a) LOCAL BRANCH COMMITS DISCARDED: NONE.
+   - origin/payment/room-wallet-integration..payment/room-wallet-integration
+     contained 0 commits (verified via rev-list --count = 0).
+   - Local branch was a strict ancestor of the remote branch;
+     synchronization was a pure fast-forward of 73 commits.
+
+b) UNCOMMITTED WORKING-TREE CHANGES DISCARDED (by reset --hard).
+   These changes belonged to the previously checked-out branch
+   mainnet/payment-network-precreate @ eca415d9 and were reported
+   before reset:
+   - 17 modified tracked files:
+     client/src/components/HeaderBar.mainnetHandoff.test.js
+     client/src/components/TestnetWarningOverlay.jsx
+     client/src/config/features.js
+     client/src/i18n/translations.js
+     client/src/main.jsx
+     client/src/socket/socket.js
+     client/src/socket/socket.telegramAuth.test.js
+     docs/architecture/R7.0H-Production-Validation-Report.md
+     server/app.js
+     server/deposit/DepositActivationVerificationCoordinator.js
+     server/deposit/RealTonDepositBlockchainSource.js
+     server/gameplay/GameContractManager.js
+     server/gameplay/PaymentSessionManager.js
+     server/payment/BlockchainMonitor.js
+     server/payment/ContractSettlementManager.js
+     server/payment/TonGameContractAdapter.js
+     server/recovery/TonFinancialRecovery.js
+   - 6 deleted (unstaged) tracked files:
+     AI_CONTEXT/CLINE_REPORTS/2026-09-14_r19_android_create_room_fix.md
+     AI_CONTEXT/CLINE_REPORTS/2026-09-14_r19_android_create_room_followup.md
+     AI_CONTEXT/CLINE_REPORTS/2026-09-14_r19_page1_network_warning_fix.md
+     AI_CONTEXT/CLINE_REPORTS/2026-09-14_r19_s110_mainnet_handoff_android_fix.md
+     AI_CONTEXT/CLINE_REPORTS/2026-09-14_r19_s111_mainnet_handoff_force_request.md
+     AI_CONTEXT/CLINE_REPORTS/2026-09-14_r19_s112_telegram_handoff_diagnostics.md
+
+c) UNTRACKED, NON-IGNORED ENTRIES REMOVED BY git clean -f -d: 281.
+   Categories (full dry-run list was reviewed before execution):
+   - .vscode/ (local editor settings, not tracked on GitHub)
+   - AI_CONTEXT/CLINE and ~180 local-only
+     AI_CONTEXT/CLINE_REPORTS/*.md reports (2026-08-23 .. 2026-09-17)
+   - Temp/probe/search artifacts: _search1..21.txt, _dualnet_*.txt,
+     _probe_r18*.mjs, _r18s112_*, _r241_r20_*, _r19_tmp_*,
+     _s104_t1.txt, _eslint_check.txt, _fsx.mjs, _matrix2.out,
+     diff_output.txt, test-quote-parsing.mjs, client/model_test.txt,
+     client/s5_test.txt, client/s6_test.txt, .sync_diag1.txt
+   - Local-only docs: docs/MAINNET_MIGRATION_STAGE_*.md (16 files),
+     docs/mainnet-migration/
+   - Directories not present on the GitHub branch: scripts/,
+     server/game/, server/rooms/, server/tests/beta/,
+     client/src/router/, client/src/docs/,
+     client/src/assets/audio/payment|result|ui/,
+     client/public/docs/es|fr|pt|zh/
+   - Untracked client assets: client/public/samples/3_banner.jpg,
+     4_banner.jpg, _1_banner.jpg, _2_banner.jpg
+   - Untracked server forensics/probes: server/err.txt,
+     server/forensic_*.mjs (6), server/scripts/_r18s15_*.mjs (5),
+     server/scripts/_r18s16_* (5 incl. .json outputs),
+     server/scripts/lib/verifyOwnerResiduesIdentity.js,
+     server/scripts/test-mnemonic-recovery.mjs,
+     server/scripts/verify-owner-residues-identity.mjs,
+     server/services/TonNetworkServiceRegistry.js,
+     server/tests/tonDualNetworkRouting.test.js,
+     server/tests/verifyOwnerResiduesIdentity.test.js,
+     server/ton_wallet_test.mjs
+   IMPORTANT: ignored files (node_modules, caches, .env, build
+   outputs) were NOT touched. git clean -fdx was NOT used.
+
+d) BRANCHES PRESERVED: the local branch
+   mainnet/payment-network-precreate was NOT deleted; it remains at
+   eca415d948e1734ff109e86e0e7c7ed0e4a7e7d5 (now behind its upstream -
+   out of scope for this task). All other local branches untouched.
+   No stashes existed (git stash list was empty before and after).
+
+---------------------------------------------------------------------
+7. POST-SYNC VERIFICATION (step 9)
+---------------------------------------------------------------------
+git status --porcelain=v1:        EMPTY
+git status:                       "On branch payment/room-wallet-integration"
+                                  "Your branch is up to date with
+                                   'origin/payment/room-wallet-integration'."
+                                  "nothing to commit, working tree clean"
+git branch -vv:                   * payment/room-wallet-integration 511d8cad
+                                    [origin/payment/room-wallet-integration]
+                                    (no ahead/behind markers)
+git rev-parse HEAD:               511d8cada12935f68d4136fa2feceb587c365a3b
+git rev-parse origin/payment/room-wallet-integration:
+                                  511d8cada12935f68d4136fa2feceb587c365a3b
+HEAD == origin ref:               YES (identical)
+Working tree clean:               YES
+(Note: LOCAL_SYNC_REPORT.txt itself is intentionally the only
+untracked file, created after verification as required by this task.)
+
+---------------------------------------------------------------------
+8. REQUIRED PROJECT FILES VERIFIED PRESENT ON DISK (step 10)
+---------------------------------------------------------------------
+EXIST  client/src/pages/Page4Payment.jsx
+EXIST  client/src/game/session/page4PaymentPhase.js
+EXIST  client/src/game/session/authoritativePaymentSessionView.js
+EXIST  client/src/game/session/authoritativeSessionModel.js
+EXIST  client/src/payment/buildEntryPaymentTransaction.js
+EXIST  client/src/payment/buildTonConnectPaymentTransaction.js
+EXIST  server/gameplay/PaymentSessionManager.js
+EXIST  server/gameplay/GameContractManager.js
+EXIST  server/payment/roomWallet/RoomWalletRuntimeResolver.js
+EXIST  server/payment/roomWallet/RoomWalletRegistry.js
+EXIST  server/payment/roomWallet/RoomWalletIncomingObserver.js
+EXIST  server/payment/roomWallet/RoomWalletSettlementAdapter.js
+All 12/12 present. Content is authoritative from the synced commit
+(working tree is byte-identical to HEAD since status is clean).
+
+---------------------------------------------------------------------
+9. LEGACY BUILDER FILES VERIFIED ABSENT (step 11)
+---------------------------------------------------------------------
+ABSENT  client/src/payment/buildDepositDeploymentTransaction.js  (correct)
+ABSENT  client/src/payment/buildFundDepositTransaction.js        (correct)
+Both are absent on the GitHub branch (retired by commits
+"remove: retire legacy player smart-contract payment builder").
+They were NOT recreated.
+
+---------------------------------------------------------------------
+10. VERCEL TRIGGER FILE (step 12)
+---------------------------------------------------------------------
+PRESENT  .vercel-deploy-trigger-20260920.txt
+(introduced by synced HEAD commit 511d8cad "Trigger Vercel deployment
+for Page4 payment diagnostic"; preserved - not removed.)
+
+---------------------------------------------------------------------
+11. PROBLEMS ENCOUNTERED
+---------------------------------------------------------------------
+- Host terminal shell integration could not capture command output
+  (PSReadLine instability in the environment). Workaround: all git
+  operations were executed through temporary PowerShell scripts with
+  output redirected to files under .git\cline_sync_diag\ (inside
+  .git - invisible to git status/git clean; directory removed after
+  completion). No impact on repository integrity.
+- No git errors, no merge conflicts, no index.lock issues, no failed
+  file removals during clean (post-clean porcelain was empty).
+- Network fetch succeeded on first attempt (credentials cached).
+
+---------------------------------------------------------------------
+12. SCOPE COMPLIANCE
+---------------------------------------------------------------------
+- No application code modified by the operator.
+- No Page4 changes. No payment logic changes.
+- No Testnet/Mainnet logic changes.
+- No npm install/update/audit fix; no package-lock changes.
+- No environment variable, Railway, or Vercel changes.
+- No dev server started.
+- Latest Page4 payment diagnostic work PRESERVED (HEAD = 511d8cad).
+- Single report created: G:\WheelWin\LOCAL_SYNC_REPORT.txt (this file).
+=====================================================================
+END OF REPORT
+=====================================================================
+
+

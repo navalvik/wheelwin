@@ -1,0 +1,199 @@
+﻿=== NOW ===
+2026-09-22 20:10:31 +03:00
+=== PWD ===
+G:\WheelWin
+=== REMOTE URL ===
+https://github.com/navalvik/wheelwin.git
+=== CURRENT BRANCH ===
+payment/room-wallet-integration
+=== HEAD BEFORE (full sha) ===
+e3e2a4b4da94352b1ce55f3fc11d5aff14a731cb
+=== HEAD BEFORE (subject) ===
+e3e2a4b4da94352b1ce55f3fc11d5aff14a731cb | 2026-09-21 18:51:09 +0300 | Testnet Page4 Room Wallet payment rebuild
+=== STASH LIST ===
+=== STATUS PORCELAIN PRE-SYNC ===
+ M server/tests/attackEObservability.r179t8.test.js
+ M server/tests/roomCreationProtection.integration.test.js
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_commit_push.md
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_staging_review.md
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_owner_transfer.md
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_recovery_transfer_blocked.md
+?? AI_CONTEXT/CLINE_REPORTS/_sync_probe_2026-09-22.txt
+?? LOCAL_SYNC_REPORT.txt
+?? WheelWin_audit_tmpdata96yf.txt
+?? _sync_probe.ps1
+=== FETCH START ===
+fetch_exit=0
+=== ORIGIN BRANCH HEAD AFTER FETCH (full sha) ===
+a51553f18178b4fbe7b9f4daebafbbe2415afea8
+=== ORIGIN BRANCH HEAD (subject) ===
+a51553f18178b4fbe7b9f4daebafbbe2415afea8 | 2026-09-22 16:59:43 +0300 | Use authoritative archived result for settlement recovery evidence
+=== BEHIND COUNT (HEAD..origin/payment/room-wallet-integration) ===
+68
+=== AHEAD COUNT (origin/payment/room-wallet-integration..HEAD) ===
+0
+=== UPSTREAM CHANGED FILES (HEAD vs origin/payment/room-wallet-integration) ===
+server/app.js
+server/engines/AuditEngine.js
+server/engines/PaymentEngine.js
+server/forensic/ForensicArchiveCollector.js
+server/gameplay/GameStartAuthorization.js
+server/gameplay/GameplayLifecycle.js
+server/gameplay/PaymentSessionManager.js
+server/gameplay/financialEvidenceGuards.js
+server/history/SessionHistoryArchiveManager.js
+server/payment/ContractSettlementManager.js
+server/payment/RoomWalletSettlementRouter.js
+server/payment/roomWallet/RoomWalletSettlementAdapter.js
+server/payment/roomWallet/RoomWalletTerminalSettlementRecovery.js
+server/payment/roomWallet/roomWalletConfig.js
+server/persistence/RecoveryDataPersistence.js
+server/recovery/RecoveryCheckpointManager.js
+server/recovery/TonFinancialRecovery.js
+server/socket/RoomLobbyBridge.js
+server/tests/forensicArchive.test.js
+server/tests/gameContract.manager.test.js
+server/tests/recoveryCheckpointWriter.r179t6.test.js
+server/tests/roomWalletAppComposition.test.js
+server/tests/settlementRecoveryResume.r94.test.js
+=== LOCAL UNCOMMITTED DIFF STAT ===
+=== PROBE DONE ===
+=== SYNC STEP START ===
+2026-09-22 20:11:40 +03:00
+=== CHECK 1: exact content diff of the 2 flagged files vs HEAD ===
+diff attackEObservability ->  (empty = no change)
+diff roomCreationProtection ->  (empty = no change)
+=== CHECK 2: would upstream update clobber any untracked files? ===
+clobber_check_exit=0
+=== CHECK 3: confirm fast-forward still possible (no divergence) ===
+behind=68
+ahead=0
+=== EXECUTE MERGE --FF-ONLY ===
+Updating e3e2a4b4..a51553f1
+Fast-forward
+ server/app.js                                      | 130 +---
+ server/engines/AuditEngine.js                      |   6 -
+ server/engines/PaymentEngine.js                    |  10 -
+ server/forensic/ForensicArchiveCollector.js        |  40 +-
+ server/gameplay/GameStartAuthorization.js          | 107 +---
+ server/gameplay/GameplayLifecycle.js               |  28 +-
+ server/gameplay/PaymentSessionManager.js           |  64 --
+ server/gameplay/financialEvidenceGuards.js         |  10 +-
+ server/history/SessionHistoryArchiveManager.js     |  82 ++-
+ server/payment/ContractSettlementManager.js        | 292 +++++++--
+ server/payment/RoomWalletSettlementRouter.js       |  22 +-
+ .../roomWallet/RoomWalletSettlementAdapter.js      |   5 +-
+ .../RoomWalletTerminalSettlementRecovery.js        |  47 +-
+ server/payment/roomWallet/roomWalletConfig.js      |  29 +-
+ server/persistence/RecoveryDataPersistence.js      |  30 +-
+ server/recovery/RecoveryCheckpointManager.js       |  60 +-
+ server/recovery/TonFinancialRecovery.js            | 666 +++++----------------
+ server/socket/RoomLobbyBridge.js                   | 176 +-----
+ server/tests/forensicArchive.test.js               |  39 +-
+ server/tests/gameContract.manager.test.js          |  26 +
+ .../tests/recoveryCheckpointWriter.r179t6.test.js  |   7 +-
+ server/tests/roomWalletAppComposition.test.js      |   9 +
+ server/tests/settlementRecoveryResume.r94.test.js  |  80 ++-
+ 23 files changed, 812 insertions(+), 1153 deletions(-)
+merge_exit=0
+=== POST-SYNC HEAD ===
+a51553f18178b4fbe7b9f4daebafbbe2415afea8
+=== POST-SYNC BRANCH ===
+payment/room-wallet-integration
+=== POST-SYNC STATUS PORCELAIN ===
+ M server/tests/attackEObservability.r179t8.test.js
+ M server/tests/roomCreationProtection.integration.test.js
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_commit_push.md
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_staging_review.md
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_owner_transfer.md
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_recovery_transfer_blocked.md
+?? AI_CONTEXT/CLINE_REPORTS/_sync_probe_2026-09-22.txt
+?? LOCAL_SYNC_REPORT.txt
+?? WheelWin_audit_tmpdata96yf.txt
+?? _sync_probe.ps1
+?? _sync_step.ps1
+=== POST-SYNC: local HEAD vs origin HEAD ===
+origin_sha=a51553f18178b4fbe7b9f4daebafbbe2415afea8
+local_sha =a51553f18178b4fbe7b9f4daebafbbe2415afea8
+=== POST-SYNC: git diff vs origin (must be empty) ===
+=== POST-SYNC: full git status ===
+On branch payment/room-wallet-integration
+Your branch is up to date with 'origin/payment/room-wallet-integration'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   server/tests/attackEObservability.r179t8.test.js
+	modified:   server/tests/roomCreationProtection.integration.test.js
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_commit_push.md
+	AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_staging_review.md
+	AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_owner_transfer.md
+	AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_recovery_transfer_blocked.md
+	AI_CONTEXT/CLINE_REPORTS/_sync_probe_2026-09-22.txt
+	LOCAL_SYNC_REPORT.txt
+	WheelWin_audit_tmpdata96yf.txt
+	_sync_probe.ps1
+	_sync_step.ps1
+
+no changes added to commit (use "git add" and/or "git commit -a")
+=== SYNC STEP DONE ===
+=== SYNC STEP START ===
+2026-09-22 20:12:26 +03:00
+=== CHECK 1: exact content diff of the 2 flagged files vs HEAD ===
+diff attackEObservability ->  (empty = no change)
+diff roomCreationProtection ->  (empty = no change)
+=== CHECK 2: would upstream update clobber any untracked files? ===
+(none - no untracked file would be overwritten)
+=== CHECK 3: confirm fast-forward still possible (no divergence) ===
+behind=0
+ahead=0
+=== EXECUTE MERGE --FF-ONLY ===
+Already up to date.
+merge_exit=0
+=== POST-SYNC HEAD ===
+a51553f18178b4fbe7b9f4daebafbbe2415afea8
+=== POST-SYNC BRANCH ===
+payment/room-wallet-integration
+=== POST-SYNC STATUS PORCELAIN ===
+ M server/tests/attackEObservability.r179t8.test.js
+ M server/tests/roomCreationProtection.integration.test.js
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_commit_push.md
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_staging_review.md
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_owner_transfer.md
+?? AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_recovery_transfer_blocked.md
+?? AI_CONTEXT/CLINE_REPORTS/_sync_probe_2026-09-22.txt
+?? LOCAL_SYNC_REPORT.txt
+?? WheelWin_audit_tmpdata96yf.txt
+?? _sync_probe.ps1
+?? _sync_step.ps1
+=== POST-SYNC: local HEAD vs origin HEAD ===
+origin_sha=a51553f18178b4fbe7b9f4daebafbbe2415afea8
+local_sha =a51553f18178b4fbe7b9f4daebafbbe2415afea8
+=== POST-SYNC: git diff vs origin (must be empty) ===
+=== POST-SYNC: full git status ===
+On branch payment/room-wallet-integration
+Your branch is up to date with 'origin/payment/room-wallet-integration'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   server/tests/attackEObservability.r179t8.test.js
+	modified:   server/tests/roomCreationProtection.integration.test.js
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_commit_push.md
+	AI_CONTEXT/CLINE_REPORTS/2026-09-21_git_staging_review.md
+	AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_owner_transfer.md
+	AI_CONTEXT/CLINE_REPORTS/2026-09-22_room_96YF_recovery_transfer_blocked.md
+	AI_CONTEXT/CLINE_REPORTS/_sync_probe_2026-09-22.txt
+	LOCAL_SYNC_REPORT.txt
+	WheelWin_audit_tmpdata96yf.txt
+	_sync_probe.ps1
+	_sync_step.ps1
+
+no changes added to commit (use "git add" and/or "git commit -a")
+=== SYNC STEP DONE ===
