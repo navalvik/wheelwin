@@ -95,7 +95,7 @@ export function buildEntryPaymentTransaction({
     mySeatIndex = null,
     myExpectedAmountNanotons = null,
     network = null,
-    gameEscrowAddress = null,
+    legacyPaymentDestination = null,
     paymentDestination = null,
     requiredGram = null,
     playerIndex = null,
@@ -159,7 +159,7 @@ export function buildEntryPaymentTransaction({
     if (includeStake === true) {
 
         const stakeTx = buildTonConnectPaymentTransaction({
-            paymentDestination: paymentDestination ?? gameEscrowAddress,
+            paymentDestination: paymentDestination ?? legacyPaymentDestination,
             requiredGram,
             playerIndex: paymentDestination ? null : playerIndex,
             directTransfer: Boolean(paymentDestination),
