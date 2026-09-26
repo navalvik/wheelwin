@@ -30,16 +30,6 @@ export {
 } from "./authoritativePaymentView.js";
 
 export {
-    listEntryPaymentPlayers,
-    hasEntryPaymentSession,
-    mapEntryPaymentStatusLabel,
-    mapEntrySmartContractLabel,
-    isEntryPaymentComplete,
-    shouldShowEntryPaymentWaiting,
-    mapEntryPaymentRows
-} from "./authoritativeEntryPaymentView.js";
-
-export {
     WALLET_CONNECTION_STATUS,
     hasWalletConnectionSession,
     shouldShowWalletConnectionWaiting,
