@@ -316,7 +316,6 @@ class WheelWinApplication {
 
         this._paymentSessionManager = null;
 
-        this._gameContractManager = null;
 
         this._deploymentCostService = null;
 
@@ -1367,11 +1366,6 @@ class WheelWinApplication {
             this._paymentSessionManager
         );
 
-        // WheelWin financial architecture: Room Wallet only.
-        // No gameplay smart-contract manager or deployment adapter exists in runtime.
-        this._gameContractDeployAdapter = null;
-        this._gameContractManager = null;
-
         // R17.8V.2P.J / R17.8V.2P.K — Deployment cost snapshot capture + freeze.
         this._deploymentCostService = new DeploymentCostService({
             repository: new DeploymentCostSnapshotRepository({
@@ -1561,7 +1555,6 @@ class WheelWinApplication {
         // R8.6 — GAME_DESTROYED waits for settlement terminal; OPEN_PAGE6 stays ungated.
         this._gameplayLifecycle.configureSettlementTeardownGate({
             settlementManager: this._settlementManager,
-            gameContractManager: this._gameContractManager
         });
 
         // R8.8 — Cross-wire financial retention checks (SESSION_FINISHED / room).
@@ -1623,10 +1616,6 @@ class WheelWinApplication {
         });
 
         this._logger.startupLine("DeploymentAuthorizationCoordinator");
-
-        this._gameContractManager?.setDeploymentAuthorizationCoordinator?.(
-            this._deploymentAuthorizationCoordinator
-        );
 
         this._depositFullAuthorizationAutomation = new DepositFullAuthorizationAutomation({
             logger: this._logger,
@@ -2060,10 +2049,6 @@ class WheelWinApplication {
             resolveRoomPaymentNetwork
         );
 
-        this._gameContractManager?.setPaymentNetworkResolver?.(
-            resolveRoomPaymentNetwork
-        );
-
         // R17.9T.6-D — production wiring of the trusted Telegram identity
         // resolver. The identity is read ONLY from the authenticated Socket.IO
         // socket context established by SocketGateway Telegram authentication
@@ -2138,7 +2123,6 @@ class WheelWinApplication {
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
             paymentSessionManager: Boolean(this._paymentSessionManager),
-            gameContractManager: Boolean(this._gameContractManager),
             winnerEngine: Boolean(this._engines?.winnerEngine),
             paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
@@ -2586,16 +2570,6 @@ class WheelWinApplication {
             if (this._blockchainMonitor) {
 
                 this._blockchainMonitor.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("gameContractManager", () => {
-
-            if (this._gameContractManager) {
-
-                this._gameContractManager.shutdown();
 
             }
 
@@ -4805,45 +4779,9 @@ class WheelWinApplication {
                 };
 
                 this._gameCatalog.configurePaymentRules(nextRules);
-                this._gameContractManager?.setPaymentRules?.(nextRules);
 
             }
         };
-
-    }
-
-    /**
-     * R7.62 / R7.67B — Derive deployer WalletContractV4R2 address for settlement tx watches.
-     * Never logs mnemonic. Returns null when mnemonic is not configured.
-     */
-    async _resolveDeployerWalletAddress() {
-
-        const mnemonic = this._tonConfig?.deployerMnemonic;
-
-        if (!mnemonic || typeof mnemonic !== "string") {
-
-            return null;
-
-        }
-
-        try {
-
-            const identity = await deriveDeployerWalletIdentity({
-                mnemonic,
-                network: this._tonConfig?.network ?? null
-            });
-
-            return identity.address;
-
-        } catch (error) {
-
-            this._logger?.error?.(
-                `Deployer wallet address resolve failed | ${error?.message ?? error}`
-            );
-
-            return null;
-
-        }
 
     }
 
