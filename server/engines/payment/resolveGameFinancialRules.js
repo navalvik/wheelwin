@@ -1,7 +1,7 @@
 /**
  * R17.9J.2I.1 — Read-only per-game payment rules resolver.
  *
- * Priority: contract snapshot → frozen economy → live catalog (pre-freeze/tests only).
+ * Priority: frozen economy → live catalog (pre-freeze/tests only).
  * Never throws. Never mutates inputs or PaymentRules.
  */
 
@@ -174,12 +174,11 @@ function resolveFromCatalog(gameCatalog) {
  *
  * @param {string} gameId
  * @param {{
- *   gameContractManager?: { getContractByGameId?: Function }|null,
  *   configurationEngine?: { getEconomy?: Function }|null,
  *   gameCatalog?: { getPaymentRules?: Function }|null
  * }} dependencies
  * @returns {{
- *   source: "contract"|"economy"|"catalog",
+ *   source: "economy"|"catalog",
  *   paymentRules: {
  *     platformFeeRate: number,
  *     currency: string|null,
@@ -190,7 +189,6 @@ function resolveFromCatalog(gameCatalog) {
  * }}
  */
 export function resolveGameFinancialRules(gameId, {
-    gameContractManager = null,
     configurationEngine = null,
     gameCatalog = null
 } = {}) {
@@ -202,27 +200,6 @@ export function resolveGameFinancialRules(gameId, {
         if (!key) {
 
             return resolveFromCatalog(gameCatalog);
-
-        }
-
-        const contract = gameContractManager?.getContractByGameId?.(key) ?? null;
-        const snapshot = contract?.snapshot ?? null;
-
-        if (snapshot && typeof snapshot === "object") {
-
-            const organizerFeeRate = Number(snapshot.organizerFeeRate);
-
-            if (Number.isFinite(organizerFeeRate)) {
-
-                const catalogRules = getCatalogRules(gameCatalog);
-
-                return Object.freeze({
-                    source: "contract",
-                    paymentRules: buildPaymentRules(catalogRules, organizerFeeRate),
-                    amounts: buildAmountsFromSnapshot(snapshot)
-                });
-
-            }
 
         }
 
