@@ -1416,7 +1416,6 @@ export class SessionHistoryArchiveManager {
                 players,
                 payment: roomDetail?.paymentSession ?? null,
                 tonConnect,
-                tonDeployDebug: tonDeployDebug ?? null,
                 blockchainLifecycle,
                 serverState: Object.freeze({
                     roomDestroyed: true,
