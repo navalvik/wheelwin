@@ -1403,7 +1403,6 @@ export class SessionHistoryArchiveManager {
             }),
             payment: roomDetail?.paymentSession ?? null,
             tonConnect: tonConnect ?? null,
-            tonDeployDebug: tonDeployDebug ?? null,
             blockchainLifecycle,
             walletConnectionSession: tonConnect
                 ? Object.freeze({
