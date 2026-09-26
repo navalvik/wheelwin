@@ -530,7 +530,6 @@ export class SessionHistoryArchiveManager {
 
         });
 
-        this._subscribe(EVENT_TYPES.GAME_CONTRACT_DEPLOYED, (envelope) => {
 
             this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
                 status: "SUCCESS",
@@ -542,7 +541,6 @@ export class SessionHistoryArchiveManager {
 
         });
 
-        this._subscribe(EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED, (envelope) => {
 
             this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
                 status: "FAILED",
@@ -622,10 +620,8 @@ export class SessionHistoryArchiveManager {
 
         });
 
-        this._subscribe(EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED, (envelope) => {
 
             this._onPaymentConfirmationLifecycle(
-                EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED,
                 envelope.payload
             );
 
