@@ -2,10 +2,13 @@
  * R7.70B — Testnet wallet readiness diagnostics (read-only, no secrets).
  * Does not deploy, stake, or settle on-chain.
  */
-import { printDeployBlock } from "./DeployPipelineForensics.js";
 
 /** @type {null | Record<string, unknown>} */
 let _tonTestnetWalletReadiness = null;
+
+function printDiagnosticBlock(title, payload) {
+    console.log(`[${title}]`, payload);
+}
 
 /**
  * @param {Record<string, unknown>} fields
@@ -65,7 +68,7 @@ export function printTonTestnetWalletReadiness(fields = null) {
 
     }
 
-    printDeployBlock("R7.70 WALLET READINESS", {
+    printDiagnosticBlock("R7.70 WALLET READINESS", {
         network: snapshot.network,
         mode: snapshot.mode,
         stake: `${snapshot.stakeGram ?? 1} Gram`,
