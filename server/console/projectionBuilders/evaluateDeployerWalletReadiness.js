@@ -1,14 +1,10 @@
 import { toNano } from "@ton/core";
 
-import {
-    DEPLOYER_MIN_BALANCE_REQUIRED_NANO
-} from "../../payment/ton/deployerBalancePolicy.js";
-
 /** Minimum balance required to attempt a deploy (0.05 TON). */
 export const DEPLOYER_BALANCE_MIN_DEPLOY_NANO = toNano("0.05");
 
 /** Recommended operational reserve — shared with deploy preflight guard. */
-export const DEPLOYER_BALANCE_RECOMMENDED_NANO = DEPLOYER_MIN_BALANCE_REQUIRED_NANO;
+export const DEPLOYER_BALANCE_RECOMMENDED_NANO = toNano("0.2");
 
 /**
  * @param {bigint|string|number} balanceNano
