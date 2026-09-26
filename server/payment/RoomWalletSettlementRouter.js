@@ -1,7 +1,7 @@
 /**
  * Payment architecture migration boundary.
  *
- * Keeps the existing ContractSettlementManager contract stable while allowing
+ * Keeps the existing RoomWalletSettlementManager contract stable while allowing
  * the new Room Wallet settlement path to be enabled explicitly.
  *
  * This router does not calculate game results or amounts. The caller supplies
@@ -33,8 +33,8 @@ export class RoomWalletSettlementRouter {
         return this._roomWalletSettlementAdapter;
     }
 
-    async settleContract(request) {
-        return this.activeAdapter.settleContract(request);
+    async settle(request) {
+        return this.activeAdapter.settle(request);
     }
 
     async refundTransfer(request) {
