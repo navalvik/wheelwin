@@ -12,8 +12,7 @@ import { isSettlementSessionTerminal } from "../payment/SettlementSessionStates.
  * @param {{
  *   roomId?: string|null,
  *   gameManager?: object|null,
- *   contractSettlementManager?: object|null,
- *   gameContractManager?: object|null,
+ *   settlementManager?: object|null,
  *   paymentSessionManager?: object|null
  * }} deps
  * @returns {boolean} true → do not destroy financial objects
