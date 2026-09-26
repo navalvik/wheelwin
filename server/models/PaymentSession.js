@@ -120,7 +120,6 @@ export class PaymentSession {
         roomId,
         roomNumber = null,
         gameId = null,
-        contractId = null,
         network = null,
         roomWalletAddress = null,
         participants,
@@ -148,7 +147,6 @@ export class PaymentSession {
 
         this.gameId = gameId ?? null;
 
-        this.contractId = contractId ?? null;
 
         this.network = network ?? null;
 
@@ -205,7 +203,6 @@ export class PaymentSession {
             roomId: payload.roomId,
             roomNumber: payload.roomNumber ?? null,
             gameId: payload.gameId ?? null,
-            contractId: payload.contractId ?? null,
             network: payload.network ?? record?.tonNetwork ?? null,
             roomWalletAddress: payload.roomWalletAddress ?? null,
             participants: payload.participants ?? [],
@@ -466,7 +463,6 @@ export class PaymentSession {
             roomId: this.roomId,
             roomNumber: this.roomNumber,
             gameId: this.gameId,
-            contractId: this.contractId,
             network: this.network,
             roomWalletAddress: this.roomWalletAddress,
             players: this.participants.map((participant) => participant.playerId),
@@ -500,7 +496,6 @@ export class PaymentSession {
             roomId: this.roomId,
             roomNumber: this.roomNumber,
             gameId: this.gameId,
-            contractId: this.contractId,
             network: this.network,
             status: this.status,
             paymentDeadline: this.paymentDeadline,
@@ -529,7 +524,6 @@ export class PaymentSession {
             roomId: this.roomId,
             roomNumber: this.roomNumber,
             gameId: this.gameId,
-            contractId: this.contractId,
             network: this.network,
             roomWalletAddress: this.roomWalletAddress,
             createdAt: this.createdAt,
