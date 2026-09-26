@@ -96,6 +96,7 @@ export function buildEntryPaymentTransaction({
     myExpectedAmountNanotons = null,
     network = null,
     gameEscrowAddress = null,
+    paymentDestination = null,
     requiredGram = null,
     playerIndex = null,
     validUntilSeconds = DEFAULT_VALID_UNTIL_SECONDS,
@@ -157,16 +158,11 @@ export function buildEntryPaymentTransaction({
 
     if (includeStake === true) {
 
-        if (playerIndex == null || playerIndex === "") {
-
-            throw new Error("playerIndex is required for GameEscrow STAKE payment");
-
-        }
-
         const stakeTx = buildTonConnectPaymentTransaction({
-            contractAddress: gameEscrowAddress,
+            paymentDestination: paymentDestination ?? gameEscrowAddress,
             requiredGram,
-            playerIndex,
+            playerIndex: paymentDestination ? null : playerIndex,
+            directTransfer: Boolean(paymentDestination),
             validUntilSeconds,
             nowMs
         });
