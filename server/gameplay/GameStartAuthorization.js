@@ -5,7 +5,6 @@ import {
     PAYMENT_SESSION_STATUS
 } from "../models/PaymentSession.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
-import { DEPOSIT_SESSION_STATUS } from "../deposit/DepositSessionStates.js";
 
 /**
  * P6.7 — Authoritative gameplay start after blockchain payment confirmation.
@@ -38,7 +37,6 @@ export class GameStartAuthorization {
         auditLedger = null,
         roomConfig = null,
         devMode = false,
-        depositSessionCoordinator = null,
         roomWalletPaymentIntakeEnabled = false
     }) {
 
@@ -77,8 +75,6 @@ export class GameStartAuthorization {
 
         this._devMode = devMode;
 
-        this._depositSessionCoordinator = depositSessionCoordinator;
-
         // Room Wallet payment path has no Game Contract. When enabled, the
         // fully-confirmed PaymentSession is the financial start gate.
         this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
@@ -107,15 +103,6 @@ export class GameStartAuthorization {
         );
 
         this._subscribe(
-            (envelope) => {
-
-                this._evaluate(envelope.payload?.roomId);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.DEPOSIT_FULL,
             (envelope) => {
 
                 this._evaluate(envelope.payload?.roomId);
@@ -370,37 +357,7 @@ export class GameStartAuthorization {
 
         }
 
-        if (this._depositSessionCoordinator) {
-
-            const deposit = this._depositSessionCoordinator.getByRoomAndGame?.(
-                roomId,
-                session.gameId
-            ) ?? null;
-
-            if (!isDepositLayerComplete(deposit)) {
-
-                return { ok: false, reason: "deposit_not_full", gameId: session.gameId };
-
-            }
-
-        }
-
-        const contract = this._gameContractManager?.getContract(roomId);
-
-        if (
-            !this._roomWalletPaymentIntakeEnabled
-            && (
-                !contract
-                || contract.status !== GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
-            )
-        ) {
-
-            return { ok: false, reason: "contract_not_payments_complete" };
-
-        }
-
         const gameId = session.gameId
-            ?? contract?.gameId
             ?? this._gameManager?.getPendingGameplayGameId?.(roomId)
             ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
             ?? null;
@@ -754,24 +711,5 @@ export class GameStartAuthorization {
         this._logger.info(`[GameStartAuthorization] ${message}`);
 
     }
-
-}
-
-const DEPOSIT_LAYER_COMPLETE_STATES = Object.freeze([
-    DEPOSIT_SESSION_STATUS.DEPOSIT_FULL,
-    DEPOSIT_SESSION_STATUS.DEPLOY_AUTHORIZED,
-    DEPOSIT_SESSION_STATUS.GAME_CONTRACT_CREATED,
-    DEPOSIT_SESSION_STATUS.RELEASED
-]);
-
-function isDepositLayerComplete(session) {
-
-    if (!session) {
-
-        return false;
-
-    }
-
-    return DEPOSIT_LAYER_COMPLETE_STATES.includes(session.state);
 
 }
