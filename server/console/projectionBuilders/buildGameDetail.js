@@ -39,10 +39,7 @@ export function buildGameDetail(gameId, {
     const paymentSession = roomId
         ? paymentSessionManager?.getSession?.(roomId)
         : paymentSessionManager?.getSessionByGameId?.(gameId);
-    const contract = roomId
-        ? gameContractManager?.getContract?.(roomId)
-        : gameContractManager?.getContractByGameId?.(gameId);
-    const settlement = contractSettlementManager
+    const settlement = settlementManager
         ?.getReconnectSnapshot?.(gameId) ?? null;
     const gameStart = roomId
         ? gameStartAuthorization?.getReconnectSnapshot?.(roomId)
@@ -94,7 +91,7 @@ export function buildGameDetail(gameId, {
             speedActive: physics?.runtime?.speedActive === true,
             brakeActive: physics?.runtime?.brakeActive === true
         }),
-        settlementStatus: settlementManager?.getReconnectSnapshot?.(gameId)?.status ?? settlement?.status ?? null,
+        settlementStatus: settlement?.status ?? null,
         paymentSessionStatus: paymentSession?.status ?? null
     });
 
