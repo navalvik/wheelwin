@@ -238,7 +238,6 @@ export class SettlementSession {
             reason: this.reason,
             settlementDeadline: this.settlementDeadline,
             recoveryMetadata: this.recoveryMetadata,
-            // R7.66I — Persist request so GameEscrow payout watches can re-register
             // after restart (needs contractAddress / wallets / amounts).
             request: this.request
         });
