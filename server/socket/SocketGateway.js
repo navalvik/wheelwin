@@ -807,13 +807,7 @@ export class SocketGateway {
         // (Keah 05:55:53Z). The binding already identifies the player; restore
         // the live Deposit projection without a new auth flow or unbind.
         if (bound?.ok === true) {
-
-            this._roomLobbyBridge?.restoreDepositProjectionForSocket?.(
-                socket.id,
-                { reason: "protected_connect" }
-            );
-
-        }
+}
 
         // Pre-create payment network (testnet|mainnet). ONLY the requested
         // payment network is forwarded; ownership, identity, roomId and any
@@ -1392,13 +1386,7 @@ export class SocketGateway {
         // (bound=true), so reconnectSession is skipped. Still restore the live
         // Deposit projection; identity is the existing server binding.
         if (context?.ok === true) {
-
-            this._roomLobbyBridge?.restoreDepositProjectionForSocket?.(
-                socket.id,
-                { reason: "bound_recovery" }
-            );
-
-        }
+}
 
         // Do not call RecoveryEngine until GAME_INITIALIZED (live gameState)
         // or RESULT cache exists.
