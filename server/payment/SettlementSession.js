@@ -1,4 +1,4 @@
-import { InvalidSettlementStateTransitionError } from "./ContractSettlementManagerErrors.js";
+import { InvalidSettlementStateTransitionError } from "./SettlementSessionErrors.js";
 import {
     canTransitionSettlementStatus,
     isSettlementSessionInProgress,
