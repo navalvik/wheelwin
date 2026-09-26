@@ -15,6 +15,7 @@ import {
     getLocalPaymentRequest,
     mapPaymentSessionRows,
     mapWalletConnectionRows,
+    isRoomWalletPaymentSession,
     PAGE4_PAYMENT_PHASE,
     resolveEntryPaymentComponents,
     resolvePage4PaymentPhase,
