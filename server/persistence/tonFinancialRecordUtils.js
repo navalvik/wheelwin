@@ -187,12 +187,6 @@ export function isImmutableRecord(recordType, status = null) {
 
 
 
-    }
-
-
-
-    }
-
     if (recordType === TON_FINANCIAL_RECORD_TYPES.DEPOSIT_SESSION) {
 
         return DEPOSIT_SESSION_TERMINAL_STATUSES.includes(status);
