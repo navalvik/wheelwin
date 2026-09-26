@@ -6,7 +6,7 @@
 import { beginCell, toNano } from "@ton/core";
 
 const DEFAULT_VALID_UNTIL_SECONDS = 600;
-export const GAME_ESCROW_STAKE_OPCODE = 0x5354414B;
+
 
 /**
  * Standard TON text-comment body (op = 0) as base64 BOC for TonConnect payload.
@@ -82,10 +82,9 @@ function hasUsablePlayerIndex(playerIndex) {
 
 /**
  * @param {object} params
- * @param {string} params.contractAddress — GameEscrow destination
- * @param {number|string} params.requiredGram — exact stake
- * @param {string} [params.paymentReference] — legacy comment (v4 / intentional)
- * @param {number} [params.playerIndex] — seat index for STAKE body (game mode)
+ * @param {string} params.contractAddress — authoritative TON destination
+ * @param {boolean} [params.directTransfer=false] — send a plain Room Wallet transfer without a smart-contract payload
+ * @param {number} [params.playerIndex] — legacy seat index
  * @param {boolean} [params.allowLegacyComment=false] — opt into text-comment payload
  * @param {number} [params.validUntilSeconds=600]
  * @param {number} [params.nowMs]
@@ -96,6 +95,7 @@ export function buildTonConnectPaymentTransaction({
     paymentReference = null,
     playerIndex = null,
     allowLegacyComment = false,
+    directTransfer = false,
     validUntilSeconds = DEFAULT_VALID_UNTIL_SECONDS,
     nowMs = Date.now()
 } = {}) {
@@ -111,11 +111,15 @@ export function buildTonConnectPaymentTransaction({
 
     const amount = requiredGramToNanotonString(requiredGram);
 
-    let payload;
+    let payload = null;
 
-    if (hasUsablePlayerIndex(playerIndex)) {
+    if (directTransfer === true) {
 
-        payload = buildGameEscrowStakePayload(playerIndex);
+        payload = undefined;
+
+    } else if (hasUsablePlayerIndex(playerIndex)) {
+
+        throw new Error("playerIndex is not valid for a direct Room Wallet transfer");
 
     } else if (allowLegacyComment === true) {
 
@@ -145,7 +149,7 @@ export function buildTonConnectPaymentTransaction({
             {
                 address: contractAddress.trim(),
                 amount,
-                payload
+                ...(payload === undefined ? {} : { payload })
             }
         ]
     };
