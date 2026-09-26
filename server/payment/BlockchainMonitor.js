@@ -170,7 +170,7 @@ export function isBouncedTonTransaction(tx) {
 
 /**
  * R7.69D — True when a TonCenter / SDK transaction aborted or failed compute.
- * Aborted inbound messages must never confirm GameEscrow payments.
+ * Aborted inbound messages are never accepted as payment evidence.
  */
 export function isFailedTonTransaction(tx) {
 
@@ -318,7 +318,6 @@ export class BlockchainMonitor {
         eventBus,
         transport = null,
         tonService = null,
-        contractAdapter = null,
         depositMonitor = null,
         auditLedger = null,
         tonNetworkRegistry = null,
@@ -340,7 +339,6 @@ export class BlockchainMonitor {
         this._tonService = tonService;
         this._tonNetworkRegistry = tonNetworkRegistry;
 
-        this._contractAdapter = contractAdapter;
 
         this._depositMonitor = depositMonitor;
 
@@ -377,8 +375,6 @@ export class BlockchainMonitor {
         // roomId → poll timer
         this._timers = new Map();
 
-        // contractId → contract watch descriptor
-        this._contracts = new Map();
 
         // watchId → transaction watch descriptor
         this._transactions = new Map();
@@ -526,7 +522,6 @@ export class BlockchainMonitor {
 
         this._confirmedRefsByRoom.clear();
 
-        this._contracts.clear();
 
         this._transactions.clear();
 
@@ -560,7 +555,6 @@ export class BlockchainMonitor {
             state: this._state,
             connected: this._connected === true,
             network: this._network,
-            watchedContracts: this._contracts.size,
             pendingTransactions: [...this._transactions.values()]
                 .filter((entry) => entry.status === "PENDING").length,
             paymentWatches: this._watches.size,
@@ -635,140 +629,6 @@ export class BlockchainMonitor {
     }
 
     /**
-     * R7.66G — Watch escrow for winner/owner payout proofs after GameEscrow SETTLE.
-     */
-) {
-
-        this._assertReadyForWatch();
-
-        if (!escrowAddress || !winnerAddress || !ownerAddress) {
-
-            throw new InvalidBlockchainDataError(
-                "watchGameEscrowSettlement requires escrow, winner, and owner addresses"
-            );
-
-        }
-
-        const watchId = `GAME_ESCROW_SETTLEMENT:${contractId ?? escrowAddress}:${settleTxHash ?? "pending"}`;
-
-        if (this._gameEscrowSettlements.has(watchId)) {
-
-            return this._publicGameEscrowSettlementWatch(
-                this._gameEscrowSettlements.get(watchId)
-            );
-
-        }
-
-        const watch = {
-            watchId,
-            escrowAddress: canonicalizeTonWalletAddress(escrowAddress)
-                ?? escrowAddress,
-            settleTxHash: settleTxHash ? String(settleTxHash) : null,
-            winnerAddress: canonicalizeTonWalletAddress(winnerAddress)
-                ?? winnerAddress,
-            ownerAddress: canonicalizeTonWalletAddress(ownerAddress)
-                ?? ownerAddress,
-            winnerAmount,
-            ownerAmount,
-            contractStatus: contractStatus ?? null,
-            contractId,
-            roomId,
-            gameId,
-            correlationId,
-            paymentNetwork: paymentNetwork ?? null,
-            status: "PENDING",
-            startedAt: this._now(),
-            timeoutMs: Number.isFinite(timeoutMs)
-                ? timeoutMs
-                : this._transactionTimeoutMs,
-            confirmedAt: null,
-            failedAt: null,
-            reason: null,
-            winnerPayoutTx: null,
-            ownerPayoutTx: null,
-            verifiedSettleTxHash: null
-        };
-
-        this._gameEscrowSettlements.set(watchId, watch);
-
-        this._ensureGlobalPoll();
-
-        return this._publicGameEscrowSettlementWatch(watch);
-
-    }
-
-
-
-    /**
-     * R7.69C — Watch escrow for exact player refund proofs after EMERGENCY_CANCEL.
-     */
-) {
-
-        this._assertReadyForWatch();
-
-        if (!escrowAddress) {
-
-            throw new InvalidBlockchainDataError(
-                "watchGameEscrowRefunds requires escrow address"
-            );
-
-        }
-
-        const watchId = `GAME_ESCROW_REFUND:${contractId ?? escrowAddress}:${cancelTxHash ?? "pending"}`;
-
-        if (this._gameEscrowRefunds.has(watchId)) {
-
-            return this._publicGameEscrowRefundWatch(
-                this._gameEscrowRefunds.get(watchId)
-            );
-
-        }
-
-        const normalizedRefunds = (refunds ?? []).map((entry) => Object.freeze({
-            playerIndex: Number(entry.playerIndex),
-            playerId: entry.playerId ?? null,
-            wallet: canonicalizeTonWalletAddress(entry.wallet) ?? entry.wallet,
-            amount: entry.amount
-        }));
-
-        const watch = {
-            watchId,
-            escrowAddress: canonicalizeTonWalletAddress(escrowAddress)
-                ?? escrowAddress,
-            cancelTxHash: cancelTxHash ? String(cancelTxHash) : null,
-            refunds: normalizedRefunds,
-            expectedRefundMask: expectedRefundMask == null
-                ? null
-                : Number(expectedRefundMask),
-            contractStatus: contractStatus ?? null,
-            contractId,
-            roomId,
-            gameId,
-            correlationId,
-            paymentNetwork: paymentNetwork ?? null,
-            status: "PENDING",
-            startedAt: this._now(),
-            timeoutMs: Number.isFinite(timeoutMs)
-                ? timeoutMs
-                : this._transactionTimeoutMs,
-            confirmedAt: null,
-            failedAt: null,
-            reason: null,
-            refundTxs: [],
-            confirmedMask: 0,
-            verifiedCancelTxHash: null
-        };
-
-        this._gameEscrowRefunds.set(watchId, watch);
-
-        this._ensureGlobalPoll();
-
-        return this._publicGameEscrowRefundWatch(watch);
-
-    }
-
-
-
     async waitForConfirmation({
         transactionId,
         address,
