@@ -121,6 +121,7 @@ export class PaymentSession {
     constructor({
         paymentSessionId,
         roomId,
+        roomNumber = null,
         gameId = null,
         contractId = null,
         network = null,
@@ -143,6 +144,10 @@ export class PaymentSession {
         this.paymentSessionId = paymentSessionId;
 
         this.roomId = roomId;
+
+        this.roomNumber = Number.isInteger(Number(roomNumber)) && Number(roomNumber) >= 1
+            ? Number(roomNumber)
+            : null;
 
         this.gameId = gameId ?? null;
 
@@ -201,6 +206,7 @@ export class PaymentSession {
         return new PaymentSession({
             paymentSessionId: payload.paymentSessionId ?? record?.recordId,
             roomId: payload.roomId,
+            roomNumber: payload.roomNumber ?? null,
             gameId: payload.gameId ?? null,
             contractId: payload.contractId ?? null,
             network: payload.network ?? record?.tonNetwork ?? null,
@@ -461,6 +467,7 @@ export class PaymentSession {
         return Object.freeze({
             paymentSessionId: this.paymentSessionId,
             roomId: this.roomId,
+            roomNumber: this.roomNumber,
             gameId: this.gameId,
             contractId: this.contractId,
             network: this.network,
@@ -494,6 +501,7 @@ export class PaymentSession {
         return Object.freeze({
             paymentSessionId: this.paymentSessionId,
             roomId: this.roomId,
+            roomNumber: this.roomNumber,
             gameId: this.gameId,
             contractId: this.contractId,
             network: this.network,
@@ -522,6 +530,7 @@ export class PaymentSession {
         return Object.freeze({
             paymentSessionId: this.paymentSessionId,
             roomId: this.roomId,
+            roomNumber: this.roomNumber,
             gameId: this.gameId,
             contractId: this.contractId,
             network: this.network,
