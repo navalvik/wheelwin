@@ -7,7 +7,6 @@
  * PAYMENT_TRANSACTION_CONFIRMED lifecycle.
  *
  * Does not replace PaymentSessionManager, BlockchainMonitor, DepositMonitor,
- * GameEscrow, or Room Wallet settlement.
  */
 
 import { EVENT_SOURCES } from "../../events/EventSources.js";
@@ -37,7 +36,6 @@ export const ROOM_WALLET_INCOMING_TX_PAGE_LIMIT = 32;
 /**
  * Observer TonCenter traffic control (read-only polling).
  *
- * Concurrency 1: Production shares one TonCenter key with GameEscrow
  * `sendBoc` / deposit `getAccount`. Forensic incident measured ~47.5
  * failed getTransactions HTTP/s with overlap + 3-attempt retry (s58).
  * Free plan is 10 RPS; Plus 25. One in-flight observer RPC leaves headroom.
