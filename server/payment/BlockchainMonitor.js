@@ -1144,8 +1144,6 @@ export class BlockchainMonitor {
 
             }
 
-            }
-
             if (typeof this._depositMonitor?.poll === "function") {
 
                 await this._depositMonitor.poll();
