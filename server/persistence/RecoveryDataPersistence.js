@@ -673,7 +673,6 @@ export class RecoveryDataPersistence {
             recoveryRecordId: payload.recoveryRecordId,
             roomId: payload.roomId,
             gameId: payload.gameId,
-            contractId: payload.contractId,
             tonNetwork: payload.tonNetwork,
             correlationId: payload.correlationId ?? overrides.correlationId ?? null,
             status: overrides.status ?? "ACTIVE",
