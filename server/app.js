@@ -1560,7 +1560,7 @@ class WheelWinApplication {
 
         // R8.6 — GAME_DESTROYED waits for settlement terminal; OPEN_PAGE6 stays ungated.
         this._gameplayLifecycle.configureSettlementTeardownGate({
-            contractSettlementManager: this._settlementManager,
+            settlementManager: this._settlementManager,
             gameContractManager: this._gameContractManager
         });
 
@@ -1850,8 +1850,7 @@ class WheelWinApplication {
                 env: process.env,
                 
             }),
-            roomWalletLedgerRegistry: this._roomWalletLedgerRegistry,
-             ?? null
+            roomWalletLedgerRegistry: this._roomWalletLedgerRegistry
         });
 
         this._gameStartAuthorization.initialize();
