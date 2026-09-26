@@ -1,8 +1,6 @@
 /**
  * Separate Testnet / Mainnet TON network profiles for the active Room Wallet
  * payment architecture. Network endpoints, deploy-wallet identity and oracle
- * inputs remain available for the existing TON infrastructure; no GameEscrow
- * mode or GameEscrow artifact is part of the runtime profile.
  */
 
 import {
