@@ -1,6 +1,5 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
-import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import {
     PAYMENT_PARTICIPANT_STATUS,
     PAYMENT_SESSION_STATUS
@@ -31,7 +30,6 @@ export class GameStartAuthorization {
         playerManager,
         gameManager,
         paymentSessionManager,
-        gameContractManager,
         configurationEngine,
         physicsEngine = null,
         gameClockEngine = null,
@@ -56,7 +54,6 @@ export class GameStartAuthorization {
 
         this._paymentSessionManager = paymentSessionManager;
 
-        this._gameContractManager = gameContractManager;
 
         this._configurationEngine = configurationEngine;
 
@@ -110,7 +107,6 @@ export class GameStartAuthorization {
         );
 
         this._subscribe(
-            EVENT_TYPES.GAME_CONTRACT_PAYMENTS_COMPLETE,
             (envelope) => {
 
                 this._evaluate(envelope.payload?.roomId);
@@ -425,11 +421,8 @@ export class GameStartAuthorization {
             ok: true,
             room,
             session,
-            contract,
             gameId,
-            blockchainCompletedAt: session.completedAt
-                ?? contract?.paymentsCompletedAt
-                ?? Date.now()
+            blockchainCompletedAt: session.completedAt ?? Date.now()
         };
 
     }
