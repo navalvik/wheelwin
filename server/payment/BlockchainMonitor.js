@@ -1142,7 +1142,6 @@ export class BlockchainMonitor {
 
             }
 
-            }
 
             if (typeof this._depositMonitor?.poll === "function") {
 
