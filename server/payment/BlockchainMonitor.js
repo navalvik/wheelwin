@@ -765,16 +765,6 @@ export class BlockchainMonitor {
                     paymentNetwork: watch.paymentNetwork ?? null
                 }))
             ),
-            gameEscrowRefundWatches: Object.freeze(
-                [...this._gameEscrowRefunds.values()]
-                    .filter((watch) => watch.status === "PENDING")
-                    .map((watch) => Object.freeze({
-                        ...watch,
-                        paymentNetwork: watch.paymentNetwork ?? null,
-                        refunds: Object.freeze([...(watch.refunds ?? [])]),
-                        refundTxs: Object.freeze([...(watch.refundTxs ?? [])])
-                    }))
-            ),
             seenTxByRoom: Object.freeze(
                 Object.fromEntries(
                     [...this._seenTxByRoom.entries()].map(([roomId, set]) => [
@@ -1495,12 +1485,6 @@ export class BlockchainMonitor {
 
     }
 
-
-
-    /**
-     * R7.69C — Observe escrow out-msgs for exact paid-seat refunds after cancel.
-     * Emits GAME_ESCROW_REFUND_CONFIRMED only after chain confirmation (no optimistic).
-     */
 
 
     async _evaluateTransaction(contractAddress, tx, watches) {
