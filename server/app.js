@@ -1783,7 +1783,7 @@ class WheelWinApplication {
             sessionWalletStore: this._sessionWalletStore,
             paymentSessionManager: this._paymentSessionManager,
 
-            contractSettlementManager: this._settlementManager,
+            settlementManager: this._settlementManager,
             blockchainMonitor: this._blockchainMonitor,
             playerManager: this._managers.playerManager,
             roomManager: this._managers.roomManager,
@@ -2016,7 +2016,7 @@ class WheelWinApplication {
             paymentSessionManager: this._paymentSessionManager,
 
             gameStartAuthorization: this._gameStartAuthorization,
-            contractSettlementManager: this._settlementManager,
+            settlementManager: this._settlementManager,
             sessionWalletStore: this._sessionWalletStore,
             isDevelopment: this._productionConfig.isDevelopment,
             lifecycleManager: this._lifecycleManager,
