@@ -879,8 +879,7 @@ export default function Page4Payment({ onNavigate }) {
 
         const lifecycle = authoritative?.lifecycle ?? null;
         const paymentSession = authoritative?.paymentSession ?? null;
-        const gameContract = authoritative?.gameContract ?? null;
-        const roomWalletOnly = isRoomWalletPaymentSession(paymentSession);
+            const roomWalletOnly = isRoomWalletPaymentSession(paymentSession);
 
         if (!roomWalletOnly) {
 
@@ -918,8 +917,7 @@ export default function Page4Payment({ onNavigate }) {
         const components = resolveEntryPaymentComponents({
             deposit: depositProjection,
             paymentSession,
-            gameContract,
-            localPlayerId,
+                localPlayerId,
             lifecycle
         });
 
@@ -991,9 +989,6 @@ export default function Page4Payment({ onNavigate }) {
                     : depositProjection.myExpectedAmountNanotons,
                 network: roomWalletOnly ? null : depositProjection.network,
                 paymentDestination: roomWalletOnly ? roomWalletDestination : null,
-                legacyPaymentDestination: roomWalletOnly
-                    ? (roomWalletDestination ?? paymentRequest?.contractAddress ?? null)
-                    : (paymentRequest?.contractAddress ?? null),
                 requiredGram: paymentRequest?.requiredGram ?? null,
                 playerIndex
             });
@@ -1002,7 +997,6 @@ export default function Page4Payment({ onNavigate }) {
             const nowEpochSeconds = Math.floor(Date.now() / 1000);
             const authoritativeNetwork = paymentSession?.network
                 ?? depositProjection?.network
-                ?? gameContract?.network
                 ?? null;
             const walletChain = tonWallet?.account?.chain
                 ?? tonConnectUI?.wallet?.account?.chain
