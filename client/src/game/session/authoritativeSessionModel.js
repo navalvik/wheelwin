@@ -49,9 +49,6 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     PAYMENT_REQUEST: "PAYMENT_REQUEST",
     PAYMENT_SESSION_COMPLETED: "PAYMENT_SESSION_COMPLETED",
     PAYMENT_SESSION_FAILED: "PAYMENT_SESSION_FAILED",
-    GAME_CONTRACT_UPDATED: "GAME_CONTRACT_UPDATED",
-    GAME_CONTRACT_DEPLOYED: "GAME_CONTRACT_DEPLOYED",
-    GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
     // R18 S4 — requester-scoped Deposit package (informational mirror only).
     DEPOSIT_PACKAGE_PUBLISHED: "DEPOSIT_PACKAGE_PUBLISHED",
     // R18-S16 — existing server activation event, mirrored for Page4 gating.
@@ -756,36 +753,6 @@ export function authoritativeSessionReducer(state, action) {
                 ...state,
                 roomId: payload.roomId ?? state.roomId,
                 gameId: payload.gameId ?? state.gameId
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED:
-        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOYED:
-        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOY_FAILED: {
-
-            if (!payload || typeof payload !== "object") {
-
-                return state;
-
-            }
-
-            return stamp({
-                ...state,
-                roomId: payload.roomId ?? state.roomId,
-                gameId: payload.gameId ?? state.gameId,
-                gameContract: Object.freeze({
-                    contractId: payload.contractId ?? null,
-                    gameId: payload.gameId ?? null,
-                    roomId: payload.roomId ?? null,
-                    status: payload.status ?? null,
-                    createdAt: payload.createdAt ?? null,
-                    contractAddress: payload.contractAddress ?? null,
-                    deploymentStatus: payload.deploymentStatus ?? null,
-                    deployedAt: payload.deployedAt ?? null,
-                    paymentsCompletedAt: payload.paymentsCompletedAt ?? null,
-                    deployError: payload.deployError ?? null
-                })
             }, action.type);
 
         }
