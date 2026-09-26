@@ -14,7 +14,7 @@ export function setTonTestnetWalletReadiness(fields = {}) {
 
     _tonTestnetWalletReadiness = {
         network: fields.network ?? "testnet",
-        mode: fields.mode ?? "GameEscrow",
+        mode: fields.mode ?? "RoomWallet",
         stakeGram: fields.stakeGram ?? 1,
         expectedTotalGram: fields.expectedTotalGram ?? 3,
         deployAddress: fields.deployAddress ?? null,
@@ -92,7 +92,7 @@ export function printTonTestnetWalletReadiness(fields = null) {
  *
  * @param {{
  *   network?: string|null,
- *   gameEscrowMode?: string|null,
+ *   paymentArchitecture?: string|null,
  *   deployAddress?: string|null,
  *   deployWalletId?: number|null,
  *   deployBalanceTon?: number|null,
@@ -106,7 +106,7 @@ export function evaluateTonTestnetWalletReadiness(input = {}) {
 
     const reasons = [];
     const network = String(input.network ?? "").trim().toLowerCase() || "testnet";
-    const mode = String(input.gameEscrowMode ?? "").trim().toLowerCase();
+    const mode = "room_wallet";
 
     if (network !== "testnet") {
 
@@ -114,53 +114,20 @@ export function evaluateTonTestnetWalletReadiness(input = {}) {
 
     }
 
-    if (mode !== "game") {
-
-        reasons.push(`Expected GameEscrow mode=game | got=${mode || "unset"}`);
-
-    }
-
-    if (!input.deployAddress) {
-
-        reasons.push("Deploy wallet identity unavailable");
-
-    }
-
-    if (!input.oracleAddress) {
-
-        reasons.push("Oracle address not configured");
-
-    }
-
-    if (!input.ownerAddress) {
-
-        reasons.push("Owner wallet not configured");
-
-    }
-
-    if (
-        input.deployBalanceTon != null
-        && Number(input.deployBalanceTon) < 0.1
-    ) {
-
-        reasons.push("Deploy wallet balance too low for Testnet deploy/gas");
-
-    }
-
     const status = reasons.length === 0 ? "READY" : "BLOCKED";
 
     return {
         network,
-        mode: mode === "game" ? "GameEscrow" : (mode || "unknown"),
+        mode: "RoomWallet",
         stakeGram: 1,
         expectedTotalGram: 3,
-        deployAddress: input.deployAddress ?? null,
-        deployWalletId: input.deployWalletId ?? null,
-        deployBalanceTon: input.deployBalanceTon ?? null,
-        oracleAddress: input.oracleAddress ?? null,
-        oracleSource: input.oracleSource ?? null,
-        ownerAddress: input.ownerAddress ?? null,
-        ownerBalanceTon: input.ownerBalanceTon ?? null,
+        deployAddress: null,
+        deployWalletId: null,
+        deployBalanceTon: null,
+        oracleAddress: null,
+        oracleSource: null,
+        ownerAddress: null,
+        ownerBalanceTon: null,
         playersConfigured: "tonconnect_runtime",
         playerSeatCount: 3,
         status,
