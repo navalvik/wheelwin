@@ -4655,7 +4655,7 @@ class WheelWinApplication {
 
         this._logger.startupLine(
             `TonMainnetReadiness=${readiness.status} `
-                + `(active=${network ?? "unknown"} escrow=${readiness.escrowMode})`
+                + `(active=${network ?? "unknown"} room_wallet=active)`
         );
 
         if (network === "mainnet") {
@@ -4665,8 +4665,7 @@ class WheelWinApplication {
                 walletAddress,
                 walletType,
                 workchain,
-                walletId,
-                artifact
+                walletId
             });
 
             if (readiness.status !== "PASS") {
