@@ -5,21 +5,9 @@
  * No gameplay smart-contract payload is generated here.
  */
 
-import { beginCell, toNano } from "@ton/core";
+import { toNano } from "@ton/core";
 
 const DEFAULT_VALID_UNTIL_SECONDS = 600;
-
-export function buildTonCommentPayload(comment) {
-    if (comment == null || String(comment).trim() === "") {
-        throw new Error("paymentReference is required for TonConnect payload");
-    }
-    return beginCell()
-        .storeUint(0, 32)
-        .storeStringTail(String(comment))
-        .endCell()
-        .toBoc()
-        .toString("base64");
-}
 
 export function requiredGramToNanotonString(requiredGram) {
     if (requiredGram == null || requiredGram === "") {
