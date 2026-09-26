@@ -154,7 +154,7 @@ export async function createValidationStack(options = {}) {
             resultSessionLifecycle: { getActiveSessionCount: () => 0 },
             paymentSessionManager: { getActiveSessionCount: () => 0 },
             paymentEngine: { getActivePaymentCount: () => 0 },
-            contractSettlementManager: { getActiveSettlementCount: () => 0 },
+            settlementManager: { getActiveSettlementCount: () => 0 },
             recoveryEngine: { listActiveRecoveryGameIds: () => [] },
             simulationLoop: {
                 isRunning: () => state.games > 0,
