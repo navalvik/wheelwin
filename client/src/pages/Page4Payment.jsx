@@ -935,7 +935,6 @@ export default function Page4Payment({ onNavigate }) {
         if (!canSubmitEntryPayment({
             deposit: depositProjection,
             paymentSession,
-            gameContract,
             localPlayerId,
             lifecycle
         })) {
@@ -1287,7 +1286,6 @@ export default function Page4Payment({ onNavigate }) {
     const paymentPhase = resolvePage4PaymentPhase({
         deposit: depositProjection,
         paymentSession,
-        gameContract,
         localPlayerId,
         paymentConnectionReady,
         lifecycle: authoritative.lifecycle
