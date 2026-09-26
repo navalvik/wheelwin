@@ -347,33 +347,6 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
-        onGameContractUpdated: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED,
-                payload
-            });
-
-        },
-
-        onGameContractDeployed: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOYED,
-                payload
-            });
-
-        },
-
-        onGameContractDeployFailed: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOY_FAILED,
-                payload
-            });
-
-        },
-
         // R18 S4 — store the requester-scoped Deposit projection (mirror only).
         onDepositPackagePublished: (payload) => {
 
