@@ -15,9 +15,8 @@ export function buildBlockchainStatus({
     tonService = null,
     blockchainMonitor = null,
     walletManager = null,
-    gameContractManager = null,
     paymentSessionManager = null,
-    contractSettlementManager = null,
+    settlementManager = null,
     tonFinancialRecovery = null
 }) {
 
@@ -29,7 +28,7 @@ export function buildBlockchainStatus({
 
     const paymentHealth = paymentSessionManager?.health?.() ?? null;
 
-    const settlementHealth = contractSettlementManager?.health?.() ?? null;
+    const settlementHealth = settlementManager?.health?.() ?? null;
 
     const recoverySnapshot = tonFinancialRecovery?.getDashboardSnapshot?.() ?? null;
 
@@ -69,13 +68,6 @@ export function buildBlockchainStatus({
                 activeSessions: walletHealth?.activeSessions ?? 0,
                 verifiedWallets: walletHealth?.verifiedWallets ?? 0
             }),
-            contractManager: Object.freeze({
-                status: mapManagerStatus(
-                    gameContractManager ? { ok: true } : null,
-                    { initialized: gameContractManager != null }
-                ),
-                trackedRooms: gameContractManager?.listContractRoomIds?.()?.length ?? 0
-            }),
             paymentSessionManager: Object.freeze({
                 status: mapManagerStatus(paymentHealth, {
                     initialized: paymentSessionManager != null
@@ -85,7 +77,7 @@ export function buildBlockchainStatus({
             }),
             contractSettlementManager: Object.freeze({
                 status: mapManagerStatus(settlementHealth, {
-                    initialized: contractSettlementManager != null
+                    initialized: settlementManager != null
                 }),
                 activeSettlements: settlementHealth?.activeSettlements ?? 0,
                 pendingSettlements: settlementHealth?.pendingSettlements ?? 0
