@@ -58,13 +58,6 @@ export {
 } from "./authoritativePaymentSessionView.js";
 
 export {
-    GAME_CONTRACT_STATUS,
-    hasGameContract,
-    isGameContractDeployed,
-    mapGameContractStatusLabel
-} from "./authoritativeGameContractView.js";
-
-export {
     PAGE4_PAYMENT_PHASE,
     canDeployDeposit,
     canFundSeat,
