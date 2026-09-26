@@ -679,139 +679,73 @@ export class PaymentSessionManager {
 
     }
 
-    restorePaymentSessions() {
-
+    async restorePaymentSessions() {
         this._assertInitialized();
 
-        if (!this._financialPersistence) {
-
-            return Object.freeze({
-                restored: 0,
-                recovered: 0,
-                rewatched: 0,
-                syncedFromChain: 0
-            });
-
-        }
-
-        const records = this._financialPersistence.listActive(
+        const records = this._financialPersistence?.listActive?.(
             TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION
-        );
+        ) ?? [];
 
         let restored = 0;
-
         let recovered = 0;
-
-        let rewatched = 0;
-
-        const pendingSync = [];
+        let refundPending = 0;
 
         for (const record of records) {
-
             try {
-
                 const session = PaymentSession.fromRecord(record);
+                if (!session.roomId || this._sessionsByRoom.has(session.roomId)) continue;
 
-                if (this._sessionsByRoom.has(session.roomId)) {
-
-                    continue;
-
+                const room = this._roomManager?.getRoom?.(session.roomId) ?? null;
+                if (room?.roomNumber != null && session.roomNumber == null) {
+                    session.roomNumber = room.roomNumber;
                 }
 
-                // Room Wallet timeout sessions with immutable accepted incoming
-                // evidence must survive restart long enough to complete refunds.
-                const isCancelled = session.status === PAYMENT_SESSION_STATUS.CANCELLED;
-                const isRoomWalletTimeout =
-                    this._roomWalletPaymentIntakeEnabled
-                    && session.status === PAYMENT_SESSION_STATUS.PAYMENT_TIMEOUT;
-                const reconciledRoomWalletPayments = isRoomWalletTimeout
-                    ? this._reconcileRoomWalletAcceptedEvidence(session)
-                    : 0;
-                const requiresRoomWalletRefundRecovery =
-                    isRoomWalletTimeout && reconciledRoomWalletPayments > 0;
-
-                if (session.isTerminal() && !isCancelled && !requiresRoomWalletRefundRecovery) {
-
-                    continue;
-
+                if (!session.roomWalletAddress) {
+                    session.roomWalletAddress = this._resolveRoomWalletPaymentAddress(
+                        room,
+                        session.network ?? this._tonNetwork ?? null
+                    );
                 }
 
-                if (
-                    !isCancelled
-                    && !requiresRoomWalletRefundRecovery
-                    && !session.isInProgress()
-                    && session.status !== PAYMENT_SESSION_STATUS.RECOVERED
-                ) {
-
-                    session.status = PAYMENT_SESSION_STATUS.RECOVERED;
-
+                if (this._roomWalletPaymentIntakeEnabled) {
+                    this._reconcileRoomWalletAcceptedEvidence(session);
                 }
 
-                if (session.status === PAYMENT_SESSION_STATUS.RECOVERED) {
+                this._sessionsByRoom.set(session.roomId, session);
+                if (session.gameId) this._roomByGameId.set(session.gameId, session.roomId);
 
-                    recovered += 1;
-
-                }
-
-                // R7.69B — restore seat indices for GameEscrow paidMask mapping.
-                session.participants.forEach((participant, index) => {
-
-                    if (participant.playerIndex == null) {
-
-                        participant.playerIndex = index;
-
+                if (session.status === PAYMENT_SESSION_STATUS.PAYMENT_TIMEOUT
+                    || session.status === PAYMENT_SESSION_STATUS.FAILED) {
+                    const hasConfirmed = session.participants.some(participant =>
+                        participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
+                        || Number(participant.paidAmount) > 0
+                    );
+                    if (hasConfirmed && this._roomWalletRefundAdapter) {
+                        if (session.status !== PAYMENT_SESSION_STATUS.REFUND_PENDING) {
+                            session.markRefundPending();
+                        }
+                        this._persistSession(session, "update");
+                        refundPending += 1;
+                        void this._runRoomWalletRefunds(session, "restore_recovery");
                     }
-
-                });
-
-                this._indexSession(session);
-
-                if (requiresRoomWalletRefundRecovery) {
-                    session.recoveryMetadata = {
-                        ...(session.recoveryMetadata ?? {}),
-                        roomWalletRefundRecoveredAt: Date.now()
-                    };
-                    session.markRefundPending();
-                    this._persistSession(session, "update");
-                    void this._runRoomWalletRefunds(session, "payment_timeout_recovery");
                 }
 
-                if (
-                    !isCancelled
-                    && !requiresRoomWalletRefundRecovery
-                    && session.paymentDeadline
-                    && session.paymentDeadline > Date.now()
-                ) {
-
+                if (session.isInProgress()) {
                     this._scheduleExpiry(session);
-
                 }
-
-                pendingSync.push(session);
-
-                this._emitDomain(EVENT_TYPES.PAYMENT_SESSION_RECOVERED, session);
 
                 restored += 1;
-
             } catch (error) {
-
-                this._logger.error(
-                    `PaymentSession restore skipped | id=${record?.recordId} | `
-                        + `${error?.message ?? error}`
+                this._logger?.error?.(
+                    `Payment session restore failed | record=${record?.recordId ?? "unknown"} | ${error?.message ?? error}`
                 );
-
             }
-
         }
 
-        return this._finishPaymentSessionRestore({
-            restored,
-            recovered,
-            rewatched,
-            pendingSync
-        });
-
+        recovered = restored - refundPending;
+        return Object.freeze({ restored, recovered, refundPending, rewatched: 0, syncedFromChain: 0 });
     }
+
 
     /**
      * R7.69B — Finish restore: sync paid seats from GameEscrow, then rewatch unpaid.
