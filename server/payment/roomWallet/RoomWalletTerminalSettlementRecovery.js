@@ -282,7 +282,7 @@ export class RoomWalletTerminalSettlementRecovery {
 
         let adapterResult;
         try {
-            adapterResult = await adapter.settleContract(request);
+            adapterResult = await adapter.settle(request);
         } catch (error) {
             this._persistRecovery(gameId, "BLOCKED", {
                 reconstructed,
