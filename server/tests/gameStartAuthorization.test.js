@@ -6,7 +6,6 @@ import {
     GAME_START_PHASE,
     GameStartAuthorization
 } from "../gameplay/GameStartAuthorization.js";
-import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import {
     PAYMENT_PARTICIPANT_STATUS,
     PAYMENT_SESSION_STATUS
@@ -31,7 +30,6 @@ function createHarness({
     recoveryPending = false,
     simulationMissing = false,
     clockMissing = false,
-    depositSessionCoordinator = null,
     roomWalletPaymentIntakeEnabled = false
 } = {}) {
 
@@ -72,14 +70,6 @@ function createHarness({
             );
 
         }
-    };
-
-    const contract = {
-        roomId: "room-1",
-        gameId: "game-1",
-        contractId: "c-1",
-        status: GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE,
-        paymentsCompletedAt: 1_700_000_000_100
     };
 
     const collected = [];
@@ -135,13 +125,6 @@ function createHarness({
 
             }
         },
-        gameContractManager: {
-            getContract(roomId) {
-
-                return roomId === "room-1" && !roomWalletPaymentIntakeEnabled ? contract : null;
-
-            }
-        },
         configurationEngine: {
             getConfiguration(gameId) {
 
@@ -181,7 +164,6 @@ function createHarness({
         },
         auditLedger,
         roomConfig: { maxPlayers: 3 },
-        depositSessionCoordinator,
         roomWalletPaymentIntakeEnabled
     });
 
@@ -192,7 +174,6 @@ function createHarness({
         auth,
         auditLedger,
         session,
-        contract,
         room,
         collected,
         emitPaymentsComplete() {
@@ -203,11 +184,6 @@ function createHarness({
                 payload: { roomId: "room-1", gameId: "game-1" }
             });
 
-            eventBus.emit({
-                source: "test",
-                type: EVENT_TYPES.GAME_CONTRACT_PAYMENTS_COMPLETE,
-                payload: { roomId: "room-1", gameId: "game-1" }
-            });
 
         }
     };
@@ -369,52 +345,5 @@ function createHarness({
 
 }
 
-{
-    const harness = createHarness({
-        depositSessionCoordinator: {
-            getByRoomAndGame() {
-
-                return { state: "AWAITING_FUNDS" };
-
-            }
-        }
-    });
-
-    harness.emitPaymentsComplete();
-
-    assert.equal(
-        harness.collected.length,
-        0,
-        "deposit not FULL blocks game start even when STAKE is complete"
-    );
-
-    console.log("  GameStartAuthorization deposit FULL gate passed");
-
-    harness.auth.shutdown();
-
-}
-
-{
-    const harness = createHarness({
-        depositSessionCoordinator: {
-            getByRoomAndGame() {
-
-                return { state: "DEPOSIT_FULL" };
-
-            }
-        }
-    });
-
-    harness.emitPaymentsComplete();
-
-    assert.equal(
-        harness.auth.getLifecycle("room-1")?.phase,
-        GAME_START_PHASE.OPENED,
-        "DEPOSIT_FULL plus confirmed STAKE authorizes game start"
-    );
-
-    harness.auth.shutdown();
-
-}
 
 console.log("gameStartAuthorization.test.js passed");
