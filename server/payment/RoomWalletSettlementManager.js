@@ -468,8 +468,6 @@ export class RoomWalletSettlementManager {
             gameId: ctx.gameId,
             roomId: ctx.roomId,
             roomNumber: this._resolveRoomNumberForSettlement(ctx),
-            contractId: null,
-            contractAddress: null,
             winnerId: ctx.winnerId,
             winnerWallet: ctx.winnerWallet,
             ownerWallet: ctx.ownerWallet,
