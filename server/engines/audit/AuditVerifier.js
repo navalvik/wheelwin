@@ -25,14 +25,12 @@ export class AuditVerifier {
     constructor({
         gameCatalog,
         configurationEngine = null,
-        gameContractManager = null
     }) {
 
         this._gameCatalog = gameCatalog;
 
         this._configurationEngine = configurationEngine;
 
-        this._gameContractManager = gameContractManager;
 
         this._prizeCalculator = new PrizeCalculator({
             paymentRules: gameCatalog.getPaymentRules()
@@ -50,11 +48,6 @@ export class AuditVerifier {
 
     }
 
-    setGameContractManager(gameContractManager) {
-
-        this._gameContractManager = gameContractManager ?? null;
-
-    }
 
     verify(sources) {
 
@@ -566,7 +559,6 @@ export class AuditVerifier {
     _resolvePaymentRules(gameId) {
 
         const resolved = resolveGameFinancialRules(gameId, {
-            gameContractManager: this._gameContractManager,
             configurationEngine: this._configurationEngine,
             gameCatalog: this._gameCatalog
         });
