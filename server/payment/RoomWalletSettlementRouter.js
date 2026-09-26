@@ -10,19 +10,12 @@
  */
 export class RoomWalletSettlementRouter {
     constructor({
-        legacySettlementAdapter,
         roomWalletSettlementAdapter,
-        enabled = false
+        enabled = true
     }) {
-        if (!legacySettlementAdapter) {
-            throw new Error("RoomWalletSettlementRouter requires legacySettlementAdapter");
-        }
-
         if (!roomWalletSettlementAdapter) {
             throw new Error("RoomWalletSettlementRouter requires roomWalletSettlementAdapter");
         }
-
-        this._legacySettlementAdapter = legacySettlementAdapter;
         this._roomWalletSettlementAdapter = roomWalletSettlementAdapter;
         this._enabled = enabled === true;
     }
@@ -37,9 +30,7 @@ export class RoomWalletSettlementRouter {
     }
 
     get activeAdapter() {
-        return this._enabled
-            ? this._roomWalletSettlementAdapter
-            : this._legacySettlementAdapter;
+        return this._roomWalletSettlementAdapter;
     }
 
     async settleContract(request) {
