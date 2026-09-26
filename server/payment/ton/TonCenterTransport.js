@@ -6,8 +6,6 @@
 
 import { createHash } from "node:crypto";
 
-import { pushTonDeployDebugStage } from "../../diagnostics/DeployPipelineForensics.js";
-
 function headersToObject(headers) {
 
     const out = {};
@@ -167,10 +165,6 @@ export class TonCenterTransport {
             }
         );
 
-        pushTonDeployDebugStage(null, {
-            tonCenterEndpoint: this._endpoint
-        });
-
         try {
 
             const result = await this.call("sendBoc", { boc });
@@ -202,14 +196,6 @@ export class TonCenterTransport {
                     endpoint: error?.endpoint ?? this._endpoint
                 }
             );
-
-            pushTonDeployDebugStage(null, {
-                tonCenterStatus: status,
-                tonCenterResponse: responseBody,
-                tonCenterEndpoint: error?.endpoint ?? this._endpoint,
-                errorName: error?.name ?? "Error",
-                errorMessage: error?.message ?? String(error)
-            });
 
             throw error;
 
