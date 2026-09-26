@@ -1,4 +1,3 @@
-import { logClientDepositRestore } from "./clientDepositRestoreDiagnostics.js";
 
 /**
  * C5.2 — Authoritative Session Model (foundation).
@@ -49,10 +48,6 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     PAYMENT_REQUEST: "PAYMENT_REQUEST",
     PAYMENT_SESSION_COMPLETED: "PAYMENT_SESSION_COMPLETED",
     PAYMENT_SESSION_FAILED: "PAYMENT_SESSION_FAILED",
-    // R18 S4 — requester-scoped Deposit package (informational mirror only).
-    DEPOSIT_PACKAGE_PUBLISHED: "DEPOSIT_PACKAGE_PUBLISHED",
-    // R18-S16 — existing server activation event, mirrored for Page4 gating.
-    DEPOSIT_ACTIVATION_VERIFIED: "DEPOSIT_ACTIVATION_VERIFIED",
     GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
     GAME_INITIALIZING: "GAME_INITIALIZING",
     SETTLEMENT_STARTED: "SETTLEMENT_STARTED",
@@ -77,8 +72,6 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     entryPayment: null,
     walletConnection: null,
     paymentSession: null,
-    // R18 S4 — requester-scoped Deposit projection mirror (informational only).
-    deposit: null,
     audit: null,
     winner: null,
     recovery: null,
@@ -91,7 +84,6 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
         paymentStageReady: false,
         entryPaymentCompleted: false,
         paymentConnectionReady: false,
-        depositActivationVerified: false,
         gameStartAuthorized: false,
         gameInitializing: false,
         settlementCompleted: false,
@@ -761,109 +753,6 @@ export function authoritativeSessionReducer(state, action) {
         // shipped already requester-scoped by the server (projectDepositForPlayer).
         // This reducer never derives seat/creator/amount and never infers funding —
         // it stores the received projection verbatim (frozen).
-        case AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED: {
-
-            if (!payload || typeof payload !== "object") {
-
-                // Fail closed — no projection, no change.
-                return state;
-
-            }
-
-            const deposit = payload.deposit;
-
-            if (!deposit || typeof deposit !== "object") {
-
-                // Fail closed — never invent a Deposit projection.
-                return state;
-
-            }
-
-            const pkg = deposit.package && typeof deposit.package === "object"
-                ? Object.freeze({ ...deposit.package })
-                : null;
-
-            logClientDepositRestore("DEPOSIT_PACKAGE_RECEIVED", {
-                roomId: state.roomId,
-                depositId: deposit.depositId,
-                depositAddress: deposit.depositAddress,
-                state: deposit.phase,
-                confirmedSeats: deposit.confirmedSeats,
-                mySeatStatus: deposit.mySeatStatus,
-                deployValueNanotons: pkg?.deployValueNanotons
-            });
-
-            const incomingActivation = deposit.activationStatus ?? null;
-            const previousActivation = state.deposit?.activationStatus ?? null;
-            const activationStatus = incomingActivation != null
-                ? incomingActivation
-                : previousActivation ?? null;
-            const depositActivationVerified = activationStatus === "VERIFIED"
-                || activationStatus === "ALREADY_VERIFIED"
-                || state.lifecycle?.depositActivationVerified === true;
-
-            const appliedDeposit = Object.freeze({
-                phase: deposit.phase ?? null,
-                depositId: deposit.depositId ?? null,
-                depositAddress: deposit.depositAddress ?? null,
-                network: deposit.network ?? null,
-                ...(pkg ? { package: pkg } : {}),
-                mySeatIndex: deposit.mySeatIndex ?? null,
-                isCreator: deposit.isCreator ?? null,
-                mySeatStatus: deposit.mySeatStatus ?? null,
-                myExpectedAmountNanotons: deposit.myExpectedAmountNanotons ?? null,
-                confirmedSeats: deposit.confirmedSeats ?? null,
-                activationStatus
-            });
-
-            logClientDepositRestore("DEPOSIT_STATE_APPLIED", {
-                roomId: state.roomId,
-                depositId: appliedDeposit.depositId,
-                depositAddress: appliedDeposit.depositAddress,
-                state: appliedDeposit.phase,
-                confirmedSeats: appliedDeposit.confirmedSeats,
-                mySeatStatus: appliedDeposit.mySeatStatus
-            });
-
-            return stamp({
-                ...state,
-                deposit: appliedDeposit,
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    depositActivationVerified
-                })
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_ACTIVATION_VERIFIED: {
-
-            const status = payload?.status ?? null;
-
-            if (status !== "VERIFIED" && status !== "ALREADY_VERIFIED") {
-
-                return state;
-
-            }
-
-            const nextDeposit = state.deposit
-                ? Object.freeze({
-                    ...state.deposit,
-                    activationStatus: status
-                })
-                : state.deposit;
-
-            return stamp({
-                ...state,
-                deposit: nextDeposit,
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    depositActivationVerified: true
-                })
-            }, action.type);
-
-        }
-
         case AUTHORITATIVE_SESSION_ACTIONS.GAME_START_AUTHORIZED: {
 
             return stamp({
