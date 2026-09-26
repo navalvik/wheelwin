@@ -1,4 +1,3 @@
-import { resolveGameEscrowMode } from "./gameEscrowMode.js";
 import {
     loadTonNetworkProfiles,
     resolveActiveTonProfile
@@ -37,12 +36,6 @@ export function loadTonConfig(env = process.env) {
 
     const deployMode = requestedMode === "live" ? "live" : "stub";
 
-    // Active network escrow mode (testnet and mainnet default game).
-    const gameEscrowMode = resolveGameEscrowMode(null, {
-        ...env,
-        TON_NETWORK: normalizedNetwork
-    });
-
     // R7.67B / R7.68 — expected deployer pin (active network profile preferred).
     const deployerExpectedAddress = activeProfile.deployerExpectedAddress
         ?? (typeof env.TON_DEPLOYER_EXPECTED_ADDRESS === "string"
@@ -75,9 +68,8 @@ export function loadTonConfig(env = process.env) {
             ? env.TON_GRM_JETTON_MASTER.trim()
             : null,
         pollIntervalMs,
-        // live = TonGameContractAdapter; stub = offline adapter for CI without keys.
-        deployMode,
-        gameEscrowMode
+        // TON deploy mode remains for the existing TON infrastructure.
+        deployMode
     };
 
 }
