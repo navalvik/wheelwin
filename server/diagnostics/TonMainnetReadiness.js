@@ -1,4 +1,3 @@
-import { printDeployBlock } from "./DeployPipelineForensics.js";
 import { isValidTonAddress, tonAddressesEqual } from "./TonWalletIdentityDebug.js";
 import {
     DEPLOYER_WALLET_CONTRACT_TYPE,
@@ -7,6 +6,10 @@ import {
 import { loadMainnetTonProfile } from "../config/tonNetworkProfiles.js";
 
 let _tonMainnetReadiness = null;
+
+function printDiagnosticBlock(title, payload) {
+    console.log(`[${title}]`, payload);
+}
 
 export function isTonMainnetDryRunDebugEnabled(raw = process.env.TON_MAINNET_DRY_RUN_DEBUG) {
     const normalized = String(raw ?? "").trim().toLowerCase();
@@ -52,7 +55,7 @@ export function getTonMainnetReadiness() {
 export function printTonMainnetReadiness(fields = null) {
     const snapshot = fields ? Object.freeze({ ...fields }) : getTonMainnetReadiness();
     if (!snapshot) return;
-    printDeployBlock("TON_MAINNET_READINESS", {
+    printDiagnosticBlock("TON_MAINNET_READINESS", {
         status: snapshot.status,
         network: snapshot.network,
         activeNetwork: snapshot.activeNetwork,
@@ -78,7 +81,7 @@ export function printTonMainnetDryRunDebug(fields = null, env = process.env) {
     if (!isTonMainnetDryRunDebugEnabled(env.TON_MAINNET_DRY_RUN_DEBUG)) return;
     const snapshot = fields ? Object.freeze({ ...fields }) : getTonMainnetReadiness();
     if (!snapshot) return;
-    printDeployBlock("TON_MAINNET_DRY_RUN_DEBUG", {
+    printDiagnosticBlock("TON_MAINNET_DRY_RUN_DEBUG", {
         network: snapshot.network,
         walletType: snapshot.walletType,
         walletAddress: snapshot.walletAddress,
