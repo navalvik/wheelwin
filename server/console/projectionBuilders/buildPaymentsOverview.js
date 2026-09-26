@@ -11,11 +11,11 @@ const SETTLING_STATUSES = new Set(IN_PROGRESS_SETTLEMENT_SESSION_STATUSES);
  */
 export function buildPaymentsOverview({
     paymentSessionManager,
-    contractSettlementManager
+    settlementManager
 }) {
 
     const roomIds = paymentSessionManager?.listSessionRoomIds?.() ?? [];
-    const settlements = contractSettlementManager?.listSettlementSnapshots?.()
+    const settlements = settlementManager?.listSettlementSnapshots?.()
         ?? [];
 
     const sessions = [];
