@@ -93,7 +93,7 @@ export class GameplayPhaseLifecycle {
     }
 
     /**
-     * P6.8B — enable OPEN_PAGE6 gate after ContractSettlementManager is wired.
+     * P6.8B — enable OPEN_PAGE6 gate after settlement manager is wired.
      */
     configureSettlementGate({ enabled = true } = {}) {
 
