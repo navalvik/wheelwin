@@ -264,7 +264,6 @@ export function authoritativeSessionReducer(state, action) {
                 entryPayment: null,
                 walletConnection: null,
                 paymentSession: null,
-                gameContract: null,
                 // R18-S16 — game-scoped Deposit mirror. A new GAME_START must
                 // not keep the previous game's depositAddress / VERIFIED flag
                 // (dvgw funded the stale sZqc contract).
