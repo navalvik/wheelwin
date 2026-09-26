@@ -1317,7 +1317,7 @@ class WheelWinApplication {
         // Room Wallet is the sole gameplay payment path. Build the authoritative
         // room-number -> wallet registry once from Railway environment variables.
         this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
-
+        // Per-game Room Wallet accounting ledger used by incoming payment attribution.\n        this._roomWalletLedgerRegistry = new RoomWalletLedgerRegistry();\n
         this._paymentSessionManager = new PaymentSessionManager({
             logger: this._logger,
             eventBus: this._eventBus,
