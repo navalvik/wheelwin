@@ -496,7 +496,7 @@ export class PaymentSessionManager {
             });
 
             this._activatePaymentRequests(session, {
-                contractAddress: roomWalletAddress,
+                roomWalletAddress,
                 paymentDeadline: deadline
             });
 
@@ -633,40 +633,6 @@ export class PaymentSessionManager {
             return null;
 
         }
-
-    }
-
-    issueDeployedPaymentRequests(roomId, {
-        contractAddress,
-        paymentDeadline = null
-    } = {}) {
-
-        this._assertInitialized();
-
-        if (this._roomWalletPaymentIntakeEnabled) {
-
-            return this._sessionsByRoom.get(roomId) ?? null;
-
-        }
-
-        const session = this._sessionsByRoom.get(roomId);
-
-        if (!session || !session.isInProgress()) {
-
-            return null;
-
-        }
-
-        if (!contractAddress) {
-
-            return null;
-
-        }
-
-        return this._activatePaymentRequests(session, {
-            contractAddress,
-            paymentDeadline
-        });
 
     }
 
@@ -1474,14 +1440,12 @@ export class PaymentSessionManager {
     // -------------------------------------------------------------------------
 
     _activatePaymentRequests(session, {
-        contractAddress,
+        roomWalletAddress,
         paymentDeadline = null
     }) {
 
-        if (!contractAddress) {
-
+        if (!roomWalletAddress) {
             return null;
-
         }
 
         const deadline = Number.isFinite(paymentDeadline)
@@ -1489,33 +1453,20 @@ export class PaymentSessionManager {
             : session.paymentDeadline;
 
         if (Number.isFinite(deadline)) {
-
             session.paymentDeadline = deadline;
-
             session.expiresAt = deadline;
-
         }
 
         for (let index = 0; index < session.participants.length; index += 1) {
-
             const participant = session.participants[index];
-
             if (
                 participant.status !== PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
                 && participant.status !== PAYMENT_PARTICIPANT_STATUS.WAITING
                 && participant.status !== PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
-            ) {
+            ) continue;
 
-                continue;
-
-            }
-
-            participant.contractAddress = contractAddress;
-
+            participant.roomWalletAddress = roomWalletAddress;
             participant.paymentReference = `payref_${session.paymentSessionId}_${participant.playerId}`;
-
-            participant.playerIndex = index;
-
             participant.status = PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION;
 
             this._emit(EVENT_TYPES.PAYMENT_REQUEST, {
@@ -1523,20 +1474,20 @@ export class PaymentSessionManager {
                 roomId: session.roomId,
                 gameId: session.gameId,
                 playerId: participant.playerId,
-                playerIndex: index,
                 requiredGram: participant.requiredGram,
                 paymentDeadline: session.paymentDeadline,
-                contractAddress,
+                roomWalletAddress,
                 paymentReference: participant.paymentReference
             });
-
         }
 
-        if (!this._roomWalletPaymentIntakeEnabled) {
-
-            this._registerBlockchainWatches(session, contractAddress);
-
-        }
+        this._persistSession(session, "update");
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+        this._log(
+            `PAYMENT_REQUESTS_ISSUED | roomId=${session.roomId} | address=${roomWalletAddress}`
+        );
+        return session;
+    }
 
         this._persistSession(session, "update");
 
@@ -1583,38 +1534,15 @@ export class PaymentSessionManager {
 
         }
 
-        const expectedDestination = session.roomWalletAddress
-            ?? participant.contractAddress
-            ?? null;
+        const expectedDestination = session.roomWalletAddress ?? participant.roomWalletAddress ?? null;
 
-        const contract = this._resolveContract(session.roomId, session.contractId);
-
-        if (this._roomWalletPaymentIntakeEnabled) {
-
-            if (expectedDestination && payload?.address) {
-
-                if (!tonWalletAccountsEqual(expectedDestination, payload.address)) {
-
-                    throw new PaymentValidationError("Payment sent to wrong contract", {
-                        expected: expectedDestination,
-                        actual: payload.address
-                    });
-
-                }
-
-            }
-
-        } else if (contract?.contractAddress && payload?.address) {
-
-            if (!tonWalletAccountsEqual(contract.contractAddress, payload.address)) {
-
-                throw new PaymentValidationError("Payment sent to wrong contract", {
-                    expected: contract.contractAddress,
+        if (expectedDestination && payload?.address) {
+            if (!tonWalletAccountsEqual(expectedDestination, payload.address)) {
+                throw new PaymentValidationError("Payment sent to wrong Room Wallet", {
+                    expected: expectedDestination,
                     actual: payload.address
                 });
-
             }
-
         }
 
         if (payload?.sender && participant.wallet) {
