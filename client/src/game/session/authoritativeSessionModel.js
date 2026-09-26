@@ -693,13 +693,11 @@ export function authoritativeSessionReducer(state, action) {
                 ? Object.freeze(
                     payload.participants.map((participant) => Object.freeze({
                         playerId: participant?.playerId ?? null,
-                        // R7.70C10 — server seat index for GameEscrow STAKE body.
                         playerIndex: participant?.playerIndex ?? null,
                         requiredGram: participant?.requiredGram ?? null,
                         status: participant?.status ?? "WAITING",
                         wallet: participant?.wallet ?? null,
                         paymentReference: participant?.paymentReference ?? null,
-                        contractAddress: participant?.contractAddress ?? null,
                         txHash: participant?.txHash ?? null,
                         transactionHash: participant?.transactionHash ?? null,
                         paidAmount: participant?.paidAmount ?? 0,
