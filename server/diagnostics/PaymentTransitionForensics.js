@@ -2,8 +2,6 @@
  * R7.20 — Temporary VERIFY → PAYMENT transition forensics (diagnostics only).
  */
 
-import { getLastDeployStage } from "./DeployPipelineForensics.js";
-
 /**
  * @param {string} title
  * @param {Record<string, unknown>} fields
@@ -52,7 +50,7 @@ export function logPaymentTransitionGate(params) {
  */
 export function logPaymentStageReady(params) {
 
-    const deployEntry = getLastDeployStage(params.roomId);
+    const deployEntry = null;
 
     _printBlock("PAYMENT STAGE READY", {
         Timestamp: new Date().toISOString(),
