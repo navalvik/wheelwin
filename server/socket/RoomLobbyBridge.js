@@ -65,7 +65,7 @@ export class RoomLobbyBridge {
         resultSessionLifecycle = null,
         paymentSessionManager = null,
         gameStartAuthorization = null,
-        contractSettlementManager = null,
+        settlementManager = null,
         sessionWalletStore = null,
         isDevelopment = false,
         lifecycleManager = null,
@@ -93,7 +93,7 @@ export class RoomLobbyBridge {
 
         this._gameStartAuthorization = gameStartAuthorization;
 
-        this._contractSettlementManager = contractSettlementManager;
+        this._settlementManager = settlementManager;
 
         // R7.0B — drain awareness for lobby create-room.
         this._lifecycleManager = lifecycleManager;
@@ -2204,7 +2204,7 @@ export class RoomLobbyBridge {
                 ?? null;
 
             const settlement = settleGameId
-                ? this._contractSettlementManager
+                ? this._settlementManager
                     ?.getReconnectSnapshot?.(settleGameId)
                 : null;
 
