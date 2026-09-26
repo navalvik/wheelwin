@@ -2071,6 +2071,10 @@ export class PaymentSessionManager {
 
         const contract = this._gameContractManager?.getContract?.(roomId) ?? null;
 
+        if (this._roomWalletPaymentIntakeEnabled) {
+            this._reconcileRoomWalletAcceptedEvidence(session);
+        }
+
         const needsRoomWalletRefund = this._roomWalletPaymentIntakeEnabled
             && typeof this._roomWalletRefundAdapter?.refundTransfer === "function"
             && session.participants.some((participant) =>
@@ -2787,6 +2791,86 @@ export class PaymentSessionManager {
 
     }
 
+    _reconcileRoomWalletAcceptedEvidence(session) {
+        if (!session || !this._financialPersistence?.findByRoom) {
+            return 0;
+        }
+
+        let records = [];
+        try {
+            records = this._financialPersistence.findByRoom(session.roomId) ?? [];
+        } catch (error) {
+            this._logger?.error?.(
+                `Room Wallet accepted-payment evidence lookup failed | roomId=${session.roomId} | ${error?.message ?? error}`
+            );
+            return 0;
+        }
+
+        const accepted = records.filter((record) =>
+            record?.recordType === TON_FINANCIAL_RECORD_TYPES.AUDIT
+            && record?.status === "ACCEPTED"
+            && record?.payload?.kind === "ROOM_WALLET_INCOMING_OBSERVATION"
+            && record?.payload?.paymentSessionId === session.paymentSessionId
+            && Number(record?.payload?.amountGram) > 0
+        );
+
+        let reconciled = 0;
+
+        for (const record of accepted) {
+            const payload = record.payload;
+            const participant = session.findParticipant(payload.playerId);
+            if (!participant || participant.refunded === true) {
+                continue;
+            }
+
+            const amountGram = Number(payload.amountGram);
+            if (!Number.isFinite(amountGram) || amountGram <= 0) {
+                continue;
+            }
+
+            if (participant.status !== PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED) {
+                participant.paidAmount = amountGram;
+                participant.txHash = payload.transactionHash ?? participant.txHash ?? null;
+                participant.confirmationStatus = PAYMENT_CONFIRMATION_STATUS.CONFIRMED;
+                participant.confirmedAt = participant.confirmedAt ?? record.createdAt ?? Date.now();
+                participant.status = PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED;
+                reconciled += 1;
+            }
+        }
+
+        if (reconciled > 0) {
+            this._persistSession(session, "update");
+            this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+            this._logger?.warn?.(
+                `Room Wallet financial evidence reconciled before close | roomId=${session.roomId} | payments=${reconciled}`
+            );
+        }
+
+        return reconciled;
+    }
+
+    _resolveRoomWalletRefundRoomNumber(session) {
+        const direct = Number(session?.roomNumber);
+        if (Number.isInteger(direct) && direct >= 1) {
+            return direct;
+        }
+
+        const room = this._roomManager?.getRoom?.(session?.roomId);
+        const fromRoom = Number(room?.roomNumber);
+        if (Number.isInteger(fromRoom) && fromRoom >= 1) {
+            return fromRoom;
+        }
+
+        const byAddress = this._roomWalletRegistry?.getByAddress?.(session?.roomWalletAddress);
+        const fromRegistry = Number(byAddress?.roomNumber);
+        if (Number.isInteger(fromRegistry) && fromRegistry >= 1) {
+            session.roomNumber = fromRegistry;
+            return fromRegistry;
+        }
+
+        return null;
+    }
+
     async _runRoomWalletRefunds(session, reason) {
         const pending = (session.participants ?? []).filter((participant) =>
             participant.refunded !== true
@@ -2807,6 +2891,15 @@ export class PaymentSessionManager {
             return;
         }
 
+        const refundRoomNumber = this._resolveRoomWalletRefundRoomNumber(session);
+        if (!Number.isInteger(refundRoomNumber) || refundRoomNumber < 1) {
+            this._logger?.error?.(
+                `Room Wallet refund room number unavailable | roomId=${session.roomId} | wallet=${session.roomWalletAddress ?? "unknown"}`
+            );
+            this._scheduleRoomWalletRefundRetry(session.roomId);
+            return;
+        }
+
         let retryNeeded = false;
 
         for (const participant of pending) {
@@ -2824,7 +2917,7 @@ export class PaymentSessionManager {
 
             try {
                 const result = await this._roomWalletRefundAdapter.refundTransfer({
-                    roomNumber: session.roomNumber,
+                    roomNumber: refundRoomNumber,
                     destination: participant.wallet,
                     amountNano,
                     queryId: stableRefundQueryId(session.paymentSessionId, participant.playerId)
