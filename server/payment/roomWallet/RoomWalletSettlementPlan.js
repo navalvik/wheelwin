@@ -5,11 +5,8 @@
  * transactions and does not alter WheelWin game rules.
  */
 
-import {
-    OWNER_PAYOUT_NANO,
-    RESIDUAL_SWEEP_NANO,
-    ROOM_RESERVE_NANO
-} from "./RoomWalletFinancialPolicy.js";
+import { ROOM_WALLET_POLICY } from "./RoomWalletFinancialPolicy.js";
+import { normalizeRoomNumber } from "./RoomWalletRegistry.js";
 
 export function buildOwnerPayoutPlan({ gameId, roomId, ownerWallet }) {
 
@@ -30,19 +27,33 @@ export function buildOwnerPayoutPlan({ gameId, roomId, ownerWallet }) {
         gameId: normalizedGameId,
         roomId: normalizedRoomId,
         destination,
-        amountNano: OWNER_PAYOUT_NANO,
-        retainedNano: ROOM_RESERVE_NANO,
+        amountNano: ROOM_WALLET_POLICY.ownerPayoutMinimumNano,
+        retainedNano: ROOM_WALLET_POLICY.ownerRetainedNano,
         gasSource: "ROOM_WALLET"
     };
 
 }
 
-export function buildResidualSweepPlan({ roomId, residuesWallet }) {
+/**
+ * Residual sweep is a Room Wallet treasury plan keyed by roomNumber.
+ * It does not use gameplay roomId, gameId, or array indexes.
+ */
+export function buildResidualSweepPlan({ roomNumber, residuesWallet } = {}) {
 
-    const normalizedRoomId = String(roomId ?? "").trim();
+    let normalizedRoomNumber;
+
+    try {
+        normalizedRoomNumber = normalizeRoomNumber(roomNumber);
+    } catch {
+        return {
+            ok: false,
+            code: "INVALID_RESIDUAL_SWEEP_PLAN"
+        };
+    }
+
     const destination = String(residuesWallet ?? "").trim();
 
-    if (!normalizedRoomId || !destination) {
+    if (!destination) {
         return {
             ok: false,
             code: "INVALID_RESIDUAL_SWEEP_PLAN"
@@ -52,11 +63,14 @@ export function buildResidualSweepPlan({ roomId, residuesWallet }) {
     return {
         ok: true,
         kind: "RESIDUAL_SWEEP",
-        roomId: normalizedRoomId,
+        roomNumber: normalizedRoomNumber,
         destination,
-        amountNano: RESIDUAL_SWEEP_NANO,
-        gasSource: "ROOM_WALLET",
-        triggerNano: 500000000n
+        amountNano: ROOM_WALLET_POLICY.residualSweepNano,
+        triggerNano: ROOM_WALLET_POLICY.residualTriggerNano,
+        retainedFloorNano: ROOM_WALLET_POLICY.residualRetainedFloorNano,
+        sweepGasNano: ROOM_WALLET_POLICY.residualSweepGasNano,
+        safetyMarginNano: ROOM_WALLET_POLICY.residualSafetyMarginNano,
+        gasSource: "ROOM_WALLET"
     };
 
 }
