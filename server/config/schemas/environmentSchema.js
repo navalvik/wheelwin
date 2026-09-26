@@ -611,14 +611,6 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         suggestedFix: "Set TON_DEPLOY_MODE to stub or live."
     }),
     // R7.67A — testnet defaults to game when unset; mainnet defaults to v4.
-    GAME_ESCROW_MODE: Object.freeze({
-        key: "GAME_ESCROW_MODE",
-        type: "enum",
-        required: false,
-        allowed: Object.freeze(["v4", "game"]),
-        category: "TON",
-        suggestedFix: "Set GAME_ESCROW_MODE to game (testnet default) or v4 (rollback / mainnet default)."
-    }),
     // R7.67B — public address pin for deployer identity mismatch checks.
     TON_DEPLOYER_EXPECTED_ADDRESS: Object.freeze({
         key: "TON_DEPLOYER_EXPECTED_ADDRESS",
@@ -730,7 +722,7 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix:
             "Set TON_TESTNET_ORACLE_ADDRESS to the Testnet oracle bounceable address "
-            + "(falls back to TON_ORACLE_ADDRESS / GAME_ESCROW_ORACLE)."
+            + "(falls back to TON_ORACLE_ADDRESS)."
     }),
     TON_ORACLE_ADDRESS: Object.freeze({
         key: "TON_ORACLE_ADDRESS",
@@ -768,21 +760,6 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix: "Set TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS to the expected mainnet deployer address."
     }),
-    TON_MAINNET_GAME_ESCROW_MODE: Object.freeze({
-        key: "TON_MAINNET_GAME_ESCROW_MODE",
-        type: "enum",
-        required: false,
-        allowed: Object.freeze(["v4", "game"]),
-        category: "TON",
-        suggestedFix: "Keep TON_MAINNET_GAME_ESCROW_MODE=v4 until Mainnet GameEscrow cutover."
-    }),
-    TON_GAME_ESCROW_ARTIFACT_SHA256: Object.freeze({
-        key: "TON_GAME_ESCROW_ARTIFACT_SHA256",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix: "Set TON_GAME_ESCROW_ARTIFACT_SHA256 to the SHA256 of GameEscrow.code.boc."
-    }),
     // R8.1A — Mainnet dry-run diagnostics (does not enable Mainnet gameplay).
     TON_MAINNET_DRY_RUN_DEBUG: Object.freeze({
         key: "TON_MAINNET_DRY_RUN_DEBUG",
@@ -791,7 +768,7 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "TON",
         suggestedFix:
             "Set TON_MAINNET_DRY_RUN_DEBUG to true to print TON_MAINNET_DRY_RUN_DEBUG "
-            + "readiness diagnostics (network, wallet, artifact, escrow mode)."
+            + "readiness diagnostics (network, wallet, endpoint, identity)."
     }),
     // R8.1B — Mainnet wallet identity diagnostics (does not enable Mainnet gameplay).
     TON_MAINNET_WALLET_IDENTITY_DEBUG: Object.freeze({
@@ -835,14 +812,6 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Payments",
         suggestedFix: "Set WALLET_CONNECTION_DURATION_MS to a positive integer."
     }),
-    GAME_CONTRACT_DEPLOY_TIMEOUT_MS: Object.freeze({
-        key: "GAME_CONTRACT_DEPLOY_TIMEOUT_MS",
-        type: "integer",
-        required: false,
-        min: 1,
-        category: "Payments",
-        suggestedFix: "Set GAME_CONTRACT_DEPLOY_TIMEOUT_MS to a positive integer."
-    }),
     GAME_START_AUTHORIZATION_DURATION_MS: Object.freeze({
         key: "GAME_START_AUTHORIZATION_DURATION_MS",
         type: "integer",
@@ -857,8 +826,7 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         required: false,
         category: "TON",
         suggestedFix:
-            "Leave unset to keep legacy Deposit + GameEscrow readiness. "
-            + "Set ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET to enable Room Wallet intake."
+            "Set ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET to use the authoritative Room Wallet payment path."
     }),
     ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: Object.freeze({
         key: "ROOM_WALLET_RESIDUAL_SWEEP_ENABLED",
