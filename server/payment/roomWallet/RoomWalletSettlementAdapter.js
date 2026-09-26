@@ -37,7 +37,7 @@ export const ROOM_WALLET_SETTLEMENT_RETRYABLE_CODES = Object.freeze({
  * Winner and Owner receive their exact intended amounts; blockchain gas is
  * paid by the source Room Wallet.
  *
- * Authoritative ContractSettlementManager handoff fields:
+ * Authoritative RoomWalletSettlementManager handoff fields:
  * winnerAmount, organizerAmount, roomNumber, winnerWallet, ownerWallet.
  * prizeAmount / prizeAmountNano remain aliases of the winner payout.
  */
@@ -359,7 +359,7 @@ export class RoomWalletSettlementAdapter {
         }
     }
 
-    async settleContract(request = {}) {
+    async settle(request = {}) {
         const roomNumber = resolveRoomNumber(request);
         const winnerWallet = requireWallet(request.winnerWallet, "winnerWallet");
         const ownerWallet = requireWallet(request.ownerWallet, "ownerWallet");
