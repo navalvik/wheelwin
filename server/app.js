@@ -1397,7 +1397,9 @@ class WheelWinApplication {
             this._blockchainMonitor.setContractAdapter?.(deployAdapter);
         }
 
-        this._gameContractManager = new GameContractManager({
+        this._gameContractManager = roomWalletOnlyFinancialPath
+            ? null
+            : new GameContractManager({
             logger: this._logger,
             eventBus: this._eventBus,
             playerManager: this._managers.playerManager,
@@ -1415,19 +1417,23 @@ class WheelWinApplication {
                 env: process.env,
                 gameEscrowMode: this._tonConfig?.gameEscrowMode
             })
-        });
+            });
 
-        this._gameContractManager.initialize();
+        if (this._gameContractManager) {
+            this._gameContractManager.initialize();
+        }
 
-        this._engines.paymentEngine.setGameContractManager(
+        this._engines.paymentEngine.setGameContractManager?.(
             this._gameContractManager
         );
 
-        this._auditEngine.setGameContractManager(
+        this._auditEngine.setGameContractManager?.(
             this._gameContractManager
         );
 
-        this._logger.startupLine("GameContractManager");
+        if (this._gameContractManager) {
+            this._logger.startupLine("GameContractManager");
+        }
 
         // R17.8V.2P.J / R17.8V.2P.K — Deployment cost snapshot capture + freeze.
         this._deploymentCostService = new DeploymentCostService({
@@ -1634,12 +1640,12 @@ class WheelWinApplication {
             contractSettlementManager: this._contractSettlementManager
         });
 
-        this._gameContractManager.setFinancialEvidenceDeps({
+        this._gameContractManager?.setFinancialEvidenceDeps?.({
             paymentSessionManager: this._paymentSessionManager,
             contractSettlementManager: this._contractSettlementManager
         });
 
-        this._gameContractManager.setEscrowUnwindDeps({
+        this._gameContractManager?.setEscrowUnwindDeps?.({
             blockchainMonitor: this._blockchainMonitor
         });
 
@@ -1688,7 +1694,7 @@ class WheelWinApplication {
 
         this._logger.startupLine("DeploymentAuthorizationCoordinator");
 
-        this._gameContractManager.setDeploymentAuthorizationCoordinator(
+        this._gameContractManager?.setDeploymentAuthorizationCoordinator?.(
             this._deploymentAuthorizationCoordinator
         );
 
