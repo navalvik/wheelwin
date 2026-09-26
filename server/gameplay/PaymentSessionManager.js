@@ -748,7 +748,6 @@ export class PaymentSessionManager {
 
 
     /**
-     * R7.69B — Finish restore: sync paid seats from GameEscrow, then rewatch unpaid.
      * Returns a Promise when chain sync is available; otherwise a sync summary.
      */
     health() {
