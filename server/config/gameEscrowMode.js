@@ -1,8 +1,6 @@
 /**
- * R7.67A — GameEscrow vs legacy WalletContractV4 mode resolution.
- *
- * Testnet and Mainnet default: game (GameEscrow).
- * Explicit GAME_ESCROW_MODE=v4 remains the rollback switch.
+ * Legacy compatibility resolver retained for historical GameEscrow code.
+ * Active Room Wallet gameplay does not use this switch.
  * Explicit GAME_ESCROW_MODE=v4 remains the rollback switch on testnet.
  */
 
@@ -22,15 +20,10 @@ export function defaultGameEscrowModeForNetwork(network) {
 
     const normalized = String(network ?? "").trim().toLowerCase();
 
-    // Both supported payment networks use GameEscrow by default.
-    // Unknown values retain the legacy v4 fallback until a concrete
-    // network profile is selected.
-    if (normalized === "testnet" || normalized === "mainnet") {
-
-        return GAME_ESCROW_MODE_GAME;
-
-    }
-
+    // GameEscrow is not an active gameplay architecture.
+    // Keep the compatibility resolver on the legacy WalletContractV4 value
+    // unless an old historical/test path explicitly requests another mode.
+    void normalized;
     return GAME_ESCROW_MODE_V4;
 
 }
