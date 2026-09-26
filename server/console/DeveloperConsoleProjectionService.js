@@ -38,8 +38,7 @@ export class DeveloperConsoleProjectionService {
         playerManager,
         setupSessionLifecycle = null,
         paymentSessionManager = null,
-        gameContractManager = null,
-        contractSettlementManager = null,
+        settlementManager = null,
         gameStartAuthorization = null,
         resultSessionLifecycle = null,
         recoveryEngine = null,
@@ -73,8 +72,7 @@ export class DeveloperConsoleProjectionService {
         this._playerManager = playerManager;
         this._setupSessionLifecycle = setupSessionLifecycle;
         this._paymentSessionManager = paymentSessionManager;
-        this._gameContractManager = gameContractManager;
-        this._contractSettlementManager = contractSettlementManager;
+        this._settlementManager = settlementManager;
         this._gameStartAuthorization = gameStartAuthorization;
         this._resultSessionLifecycle = resultSessionLifecycle;
         this._recoveryEngine = recoveryEngine;
@@ -149,7 +147,6 @@ export class DeveloperConsoleProjectionService {
             gameManager: this._gameManager,
             setupSessionLifecycle: this._setupSessionLifecycle,
             paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
             gameStartAuthorization: this._gameStartAuthorization,
             gameStateEngine: this._gameStateEngine,
             gameClockEngine: this._gameClockEngine,
@@ -176,8 +173,7 @@ export class DeveloperConsoleProjectionService {
             physicsEngine: this._physicsEngine,
             simulationLoop: this._simulationLoop,
             paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
-            contractSettlementManager: this._contractSettlementManager,
+            settlementManager: this._settlementManager,
             gameStartAuthorization: this._gameStartAuthorization,
             resultSessionLifecycle: this._resultSessionLifecycle,
             gameplayContextResolver: this._gameplayContextResolver
@@ -204,8 +200,7 @@ export class DeveloperConsoleProjectionService {
 
         return buildPaymentsOverview({
             paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
-            contractSettlementManager: this._contractSettlementManager
+            settlementManager: this._settlementManager
         });
 
     }
@@ -265,7 +260,7 @@ export class DeveloperConsoleProjectionService {
             walletManager: this._walletManager,
             gameContractManager: this._gameContractManager,
             paymentSessionManager: this._paymentSessionManager,
-            contractSettlementManager: this._contractSettlementManager,
+            settlementManager: this._settlementManager,
             tonFinancialRecovery: this._tonFinancialRecovery
         });
 
@@ -288,7 +283,7 @@ export class DeveloperConsoleProjectionService {
 
         const service = this._runtimeConfigurationService;
         const state = service?.getState?.() ?? null;
-        const settlementDefault = this._contractSettlementManager
+        const settlementDefault = this._settlementManager
             ?.getSettlementTimeoutMs?.()
             ?? undefined;
 
