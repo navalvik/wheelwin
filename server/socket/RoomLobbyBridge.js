@@ -1459,7 +1459,6 @@ export class RoomLobbyBridge {
                 : null,
             DeployState: contract
                 ? {
-                    contractId: contract.contractId ?? null,
                     status: contract.status ?? null
                 }
                 : null,
