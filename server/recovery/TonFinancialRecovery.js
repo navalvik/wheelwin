@@ -9,7 +9,6 @@ import { randomUUID } from "node:crypto";
 
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
-import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import {
     PAYMENT_PARTICIPANT_STATUS,
     PAYMENT_SESSION_STATUS
@@ -33,12 +32,6 @@ import {
 
 const BLOCKCHAIN_CHECKPOINT_KIND = "blockchain_monitor";
 
-const TERMINAL_CONTRACT_STATUSES = new Set([
-    GAME_CONTRACT_STATUS.ARCHIVED,
-    GAME_CONTRACT_STATUS.SETTLEMENT_COMPLETED,
-    GAME_CONTRACT_STATUS.DEPLOY_FAILED,
-    GAME_CONTRACT_STATUS.SETTLEMENT_FAILED
-]);
 
 const EMPTY_MONITOR_CHECKPOINT = Object.freeze({
     contracts: Object.freeze([]),
@@ -56,8 +49,6 @@ const EMPTY_MONITOR_CHECKPOINT = Object.freeze({
  * @property {import("../session/WalletManager.js").WalletManager} [walletManager]
  * @property {import("../session/SessionWalletStore.js").SessionWalletStore} [sessionWalletStore]
  * @property {import("../gameplay/PaymentSessionManager.js").PaymentSessionManager} [paymentSessionManager]
- * @property {import("../gameplay/GameContractManager.js").GameContractManager} [gameContractManager]
- * @property {import("../payment/ContractSettlementManager.js").ContractSettlementManager} [contractSettlementManager]
  * @property {import("../payment/BlockchainMonitor.js").BlockchainMonitor} [blockchainMonitor]
  * @property {import("../persistence/TonFinancialPersistence.js").TonFinancialPersistence} [financialPersistence]
  * @property {import("../managers/PlayerManager.js").PlayerManager} [playerManager]
@@ -75,8 +66,7 @@ export class TonFinancialRecovery {
         walletManager = null,
         sessionWalletStore = null,
         paymentSessionManager = null,
-        gameContractManager = null,
-        contractSettlementManager = null,
+        settlementManager = null,
         blockchainMonitor = null,
         financialPersistence = null,
         playerManager = null,
@@ -97,9 +87,7 @@ export class TonFinancialRecovery {
 
         this._paymentSessionManager = paymentSessionManager;
 
-        this._gameContractManager = gameContractManager;
-
-        this._contractSettlementManager = contractSettlementManager;
+        this._settlementManager = settlementManager;
 
         this._blockchainMonitor = blockchainMonitor;
 
@@ -248,11 +236,11 @@ export class TonFinancialRecovery {
 
             // R9.4 — Resume CREATED/PREPARING/READY after contracts + settlements
             // are restored (does not reorder the mandatory recovery phases).
-            if (this._contractSettlementManager?.resumeRestoredSettlements) {
+            if (this._settlementManager?.resumeRestoredSettlements) {
 
                 try {
 
-                    const resumeSummary = await this._contractSettlementManager
+                    const resumeSummary = await this._settlementManager
                         .resumeRestoredSettlements();
 
                     report.warnings.push(
@@ -472,48 +460,14 @@ export class TonFinancialRecovery {
     }
 
     recoverContracts() {
-
         this._assertInitialized();
-
         this._assertRecoveryPhaseOrder(2, FINANCIAL_RECOVERY_PHASE.CONTRACTS);
-
         this._state = FINANCIAL_RECOVERY_STATE.RESTORING_CONTRACTS;
-
         this._currentPhase = FINANCIAL_RECOVERY_PHASE.CONTRACTS;
-
         this._emitProgress(FINANCIAL_RECOVERY_PHASE.CONTRACTS, 0.25);
-
-        if (!this._gameContractManager?.restoreContracts) {
-
-            return Object.freeze({
-                ok: true,
-                restored: 0,
-                warning: "contract_recovery_skipped_no_manager"
-            });
-
-        }
-
-        try {
-
-            const summary = this._gameContractManager.restoreContracts();
-
-            return Object.freeze({
-                ok: true,
-                restored: summary.restored ?? 0,
-                summary
-            });
-
-        } catch (error) {
-
-            return Object.freeze({
-                ok: false,
-                restored: 0,
-                error: error?.message ?? String(error)
-            });
-
-        }
-
+        return Object.freeze({ ok: true, restored: 0, skipped: "game_contract_architecture_retired" });
     }
+
 
     recoverDeposits() {
 
@@ -623,7 +577,7 @@ export class TonFinancialRecovery {
 
         this._emitProgress(FINANCIAL_RECOVERY_PHASE.SETTLEMENTS, 0.55);
 
-        if (!this._contractSettlementManager?.restoreSettlementSessions) {
+        if (!this._settlementManager?.restoreSettlementSessions) {
 
             return Object.freeze({
                 ok: true,
@@ -635,7 +589,7 @@ export class TonFinancialRecovery {
 
         try {
 
-            const summary = this._contractSettlementManager.restoreSettlementSessions();
+            const summary = this._settlementManager.restoreSettlementSessions();
 
             return Object.freeze({
                 ok: true,
@@ -1082,244 +1036,22 @@ export class TonFinancialRecovery {
     }
 
     async _reregisterBlockchainWatches() {
-
         if (!this._blockchainMonitor) {
-
             return Object.freeze({
-                contractWatches: 0,
-                paymentWatches: 0,
-                settlementWatches: 0,
-                refundWatches: 0,
-                totalWatches: 0,
+                contractWatches: 0, paymentWatches: 0, settlementWatches: 0,
+                refundWatches: 0, totalWatches: 0,
                 warning: "watch_registration_skipped_no_monitor"
             });
-
         }
-
-        let contractWatches = 0;
-
-        let paymentWatches = 0;
-
-        let settlementWatches = 0;
-
-        let refundWatches = 0;
-
-        if (this._gameContractManager?.listContracts) {
-
-            for (const contract of this._gameContractManager.listContracts()) {
-
-                if (
-                    !contract?.contractId
-                    || !contract?.contractAddress
-                    || TERMINAL_CONTRACT_STATUSES.has(contract.status)
-                ) {
-
-                    continue;
-
-                }
-
-                try {
-
-                    this._blockchainMonitor.registerContract?.(
-                        contract.contractId,
-                        contract.contractAddress,
-                        {
-                            roomId: contract.roomId,
-                            gameId: contract.gameId,
-                            correlationId: contract.correlationId ?? null,
-                            expectDeployment: contract.status === GAME_CONTRACT_STATUS.DEPLOYING
-                        }
-                    );
-
-                    contractWatches += 1;
-
-                } catch (error) {
-
-                    this._logger?.warn?.(
-                        `Contract watch registration skipped | `
-                            + `contractId=${contract.contractId} | ${error?.message ?? error}`
-                    );
-
-                }
-
-            }
-
-        }
-
-        if (this._paymentSessionManager?.listSessionRoomIds) {
-
-            for (const roomId of this._paymentSessionManager.listSessionRoomIds()) {
-
-                const session = this._paymentSessionManager.getSession(roomId);
-
-                if (
-                    !session
-                    || (
-                        !session.isInProgress?.()
-                        && session.status !== PAYMENT_SESSION_STATUS.CANCELLED
-                        && session.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
-                    )
-                ) {
-
-                    continue;
-
-                }
-
-                const contract = this._gameContractManager?.getContract?.(roomId);
-
-                const contractAddress = contract?.contractAddress
-                    ?? session.contractAddress
-                    ?? session.participants?.find?.((p) => p.contractAddress)?.contractAddress
-                    ?? null;
-
-                if (!contractAddress) {
-
-                    continue;
-
-                }
-
-                // R7.69B — GameEscrow is payment authority before re-registering watches.
-                if (this._paymentSessionManager.syncFromGameEscrow) {
-
-                    try {
-
-                        await this._paymentSessionManager.syncFromGameEscrow(roomId, {
-                            contractAddress
-                        });
-
-                    } catch (error) {
-
-                        this._logger?.warn?.(
-                            `GameEscrow payment sync skipped before watches | `
-                                + `roomId=${roomId} | ${error?.message ?? error}`
-                        );
-
-                    }
-
-                }
-
-                // Refresh session after possible cancel sync.
-                const syncedSession = this._paymentSessionManager.getSession(roomId)
-                    ?? session;
-
-                if (syncedSession.status === PAYMENT_SESSION_STATUS.CANCELLED) {
-
-                    // R7.69C — restore refund observation only; never resend refunds.
-                    refundWatches += this._registerRefundWatchFromSession(
-                        syncedSession,
-                        contractAddress
-                    );
-
-                    continue;
-
-                }
-
-                for (const participant of syncedSession.participants ?? []) {
-
-                    if (participant.status === PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED) {
-
-                        continue;
-
-                    }
-
-                    try {
-
-                        this._blockchainMonitor.watchPayment?.({
-                            roomId: syncedSession.roomId,
-                            gameId: syncedSession.gameId,
-                            playerId: participant.playerId,
-                            contractAddress,
-                            contractId: syncedSession.contractId,
-                            correlationId: syncedSession.correlationId,
-                            paymentReference: participant.paymentReference,
-                            expectedGram: participant.requiredGram,
-                            expectedWallet: participant.wallet,
-                            paymentDeadline: syncedSession.paymentDeadline,
-                            playerIndex: participant.playerIndex ?? null
-                        });
-
-                        paymentWatches += 1;
-
-                    } catch (error) {
-
-                        this._logger?.warn?.(
-                            `Payment watch registration skipped | roomId=${roomId} | `
-                                + `playerId=${participant.playerId} | ${error?.message ?? error}`
-                        );
-
-                    }
-
-                }
-
-            }
-
-        }
-
-        if (this._contractSettlementManager?.getSettlementSession) {
-
-            const gameIds = this._contractSettlementManager.listSettlementSnapshots?.()
-                ?.map((snapshot) => snapshot.gameId)
-                .filter(Boolean)
-                ?? [];
-
-            for (const gameId of gameIds) {
-
-                const session = this._contractSettlementManager.getSettlementSession(gameId);
-
-                if (
-                    !session
-                    || session.status !== SETTLEMENT_SESSION_STATUS.SETTLEMENT_PENDING
-                    || !session.settlementTransactionHash
-                ) {
-
-                    continue;
-
-                }
-
-                const contract = this._gameContractManager?.getContract?.(session.roomId);
-
-                try {
-
-                    this._blockchainMonitor.watchTransaction?.({
-                        transactionId: session.settlementTransactionHash,
-                        address: contract?.contractAddress,
-                        contractId: session.contractId,
-                        roomId: session.roomId,
-                        gameId: session.gameId,
-                        correlationId: session.correlationId,
-                        kind: "SETTLEMENT",
-                        timeoutMs: session.settlementDeadline
-                            ? Math.max(0, session.settlementDeadline - Date.now())
-                            : null
-                    });
-
-                    settlementWatches += 1;
-
-                } catch (error) {
-
-                    this._logger?.warn?.(
-                        `Settlement watch registration skipped | gameId=${gameId} | `
-                            + `${error?.message ?? error}`
-                    );
-
-                }
-
-            }
-
-        }
-
+        // Room Wallet payment/settlement truth is handled by the dedicated
+        // RoomWalletIncomingObserver and RoomWalletSettlementManager.
+        // This recovery phase restores only the generic blockchain checkpoint.
         return Object.freeze({
-            contractWatches,
-            paymentWatches,
-            settlementWatches,
-            refundWatches,
-            totalWatches: contractWatches
-                + paymentWatches
-                + settlementWatches
-                + refundWatches
+            contractWatches: 0, paymentWatches: 0, settlementWatches: 0,
+            refundWatches: 0, totalWatches: 0
         });
-
     }
+
 
     /**
      * R7.69C — Re-register refund observation watches after restart.
@@ -1501,8 +1233,8 @@ export class TonFinancialRecovery {
 
             if (
                 session.contractId
-                && this._gameContractManager?.getContractById
-                && !this._gameContractManager.getContractById(session.contractId)
+                && null?.getContractById
+                && !null.getContractById(session.contractId)
             ) {
 
                 consistencyErrors.push(
@@ -1516,68 +1248,24 @@ export class TonFinancialRecovery {
     }
 
     _validateContracts(warnings, consistencyErrors) {
-
-        if (!this._gameContractManager?.listContracts) {
-
-            return;
-
-        }
-
-        for (const contract of this._gameContractManager.listContracts()) {
-
-            if (!contract?.gameId) {
-
-                warnings.push(`contract_missing_game_id:${contract?.contractId ?? "unknown"}`);
-
-                continue;
-
-            }
-
-            if (
-                this._roomManager?.hasRoom
-                && contract.roomId
-                && !this._roomManager.hasRoom(contract.roomId)
-            ) {
-
-                warnings.push(
-                    `contract_missing_room:${contract.contractId}:${contract.roomId}`
-                );
-
-            }
-
-            const paymentSession = this._paymentSessionManager?.getSessionByGameId?.(
-                contract.gameId
-            );
-
-            if (
-                contract.status === GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
-                && paymentSession
-                && paymentSession.status !== PAYMENT_SESSION_STATUS.FULLY_PAID
-            ) {
-
-                warnings.push(
-                    `contract_payments_complete_without_fully_paid_session:${contract.contractId}`
-                );
-
-            }
-
-        }
-
+        void warnings;
+        void consistencyErrors;
     }
+
 
     _validateSettlements(warnings, consistencyErrors) {
 
-        if (!this._contractSettlementManager?.getSettlementSession) {
+        if (!this._settlementManager?.getSettlementSession) {
 
             return;
 
         }
 
-        const snapshots = this._contractSettlementManager.listSettlementSnapshots?.() ?? [];
+        const snapshots = this._settlementManager.listSettlementSnapshots?.() ?? [];
 
         for (const snapshot of snapshots) {
 
-            const session = this._contractSettlementManager.getSettlementSession(
+            const session = this._settlementManager.getSettlementSession(
                 snapshot.gameId
             );
 
@@ -1605,8 +1293,8 @@ export class TonFinancialRecovery {
 
             if (
                 session.contractId
-                && this._gameContractManager?.getContractById
-                && !this._gameContractManager.getContractById(session.contractId)
+                && null?.getContractById
+                && !null.getContractById(session.contractId)
             ) {
 
                 warnings.push(
@@ -1631,7 +1319,7 @@ export class TonFinancialRecovery {
 
         for (const watch of watchedContracts) {
 
-            const contract = this._gameContractManager?.getContractById?.(
+            const contract = null?.getContractById?.(
                 watch.contractId
             );
 
@@ -1667,7 +1355,7 @@ export class TonFinancialRecovery {
 
         }
 
-        if (report.contractsRecovered > 0 || this._gameContractManager) {
+        if (report.contractsRecovered > 0 || null) {
 
             managers.push("contracts");
 
@@ -1679,7 +1367,7 @@ export class TonFinancialRecovery {
 
         }
 
-        if (report.settlementsRecovered > 0 || this._contractSettlementManager) {
+        if (report.settlementsRecovered > 0 || this._settlementManager) {
 
             managers.push("settlements");
 
