@@ -16,9 +16,6 @@ const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 * 60 * 1000;
 // R7.70C19A — restored from C7 TEMP 10 min → 5 min.
 const DEFAULT_WALLET_CONNECTION_DURATION_MS = 5 * 60 * 1000;
 
-/** R7.24 — Deploy adapter wall-clock (nested under PaymentSession timer). */
-const DEFAULT_GAME_CONTRACT_DEPLOY_TIMEOUT_MS = 2 * 60 * 1000;
-
 /**
  * R7.24 — After payments complete, authorization/bootstrap must not wait forever.
  */
@@ -77,16 +74,6 @@ export function loadRoomConfig(env = process.env) {
 
     }
 
-    const gameContractDeployTimeoutMs = env.GAME_CONTRACT_DEPLOY_TIMEOUT_MS === undefined
-        ? DEFAULT_GAME_CONTRACT_DEPLOY_TIMEOUT_MS
-        : Number(env.GAME_CONTRACT_DEPLOY_TIMEOUT_MS);
-
-    if (!Number.isFinite(gameContractDeployTimeoutMs) || gameContractDeployTimeoutMs <= 0) {
-
-        throw new Error("Invalid GAME_CONTRACT_DEPLOY_TIMEOUT_MS environment variable");
-
-    }
-
     const gameStartAuthorizationDurationMs = env.GAME_START_AUTHORIZATION_DURATION_MS
         === undefined
         ? DEFAULT_GAME_START_AUTHORIZATION_DURATION_MS
@@ -117,7 +104,6 @@ export function loadRoomConfig(env = process.env) {
         resultSessionDurationMs,
         paymentSessionDurationMs,
         walletConnectionDurationMs,
-        gameContractDeployTimeoutMs,
         gameStartAuthorizationDurationMs,
         maxConcurrentRooms
     };
