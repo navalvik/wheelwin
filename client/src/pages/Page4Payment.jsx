@@ -835,7 +835,6 @@ export default function Page4Payment({ onNavigate }) {
 
     // P6.2 — wallet connection; P6.3 — authoritative Payment Session after READY.
     // P6.7 — Page4 stays open until server OPEN_PAGE5 (never local navigation).
-    // R18-S16 — DepositContract phase before GameEscrow STAKE.
     const authoritative = useAuthoritativeSession();
 
     const { t } = useLanguage();
@@ -1372,11 +1371,7 @@ export default function Page4Payment({ onNavigate }) {
 
     }
 
-    if (paymentPhase === PAGE4_PAYMENT_PHASE.ENTRY_PAYMENT) {
-
-        depositStatusParts.push(t("payment.waitingGameEscrow"));
-
-    } else if (shouldShowWaitingCreatorDeposit({
+    if (shouldShowWaitingCreatorDeposit({
         paymentPhase,
         gameContract,
         deposit: depositProjection,
@@ -1384,10 +1379,6 @@ export default function Page4Payment({ onNavigate }) {
     })) {
 
         depositStatusParts.push(t("payment.waitingCreatorDeposit"));
-
-    } else if (paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_ACTIVATION) {
-
-        depositStatusParts.push(t("payment.waitingGameEscrow"));
 
     } else if (
         paymentPhase === PAGE4_PAYMENT_PHASE.DEPOSIT_WAIT_FULL
