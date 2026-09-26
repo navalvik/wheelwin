@@ -22,7 +22,7 @@ export class PaymentMetricsCollector extends MetricCollector {
         const pendingEngine = providers?.paymentEngine?.getActivePaymentCount?.()
             ?? 0;
 
-        const settlements = providers?.contractSettlementManager
+        const settlements = providers?.settlementManager
             ?.getActiveSettlementCount?.() ?? 0;
 
         const completed = metrics?.counters?.["payments.completed"] ?? 0;
