@@ -11,8 +11,7 @@ export function buildGameDetail(gameId, {
     physicsEngine,
     simulationLoop,
     paymentSessionManager,
-    gameContractManager,
-    contractSettlementManager,
+    settlementManager,
     gameStartAuthorization,
     resultSessionLifecycle,
     gameplayContextResolver = null
@@ -95,8 +94,7 @@ export function buildGameDetail(gameId, {
             speedActive: physics?.runtime?.speedActive === true,
             brakeActive: physics?.runtime?.brakeActive === true
         }),
-        contractStatus: contract?.status ?? null,
-        settlementStatus: settlement?.status ?? null,
+        settlementStatus: settlementManager?.getReconnectSnapshot?.(gameId)?.status ?? settlement?.status ?? null,
         paymentSessionStatus: paymentSession?.status ?? null
     });
 
