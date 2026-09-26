@@ -102,7 +102,6 @@ const EXPECTED_PLAYER_COUNT = 3;
  * @property {object} physicsEngine
  * @property {object} winnerEngine
  * @property {object} inputAuthority
- * @property {object|null} [gameContractManager]
  * @property {object|null} [paymentSessionManager]
  */
 
@@ -160,7 +159,6 @@ export class RecoveryCheckpointManager {
 
         this._inputAuthority = inputAuthority;
 
-        this._gameContractManager = gameContractManager;
 
         this._paymentSessionManager = paymentSessionManager;
 
@@ -445,32 +443,21 @@ export class RecoveryCheckpointManager {
 
         // --- Financial references (references ONLY) --------------------------
 
-        const contract = this._safeCall(
-            () => this._gameContractManager?.getContractByGameId?.(gameId)
-                ?? null
-        );
-
         const session = this._safeCall(
             () => this._paymentSessionManager?.getSessionByGameId?.(gameId)
                 ?? null
         );
 
-        const contractId = contract?.contractId ?? null;
-
-        const tonNetwork = contract?.tonNetwork ?? null;
-
-        const snapshotHash = contract?.snapshotHash ?? null;
-
-        const correlationId = contract?.correlationId ?? null;
-
         const paymentSessionId = session?.paymentSessionId ?? null;
+        const tonNetwork = session?.network ?? null;
+        const correlationId = session?.correlationId ?? null;
 
-        if (!contractId || !tonNetwork || !snapshotHash || !paymentSessionId) {
+        if (!paymentSessionId) {
 
             return this._skip(
                 gameId,
                 phase,
-                "financial_reference_unavailable"
+                "payment_session_unavailable"
             );
 
         }
@@ -544,16 +531,14 @@ export class RecoveryCheckpointManager {
             recoveryRecordId: gameId,
             roomId,
             gameId,
-            contractId,
             paymentSessionId,
-            tonNetwork,
+            tonNetwork: tonNetwork ?? null,
             ...(correlationId != null ? { correlationId } : {}),
 
             configuration,
             configurationHash,
             configurationVersion: CONFIGURATION_VERSION,
             traceSeed: configuration.traceSeed,
-            snapshotHash,
 
             gameState: phase,
             gameStatus: game.status ?? null,
