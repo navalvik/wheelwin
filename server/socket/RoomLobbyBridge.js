@@ -2223,63 +2223,6 @@ export class RoomLobbyBridge {
                     paymentSession.toSnapshot()
                 );
 
-                // R7.69B — GameEscrow is payment authority. Re-query chain and
-                // re-deliver if seats change (missed confirmation / multi-player).
-                // In-memory confirmed seats already show paid on first delivery
-                // (browser refresh after live confirmation).
-                if (
-                    paymentSession.isInProgress?.()
-                    && this._paymentSessionManager?.syncFromGameEscrow
-                ) {
-
-                    Promise.resolve(
-                        this._paymentSessionManager.syncFromGameEscrow(roomId)
-                    ).then((result) => {
-
-                        if (
-                            !result?.ok
-                            || ((result.synced ?? 0) === 0
-                                && (result.demoted ?? 0) === 0)
-                        ) {
-
-                            return;
-
-                        }
-
-                        const updated = this._paymentSessionManager
-                            .getSession(roomId);
-
-                        if (!updated) {
-
-                            return;
-
-                        }
-
-                        this._deliverToSocket(
-                            socketId,
-                            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_UPDATED,
-                            updated.toSnapshot()
-                        );
-
-                        this._deliverToRoom(
-                            roomId,
-                            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_UPDATED,
-                            updated.toSnapshot()
-                        );
-
-                    }).catch((error) => {
-
-                        this._logger?.warn?.(
-                            `GameEscrow payment sync skipped on reconnect | `
-                                + `roomId=${roomId} | ${error?.message ?? error}`
-                        );
-
-                    });
-
-                }
-
-            }
-
             // P6.7 — restore authoritative start gate without re-initializing.
             const gameStart = this._gameStartAuthorization
                 ?.getReconnectSnapshot?.(roomId);
@@ -5755,7 +5698,7 @@ export class RoomLobbyBridge {
      * Returns "testnet" | "mainnet" for an active room (defaults to the
      * established safe default "testnet"). Used by app.js to hand the
      * authoritative signal to the payment orchestration (DepositOrchestrator
-     * / GameContractManager) without any client-provided value.
+     * without any client-provided value.
      */
     getPaymentNetwork(roomId) {
 
