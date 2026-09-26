@@ -572,7 +572,6 @@ export class BlockchainMonitor {
     watchTransaction({
         transactionId,
         address,
-        contractId = null,
         roomId = null,
         gameId = null,
         correlationId = null,
@@ -603,7 +602,6 @@ export class BlockchainMonitor {
             watchId,
             transactionId: String(transactionId),
             address: canonicalizeTonWalletAddress(address) ?? address,
-            contractId,
             roomId,
             gameId,
             correlationId,
@@ -630,7 +628,6 @@ export class BlockchainMonitor {
     async waitForConfirmation({
         transactionId,
         address,
-        contractId = null,
         roomId = null,
         gameId = null,
         correlationId = null,
@@ -644,7 +641,6 @@ export class BlockchainMonitor {
         const watch = this.watchTransaction({
             transactionId,
             address,
-            contractId,
             roomId,
             gameId,
             correlationId,
@@ -708,7 +704,6 @@ export class BlockchainMonitor {
             timedOut.reason = "observation_timeout";
 
             this._emitObservation(EVENT_TYPES.TRANSACTION_FAILED, {
-                contractId: timedOut.contractId,
                 transactionId: timedOut.transactionId,
                 address: timedOut.address,
                 network: this._network,
@@ -882,12 +877,11 @@ export class BlockchainMonitor {
         roomId,
         gameId,
         playerId,
-        contractAddress,
+        destinationAddress,
         paymentReference,
         expectedGram,
         expectedWallet,
         paymentDeadline = null,
-        contractId = null,
         correlationId = null,
         playerIndex = null,
         paymentNetwork = null
@@ -908,10 +902,9 @@ export class BlockchainMonitor {
             roomId,
             gameId,
             playerId,
-            contractId,
             correlationId,
-            contractAddress: canonicalizeTonWalletAddress(contractAddress)
-                ?? contractAddress,
+            destinationAddress: canonicalizeTonWalletAddress(destinationAddress)
+                ?? destinationAddress,
             paymentReference,
             expectedGram: Number(expectedGram),
             expectedWallet: canonicalizeTonWalletAddress(expectedWallet),
@@ -950,7 +943,7 @@ export class BlockchainMonitor {
                 type: "WATCH_STARTED",
                 gameId,
                 playerId,
-                contractAddress,
+                destinationAddress,
                 paymentReference,
                 expectedGram,
                 expectedWallet
@@ -1041,7 +1034,7 @@ export class BlockchainMonitor {
 
         }
 
-        await this._evaluateTransaction(watches[0].contractAddress, tx, watches);
+        await this._evaluateTransaction(watches[0].destinationAddress, tx, watches);
 
     }
 
@@ -1247,13 +1240,13 @@ export class BlockchainMonitor {
 
         }
 
-        const contractAddress = watches[0].contractAddress;
+        const destinationAddress = watches[0].destinationAddress;
 
         let transactions = [];
 
         try {
 
-            transactions = await this._fetchTransactions(contractAddress, {
+            transactions = await this._fetchTransactions(destinationAddress, {
                 limit: 30
             }, watches[0]);
 
@@ -1305,7 +1298,7 @@ export class BlockchainMonitor {
 
         for (const tx of transactions ?? []) {
 
-            await this._evaluateTransaction(contractAddress, tx, watches);
+            await this._evaluateTransaction(destinationAddress, tx, watches);
 
         }
 
@@ -1356,7 +1349,6 @@ export class BlockchainMonitor {
             watch.reason = "observation_timeout";
 
             this._emitObservation(EVENT_TYPES.TRANSACTION_FAILED, {
-                contractId: watch.contractId,
                 transactionId: watch.transactionId,
                 address: watch.address,
                 network: watch.paymentNetwork ?? this._network,
@@ -1406,7 +1398,6 @@ export class BlockchainMonitor {
                 watch.reason = "transaction_failed";
 
                 this._emitObservation(EVENT_TYPES.TRANSACTION_FAILED, {
-                    contractId: watch.contractId,
                     transactionId: watch.transactionId,
                     address: watch.address,
                     network: watch.paymentNetwork ?? this._network,
@@ -1428,7 +1419,6 @@ export class BlockchainMonitor {
                 this._emitObservation(
                     EVENT_TYPES.SETTLEMENT_TRANSACTION_CONFIRMED,
                     {
-                        contractId: watch.contractId,
                         transactionId: watch.transactionId,
                         address: watch.address,
                         network: watch.paymentNetwork ?? this._network,
@@ -1443,7 +1433,6 @@ export class BlockchainMonitor {
                 this._emitObservation(
                     EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED,
                     {
-                        contractId: watch.contractId,
                         transactionId: watch.transactionId,
                         address: watch.address,
                         network: watch.paymentNetwork ?? this._network,
@@ -1458,7 +1447,6 @@ export class BlockchainMonitor {
                 this._emitObservation(
                     EVENT_TYPES.RESIDUAL_SWEEP_TRANSACTION_CONFIRMED,
                     {
-                        contractId: watch.contractId,
                         transactionId: watch.transactionId,
                         address: watch.address,
                         network: watch.paymentNetwork ?? this._network,
@@ -1487,7 +1475,7 @@ export class BlockchainMonitor {
 
 
 
-    async _evaluateTransaction(contractAddress, tx, watches) {
+    async _evaluateTransaction(destinationAddress, tx, watches) {
 
         const deposit = parseDepositCandidate(tx);
 
@@ -1543,13 +1531,13 @@ export class BlockchainMonitor {
         const destination = canonicalizeTonWalletAddress(deposit.destination)
             ?? deposit.destination;
 
-        const normalizedContract = canonicalizeTonWalletAddress(contractAddress)
-            ?? contractAddress;
+        const normalizedDestination = canonicalizeTonWalletAddress(destinationAddress)
+            ?? destinationAddress;
 
         if (
             destination
-            && normalizedContract
-            && destination !== normalizedContract
+            && normalizedDestination
+            && destination !== normalizedDestination
         ) {
 
             this._markSeen(roomId, txHash);
@@ -1557,7 +1545,7 @@ export class BlockchainMonitor {
             this._audit(roomId, {
                 type: "INVALID_PAYMENT",
                 txHash,
-                reason: "wrong_contract",
+                reason: "wrong_destination",
                 sender: deposit.sender,
                 amount: deposit.amountGram
             });
@@ -1632,9 +1620,8 @@ export class BlockchainMonitor {
         this._emitObservation(
             EVENT_TYPES.PAYMENT_TRANSACTION_DETECTED,
             {
-                contractId: matchingWatch.contractId ?? null,
                 transactionId: txHash,
-                address: matchingWatch.contractAddress,
+                address: matchingWatch.destinationAddress,
                 network: matchingWatch?.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: matchingWatch.correlationId ?? null,
@@ -1717,7 +1704,7 @@ export class BlockchainMonitor {
             sender: deposit.sender,
             amount: deposit.amountGram,
             paymentReference: matchingWatch.paymentReference,
-            contractAddress: matchingWatch.contractAddress,
+            destinationAddress: matchingWatch.destinationAddress,
             confirmationTime: this._now(),
             playerIndex: matchingWatch.playerIndex ?? null,
         });
@@ -1725,9 +1712,8 @@ export class BlockchainMonitor {
         this._emitObservation(
             EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED,
             {
-                contractId: matchingWatch.contractId ?? null,
                 transactionId: txHash,
-                address: matchingWatch.contractAddress,
+                address: matchingWatch.destinationAddress,
                 network: matchingWatch?.paymentNetwork ?? this._network,
                 timestamp: this._now(),
                 correlationId: matchingWatch.correlationId ?? null,
@@ -1754,7 +1740,7 @@ export class BlockchainMonitor {
             amount: deposit.amountGram,
             expectedGram: matchingWatch.expectedGram ?? null,
             paymentReference: matchingWatch.paymentReference,
-            contractAddress: matchingWatch.contractAddress,
+            destinationAddress: matchingWatch.destinationAddress,
             confirmedAt: this._now(),
         });
 
@@ -1972,7 +1958,6 @@ export class BlockchainMonitor {
             watchId: watch.watchId,
             transactionId: watch.transactionId,
             address: watch.address,
-            contractId: watch.contractId,
             roomId: watch.roomId,
             paymentNetwork: watch.paymentNetwork ?? null,
             gameId: watch.gameId,
