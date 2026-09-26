@@ -1,10 +1,13 @@
 /**
  * R7.70A.2 — Testnet oracle diagnostics (Railway-visible, no secrets).
  */
-import { printDeployBlock } from "./DeployPipelineForensics.js";
 
 /** @type {null | Record<string, unknown>} */
 let _tonTestnetOracleDebug = null;
+
+function printDiagnosticBlock(title, payload) {
+    console.log(`[${title}]`, payload);
+}
 
 /**
  * @param {Record<string, unknown>} fields
@@ -51,7 +54,7 @@ export function printTonTestnetOracleDebug(fields = null) {
 
     }
 
-    printDeployBlock("TON_TESTNET_ORACLE_DEBUG", {
+    printDiagnosticBlock("TON_TESTNET_ORACLE_DEBUG", {
         network: snapshot.network ?? "testnet",
         oracleConfigured: snapshot.oracleConfigured === true,
         oracleAddress: snapshot.oracleAddress ?? null,
