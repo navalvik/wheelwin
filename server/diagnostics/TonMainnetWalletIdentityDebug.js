@@ -1,6 +1,5 @@
 /**
  * R8.1B — TON_MAINNET_WALLET_IDENTITY_DEBUG (Railway-visible, no secrets).
- * Does not enable Mainnet GameEscrow. Never logs mnemonic.
  */
 import { printDeployBlock } from "./DeployPipelineForensics.js";
 
