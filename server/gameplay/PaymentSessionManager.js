@@ -7,7 +7,6 @@ import {
 } from "../diagnostics/DeployPipelineForensics.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
-import { GAME_CONTRACT_STATUS } from "../models/GameContract.js";
 import {
     PAYMENT_CONFIRMATION_STATUS,
     PAYMENT_PARTICIPANT_STATUS,
@@ -28,17 +27,8 @@ import {
     UnexpectedPaymentError
 } from "./PaymentSessionManagerErrors.js";
 import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
-import {
-    allConfirmedParticipantsRefunded,
-    sessionNeedsEscrowUnwind
-} from "./partialPaymentEscrowUnwind.js";
 
 const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 * 60 * 1000;
-
-const PAYMENT_READY_CONTRACT_STATUSES = new Set([
-    GAME_CONTRACT_STATUS.DEPLOYED,
-    GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS
-]);
 
 /**
  * P6.3 / T2.7 — Authoritative Payment Session manager.
@@ -2077,7 +2067,7 @@ export class PaymentSessionManager {
 
             printDeployBlock("PaymentSessionManager.failSession ABORT", {
                 RoomId: roomId,
-                Reason: "escrow_unwind_in_progress",
+                Reason: "refund_in_progress",
                 WillEmitPAYMENT_SESSION_FAILED: false,
                 Timestamp: new Date().toISOString()
             });
@@ -2089,8 +2079,6 @@ export class PaymentSessionManager {
         this._clearExpiry(roomId);
 
         this._blockchainMonitor?.stopRoom?.(roomId);
-
-        const contract = this._gameContractManager?.getContract?.(roomId) ?? null;
 
         if (this._roomWalletPaymentIntakeEnabled) {
             this._reconcileRoomWalletAcceptedEvidence(session);
@@ -2105,12 +2093,6 @@ export class PaymentSessionManager {
                     || Number(participant.paidAmount) > 0
                 )
             );
-
-        const needsEscrowUnwind = !needsRoomWalletRefund
-            && sessionNeedsEscrowUnwind(session)
-            && Boolean(contract?.contractAddress)
-            && typeof this._gameContractManager?.requestPartialPaymentEscrowUnwind
-                === "function";
 
         if (reason === "payment_timeout") {
 
@@ -2154,17 +2136,7 @@ export class PaymentSessionManager {
             return session;
         }
 
-        if (needsEscrowUnwind) {
-
-            session.recoveryMetadata = {
-                ...(session.recoveryMetadata ?? {}),
-                unwindReason: reason,
-                escrowUnwindRequestedAt: Date.now()
-            };
-
-            session.markRefundPending();
-
-            this._persistSession(session, "update");
+        this._persistSession(session, "update");
 
             this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
@@ -3061,14 +3033,6 @@ export class PaymentSessionManager {
 
     _assertContractReadyForPayments(contract) {
 
-        if (!PAYMENT_READY_CONTRACT_STATUSES.has(contract.status)) {
-
-            throw new PaymentValidationError(
-                `Contract not ready for payments | status=${contract.status}`,
-                { contractId: contract.contractId, status: contract.status }
-            );
-
-        }
 
         if (!contract.contractAddress) {
 
