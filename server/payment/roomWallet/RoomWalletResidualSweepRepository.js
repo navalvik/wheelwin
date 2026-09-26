@@ -124,7 +124,6 @@ export class RoomWalletResidualSweepRepository {
                 status: payload.status,
                 roomId: null,
                 gameId: null,
-                contractId: null,
                 tonNetwork: this._tonNetwork,
                 correlationId: recordId,
                 createdAt: now,
@@ -343,7 +342,6 @@ export class RoomWalletResidualSweepRepository {
                 status: nextStatus,
                 roomId: null,
                 gameId: null,
-                contractId: null,
                 tonNetwork: existing.tonNetwork ?? this._tonNetwork,
                 correlationId: existing.correlationId ?? existing.recordId,
                 updatedAt: payload.updatedAt
