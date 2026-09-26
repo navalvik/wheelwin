@@ -157,7 +157,6 @@ export class RoomWalletSettlementManager {
         return Object.freeze({
             gameId: session.gameId,
             roomId: session.roomId,
-            contractId: null,
             network: session.network ?? session.request?.paymentNetwork ?? null,
             paymentNetwork: session.network ?? session.request?.paymentNetwork ?? null,
             status: session.status,
@@ -494,7 +493,6 @@ export class RoomWalletSettlementManager {
 
         const session = new SettlementSession({
             settlementSessionId: `settle_${randomUUID()}`,
-            contractId: null,
             gameId: ctx.gameId,
             roomId: ctx.roomId,
             winnerId: ctx.winnerId,
@@ -660,7 +658,6 @@ export class RoomWalletSettlementManager {
 
         this._emit(EVENT_TYPES.SETTLEMENT_COMPLETED, {
             gameId: session.gameId, roomId: session.roomId,
-            contractId: null, status: SETTLEMENT_SESSION_STATUS.SETTLEMENT_COMPLETED,
             winnerId: session.winnerId, winnerAmount: session.prizeAmount,
             organizerAmount: session.organizerAmount,
             settlementTxHash: session.settlementTransactionHash,
@@ -783,7 +780,6 @@ export class RoomWalletSettlementManager {
         const failedAt = Date.now();
         const session = new SettlementSession({
             settlementSessionId: `settle_${randomUUID()}`,
-            contractId: null, gameId, roomId: validation.roomId ?? null,
             winnerId: validation.winnerId ?? null, winnerWallet: validation.winnerWallet ?? null,
             prizeAmount: validation.winnerAmount ?? null,
             organizerAmount: validation.organizerAmount ?? null,
@@ -800,7 +796,6 @@ export class RoomWalletSettlementManager {
         this._emitDomain(EVENT_TYPES.SETTLEMENT_FAILED, session, { reason: validation.reason });
         this._emit(EVENT_TYPES.SETTLEMENT_FAILED, {
             gameId, roomId: validation.roomId ?? null,
-            contractId: null, status: SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED,
             reason: validation.reason, timestamp: failedAt
         });
     }
@@ -822,7 +817,6 @@ export class RoomWalletSettlementManager {
         this._emitDomain(EVENT_TYPES.SETTLEMENT_FAILED, session, { reason });
         this._emit(EVENT_TYPES.SETTLEMENT_FAILED, {
             gameId: session.gameId, roomId: session.roomId,
-            contractId: null, status: SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED,
             reason, timestamp: failedAt
         });
     }
