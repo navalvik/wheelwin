@@ -1560,7 +1560,7 @@ class WheelWinApplication {
         // R8.8 — Cross-wire financial retention checks (SESSION_FINISHED / room).
         this._paymentSessionManager.setFinancialEvidenceDeps({
 
-            contractSettlementManager: this._settlementManager
+            settlementManager: this._settlementManager
         });
 
         this._setupSessionLifecycle.setEscrowUnwindBridgeDeps({
