@@ -58,11 +58,6 @@ export class AuditEngine {
 
     }
 
-    setGameContractManager(gameContractManager) {
-
-        this._verifier.setGameContractManager(gameContractManager);
-
-    }
 
     initialize() {
 
