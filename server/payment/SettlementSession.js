@@ -234,7 +234,7 @@ export class SettlementSession {
             reason: this.reason,
             settlementDeadline: this.settlementDeadline,
             recoveryMetadata: this.recoveryMetadata,
-            // after restart (needs contractAddress / wallets / amounts).
+            // after restart (needs wallets / amounts).
             request: this.request
         });
 
