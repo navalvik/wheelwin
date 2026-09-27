@@ -28,8 +28,7 @@ import {
 } from "../models/EntryPaymentSession.js";
 import { EntryPaymentLifecycle } from "../gameplay/EntryPaymentLifecycle.js";
 import {
-    sessionHasUnrefundedPaidFunds,
-    sessionNeedsEscrowUnwind
+    sessionHasUnrefundedPaidFunds
 } from "../gameplay/partialPaymentEscrowUnwind.js";
 import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import {
@@ -3718,9 +3717,14 @@ export class RoomLobbyBridge {
 
             const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
 
+            // R18.XSDd — creator leave before GAME_INITIALIZED uses the same
+            // Room Wallet paid-funds semantics as setup expiry: a FULLY_PAID
+            // session still holds received player funds and must be refunded
+            // through the existing failSession Room Wallet refund machinery,
+            // not silently closed.
             if (
                 paymentSession
-                && sessionNeedsEscrowUnwind(paymentSession)
+                && sessionHasUnrefundedPaidFunds(paymentSession)
             ) {
 
                 this._paymentSessionManager.failSession(roomId, "creator_left");

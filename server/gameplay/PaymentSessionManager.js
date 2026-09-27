@@ -2082,14 +2082,18 @@ export class PaymentSessionManager {
             && typeof this._roomWalletSettlementAdapter?.refundPayments === "function";
 
         // R18.XSDd — a FULLY_PAID session still holds real Room Wallet funds.
-        // When the setup session expires before GAME_INITIALIZED, those funds
-        // must be refunded; terminal status alone must not abort the refund.
-        const refundableFullyPaidSetupExpiry = reason === "setup_expired"
+        // When the setup session expires, or the creator leaves the lobby,
+        // before GAME_INITIALIZED, those funds must be refunded; terminal
+        // status alone must not abort the refund.
+        const refundableFullyPaidBeforeGameInit = (
+            reason === "setup_expired"
+            || reason === "creator_left"
+        )
             && session.status === PAYMENT_SESSION_STATUS.FULLY_PAID
             && roomWalletRefundAvailable
             && sessionHasUnrefundedPaidFunds(session);
 
-        if (session.isTerminal() && !refundableFullyPaidSetupExpiry) {
+        if (session.isTerminal() && !refundableFullyPaidBeforeGameInit) {
 
             printDeployBlock("PaymentSessionManager.failSession ABORT", {
                 RoomId: roomId,
@@ -2121,7 +2125,7 @@ export class PaymentSessionManager {
 
         const needsRoomWalletRefund = roomWalletRefundAvailable
             && (
-                refundableFullyPaidSetupExpiry
+                refundableFullyPaidBeforeGameInit
                 || sessionNeedsEscrowUnwind(session)
             );
 
