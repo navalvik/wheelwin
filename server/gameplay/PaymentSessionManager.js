@@ -755,14 +755,27 @@ export class PaymentSessionManager {
                 // R7.69C — restore CANCELLED sessions for refund sync / watch recovery.
                 const isCancelled = session.status === PAYMENT_SESSION_STATUS.CANCELLED;
 
-                if (session.isTerminal() && !isCancelled) {
+                // Room-Wallet refund recovery — a persisted FULLY_PAID session that
+                // still holds unrefunded paid funds must survive the terminal skip
+                // so its pending refunds can be re-requested below.
+                const refundableRestoredFullyPaid =
+                    this._roomWalletPaymentIntakeEnabled
+                    && session.status === PAYMENT_SESSION_STATUS.FULLY_PAID
+                    && sessionHasUnrefundedPaidFunds(session);
+
+                if (session.isTerminal() && !isCancelled && !refundableRestoredFullyPaid) {
 
                     continue;
 
                 }
 
+                // Room-Wallet refund recovery — a refundable FULLY_PAID session
+                // stays FULLY_PAID here so _requestRoomWalletPartialPaymentRefund()
+                // performs the allowed FULLY_PAID → REFUND_PENDING transition
+                // (RECOVERED → REFUND_PENDING is not an allowed transition).
                 if (
                     !isCancelled
+                    && !refundableRestoredFullyPaid
                     && !session.isInProgress()
                     && session.status !== PAYMENT_SESSION_STATUS.RECOVERED
                 ) {
@@ -804,7 +817,16 @@ export class PaymentSessionManager {
 
                 if (
                     this._roomWalletPaymentIntakeEnabled
-                    && sessionNeedsEscrowUnwind(session)
+                    && (
+                        sessionHasUnrefundedPaidFunds(session)
+                        // Completed unwind — re-enter the existing refund function
+                        // so its ALREADY_REFUNDED branch finalizes the session
+                        // via _finalizePartialPaymentUnwind (no new broadcast).
+                        || (
+                            session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING
+                            && allConfirmedParticipantsRefunded(session)
+                        )
+                    )
                     && (
                         session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING
                         || Number(session.paymentDeadline ?? 0) <= Date.now()
