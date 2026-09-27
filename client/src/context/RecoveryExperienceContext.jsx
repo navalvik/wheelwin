@@ -79,12 +79,20 @@ function devLog(message) {
 }
 
 /** R6.2A — INFO recovery-trace only; does not affect behaviour. */
-function recoveryTrace(stage, { roomId = null, playerId = null } = {}) {
+function recoveryTrace(
+    stage,
+    { roomId = null, playerId = null, credentialPresent } = {}
+) {
 
     console.info(
         `[R6.2A Recovery] ${stage}`
         + ` | roomId=${roomId ?? "null"}`
         + ` | playerId=${playerId ?? "null"}`
+        // R17.9T.7 — printed only when explicitly provided, so every other
+        // trace line stays byte-identical.
+        + (typeof credentialPresent === "boolean"
+            ? ` | credentialPresent=${credentialPresent}`
+            : "")
         + ` | socket.id=${socket.id ?? "null"}`
     );
 
@@ -102,7 +110,7 @@ export function RecoveryExperienceProvider({
 
     const { destroySession } = useGameSession();
 
-    const { getIdentity, clearIdentity } = usePlayerIdentity();
+    const { getIdentity, clearIdentity, setIdentity } = usePlayerIdentity();
 
     const [status, setStatus] = useState(RECOVERY_UI_STATUS.IDLE);
 
@@ -190,7 +198,8 @@ export function RecoveryExperienceProvider({
 
         recoveryTrace("SESSION_RECOVERY_REQUEST sent", {
             roomId: identity.roomId,
-            playerId: identity.playerId
+            playerId: identity.playerId,
+            credentialPresent: Boolean(identity.recoveryCredential)
         });
 
     }, [getIdentity]);
@@ -788,6 +797,22 @@ export function RecoveryExperienceProvider({
                 playerId: getIdentity().playerId
             });
 
+            // R17.9T.7 — credential repair. SETUP_SESSION_SYNC is delivered
+            // only on the server's already-authorized private path (socket
+            // bound to the syncing player), so a fresh server-issued plaintext
+            // credential present in the payload heals a lost one. Merge-only
+            // via the existing PlayerIdentityContext setter: roomId, playerId
+            // and gameId are never replaced or cleared, no new storage is
+            // introduced, and the unbound recovery request protocol is
+            // unchanged.
+            if (payload?.recoveryCredential) {
+
+                setIdentity({
+                    recoveryCredential: payload.recoveryCredential
+                });
+
+            }
+
             if (isSetupRecoveryPage(currentPage)) {
 
                 handleSetupRecoveryComplete();
@@ -825,7 +850,8 @@ export function RecoveryExperienceProvider({
         handleGameplaySnapshot,
         handleRecoveryFailed,
         handleSetupRecoveryComplete,
-        getIdentity
+        getIdentity,
+        setIdentity
     ]);
 
     const value = useMemo(() => ({

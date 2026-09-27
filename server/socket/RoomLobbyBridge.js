@@ -8180,10 +8180,49 @@ export class RoomLobbyBridge {
 
         }
 
+        // R17.9T.7 — recoveryCredential repair on the already-authorized
+        // private delivery path. RecoveryCredentialStore keeps only hashes, so
+        // a lost plaintext can never be re-delivered — but it CAN be re-issued.
+        // Only a socket that is already authoritatively bound (server-owned
+        // socket→player binding) to this exact room may receive a fresh
+        // plaintext. Unbound SESSION_RECOVERY_REQUEST claims are unchanged and
+        // still fail closed (RECOVERY_AUTH_MISSING), reconnectSession rules are
+        // unchanged, and the room-wide archived SETUP_SESSION_SYNC broadcast
+        // never carries a per-player credential. buildSyncPayload returns a
+        // frozen snapshot, so a derived copy is delivered when attaching.
+        const socketContext = this._getSocketContext(socketId);
+
+        let deliveryPayload = syncPayload;
+
+        if (socketContext && socketContext.roomId === roomId) {
+
+            const recoveryCredential = this.issueRecoveryCredential(
+                socketContext.playerId,
+                roomId
+            );
+
+            if (recoveryCredential) {
+
+                deliveryPayload = {
+                    ...syncPayload,
+                    recoveryCredential
+                };
+
+                this._logger.info(
+                    `[R6.2A Recovery] recoveryCredential re-issued`
+                    + ` | roomId=${roomId}`
+                    + ` | playerId=${socketContext.playerId}`
+                    + ` | socket.id=${socketId}`
+                );
+
+            }
+
+        }
+
         this._deliverToSocket(
             socketId,
             LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC,
-            syncPayload
+            deliveryPayload
         );
 
     }
