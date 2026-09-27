@@ -12,6 +12,10 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { SetupSession } from "../models/SetupSession.js";
 import { SETUP_SESSION_STATUS } from "../models/SetupSessionStatus.js";
 import { PAYMENT_SESSION_STATUS } from "../models/PaymentSession.js";
+import {
+    SETUP_SESSION_TERMINAL_STATUSES,
+    TON_FINANCIAL_RECORD_TYPES
+} from "../persistence/TonFinancialRecordTypes.js";
 
 // R7.70C19 — fallback aligned with rooms.js DEFAULT_SETUP_DURATION_MS (8 min).
 const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
@@ -67,6 +71,11 @@ export class SetupSessionLifecycle {
 
         this._paymentSessionManager = null;
 
+        // Setup Session restart re-arm — optional late-bound financial
+        // persistence. Fail-open: with no dep bound, live behavior is
+        // bit-for-bit unchanged (no persistence writes, no restore).
+        this._setupSessionPersistence = null;
+
     }
 
     /**
@@ -109,6 +118,204 @@ export class SetupSessionLifecycle {
     }
 
     /**
+     * Setup Session restart re-arm — late-bind the shared financial persistence
+     * used to persist authoritative Setup Session wall-clock records. Optional
+     * dep: absent dep keeps the live lifecycle behavior unchanged (fail-open).
+     */
+    setSetupSessionPersistence({ persistence = null } = {}) {
+
+        if (persistence) {
+
+            this._setupSessionPersistence = persistence;
+
+        }
+
+    }
+
+    // -------------------------------------------------------------------------
+    // Setup Session restart re-arm — persistence + restore.
+    //
+    // Persists the authoritative Setup Session record so the EXPIRY AUTHORITY
+    // (single _scheduleExpiry timer + SETUP_SESSION_EXPIRED semantics) survives
+    // a server restart. Every persistence call is fail-open: the lifecycle
+    // never blocks or throws on persistence errors.
+    //
+    // Funds safety is NOT owned here: refunds remain owned by
+    // PaymentSessionManager (its boot room-gone refund behavior is untouched).
+    // -------------------------------------------------------------------------
+
+    /**
+     * Authoritative payload for a persisted Setup Session record. Contains
+     * everything required to reconstruct the session, including the original
+     * expiresAt (never recalculated) and the state/roomFull information needed
+     * by the existing lifecycle logic.
+     */
+    _setupSessionRecordPayload(session, { state = session.state } = {}) {
+
+        return {
+            roomId: session.roomId,
+            setupSessionId: session.setupSessionId,
+            startedAt: session.startedAt,
+            expiresAt: session.expiresAt,
+            state,
+            roomFull: session.roomFull === true
+        };
+
+    }
+
+    _persistLogFailure(operation, roomId, error) {
+
+        this._logger.error(
+            `[SetupSessionLifecycle] SETUP_SESSION_PERSIST_${operation}_FAILED `
+                + `| roomId=${roomId} | reason=${error?.message ?? error}`
+        );
+
+    }
+
+    /**
+     * Create the persisted record for a newly created session (roomId-keyed,
+     * 1:1 with the in-memory registry). A stale record for a reused roomId from
+     * a previous process is overwritten with the authoritative live session.
+     */
+    _persistSessionCreate(session) {
+
+        const persistence = this._setupSessionPersistence;
+
+        if (!persistence) {
+
+            return;
+
+        }
+
+        try {
+
+            persistence.create(
+                TON_FINANCIAL_RECORD_TYPES.SETUP_SESSION,
+                this._setupSessionRecordPayload(session),
+                {
+                    recordId: session.roomId,
+                    roomId: session.roomId,
+                    status: session.state
+                }
+            );
+
+        } catch (createError) {
+
+            try {
+
+                persistence.update(
+                    TON_FINANCIAL_RECORD_TYPES.SETUP_SESSION,
+                    session.roomId,
+                    this._setupSessionRecordPayload(session),
+                    { status: session.state }
+                );
+
+            } catch (updateError) {
+
+                this._persistLogFailure("CREATE", session.roomId, updateError);
+
+            }
+
+        }
+
+    }
+
+    /** Update the persisted record after a state transition (complete/archive). */
+    _persistSessionUpdate(session, status = session.state) {
+
+        const persistence = this._setupSessionPersistence;
+
+        if (!persistence) {
+
+            return;
+
+        }
+
+        try {
+
+            persistence.update(
+                TON_FINANCIAL_RECORD_TYPES.SETUP_SESSION,
+                session.roomId,
+                this._setupSessionRecordPayload(session),
+                { status }
+            );
+
+        } catch (error) {
+
+            this._persistLogFailure("UPDATE", session.roomId, error);
+
+        }
+
+    }
+
+    /**
+     * Terminalize the persisted record at the single _sessionDelete choke
+     * point. reason "setup_expired" → EXPIRED (deadline elapsed and handled);
+     * any other reason (room teardown path) → ABORTED. Terminal records are
+     * never restored on boot.
+     */
+    _persistSessionTerminalize(roomId, session, reason) {
+
+        const persistence = this._setupSessionPersistence;
+
+        if (!persistence) {
+
+            return;
+
+        }
+
+        const terminalStatus = reason === "setup_expired"
+            ? SETUP_SESSION_STATUS.EXPIRED
+            : SETUP_SESSION_STATUS.ABORTED;
+
+        try {
+
+            persistence.update(
+                TON_FINANCIAL_RECORD_TYPES.SETUP_SESSION,
+                roomId,
+                this._setupSessionRecordPayload(session, { state: terminalStatus }),
+                { status: terminalStatus }
+            );
+
+        } catch (error) {
+
+            // A missing record (dep unbound earlier / create failed) has
+            // nothing to terminalize — fail-open either way.
+            this._persistLogFailure("TERMINALIZE", roomId, error);
+
+        }
+
+    }
+
+    /** Terminalize a persisted record directly from its stored payload. */
+    _persistTerminalizeRecordPayload(roomId, payload, reason) {
+
+        const persistence = this._setupSessionPersistence;
+
+        if (!persistence) {
+
+            return;
+
+        }
+
+        try {
+
+            persistence.update(
+                TON_FINANCIAL_RECORD_TYPES.SETUP_SESSION,
+                roomId,
+                payload,
+                { status: payload.state }
+            );
+
+        } catch (error) {
+
+            this._persistLogFailure(`TERMINALIZE_${reason}`, roomId, error);
+
+        }
+
+    }
+
+    /**
      * Late-bind GameManager when constructed before managers are fully wired.
      */
     setGameManager(gameManager) {
@@ -118,6 +325,158 @@ export class SetupSessionLifecycle {
             this._gameManager = gameManager;
 
         }
+
+    }
+
+    /**
+     * Restore persisted Setup Sessions after a server restart and re-arm their
+     * original wall-clock expiry through the EXISTING _scheduleExpiry — the
+     * single expiry scheduling mechanism (no second timer path, no duplicate
+     * timers, no deadline recalculation, no expiresAt extension).
+     *
+     * Guards, per record:
+     * - malformed records are skipped;
+     * - a live / already-restored in-memory session always wins (idempotent);
+     * - R8.6 gameplay-ownership guard: a room that already reached
+     *   GAME_INITIALIZED (recovered via RECOVERY_DATA during recoverAll())
+     *   never regains setup ownership;
+     * - terminalized records (EXPIRED / ABORTED) are never resurrected;
+     * - already-elapsed deadlines are never armed — the record is terminalized
+     *   instead. No synthetic boot-time expiry is emitted and no refund
+     *   mechanism is invented: PaymentSessionManager boot recovery remains
+     *   responsible for room-gone refunds.
+     *
+     * Restored sessions receive no NEW authority: _onExpiry keeps every
+     * existing guard (ownership, state set, room presence, deferral).
+     *
+     * @returns {object} restore summary counters
+     */
+    restorePersistedSessions({ records = [] } = {}) {
+
+        this._assertInitialized();
+
+        const summary = {
+            considered: 0,
+            restored: 0,
+            skippedExisting: 0,
+            skippedOwnershipReleased: 0,
+            skippedTerminalized: 0,
+            expiredTerminalized: 0,
+            skippedMalformed: 0
+        };
+
+        for (const record of records ?? []) {
+
+            summary.considered += 1;
+
+            const payload = record?.payload ?? null;
+            const roomId = payload?.roomId ?? record?.roomId ?? null;
+
+            if (!roomId
+                || !payload?.setupSessionId
+                || !Number.isFinite(payload.startedAt)
+                || !Number.isFinite(payload.expiresAt)) {
+
+                summary.skippedMalformed += 1;
+
+                continue;
+
+            }
+
+            // Idempotency: an in-memory session (live or already restored) wins.
+            if (this._sessionHas(
+                roomId,
+                "SetupSessionLifecycle.restorePersistedSessions"
+            )) {
+
+                summary.skippedExisting += 1;
+
+                continue;
+
+            }
+
+            // R8.6 — a room whose gameplay already initialized must not regain
+            // setup ownership (hasInitializedGameplay is accurate here because
+            // recoveryOrchestrator.recoverAll() ran before this call).
+            if (this.isGameplayOwnershipReleased(roomId)) {
+
+                summary.skippedOwnershipReleased += 1;
+
+                continue;
+
+            }
+
+            const state = payload.state ?? record?.status ?? null;
+
+            // Terminalized records are never restored.
+            if (state === null
+                || SETUP_SESSION_TERMINAL_STATUSES.includes(state)) {
+
+                summary.skippedTerminalized += 1;
+
+                continue;
+
+            }
+
+            if (state !== SETUP_SESSION_STATUS.ACTIVE
+                && state !== SETUP_SESSION_STATUS.COMPLETED
+                && state !== SETUP_SESSION_STATUS.ARCHIVED) {
+
+                summary.skippedMalformed += 1;
+
+                continue;
+
+            }
+
+            // Elapsed deadline: never arm a past deadline. Terminalize the
+            // persisted record and leave the funds path to the existing
+            // PaymentSessionManager boot recovery.
+            if (payload.expiresAt <= Date.now()) {
+
+                this._persistTerminalizeRecordPayload(
+                    roomId,
+                    { ...payload, state: SETUP_SESSION_STATUS.EXPIRED },
+                    "restore_elapsed_deadline"
+                );
+
+                summary.expiredTerminalized += 1;
+
+                continue;
+
+            }
+
+            // Reconstruct with the ORIGINAL authoritative values — no deadline
+            // recalculation, no extension.
+            const session = new SetupSession({
+                roomId,
+                startedAt: payload.startedAt,
+                expiresAt: payload.expiresAt,
+                setupSessionId: payload.setupSessionId,
+                state,
+                roomFull: payload.roomFull === true
+            });
+
+            this._sessionSet(
+                roomId,
+                session,
+                "SetupSessionLifecycle.restorePersistedSessions",
+                "restore_persisted"
+            );
+
+            // Reuse the single expiry scheduling mechanism.
+            this._scheduleExpiry(session);
+
+            summary.restored += 1;
+
+            this._log(
+                `RESTORED | roomId=${roomId} `
+                    + `| setupSessionId=${session.setupSessionId} `
+                    + `| expiresAt=${payload.expiresAt}`
+            );
+
+        }
+
+        return summary;
 
     }
 
@@ -269,6 +628,16 @@ export class SetupSessionLifecycle {
             paymentStage: stage.PaymentStage,
             deployStage: stage.DeployStage
         });
+
+        // Restart re-arm — terminalize the persisted record at this single
+        // deletion choke point (fail-open). Covers both callers: expiry
+        // (reason "setup_expired" → EXPIRED) and room teardown
+        // (abort_for_room → ABORTED). Terminal records are never restored.
+        if (session) {
+
+            this._persistSessionTerminalize(roomId, session, reason);
+
+        }
 
     }
 
@@ -427,6 +796,10 @@ export class SetupSessionLifecycle {
         this._sessionSet(roomId, session, "SetupSessionLifecycle.createForRoom", "setup_created");
 
         this._scheduleExpiry(session);
+
+        // Restart re-arm — persist the authoritative wall-clock record
+        // (fail-open; no-op without the persistence dep).
+        this._persistSessionCreate(session);
 
         this._emit(EVENT_TYPES.SETUP_SESSION_STARTED, session.toSnapshot());
 
@@ -671,6 +1044,9 @@ export class SetupSessionLifecycle {
         // R7.70C23 — PAYMENT must still honor the original Setup Timer expiresAt.
         this._rescheduleExpiry(session);
 
+        // Restart re-arm — record transitioned to ARCHIVED (fail-open).
+        this._persistSessionUpdate(session, session.state);
+
         const snapshot = session.toSnapshot();
 
         this._log(
@@ -786,6 +1162,9 @@ export class SetupSessionLifecycle {
         // Do not clear the wall-clock expiry timer — COMPLETED prep pages still
         // count down to expiresAt, and SETUP_SESSION_EXPIRED must fire then.
         session.complete();
+
+        // Restart re-arm — record transitioned to COMPLETED (fail-open).
+        this._persistSessionUpdate(session, session.state);
 
         const snapshot = session.toSnapshot();
 

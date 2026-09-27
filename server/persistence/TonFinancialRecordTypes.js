@@ -23,7 +23,12 @@ export const TON_FINANCIAL_RECORD_TYPES = Object.freeze({
     // R17.9T.6-C — Recovery Data Contract persistence (gameplay recovery data).
     RECOVERY_DATA: "recovery_data",
     RESIDUAL_SWEEP: "residual_sweep",
-    SETTLEMENT_OPERATOR_RECOVERY: "settlement_operator_recovery"
+    SETTLEMENT_OPERATOR_RECOVERY: "settlement_operator_recovery",
+    // Setup Session restart re-arm (2026-09-27 analysis) — durable wall-clock
+    // authority record for the pre-init Setup Session. Additive; roomId-keyed
+    // (1:1 with the in-memory Setup Session registry); mutable until a terminal
+    // status (see SETUP_SESSION_TERMINAL_STATUSES).
+    SETUP_SESSION: "setup_session"
 });
 
 export const TON_FINANCIAL_SCHEMA_VERSION = 1;
@@ -106,6 +111,19 @@ export const SETTLEMENT_OPERATOR_RECOVERY_TERMINAL_STATUSES = Object.freeze([
     "PARTIAL"
 ]);
 
+/**
+ * Setup Session restart re-arm (2026-09-27 analysis) — terminal setup_session
+ * statuses. Mirror the SetupSession model's terminal states:
+ * - EXPIRED: the authoritative wall-clock deadline elapsed (fired or already
+ *   past at boot).
+ * - ABORTED: the session was torn down with its room (room destroy path).
+ * Records in a terminal status are never restored on boot.
+ */
+export const SETUP_SESSION_TERMINAL_STATUSES = Object.freeze([
+    "EXPIRED",
+    "ABORTED"
+]);
+
 export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.GAME_CONTRACT]: "active",
     [TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION]: "active",
@@ -122,5 +140,6 @@ export const RECORD_STORAGE_CATEGORY = Object.freeze({
     [TON_FINANCIAL_RECORD_TYPES.ARCHIVED_CONTRACT]: "archived",
     [TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA]: "active",
     [TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP]: "active",
-    [TON_FINANCIAL_RECORD_TYPES.SETTLEMENT_OPERATOR_RECOVERY]: "active"
+    [TON_FINANCIAL_RECORD_TYPES.SETTLEMENT_OPERATOR_RECOVERY]: "active",
+    [TON_FINANCIAL_RECORD_TYPES.SETUP_SESSION]: "active"
 });

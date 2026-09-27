@@ -144,6 +144,7 @@ import { RecoveryCheckpointManager } from "./recovery/RecoveryCheckpointManager.
 import { RecoveryOrchestrator } from "./recovery/RecoveryOrchestrator.js";
 import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
+import { TON_FINANCIAL_RECORD_TYPES } from "./persistence/TonFinancialRecordTypes.js";
 import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
 import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
 import { DeploymentAuthorizationCoordinator } from "./deposit/DeploymentAuthorizationCoordinator.js";
@@ -1207,6 +1208,13 @@ class WheelWinApplication {
                 + `records=${persistenceSummary?.recordCount ?? 0}`
         );
 
+        // Setup Session restart re-arm — late-bind the shared financial
+        // persistence so SetupSessionLifecycle can persist its authoritative
+        // wall-clock records (optional dep, fail-open).
+        this._setupSessionLifecycle.setSetupSessionPersistence({
+            persistence: this._financialPersistence
+        });
+
         this._sessionWalletStore = new SessionWalletStore({
             financialPersistence: this._financialPersistence,
             logger: this._logger
@@ -1908,6 +1916,49 @@ class WheelWinApplication {
         );
 
         this._logger.startupLine("RecoveryOrchestrator");
+
+        // Setup Session restart re-arm — restore persisted Setup Sessions and
+        // re-arm their ORIGINAL wall-clock expiry through the existing
+        // SetupSessionLifecycle._scheduleExpiry (the single timer mechanism).
+        //
+        // Ordering: runs after recoveryOrchestrator.recoverAll() so the R8.6
+        // gameplay-ownership guard is truthful (hasInitializedGameplay is
+        // populated by gameplay attach), after financial recovery has restored
+        // PaymentSessions, and before SocketGateway/_listen() so no client can
+        // connect mid-restore.
+        //
+        // Failure policy: log-and-continue (fail-open) — funds safety remains
+        // owned by PaymentSessionManager.restorePaymentSessions() (already run).
+        try {
+
+            const persistedSetupSessionRecords =
+                this._financialPersistence.listActive(
+                    TON_FINANCIAL_RECORD_TYPES.SETUP_SESSION
+                );
+
+            const setupSessionRestoreSummary =
+                this._setupSessionLifecycle.restorePersistedSessions({
+                    records: persistedSetupSessionRecords
+                });
+
+            this._logger.info(
+                "SETUP_SESSION_RESTORE_COMPLETE"
+                    + ` | considered=${setupSessionRestoreSummary.considered}`
+                    + ` | restored=${setupSessionRestoreSummary.restored}`
+                    + ` | skippedExisting=${setupSessionRestoreSummary.skippedExisting}`
+                    + ` | skippedOwnershipReleased=${setupSessionRestoreSummary.skippedOwnershipReleased}`
+                    + ` | skippedTerminalized=${setupSessionRestoreSummary.skippedTerminalized}`
+                    + ` | expiredTerminalized=${setupSessionRestoreSummary.expiredTerminalized}`
+                    + ` | skippedMalformed=${setupSessionRestoreSummary.skippedMalformed}`
+            );
+
+        } catch (error) {
+
+            this._logger.error(
+                `SETUP_SESSION_RESTORE_FAILED | reason=${error?.message ?? error}`
+            );
+
+        }
 
         // R17.9T.6-B — Telegram socket authentication configuration.
         // Dependency flow: environment → app.js → SocketGateway → validator.
