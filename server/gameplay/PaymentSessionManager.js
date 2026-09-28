@@ -37,6 +37,22 @@ import {
 
 const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 * 60 * 1000;
 
+/**
+ * PAYMENT_CLOSING — Room-Wallet payment acceptance closing window.
+ *
+ * Incoming Room Wallet payment acceptance stops this many milliseconds
+ * BEFORE the hard paymentDeadline, while the session itself is still in
+ * progress. At the hard deadline the existing lifecycle runs unchanged:
+ * _onExpiry → failSession("payment_timeout") → PAYMENT_TIMEOUT +
+ * existing partial-payment refund unwind.
+ *
+ * Value is the existing "a few seconds" scale (5 s): large enough to stop
+ * polling-driven acceptance before the timer fires, negligible next to the
+ * 8-minute default payment session duration. Fixed lifecycle constant —
+ * not an arbitrary large timeout and not configurable per environment.
+ */
+export const PAYMENT_ACCEPTANCE_CLOSING_WINDOW_MS = 5_000;
+
 const PAYMENT_READY_CONTRACT_STATUSES = new Set([
     GAME_CONTRACT_STATUS.DEPLOYED,
     GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS
@@ -198,6 +214,48 @@ export class PaymentSessionManager {
     isRoomWalletPaymentIntakeEnabled() {
 
         return this._roomWalletPaymentIntakeEnabled === true;
+
+    }
+
+    /**
+     * PAYMENT_CLOSING — Whether incoming Room Wallet payments may still be
+     * accepted for the session in `roomId`.
+     *
+     * Acceptance is open only while the session is in progress, is not in
+     * the REFUND_PENDING unwind, and at least
+     * PAYMENT_ACCEPTANCE_CLOSING_WINDOW_MS remains before the hard
+     * paymentDeadline. The RoomWalletIncomingObserver consults this before
+     * attributing a discovered transaction to the session, so payments are
+     * never credited to a session that is closing / expired / completed.
+     *
+     * This gates Room-Wallet intake acceptance only. It does not change the
+     * legacy GameEscrow confirmation path or the hard expiry lifecycle.
+     */
+    isAcceptingPayments(roomId) {
+
+        const session = this._sessionsByRoom.get(roomId);
+
+        if (!session || !session.isInProgress()) {
+
+            return false;
+
+        }
+
+        if (session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING) {
+
+            return false;
+
+        }
+
+        const deadline = Number(session.paymentDeadline ?? session.expiresAt ?? NaN);
+
+        if (!Number.isFinite(deadline)) {
+
+            return true;
+
+        }
+
+        return Date.now() <= deadline - PAYMENT_ACCEPTANCE_CLOSING_WINDOW_MS;
 
     }
 

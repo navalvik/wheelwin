@@ -535,3 +535,106 @@ test("existing room-wallet refund is adopted without a second send", async () =>
     assert.equal(result.results[0].txHash, existingHash);
     assert.equal(calls.length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// cutoffUtime unit contract — PaymentSession timestamps are MILLISECONDS,
+// TON transaction utime is Unix SECONDS. The adapter must normalize the
+// cutoff to Unix seconds exactly once (resolveCutoffUtime: values > 1e12
+// are divided by 1000 and floored) before comparing against utime seconds.
+// Fixed values pin the derivation: 1_700_000_000_500 ms -> 1_700_000_000 s.
+// ---------------------------------------------------------------------------
+
+test("refund cutoff derived from a millisecond timestamp is compared in TON utime seconds — transfer after the cutoff is adopted without re-broadcast", async () => {
+    const cutoffMs = 1_700_000_000_500;
+    const cutoffSeconds = Math.floor(cutoffMs / 1000);
+    assert.equal(cutoffSeconds, 1_700_000_000);
+
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => [{
+            transaction_id: { hash: "refund-after-cutoff" },
+            utime: cutoffSeconds + 60, // TON utime SECONDS, after the cutoff
+            success: true,
+            out_msgs: [{
+                destination: WINNER,
+                value: "1000000000"
+            }]
+        }]
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 9,
+        cutoffUtime: cutoffMs, // WheelWin millisecond timestamp
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: WINNER,
+            amount: 1
+        }]
+    });
+
+    // If the cutoff were compared in milliseconds, utime (seconds scale)
+    // could never exceed it and the refund would be broadcast a second time.
+    assert.equal(result.ok, true);
+    assert.equal(result.results[0].code, "REFUND_ADOPTED");
+    assert.equal(result.results[0].txHash, "refund-after-cutoff");
+    assert.equal(calls.length, 0);
+});
+
+test("transfer with utime before the millisecond-derived cutoff is not adopted — a fresh refund is broadcast", async () => {
+    const cutoffMs = 1_700_000_000_500;
+    const cutoffSeconds = Math.floor(cutoffMs / 1000);
+    const history = [{
+        transaction_id: { hash: "pre-cutoff-transfer" },
+        utime: cutoffSeconds - 60, // BEFORE the cutoff
+        success: true,
+        out_msgs: [{
+            destination: WINNER,
+            value: "1000000000"
+        }]
+    }];
+
+    let sentCount = 0;
+    let broadcastInput = null;
+
+    const { adapter } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => history,
+        sendTransfer(input) {
+            sentCount += 1;
+            broadcastInput = input;
+            const hash = "refund-fresh";
+            history.push({
+                transaction_id: { hash },
+                utime: Math.floor(Date.now() / 1000),
+                success: true,
+                out_msgs: [{
+                    destination: input.destination,
+                    value: input.amountNano.toString()
+                }]
+            });
+            return { ok: true, code: "SENT", txHash: hash };
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 9,
+        cutoffUtime: cutoffMs,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: WINNER,
+            amount: 1
+        }]
+    });
+
+    // The pre-cutoff transfer must not be mistaken for the refund.
+    assert.equal(result.ok, true);
+    assert.equal(result.results[0].code, "REFUND_CONFIRMED");
+    assert.equal(result.results[0].txHash, "refund-fresh");
+    assert.equal(sentCount, 1);
+    assert.deepEqual(
+        { destination: broadcastInput?.destination, amountNano: broadcastInput?.amountNano },
+        { destination: WINNER, amountNano: 1_000_000_000n }
+    );
+});

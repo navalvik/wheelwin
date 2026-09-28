@@ -18,9 +18,13 @@ import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import {
     PAYMENT_CONFIRMATION_STATUS,
-    PAYMENT_PARTICIPANT_STATUS
+    PAYMENT_PARTICIPANT_STATUS,
+    PAYMENT_SESSION_STATUS
 } from "../models/PaymentSession.js";
-import { PaymentSessionManager } from "../gameplay/PaymentSessionManager.js";
+import {
+    PAYMENT_ACCEPTANCE_CLOSING_WINDOW_MS,
+    PaymentSessionManager
+} from "../gameplay/PaymentSessionManager.js";
 import {
     BlockchainMonitor,
     EntryPaymentAuditLedger,
@@ -68,11 +72,13 @@ function inboundTx({
     comment = "",
     lt = "100",
     amountIsGram = false,
-    aborted = false
+    aborted = false,
+    utime = null
 }) {
     return {
         transaction_id: { hash, lt },
         aborted,
+        ...(utime != null ? { utime } : {}),
         in_msg: {
             source: from,
             destination: to,
@@ -192,6 +198,17 @@ function createObserverFixture({
     const registry = new RoomWalletRegistry({ entries: registryEntries });
     const ledgerRegistry = new RoomWalletLedgerRegistry();
     const auditLedger = new EntryPaymentAuditLedger();
+
+    // PAYMENT_CLOSING harness fix — production app.js wires the Room Wallet
+    // registry into PaymentSessionManager via setRoomWalletFinance() before
+    // any session is created (Room-Wallet-only intake). Without it
+    // createPaymentSession fails closed ("Room Wallet address is required
+    // for player payment").
+    harness.manager.setRoomWalletFinance({
+        registry,
+        roomWalletPaymentIntakeEnabled: true
+    });
+
     const observer = new RoomWalletIncomingObserver({
         logger: harness.logger,
         eventBus: harness.eventBus,
@@ -522,9 +539,13 @@ test("K two simultaneous games do not cross-credit", (t) => {
 
     assert.equal(creditedA.credited, true);
     assert.equal(creditedA.roomId, "Ka01");
+    // Room-Wallet intake activation (parity with app.js wiring) issues
+    // payment requests for every seat: PAYMENT_REQUESTED →
+    // AWAITING_PLAYER_CONFIRMATION. Game B's seats remain untouched by
+    // game A's payment regardless of the issued-seat status.
     assert.equal(
         manager.getSession("Kb02").findParticipant(playersB[0].playerId).status,
-        PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
+        PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
     );
 });
 
@@ -623,9 +644,11 @@ test("N PaymentSessionManager remains compatible with Room Wallet confirmation e
         manager.getSession("Keah").findParticipant(players[1].playerId).confirmationStatus,
         PAYMENT_CONFIRMATION_STATUS.CONFIRMED
     );
+    // All seats are activated to AWAITING_PLAYER_CONFIRMATION when payment
+    // requests are issued; players[0] simply has not paid yet.
     assert.equal(
         manager.getSession("Keah").findParticipant(players[0].playerId).status,
-        PAYMENT_PARTICIPANT_STATUS.PAYMENT_REQUESTED
+        PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION
     );
 });
 
@@ -1015,5 +1038,232 @@ test("traffic control: BlockchainMonitor does not overlap _pollGlobal", async (t
     await wait(100);
     assert.equal(maxConcurrent, 1);
     assert.ok(started >= 1);
+});
+
+// ---------------------------------------------------------------------------
+// PAYMENT_CLOSING — PaymentSession payment-acceptance lifetime
+// ---------------------------------------------------------------------------
+
+test("PAYMENT_CLOSING A: transaction inside the acceptance window is accepted and recorded", (t) => {
+    const roomWallet = friendlyAddress("rw-pc-a");
+    const players = threePlayers("pca");
+    const tx = inboundTx({
+        hash: "tx-pc-a",
+        from: players[0].wallet,
+        to: roomWallet,
+        nanoton: 1_000_000_000,
+        utime: Math.floor(Date.now() / 1000) // now, in TON Unix seconds
+    });
+    const transport = new MockTonTransport();
+    transport.seedTransactions(roomWallet, [tx]);
+
+    const { observer, manager, ledgerRegistry } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "PcA1", roomNumber: 1, gameId: "game-pc-a", players }],
+        transport
+    });
+
+    const session = manager.getSession("PcA1");
+    assert.equal(manager.isAcceptingPayments("PcA1"), true);
+
+    const result = observer.processTransaction(tx, roomWallet);
+
+    assert.equal(result.credited, true);
+    assert.equal(result.roomId, "PcA1");
+    assert.equal(result.playerId, players[0].playerId);
+
+    const participant = session.findParticipant(players[0].playerId);
+    assert.equal(participant.status, PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED);
+    assert.equal(participant.txHash, "tx-pc-a");
+    assert.equal(participant.paidAmount, 1);
+
+    const received = session.receivedPayments.find(
+        (payment) => payment.playerId === players[0].playerId
+    );
+    assert.ok(received);
+    assert.equal(received.transactionHash, "tx-pc-a");
+    assert.equal(received.walletAddress, players[0].wallet);
+    assert.equal(received.amount, 1);
+
+    const ledgerEntry = ledgerRegistry
+        .listPlayerPayments("game-pc-a")
+        .find((entry) => entry.metadata.txHash === "tx-pc-a");
+    assert.ok(ledgerEntry);
+    assert.equal(ledgerEntry.playerId, players[0].playerId);
+    assert.equal(ledgerEntry.gameId, "game-pc-a");
+    assert.equal(ledgerEntry.metadata.amountGram, 1);
+});
+
+test("PAYMENT_CLOSING B: transaction created before the acceptance start is rejected", (t) => {
+    const roomWallet = friendlyAddress("rw-pc-b");
+    const players = threePlayers("pcb");
+
+    const { observer, manager, eventBus } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "PcB1", roomNumber: 1, gameId: "game-pc-b", players }]
+    });
+
+    const session = manager.getSession("PcB1");
+
+    const confirmedEvents = [];
+    eventBus.subscribe(
+        EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED,
+        (envelope) => confirmedEvents.push(envelope.payload)
+    );
+
+    // TonCenter utime is Unix SECONDS; 60 s before the session existed.
+    const staleUtime = Math.floor((session.createdAt - 60_000) / 1000);
+    const tx = inboundTx({
+        hash: "tx-pc-b",
+        from: players[0].wallet,
+        to: roomWallet,
+        nanoton: 1_000_000_000,
+        utime: staleUtime
+    });
+
+    const result = observer.processTransaction(tx, roomWallet);
+
+    assert.equal(result.credited, false);
+    assert.equal(result.reason, ROOM_WALLET_INCOMING_REJECTION_REASONS.STALE_TRANSACTION);
+    assert.equal(result.roomId, "PcB1");
+    assert.equal(result.playerId, players[0].playerId);
+
+    const participant = session.findParticipant(players[0].playerId);
+    assert.equal(participant.status, PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION);
+    assert.equal(participant.txHash, null);
+    assert.equal(confirmedEvents.length, 0);
+
+    // The rejected observation is persisted, so re-polling cannot credit it.
+    const repeat = observer.processTransaction(tx, roomWallet);
+    assert.equal(repeat.credited, false);
+    assert.equal(repeat.reason, ROOM_WALLET_INCOMING_REJECTION_REASONS.DUPLICATE_TRANSACTION);
+});
+
+test("PAYMENT_CLOSING C: transaction discovered inside the closing window is rejected", (t) => {
+    const roomWallet = friendlyAddress("rw-pc-c");
+    const players = threePlayers("pcc");
+
+    const { observer, manager, eventBus } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "PcC1", roomNumber: 1, gameId: "game-pc-c", players }]
+    });
+
+    const session = manager.getSession("PcC1");
+
+    // Move the hard deadline into the closing window: less than
+    // PAYMENT_ACCEPTANCE_CLOSING_WINDOW_MS before expiration.
+    session.paymentDeadline = Date.now() + 1_000;
+    session.expiresAt = session.paymentDeadline;
+
+    assert.equal(
+        session.paymentDeadline - Date.now() < PAYMENT_ACCEPTANCE_CLOSING_WINDOW_MS,
+        true
+    );
+    assert.equal(manager.isAcceptingPayments("PcC1"), false);
+
+    const confirmedEvents = [];
+    eventBus.subscribe(
+        EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED,
+        (envelope) => confirmedEvents.push(envelope.payload)
+    );
+
+    const tx = inboundTx({
+        hash: "tx-pc-c",
+        from: players[0].wallet,
+        to: roomWallet,
+        nanoton: 1_000_000_000,
+        utime: Math.floor(Date.now() / 1000)
+    });
+
+    const result = observer.processTransaction(tx, roomWallet);
+
+    assert.equal(result.credited, false);
+    assert.equal(result.reason, ROOM_WALLET_INCOMING_REJECTION_REASONS.EXPIRED_PAYMENT_CONTEXT);
+    assert.equal(result.playerId, players[0].playerId);
+
+    const participant = session.findParticipant(players[0].playerId);
+    assert.equal(participant.status, PAYMENT_PARTICIPANT_STATUS.AWAITING_PLAYER_CONFIRMATION);
+    assert.equal(participant.txHash, null);
+    assert.equal(confirmedEvents.length, 0);
+    assert.equal(session.isInProgress(), true); // closing — not yet expired
+});
+
+test("PAYMENT_CLOSING C/G: after expiry the session is not credited and cannot be revived", async (t) => {
+    const roomWallet = friendlyAddress("rw-pc-c2");
+    const players = threePlayers("pcc2");
+
+    const { observer, manager, eventBus } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "PcC2", roomNumber: 1, gameId: "game-pc-c2", players }],
+        durationMs: 150
+    });
+
+    const completed = [];
+    eventBus.subscribe(
+        EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
+        (envelope) => completed.push(envelope.payload)
+    );
+
+    await wait(300); // hard timer → existing _onExpiry → failSession("payment_timeout")
+
+    const session = manager.getSession("PcC2");
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.PAYMENT_TIMEOUT);
+    assert.equal(session.isInProgress(), false);
+    assert.equal(manager.isAcceptingPayments("PcC2"), false);
+
+    const late = observer.processTransaction(inboundTx({
+        hash: "tx-pc-c2-late",
+        from: players[0].wallet,
+        to: roomWallet,
+        nanoton: 1_000_000_000,
+        utime: Math.floor(Date.now() / 1000)
+    }), roomWallet);
+
+    assert.equal(late.credited, false);
+    assert.equal(late.reason, ROOM_WALLET_INCOMING_REJECTION_REASONS.UNKNOWN_SENDER);
+
+    assert.equal(completed.length, 0);
+    assert.equal(session.confirmedCount(), 0);
+    assert.equal(session.isInProgress(), false);
+});
+
+test("PAYMENT_CLOSING D: three payments inside the window complete the session", (t) => {
+    const roomWallet = friendlyAddress("rw-pc-d");
+    const players = threePlayers("pcd");
+
+    const { observer, manager, eventBus } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "PcD1", roomNumber: 1, gameId: "game-pc-d", players }]
+    });
+
+    const completed = [];
+    eventBus.subscribe(
+        EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
+        (envelope) => completed.push(envelope.payload)
+    );
+
+    players.forEach((player, index) => {
+        const result = observer.processTransaction(inboundTx({
+            hash: `tx-pc-d-${index}`,
+            from: player.wallet,
+            to: roomWallet,
+            nanoton: 1_000_000_000,
+            utime: Math.floor(Date.now() / 1000)
+        }), roomWallet);
+
+        assert.equal(result.credited, true);
+    });
+
+    const session = manager.getSession("PcD1");
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.FULLY_PAID);
+    assert.equal(session.confirmedCount(), 3);
+    assert.equal(completed.length, 1);
+    assert.equal(completed[0].roomId, "PcD1");
+    assert.equal(manager.isAcceptingPayments("PcD1"), false);
 });
 

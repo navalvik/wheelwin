@@ -135,6 +135,7 @@ export const ROOM_WALLET_INCOMING_REJECTION_REASONS = Object.freeze({
     AMBIGUOUS_ATTRIBUTION: "ambiguous_attribution",
     WRONG_AMOUNT: "wrong_amount",
     EXPIRED_PAYMENT_CONTEXT: "expired_payment_context",
+    STALE_TRANSACTION: "stale_transaction",
     DUPLICATE_TRANSACTION: "duplicate_transaction",
     PERSISTENCE_UNAVAILABLE: "persistence_unavailable",
     PERSISTENCE_FAILURE: "persistence_failure",
@@ -160,6 +161,43 @@ export function nanotonToGram(nanoton) {
     }
 
     return value / 1e9;
+}
+
+/**
+ * PAYMENT_CLOSING — Clock-skew tolerance for the blockchain-time guard.
+ *
+ * TON `utime` is validator time in whole Unix SECONDS; PaymentSession
+ * timestamps are server wall-clock milliseconds. 5 000 ms is the smallest
+ * defensible tolerance: it covers second-granularity rounding plus ordinary
+ * validator/NTP skew, while staying negligible against the 8-minute default
+ * payment window. A transaction created more than this much before a
+ * session's acceptance start is never attributed to that session.
+ */
+export const ROOM_WALLET_TX_CLOCK_SKEW_TOLERANCE_MS = 5_000;
+
+/**
+ * PAYMENT_CLOSING — Convert the raw TonCenter transaction creation time to
+ * Unix milliseconds.
+ *
+ * TonCenter `utime` (fallback `now`) is Unix SECONDS; PaymentSession
+ * timestamps (`createdAt`, `paymentDeadline`) are milliseconds, so the
+ * ×1000 conversion here is explicit. Returns null when the raw transaction
+ * carries no usable time — the caller then relies on the session-state
+ * acceptance checks (fail-open on missing data only, never on an
+ * out-of-window time).
+ */
+export function tonTransactionCreatedAtMs(rawTransaction) {
+    if (!rawTransaction || typeof rawTransaction !== "object") {
+        return null;
+    }
+
+    const seconds = Number(rawTransaction.utime ?? rawTransaction.now ?? NaN);
+
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+        return null;
+    }
+
+    return seconds * 1000;
 }
 
 export function buildRoomWalletIncomingObservationId(destination, transactionHash) {
@@ -571,6 +609,41 @@ export class RoomWalletIncomingObserver {
 
         const { session, participant } = attribution;
 
+        // PAYMENT_CLOSING — a transaction created on-chain before this
+        // session's acceptance start is a leftover from an earlier game or
+        // session polling the same Room Wallet and must never be attributed
+        // to this session (see CLINE report
+        // 2026-09-28_room_wallet_observer_old_tx_attribution_analysis.md).
+        // TON utime is Unix seconds; session.createdAt is milliseconds —
+        // tonTransactionCreatedAtMs performs the explicit ×1000 conversion.
+        const txCreatedAtMs = tonTransactionCreatedAtMs(deposit.raw);
+
+        if (
+            txCreatedAtMs != null
+            && txCreatedAtMs
+                < session.createdAt - ROOM_WALLET_TX_CLOCK_SKEW_TOLERANCE_MS
+        ) {
+            return this._rejectTerminal(
+                ROOM_WALLET_INCOMING_REJECTION_REASONS.STALE_TRANSACTION,
+                {
+                    destination,
+                    sender,
+                    txHash,
+                    amountGram,
+                    comment: deposit.comment,
+                    lt: deposit.lt,
+                    roomId: session.roomId,
+                    roomNumber: session.roomNumber ?? null,
+                    gameId: session.gameId,
+                    playerId: participant.playerId,
+                    paymentReference: participant.paymentReference,
+                    paymentSessionId: session.paymentSessionId,
+                    transactionCreatedAtMs: txCreatedAtMs,
+                    sessionCreatedAtMs: session.createdAt
+                }
+            );
+        }
+
         if (!amountsMatch(participant.requiredGram, amountGram)) {
             return this._rejectTerminal(
                 ROOM_WALLET_INCOMING_REJECTION_REASONS.WRONG_AMOUNT,
@@ -699,7 +772,6 @@ export class RoomWalletIncomingObserver {
         const senderMatches = [];
         const destMatches = [];
         const expiredMatches = [];
-        const now = this._now();
 
         for (const session of sessions) {
             // The PaymentSession is authoritative for the active payment
@@ -732,7 +804,7 @@ export class RoomWalletIncomingObserver {
                 senderMatches.push(match);
 
                 if (intended && intended === destination) {
-                    if (session.paymentDeadline && now > session.paymentDeadline) {
+                    if (!this._isSessionAcceptingPayments(session)) {
                         expiredMatches.push(match);
                     } else {
                         destMatches.push(match);
@@ -780,6 +852,37 @@ export class RoomWalletIncomingObserver {
         return {
             reason: ROOM_WALLET_INCOMING_REJECTION_REASONS.UNKNOWN_SENDER
         };
+    }
+
+    /**
+     * PAYMENT_CLOSING — Whether the session is still inside its payment
+     * acceptance window.
+     *
+     * PaymentSessionManager owns the PaymentSession lifecycle, so its
+     * isAcceptingPayments() predicate is authoritative when available: it
+     * reports false once the session enters the closing window before the
+     * hard deadline, during the REFUND_PENDING unwind, and after any
+     * terminal transition (expired / completed / cancelled). Sessions that
+     * are already terminal are additionally excluded from the scan itself
+     * by _listInProgressSessions().
+     *
+     * The deadline-only fallback preserves the pre-closing behaviour for
+     * managers without the predicate.
+     */
+    _isSessionAcceptingPayments(session) {
+        const manager = this._paymentSessionManager;
+
+        if (manager && typeof manager.isAcceptingPayments === "function") {
+            return manager.isAcceptingPayments(session.roomId) === true;
+        }
+
+        const deadline = Number(session.paymentDeadline ?? NaN);
+
+        if (!Number.isFinite(deadline)) {
+            return true;
+        }
+
+        return this._now() <= deadline;
     }
 
     _listInProgressSessions() {
