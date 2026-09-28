@@ -142,3 +142,12 @@ test("Page4 source contains no participant contractAddress payment fallback", ()
         /participant\?\.contractAddress/
     );
 });
+
+test("Page4 binds the Room Wallet transaction to the authoritative session network", () => {
+    // The TonConnect transaction network must come from the server-owned
+    // PaymentSession snapshot — never from a client-selected value.
+    assert.match(
+        PAGE4_SOURCE,
+        /buildEntryPaymentTransaction\(\{[\s\S]*?network:\s*paymentSession\?\.network/
+    );
+});

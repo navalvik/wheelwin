@@ -904,6 +904,7 @@ export default function Page4Payment({ onNavigate }) {
 
             const transactionObject = buildEntryPaymentTransaction({
                 includeStake: components.includeStake,
+                network: paymentSession?.network ?? null,
                 paymentDestination: destination,
                 roomWalletAddress: destination,
                 requiredGram: paymentRequest?.requiredGram ?? null
@@ -937,9 +938,19 @@ export default function Page4Payment({ onNavigate }) {
 
         } catch (error) {
 
+            // Diagnostic only. Individual safe fields are logged explicitly;
+            // the raw error object is never logged, so wallet secrets, private
+            // keys or mnemonics cannot leak into the console.
             console.error(
-                "[Page4Payment] Room Wallet transfer failed:",
-                error
+                "[Page4Payment] Room Wallet transfer failed",
+                {
+                    roomId: authoritative.roomId ?? null,
+                    playerId: runtimeLocalPlayerId,
+                    network: paymentSession?.network ?? null,
+                    errorName: error?.name ?? null,
+                    errorCode: error?.code ?? null,
+                    errorMessage: error?.message ?? null
+                }
             );
 
             setSubmitError(error?.message || t("payment.entryFailed"));

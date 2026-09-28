@@ -10,6 +10,42 @@ import { buildTonConnectPaymentTransaction } from "./buildTonConnectPaymentTrans
 
 const DEFAULT_VALID_UNTIL_SECONDS = 600;
 
+/**
+ * TON Connect chain IDs for the SendTransaction `network` field.
+ * Testnet is the only production-active network. The Mainnet mapping exists so
+ * this helper stays ready for the later Mainnet stage; no Mainnet deployment,
+ * configuration or registry is part of this change.
+ */
+export const TON_CHAIN_ID_TESTNET = "-3";
+export const TON_CHAIN_ID_MAINNET = "-239";
+
+const TON_CHAIN_IDS = new Set([TON_CHAIN_ID_TESTNET, TON_CHAIN_ID_MAINNET]);
+
+/**
+ * Strict, fail-closed mapping of the server-authoritative PaymentSession
+ * network to the TonConnect chain id. A missing or unknown network never
+ * defaults to any chain — the transaction must not be constructed.
+ */
+function resolveTonConnectChainId(network) {
+
+    if (network === "testnet") {
+
+        return TON_CHAIN_ID_TESTNET;
+
+    }
+
+    if (network === "mainnet") {
+
+        return TON_CHAIN_ID_MAINNET;
+
+    }
+
+    throw new Error(
+        "Authoritative payment session network is required (testnet|mainnet)"
+    );
+
+}
+
 function addNanotons(left, right) {
 
     return (BigInt(left) + BigInt(right)).toString();
@@ -91,8 +127,21 @@ export function toTonConnectSendTransactionRequest(transactionObject = {}) {
         ? transactionObject.messages
         : [];
 
+    // Fail closed: the wallet request must carry the authoritative chain id.
+    // A request without an explicit network must never reach the wallet.
+    const network = transactionObject.network;
+
+    if (typeof network !== "string" || !TON_CHAIN_IDS.has(network)) {
+
+        throw new Error(
+            "TonConnect transaction requires an explicit authoritative network"
+        );
+
+    }
+
     return {
         validUntil: transactionObject.validUntil,
+        network,
         messages: rawMessages.map((message) => {
 
             const next = {
@@ -120,7 +169,7 @@ export function toTonConnectSendTransactionRequest(transactionObject = {}) {
 }
 
 /**
- * @returns {{ validUntil: number, messages: object[], totalNanotons: string }}
+ * @returns {{ validUntil: number, messages: object[], network: string, totalNanotons: string }}
  */
 export function buildEntryPaymentTransaction({
     isCreator = false,
@@ -141,6 +190,10 @@ export function buildEntryPaymentTransaction({
     validUntilSeconds = DEFAULT_VALID_UNTIL_SECONDS,
     nowMs = Date.now()
 } = {}) {
+
+    // Fail closed first: without the server-authoritative network the
+    // transaction must not be constructed at all.
+    const chainId = resolveTonConnectChainId(network);
 
     // WheelWin player finance is Room-Wallet-only.
     // DepositContract/GameEscrow payment components are intentionally disabled.
@@ -196,6 +249,7 @@ export function buildEntryPaymentTransaction({
     return {
         validUntil: Math.floor(Number(nowMs) / 1000) + ttl,
         messages,
+        network: chainId,
         totalNanotons
     };
 
