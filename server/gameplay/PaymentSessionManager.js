@@ -560,7 +560,7 @@ export class PaymentSessionManager {
     /**
      * P6.3 legacy — idempotent create used by lobby flow.
      */
-    createAndRequest(roomId, { gameId = null } = {}) {
+    createAndRequest(roomId, { gameId = null, network = null } = {}) {
 
         this._assertInitialized();
 
@@ -570,6 +570,7 @@ export class PaymentSessionManager {
         console.log("[R7.50 DIAG] PaymentSession creation requested", {
             roomId: roomId ?? null,
             gameId: gameId ?? null,
+            network: network ?? null,
             hasExistingSession: this._sessionsByRoom.has(roomId),
             timestamp: Date.now()
         });
@@ -612,7 +613,22 @@ export class PaymentSessionManager {
 
         try {
 
-            const created = this.createPaymentSession(roomId, { gameId });
+            // Stage 2 — fail closed: every lobby-created PaymentSession must be
+            // backed by the room's authoritative one-time network selection
+            // (RoomLobbyBridge._roomNetworkByRoom). A missing or unknown
+            // network must never silently fall back to the process-level
+            // TON_NETWORK; the existing create-failure convention below
+            // (decisionTrace + PAYMENT_SESSION_FAILED) handles the rejection.
+            if (network !== "testnet" && network !== "mainnet") {
+
+                throw new PaymentValidationError(
+                    "Authoritative room network unavailable for PaymentSession",
+                    { roomId, gameId: gameId ?? null, network: network ?? null }
+                );
+
+            }
+
+            const created = this.createPaymentSession(roomId, { gameId, network });
 
             console.log("[R7.50 DIAG] PaymentSession created", {
                 roomId,
@@ -2339,6 +2355,7 @@ export class PaymentSessionManager {
         console.log("[R7.50 DIAG] PAYMENT_CONNECTION_READY received by PaymentSessionManager", {
             roomId: payload?.roomId ?? null,
             gameId: payload?.gameId ?? null,
+            network: payload?.network ?? null,
             hasExistingSession: this._sessionsByRoom.has(payload?.roomId),
             timestamp: Date.now()
         });
@@ -2351,7 +2368,8 @@ export class PaymentSessionManager {
         });
 
         const session = this.createAndRequest(payload?.roomId, {
-            gameId: payload?.gameId ?? null
+            gameId: payload?.gameId ?? null,
+            network: payload?.network ?? null
         });
 
         console.log("[R7.50 DIAG] createAndRequest returned", {

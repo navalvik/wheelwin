@@ -6556,9 +6556,18 @@ export class RoomLobbyBridge {
             timestamp: Date.now()
         });
 
+        // Stage 2 — the authoritative room network (R20 one-time Owner
+        // selection held in _roomNetworkByRoom) is propagated on the domain
+        // event payload so PaymentSessionManager.createAndRequest() can stamp
+        // PaymentSession.network from the room itself instead of silently
+        // inheriting the process-level TON_NETWORK. The value is null while
+        // no selection is committed; the payment domain fails closed on it.
+        const roomNetwork = this._roomNetworkByRoom.get(roomId) ?? null;
+
         // R7.50 temporary diagnostics — EventBus emit before PaymentSessionManager.
         console.log("[R7.50 DIAG] emitting PAYMENT_CONNECTION_READY", {
             roomId,
+            network: roomNetwork,
             event: EVENT_TYPES.PAYMENT_CONNECTION_READY,
             subscriberHint: "PaymentSessionManager._handlePaymentConnectionReady",
             timestamp: Date.now()
@@ -6567,7 +6576,11 @@ export class RoomLobbyBridge {
         this._eventBus.emit({
             source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
             type: EVENT_TYPES.PAYMENT_CONNECTION_READY,
-            payload: { roomId, timestamp: Date.now() }
+            payload: {
+                roomId,
+                network: roomNetwork,
+                timestamp: Date.now()
+            }
         });
 
         console.log("[R7.50 DIAG] PAYMENT_CONNECTION_READY emit returned", {
