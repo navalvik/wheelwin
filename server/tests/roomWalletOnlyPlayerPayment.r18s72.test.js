@@ -179,6 +179,75 @@ test("PaymentSessionManager Room Wallet dest does not register Game Escrow watch
     eventBus.shutdown();
 });
 
+test("PaymentSessionManager uses runtime network when PAYMENT_CONNECTION_READY has no room network", () => {
+    const eventBus = new EventBus({
+        logger: createLogger(),
+        eventBusConfig: { logEvents: false, showDebugPanel: false }
+    });
+    eventBus.initialize();
+
+    const manager = new PaymentSessionManager({
+        logger: createLogger(),
+        eventBus,
+        playerManager: {
+            getIdentity() {
+                return { baseStake: 1, sectorCount: 1 };
+            }
+        },
+        roomManager: {
+            getRoom(roomId) {
+                return roomId === "room-1"
+                    ? {
+                        roomId,
+                        roomNumber: 1,
+                        players: ["p1", "p2", "p3"],
+                        status: ROOM_STATUS.LOCKED
+                    }
+                    : null;
+            }
+        },
+        gameplayContextResolver: {
+            resolveGameIdByRoomId() {
+                return "game-1";
+            }
+        },
+        sessionWalletStore: {
+            getWallet(_roomId, playerId) {
+                return `EQ${playerId}WalletXXXXXXXXXXXXXXXXXXXX`;
+            }
+        },
+        tonNetwork: "testnet",
+        roomWalletPaymentIntakeEnabled: true
+    });
+
+    manager.initialize();
+    manager.setRoomWalletFinance({
+        registry: new RoomWalletRegistry({
+            entries: [{ roomNumber: 1, address: WALLET.address }]
+        }),
+        roomWalletPaymentIntakeEnabled: true
+    });
+
+    eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.PAYMENT_CONNECTION_READY,
+        payload: {
+            roomId: "room-1",
+            network: null
+        }
+    });
+
+    const session = manager.getSession("room-1");
+
+    assert.ok(session);
+    assert.equal(session.network, "testnet");
+    assert.equal(session.roomWalletAddress, WALLET.address);
+
+    manager.shutdown();
+    eventBus.shutdown();
+});
+
+
 test("app.js wires Room Wallet finance for game mode", () => {
     const appSource = readFileSync(join(HERE, "../app.js"), "utf8");
     const psm = readFileSync(join(HERE, "../gameplay/PaymentSessionManager.js"), "utf8");
