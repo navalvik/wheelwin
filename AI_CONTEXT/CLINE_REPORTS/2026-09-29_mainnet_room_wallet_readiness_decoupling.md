@@ -396,9 +396,15 @@ New focused regression coverage
 - Branch: `payment/room-wallet-integration` (no new branch created).
 - Commit message:
   `fix(mainnet): decouple Room Wallet startup from GameEscrow readiness`
-- Fix commit SHA: recorded in the final handoff message and below after
-  push.
-- Pushed to `origin/payment/room-wallet-integration`.
+- Fix commit SHA:
+  `1201ba0a8ed30e4a27f1469fda86f9f09cdeadf2` (`1201ba0`)
+- Parent: `4877525098b8457570a6ecc1834a5ffec734e066`
+- Pushed to `origin/payment/room-wallet-integration`
+  (`4877525..1201ba0`).
+- Note: `git add .` also staged the previously untracked
+  `AI_CONTEXT/CLINE_REPORTS/*.md` handoff reports (per the recommended
+  docs-only commit from the 2026-09-29 baseline audit). The stray temp file
+  `_stage2_tmp_out.txt` was deliberately unstaged and remains untracked.
 
   v4, testnet endpoint); Room-Wallet-only finance on Testnet unchanged;
   readiness skip is Mainnet-scoped so Testnet keeps the legacy report path.
