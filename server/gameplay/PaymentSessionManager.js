@@ -671,22 +671,29 @@ export class PaymentSessionManager {
 
         try {
 
-            // Stage 2 — fail closed: every lobby-created PaymentSession must be
-            // backed by the room's authoritative one-time network selection
-            // (RoomLobbyBridge._roomNetworkByRoom). A missing or unknown
-            // network must never silently fall back to the process-level
-            // TON_NETWORK; the existing create-failure convention below
-            // (decisionTrace + PAYMENT_SESSION_FAILED) handles the rejection.
-            if (network !== "testnet" && network !== "mainnet") {
+            // Network is authoritative at runtime, not per room.
+            // wheelwin-nine is Testnet and wheelwin-main is Mainnet; the
+            // Telegram bot selects which runtime is opened. Page2/Page4 must
+            // never be a prerequisite for choosing the blockchain network.
+            //
+            // Keep the optional payload field for compatibility with older
+            // callers, but never let a room/client payload override the
+            // server runtime network.
+            const runtimeNetwork = this._tonNetwork;
+
+            if (runtimeNetwork !== "testnet" && runtimeNetwork !== "mainnet") {
 
                 throw new PaymentValidationError(
-                    "Authoritative room network unavailable for PaymentSession",
+                    "Runtime network unavailable for PaymentSession",
                     { roomId, gameId: gameId ?? null, network: network ?? null }
                 );
 
             }
 
-            const created = this.createPaymentSession(roomId, { gameId, network });
+            const created = this.createPaymentSession(roomId, {
+                gameId,
+                network: runtimeNetwork
+            });
 
             console.log("[R7.50 DIAG] PaymentSession created", {
                 roomId,
