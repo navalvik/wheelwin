@@ -15,12 +15,16 @@ import { GameContractManager } from "../gameplay/GameContractManager.js";
 import { PaymentSessionManager } from "../gameplay/PaymentSessionManager.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import { RoomWalletSettlementRouter } from "../payment/RoomWalletSettlementRouter.js";
+import { RoomWalletSettlementAdapter } from "../payment/roomWallet/RoomWalletSettlementAdapter.js";
 import {
     composeRoomWalletSettlementRouter,
     isRoomWalletOnlyFinancialPath
 } from "../payment/roomWallet/roomWalletConfig.js";
 import { RoomWalletRegistry } from "../payment/roomWallet/RoomWalletRegistry.js";
-import { createDummyRoomWalletEntry } from "./helpers/dummyRoomWallet.js";
+import {
+    createDummyRoomWalletCatalog,
+    createDummyRoomWalletEntry
+} from "./helpers/dummyRoomWallet.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WALLET = createDummyRoomWalletEntry(1);
@@ -36,32 +40,40 @@ function createLogger() {
     };
 }
 
-test("isRoomWalletOnlyFinancialPath follows game mode without env flags", () => {
-    assert.equal(isRoomWalletOnlyFinancialPath({ env: {}, gameEscrowMode: "game" }), true);
-    assert.equal(isRoomWalletOnlyFinancialPath({ env: {}, gameEscrowMode: "v4" }), false);
-    assert.equal(isRoomWalletOnlyFinancialPath({ env: {} }), false);
+test("isRoomWalletOnlyFinancialPath stays authoritative without env flags", () => {
+    // Room Wallet is the only player-finance path on Testnet and Mainnet.
+    // GAME_ESCROW_MODE must not control whether Room Wallet finance is enabled.
+    assert.equal(isRoomWalletOnlyFinancialPath({ env: {} }), true);
+    assert.equal(
+        isRoomWalletOnlyFinancialPath({ env: { GAME_ESCROW_MODE: "game" } }),
+        true
+    );
+    assert.equal(
+        isRoomWalletOnlyFinancialPath({ env: { GAME_ESCROW_MODE: "v4" } }),
+        true
+    );
+    assert.equal(
+        isRoomWalletOnlyFinancialPath({ env: { TON_NETWORK: "mainnet" } }),
+        true
+    );
 });
 
-test("game-mode settlement router does not invoke Game Escrow adapter", async () => {
-    const escrowCalls = [];
-    const legacy = {
-        async settleContract(request) {
-            escrowCalls.push(request);
-            return { ok: true, adapter: "escrow" };
-        }
-    };
+test("Room-Wallet-only settlement router composes the Room Wallet adapter", async () => {
     const router = composeRoomWalletSettlementRouter({
-        legacySettlementAdapter: legacy,
         tonService: {},
         logger: createLogger(),
-        env: { ROOM_WALLETS_JSON: JSON.stringify([WALLET]) },
-        gameEscrowMode: "game"
+        env: {
+            TON_NETWORK: "testnet",
+            ROOM_WALLETS_JSON: JSON.stringify(createDummyRoomWalletCatalog())
+        }
     });
 
     assert.equal(router instanceof RoomWalletSettlementRouter, true);
     assert.equal(router.isEnabled(), true);
-    assert.notEqual(router.activeAdapter, legacy);
-    assert.equal(escrowCalls.length, 0);
+    assert.equal(
+        router.activeAdapter instanceof RoomWalletSettlementAdapter,
+        true
+    );
 });
 
 test("GameContractManager skipBlockchainDeploy never starts Oracle deploy", async () => {
@@ -151,13 +163,15 @@ test("PaymentSessionManager Room Wallet dest does not register Game Escrow watch
     const session = manager.createPaymentSession("room-1", { gameId: "game-1" });
 
     assert.equal(session.roomWalletAddress, WALLET.address);
-    assert.equal(session.participants[0].contractAddress, WALLET.address);
+    assert.equal(session.participants[0].paymentDestination, WALLET.address);
+    assert.equal(session.participants[0].contractAddress, null);
     assert.equal(watches.length, 0);
 
     manager.issueDeployedPaymentRequests("room-1", {
         contractAddress: "EQShouldNotOverwrite"
     });
-    assert.equal(session.participants[0].contractAddress, WALLET.address);
+    assert.equal(session.participants[0].paymentDestination, WALLET.address);
+    assert.equal(session.participants[0].contractAddress, null);
 
     eventBus.emit({
         source: "test",
@@ -248,15 +262,19 @@ test("PaymentSessionManager uses runtime network when PAYMENT_CONNECTION_READY h
 });
 
 
-test("app.js wires Room Wallet finance for game mode", () => {
+test("app.js wires Room Wallet finance without legacy GameEscrow readiness", () => {
     const appSource = readFileSync(join(HERE, "../app.js"), "utf8");
     const psm = readFileSync(join(HERE, "../gameplay/PaymentSessionManager.js"), "utf8");
     const csm = readFileSync(join(HERE, "../payment/ContractSettlementManager.js"), "utf8");
 
     assert.match(appSource, /isRoomWalletOnlyFinancialPath/);
-    assert.match(appSource, /skipBlockchainDeploy:\s*isRoomWalletOnlyFinancialPath/);
-    assert.match(appSource, /gameEscrowMode:\s*this\._tonConfig\?\.gameEscrowMode/);
+    assert.match(appSource, /composeRoomWalletSettlementRouter\(\{/);
+    assert.match(appSource, /settlementAdapter:\s*this\._roomWalletSettlementRouter/);
+    assert.match(appSource, /roomWalletPaymentIntakeEnabled:\s*isRoomWalletOnlyFinancialPath/);
+    assert.match(appSource, /createRoomWalletRegistryFromEnv\(process\.env\)/);
     assert.match(appSource, /setRoomWalletFinance/);
+    assert.equal(/skipBlockchainDeploy/.test(appSource), false);
+    assert.equal(/legacySettlementAdapter/.test(appSource), false);
     assert.match(psm, /Room Wallet address is required for player payment/);
     assert.match(csm, /_isRoomWalletSettlementActive/);
     assert.match(csm, /ROOM_WALLET_SETTLEMENT/);

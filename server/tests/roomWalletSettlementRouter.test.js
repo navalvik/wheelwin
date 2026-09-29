@@ -14,29 +14,24 @@ function adapter(name) {
     };
 }
 
-test("RoomWalletSettlementRouter uses legacy adapter by default", async () => {
-    const legacy = adapter("legacy");
-    const roomWallet = adapter("room-wallet");
-    const router = new RoomWalletSettlementRouter({
-        legacySettlementAdapter: legacy,
-        roomWalletSettlementAdapter: roomWallet
-    });
+test("RoomWalletSettlementRouter stays unavailable without an adapter", async () => {
+    const router = new RoomWalletSettlementRouter({});
 
     const result = await router.settleContract({ gameId: "g1" });
 
     assert.equal(router.isEnabled(), false);
-    assert.equal(result.adapter, "legacy");
+    assert.equal(result.ok, false);
+    assert.equal(result.code, "ROOM_WALLET_SETTLEMENT_UNAVAILABLE");
 });
 
 test("RoomWalletSettlementRouter can remain disabled without Room Wallet adapter", async () => {
-    const router = new RoomWalletSettlementRouter({
-        legacySettlementAdapter: adapter("legacy")
-    });
+    const router = new RoomWalletSettlementRouter({});
 
     const result = await router.settleContract({ gameId: "g-disabled" });
 
     assert.equal(router.isEnabled(), false);
-    assert.equal(result.adapter, "legacy");
+    assert.equal(result.ok, false);
+    assert.equal(result.code, "ROOM_WALLET_SETTLEMENT_UNAVAILABLE");
     assert.throws(() => router.setEnabled(true), /without an adapter/);
 });
 

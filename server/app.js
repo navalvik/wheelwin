@@ -4607,6 +4607,56 @@ class WheelWinApplication {
     async _runTonMainnetReadinessDiagnostics() {
 
         const network = this._tonConfig?.network ?? null;
+
+        // R18-S93 — ACTIVE ROOM-WALLET-ONLY PATH vs LEGACY / DRY-RUN
+        // GAMEESCROW READINESS PATH. WheelWin player finance is Room-Wallet-only
+        // on both Testnet and Mainnet (isRoomWalletOnlyFinancialPath is the
+        // authoritative financial-path decision). The legacy GameEscrow Mainnet
+        // readiness gate below (TON_MAINNET_ORACLE_ADDRESS pin,
+        // TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS pin,
+        // TON_GAME_ESCROW_ARTIFACT_SHA256, GameEscrow artifact
+        // presence/loadability, deployer mnemonic identity, v4 rollback
+        // safety) belongs to the retired GameEscrow/Mainnet deployer path and
+        // must not block Room-Wallet-only Mainnet startup.
+        //
+        // Still authoritative on the Room-Wallet-only Mainnet path:
+        // - TON_NETWORK=mainnet (required by loadTonConfig) and Mainnet TON
+        //   endpoint selection (profiles.mainnet);
+        // - Room Wallet runtime configuration: createRoomWalletRegistryFromEnv /
+        //   RoomWalletRuntimeResolver still require and validate a complete
+        //   64-wallet Mainnet catalog (rooms 1..64, WalletContractV4 identity)
+        //   in the startup composition below.
+        //
+        // LEGACY / DRY-RUN GAMEESCROW READINESS PATH (non-Room-Wallet-only
+        // runtimes) is preserved unchanged after this branch, including
+        // evaluateMainnetReadiness, wallet identity debug and
+        // assertMainnetStartupSafe. Testnet never enters this branch.
+        if (network === "mainnet" && isRoomWalletOnlyFinancialPath({ env: process.env })) {
+
+            setTonMainnetReadiness({
+                status: "SKIP",
+                network: "mainnet",
+                activeNetwork: network,
+                escrowMode: this._tonConfig?.gameEscrowMode ?? null,
+                endpoint: this._tonConfig?.profiles?.mainnet?.endpoint ?? null,
+                reasons: [
+                    "RoomWallet-only financial path - legacy GameEscrow Mainnet "
+                        + "readiness (oracle pin, deployer pin, artifact SHA256, "
+                        + "deployer identity) is not required"
+                ]
+            });
+
+            printTonMainnetReadiness();
+
+            this._logger.startupLine(
+                "TonMainnetReadiness=SKIP (RoomWallet-only financial path | "
+                    + `active=${network ?? "unknown"})`
+            );
+
+            return;
+
+        }
+
         const mnemonic = this._tonConfig?.deployerMnemonic;
         const mainnetProfile = this._tonConfig?.profiles?.mainnet ?? null;
 

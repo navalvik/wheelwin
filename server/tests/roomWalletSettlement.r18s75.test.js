@@ -38,7 +38,10 @@ import {
     composeRoomWalletSettlementRouter
 } from "../payment/roomWallet/roomWalletConfig.js";
 import { RoomWalletSettlementAdapter } from "../payment/roomWallet/RoomWalletSettlementAdapter.js";
-import { createDummyRoomWalletEntry } from "./helpers/dummyRoomWallet.js";
+import {
+    createDummyRoomWalletCatalog,
+    createDummyRoomWalletEntry
+} from "./helpers/dummyRoomWallet.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WALLET = createDummyRoomWalletEntry(1);
@@ -300,24 +303,18 @@ test("AWAITING_PAYMENTS cannot jump to SETTLEMENT_PREPARING", () => {
     assert.equal(contract.transitionTo(GAME_CONTRACT_STATUS.SETTLEMENT_PREPARING), true);
 });
 
-test("game-mode settlement uses Room Wallet adapter, not Game Escrow", () => {
-    const escrowCalls = [];
+test("Room-Wallet-only settlement uses Room Wallet adapter, not Game Escrow", () => {
     const router = composeRoomWalletSettlementRouter({
-        legacySettlementAdapter: {
-            async settleContract(request) {
-                escrowCalls.push(request);
-                return { ok: true, adapter: "escrow" };
-            }
-        },
         tonService: {},
         logger: createLogger(),
-        env: { ROOM_WALLETS_JSON: JSON.stringify([WALLET]) },
-        gameEscrowMode: "game"
+        env: {
+            TON_NETWORK: "testnet",
+            ROOM_WALLETS_JSON: JSON.stringify(createDummyRoomWalletCatalog())
+        }
     });
 
     assert.equal(router.isEnabled(), true);
-    assert.notEqual(router.activeAdapter, router._legacySettlementAdapter);
-    assert.equal(escrowCalls.length, 0);
+    assert.equal(router.activeAdapter instanceof RoomWalletSettlementAdapter, true);
 });
 
 test("Room Wallet settlement constructs winner and owner payouts without Game Escrow", async () => {
@@ -353,7 +350,7 @@ test("Room Wallet settlement constructs winner and owner payouts without Game Es
     assert.equal(transfers[1].amountNano, 140_000_000n);
 });
 
-test("legacy financial paths stay blocked in game-mode wiring", () => {
+test("legacy financial paths stay blocked in Room-Wallet-only wiring", () => {
     const entry = readFileSync(
         join(HERE, "../../client/src/payment/buildEntryPaymentTransaction.js"),
         "utf8"
@@ -371,7 +368,8 @@ test("legacy financial paths stay blocked in game-mode wiring", () => {
     assert.match(psm, /roomWalletPaymentIntakeEnabled/);
     assert.match(psm, /GAME_ESCROW_STAKE_CONFIRMED/);
     assert.match(gsa, /_checkRoomWalletLedger/);
-    assert.match(app, /skipBlockchainDeploy:\s*isRoomWalletOnlyFinancialPath/);
+    assert.match(app, /roomWalletPaymentIntakeEnabled:\s*isRoomWalletOnlyFinancialPath/);
+    assert.equal(/legacySettlementAdapter/.test(app), false);
     assert.match(observer, /FAILED_TRANSACTION/);
     assert.doesNotMatch(app, /0\.011/);
 });

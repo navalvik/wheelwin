@@ -13,7 +13,10 @@ import {
     isRoomWalletResidualSweepEnabled,
     isRoomWalletSettlementEnabled
 } from "../payment/roomWallet/roomWalletConfig.js";
-import { createDummyRoomWalletEntry } from "./helpers/dummyRoomWallet.js";
+import {
+    createDummyRoomWalletCatalog,
+    createDummyRoomWalletEntry
+} from "./helpers/dummyRoomWallet.js";
 
 const WALLET = createDummyRoomWalletEntry(1);
 const ADDRESS = WALLET.address;
@@ -21,6 +24,14 @@ const ADDRESS = WALLET.address;
 function envWithWallets(extra = {}) {
     return {
         ROOM_WALLETS_JSON: JSON.stringify([WALLET]),
+        ...extra
+    };
+}
+
+function envWithFullCatalog(extra = {}) {
+    return {
+        TON_NETWORK: "testnet",
+        ROOM_WALLETS_JSON: JSON.stringify(createDummyRoomWalletCatalog()),
         ...extra
     };
 }
@@ -92,101 +103,75 @@ test("ROOM_WALLET_SETTLEMENT_MODE is off unless it is exactly ROOM_WALLET", () =
     assert.equal(isRoomWalletSettlementEnabled({ ROOM_WALLET_SETTLEMENT_MODE: " room_wallet " }), true);
 });
 
-test("GAME_ESCROW_MODE=game enables Room Wallet settlement without a settlement env flag", async () => {
-    const legacy = capturingAdapter("legacy");
+test("Room Wallet settlement is enabled without a settlement env flag", () => {
     const router = composeRoomWalletSettlementRouter({
-        legacySettlementAdapter: legacy,
         tonService: {},
         logger: createLogger(),
-        env: envWithWallets(),
-        gameEscrowMode: "game"
+        env: envWithFullCatalog()
     });
 
-    assert.equal(isRoomWalletOnlyFinancialPath({ gameEscrowMode: "game" }), true);
+    assert.equal(isRoomWalletOnlyFinancialPath({}), true);
     assert.equal(router.isEnabled(), true);
     assert.equal(router.activeAdapter instanceof RoomWalletSettlementAdapter, true);
-    assert.equal(legacy.calls.length, 0);
 });
 
-test("A. absent ROOM_WALLET_SETTLEMENT_MODE keeps legacy settlement", async () => {
-    const legacy = capturingAdapter("legacy");
+test("A. absent ROOM_WALLET_SETTLEMENT_MODE keeps Room Wallet settlement enabled", () => {
     const router = composeRoomWalletSettlementRouter({
-        legacySettlementAdapter: legacy,
         tonService: {},
-        env: {}
+        env: envWithFullCatalog()
     });
-
-    const result = await router.settleContract(SETTLEMENT_REQUEST);
 
     assert.equal(router instanceof RoomWalletSettlementRouter, true);
-    assert.equal(router.isEnabled(), false);
-    assert.equal(result.adapter, "legacy");
-    assert.equal(legacy.calls.length, 1);
-    assert.equal(legacy.calls[0], SETTLEMENT_REQUEST);
+    assert.equal(router.isEnabled(), true);
+    assert.equal(router.activeAdapter instanceof RoomWalletSettlementAdapter, true);
 });
 
-test("A. invalid ROOM_WALLET_SETTLEMENT_MODE keeps legacy settlement even when wallets exist", async () => {
-    const legacy = capturingAdapter("legacy");
+test("A. invalid ROOM_WALLET_SETTLEMENT_MODE does not disable Room Wallet settlement", () => {
     const router = composeRoomWalletSettlementRouter({
-        legacySettlementAdapter: legacy,
         tonService: {},
-        env: envWithWallets({ ROOM_WALLET_SETTLEMENT_MODE: "enabled" })
+        env: envWithFullCatalog({ ROOM_WALLET_SETTLEMENT_MODE: "enabled" })
     });
 
-    const result = await router.settleContract({ gameId: "g-invalid-mode" });
-
-    assert.equal(router.isEnabled(), false);
-    assert.equal(result.adapter, "legacy");
+    assert.equal(router.isEnabled(), true);
 });
 
-test("B. ROOM_WALLET mode with valid runtime configuration uses Room Wallet settlement", async () => {
-    const legacy = capturingAdapter("legacy");
+test("B. valid runtime configuration uses Room Wallet settlement", () => {
     const router = composeRoomWalletSettlementRouter({
-        legacySettlementAdapter: legacy,
         tonService: {},
         logger: createLogger(),
-        env: envWithWallets({ ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET" })
+        env: envWithFullCatalog({ ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET" })
     });
 
     assert.equal(router.isEnabled(), true);
     assert.equal(router.activeAdapter instanceof RoomWalletSettlementAdapter, true);
-    assert.equal(legacy.calls.length, 0);
 });
 
-test("C. ROOM_WALLET mode fails closed when runtime wallet configuration is missing", () => {
-    const legacy = capturingAdapter("legacy");
-
+test("C. Room Wallet settlement fails closed when runtime wallet configuration is missing", () => {
     assert.throws(
         () => composeRoomWalletSettlementRouter({
-            legacySettlementAdapter: legacy,
             tonService: {},
-            env: { ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET" }
+            env: { TON_NETWORK: "testnet", ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET" }
         }),
-        /runtime configuration is not available/
+        /ROOM_WALLETS_TESTNET_JSON/
     );
 });
 
-test("C. ROOM_WALLET mode fails closed when tonService is unavailable", () => {
-    const legacy = capturingAdapter("legacy");
-
+test("C. Room Wallet settlement fails closed when tonService is unavailable", () => {
     assert.throws(
         () => composeRoomWalletSettlementRouter({
-            legacySettlementAdapter: legacy,
             tonService: null,
-            env: envWithWallets({ ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET" })
+            env: envWithFullCatalog({ ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET" })
         }),
         /tonService is not available/
     );
 });
 
-test("C. ROOM_WALLET mode fails closed when ROOM_WALLETS_JSON is invalid", () => {
-    const legacy = capturingAdapter("legacy");
-
+test("C. Room Wallet settlement fails closed when ROOM_WALLETS_JSON is invalid", () => {
     assert.throws(
         () => composeRoomWalletSettlementRouter({
-            legacySettlementAdapter: legacy,
             tonService: {},
             env: {
+                TON_NETWORK: "testnet",
                 ROOM_WALLET_SETTLEMENT_MODE: "ROOM_WALLET",
                 ROOM_WALLETS_JSON: "{not-json"
             }
@@ -196,10 +181,9 @@ test("C. ROOM_WALLET mode fails closed when ROOM_WALLETS_JSON is invalid", () =>
 });
 
 test("D. ContractSettlementManager receives the composed Room Wallet router", () => {
-    const legacy = capturingAdapter("legacy");
     const router = composeRoomWalletSettlementRouter({
-        legacySettlementAdapter: legacy,
-        env: {}
+        tonService: {},
+        env: envWithFullCatalog()
     });
     const manager = new ContractSettlementManager({
         logger: createLogger(),
@@ -211,39 +195,28 @@ test("D. ContractSettlementManager receives the composed Room Wallet router", ()
 
     assert.equal(manager._settlementAdapter, router);
     assert.equal(manager._settlementAdapter instanceof RoomWalletSettlementRouter, true);
-    assert.equal(manager._settlementAdapter.isEnabled(), false);
+    assert.equal(manager._settlementAdapter.isEnabled(), true);
 });
 
-test("E. settlement request fields pass through unchanged on both paths", async () => {
-    const legacy = capturingAdapter("legacy");
+test("E. settlement request fields pass through unchanged", async () => {
     const roomWallet = capturingAdapter("room-wallet");
-
-    const legacyRouter = composeRoomWalletSettlementRouter({
-        legacySettlementAdapter: legacy,
-        env: {}
-    });
-    const enabledRouter = new RoomWalletSettlementRouter({
-        legacySettlementAdapter: legacy,
+    const router = new RoomWalletSettlementRouter({
         roomWalletSettlementAdapter: roomWallet,
         enabled: true
     });
 
-    const legacyResult = await legacyRouter.settleContract(SETTLEMENT_REQUEST);
-    const roomWalletResult = await enabledRouter.settleContract(SETTLEMENT_REQUEST);
+    const roomWalletResult = await router.settleContract(SETTLEMENT_REQUEST);
 
-    assert.equal(legacyResult.request, SETTLEMENT_REQUEST);
     assert.equal(roomWalletResult.request, SETTLEMENT_REQUEST);
-    assert.deepEqual(legacy.calls[0], SETTLEMENT_REQUEST);
     assert.deepEqual(roomWallet.calls[0], SETTLEMENT_REQUEST);
-    assert.equal(legacy.calls[0].winnerWallet, SETTLEMENT_REQUEST.winnerWallet);
-    assert.equal(legacy.calls[0].winnerAmount, SETTLEMENT_REQUEST.winnerAmount);
-    assert.equal(legacy.calls[0].ownerWallet, SETTLEMENT_REQUEST.ownerWallet);
-    assert.equal(legacy.calls[0].organizerAmount, SETTLEMENT_REQUEST.organizerAmount);
-    assert.equal(legacy.calls[0].gameId, SETTLEMENT_REQUEST.gameId);
-    assert.equal(legacy.calls[0].roomId, SETTLEMENT_REQUEST.roomId);
-    assert.equal(legacy.calls[0].totalPot, SETTLEMENT_REQUEST.totalPot);
-    assert.equal(legacy.calls[0].settlementId, SETTLEMENT_REQUEST.settlementId);
     assert.equal(roomWallet.calls[0].winnerWallet, SETTLEMENT_REQUEST.winnerWallet);
+    assert.equal(roomWallet.calls[0].winnerAmount, SETTLEMENT_REQUEST.winnerAmount);
+    assert.equal(roomWallet.calls[0].ownerWallet, SETTLEMENT_REQUEST.ownerWallet);
+    assert.equal(roomWallet.calls[0].organizerAmount, SETTLEMENT_REQUEST.organizerAmount);
+    assert.equal(roomWallet.calls[0].gameId, SETTLEMENT_REQUEST.gameId);
+    assert.equal(roomWallet.calls[0].roomId, SETTLEMENT_REQUEST.roomId);
+    assert.equal(roomWallet.calls[0].totalPot, SETTLEMENT_REQUEST.totalPot);
+    assert.equal(roomWallet.calls[0].settlementId, SETTLEMENT_REQUEST.settlementId);
     assert.equal(roomWallet.calls[0].prizeAmountNano, SETTLEMENT_REQUEST.prizeAmountNano);
     assert.equal(roomWallet.calls[0].organizerAmountNano, SETTLEMENT_REQUEST.organizerAmountNano);
 });
@@ -252,7 +225,6 @@ test("app.js wires the Room Wallet router into ContractSettlementManager", () =>
     const source = readFileSync(fileURLToPath(new URL("../app.js", import.meta.url)), "utf8");
 
     assert.match(source, /composeRoomWalletSettlementRouter/);
-    assert.match(source, /legacySettlementAdapter:\s*deployAdapter/);
     assert.match(source, /settlementAdapter:\s*this\._roomWalletSettlementRouter/);
     assert.equal(/settlementAdapter:\s*deployAdapter/.test(source), false);
     assert.match(source, /new ContractSettlementManager\(\{[\s\S]*?roomManager:\s*this\._managers\.roomManager/);
@@ -262,14 +234,7 @@ test("app.js wires the Room Wallet router into ContractSettlementManager", () =>
     assert.match(source, /ledgerRegistry:\s*this\._roomWalletLedgerRegistry/);
     assert.match(source, /roomWalletPaymentIntakeEnabled:\s*isRoomWalletOnlyFinancialPath/);
     assert.match(source, /tonNetwork:\s*this\._tonConfig\?\.network \?\? null/);
-    assert.match(
-        source,
-        /enabled:\s*isGameEscrowOnlyPlayerPayment\(this\._tonConfig\?\.gameEscrowMode\)[\\s\\S]*?!isRoomWalletOnlyFinancialPath\(/
-    );
-    assert.match(
-        source,
-        /skipBlockchainDeploy:\s*isRoomWalletOnlyFinancialPath\(\{/
-    );
+    assert.match(source, /createRoomWalletRegistryFromEnv\(process\.env\)/);
     assert.match(source, /RoomWalletResidualSweepWorker/);
     assert.match(source, /new RoomWalletResidualSweepRepository/);
 });
