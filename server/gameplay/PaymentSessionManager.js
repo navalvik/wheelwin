@@ -53,6 +53,17 @@ const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 * 60 * 1000;
  */
 export const PAYMENT_ACCEPTANCE_CLOSING_WINDOW_MS = 5_000;
 
+/**
+ * Stage 2 — provenance marker for a refund that was adopted from the
+ * destination player's own inbound wallet history
+ * (RoomWalletSettlementAdapter result code REFUND_RECONCILED_FROM_PLAYER_WALLET).
+ *
+ * Non-authoritative observability metadata only: it never changes the
+ * meaning of participant.refunded / participant.refundTxHash, never carries
+ * financial amounts, and never stores raw blockchain payloads.
+ */
+const PLAYER_WALLET_INBOUND_RECONCILIATION = "PLAYER_WALLET_INBOUND";
+
 const PAYMENT_READY_CONTRACT_STATUSES = new Set([
     GAME_CONTRACT_STATUS.DEPLOYED,
     GAME_CONTRACT_STATUS.AWAITING_PLAYER_PAYMENTS
@@ -2039,6 +2050,68 @@ export class PaymentSessionManager {
 
     }
 
+    /**
+     * Stage 2 — record refund reconciliation provenance (observability only).
+     *
+     * Preserves the fact that a refund for `playerId` was adopted from the
+     * player's own inbound wallet history (PLAYER_WALLET_INBOUND) inside the
+     * existing non-authoritative session.recoveryMetadata object. Uses only
+     * identifiers already present in the refund result / participant — never
+     * financial amounts, never raw blockchain payloads.
+     *
+     * Idempotent: a repeated recovery/refund pass delivering the same result
+     * (same playerId + transactionHash) does NOT create a duplicate entry.
+     * Returns true only when a new entry was recorded.
+     */
+    _recordPlayerWalletRefundReconciliation(
+        session,
+        { playerId, playerIndex, wallet, transactionHash }
+    ) {
+
+        const metadata = session.recoveryMetadata ?? {};
+
+        const existingEntries = Array.isArray(metadata.refundReconciliations)
+            ? metadata.refundReconciliations
+            : [];
+
+        const transactionHashKey = String(transactionHash ?? "");
+
+        const alreadyRecorded = existingEntries.some((entry) =>
+            String(entry?.playerId) === String(playerId)
+            && String(entry?.transactionHash ?? "") === transactionHashKey
+        );
+
+        if (alreadyRecorded) {
+
+            return false;
+
+        }
+
+        session.recoveryMetadata = {
+            ...metadata,
+            refundReconciliations: [
+                ...existingEntries,
+                {
+                    playerId,
+                    playerIndex: playerIndex == null ? null : Number(playerIndex),
+                    wallet: wallet ?? null,
+                    reconciliation: PLAYER_WALLET_INBOUND_RECONCILIATION,
+                    transactionHash: transactionHash ?? null,
+                    reconciledAt: Date.now()
+                }
+            ]
+        };
+
+        this._logger?.info?.(
+            `ROOM_WALLET_REFUND_RECONCILED | roomId=${session.roomId} | playerId=${playerId} `
+                + `| playerWallet=${wallet ?? "unknown"} | txHash=${transactionHash ?? "unknown"} `
+                + `| method=${PLAYER_WALLET_INBOUND_RECONCILIATION}`
+        );
+
+        return true;
+
+    }
+
     async _requestRoomWalletPartialPaymentRefund(session, reason = "payment_failed") {
 
         if (
@@ -2134,6 +2207,19 @@ export class PaymentSessionManager {
 
             participant.refunded = true;
             participant.refundTxHash = refund.txHash ?? null;
+
+            // Stage 2 — preserve refund reconciliation provenance for
+            // observability/forensic recovery. Non-authoritative metadata
+            // only; the existing single _persistSession + PAYMENT_SESSION_UPDATED
+            // below already covers this change (no second persistence call).
+            if (refund.reconciliation === PLAYER_WALLET_INBOUND_RECONCILIATION) {
+                this._recordPlayerWalletRefundReconciliation(session, {
+                    playerId: refund.playerId ?? participant.playerId,
+                    playerIndex: refund.playerIndex ?? participant.playerIndex,
+                    wallet: refund.wallet ?? participant.wallet,
+                    transactionHash: refund.txHash ?? null
+                });
+            }
         }
 
         this._persistSession(session, "update");
