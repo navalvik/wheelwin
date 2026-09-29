@@ -10,6 +10,7 @@ import {
 } from "../../models/TonWalletAddress.js";
 import {
     confirmPayoutOnChain,
+    extractInbound,
     extractOutboundTransfers,
     inspectRoomWalletHistory
 } from "./roomWalletTerminalRecoveryChain.js";
@@ -28,6 +29,12 @@ export const ROOM_WALLET_SETTLEMENT_RETRYABLE_CODES = Object.freeze({
     OWNER_PAYOUT_FAILED_AFTER_WINNER: "OWNER_PAYOUT_FAILED_AFTER_WINNER",
     ADAPTER_THREW: "ADAPTER_THREW"
 });
+
+/**
+ * Reconciliation marker for a refund adopted from the destination player's
+ * own inbound history (the Room Wallet outbound scan found no match).
+ */
+const PLAYER_WALLET_INBOUND_RECONCILIATION = "PLAYER_WALLET_INBOUND";
 
 /**
  * Settlement adapter for the Room Wallet architecture.
@@ -158,10 +165,29 @@ export class RoomWalletSettlementAdapter {
             });
 
             if (existing) {
+                const reconciledFromPlayerWallet =
+                    existing.reconciliation === PLAYER_WALLET_INBOUND_RECONCILIATION;
+
+                if (reconciledFromPlayerWallet) {
+                    this._logger?.info?.(
+                        `RoomWallet refund reconciled from player wallet history | `
+                            + `room=${normalizedRoomNumber} | playerWallet=${wallet} `
+                            + `| roomWallet=${existing.source ?? "unknown"} `
+                            + `| amountNano=${amountNano} `
+                            + `| txHash=${existing.hash ?? "unknown"} `
+                            + `| reconciliation=${PLAYER_WALLET_INBOUND_RECONCILIATION}`
+                    );
+                }
+
                 results.push(Object.freeze({
                     ok: true,
-                    code: "REFUND_ADOPTED",
+                    code: reconciledFromPlayerWallet
+                        ? "REFUND_RECONCILED_FROM_PLAYER_WALLET"
+                        : "REFUND_ADOPTED",
                     confirmed: true,
+                    ...(reconciledFromPlayerWallet
+                        ? { reconciliation: PLAYER_WALLET_INBOUND_RECONCILIATION }
+                        : {}),
                     playerId: target?.playerId ?? null,
                     playerIndex: target?.playerIndex ?? null,
                     wallet,
@@ -291,6 +317,43 @@ export class RoomWalletSettlementAdapter {
                 ) {
                     return transfer;
                 }
+            }
+        }
+
+        // The Room Wallet history may have failed to observe a refund that in
+        // fact reached the player. Fall back to the destination player's own
+        // inbound history — read-only reconciliation; never a second broadcast.
+        if (typeof this._roomWalletAdapter.getAddressTransactions !== "function") {
+            return null;
+        }
+
+        const roomWalletAddress = typeof this._roomWalletAdapter.getWalletAddress === "function"
+            ? await this._roomWalletAdapter.getWalletAddress(roomNumber)
+            : null;
+
+        if (!roomWalletAddress) {
+            return null;
+        }
+
+        const playerTransactions = await this._roomWalletAdapter.getAddressTransactions(
+            wallet,
+            { limit: 40, archival: true }
+        );
+
+        for (const tx of playerTransactions ?? []) {
+            const inbound = extractInbound(tx);
+            if (
+                inbound
+                && inbound.success
+                && inbound.bounced !== true
+                && inbound.amountNano === amountNano
+                && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
+                && (cutoff == null || inbound.utime > cutoff)
+            ) {
+                return Object.freeze({
+                    ...inbound,
+                    reconciliation: PLAYER_WALLET_INBOUND_RECONCILIATION
+                });
             }
         }
 

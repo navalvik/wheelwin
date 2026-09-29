@@ -68,6 +68,19 @@ export class RoomWalletAdapter {
         return this._tonService.getTransactions(identity.address, query);
     }
 
+    /**
+     * Read-only lookup of an arbitrary TON address transaction history.
+     * Used by refund reconciliation to inspect a destination player wallet.
+     * The address is passed through untouched: no wallet resolution, no
+     * signing material access, never broadcasts anything.
+     */
+    async getAddressTransactions(address, query = {}) {
+        if (typeof this._tonService.getTransactions !== "function") {
+            return [];
+        }
+        return this._tonService.getTransactions(address, query);
+    }
+
     async getSeqno(roomNumber) {
         const identity = await this._resolveAddress(roomNumber);
         if (typeof this._tonService.getSeqno !== "function") {

@@ -9,7 +9,9 @@ function createAdapter({
     sendTransfer = null,
     inspectHistory = null,
     getWalletAddress = null,
-    getTransactions = null
+    getTransactions = null,
+    getAddressTransactions = null,
+    logger = null
 } = {}) {
     const calls = [];
     const balanceCalls = [];
@@ -44,13 +46,15 @@ function createAdapter({
             };
         },
         ...(typeof getWalletAddress === "function" ? { getWalletAddress } : {}),
-        ...(typeof getTransactions === "function" ? { getTransactions } : {})
+        ...(typeof getTransactions === "function" ? { getTransactions } : {}),
+        ...(typeof getAddressTransactions === "function" ? { getAddressTransactions } : {})
     };
 
     return {
         adapter: new RoomWalletSettlementAdapter({
             roomWalletAdapter,
-            ...(inspectHistory ? { inspectHistory } : {})
+            ...(inspectHistory ? { inspectHistory } : {}),
+            ...(logger ? { logger } : {})
         }),
         calls,
         balanceCalls,
@@ -637,4 +641,382 @@ test("transfer with utime before the millisecond-derived cutoff is not adopted �
         { destination: broadcastInput?.destination, amountNano: broadcastInput?.amountNano },
         { destination: WINNER, amountNano: 1_000_000_000n }
     );
+});
+
+// ---------------------------------------------------------------------------
+// PLAYER_WALLET_INBOUND reconciliation — the Room Wallet outbound history may
+// have failed to observe a refund that in fact reached the player's wallet.
+// When the outbound scan finds no match, the destination player's own inbound
+// history is inspected (read-only). An inbound transfer is accepted ONLY when
+// it is successful, not bounced, exactly the expected amount, sourced from the
+// authoritative Room Wallet, and later than the refund cutoff. An adopted
+// player-wallet refund must never trigger a second broadcast.
+// ---------------------------------------------------------------------------
+
+const PLAYER_WALLET = "EQAtggW7l5wfQcPyy38Y7mVuXnh0wRHcpFKPIdtCbcRHb8wM";
+const STRANGER_WALLET = "EQC9qwKAy72kX1oPtryX-g5y44B2mYZEB2HVdJAeJprla_Le";
+
+test("refund that reached the player wallet is reconciled from player wallet history without a second send", async () => {
+    const cutoffMs = 1_700_000_000_500;
+    const cutoffSeconds = Math.floor(cutoffMs / 1000);
+    const addressQueries = [];
+    let broadcastCount = 0;
+    const infoLogLines = [];
+
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => [], // Room Wallet history: no matching outbound refund
+        getAddressTransactions: async (address, query) => {
+            addressQueries.push({ address, query });
+            return [{
+                transaction_id: { hash: "player-inbound-refund" },
+                utime: cutoffSeconds + 60, // AFTER the cutoff
+                success: true,
+                in_msg: {
+                    source: RW, // authoritative Room Wallet
+                    value: "1000000000"
+                }
+            }];
+        },
+        sendTransfer() {
+            broadcastCount += 1;
+            return { ok: true, code: "SENT", txHash: `refund-${broadcastCount}` };
+        },
+        logger: {
+            info: (line) => infoLogLines.push(line),
+            warn: () => {}
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 10,
+        cutoffUtime: cutoffMs,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: PLAYER_WALLET,
+            amount: 1
+        }]
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.results.length, 1);
+    assert.equal(result.results[0].code, "REFUND_RECONCILED_FROM_PLAYER_WALLET");
+    assert.equal(result.results[0].reconciliation, "PLAYER_WALLET_INBOUND");
+    assert.equal(result.results[0].confirmed, true);
+    assert.equal(result.results[0].txHash, "player-inbound-refund");
+    assert.equal(result.results[0].amountNano, 1_000_000_000n);
+
+    // An already completed refund must never be broadcast again.
+    assert.equal(calls.length, 0);
+    assert.equal(broadcastCount, 0);
+
+    // Exactly the destination player's own wallet is inspected, archival.
+    assert.deepEqual(addressQueries, [{
+        address: PLAYER_WALLET,
+        query: { limit: 40, archival: true }
+    }]);
+
+    // Exactly one concise informational log for the reconciliation.
+    assert.equal(infoLogLines.length, 1);
+    assert.match(infoLogLines[0], /room=10/);
+    assert.match(infoLogLines[0], new RegExp(`playerWallet=${PLAYER_WALLET}`));
+    assert.match(infoLogLines[0], new RegExp(`roomWallet=${RW}`));
+    assert.match(infoLogLines[0], /amountNano=1000000000/);
+    assert.match(infoLogLines[0], /txHash=player-inbound-refund/);
+    assert.match(infoLogLines[0], /reconciliation=PLAYER_WALLET_INBOUND/);
+});
+
+test("inbound from another source is not accepted as an already completed refund — a fresh refund is broadcast", async () => {
+    const cutoffMs = 1_700_000_000_500;
+    const cutoffSeconds = Math.floor(cutoffMs / 1000);
+    const roomWalletHistory = [];
+    let broadcastCount = 0;
+
+    const { adapter } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => roomWalletHistory,
+        getAddressTransactions: async () => [{
+            transaction_id: { hash: "foreign-source-inbound" },
+            utime: cutoffSeconds + 60,
+            success: true,
+            in_msg: {
+                source: STRANGER_WALLET, // NOT the authoritative Room Wallet
+                value: "1000000000"
+            }
+        }],
+        sendTransfer(input) {
+            broadcastCount += 1;
+            const hash = `refund-fresh-${broadcastCount}`;
+            roomWalletHistory.push({
+                transaction_id: { hash },
+                utime: cutoffSeconds + 120,
+                success: true,
+                out_msgs: [{
+                    destination: input.destination,
+                    value: input.amountNano.toString()
+                }]
+            });
+            return { ok: true, code: "SENT", txHash: hash };
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 10,
+        cutoffUtime: cutoffMs,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: PLAYER_WALLET,
+            amount: 1
+        }]
+    });
+
+    // The foreign-source inbound must not be mistaken for the refund.
+    assert.equal(result.results[0].code, "REFUND_CONFIRMED");
+    assert.equal(result.results[0].reconciliation, undefined);
+    assert.equal(broadcastCount, 1);
+});
+
+test("player wallet inbound with a different amount is not accepted as an already completed refund — a fresh refund is broadcast", async () => {
+    const cutoffMs = 1_700_000_000_500;
+    const cutoffSeconds = Math.floor(cutoffMs / 1000);
+    const roomWalletHistory = [];
+    let broadcastCount = 0;
+
+    const { adapter } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => roomWalletHistory,
+        getAddressTransactions: async () => [{
+            transaction_id: { hash: "wrong-amount-inbound" },
+            utime: cutoffSeconds + 60,
+            success: true,
+            in_msg: {
+                source: RW, // correct source…
+                value: "999000000" // …but a different amount
+            }
+        }],
+        sendTransfer(input) {
+            broadcastCount += 1;
+            const hash = `refund-fresh-${broadcastCount}`;
+            roomWalletHistory.push({
+                transaction_id: { hash },
+                utime: cutoffSeconds + 120,
+                success: true,
+                out_msgs: [{
+                    destination: input.destination,
+                    value: input.amountNano.toString()
+                }]
+            });
+            return { ok: true, code: "SENT", txHash: hash };
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 10,
+        cutoffUtime: cutoffMs,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: PLAYER_WALLET,
+            amount: 1
+        }]
+    });
+
+    assert.equal(result.results[0].code, "REFUND_CONFIRMED");
+    assert.equal(result.results[0].reconciliation, undefined);
+    assert.equal(broadcastCount, 1);
+});
+
+test("player wallet inbound before the refund cutoff is not accepted — a fresh refund is broadcast", async () => {
+    const cutoffMs = 1_700_000_000_500;
+    const cutoffSeconds = Math.floor(cutoffMs / 1000);
+    const roomWalletHistory = [];
+    let broadcastCount = 0;
+
+    const { adapter } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => roomWalletHistory,
+        getAddressTransactions: async () => [{
+            transaction_id: { hash: "pre-cutoff-inbound" },
+            utime: cutoffSeconds - 60, // BEFORE the cutoff
+            success: true,
+            in_msg: {
+                source: RW,
+                value: "1000000000"
+            }
+        }],
+        sendTransfer(input) {
+            broadcastCount += 1;
+            const hash = `refund-fresh-${broadcastCount}`;
+            roomWalletHistory.push({
+                transaction_id: { hash },
+                utime: cutoffSeconds + 120,
+                success: true,
+                out_msgs: [{
+                    destination: input.destination,
+                    value: input.amountNano.toString()
+                }]
+            });
+            return { ok: true, code: "SENT", txHash: hash };
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 10,
+        cutoffUtime: cutoffMs,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: PLAYER_WALLET,
+            amount: 1
+        }]
+    });
+
+    assert.equal(result.results[0].code, "REFUND_CONFIRMED");
+    assert.equal(result.results[0].reconciliation, undefined);
+    assert.equal(broadcastCount, 1);
+});
+
+test("bounced player wallet inbound is not accepted as an already completed refund — a fresh refund is broadcast", async () => {
+    const cutoffMs = 1_700_000_000_500;
+    const cutoffSeconds = Math.floor(cutoffMs / 1000);
+    const roomWalletHistory = [];
+    let broadcastCount = 0;
+
+    const { adapter } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => roomWalletHistory,
+        getAddressTransactions: async () => [{
+            transaction_id: { hash: "bounced-inbound" },
+            utime: cutoffSeconds + 60,
+            success: true,
+            in_msg: {
+                source: RW,
+                value: "1000000000",
+                bounced: true
+            }
+        }],
+        sendTransfer(input) {
+            broadcastCount += 1;
+            const hash = `refund-fresh-${broadcastCount}`;
+            roomWalletHistory.push({
+                transaction_id: { hash },
+                utime: cutoffSeconds + 120,
+                success: true,
+                out_msgs: [{
+                    destination: input.destination,
+                    value: input.amountNano.toString()
+                }]
+            });
+            return { ok: true, code: "SENT", txHash: hash };
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 10,
+        cutoffUtime: cutoffMs,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: PLAYER_WALLET,
+            amount: 1
+        }]
+    });
+
+    assert.equal(result.results[0].code, "REFUND_CONFIRMED");
+    assert.equal(result.results[0].reconciliation, undefined);
+    assert.equal(broadcastCount, 1);
+});
+
+test("a matching Room Wallet outbound refund still wins over a player wallet inbound match", async () => {
+    const cutoffMs = 1_700_000_000_500;
+    const cutoffSeconds = Math.floor(cutoffMs / 1000);
+    const infoLogLines = [];
+
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => [{
+            transaction_id: { hash: "room-wallet-outbound-refund" },
+            utime: cutoffSeconds + 60,
+            success: true,
+            out_msgs: [{
+                destination: PLAYER_WALLET,
+                value: "1000000000"
+            }]
+        }],
+        getAddressTransactions: async () => [{
+            transaction_id: { hash: "player-inbound-refund" },
+            utime: cutoffSeconds + 60,
+            success: true,
+            in_msg: {
+                source: RW,
+                value: "1000000000"
+            }
+        }],
+        logger: {
+            info: (line) => infoLogLines.push(line),
+            warn: () => {}
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 11,
+        cutoffUtime: cutoffMs,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: PLAYER_WALLET,
+            amount: 1
+        }]
+    });
+
+    // The Room Wallet outbound match keeps the existing REFUND_ADOPTED shape.
+    assert.equal(result.ok, true);
+    assert.equal(result.results[0].code, "REFUND_ADOPTED");
+    assert.equal(result.results[0].reconciliation, undefined);
+    assert.equal(result.results[0].txHash, "room-wallet-outbound-refund");
+    assert.equal(calls.length, 0);
+    assert.equal(infoLogLines.length, 0);
+});
+
+test("player wallet reconciliation is skipped without a crash when getAddressTransactions is unavailable", async () => {
+    const cutoffMs = 1_700_000_000_500;
+    const cutoffSeconds = Math.floor(cutoffMs / 1000);
+    const roomWalletHistory = [];
+    let broadcastCount = 0;
+
+    const { adapter } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => roomWalletHistory,
+        // No getAddressTransactions on the room wallet adapter.
+        sendTransfer(input) {
+            broadcastCount += 1;
+            const hash = `refund-fresh-${broadcastCount}`;
+            roomWalletHistory.push({
+                transaction_id: { hash },
+                utime: cutoffSeconds + 120,
+                success: true,
+                out_msgs: [{
+                    destination: input.destination,
+                    value: input.amountNano.toString()
+                }]
+            });
+            return { ok: true, code: "SENT", txHash: hash };
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 10,
+        cutoffUtime: cutoffMs,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            wallet: PLAYER_WALLET,
+            amount: 1
+        }]
+    });
+
+    assert.equal(result.results[0].code, "REFUND_CONFIRMED");
+    assert.equal(broadcastCount, 1);
 });
