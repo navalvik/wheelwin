@@ -2,6 +2,7 @@ import { createAdministratorAuthMiddleware } from "./auth/developerAuthMiddlewar
 import { readMultipartOggUpload } from "./configuration/readMultipartOggUpload.js";
 import { AUDIO_UPLOAD_MAX_BYTES } from "./configuration/uploadAudioRegistryAsset.js";
 import { selectWalletNetworkSnapshot } from "./wallet/WalletBalanceMonitor.js";
+import { buildOperatorExplorerVerification } from "./projectionBuilders/buildOperatorExplorerVerification.js";
 
 /**
  * R6.0C / R6.1 — Read-only Developer Console HTTP routes.
@@ -17,7 +18,8 @@ export function registerDeveloperConsoleRoutes(
         sessionHistoryArchive = null,
         runtimeConfigurationService = null,
         audioRegistryService = null,
-        roomWalletTerminalSettlementRecovery = null
+        roomWalletTerminalSettlementRecovery = null,
+        applicationNetwork = null
     } = {}
 ) {
 
@@ -547,7 +549,20 @@ export function registerDeveloperConsoleRoutes(
 
         }
 
-        res.json(record);
+        // R18.S125 — DISPLAY-ONLY operator Explorer verification block.
+        // Attached to the API response only; the immutable archive record and
+        // the download endpoint remain pristine. Explorer references are
+        // manual operator links — never read back and never part of
+        // payout/refund authorization.
+        const operatorExplorerVerification = buildOperatorExplorerVerification(
+            record,
+            { applicationNetwork }
+        );
+
+        res.json({
+            ...record,
+            operatorExplorerVerification
+        });
 
     });
 

@@ -2376,7 +2376,8 @@ class WheelWinApplication {
                 runtimeConfigurationService: this._runtimeConfigurationService,
                 audioRegistryService: this._audioRegistryService,
                 roomWalletTerminalSettlementRecovery:
-                    this._roomWalletTerminalSettlementRecovery
+                    this._roomWalletTerminalSettlementRecovery,
+                applicationNetwork: this._tonConfig?.network ?? null
             }
         );
 

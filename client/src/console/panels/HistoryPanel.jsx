@@ -6,6 +6,7 @@ import {
     fetchSessionHistory,
     fetchSessionHistoryRecord
 } from "../developerAuthApi";
+import { buildExplorerVerificationRows } from "../explorerVerificationRows";
 import { formatDurationMs, formatUptime, shortId } from "../formatters";
 import PanelShell from "./shared/PanelShell";
 import { FilterSelect } from "./shared/Toolbar";
@@ -374,6 +375,10 @@ export default function HistoryPanel() {
 
     const records = list?.records ?? [];
 
+    // R18.S125 — display-only operator Explorer verification (manual step).
+    const explorerVerification = detail?.operatorExplorerVerification ?? null;
+    const explorerRows = buildExplorerVerificationRows(explorerVerification);
+
     const filtersActive = hasActiveAdvancedFilters({
         searchGame,
         nickname,
@@ -563,6 +568,88 @@ export default function HistoryPanel() {
                                 </table>
 
                             </div>
+
+                            {explorerVerification && (
+                                <>
+                                    <h3 className="devConsole__sectionTitle">
+                                        TON Explorer Verification (Manual)
+                                    </h3>
+
+                                    <p className="devConsole__placeholder">
+                                        EXPLORER VERIFICATION REQUIRED —
+                                        manual operator step on the public
+                                        TON Explorer
+                                        {explorerVerification.network
+                                            ? ` (${String(
+                                                explorerVerification.network
+                                            ).toUpperCase()})`
+                                            : ""}.
+                                        {" "}It does NOT replace the automated
+                                        TON Center on-chain confirmation,
+                                        is never read back by WheelWin, and
+                                        is never used to authorize or gate
+                                        transfers.
+                                    </p>
+
+                                    {explorerRows.length === 0 ? (
+                                        <p className="devConsole__placeholder">
+                                            No transaction hashes are recorded
+                                            in this session archive. Verify
+                                            refund/payout evidence from the
+                                            session archive download and the
+                                            server forensic log instead.
+                                        </p>
+                                    ) : (
+                                        <div className="devConsole__tableWrap">
+                                            <table className="devConsole__table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Kind</th>
+                                                        <th>Transaction hash</th>
+                                                        <th>Source</th>
+                                                        <th>Explorer (manual)</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {explorerRows.map((row) => (
+                                                        <tr key={row.key}>
+                                                            <td>{row.label}</td>
+                                                            <td
+                                                                className="devConsole__mono"
+                                                                title={row.hash}
+                                                            >
+                                                                {shortId(row.hash, 18)}
+                                                            </td>
+                                                            <td
+                                                                className="devConsole__mono"
+                                                                title={row.source ?? ""}
+                                                            >
+                                                                {row.source
+                                                                    ? shortId(row.source, 14)
+                                                                    : "—"}
+                                                            </td>
+                                                            <td>
+                                                                {row.url ? (
+                                                                    <a
+                                                                        className="devConsole__backLink"
+                                                                        href={row.url}
+                                                                        target="_blank"
+                                                                        rel="noreferrer noopener"
+                                                                    >
+                                                                        Open in TON Explorer
+                                                                    </a>
+                                                                ) : (
+                                                                    "—"
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </>
+                            )}
 
                             <h3 className="devConsole__sectionTitle">Configuration</h3>
 
