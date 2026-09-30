@@ -28,7 +28,11 @@ export class RoomWalletAdapter {
         tonService,
         walletResolver,
         logger = null,
-        gasReserveNano = ROOM_WALLET_POLICY.initialRoomReserveNano
+        gasReserveNano = ROOM_WALLET_POLICY.initialRoomReserveNano,
+        seqnoConfirmTimeoutMs = 90_000,
+        seqnoConfirmPollMs = 2_000,
+        now = () => Date.now(),
+        sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
     } = {}) {
         if (!tonService) {
             throw new Error("RoomWalletAdapter requires tonService");
@@ -40,10 +44,56 @@ export class RoomWalletAdapter {
 
         assertNonNegativeNano(gasReserveNano, "gasReserveNano");
 
+        if (!Number.isFinite(seqnoConfirmTimeoutMs) || seqnoConfirmTimeoutMs <= 0) {
+            throw new TypeError("seqnoConfirmTimeoutMs must be a positive finite number");
+        }
+
+        if (!Number.isFinite(seqnoConfirmPollMs) || seqnoConfirmPollMs < 0) {
+            throw new TypeError("seqnoConfirmPollMs must be a non-negative finite number");
+        }
+
+        if (typeof now !== "function") {
+            throw new TypeError("now must be a function");
+        }
+
+        if (typeof sleep !== "function") {
+            throw new TypeError("sleep must be a function");
+        }
+
         this._tonService = tonService;
         this._walletResolver = walletResolver;
         this._logger = logger;
         this._gasReserveNano = gasReserveNano;
+        this._seqnoConfirmTimeoutMs = seqnoConfirmTimeoutMs;
+        this._seqnoConfirmPollMs = seqnoConfirmPollMs;
+        this._now = now;
+        this._sleep = sleep;
+
+        /**
+         * SEQNO SAFETY (production incident game_8b040e1c-1007-463f-bde7-8056c6dd3124).
+         *
+         * A Room Wallet must never sign two independent external messages with
+         * the same seqno. TON accepts the first message and silently rejects
+         * the duplicate, so the second transfer (for example the Owner payout)
+         * never lands.
+         *
+         * Two structural guards are enforced here:
+         *
+         * 1. `_outboundQueues` serializes all sendTransfer calls per wallet
+         *    address so two concurrent callers cannot interleave their seqno
+         *    reads and broadcasts.
+         *
+         * 2. `_pendingOutboundSeqno` records the seqno of every successful
+         *    broadcast. Before the next send on the same address, the adapter
+         *    waits for the AUTHORITATIVE chain seqno (getSeqno get-method read)
+         *    to advance past that value — positive on-chain evidence that the
+         *    previous external message was accepted. It does not rely on
+         *    process timing, fixed delays, or locally incremented counters.
+         *    If the chain does not advance within the bounded window, the send
+         *    fails closed with a retryable code instead of reusing the seqno.
+         */
+        this._outboundQueues = new Map();
+        this._pendingOutboundSeqno = new Map();
     }
 
     getGasReserveNano() {
@@ -139,6 +189,132 @@ export class RoomWalletAdapter {
             throw new Error("Room Wallet workchain must be 0 for WalletContractV4");
         }
 
+        // SEQNO SAFETY: all broadcasts from one Room Wallet are serialized per
+        // address and gated on the authoritative confirmation of the previous
+        // broadcast before the next seqno is read.
+        return this._enqueueOutbound(identity.address, () =>
+            this._sendTransferLocked({
+                identity,
+                destinationAddress,
+                amountNano,
+                bounce,
+                queryId,
+                reserveNano
+            })
+        );
+    }
+
+    /**
+     * Serializes outbound work per wallet address. Each queued task runs only
+     * after the previous task for the same address has fully settled, so two
+     * concurrent sendTransfer calls can never interleave their seqno reads.
+     */
+    _enqueueOutbound(addressKey, task) {
+        const previous = this._outboundQueues.get(addressKey) ?? Promise.resolve();
+        const run = previous.then(() => task());
+        this._outboundQueues.set(
+            addressKey,
+            run.then(
+                () => {},
+                () => {}
+            )
+        );
+        return run;
+    }
+
+    /**
+     * Waits for positive on-chain evidence that the previously broadcast
+     * external message from this wallet was accepted: the authoritative chain
+     * seqno (get-method read) must advance past the pending broadcast seqno.
+     *
+     * This is not a timing assumption and not a locally incremented counter:
+     * a TON wallet seqno only advances when its external message is accepted.
+     * Fails closed when the chain does not advance in time or when the seqno
+     * read is unavailable — a possibly-reused seqno is never signed.
+     */
+    async _awaitOutboundSequenceSafety(identity) {
+        const pending = this._pendingOutboundSeqno.get(identity.address);
+
+        if (pending == null) {
+            return Object.freeze({ ok: true });
+        }
+
+        if (typeof this._tonService.getSeqno !== "function") {
+            this._logger?.warn?.(
+                `RoomWalletAdapter seqno safety hold | room=${identity.roomNumber} | `
+                    + `pendingSeqno=${pending.seqno} | reason=GET_SEQNO_UNAVAILABLE`
+            );
+
+            return Object.freeze({
+                ok: false,
+                code: "SEQNO_CONFIRMATION_UNAVAILABLE",
+                pendingSeqno: pending.seqno,
+                observedSeqno: null
+            });
+        }
+
+        const deadline = this._now() + this._seqnoConfirmTimeoutMs;
+        let observedSeqno = null;
+
+        while (this._now() < deadline) {
+            try {
+                observedSeqno = await this._tonService.getSeqno(identity.address);
+            } catch {
+                // A fresh/uninitialized wallet or a transient RPC failure is
+                // treated as "not yet confirmed" and re-polled.
+                observedSeqno = null;
+            }
+
+            if (Number.isInteger(observedSeqno) && observedSeqno > pending.seqno) {
+                this._pendingOutboundSeqno.delete(identity.address);
+
+                return Object.freeze({
+                    ok: true,
+                    confirmedSeqno: pending.seqno,
+                    observedSeqno
+                });
+            }
+
+            await this._sleep(this._seqnoConfirmPollMs);
+        }
+
+        this._logger?.warn?.(
+            `RoomWalletAdapter seqno safety hold expired | room=${identity.roomNumber} | `
+                + `pendingSeqno=${pending.seqno} | observedSeqno=${observedSeqno ?? "unknown"}`
+        );
+
+        return Object.freeze({
+            ok: false,
+            code: "SEQNO_CONFIRMATION_TIMEOUT",
+            pendingSeqno: pending.seqno,
+            observedSeqno: Number.isInteger(observedSeqno) ? observedSeqno : null
+        });
+    }
+
+    async _sendTransferLocked({
+        identity,
+        destinationAddress,
+        amountNano,
+        bounce,
+        queryId,
+        reserveNano
+    }) {
+        const sequenceSafety = await this._awaitOutboundSequenceSafety(identity);
+
+        if (!sequenceSafety.ok) {
+            return Object.freeze({
+                ok: false,
+                code: sequenceSafety.code,
+                roomNumber: identity.roomNumber,
+                address: identity.address,
+                destination: configuredDestination(destinationAddress),
+                amountNano,
+                pendingSeqno: sequenceSafety.pendingSeqno ?? null,
+                observedSeqno: sequenceSafety.observedSeqno ?? null,
+                txHash: null
+            });
+        }
+
         const balanceNano = await this._tonService.getBalance(identity.address);
         const requiredNano = amountNano + reserveNano;
 
@@ -212,6 +388,13 @@ export class RoomWalletAdapter {
 
         const broadcast = await this._tonService.broadcastTransaction(bocBase64);
         const txHash = extractBroadcastTxHash(broadcast);
+
+        // The transport accepted the broadcast: this seqno is consumed as soon
+        // as the message is processed. Hold it until the next send observes
+        // the authoritative seqno advance. A broadcast that threw is not
+        // recorded here; the settlement layer re-inspects chain history before
+        // any retry and the duplicate-payout evidence scan stays fail-closed.
+        this._pendingOutboundSeqno.set(identity.address, { seqno });
 
         this._logger?.info?.(
             `RoomWalletAdapter transfer broadcast | room=${identity.roomNumber} | `

@@ -27,6 +27,8 @@ export const ROOM_WALLET_SETTLEMENT_RETRYABLE_CODES = Object.freeze({
     INSUFFICIENT_ROOM_WALLET_BALANCE: "INSUFFICIENT_ROOM_WALLET_BALANCE",
     WINNER_PAYOUT_FAILED: "WINNER_PAYOUT_FAILED",
     OWNER_PAYOUT_FAILED_AFTER_WINNER: "OWNER_PAYOUT_FAILED_AFTER_WINNER",
+    WINNER_PAYOUT_UNCONFIRMED: "WINNER_PAYOUT_UNCONFIRMED",
+    OWNER_PAYOUT_UNCONFIRMED: "OWNER_PAYOUT_UNCONFIRMED",
     ADAPTER_THREW: "ADAPTER_THREW"
 });
 
@@ -52,7 +54,10 @@ export class RoomWalletSettlementAdapter {
     constructor({
         roomWalletAdapter,
         logger = null,
-        inspectHistory = inspectRoomWalletHistory
+        inspectHistory = inspectRoomWalletHistory,
+        confirmPayout = confirmPayoutOnChain,
+        confirmTimeoutMs = 90_000,
+        confirmPollMs = 2_000
     } = {}) {
         if (!roomWalletAdapter) {
             throw new Error("RoomWalletSettlementAdapter requires roomWalletAdapter");
@@ -66,9 +71,16 @@ export class RoomWalletSettlementAdapter {
             throw new TypeError("roomWalletAdapter.getBalance is required");
         }
 
+        if (typeof confirmPayout !== "function") {
+            throw new TypeError("confirmPayout must be a function");
+        }
+
         this._roomWalletAdapter = roomWalletAdapter;
         this._logger = logger;
         this._inspectHistory = inspectHistory;
+        this._confirmPayout = confirmPayout;
+        this._confirmTimeoutMs = confirmTimeoutMs;
+        this._confirmPollMs = confirmPollMs;
     }
 
     async preflight(request = {}) {
@@ -114,6 +126,131 @@ export class RoomWalletSettlementAdapter {
                 ? 0n
                 : requiredNano - balanceNano
         });
+    }
+
+    /**
+     * PARTIAL-SETTLEMENT RECOVERY FUNDING GATE.
+     *
+     * When the winner payout is already confirmed on-chain and only the Owner
+     * payout is missing, the retry must NOT require the Room Wallet to fund
+     * the already-completed winner payout again. The remaining requirement is
+     * exactly the Owner payout plus the source-wallet gas reserve for that
+     * single Owner transaction.
+     *
+     * Fail-closed fallback: when the adapter cannot expose canFundTransfer,
+     * the stricter full settlement preflight is used instead.
+     */
+    async preflightRemainingOwner({
+        request,
+        roomNumber,
+        ownerPlan,
+        winnerAmountNano
+    }) {
+        assertNonNegativeNano(ownerPlan.ownerPayoutNano, "ownerPayoutNano");
+
+        if (typeof this._roomWalletAdapter.canFundTransfer !== "function") {
+            return this.preflight(request);
+        }
+
+        const ownerPayoutNano = ownerPlan.ownerPayoutNano;
+        const check = await this._roomWalletAdapter.canFundTransfer({
+            roomNumber,
+            amountNano: ownerPayoutNano
+        });
+        const gasReserveNano = check?.gasReserveNano
+            ?? this._roomWalletAdapter.getGasReserveNano?.()
+            ?? 0n;
+        const requiredNano = check?.requiredNano ?? (ownerPayoutNano + gasReserveNano);
+
+        return Object.freeze({
+            ok: check?.ok === true,
+            remainingOnly: true,
+            roomNumber,
+            balanceNano: check?.balanceNano ?? null,
+            winnerPayoutAlreadyOnChain: true,
+            excludedWinnerAmountNano: winnerAmountNano,
+            owner: Object.freeze({
+                payoutNano: ownerPayoutNano,
+                retainedNano: ownerPlan.retainedNano,
+                gasReserveNano
+            }),
+            totalPayoutNano: ownerPayoutNano,
+            totalGasReserveNano: gasReserveNano,
+            requiredNano,
+            shortfallNano: check?.shortfallNano
+                ?? (check?.balanceNano != null && check.balanceNano < requiredNano
+                    ? requiredNano - check.balanceNano
+                    : 0n)
+        });
+    }
+
+    /**
+     * Positive on-chain confirmation of a freshly broadcast payout using the
+     * existing WheelWin confirmation primitive (confirmPayoutOnChain). The
+     * payout hash, destination and exact amount must all be observed in the
+     * Room Wallet outbound history.
+     *
+     * When the transport cannot observe transactions at all, the legacy
+     * no-observation behaviour is preserved (observed: false) and the caller
+     * falls back to the existing broadcast-only result handling.
+     */
+    async _confirmTransferAfterBroadcast({
+        roomNumber,
+        history,
+        txHash,
+        destination,
+        amountNano
+    }) {
+        if (typeof this._roomWalletAdapter.getTransactions !== "function") {
+            return Object.freeze({
+                observed: false,
+                confirmed: false,
+                reason: "OBSERVATION_UNAVAILABLE"
+            });
+        }
+
+        const roomWalletAddress = history?.roomWalletAddress
+            ?? (typeof this._roomWalletAdapter.getWalletAddress === "function"
+                ? await this._roomWalletAdapter.getWalletAddress(roomNumber)
+                : null);
+
+        if (!roomWalletAddress) {
+            return Object.freeze({
+                observed: false,
+                confirmed: false,
+                reason: "ROOM_WALLET_ADDRESS_UNAVAILABLE"
+            });
+        }
+
+        try {
+            const confirmation = await this._confirmPayout({
+                tonService: createInspectTransport(this._roomWalletAdapter, roomNumber),
+                roomWalletAddress,
+                expectedHash: txHash ?? null,
+                destination,
+                amountNano,
+                timeoutMs: this._confirmTimeoutMs,
+                pollIntervalMs: this._confirmPollMs
+            });
+
+            return Object.freeze({
+                observed: true,
+                confirmed: confirmation?.ok === true,
+                ...confirmation
+            });
+        } catch (error) {
+            this._logger?.warn?.(
+                `RoomWallet settlement payout confirmation errored | `
+                    + `room=${roomNumber} | ${error?.message ?? error}`
+            );
+
+            return Object.freeze({
+                observed: true,
+                confirmed: false,
+                code: "PAYOUT_CONFIRMATION_ERROR",
+                detail: error?.message ?? String(error)
+            });
+        }
     }
 
     /**
@@ -509,7 +646,20 @@ export class RoomWalletSettlementAdapter {
         const needOwner = !(history && history.unavailable !== true && history.ownerPayout);
 
         if (needWinner || needOwner) {
-            const preflight = await this.preflight(request);
+            // PARTIAL-SETTLEMENT RECOVERY: when the winner payout is already
+            // confirmed on-chain and only the Owner payout is missing, the
+            // retry must not require the Room Wallet to fund the completed
+            // winner payout again. Only the Owner payout plus the source
+            // wallet gas reserve for that Owner transaction is required.
+            const preflight = needWinner
+                ? await this.preflight(request)
+                : await this.preflightRemainingOwner({
+                    request,
+                    roomNumber,
+                    ownerPlan,
+                    winnerAmountNano
+                });
+
             if (!preflight.ok) {
                 return Object.freeze({
                     ok: false,
@@ -530,6 +680,8 @@ export class RoomWalletSettlementAdapter {
         let ownerResult = history?.ownerPayout
             ? adoptedTransfer(history.ownerPayout)
             : null;
+        let winnerConfirmationEvidence = null;
+        let ownerConfirmationEvidence = null;
 
         if (needWinner) {
             winnerResult = await this._roomWalletAdapter.sendTransfer({
@@ -552,6 +704,38 @@ export class RoomWalletSettlementAdapter {
                     ownerTransfer
                 });
             }
+
+            // SEQUENTIAL SETTLEMENT SAFETY: the Owner payout must never be
+            // broadcast as an independent transaction before the Winner
+            // payout is positively confirmed on-chain. Broadcasting both from
+            // the same Room Wallet without confirmation reused the same seqno
+            // in production (game_8b040e1c-1007-463f-bde7-8056c6dd3124) and
+            // the Owner transfer was silently dropped by the wallet.
+            const winnerConfirmation = await this._confirmTransferAfterBroadcast({
+                roomNumber,
+                history,
+                txHash: winnerResult.txHash ?? null,
+                destination: winnerWallet,
+                amountNano: winnerAmountNano
+            });
+
+            if (winnerConfirmation.observed && !winnerConfirmation.confirmed) {
+                return Object.freeze({
+                    ok: false,
+                    retryable: true,
+                    partial: true,
+                    chainInspected: true,
+                    code: ROOM_WALLET_SETTLEMENT_RETRYABLE_CODES.WINNER_PAYOUT_UNCONFIRMED,
+                    roomNumber,
+                    winner: winnerResult,
+                    owner: ownerResult,
+                    winnerTransfer,
+                    ownerTransfer,
+                    winnerConfirmation
+                });
+            }
+
+            winnerConfirmationEvidence = winnerConfirmation;
         }
 
         if (needOwner) {
@@ -583,6 +767,38 @@ export class RoomWalletSettlementAdapter {
                     ownerRetainedNano: ownerPlan.retainedNano
                 });
             }
+
+            // SEQUENTIAL SETTLEMENT SAFETY: settlement may only be treated as
+            // complete when the Owner payout is positively confirmed on-chain.
+            // If confirmation times out the state stays retryable; the next
+            // attempt re-inspects chain history and adopts the Owner payout
+            // instead of broadcasting a duplicate.
+            const ownerConfirmation = await this._confirmTransferAfterBroadcast({
+                roomNumber,
+                history,
+                txHash: ownerResult.txHash ?? null,
+                destination: ownerWallet,
+                amountNano: ownerPlan.ownerPayoutNano
+            });
+
+            if (ownerConfirmation.observed && !ownerConfirmation.confirmed) {
+                return Object.freeze({
+                    ok: false,
+                    retryable: true,
+                    partial: true,
+                    chainInspected: true,
+                    code: ROOM_WALLET_SETTLEMENT_RETRYABLE_CODES.OWNER_PAYOUT_UNCONFIRMED,
+                    roomNumber,
+                    winner: winnerResult,
+                    owner: ownerResult,
+                    winnerTransfer,
+                    ownerTransfer,
+                    ownerRetainedNano: ownerPlan.retainedNano,
+                    ownerConfirmation
+                });
+            }
+
+            ownerConfirmationEvidence = ownerConfirmation;
         }
 
         const afterSend = history?.unavailable === true
@@ -622,6 +838,8 @@ export class RoomWalletSettlementAdapter {
                     chainInspected: true,
                     code: ROOM_WALLET_SETTLEMENT_SAFETY_CODES.DUPLICATE_PAYOUT,
                     roomNumber,
+                    winnerPayoutCount: afterSend.winnerPayoutCount,
+                    ownerPayoutCount: afterSend.ownerPayoutCount,
                     winner: afterSend.winnerPayout
                         ? adoptedTransfer(afterSend.winnerPayout)
                         : winnerResult,
@@ -646,7 +864,9 @@ export class RoomWalletSettlementAdapter {
                     ownerPayoutNano: ownerPlan.ownerPayoutNano,
                     ownerRetainedNano: ownerPlan.retainedNano,
                     winnerTransfer,
-                    ownerTransfer
+                    ownerTransfer,
+                    winnerConfirmation: winnerConfirmationEvidence,
+                    ownerConfirmation: ownerConfirmationEvidence
                 });
             }
             return Object.freeze({
@@ -677,7 +897,9 @@ export class RoomWalletSettlementAdapter {
             ownerPayoutNano: ownerPlan.ownerPayoutNano,
             ownerRetainedNano: ownerPlan.retainedNano,
             winnerTransfer,
-            ownerTransfer
+            ownerTransfer,
+            winnerConfirmation: winnerConfirmationEvidence,
+            ownerConfirmation: ownerConfirmationEvidence
         });
     }
 }
