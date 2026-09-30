@@ -1861,7 +1861,17 @@ export class PaymentSessionManager {
 
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
-        this._registerPlayerWatch(session, participant);
+        // Room-Wallet-only intake: RoomWalletIncomingObserver is the single
+        // authoritative Room Wallet poller. Registering a BlockchainMonitor
+        // watch on session.roomWalletAddress here would create a second
+        // per-room TonCenter polling timer for the same active Room Wallet,
+        // so per-room watches are registered only for legacy
+        // non-RoomWallet financial paths.
+        if (!this._roomWalletPaymentIntakeEnabled) {
+
+            this._registerPlayerWatch(session, participant);
+
+        }
 
         this._log(`BLOCKCHAIN_PENDING | roomId=${roomId} | playerId=${playerId}`);
 

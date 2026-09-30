@@ -42,9 +42,11 @@ export const ROOM_WALLET_INCOMING_TX_PAGE_LIMIT = 32;
  * failed getTransactions HTTP/s with overlap + 3-attempt retry (s58).
  * Free plan is 10 RPS; Plus 25. One in-flight observer RPC leaves headroom.
  *
- * Wallets per cycle 8: 64 catalog addresses, 2000 ms global interval →
- * full coverage about every 16 s when ticks are not skipped. Avoids holding
- * `_pollGlobal` on a 64-wallet 429 scan.
+ * Wallets per cycle 8: caps each cycle to a rotating slice of the ACTIVE
+ * Room Wallet set — the unique wallets assigned to currently in-progress
+ * Payment Sessions — with the 2000 ms global interval giving full active
+ * coverage about every 16 s when ticks are not skipped. Zero active sessions
+ * means zero wallets polled; the catalog is never used as the polling set.
  *
  * Retry: 2 attempts (1 retry), 400 ms delay, observer-local. Does not use
  * TonService `executeWithRetry` maxAttempts=3 for this poll path.
@@ -319,6 +321,7 @@ export class RoomWalletIncomingObserver {
         this._stopped = false;
         this._pollInFlight = false;
         this._scanOffset = 0;
+        this._idleLogged = false;
 
         const traffic = resolveRoomWalletObserverTrafficConfig(env);
 
@@ -372,11 +375,36 @@ export class RoomWalletIncomingObserver {
             });
         }
 
-        const addresses = listConfiguredRoomWalletAddresses(this._registry);
+        // ACTIVE ROOM WALLET SELECTION — the polling set is derived only from
+        // Payment Sessions that are currently in progress; PaymentSessionManager
+        // is the single source of truth for active games. Zero in-progress
+        // sessions means zero getTransactions calls. The full catalog is never
+        // scanned just to discover that there is nothing to do.
+        const { sessions, addresses } = this._resolveActivePollingTargets();
 
         if (addresses.length === 0) {
-            return Object.freeze({ polled: 0, processed: 0, skipped: false });
+            if (!this._idleLogged) {
+                this._idleLogged = true;
+                this._log(
+                    "info",
+                    "RoomWalletIncomingObserver idle | no active payment sessions"
+                        + ` | activeSessions=${sessions.length}`
+                        + " | walletsPolled=0"
+                        + ` | catalog=${this._registryCatalogSize()}`
+                );
+            }
+
+            return Object.freeze({
+                polled: 0,
+                processed: 0,
+                skipped: true,
+                skipReason: "no_active_payment_sessions",
+                activeSessions: sessions.length,
+                walletsPolled: 0
+            });
         }
+
+        this._idleLogged = false;
 
         this._pollInFlight = true;
         const startedAt = this._now();
@@ -390,8 +418,9 @@ export class RoomWalletIncomingObserver {
         this._log(
             "info",
             "RoomWalletIncomingObserver cycle started"
-                + ` | wallets=${slice.length}`
-                + ` | catalog=${addresses.length}`
+                + ` | activeSessions=${sessions.length}`
+                + ` | walletsPolled=${slice.length}`
+                + ` | catalog=${this._registryCatalogSize()}`
                 + ` | concurrency=${this._maxConcurrency}`
         );
 
@@ -433,7 +462,8 @@ export class RoomWalletIncomingObserver {
             "info",
             "RoomWalletIncomingObserver cycle complete"
                 + ` | durationMs=${durationMs}`
-                + ` | wallets=${slice.length}`
+                + ` | activeSessions=${sessions.length}`
+                + ` | walletsPolled=${slice.length}`
                 + ` | completed=${completed}`
                 + ` | processed=${processed}`
                 + ` | inFlightMax=${inFlightMax}`
@@ -449,7 +479,9 @@ export class RoomWalletIncomingObserver {
             http429,
             retries,
             inFlightMax,
-            durationMs
+            durationMs,
+            activeSessions: sessions.length,
+            walletsPolled: slice.length
         });
     }
 
@@ -883,6 +915,59 @@ export class RoomWalletIncomingObserver {
         }
 
         return this._now() <= deadline;
+    }
+
+    /**
+     * ACTIVE ROOM WALLET SELECTION.
+     *
+     * Resolves the polling target set from the Payment Sessions that are
+     * currently in progress. PaymentSessionManager is the single source of
+     * truth for which games are active:
+     *
+     *   1. Prefer the session's persisted authoritative `roomWalletAddress`.
+     *   2. Legacy/recovered sessions without a persisted destination fall
+     *      back to the authoritative `roomNumber` → RoomWalletRegistry
+     *      mapping (resolveIntendedRoomWalletAddress). The public 4-character
+     *      `roomId` is never used to derive a wallet.
+     *
+     * Addresses are deduplicated. The full catalog remains available for
+     * identity/settlement purposes but is never used as the polling target
+     * set, and a wallet leaves the polling set as soon as its session is no
+     * longer in progress (completed / failed / cancelled / timed out /
+     * recovered into a non-progress state).
+     */
+    _resolveActivePollingTargets() {
+        const sessions = this._listInProgressSessions();
+        const addresses = [];
+        const seen = new Set();
+
+        for (const session of sessions) {
+            const address = canonicalizeTonWalletAddress(session.roomWalletAddress)
+                ?? resolveIntendedRoomWalletAddress({
+                    roomId: session.roomId,
+                    roomNumber: session.roomNumber,
+                    roomManager: this._roomManager,
+                    session
+                }, this._registry);
+
+            if (!address || seen.has(address)) {
+                continue;
+            }
+
+            seen.add(address);
+            addresses.push(address);
+        }
+
+        return Object.freeze({
+            sessions: Object.freeze(sessions),
+            addresses: Object.freeze(addresses)
+        });
+    }
+
+    _registryCatalogSize() {
+        return typeof this._registry?.size === "function"
+            ? this._registry.size()
+            : 0;
     }
 
     _listInProgressSessions() {
