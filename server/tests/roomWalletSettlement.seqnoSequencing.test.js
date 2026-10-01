@@ -52,6 +52,16 @@ const OWNER_GROSS_NANO = 230_000_000n;
 const OWNER_PAYOUT_NANO = 220_000_000n;
 const OWNER_RETAINED_NANO = ROOM_WALLET_POLICY.ownerRetainedNano;
 
+// Deterministic recipient-pays-gas stub estimate served by the simulated
+// chain (components sum exactly to STUB_FEE_TOTAL_NANO). With the default
+// policy margin (20%, floor 1000000) the frozen recipient gas charge is
+// STUB_GAS_CHARGE_NANO and the on-chain transfer value is gross minus that
+// charge. The authoritative gross amounts above are unchanged.
+const STUB_FEE_TOTAL_NANO = 1_000_000n;
+const STUB_GAS_CHARGE_NANO = 2_000_000n;
+const WINNER_NET_NANO = WINNER_AMOUNT_NANO - STUB_GAS_CHARGE_NANO;
+const OWNER_NET_NANO = OWNER_PAYOUT_NANO - STUB_GAS_CHARGE_NANO;
+
 function deriveWalletAddress(seedLabel) {
     const seed = createHash("sha256").update(seedLabel).digest();
     const keyPair = keyPairFromSeed(seed);
@@ -111,6 +121,10 @@ function createSimulatedTonChain({
     };
 
     const capturedTransfers = [];
+    // Captures associated with an actual broadcastTransaction call. Fee
+    // estimation builds the same signed transfer body WITHOUT broadcasting,
+    // so those captures are deliberately excluded from the broadcast view.
+    const broadcastCaptures = [];
     let originalCreateTransfer = null;
 
     const chain = {
@@ -133,15 +147,15 @@ function createSimulatedTonChain({
         },
 
         broadcastSeqnos() {
-            return capturedTransfers.map((transfer) => transfer.seqno);
+            return broadcastCaptures.map((transfer) => transfer.seqno);
         },
 
         capturedTransferValue(index) {
-            return capturedTransfers[index - 1].messages[0].info.value.coins;
+            return broadcastCaptures[index - 1].messages[0].info.value.coins;
         },
 
         capturedTransferDestination(index) {
-            return capturedTransfers[index - 1].messages[0].info.dest
+            return broadcastCaptures[index - 1].messages[0].info.dest
                 .toString({ bounceable: true, urlSafe: true });
         },
 
@@ -168,6 +182,16 @@ function createSimulatedTonChain({
             async getBalance() {
                 return state.balanceNano;
             },
+            async estimateExternalMessageFee() {
+                return {
+                    source: "estimateExternalMessageFee",
+                    inFwdFeeNano: 400_000n,
+                    storageFeeNano: 100_000n,
+                    gasFeeNano: 300_000n,
+                    fwdFeeNano: 200_000n,
+                    totalFeeNano: STUB_FEE_TOTAL_NANO
+                };
+            },
             async getSeqno() {
                 return state.seqno;
             },
@@ -177,7 +201,12 @@ function createSimulatedTonChain({
             },
             async broadcastTransaction() {
                 state.broadcastCount += 1;
-                const transferArgs = capturedTransfers[state.broadcastCount - 1];
+                // The broadcast's transfer body is the MOST RECENT capture:
+                // _sendTransferLocked builds the signed message immediately
+                // before broadcasting (fee-estimation captures never reach
+                // this point because they never broadcast).
+                const transferArgs = capturedTransfers[capturedTransfers.length - 1];
+                broadcastCaptures.push(transferArgs);
                 assert.ok(transferArgs, "broadcast without a captured createTransfer");
                 const message = transferArgs.messages[0];
                 const destination = message.info.dest
@@ -284,10 +313,10 @@ test("PRODUCTION EVIDENCE: owner payout must not reuse winner seqno 31 and waits
 
         // 5. Winner payout was positively confirmed before the owner payout
         //    was submitted (confirm:winner event precedes broadcast:32).
-        const winnerConfirmIndex = events.indexOf(`confirm:${WINNER_AMOUNT_NANO}`);
+        const winnerConfirmIndex = events.indexOf(`confirm:${WINNER_NET_NANO}`);
         assert.ok(winnerConfirmIndex !== -1);
         assert.ok(winnerConfirmIndex < ownerBroadcastIndex);
-        assert.equal(events.includes(`confirmed:${WINNER_AMOUNT_NANO}:true`), true);
+        assert.equal(events.includes(`confirmed:${WINNER_NET_NANO}:true`), true);
 
         // 6. Settlement completes only after both payouts are confirmed.
         assert.equal(result.ok, true);
@@ -297,19 +326,29 @@ test("PRODUCTION EVIDENCE: owner payout must not reuse winner seqno 31 and waits
         assert.equal(result.winnerConfirmation?.observed, true);
         assert.equal(result.ownerConfirmation?.observed, true);
 
-        // 7. Payout economics unchanged: winner exact amount, owner gross
-        //    minus the retained 0.01 Gram, no gas deducted from recipients.
+        // 7. Payout economics unchanged at the accounting level: the winner's
+        //    authoritative gross amount and the owner's gross share minus the
+        //    retained 0.01 Gram stay exactly as before. The on-chain transfer
+        //    value is gross minus the frozen recipient gas charge
+        //    (RECIPIENT_PAYS_GAS); the Room Wallet remains the sender and the
+        //    game economics fund the source-side fee.
         assert.equal(result.winnerAmountNano, WINNER_AMOUNT_NANO);
         assert.equal(result.ownerGrossNano, OWNER_GROSS_NANO);
         assert.equal(result.ownerPayoutNano, OWNER_PAYOUT_NANO);
         assert.equal(result.ownerRetainedNano, OWNER_RETAINED_NANO);
-        assert.equal(chain.capturedTransferValue(1), WINNER_AMOUNT_NANO);
-        assert.equal(chain.capturedTransferValue(2), OWNER_PAYOUT_NANO);
+        assert.equal(result.payoutPlan?.mode, "RECIPIENT_PAYS_GAS");
+        assert.equal(BigInt(result.payoutPlan.winner.grossPayoutNano), WINNER_AMOUNT_NANO);
+        assert.equal(BigInt(result.payoutPlan.owner.ownerGrossNano), OWNER_GROSS_NANO);
+        assert.equal(BigInt(result.payoutPlan.owner.ownerRetainedNano), OWNER_RETAINED_NANO);
+        assert.equal(BigInt(result.payoutPlan.winner.recipientGasChargeNano), STUB_GAS_CHARGE_NANO);
+        assert.equal(BigInt(result.payoutPlan.owner.recipientGasChargeNano), STUB_GAS_CHARGE_NANO);
+        assert.equal(chain.capturedTransferValue(1), WINNER_NET_NANO);
+        assert.equal(chain.capturedTransferValue(2), OWNER_NET_NANO);
         assert.equal(chain.capturedTransferDestination(1), WINNER_WALLET);
         assert.equal(chain.capturedTransferDestination(2), OWNER_WALLET);
 
         // 8. Owner payout is positively confirmed on-chain too.
-        assert.equal(events.includes(`confirmed:${OWNER_PAYOUT_NANO}:true`), true);
+        assert.equal(events.includes(`confirmed:${OWNER_NET_NANO}:true`), true);
     } finally {
         chain.uninstallTransferSpy();
     }
@@ -354,8 +393,10 @@ test("RECOVERY: winner already confirmed, owner missing — ONLY the owner payou
     const chain = createSimulatedTonChain({
         // The winner payout already consumed seqno 31; the chain is at 32.
         initialSeqno: 32,
-        // Post-winner Room Wallet balance funds ONLY owner payout + reserve.
-        balanceNano: OWNER_PAYOUT_NANO + ROOM_WALLET_POLICY.initialRoomReserveNano
+        // Post-winner Room Wallet balance funds ONLY the owner net payout
+        // plus its estimated source-side fee budget (the winner payout was
+        // pre-mined at the legacy gross amount and is adopted as evidence).
+        balanceNano: OWNER_NET_NANO + STUB_FEE_TOTAL_NANO
     });
     chain.preMineTransfer({
         hash: "pre-confirmed-winner",
@@ -372,7 +413,7 @@ test("RECOVERY: winner already confirmed, owner missing — ONLY the owner payou
         // The winner payout was NOT resent.
         assert.equal(chain.state.broadcastCount, 1);
         assert.deepEqual(chain.broadcastSeqnos(), [32]);
-        assert.equal(chain.capturedTransferValue(1), OWNER_PAYOUT_NANO);
+        assert.equal(chain.capturedTransferValue(1), OWNER_NET_NANO);
         assert.equal(chain.capturedTransferDestination(1), OWNER_WALLET);
 
         // The owner payout used a fresh authoritative seqno.
@@ -383,16 +424,17 @@ test("RECOVERY: winner already confirmed, owner missing — ONLY the owner payou
         assert.equal(result.winner?.txHash, "pre-confirmed-winner");
         assert.equal(result.ownerPayoutNano, OWNER_PAYOUT_NANO);
         assert.equal(result.ownerRetainedNano, OWNER_RETAINED_NANO);
+        assert.equal(result.ownerNetTransferNano, OWNER_NET_NANO);
     } finally {
         chain.uninstallTransferSpy();
     }
 });
 
-test("RECOVERY: preflight requires only owner payout plus reserve, never the winner amount", async () => {
+test("RECOVERY: preflight requires only owner net payout plus fee budget, never the winner amount", async () => {
     const chain = createSimulatedTonChain({
         initialSeqno: 32,
-        // One nano short of owner payout + reserve.
-        balanceNano: OWNER_PAYOUT_NANO + ROOM_WALLET_POLICY.initialRoomReserveNano - 1n
+        // One nano short of the owner NET payout + its estimated fee budget.
+        balanceNano: OWNER_NET_NANO + STUB_FEE_TOTAL_NANO - 1n
     });
     chain.preMineTransfer({
         hash: "pre-confirmed-winner",
@@ -414,7 +456,7 @@ test("RECOVERY: preflight requires only owner payout plus reserve, never the win
         assert.equal(result.preflight.excludedWinnerAmountNano, WINNER_AMOUNT_NANO);
         assert.equal(
             result.preflight.requiredNano,
-            OWNER_PAYOUT_NANO + ROOM_WALLET_POLICY.initialRoomReserveNano
+            OWNER_NET_NANO + STUB_FEE_TOTAL_NANO
         );
         assert.equal(result.preflight.shortfallNano, 1n);
 
@@ -582,6 +624,18 @@ function createMockSettlementHarness({
         roomWalletAdapter: {
             getGasReserveNano() {
                 return ROOM_WALLET_POLICY.initialRoomReserveNano;
+            },
+            async estimateOutboundTransferFee({ amountNano }) {
+                return {
+                    ok: true,
+                    feeSource: "estimateExternalMessageFee",
+                    amountNano,
+                    inFwdFeeNano: 400_000n,
+                    storageFeeNano: 100_000n,
+                    gasFeeNano: 300_000n,
+                    fwdFeeNano: 200_000n,
+                    totalNano: STUB_FEE_TOTAL_NANO
+                };
             },
             async getBalance() {
                 return balanceNano;

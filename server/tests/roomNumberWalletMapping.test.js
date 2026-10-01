@@ -348,6 +348,18 @@ test("J/mandatory Game A then Game B in Room 17 reuse Wallet 17 with isolated le
             getGasReserveNano() {
                 return 3_000_000n;
             },
+            async estimateOutboundTransferFee({ amountNano }) {
+                return {
+                    ok: true,
+                    feeSource: "estimateExternalMessageFee",
+                    amountNano,
+                    inFwdFeeNano: 400_000n,
+                    storageFeeNano: 100_000n,
+                    gasFeeNano: 300_000n,
+                    fwdFeeNano: 200_000n,
+                    totalNano: 1_000_000n
+                };
+            },
             async getBalance(roomNumber) {
                 settlementCalls.push({ op: "balance", roomNumber });
                 return 100_000_000_000n;

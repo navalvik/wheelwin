@@ -319,10 +319,25 @@ test("Room-Wallet-only settlement uses Room Wallet adapter, not Game Escrow", ()
 
 test("Room Wallet settlement constructs winner and owner payouts without Game Escrow", async () => {
     const transfers = [];
+    // Deterministic recipient-pays-gas stub estimate (components sum to the total).
+    const stubFeeTotalNano = 1_000_000n;
+    const stubGasChargeNano = 2_000_000n;
     const adapter = new RoomWalletSettlementAdapter({
         roomWalletAdapter: {
             getGasReserveNano() {
                 return 3_000_000n;
+            },
+            async estimateOutboundTransferFee({ amountNano }) {
+                return {
+                    ok: true,
+                    feeSource: "estimateExternalMessageFee",
+                    amountNano,
+                    inFwdFeeNano: 400_000n,
+                    storageFeeNano: 100_000n,
+                    gasFeeNano: 300_000n,
+                    fwdFeeNano: 200_000n,
+                    totalNano: stubFeeTotalNano
+                };
             },
             async getBalance() {
                 return 10_000_000_000n;
@@ -346,8 +361,9 @@ test("Room Wallet settlement constructs winner and owner payouts without Game Es
     assert.equal(transfers.length, 2);
     assert.equal(transfers[0].destination, "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c");
     assert.equal(transfers[1].destination, "EQBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBK");
-    assert.equal(transfers[0].amountNano, 2_850_000_000n);
-    assert.equal(transfers[1].amountNano, 140_000_000n);
+    // RECIPIENT_PAYS_GAS: broadcast value is gross minus the frozen gas charge.
+    assert.equal(transfers[0].amountNano, 2_850_000_000n - stubGasChargeNano);
+    assert.equal(transfers[1].amountNano, 140_000_000n - stubGasChargeNano);
 });
 
 test("legacy financial paths stay blocked in Room-Wallet-only wiring", () => {

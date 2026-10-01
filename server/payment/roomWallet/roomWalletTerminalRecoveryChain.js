@@ -136,7 +136,13 @@ export async function inspectRoomWalletHistory({
     winnerWallet,
     ownerWallet,
     winnerAmountNano,
-    ownerAmountNano
+    ownerAmountNano,
+    // Legacy alternation amounts (pre-recipient-pays-gas settlements were
+    // broadcast at the authoritative gross values). A payout at either the
+    // frozen net amount or the legacy gross amount is adopted; anything else
+    // still fails closed as wallet reuse / duplicate evidence.
+    winnerLegacyAmountNano = null,
+    ownerLegacyAmountNano = null
 }) {
     const address = String(roomWalletAddress ?? "").trim();
     const [balanceRaw, transactions] = await Promise.all([
@@ -154,6 +160,15 @@ export async function inspectRoomWalletHistory({
     const winnerMatches = [];
     const ownerMatches = [];
 
+    const isWinnerAmount = (amountNano) => (
+        amountNano === winnerAmountNano
+        || (winnerLegacyAmountNano != null && amountNano === winnerLegacyAmountNano)
+    );
+    const isOwnerAmount = (amountNano) => (
+        amountNano === ownerAmountNano
+        || (ownerLegacyAmountNano != null && amountNano === ownerLegacyAmountNano)
+    );
+
     for (const tx of transactions ?? []) {
         if (!isLaterThanCutoff(tx, cutoff, cutoffUtime)) {
             continue;
@@ -161,7 +176,7 @@ export async function inspectRoomWalletHistory({
         later.push(tx);
         for (const transfer of extractOutboundTransfers(tx)) {
             if (
-                transfer.amountNano === winnerAmountNano
+                isWinnerAmount(transfer.amountNano)
                 && tonWalletAccountsEqual(transfer.destination, winnerWallet)
                 && transfer.success
                 && transfer.bounced !== true
@@ -169,7 +184,7 @@ export async function inspectRoomWalletHistory({
                 winnerMatches.push(transfer);
             }
             if (
-                transfer.amountNano === ownerAmountNano
+                isOwnerAmount(transfer.amountNano)
                 && tonWalletAccountsEqual(transfer.destination, ownerWallet)
                 && transfer.success
                 && transfer.bounced !== true
@@ -187,11 +202,11 @@ export async function inspectRoomWalletHistory({
         }
         return !transfers.every((transfer) => (
             (
-                transfer.amountNano === winnerAmountNano
+                isWinnerAmount(transfer.amountNano)
                 && tonWalletAccountsEqual(transfer.destination, winnerWallet)
             )
             || (
-                transfer.amountNano === ownerAmountNano
+                isOwnerAmount(transfer.amountNano)
                 && tonWalletAccountsEqual(transfer.destination, ownerWallet)
             )
         ));

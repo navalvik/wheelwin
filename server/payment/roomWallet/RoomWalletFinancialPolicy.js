@@ -6,11 +6,20 @@
  *
  * Important:
  * - All amounts are integer nanograms (bigint).
- * - Recipient amounts are never reduced by gas.
- * - Gas is charged to the source wallet.
+ * - PAYOUT GAS POLICY (R18 recipient-pays-gas sprint):
+ *   - Game Winner payouts, Owner payouts and player refunds are
+ *     RECIPIENT_PAYS_GAS transfers. The Room Wallet stays the technical
+ *     on-chain sender (and therefore pays the source-side TON fee), but the
+ *     recipient transfer value is reduced by a frozen recipient gas charge
+ *     BEFORE broadcast, so the game economics fund that fee. This protects
+ *     the Room Wallet reserve against repeated coordinated games.
+ *   - Operational/non-player transfers (Residues Wallet sweep) remain
+ *     SOURCE_PAYS_GAS: recipient value is never reduced and the source
+ *     wallet funds the fee from its own envelope.
  * - For every game, 0.01 Gram is retained from the Owner economic share in
- *   the Room Wallet, while the Owner receives the remaining share. The Owner
- *   payout must therefore be at least 0.14 Gram.
+ *   the Room Wallet, while the Owner receives the remaining share minus the
+ *   recipient gas charge. The Owner payout (gross share minus retention)
+ *   must therefore be at least 0.14 Gram.
  * - Residual sweep sends exactly 0.49 Gram to Residues Wallet when the
  *   Room Wallet chain balance reaches 0.50 Gram. The source Room Wallet
  *   retains a 0.01 Gram envelope (0.006 Gram source-paid fee budget +
@@ -20,6 +29,31 @@
 
 export const GRAM_NANO = 1_000_000_000n;
 
+/**
+ * Explicit payout gas policy boundary.
+ *
+ * RECIPIENT_PAYS_GAS — player/Owner-facing game transfers. The recipient gas
+ * charge is computed from an authoritative fee estimate of the exact outbound
+ * message BEFORE broadcast and frozen into the persisted payout/refund plan.
+ * Recovery reuses the frozen values and never re-estimates.
+ *
+ * SOURCE_PAYS_GAS — operational transfers (Residues Wallet sweep). Kept on
+ * the legacy economics: source wallet funds the fee from its own envelope.
+ */
+export const PAYOUT_GAS_MODE = Object.freeze({
+    RECIPIENT_PAYS_GAS: "RECIPIENT_PAYS_GAS",
+    SOURCE_PAYS_GAS: "SOURCE_PAYS_GAS"
+});
+
+export const PAYOUT_GAS_POLICY_VERSION = 1;
+
+export const PAYOUT_GAS_PLAN_CODES = Object.freeze({
+    FEE_ESTIMATE_UNAVAILABLE: "PAYOUT_GAS_ESTIMATE_UNAVAILABLE",
+    RECIPIENT_GAS_EXCEEDS_PAYOUT: "RECIPIENT_GAS_EXCEEDS_PAYOUT",
+    PAYOUT_PLAN_MISMATCH: "PAYOUT_PLAN_MISMATCH",
+    PLAN_ENTRY_MISSING: "PAYOUT_PLAN_ENTRY_MISSING"
+});
+
 export const ROOM_WALLET_POLICY = Object.freeze({
     ownerPayoutMinimumNano: 140_000_000n,
     ownerRetainedNano: 10_000_000n,
@@ -28,7 +62,21 @@ export const ROOM_WALLET_POLICY = Object.freeze({
     initialRoomReserveNano: 10_000_000n,
     residualRetainedFloorNano: 10_000_000n,
     residualSweepGasNano: 6_000_000n,
-    residualSafetyMarginNano: 4_000_000n
+    residualSafetyMarginNano: 4_000_000n,
+    /**
+     * Recipient gas safety margin (RECIPIENT_PAYS_GAS only).
+     *
+     * recipientGasChargeNano =
+     *     feeEstimateTotalNano
+     *     + max(recipientGasMarginFloorNano, feeEstimateTotalNano * marginBps / 10_000)
+     *
+     * marginBps = 2000 (20%) covers fee-configuration drift and storage-fee
+     * growth between estimation and broadcast; the absolute floor of
+     * 0.001 Gram keeps small estimates from under-charging when the
+     * percentage component rounds down to nearly nothing.
+     */
+    recipientGasMarginBps: 2_000n,
+    recipientGasMarginFloorNano: 1_000_000n
 });
 
 if (
@@ -155,4 +203,101 @@ export function buildResidualSweep({ balanceNano } = {}) {
         remainingAfterFeeBudgetNano: remainingAfterTransferNano - sweepGasNano,
         ...composition
     });
+}
+
+/**
+ * Deterministic recipient gas charge for a RECIPIENT_PAYS_GAS transfer.
+ *
+ * Pure accounting: the fee estimate of the exact outbound message is supplied
+ * by the caller (TonService estimateExternalMessageFee source_fees sum) and
+ * the configured safety margin is added on top. No blockchain access here.
+ */
+export function buildRecipientGasCharge({
+    feeEstimateTotalNano,
+    marginBps = ROOM_WALLET_POLICY.recipientGasMarginBps,
+    marginFloorNano = ROOM_WALLET_POLICY.recipientGasMarginFloorNano
+} = {}) {
+    assertNonNegativeNano(feeEstimateTotalNano, "feeEstimateTotalNano");
+    assertNonNegativeNano(marginFloorNano, "marginFloorNano");
+
+    if (typeof marginBps !== "bigint" || marginBps < 0n) {
+        throw new TypeError("marginBps must be a non-negative bigint");
+    }
+
+    const marginComponentNano = feeEstimateTotalNano * marginBps / 10_000n;
+    const marginNano = marginComponentNano > marginFloorNano
+        ? marginComponentNano
+        : marginFloorNano;
+
+    return Object.freeze({
+        feeEstimateTotalNano,
+        marginBps,
+        marginFloorNano,
+        marginNano,
+        recipientGasChargeNano: feeEstimateTotalNano + marginNano
+    });
+}
+
+/**
+ * Recipient-pays-gas transfer accounting for one payout.
+ *
+ * The authoritative gross payout is never changed. The recipient transfer
+ * value is the gross payout minus the recipient gas charge and must stay
+ * strictly positive; otherwise the entry fails closed.
+ */
+export function buildRecipientPaysGasTransfer({
+    grossPayoutNano,
+    feeEstimateTotalNano,
+    marginBps,
+    marginFloorNano
+} = {}) {
+    assertNonNegativeNano(grossPayoutNano, "grossPayoutNano");
+
+    const charge = buildRecipientGasCharge({ feeEstimateTotalNano, marginBps, marginFloorNano });
+    const recipientTransferAmountNano = grossPayoutNano - charge.recipientGasChargeNano;
+
+    if (recipientTransferAmountNano <= 0n) {
+        return Object.freeze({
+            ok: false,
+            code: PAYOUT_GAS_PLAN_CODES.RECIPIENT_GAS_EXCEEDS_PAYOUT,
+            grossPayoutNano,
+            feeEstimateTotalNano: charge.feeEstimateTotalNano,
+            marginBps: charge.marginBps,
+            marginFloorNano: charge.marginFloorNano,
+            marginNano: charge.marginNano,
+            recipientGasChargeNano: charge.recipientGasChargeNano,
+            recipientTransferAmountNano: 0n
+        });
+    }
+
+    return Object.freeze({
+        ok: true,
+        code: "RECIPIENT_PAYS_GAS_ENTRY",
+        grossPayoutNano,
+        feeEstimateTotalNano: charge.feeEstimateTotalNano,
+        marginBps: charge.marginBps,
+        marginFloorNano: charge.marginFloorNano,
+        marginNano: charge.marginNano,
+        recipientGasChargeNano: charge.recipientGasChargeNano,
+        recipientTransferAmountNano,
+        sourceFeeBudgetNano: charge.feeEstimateTotalNano,
+        sourceDebitNano: recipientTransferAmountNano + charge.feeEstimateTotalNano
+    });
+}
+
+/**
+ * Strict decimal-string -> bigint parser for persisted plan values.
+ * Rejects empty strings, signs, whitespace and non-decimal characters so a
+ * corrupted persisted plan can never be silently accepted.
+ */
+export function parseNanoString(value, name = "nano") {
+    if (typeof value !== "string" || !/^\d+$/.test(value)) {
+        throw new TypeError(`${name} must be a decimal string`);
+    }
+
+    return BigInt(value);
+}
+
+export function nanoToPersistedString(value) {
+    return assertNonNegativeNano(value).toString(10);
 }

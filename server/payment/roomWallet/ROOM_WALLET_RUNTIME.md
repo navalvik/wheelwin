@@ -17,8 +17,22 @@ Offline catalogs are produced by `server/scripts/provision-room-wallets.mjs`. Om
 - Existing WheelWin game rules remain unchanged.
 - Existing Winner/Owner calculations remain the source of settlement amounts.
 - Owner payout preserves the existing gross Owner share while retaining the configured room reserve.
-- Gas is paid by the source wallet and is not deducted from the recipient's intended amount.
-- Residual sweep transfers exactly 0.49 Gram to the Residues destination when the Room Wallet chain balance reaches 0.50 Gram. The source Room Wallet retains a 0.01 Gram envelope (0.006 Gram source-paid fee budget + 0.004 Gram safety margin). Recipient value is never reduced to pay fees.
+- PAYOUT GAS POLICY — Winner payouts, Owner payouts and player refunds are
+  RECIPIENT_PAYS_GAS transfers. The Room Wallet remains the technical on-chain
+  sender (it pays the source-side TON fee), but the recipient transfer value is
+  reduced by a frozen recipient gas charge BEFORE broadcast so the game
+  economics fund that fee. The recipient gas charge is computed from
+  `estimateExternalMessageFee` source_fees (`in_fwd_fee + storage_fee +
+  gas_fee + fwd_fee`) for the exact outbound message plus a configurable
+  safety margin (default 20%, floor 0.001 Gram:
+  `ROOM_WALLET_RECIPIENT_GAS_MARGIN_BPS` / `ROOM_WALLET_RECIPIENT_GAS_MARGIN_FLOOR_NANO`).
+  Fee-estimation failure is fail-closed: no broadcast, no source-funded fallback.
+  The exact gross / gas-charge / net values are frozen into the persisted
+  payout/refund plan BEFORE the first broadcast; recovery reuses the persisted
+  net amounts and never re-estimates.
+- Operational/non-player transfers remain SOURCE_PAYS_GAS: the source wallet
+  funds the fee from its own envelope and recipient value is never reduced.
+- Residual sweep transfers exactly 0.49 Gram to the Residues destination when the Room Wallet chain balance reaches 0.50 Gram. The source Room Wallet retains a 0.01 Gram envelope (0.006 Gram source-paid fee budget + 0.004 Gram safety margin). Recipient value is never reduced to pay fees. (SOURCE_PAYS_GAS — unchanged by the payout gas policy.)
 - Residual sweep is off unless `ROOM_WALLET_RESIDUAL_SWEEP_ENABLED` is explicitly true.
 - Residues destination prefers `TON_RESIDUES_EXPECTED_ADDRESS`. Compatibility fallback: `TON_REIMBURSEMENT_EXPECTED_ADDRESS` (same physical wallet; role migration only). Dual pins must match. Source Room Wallet must not equal Residues destination.
 - Missing Residues destination prevents sweep sends; the process still starts.

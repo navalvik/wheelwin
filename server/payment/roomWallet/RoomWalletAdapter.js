@@ -164,6 +164,97 @@ export class RoomWalletAdapter {
         });
     }
 
+    /**
+     * RECIPIENT_PAYS_GAS infrastructure: source-side fee estimate for the
+     * EXACT outbound wallet transfer message that would be broadcast.
+     *
+     * The transfer body is built identically to sendTransfer (same wallet,
+     * send mode, bounce, queryId and value) at the current authoritative
+     * seqno, then handed to TonService.estimateExternalMessageFee. The signed
+     * body is only used for estimation (ignoreSignature on the RPC side); it
+     * is never broadcast by this method and never included in the result.
+     *
+     * Fail-closed: when the transport cannot estimate fees the caller must
+     * not fall back to source-funded gas.
+     */
+    async estimateOutboundTransferFee({
+        roomNumber,
+        destination,
+        amountNano,
+        bounce = true,
+        queryId = null
+    } = {}) {
+        assertNonNegativeNano(amountNano, "amountNano");
+
+        if (amountNano <= 0n) {
+            return Object.freeze({
+                ok: false,
+                code: "FEE_ESTIMATE_INVALID_AMOUNT",
+                amountNano
+            });
+        }
+
+        if (typeof this._tonService.estimateExternalMessageFee !== "function") {
+            return Object.freeze({
+                ok: false,
+                code: "FEE_ESTIMATION_UNAVAILABLE",
+                roomNumber
+            });
+        }
+
+        const identity = await this._resolve(roomNumber);
+        const destinationAddress = Address.parse(String(destination ?? "").trim());
+
+        if (identity.workchain != null && Number(identity.workchain) !== 0) {
+            return Object.freeze({
+                ok: false,
+                code: "FEE_ESTIMATE_INVALID_IDENTITY",
+                roomNumber: identity.roomNumber
+            });
+        }
+
+        try {
+            const { wallet, seqno, externalMessage } = await this._buildSignedExternalMessage({
+                identity,
+                destinationAddress,
+                amountNano,
+                bounce,
+                queryId
+            });
+
+            const estimate = await this._tonService.estimateExternalMessageFee(
+                wallet.address,
+                {
+                    body: externalMessage.body,
+                    initCode: externalMessage.init?.code ?? null,
+                    initData: externalMessage.init?.data ?? null,
+                    ignoreSignature: true
+                }
+            );
+
+            return Object.freeze({
+                ok: true,
+                feeSource: "estimateExternalMessageFee",
+                roomNumber: identity.roomNumber,
+                destination: configuredDestination(destinationAddress),
+                amountNano,
+                seqno,
+                inFwdFeeNano: estimate.inFwdFeeNano,
+                storageFeeNano: estimate.storageFeeNano,
+                gasFeeNano: estimate.gasFeeNano,
+                fwdFeeNano: estimate.fwdFeeNano,
+                totalNano: estimate.totalFeeNano
+            });
+        } catch (error) {
+            return Object.freeze({
+                ok: false,
+                code: "FEE_ESTIMATION_UNAVAILABLE",
+                roomNumber: identity.roomNumber,
+                detail: error?.message ?? String(error)
+            });
+        }
+    }
+
     async sendTransfer({
         roomNumber,
         destination,
@@ -331,6 +422,62 @@ export class RoomWalletAdapter {
             });
         }
 
+        const { wallet, seqno, externalMessage } = await this._buildSignedExternalMessage({
+            identity,
+            destinationAddress,
+            amountNano,
+            bounce,
+            queryId
+        });
+
+        const bocBase64 = beginCell()
+            .store(storeMessage(externalMessage))
+            .endCell()
+            .toBoc()
+            .toString("base64");
+
+        const broadcast = await this._tonService.broadcastTransaction(bocBase64);
+        const txHash = extractBroadcastTxHash(broadcast);
+
+        // The transport accepted the broadcast: this seqno is consumed as soon
+        // as the message is processed. Hold it until the next send observes
+        // the authoritative seqno advance. A broadcast that threw is not
+        // recorded here; the settlement layer re-inspects chain history before
+        // any retry and the duplicate-payout evidence scan stays fail-closed.
+        this._pendingOutboundSeqno.set(identity.address, { seqno });
+
+        this._logger?.info?.(
+            `RoomWalletAdapter transfer broadcast | room=${identity.roomNumber} | `
+            + `to=${configuredDestination(destinationAddress)} | amountNano=${amountNano} | seqno=${seqno}`
+        );
+
+        return Object.freeze({
+            ok: true,
+            code: txHash ? "SENT" : "AWAITING_TRANSACTION_HASH",
+            roomNumber: identity.roomNumber,
+            address: identity.address,
+            destination: configuredDestination(destinationAddress),
+            amountNano,
+            gasReserveNano: reserveNano,
+            seqno,
+            txHash
+        });
+    }
+
+    /**
+     * Builds the exact external message that sendTransfer broadcasts: same
+     * wallet derivation + identity drift check, same authoritative seqno read
+     * (seqno 0 + StateInit fallback for fresh wallets), same send mode and
+     * internal message layout. Shared by sendTransfer and the recipient-pays
+     * gas fee estimation so the estimate covers the exact broadcast payload.
+     */
+    async _buildSignedExternalMessage({
+        identity,
+        destinationAddress,
+        amountNano,
+        bounce,
+        queryId
+    }) {
         const publicKey = toSigningBuffer(identity.publicKey, "publicKey");
         const secretKey = toSigningBuffer(identity.secretKey, "secretKey");
 
@@ -380,38 +527,7 @@ export class RoomWalletAdapter {
             body: transfer
         });
 
-        const bocBase64 = beginCell()
-            .store(storeMessage(externalMessage))
-            .endCell()
-            .toBoc()
-            .toString("base64");
-
-        const broadcast = await this._tonService.broadcastTransaction(bocBase64);
-        const txHash = extractBroadcastTxHash(broadcast);
-
-        // The transport accepted the broadcast: this seqno is consumed as soon
-        // as the message is processed. Hold it until the next send observes
-        // the authoritative seqno advance. A broadcast that threw is not
-        // recorded here; the settlement layer re-inspects chain history before
-        // any retry and the duplicate-payout evidence scan stays fail-closed.
-        this._pendingOutboundSeqno.set(identity.address, { seqno });
-
-        this._logger?.info?.(
-            `RoomWalletAdapter transfer broadcast | room=${identity.roomNumber} | `
-            + `to=${configuredDestination(destinationAddress)} | amountNano=${amountNano} | seqno=${seqno}`
-        );
-
-        return Object.freeze({
-            ok: true,
-            code: txHash ? "SENT" : "AWAITING_TRANSACTION_HASH",
-            roomNumber: identity.roomNumber,
-            address: identity.address,
-            destination: configuredDestination(destinationAddress),
-            amountNano,
-            gasReserveNano: reserveNano,
-            seqno,
-            txHash
-        });
+        return Object.freeze({ wallet, seqno, externalMessage });
     }
 
     async _resolveAddress(roomNumber) {
