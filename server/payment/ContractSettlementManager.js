@@ -1353,13 +1353,25 @@ export class ContractSettlementManager {
                 + `status=${session.status}`
         );
 
+        // PAYOUT GAS POLICY: freeze the recipient-pays-gas plan into the
+        // persisted settlement session BEFORE the first payout broadcast, so
+        // every retry reuses the exact persisted net amounts.
+        const submitRequest = this._isRoomWalletSettlementActive()
+            ? await this._ensureRoomWalletPayoutPlanFrozen(
+                session,
+                this._withAuthoritativeRoomNumber(request, ctx)
+            )
+            : this._withAuthoritativeRoomNumber(request, ctx);
+
+        if (submitRequest === null) {
+            return;
+        }
+
         let adapterResult;
 
         try {
 
-            adapterResult = await this._settlementAdapter.settleContract(
-                this._withAuthoritativeRoomNumber(request, ctx)
-            );
+            adapterResult = await this._settlementAdapter.settleContract(submitRequest);
 
         } catch (error) {
 
@@ -2099,13 +2111,27 @@ export class ContractSettlementManager {
 
         }
 
+        // PAYOUT GAS POLICY: freeze the recipient-pays-gas plan into the
+        // persisted settlement session BEFORE the first payout broadcast, so
+        // every retry reuses the exact persisted net amounts.
+        const submitRequest = this._isRoomWalletSettlementActive()
+            ? await this._ensureRoomWalletPayoutPlanFrozen(
+                session,
+                this._withAuthoritativeRoomNumber(request, ctx)
+            )
+            : this._withAuthoritativeRoomNumber(request, ctx);
+
+        if (submitRequest === null) {
+
+            return;
+
+        }
+
         let adapterResult;
 
         try {
 
-            adapterResult = await this._settlementAdapter.settleContract(
-                this._withAuthoritativeRoomNumber(request, ctx)
-            );
+            adapterResult = await this._settlementAdapter.settleContract(submitRequest);
 
         } catch (error) {
 
@@ -3104,6 +3130,108 @@ export class ContractSettlementManager {
             return unknown();
 
         }
+
+    }
+
+    /**
+     * PAYOUT GAS POLICY — freeze the recipient-pays-gas payout plan into the
+     * persisted settlement session BEFORE the first payout broadcast.
+     *
+     * The exact gross/recipient-gas-charge/net values are computed once by
+     * the Room Wallet settlement adapter (compute-only, no broadcast) and
+     * stored on `session.request.payoutPlan`, which `SettlementSession.
+     * toPayload()` already persists through the existing durable financial
+     * persistence. Every retry — including after a process restart — reuses
+     * the persisted net amounts and never re-estimates.
+     *
+     * Returns the request to submit, or null when the submit must be skipped
+     * (the plan failed and a retry/failure was already scheduled here).
+     * When the active adapter has no planSettlement capability (legacy or
+     * mocked adapters), the request is returned untouched: the adapter then
+     * computes its own plan for the pass and echoes it in the result.
+     */
+    async _ensureRoomWalletPayoutPlanFrozen(session, request) {
+
+        if (request?.payoutPlan) {
+
+            return request;
+
+        }
+
+        const adapter = this._settlementAdapter;
+
+        if (typeof adapter?.planSettlement !== "function") {
+
+            return request;
+
+        }
+
+        let planResult;
+
+        try {
+
+            planResult = await adapter.planSettlement(request);
+
+        } catch (error) {
+
+            planResult = {
+                ok: false,
+                retryable: true,
+                code: "PAYOUT_GAS_ESTIMATE_UNAVAILABLE",
+                detail: error?.message ?? String(error)
+            };
+
+        }
+
+        if (!planResult?.ok) {
+
+            // Planning capability absent (mocked/legacy adapter behind the
+            // router): skip freezing; the adapter computes its own plan for
+            // the pass and echoes it in the settlement result.
+            if (planResult?.capabilityUnavailable === true) {
+
+                return request;
+
+            }
+
+            const code = planResult?.code ?? "PAYOUT_GAS_ESTIMATE_UNAVAILABLE";
+
+            if (this._isRoomWalletSafetyFailure(code, planResult)) {
+
+                this._failSettlement(
+                    session,
+                    planResult?.detail ?? code
+                );
+
+            } else {
+
+                this._deferRoomWalletRetry(
+                    session,
+                    planResult?.detail ? `${code}:${planResult.detail}` : code,
+                    planResult
+                );
+
+            }
+
+            return null;
+
+        }
+
+        const frozenRequest = Object.freeze({
+            ...request,
+            payoutPlan: planResult.payoutPlan
+        });
+
+        session.request = frozenRequest;
+
+        this._persistSession(session, "update");
+
+        this._log(
+            `Room Wallet payout gas plan frozen | gameId=${session.gameId} | `
+                + `mode=${frozenRequest.payoutPlan?.mode ?? "unknown"}`
+        );
+
+        return frozenRequest;
 
     }
 

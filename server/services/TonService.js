@@ -538,6 +538,90 @@ export class TonService {
 
     }
 
+    /**
+     * Fee estimation for an external message (infrastructure only).
+     *
+     * Wraps the existing TonClient estimateExternalMessageFee / estimateFee
+     * JSON-RPC capability. The caller supplies the EXACT outbound wallet
+     * transfer body cell that would be broadcast; the response source_fees
+     * values are the source-side fees the sender wallet would pay.
+     *
+     * Returns normalized bigint values. No signing, no business logic, no
+     * persistence, no broadcasting.
+     */
+    async estimateExternalMessageFee(address, {
+        body,
+        initCode = null,
+        initData = null,
+        ignoreSignature = true
+    } = {}, options = {}) {
+
+        if (!body) {
+
+            throw new InvalidResponseError("estimateExternalMessageFee requires body cell");
+
+        }
+
+        const friendly = toFriendlyAddress(address);
+
+        const result = await this._executeRpc(
+            () => this._client.estimateExternalMessageFee(
+                Address.parse(friendly),
+                {
+                    body,
+                    initCode: initCode ?? null,
+                    initData: initData ?? null,
+                    ignoreSignature: ignoreSignature === true
+                }
+            ),
+            { operation: "estimateExternalMessageFee", ...options }
+        );
+
+        const sourceFees = result?.source_fees ?? result?.sourceFees ?? null;
+
+        if (!sourceFees || typeof sourceFees !== "object") {
+
+            throw new InvalidResponseError(
+                "estimateExternalMessageFee returned invalid source_fees payload"
+            );
+
+        }
+
+        const fields = Object.freeze({
+            inFwdFeeNano: sourceFees.in_fwd_fee,
+            storageFeeNano: sourceFees.storage_fee,
+            gasFeeNano: sourceFees.gas_fee,
+            fwdFeeNano: sourceFees.fwd_fee
+        });
+
+        for (const [name, value] of Object.entries(fields)) {
+
+            if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+
+                throw new InvalidResponseError(
+                    `estimateExternalMessageFee returned invalid ${name}`
+                );
+
+            }
+
+        }
+
+        const inFwdFeeNano = BigInt(fields.inFwdFeeNano);
+        const storageFeeNano = BigInt(fields.storageFeeNano);
+        const gasFeeNano = BigInt(fields.gasFeeNano);
+        const fwdFeeNano = BigInt(fields.fwdFeeNano);
+
+        return Object.freeze({
+            source: "estimateExternalMessageFee",
+            inFwdFeeNano,
+            storageFeeNano,
+            gasFeeNano,
+            fwdFeeNano,
+            totalFeeNano: inFwdFeeNano + storageFeeNano + gasFeeNano + fwdFeeNano
+        });
+
+    }
+
     async waitForTransaction({
         address,
         hash = null,

@@ -58,6 +58,53 @@ export class RoomWalletSettlementRouter {
         return adapter.settleContract(request);
     }
 
+    /**
+     * PAYOUT GAS PLAN — compute-only passthrough. The caller (Contract
+     * SettlementManager) freezes the returned plan into the persisted
+     * settlement session BEFORE the first payout broadcast so recovery
+     * reuses the exact persisted net amounts.
+     *
+     * When the wrapped adapter has no planning capability the result is
+     * flagged `capabilityUnavailable` (not a failure): the caller skips plan
+     * freezing and the adapter computes its own plan for the pass.
+     */
+    async planSettlement(request) {
+        const adapter = this.activeAdapter;
+
+        if (!adapter || typeof adapter.planSettlement !== "function") {
+            return Object.freeze({
+                ok: false,
+                retryable: true,
+                capabilityUnavailable: true,
+                code: "ROOM_WALLET_SETTLEMENT_UNAVAILABLE"
+            });
+        }
+
+        return adapter.planSettlement(request);
+    }
+
+    /**
+     * PAYOUT GAS PLAN for refunds — compute-only passthrough. The caller
+     * (PaymentSessionManager) freezes the returned plan into the persisted
+     * session recoveryMetadata BEFORE the first refund broadcast.
+     *
+     * `capabilityUnavailable` semantics as in planSettlement.
+     */
+    async planRefunds(request) {
+        const adapter = this.activeAdapter;
+
+        if (!adapter || typeof adapter.planRefunds !== "function") {
+            return Object.freeze({
+                ok: false,
+                retryable: true,
+                capabilityUnavailable: true,
+                code: "ROOM_WALLET_REFUND_UNSUPPORTED"
+            });
+        }
+
+        return adapter.planRefunds(request);
+    }
+
     async refundPayments(request) {
         const adapter = this.activeAdapter;
 

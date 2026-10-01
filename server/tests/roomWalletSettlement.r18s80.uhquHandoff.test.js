@@ -86,10 +86,25 @@ test("CSM Room Wallet handoff accepts UhqU winnerAmount without prizeAmount", as
 
     const sendCalls = [];
     const capturedRequests = [];
+    // Deterministic recipient-pays-gas stub estimate (components sum to the total).
+    const stubFeeTotalNano = 1_000_000n;
+    const stubGasChargeNano = 2_000_000n;
     const roomWalletSettlementAdapter = new RoomWalletSettlementAdapter({
         roomWalletAdapter: {
             getGasReserveNano() {
                 return 3_000_000n;
+            },
+            async estimateOutboundTransferFee({ amountNano }) {
+                return {
+                    ok: true,
+                    feeSource: "estimateExternalMessageFee",
+                    amountNano,
+                    inFwdFeeNano: 400_000n,
+                    storageFeeNano: 100_000n,
+                    gasFeeNano: 300_000n,
+                    fwdFeeNano: 200_000n,
+                    totalNano: stubFeeTotalNano
+                };
             },
             async getBalance() {
                 return 10_000_000_000n;
@@ -246,10 +261,11 @@ test("CSM Room Wallet handoff accepts UhqU winnerAmount without prizeAmount", as
 
     assert.equal(sendCalls.length, 2);
     assert.equal(sendCalls[0].destination, WINNER_WALLET);
-    assert.equal(sendCalls[0].amountNano, 2_850_000_000n);
+    // RECIPIENT_PAYS_GAS: broadcast value is gross minus the frozen gas charge.
+    assert.equal(sendCalls[0].amountNano, 2_850_000_000n - stubGasChargeNano);
     assert.equal(sendCalls[0].roomNumber, 1);
     assert.equal(sendCalls[1].destination, OWNER);
-    assert.equal(sendCalls[1].amountNano, 140_000_000n);
+    assert.equal(sendCalls[1].amountNano, 140_000_000n - stubGasChargeNano);
     assert.equal(sendCalls[1].roomNumber, 1);
 
     const session = manager._byGameId.get(UHQU_GAME_ID);

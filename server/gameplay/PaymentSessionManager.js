@@ -2183,6 +2183,25 @@ export class PaymentSessionManager {
             });
         }
 
+        // PAYOUT GAS POLICY: freeze the recipient-pays-gas refund plan into
+        // the persisted session recoveryMetadata BEFORE the first refund
+        // broadcast, so refund recovery reuses the exact persisted net refund
+        // amounts and never recomputes a different one.
+        const refundPlan = await this._ensureRoomWalletRefundPlanFrozen({
+            session,
+            roomNumber,
+            pendingRefunds,
+            refundRequestedAt
+        });
+
+        if (refundPlan === null) {
+            return Object.freeze({
+                ok: false,
+                retryable: true,
+                code: "ROOM_WALLET_REFUND_PLAN_UNAVAILABLE"
+            });
+        }
+
         let result;
         try {
             result = await this._roomWalletSettlementAdapter.refundPayments({
@@ -2190,6 +2209,7 @@ export class PaymentSessionManager {
                 gameId: session.gameId ?? null,
                 paymentSessionId: session.paymentSessionId,
                 refunds: pendingRefunds,
+                ...(refundPlan === undefined ? {} : { refundPlan }),
                 cutoffUtime: refundRequestedAt,
                 confirmationTimeoutMs: 60_000
             });
@@ -2203,6 +2223,20 @@ export class PaymentSessionManager {
                 retryable: true,
                 code: "ROOM_WALLET_REFUND_ERROR"
             });
+        }
+
+        // Defensive persistence: when the plan was computed inside the adapter
+        // (no planRefunds capability on the caller path), freeze the echoed
+        // plan for future retries so recovery reuses the exact net amounts.
+        if (
+            refundPlan === undefined
+            && result?.refundPlan
+            && !session.recoveryMetadata?.refundPlan
+        ) {
+            session.recoveryMetadata = {
+                ...(session.recoveryMetadata ?? {}),
+                refundPlan: result.refundPlan
+            };
         }
 
         for (const refund of result?.results ?? []) {
@@ -2247,6 +2281,91 @@ export class PaymentSessionManager {
                 : "ROOM_WALLET_REFUND_PENDING",
             result
         });
+
+    }
+
+    /**
+     * PAYOUT GAS POLICY — freeze the recipient-pays-gas refund plan into the
+     * persisted session BEFORE the first refund broadcast.
+     *
+     * Semantics of the return value:
+     * - frozen plan object  → pass it to the adapter (exact persisted values)
+     * - null                → the adapter HAS plan capability but planning
+     *                         failed: fail closed, no refund broadcast
+     * - undefined           → the adapter has no plan capability (mocked or
+     *                         legacy caller paths): the adapter computes its
+     *                         own plan inside refundPayments and echoes it
+     */
+    async _ensureRoomWalletRefundPlanFrozen({
+        session,
+        roomNumber,
+        pendingRefunds,
+        refundRequestedAt
+    }) {
+        const adapter = this._roomWalletSettlementAdapter;
+        const existingPlan = session?.recoveryMetadata?.refundPlan ?? null;
+        const uncovered = existingPlan
+            ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(existingPlan, refund))
+            : pendingRefunds;
+
+        if (existingPlan && uncovered.length === 0) {
+            return existingPlan;
+        }
+
+        if (typeof adapter?.planRefunds !== "function") {
+            return undefined;
+        }
+
+        if (uncovered.length === 0) {
+            return existingPlan;
+        }
+
+        let planResult;
+        try {
+            planResult = await adapter.planRefunds({
+                roomNumber,
+                refunds: uncovered,
+                cutoffUtime: refundRequestedAt
+            });
+        } catch (error) {
+            this._logger?.error?.(
+                "Room-Wallet refund gas plan failed | roomId=" + session.roomId + " | "
+                    + (error?.message ?? error)
+            );
+            return null;
+        }
+
+        if (!planResult?.ok) {
+            // Planning capability absent (mocked/legacy adapter behind the
+            // router): the adapter computes its own plan inside refundPayments
+            // and echoes it for defensive persistence.
+            if (planResult?.capabilityUnavailable === true) {
+                return undefined;
+            }
+            this._logger?.error?.(
+                "Room-Wallet refund gas plan unavailable | roomId=" + session.roomId + " | "
+                    + (planResult?.code ?? "unknown")
+                    + (planResult?.detail ? ` | ${planResult.detail}` : "")
+            );
+            return null;
+        }
+
+        const mergedPlan = mergeRefundPlans(existingPlan, planResult.refundPlan);
+
+        session.recoveryMetadata = {
+            ...(session.recoveryMetadata ?? {}),
+            refundPlan: mergedPlan
+        };
+
+        this._persistSession(session, "update");
+
+        this._logger?.info?.(
+            `ROOM_WALLET_REFUND_GAS_PLAN_FROZEN | roomId=${session.roomId} `
+                + `| entries=${mergedPlan?.entries?.length ?? 0} `
+                + `| mode=${mergedPlan?.mode ?? "unknown"}`
+        );
+
+        return mergedPlan;
 
     }
 
@@ -3272,6 +3391,62 @@ export class PaymentSessionManager {
 
     }
 
+}
+
+/**
+ * PAYOUT GAS POLICY helper: does the persisted refund plan already cover a
+ * refund target (playerId + wallet + authoritative gross refundable amount)?
+ * Amount comparison uses the same GRAM -> nano conversion as the settlement
+ * adapter (resolveNano) so both sides agree byte-for-byte.
+ */
+function refundPlanCoversEntry(plan, refund) {
+    if (!plan || !Array.isArray(plan.entries)) {
+        return false;
+    }
+
+    let amountNano;
+    if (refund?.amountNano != null) {
+        amountNano = BigInt(refund.amountNano);
+    } else if (refund?.amount != null && Number.isFinite(Number(refund.amount))) {
+        amountNano = BigInt(Math.round(Number(refund.amount) * 1_000_000_000));
+    } else {
+        return false;
+    }
+
+    return plan.entries.some((entry) => (
+        entry
+        && String(entry.playerId ?? "") === String(refund?.playerId ?? "")
+        && String(entry.wallet ?? "") === String(refund?.wallet ?? "")
+        && /^\d+$/.test(String(entry.grossRefundNano ?? ""))
+        && BigInt(entry.grossRefundNano) === amountNano
+    ));
+}
+
+/**
+ * PAYOUT GAS POLICY helper: merge a previously frozen refund plan with a
+ * freshly computed one. Existing entries keep their frozen gas/net values
+ * (deterministic recovery); only genuinely new targets get new entries.
+ */
+function mergeRefundPlans(existingPlan, freshPlan) {
+    if (!existingPlan || !Array.isArray(existingPlan.entries)) {
+        return freshPlan;
+    }
+
+    const freshEntries = Array.isArray(freshPlan?.entries) ? freshPlan.entries : [];
+
+    const mergedEntries = [
+        ...existingPlan.entries,
+        ...freshEntries.filter((entry) => !existingPlan.entries.some((existing) => (
+            String(existing?.playerId ?? "") === String(entry?.playerId ?? "")
+            && String(existing?.wallet ?? "") === String(entry?.wallet ?? "")
+            && String(existing?.grossRefundNano ?? "") === String(entry?.grossRefundNano ?? "")
+        )))
+    ];
+
+    return {
+        ...freshPlan,
+        entries: mergedEntries
+    };
 }
 
 // Re-export typed errors for convenience.

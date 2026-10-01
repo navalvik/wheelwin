@@ -8,6 +8,9 @@ import {
     GRAM_NANO
 } from "./RoomWalletFinancialPolicy.js";
 import { createRoomWalletRegistryFromEnv } from "./RoomWalletRuntimeResolver.js";
+import {
+    validatePersistedPayoutPlan
+} from "./RoomWalletSettlementAdapter.js";
 import { getSealedTerminalSettlementEvidence } from "./sealedTerminalSettlementEvidence.js";
 import {
     confirmPayoutOnChain,
@@ -179,6 +182,43 @@ export class RoomWalletTerminalSettlementRecovery {
             ownerGrossNano: gramToNano(reconstructed.organizerAmount)
         });
         const winnerAmountNano = gramToNano(reconstructed.winnerAmount);
+
+        // PAYOUT GAS POLICY: reuse the persisted frozen payout plan (from the
+        // durable settlement record or a previous operator recovery attempt)
+        // so recovery matches and resends the EXACT persisted net amounts.
+        // Never recompute a new gas charge on retry.
+        const frozenPlan = await this._resolveRecoveryPayoutPlan({
+            gameId,
+            roomNumber,
+            existingRecovery,
+            winnerAmountNano,
+            ownerPlan,
+            winnerWallet: reconstructed.winnerWallet,
+            ownerWallet: reconstructed.ownerWallet,
+            winnerAmount: reconstructed.winnerAmount,
+            organizerAmount: reconstructed.organizerAmount
+        });
+
+        if (frozenPlan.invalid) {
+            return this._blocked(OPERATOR_RECOVERY_CODES.EVIDENCE_INCONSISTENT, {
+                detail: `payoutPlan: ${frozenPlan.detail ?? "invalid"}`
+            });
+        }
+
+        if (frozenPlan.unavailable) {
+            return this._blocked(OPERATOR_RECOVERY_CODES.ADAPTER_FAILED, {
+                detail: `payout gas plan unavailable: ${frozenPlan.detail ?? "unknown"}`
+            });
+        }
+
+        const payoutPlan = frozenPlan.plan ?? null;
+        const winnerMatchNano = payoutPlan
+            ? payoutPlan.winner.recipientTransferAmountNano
+            : winnerAmountNano;
+        const ownerMatchNano = payoutPlan
+            ? payoutPlan.owner.recipientTransferAmountNano
+            : ownerPlan.ownerPayoutNano;
+
         const request = Object.freeze({
             gameId: reconstructed.gameId,
             roomId: reconstructed.roomId,
@@ -186,7 +226,8 @@ export class RoomWalletTerminalSettlementRecovery {
             winnerWallet: reconstructed.winnerWallet,
             ownerWallet: reconstructed.ownerWallet,
             winnerAmount: reconstructed.winnerAmount,
-            organizerAmount: reconstructed.organizerAmount
+            organizerAmount: reconstructed.organizerAmount,
+            ...(payoutPlan ? { payoutPlan } : {})
         });
 
         const history = await this._inspectHistory({
@@ -196,8 +237,14 @@ export class RoomWalletTerminalSettlementRecovery {
             cutoffUtime: reconstructed.lastInboundUtime,
             winnerWallet: reconstructed.winnerWallet,
             ownerWallet: reconstructed.ownerWallet,
-            winnerAmountNano,
-            ownerAmountNano: ownerPlan.ownerPayoutNano
+            winnerAmountNano: winnerMatchNano,
+            ownerAmountNano: ownerMatchNano,
+            winnerLegacyAmountNano: winnerMatchNano === winnerAmountNano
+                ? null
+                : winnerAmountNano,
+            ownerLegacyAmountNano: ownerMatchNano === ownerPlan.ownerPayoutNano
+                ? null
+                : ownerPlan.ownerPayoutNano
         });
 
         if (history.reused) {
@@ -447,6 +494,86 @@ export class RoomWalletTerminalSettlementRecovery {
         }
 
         return { ok: true, evidence: Object.freeze({ ...candidate, gameId }) };
+    }
+
+    /**
+     * PAYOUT GAS POLICY — resolve the frozen payout plan for an operator
+     * recovery attempt.
+     *
+     * Order: a previously persisted recovery record request, then the durable
+     * settlement record request. A present but invalid plan is an integrity
+     * failure (invalid: true — fail closed). When no plan is persisted, the
+     * plan is computed once through the adapter (unavailable on failure —
+     * fail closed); when the adapter has no planning capability, recovery
+     * proceeds without a plan and the adapter computes one internally.
+     */
+    async _resolveRecoveryPayoutPlan({
+        gameId,
+        roomNumber,
+        existingRecovery,
+        winnerAmountNano,
+        ownerPlan,
+        winnerWallet,
+        ownerWallet,
+        winnerAmount,
+        organizerAmount
+    }) {
+        const fromRecovery = existingRecovery?.payload?.request?.payoutPlan
+            ?? existingRecovery?.request?.payoutPlan
+            ?? null;
+        const persisted = this._loadPersistedSettlement(gameId);
+        const fromSettlement = persisted?.payload?.request?.payoutPlan
+            ?? persisted?.request?.payoutPlan
+            ?? null;
+        const candidate = fromRecovery ?? fromSettlement;
+
+        if (candidate) {
+            const validation = validatePersistedPayoutPlan(candidate, {
+                winnerAmountNano,
+                ownerGrossNano: ownerPlan.ownerGrossNano,
+                ownerPayoutNano: ownerPlan.ownerPayoutNano,
+                ownerRetainedNano: ownerPlan.retainedNano,
+                winnerWallet,
+                ownerWallet
+            });
+
+            if (!validation.ok) {
+                return Object.freeze({ invalid: true, detail: validation.detail });
+            }
+
+            return Object.freeze({ plan: validation.plan });
+        }
+
+        const adapter = this.resolveAdapter();
+
+        if (typeof adapter?.planSettlement !== "function") {
+            return Object.freeze({ plan: null });
+        }
+
+        try {
+            const result = await adapter.planSettlement({
+                gameId,
+                roomNumber,
+                winnerWallet,
+                ownerWallet,
+                winnerAmount,
+                organizerAmount
+            });
+
+            if (!result?.ok) {
+                return Object.freeze({
+                    unavailable: true,
+                    detail: result?.detail ?? result?.code ?? "planSettlement failed"
+                });
+            }
+
+            return Object.freeze({ plan: result.payoutPlan });
+        } catch (error) {
+            return Object.freeze({
+                unavailable: true,
+                detail: error?.message ?? String(error)
+            });
+        }
     }
 
     _loadPersistedSettlement(gameId) {

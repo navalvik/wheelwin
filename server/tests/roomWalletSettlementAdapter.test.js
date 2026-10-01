@@ -4,6 +4,13 @@ import test from "node:test";
 import { RoomWalletSettlementAdapter } from "../payment/roomWallet/RoomWalletSettlementAdapter.js";
 import { GRAM_NANO } from "../payment/roomWallet/RoomWalletFinancialPolicy.js";
 
+// Deterministic recipient-pays-gas stub estimate shared by every mock room
+// wallet adapter in this file. Components sum exactly to STUB_FEE_TOTAL_NANO.
+// Default policy margin (20%, floor 1000000) -> recipient gas charge is
+// STUB_GAS_CHARGE_NANO, so the on-chain transfer value is gross - 2000000n.
+const STUB_FEE_TOTAL_NANO = 1_000_000n;
+const STUB_GAS_CHARGE_NANO = 2_000_000n;
+
 function createAdapter({
     balanceNano = 100n * GRAM_NANO,
     sendTransfer = null,
@@ -19,6 +26,18 @@ function createAdapter({
     const roomWalletAdapter = {
         getGasReserveNano() {
             return gasReserveNano;
+        },
+        async estimateOutboundTransferFee({ amountNano }) {
+            return {
+                ok: true,
+                feeSource: "estimateExternalMessageFee",
+                amountNano,
+                inFwdFeeNano: 400_000n,
+                storageFeeNano: 100_000n,
+                gasFeeNano: 300_000n,
+                fwdFeeNano: 200_000n,
+                totalNano: STUB_FEE_TOTAL_NANO
+            };
         },
         async getBalance(roomNumber) {
             balanceCalls.push(roomNumber);
@@ -80,14 +99,22 @@ test("owner payout retains exactly 0.01 Gram from owner gross share", async () =
     assert.equal(result.ownerPayoutNano, 140_000_000n);
     assert.equal(result.ownerRetainedNano, 10_000_000n);
     assert.equal(calls.length, 2);
-    assert.equal(calls[0].amountNano, 9_500_000_000n);
-    assert.equal(calls[1].amountNano, 140_000_000n);
-    assert.equal(result.winnerTransfer.recipientCreditNano, 9_500_000_000n);
-    assert.equal(result.winnerTransfer.gasNano, 3_000_000n);
-    assert.equal(result.winnerTransfer.sourceDebitNano, 9_503_000_000n);
-    assert.equal(result.ownerTransfer.recipientCreditNano, 140_000_000n);
-    assert.equal(result.ownerTransfer.gasNano, 3_000_000n);
-    assert.equal(result.ownerTransfer.sourceDebitNano, 143_000_000n);
+    // RECIPIENT_PAYS_GAS: on-chain transfer value is gross minus the frozen
+    // recipient gas charge (stub estimate 1000000 + 20%/floor margin 1000000).
+    assert.equal(calls[0].amountNano, 9_500_000_000n - STUB_GAS_CHARGE_NANO);
+    assert.equal(calls[1].amountNano, 140_000_000n - STUB_GAS_CHARGE_NANO);
+    assert.equal(result.winnerTransfer.recipientCreditNano, 9_500_000_000n - STUB_GAS_CHARGE_NANO);
+    assert.equal(result.winnerTransfer.gasNano, STUB_FEE_TOTAL_NANO);
+    assert.equal(
+        result.winnerTransfer.sourceDebitNano,
+        9_500_000_000n - STUB_GAS_CHARGE_NANO + STUB_FEE_TOTAL_NANO
+    );
+    assert.equal(result.ownerTransfer.recipientCreditNano, 140_000_000n - STUB_GAS_CHARGE_NANO);
+    assert.equal(result.ownerTransfer.gasNano, STUB_FEE_TOTAL_NANO);
+    assert.equal(
+        result.ownerTransfer.sourceDebitNano,
+        140_000_000n - STUB_GAS_CHARGE_NANO + STUB_FEE_TOTAL_NANO
+    );
     assert.deepEqual(balanceCalls, [1]);
 });
 
@@ -106,7 +133,8 @@ test("owner payout preserves the existing gross share when it is above the minim
     assert.equal(result.ok, true);
     assert.equal(result.ownerPayoutNano, 4_990_000_000n);
     assert.equal(result.ownerRetainedNano, 10_000_000n);
-    assert.equal(calls[1].amountNano, 4_990_000_000n);
+    // Owner net transfer = gross share - retention - recipient gas charge.
+    assert.equal(calls[1].amountNano, 4_990_000_000n - STUB_GAS_CHARGE_NANO);
 });
 
 test("settlement does not send anything when the Room Wallet cannot fund the payout plus gas reserve", async () => {
@@ -126,30 +154,39 @@ test("settlement does not send anything when the Room Wallet cannot fund the pay
     assert.equal(calls.length, 0);
     assert.equal(result.preflight.ok, false);
     assert.equal(result.preflight.balanceNano, 100_000_000n);
-    assert.equal(result.preflight.winner.amountNano, 95_000_000n);
-    assert.equal(result.preflight.owner.payoutNano, 140_000_000n);
-    assert.equal(result.preflight.totalGasReserveNano, 6_000_000n);
+    // Preflight now gates the NET recipient transfers plus the fee budget.
+    assert.equal(result.preflight.winner.amountNano, 95_000_000n - STUB_GAS_CHARGE_NANO);
+    assert.equal(result.preflight.owner.amountNano, 140_000_000n - STUB_GAS_CHARGE_NANO);
+    assert.equal(result.preflight.totalGasReserveNano, STUB_FEE_TOTAL_NANO * 2n);
     assert.deepEqual(balanceCalls, [3]);
 });
 
-test("preflight uses getBalance and requires payout plus source-wallet gas reserve", async () => {
-    const { adapter, gasReserveNano } = createAdapter({ balanceNano: 100n * GRAM_NANO });
+test("preflight uses getBalance and requires net payouts plus estimated source fee budget", async () => {
+    const { adapter } = createAdapter({ balanceNano: 100n * GRAM_NANO });
 
     const preflight = await adapter.preflight({
         gameId: "game-4",
         roomNumber: "04",
+        winnerWallet: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+        ownerWallet: "EQBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBK",
         prizeAmountNano: 9_500_000_000n,
         organizerAmountNano: 150_000_000n
     });
 
     assert.equal(preflight.ok, true);
     assert.equal(preflight.balanceNano, 100n * GRAM_NANO);
-    assert.equal(preflight.winner.amountNano, 9_500_000_000n);
-    assert.equal(preflight.winner.gasReserveNano, gasReserveNano);
-    assert.equal(preflight.owner.payoutNano, 140_000_000n);
+    assert.equal(preflight.winner.grossPayoutNano, 9_500_000_000n);
+    assert.equal(preflight.winner.amountNano, 9_500_000_000n - STUB_GAS_CHARGE_NANO);
+    assert.equal(preflight.winner.recipientGasChargeNano, STUB_GAS_CHARGE_NANO);
+    assert.equal(preflight.winner.feeBudgetNano, STUB_FEE_TOTAL_NANO);
+    assert.equal(preflight.owner.grossPayoutNano, 140_000_000n);
+    assert.equal(preflight.owner.amountNano, 140_000_000n - STUB_GAS_CHARGE_NANO);
     assert.equal(preflight.owner.retainedNano, 10_000_000n);
-    assert.equal(preflight.totalPayoutNano, 9_640_000_000n);
-    assert.equal(preflight.totalGasReserveNano, gasReserveNano * 2n);
+    assert.equal(
+        preflight.totalPayoutNano,
+        9_500_000_000n - STUB_GAS_CHARGE_NANO + 140_000_000n - STUB_GAS_CHARGE_NANO
+    );
+    assert.equal(preflight.totalGasReserveNano, STUB_FEE_TOTAL_NANO * 2n);
     assert.equal(
         preflight.requiredNano,
         preflight.totalPayoutNano + preflight.totalGasReserveNano
@@ -179,10 +216,10 @@ test("owner payout failure after winner transfer is reported as partial settleme
     assert.equal(result.partial, true);
     assert.equal(result.code, "OWNER_SEND_FAILED");
     assert.equal(calls.length, 2);
-    assert.equal(calls[0].amountNano, 9_500_000_000n);
-    assert.equal(calls[1].amountNano, 140_000_000n);
+    assert.equal(calls[0].amountNano, 9_500_000_000n - STUB_GAS_CHARGE_NANO);
+    assert.equal(calls[1].amountNano, 140_000_000n - STUB_GAS_CHARGE_NANO);
     assert.equal(result.winner.txHash, "tx-winner");
-    assert.equal(result.ownerTransfer.recipientCreditNano, 140_000_000n);
+    assert.equal(result.ownerTransfer.recipientCreditNano, 140_000_000n - STUB_GAS_CHARGE_NANO);
     assert.equal(result.roomNumber, 5);
 });
 
@@ -257,10 +294,10 @@ test("UhqU CSM handoff shape is accepted without prizeAmount", async () => {
     assert.equal(calls.length, 2);
     assert.equal(calls[0].roomNumber, 1);
     assert.equal(calls[0].destination, winnerWallet);
-    assert.equal(calls[0].amountNano, 2_850_000_000n);
+    assert.equal(calls[0].amountNano, 2_850_000_000n - STUB_GAS_CHARGE_NANO);
     assert.equal(calls[1].roomNumber, 1);
     assert.equal(calls[1].destination, ownerWallet);
-    assert.equal(calls[1].amountNano, 140_000_000n);
+    assert.equal(calls[1].amountNano, 140_000_000n - STUB_GAS_CHARGE_NANO);
 });
 
 test("disagreeing winnerAmount and prizeAmount fail closed", async () => {
@@ -320,7 +357,7 @@ test("winner payout already on chain is not sent again", async () => {
     assert.equal(result.ok, true);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].destination, OWNER_W);
-    assert.equal(calls[0].amountNano, 140_000_000n);
+    assert.equal(calls[0].amountNano, 140_000_000n - STUB_GAS_CHARGE_NANO);
 });
 
 test("owner payout already on chain is not sent again", async () => {
@@ -353,7 +390,7 @@ test("owner payout already on chain is not sent again", async () => {
     assert.equal(result.ok, true);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].destination, WINNER);
-    assert.equal(calls[0].amountNano, 9_500_000_000n);
+    assert.equal(calls[0].amountNano, 9_500_000_000n - STUB_GAS_CHARGE_NANO);
 });
 
 test("both payouts already on chain are adopted without sending", async () => {
@@ -500,12 +537,14 @@ test("partial room-wallet refunds return exactly the paid amount and confirm on 
     assert.equal(result.ok, true);
     assert.equal(result.results.length, 1);
     assert.equal(result.results[0].code, "REFUND_CONFIRMED");
-    assert.equal(result.results[0].amountNano, 1_000_000_000n);
+    assert.equal(result.results[0].amountNano, 1_000_000_000n - STUB_GAS_CHARGE_NANO);
+    assert.equal(result.results[0].grossRefundNano, 1_000_000_000n);
+    assert.equal(result.results[0].recipientGasChargeNano, STUB_GAS_CHARGE_NANO);
     assert.equal(result.results[0].txHash, "refund-1");
     assert.equal(calls.length, 1);
     assert.equal(calls[0].roomNumber, 7);
     assert.equal(calls[0].destination, WINNER);
-    assert.equal(calls[0].amountNano, 1_000_000_000n);
+    assert.equal(calls[0].amountNano, 1_000_000_000n - STUB_GAS_CHARGE_NANO);
 });
 
 test("existing room-wallet refund is adopted without a second send", async () => {
@@ -639,7 +678,7 @@ test("transfer with utime before the millisecond-derived cutoff is not adopted â
     assert.equal(sentCount, 1);
     assert.deepEqual(
         { destination: broadcastInput?.destination, amountNano: broadcastInput?.amountNano },
-        { destination: WINNER, amountNano: 1_000_000_000n }
+        { destination: WINNER, amountNano: 1_000_000_000n - STUB_GAS_CHARGE_NANO }
     );
 });
 
@@ -705,7 +744,10 @@ test("refund that reached the player wallet is reconciled from player wallet his
     assert.equal(result.results[0].reconciliation, "PLAYER_WALLET_INBOUND");
     assert.equal(result.results[0].confirmed, true);
     assert.equal(result.results[0].txHash, "player-inbound-refund");
-    assert.equal(result.results[0].amountNano, 1_000_000_000n);
+    // The reconciled legacy (pre-payout-gas-policy) transfer was broadcast at
+    // the gross refundable amount; the adopted result reports the frozen NET
+    // refund the plan would produce for this target.
+    assert.equal(result.results[0].amountNano, 1_000_000_000n - STUB_GAS_CHARGE_NANO);
 
     // An already completed refund must never be broadcast again.
     assert.equal(calls.length, 0);
@@ -722,7 +764,8 @@ test("refund that reached the player wallet is reconciled from player wallet his
     assert.match(infoLogLines[0], /room=10/);
     assert.match(infoLogLines[0], new RegExp(`playerWallet=${PLAYER_WALLET}`));
     assert.match(infoLogLines[0], new RegExp(`roomWallet=${RW}`));
-    assert.match(infoLogLines[0], /amountNano=1000000000/);
+    // The adopted result reports the frozen NET refund for this target.
+    assert.match(infoLogLines[0], new RegExp(`amountNano=${1000000000 - 2000000}`));
     assert.match(infoLogLines[0], /txHash=player-inbound-refund/);
     assert.match(infoLogLines[0], /reconciliation=PLAYER_WALLET_INBOUND/);
 });
