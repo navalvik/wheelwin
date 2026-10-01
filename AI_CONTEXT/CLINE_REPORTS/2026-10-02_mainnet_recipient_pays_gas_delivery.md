@@ -271,4 +271,40 @@ Zero new failures versus the documented Testnet baseline. All three failing
 suites fail byte-identically (same assertion, same expected/actual values) to
 the documented pre-existing baseline and were deliberately not "fixed".
 
+## 11. Documentation Cleanup
+
+Date: 2026-10-02
+
+Task: Documentation-only cleanup of the CLINE report set carried on the
+Mainnet branch `payment/room-wallet-integration`, keeping exactly ONE report
+for this delivery stage. No source, test, package, Railway/Vercel
+configuration, or environment changes; `.railway-deploy-trigger-20260930.txt`
+untouched; the Testnet branch untouched; no reset, no rebase, no force-push.
+
+- Cleanup commit: `docs(mainnet): keep single current delivery report` — the
+  single commit directly on top of
+  `78d6066812a5f383aa93d070a9d74497a7f7787c` (`docs(mainnet): record
+  recipient-pays-gas delivery merge report`), containing this section together
+  with the five deletions listed below. A commit cannot contain its own hash;
+  the exact SHA of this cleanup commit is the post-push branch tip of
+  `payment/room-wallet-integration` and is recorded in the delivery handoff
+  response.
+- Deleted historical reports (five):
+  1. `AI_CONTEXT/CLINE_REPORTS/2026-09-30_mainnet_19a88f7_deployment.md`
+  2. `AI_CONTEXT/CLINE_REPORTS/2026-09-30_recipient_pays_gas_architecture.md`
+  3. `AI_CONTEXT/CLINE_REPORTS/2026-09-30_room_wallet_sequential_settlement_seqno_git_delivery.md`
+  4. `AI_CONTEXT/CLINE_REPORTS/2026-09-30_vercel_mainnet_872562d_production_promotion.md`
+  5. `AI_CONTEXT/CLINE_REPORTS/2026-10-01_testnet_recipient_pays_gas_branch_delivery.md`
+- Single retained report: `2026-10-02_mainnet_recipient_pays_gas_delivery.md`
+  (this file) is the ONLY CLINE report retained for this Mainnet
+  recipient-pays-gas delivery set; no historical reports brought in by the
+  Testnet delivery merge remain in it.
+- No runtime/application files changed: this cleanup commit touches ONLY
+  documentation files under `AI_CONTEXT/CLINE_REPORTS/`.
+- No manual deployment was executed: no Railway deploy command, no Vercel
+  deploy command, no Railway/Vercel configuration or variable mutation.
+- The GitHub push of this cleanup commit may have triggered the existing
+  Railway Mainnet Auto Deploy watcher on `payment/room-wallet-integration`;
+  the change is documentation-only with no runtime impact.
+
 
