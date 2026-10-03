@@ -164,7 +164,9 @@
 
 .setupInput--nickname {
 
-    width: 100%;
+    width: 120px;
+
+    max-width: 100%;
 }
 
 .setupInput--age {
@@ -358,7 +360,7 @@
 
         margin-bottom: 4px;
 
-        font-size: 10px;
+        font-size: 15px;
     }
 
     .identityGrid {
@@ -371,7 +373,7 @@
     .setupFieldLabel,
     .colorFieldLabel {
 
-        font-size: 10px;
+        font-size: 15px;
 
         line-height: 1.15;
     }
@@ -383,7 +385,7 @@
 
         padding: 0 7px;
 
-        font-size: 16.5px;
+        font-size: 25px;
 
         border-width: 1.5px;
 
@@ -406,12 +408,12 @@
 
         min-width: 82px;
 
-        font-size: 8px;
+        font-size: 12px;
     }
 
     .radioGroup {
 
-        font-size: 11px;
+        font-size: 25px;
     }
 
     .radioGroup--inline {
@@ -480,13 +482,13 @@
 
         margin-bottom: 3px;
 
-        font-size: 9px;
+        font-size: 15px;
     }
 
     .setupFieldLabel,
     .colorFieldLabel {
 
-        font-size: 9px;
+        font-size: 15px;
     }
 
     .setupInput,
@@ -494,12 +496,12 @@
 
         height: 29px;
 
-        font-size: 16.5px;
+        font-size: 25px;
     }
 
     .radioGroup {
 
-        font-size: 16.5px;
+        font-size: 25px;
     }
 
     .radioGroup label {
@@ -515,7 +517,7 @@
 
     .ageValidation {
 
-        font-size: 12px;
+        font-size: 18px;
     }
 }
 
