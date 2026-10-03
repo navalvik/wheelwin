@@ -87,12 +87,6 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                     <div className="setupGroup setupGroup--identity">
 
-                        <div className="setupGroupTitle">
-
-                            {t("setup.playerInformation")}
-
-                        </div>
-
                         <div className="identityGrid">
 
                             <div className="setupField">
@@ -352,7 +346,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                         <div className="setupFieldLabel setupGroupLabel">
 
-                            {t("setup.colorsForSectors")}
+                            COLORS FOR SECTORS
 
                         </div>
 
@@ -396,7 +390,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                     <span className="colorFieldLabel">
 
-                                        {t("setup.sector2")}
+                                        Sector 2
 
                                     </span>
 
