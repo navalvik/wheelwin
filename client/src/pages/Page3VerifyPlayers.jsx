@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
-import PlayerInfoRow from "../components/PlayerInfoRow";
-
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useGameSession } from "../context/GameSessionContext";
 import { useLanguage } from "../context/LanguageContext";
