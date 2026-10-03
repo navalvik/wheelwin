@@ -22,7 +22,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
     const { setFinance } = useGameSession();
 
-    const { languageLabel, t } = useLanguage();
+    const { t } = useLanguage();
 
     const [nickname, setNickname] = useState("");
 
@@ -85,321 +85,323 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                 <div className="setupPanel">
 
-                    <div className="setupGrid">
+                    <div className="setupGroup setupGroup--identity">
 
-                        <div className="setupLabelCell">
+                        <div className="setupGroupTitle">
 
-                            {t("setup.yourLanguage")}
+                            {t("setup.playerInformation")}
 
                         </div>
 
-                        <div className="setupControlCell">
+                        <div className="identityGrid">
 
-                            <div
-                                className="setupLanguageValue"
-                                aria-readonly="true"
-                            >
+                            <div className="setupField">
 
-                                {languageLabel}
+                                <label className="setupFieldLabel">
+
+                                    {t("setup.nickname")}
+
+                                </label>
+
+                                <input
+
+                                    className="setupInput setupInput--nickname"
+
+                                    type="text"
+
+                                    maxLength={4}
+
+                                    value={nickname}
+
+                                    onChange={(e) =>
+
+                                        setNickname(e.target.value)
+
+                                    }
+
+                                />
 
                             </div>
 
-                        </div>
+                            <div className="setupField setupField--age">
 
-                        <div className="setupLabelCell">
+                                <label className="setupFieldLabel">
 
-                            {t("setup.nickname")}
+                                    {t("setup.age")}
 
-                        </div>
+                                </label>
 
-                        <div className="setupControlCell">
-
-                            <input
-
-                                className="setupInput setupInput--nickname"
-
-                                type="text"
-
-                                maxLength={4}
-
-                                value={nickname}
-
-                                onChange={(e) =>
-
-                                    setNickname(e.target.value)
-
-                                }
-
-                            />
-
-                        </div>
-
-                        <div className="setupLabelCell">
-
-                            {t("setup.age")}
-
-                        </div>
-
-                        <div className="setupControlCell setupControlCell--age">
-
-                            <input
-
-                                className="setupInput setupInput--age"
-
-                                type="text"
-
-                                inputMode="numeric"
-
-                                pattern="[0-9]*"
-
-                                value={age}
-
-                                onChange={(e) =>
-
-                                    setAge(e.target.value.replace(/\D/g, ""))
-
-                                }
-
-                            />
-
-                            <div className="ageValidation">
-
-                                {t("setup.ageHint", {
-                                    min: MIN_PLAYER_AGE,
-                                    max: MAX_PLAYER_AGE
-                                })}
-
-                            </div>
-
-                        </div>
-
-                        <div className="setupLabelCell">
-
-                            {t("setup.baseStake")}
-
-                        </div>
-
-                        <div className="setupControlCell">
-
-                            <div className="radioGroup">
-
-                                <label>
+                                <div className="ageControl">
 
                                     <input
 
-                                        type="radio"
+                                        className="setupInput setupInput--age"
 
-                                        value="1"
+                                        type="text"
 
-                                        checked={stake === "1"}
+                                        inputMode="numeric"
+
+                                        pattern="[0-9]*"
+
+                                        value={age}
 
                                         onChange={(e) =>
 
-                                            setStake(e.target.value)
+                                            setAge(e.target.value.replace(/\D/g, ""))
 
                                         }
 
                                     />
 
-                                    {t("setup.oneGram")}
-
-                                </label>
-
-                                <label>
-
-                                    <input
-
-                                        type="radio"
-
-                                        value="10"
-
-                                        checked={stake === "10"}
-
-                                        onChange={(e) =>
-
-                                            setStake(e.target.value)
-
-                                        }
-
-                                    />
-
-                                    {t("setup.tenGram")}
-
-                                </label>
-
-                            </div>
-
-                        </div>
-
-                        <div className="setupLabelCell">
-
-                            {t("setup.sectors")}
-
-                        </div>
-
-                        <div className="setupControlCell">
-
-                            <div className="radioGroup">
-
-                                <label>
-
-                                    <input
-
-                                        type="radio"
-
-                                        value="1"
-
-                                        checked={sectors === "1"}
-
-                                        onChange={(e) =>
-
-                                            setSectors(e.target.value)
-
-                                        }
-
-                                    />
-
-                                    {t("setup.oneSector")}
-
-                                </label>
-
-                                <label>
-
-                                    <input
-
-                                        type="radio"
-
-                                        value="2"
-
-                                        checked={sectors === "2"}
-
-                                        onChange={(e) =>
-
-                                            setSectors(e.target.value)
-
-                                        }
-
-                                    />
-
-                                    {t("setup.twoSectors")}
-
-                                </label>
-
-                            </div>
-
-                        </div>
-
-                        {sectors === "2" && (
-
-                            <>
-
-                                <div className="setupLabelCell">
-
-                                    {t("setup.arrangement")}
-
-                                </div>
-
-                                <div className="setupControlCell">
-
-                                    <div className="radioGroup">
-
-                                        <label>
-
-                                            <input
-
-                                                type="radio"
-
-                                                value="together"
-
-                                                checked={sectorArrangement === "together"}
-
-                                                onChange={(e) =>
-
-                                                    setSectorArrangement(e.target.value)
-
-                                                }
-
-                                            />
-
-                                            {t("setup.together")}
-
-                                        </label>
-
-                                        <label>
-
-                                            <input
-
-                                                type="radio"
-
-                                                value="separate"
-
-                                                checked={sectorArrangement === "separate"}
-
-                                                onChange={(e) =>
-
-                                                    setSectorArrangement(e.target.value)
-
-                                                }
-
-                                            />
-
-                                            {t("setup.separate")}
-
-                                        </label>
+                                    <div className="ageValidation">
+
+                                        {t("setup.ageHint", {
+                                            min: MIN_PLAYER_AGE,
+                                            max: MAX_PLAYER_AGE
+                                        })}
 
                                     </div>
 
                                 </div>
 
-                            </>
-
-                        )}
-
-                        <div className="setupLabelCell">
-
-                            {t("setup.colorSector1")}
+                            </div>
 
                         </div>
 
-                        <div className="setupControlCell">
+                    </div>
 
-                            <select
+                    <div className="setupGroup">
 
-                                className="setupSelect setupSelect--color"
+                        <div className="setupFieldLabel setupGroupLabel">
 
-                                value={colorSector1}
-
-                                onChange={(e) => setColorSector1(e.target.value)}
-
-                            >
-
-                                {SECTOR_COLOR_OPTIONS.map((color) => (
-
-                                    <option key={color} value={color}>
-
-                                        {color}
-
-                                    </option>
-
-                                ))}
-
-                            </select>
+                            {t("setup.baseStake")}
 
                         </div>
 
-                        {sectors === "2" && (
+                        <div className="radioGroup radioGroup--inline">
 
-                            <>
+                            <label>
 
-                                <div className="setupLabelCell">
+                                <input
 
-                                    {t("setup.colorSector2")}
+                                    type="radio"
 
-                                </div>
+                                    value="1"
 
-                                <div className="setupControlCell">
+                                    checked={stake === "1"}
+
+                                    onChange={(e) =>
+
+                                        setStake(e.target.value)
+
+                                    }
+
+                                />
+
+                                {t("setup.oneGram")}
+
+                            </label>
+
+                            <label>
+
+                                <input
+
+                                    type="radio"
+
+                                    value="10"
+
+                                    checked={stake === "10"}
+
+                                    onChange={(e) =>
+
+                                        setStake(e.target.value)
+
+                                    }
+
+                                />
+
+                                {t("setup.tenGram")}
+
+                            </label>
+
+                        </div>
+
+                    </div>
+
+                    <div className="setupGroup">
+
+                        <div className="setupFieldLabel setupGroupLabel">
+
+                            {t("setup.sectors")}
+
+                        </div>
+
+                        <div className="radioGroup radioGroup--inline">
+
+                            <label>
+
+                                <input
+
+                                    type="radio"
+
+                                    value="1"
+
+                                    checked={sectors === "1"}
+
+                                    onChange={(e) =>
+
+                                        setSectors(e.target.value)
+
+                                    }
+
+                                />
+
+                                {t("setup.oneSector")}
+
+                            </label>
+
+                            <label>
+
+                                <input
+
+                                    type="radio"
+
+                                    value="2"
+
+                                    checked={sectors === "2"}
+
+                                    onChange={(e) =>
+
+                                        setSectors(e.target.value)
+
+                                    }
+
+                                />
+
+                                {t("setup.twoSectors")}
+
+                            </label>
+
+                        </div>
+
+                    </div>
+
+                    {sectors === "2" && (
+
+                        <div className="setupGroup">
+
+                            <div className="setupFieldLabel setupGroupLabel">
+
+                                {t("setup.arrangement")}
+
+                            </div>
+
+                            <div className="radioGroup radioGroup--inline">
+
+                                <label>
+
+                                    <input
+
+                                        type="radio"
+
+                                        value="together"
+
+                                        checked={sectorArrangement === "together"}
+
+                                        onChange={(e) =>
+
+                                            setSectorArrangement(e.target.value)
+
+                                        }
+
+                                    />
+
+                                    {t("setup.together")}
+
+                                </label>
+
+                                <label>
+
+                                    <input
+
+                                        type="radio"
+
+                                        value="separate"
+
+                                        checked={sectorArrangement === "separate"}
+
+                                        onChange={(e) =>
+
+                                            setSectorArrangement(e.target.value)
+
+                                        }
+
+                                    />
+
+                                    {t("setup.separate")}
+
+                                </label>
+
+                            </div>
+
+                        </div>
+
+                    )}
+
+                    <div className="setupGroup">
+
+                        <div className="setupFieldLabel setupGroupLabel">
+
+                            {t("setup.colorsForSectors")}
+
+                        </div>
+
+                        <div className="colorGrid">
+
+                            <label className="colorField">
+
+                                <span className="colorFieldLabel">
+
+                                    {t("setup.sector1")}
+
+                                </span>
+
+                                <select
+
+                                    className="setupSelect setupSelect--color"
+
+                                    value={colorSector1}
+
+                                    onChange={(e) => setColorSector1(e.target.value)}
+
+                                >
+
+                                    {SECTOR_COLOR_OPTIONS.map((color) => (
+
+                                        <option key={color} value={color}>
+
+                                            {color}
+
+                                        </option>
+
+                                    ))}
+
+                                </select>
+
+                            </label>
+
+                            {sectors === "2" && (
+
+                                <label className="colorField">
+
+                                    <span className="colorFieldLabel">
+
+                                        {t("setup.sector2")}
+
+                                    </span>
 
                                     <select
+
                                         className="setupSelect setupSelect--color"
 
                                         value={colorSector2}
@@ -420,11 +422,11 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                     </select>
 
-                                </div>
+                                </label>
 
-                            </>
+                            )}
 
-                        )}
+                        </div>
 
                     </div>
 
