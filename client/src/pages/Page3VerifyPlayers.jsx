@@ -483,31 +483,47 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                             players.map((player) => (
 
-                                <PlayerInfoRow
-
+                                <div
                                     key={player.key}
+                                    className={
+                                        player.isLocal
+                                            ? "verifyPlayerCard verifyPlayerCard--local"
+                                            : "verifyPlayerCard"
+                                    }
+                                >
 
-                                    labelTitle={player.labelTitle}
+                                    <div className="verifyPlayerTitle">
+                                        {player.isLocal
+                                            ? `${player.labelTitle?.replace?.(/\\s*—\\s*YOU$/i, "") || player.labelTitle} — YOU`
+                                            : player.labelTitle}
+                                    </div>
 
-                                    labelOrdinal={player.labelOrdinal}
+                                    <div className="verifyPlayerNickname">
+                                        {player.nickname}
+                                    </div>
 
-                                    nickname={player.nickname}
+                                    <div className="verifyPlayerIcon" aria-hidden="true">
+                                        {player.icon}
+                                    </div>
 
-                                    icon={player.icon}
+                                    <div className="verifyPlayerStat">
+                                        <span>{t("player.age")}</span>
+                                        <strong>{player.age}</strong>
+                                    </div>
 
-                                    age={player.age}
+                                    <div className="verifyPlayerStat">
+                                        <span>{t("player.sector")}</span>
+                                        <strong>{player.sectorValue}</strong>
+                                    </div>
 
-                                    sectorLabel={player.sectorLabel}
+                                    <div className="verifyPlayerStat">
+                                        <span>{player.paymentLabel?.includes(".")
+                                            ? t(player.paymentLabel)
+                                            : player.paymentLabel}</span>
+                                        <strong>{player.paymentDisplay}</strong>
+                                    </div>
 
-                                    sectorValue={player.sectorValue}
-
-                                    paymentLabel={player.paymentLabel}
-
-                                    paymentDisplay={player.paymentDisplay}
-
-                                    isLocal={player.isLocal}
-
-                                />
+                                </div>
 
                             ))
 
