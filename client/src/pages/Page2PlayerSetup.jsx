@@ -93,7 +93,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                 <label className="setupFieldLabel">
 
-                                    {t("setup.nickname")}
+                                    INPUT NICKNAME
 
                                 </label>
 
