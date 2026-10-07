@@ -990,51 +990,104 @@ export default function Page4Payment({ onNavigate }) {
 
                     <div className="paymentPlayers">
 
-                        {players.map((player) => (
+                        {players.map((player) => {
 
-                            <PlayerPaymentRow
+                            const isLocal = String(player.playerId ?? "")
+                                === String(localPlayerId ?? "");
 
-                                key={player.key}
+                            const paymentStatus = showPaymentRows
+                                ? player.status
+                                : undefined;
 
-                                labelTitle={player.labelTitle}
+                            const paymentStatusLabel = showPaymentRows
+                                ? player.statusLabel
+                                : undefined;
 
-                                nickname={player.nickname}
+                            const connectionStatus = showPaymentRows
+                                ? undefined
+                                : player.status;
 
-                                icon={player.icon}
+                            const connectionStatusLabel = showPaymentRows
+                                ? undefined
+                                : player.statusLabel;
 
-                                connectionStatus={
-                                    showPaymentRows
-                                        ? undefined
-                                        : player.status
-                                }
+                            const resolvedWalletLabel = connectionStatus
+                                ? (
+                                    connectionStatus === "CONNECTED"
+                                        ? t("payment.walletConnected")
+                                        : connectionStatus === "ADDRESS_MISMATCH"
+                                            ? t("payment.addressMismatch")
+                                            : connectionStatus === "CONNECTING"
+                                                ? t("payment.connecting")
+                                                : t("payment.walletPending")
+                                )
+                                : (
+                                    player.wallet
+                                        ? t("payment.walletRegistered")
+                                        : t("payment.walletMissing")
+                                );
 
-                                connectionStatusLabel={
-                                    showPaymentRows
-                                        ? undefined
-                                        : player.statusLabel
-                                }
+                            const resolvedStatusLabel = (
+                                paymentStatusLabel
+                                ?? connectionStatusLabel
+                                ?? t("common.waiting")
+                            );
 
-                                paymentStatus={
-                                    showPaymentRows
-                                        ? player.status
-                                        : undefined
-                                }
+                            return (
 
-                                paymentStatusLabel={
-                                    showPaymentRows
-                                        ? player.statusLabel
-                                        : undefined
-                                }
+                                <div
+                                    key={player.key}
+                                    className={
+                                        isLocal
+                                            ? "paymentPlayerCard paymentPlayerCard--local"
+                                            : "paymentPlayerCard"
+                                    }
+                                >
 
-                                walletRegistered={
-                                    showPaymentRows
-                                        ? Boolean(player.wallet)
-                                        : undefined
-                                }
+                                    <div className="paymentPlayerTitle">
+                                        {isLocal
+                                            ? "PLAYER 2 — YOU"
+                                            : player.labelTitle}
+                                    </div>
 
-                            />
+                                    <div className="paymentPlayerNickname">
+                                        {player.nickname}
+                                    </div>
 
-                        ))}
+                                    <div className="paymentPlayerIcon" aria-hidden="true">
+                                        {player.icon}
+                                    </div>
+
+                                    <div className="paymentPlayerStat">
+                                        <span>{t("common.wallet")}</span>
+                                        <strong className={
+                                            connectionStatus === "CONNECTED"
+                                                || player.wallet
+                                                ? "paymentPlayerStat--done"
+                                                : ""
+                                        }>
+                                            {resolvedWalletLabel}
+                                        </strong>
+                                    </div>
+
+                                    <div className="paymentPlayerStat">
+                                        <span>{t("common.status")}</span>
+                                        <strong className={
+                                            paymentStatus === "paid"
+                                                || paymentStatus === "confirmed"
+                                                || paymentStatus === "PAYMENT_CONFIRMED"
+                                                ? "paymentPlayerStat--done"
+                                                : ""
+                                        }>
+                                            {resolvedStatusLabel}
+                                        </strong>
+                                    </div>
+
+                                </div>
+
+                            );
+
+                        })}
 
                     </div>
 
