@@ -65,7 +65,7 @@ test("all player locale catalogs have matching key coverage", () => {
     assert.equal(TRANSLATIONS.zh["common.bannerAlt"], "WheelWin 横幅");
 
     assert.match(TRANSLATIONS.zh["page.welcome.title"], /WHEELWIN/i);
-    assert.match(TRANSLATIONS.zh["payment.confirmInWallet"], /Telegram Wallet/i);
+    assert.match(TRANSLATIONS.zh["payment.confirmInWallet"], /TON WALLET/i);
     assert.match(TRANSLATIONS.zh["setup.oneGram"], /GRAM/);
     assert.match(TRANSLATIONS.zh["room.roomId"], /房间 ID/);
     assert.notEqual(
