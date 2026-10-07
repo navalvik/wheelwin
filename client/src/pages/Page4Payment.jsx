@@ -1044,7 +1044,7 @@ export default function Page4Payment({ onNavigate }) {
 
                                     <div className="paymentPlayerTitle">
                                         {isLocal
-                                            ? "PLAYER 2 — YOU"
+                                            ? `${player.labelTitle?.replace?.(/\\s*—\\s*YOU$/i, "") || player.labelTitle} — YOU`
                                             : player.labelTitle}
                                     </div>
 
