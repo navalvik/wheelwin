@@ -20,8 +20,6 @@ import { useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
 
 import GameLayout from "../layouts/GameLayout";
 
-import PlayerPaymentRow from "../components/PlayerPaymentRow";
-
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
