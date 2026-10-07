@@ -118,7 +118,7 @@ export const TRANSLATIONS = Object.freeze({
 
         "payment.connectWallet": "CONNECT TELEGRAM WALLET",
         "payment.disconnect": "DISCONNECT",
-        "payment.confirmInWallet": "CONFIRM IN TELEGRAM WALLET",
+        "payment.confirmInWallet": "CONFIRM IN YOUR TON WALLET",
         "payment.payAmount": "PAY {amount} TON",
         "payment.waitingGameEscrow": "Preparing game payment…",
         "payment.waitingCreatorDeposit":
@@ -341,7 +341,7 @@ export const TRANSLATIONS = Object.freeze({
 
         "payment.connectWallet": "CONECTAR TELEGRAM WALLET",
         "payment.disconnect": "DESCONECTAR",
-        "payment.confirmInWallet": "CONFIRMAR EN TELEGRAM WALLET",
+        "payment.confirmInWallet": "CONFIRMAR EN TU TON WALLET",
         "payment.payAmount": "PAGAR {amount} TON",
         "payment.waitingGameEscrow": "Preparando el pago del juego…",
         "payment.waitingCreatorDeposit":
@@ -564,7 +564,7 @@ export const TRANSLATIONS = Object.freeze({
 
         "payment.connectWallet": "CONECTAR TELEGRAM WALLET",
         "payment.disconnect": "DESCONECTAR",
-        "payment.confirmInWallet": "CONFIRMAR NA TELEGRAM WALLET",
+        "payment.confirmInWallet": "CONFIRMAR NA SUA TON WALLET",
         "payment.payAmount": "PAGAR {amount} TON",
         "payment.waitingGameEscrow": "Preparando o pagamento do jogo…",
         "payment.waitingCreatorDeposit":
@@ -787,7 +787,7 @@ export const TRANSLATIONS = Object.freeze({
 
         "payment.connectWallet": "CONNECTER TELEGRAM WALLET",
         "payment.disconnect": "DÉCONNECTER",
-        "payment.confirmInWallet": "CONFIRMER DANS TELEGRAM WALLET",
+        "payment.confirmInWallet": "CONFIRMER DANS VOTRE TON WALLET",
         "payment.payAmount": "PAYER {amount} TON",
         "payment.waitingGameEscrow": "Préparation du paiement de la partie…",
         "payment.waitingCreatorDeposit":
@@ -1010,7 +1010,7 @@ export const TRANSLATIONS = Object.freeze({
 
         "payment.connectWallet": "连接 TELEGRAM WALLET",
         "payment.disconnect": "断开连接",
-        "payment.confirmInWallet": "在 TELEGRAM WALLET 中确认",
+        "payment.confirmInWallet": "在您的 TON WALLET 中确认",
         "payment.payAmount": "支付 {amount} TON",
         "payment.waitingGameEscrow": "正在准备游戏付款…",
         "payment.waitingCreatorDeposit": "正在等待房主部署押金合约…",
