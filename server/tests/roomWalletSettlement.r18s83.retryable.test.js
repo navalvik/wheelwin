@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -19,10 +19,15 @@ import { EntryPaymentAuditLedger } from "../payment/BlockchainMonitor.js";
 import { ContractSettlementManager } from "../payment/ContractSettlementManager.js";
 import { RoomWalletSettlementRouter } from "../payment/RoomWalletSettlementRouter.js";
 import { SETTLEMENT_SESSION_STATUS } from "../payment/SettlementSessionStates.js";
+import { PAYMENT_SESSION_STATUS } from "../models/PaymentSession.js";
 import { OwnerConfiguration } from "../config/OwnerConfiguration.js";
 import { GAME_ESCROW_MODE_GAME } from "../payment/ton/buildGameEscrowStateInit.js";
 import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
 import { TON_FINANCIAL_RECORD_TYPES } from "../persistence/TonFinancialRecordTypes.js";
+import {
+    computePayloadChecksum,
+    validateRecordEnvelope
+} from "../persistence/tonFinancialRecordUtils.js";
 
 const OWNER = "0QBaklBYMdMsuq7a2eTYhMkz1OF7ZSHaO1mnFd1MZd3YjC5t";
 const WINNER_WALLET = "EQC9qwKAy72kX1oPtryX-g5y44B2mYZEB2HVdJAeJprla_Le";
@@ -66,7 +71,13 @@ function buildContract(gameId = GAME_ID) {
     return contract;
 }
 
-function createHarness({ settle, inspectSettlement = null, persist = false, reimbursement = null }) {
+function createHarness({
+    settle,
+    inspectSettlement = null,
+    persist = false,
+    reimbursement = null,
+    paymentSession = null
+}) {
     OwnerConfiguration.resetForTests();
     const settleCalls = [];
     const events = [];
@@ -138,6 +149,7 @@ function createHarness({ settle, inspectSettlement = null, persist = false, reim
         settlementAdapter,
         auditLedger: new EntryPaymentAuditLedger(),
         paymentSessionManager: {
+            getSession: paymentSession ? () => paymentSession : undefined,
             destroySession(roomId) { destroyedSessions.push(roomId); }
         },
         gameplayContextResolver: { resolveRoomByGameId() { return "RmS3"; } },
@@ -553,5 +565,76 @@ test("Room Wallet READY resume uses persisted request snapshot when live contrac
     assert.equal(resumed, 1);
     second.shutdown();
     eventBus.shutdown();
+    harness.shutdown();
+});
+
+test("Room-Wallet settlement persists a DEFINED gameEscrowMode that survives restore", async () => {
+    const paymentSession = {
+        roomId: "RmS3",
+        status: PAYMENT_SESSION_STATUS.FULLY_PAID,
+        network: "testnet",
+        correlationId: "corr_s83_escrowmode",
+        participants: [
+            { playerId: "olga", wallet: WINNER_WALLET, requiredGram: 1, paidAmount: 1 },
+            { playerId: "bob", wallet: "EQAtggW7l5wfQcPyy38Y7mVuXnh0wRHcpFKPIdtCbcRHb8wM", requiredGram: 1, paidAmount: 1 },
+            { playerId: "lena", wallet: "EQDeWBnzASv1uz8OUCqjoGb_yrW_TVLc84S5szqFfjkHyCzp", requiredGram: 1, paidAmount: 1 }
+        ]
+    };
+    const harness = createHarness({
+        persist: true,
+        paymentSession,
+        settle: async () => ({
+            ok: false,
+            retryable: false,
+            chainInspected: true,
+            code: "WALLET_REUSED"
+        })
+    });
+    await harness.win();
+    const session = harness.manager.getSettlementSession(GAME_ID);
+    assert.equal(session.status, SETTLEMENT_SESSION_STATUS.SETTLEMENT_FAILED);
+
+    // 1+2 — Room-Wallet path resolves a DEFINED, canonical escrow mode.
+    assert.equal(
+        harness.manager._resolveEscrowMode(harness.contract),
+        GAME_ESCROW_MODE_GAME
+    );
+    assert.notEqual(harness.settleCalls.length, 0);
+    assert.notEqual(harness.settleCalls[0].gameEscrowMode, undefined);
+    assert.equal(harness.settleCalls[0].gameEscrowMode, GAME_ESCROW_MODE_GAME);
+
+    // The corruption shipped in the actual JSON file — assert against disk.
+    const raw = JSON.parse(readFileSync(
+        join(harness.dataDir, "active", "settlement", `${GAME_ID}.json`),
+        "utf8"
+    ));
+
+    // 3 — the persisted settlement payload contains the key.
+    assert.equal(
+        Object.prototype.hasOwnProperty.call(raw.payload.request, "gameEscrowMode"),
+        true
+    );
+
+    // 4 — JSON.stringify (atomic-write serialization) does NOT drop the key.
+    const serializedPayload = JSON.parse(JSON.stringify(raw.payload));
+    assert.equal(serializedPayload.request.gameEscrowMode, GAME_ESCROW_MODE_GAME);
+
+    // 5 — checksum basis == stored payload (persistence validation model).
+    assert.deepEqual(validateRecordEnvelope(raw), []);
+    assert.equal(raw.checksum, computePayloadChecksum(serializedPayload));
+
+    // The production failure was restore() crashing with
+    // CorruptedRecordError checksum_mismatch — a fresh persistence instance
+    // over the same data directory must restore cleanly.
+    harness.manager.shutdown();
+
+    const restarted = new TonFinancialPersistence({
+        dataDir: harness.dataDir,
+        logger: createLogger()
+    });
+    restarted.initialize();
+    const reread = restarted.loadSettlementRecord(GAME_ID);
+    assert.equal(reread.payload.request.gameEscrowMode, GAME_ESCROW_MODE_GAME);
+    restarted.shutdown();
     harness.shutdown();
 });

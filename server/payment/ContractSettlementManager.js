@@ -196,6 +196,16 @@ export class ContractSettlementManager {
 
     /**
      * R13.1H — Prefer escrow mode frozen in the game financial snapshot.
+     *
+     * The fallback must NEVER be undefined on the Room-Wallet settlement
+     * path. Commit 43adcb1 removed the constructor initialization of
+     * `_gameEscrowMode`, so Room-Wallet settlements persisted
+     * `request.gameEscrowMode: undefined`: stableStringify (checksum basis)
+     * renders the key while JSON.stringify (atomic write) drops it, and
+     * restore() later throws CorruptedRecordError checksum_mismatch.
+     * Room Wallet is the sole settlement architecture (R18.S72); its
+     * canonical escrow mode is GAME_ESCROW_MODE_GAME — the same value
+     * checksum-valid settlement records already carry.
      */
     _resolveEscrowMode(contract, request = null) {
 
@@ -218,6 +228,14 @@ export class ContractSettlementManager {
         ) {
 
             return fromRequest;
+
+        }
+
+        // Room Wallet is the active settlement path (RoomWalletSettlementRouter):
+        // resolve the canonical GameEscrow-mode constant, never undefined.
+        if (this._isRoomWalletSettlementActive()) {
+
+            return GAME_ESCROW_MODE_GAME;
 
         }
 
