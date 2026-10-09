@@ -17,7 +17,9 @@
  *   K    legacy fully-paid game with a persisted gameplay checkpoint is never
  *        misclassified as a setup-expiry refund after restart;
  *   L    GAME_INITIALIZED is durably marked even if the gameplay checkpoint
- *        has not yet been written.
+ *        has not yet been written;
+ *   M    expired fully-paid setup session with no gameplay evidence remains
+ *        eligible for the legitimate Room Wallet refund path.
  *
  * Mocked TON transactions only. No TESTNET/MAINNET funds.
  */
@@ -617,6 +619,80 @@ test("L: GAME_INITIALIZED marker blocks refund if checkpoint write has not happe
     assert.equal(summary.restored, 0, "GAME_INITIALIZED marker must prevent full-paid refund recovery");
     assert.equal(second.manager.getSession(roomId), null);
     assert.equal(refundCalls.length, 0);
+});
+
+test("M: expired pre-game FULLY_PAID session with no checkpoint remains refundable", async (t) => {
+    const dataDir = mkdtempSync(join(tmpdir(), "ww-pre-game-refund-guard-m-"));
+    const entries = catalog64();
+    const players = threePlayers("m");
+    const roomId = "RGM1";
+    const gameId = "game-m-pre-game-expired";
+    const room = {
+        roomId,
+        roomNumber: 25,
+        gameId,
+        players
+    };
+
+    const first = createHarness({
+        registryEntries: entries,
+        rooms: [room],
+        transport: createRecordingTransport(),
+        dataDir
+    });
+
+    const originalSession = first.manager.getSession(roomId);
+    for (const participant of originalSession.participants) {
+        first.manager.confirmBlockchainPayment(roomId, participant.playerId, {
+            txHash: `tx-m-${participant.playerId}`
+        });
+    }
+    assert.equal(originalSession.status, PAYMENT_SESSION_STATUS.FULLY_PAID);
+
+    finish(first);
+
+    const second = createHarness({
+        registryEntries: entries,
+        rooms: [],
+        transport: createRecordingTransport(),
+        dataDir
+    });
+    t.after(() => {
+        finish(second);
+        TonFinancialPersistence.destroyStorage(dataDir);
+    });
+
+    const refundCalls = [];
+    second.manager.setRoomWalletFinance({
+        settlementAdapter: {
+            async refundPayments(request) {
+                refundCalls.push(request);
+                return {
+                    ok: true,
+                    results: request.refunds.map((refund) => ({
+                        ok: true,
+                        playerId: refund.playerId,
+                        txHash: `mock-refund-${refund.playerId}`
+                    }))
+                };
+            }
+        }
+    });
+
+    // No RoomManager entry and no recovery record means this expired session
+    // never crossed GAME_INITIALIZED; it must not be silently stranded.
+    const summary = await second.manager.restorePaymentSessions();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(summary.restored, 1);
+    assert.equal(refundCalls.length, 1, "legitimate pre-game refund recovery must remain enabled");
+    assert.equal(refundCalls[0].roomNumber, 25);
+    assert.equal(refundCalls[0].refunds.length, 3);
+    assert.equal(
+        second.manager.getSession(roomId).status,
+        PAYMENT_SESSION_STATUS.CANCELLED,
+        "mock-confirmed refunds finalize the expired setup session"
+    );
 });
 
 function createWatchRecordingManager({
