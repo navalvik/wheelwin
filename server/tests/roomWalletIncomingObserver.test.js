@@ -331,7 +331,7 @@ test("TonCenter bounce out_msg is not credited as a Room Wallet payment", (t) =>
         rooms: [{ roomId: "RGFT", roomNumber: 1, gameId: "game-bounce", players }]
     });
 
-    const result = observer.processTransaction({
+    const bouncedTransaction = {
         ...inboundTx({
             hash: "tx-bounced-bob",
             from: players[0].wallet,
@@ -344,13 +344,23 @@ test("TonCenter bounce out_msg is not credited as a Room Wallet payment", (t) =>
             value: "999933333",
             message: "/////w==\n"
         }]
-    }, roomWallet);
+    };
+
+    const result = observer.processTransaction(bouncedTransaction, roomWallet);
 
     assert.equal(result.credited, false);
     assert.equal(
         result.reason,
         ROOM_WALLET_INCOMING_REJECTION_REASONS.FAILED_TRANSACTION
     );
+
+    const repeat = observer.processTransaction(bouncedTransaction, roomWallet);
+    assert.equal(repeat.credited, false);
+    assert.equal(
+        repeat.reason,
+        ROOM_WALLET_INCOMING_REJECTION_REASONS.DUPLICATE_TRANSACTION
+    );
+    assert.equal(repeat.duplicate, true);
 
     const participant = manager.getSession("RGFT").findParticipant(players[0].playerId);
     assert.notEqual(participant.status, PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED);
