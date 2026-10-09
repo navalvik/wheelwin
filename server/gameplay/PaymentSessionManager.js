@@ -2437,7 +2437,7 @@ export class PaymentSessionManager {
                 const isTransientRateLimit = (
                     planResult?.retryable === true
                     && planResult?.code === "PAYOUT_GAS_ESTIMATE_UNAVAILABLE"
-                    && /(?:\\b429\\b|too many requests|rate.?limit|ratelimit exceed)/i.test(
+                    && /(?:429|too many requests|rate.?limit|ratelimit exceed)/i.test(
                         String(planResult?.detail ?? "")
                     )
                 );
