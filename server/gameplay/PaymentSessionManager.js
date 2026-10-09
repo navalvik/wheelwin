@@ -2360,27 +2360,29 @@ export class PaymentSessionManager {
         refundRequestedAt
     }) {
         const adapter = this._roomWalletSettlementAdapter;
-        const existingPlan = session?.recoveryMetadata?.refundPlan ?? null;
-        const uncovered = existingPlan
-            ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(existingPlan, refund))
+        const initialPlan = session?.recoveryMetadata?.refundPlan ?? null;
+        const initialUncovered = initialPlan
+            ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(initialPlan, refund))
             : pendingRefunds;
 
-        if (existingPlan && uncovered.length === 0) {
-            return existingPlan;
+        if (initialPlan && initialUncovered.length === 0) {
+            return initialPlan;
         }
 
         if (typeof adapter?.planRefunds !== "function") {
             return undefined;
         }
 
-        if (uncovered.length === 0) {
-            return existingPlan;
+        if (initialUncovered.length === 0) {
+            return initialPlan;
         }
 
         // At startup several persisted refunds can become eligible at once.
-        // Keep only fee estimation serialized; after each safe, frozen plan is
-        // available, independent Room Wallets can continue through their normal
-        // broadcast/confirmation path without holding this lock.
+        // Serialize fee planning THROUGH persistence of the frozen plan. Re-read
+        // recoveryMetadata after acquiring the queue so a second call for the
+        // same session reuses the first caller's frozen entries instead of
+        // estimating or replacing them again. Broadcasts and confirmations stay
+        // outside this queue.
         const previousPlanning = this._roomWalletRefundPlanningQueue;
         let releasePlanning;
         const planningLock = new Promise((resolve) => {
@@ -2392,9 +2394,23 @@ export class PaymentSessionManager {
         );
         await previousPlanning.catch(() => undefined);
 
-        let planResult;
         try {
+            const existingPlan = session?.recoveryMetadata?.refundPlan ?? null;
+            const uncovered = existingPlan
+                ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(existingPlan, refund))
+                : pendingRefunds;
+
+            if (existingPlan && uncovered.length === 0) {
+                return existingPlan;
+            }
+
+            if (uncovered.length === 0) {
+                return existingPlan;
+            }
+
+            let planResult;
             const maxAttempts = 3;
+
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
                 try {
                     planResult = await adapter.planRefunds({
@@ -2421,7 +2437,7 @@ export class PaymentSessionManager {
                 const isTransientRateLimit = (
                     planResult?.retryable === true
                     && planResult?.code === "PAYOUT_GAS_ESTIMATE_UNAVAILABLE"
-                    && /(?:\b429\b|too many requests|rate.?limit|ratelimit exceed)/i.test(
+                    && /(?:\\b429\\b|too many requests|rate.?limit|ratelimit exceed)/i.test(
                         String(planResult?.detail ?? "")
                     )
                 );
@@ -2439,41 +2455,41 @@ export class PaymentSessionManager {
                 );
                 await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
             }
+
+            if (!planResult?.ok) {
+                // Planning capability absent (mocked/legacy adapter behind the
+                // router): the adapter computes its own plan inside refundPayments
+                // and echoes it for defensive persistence.
+                if (planResult?.capabilityUnavailable === true) {
+                    return undefined;
+                }
+                this._logger?.error?.(
+                    "Room-Wallet refund gas plan unavailable | roomId=" + session.roomId + " | "
+                        + (planResult?.code ?? "unknown")
+                        + (planResult?.detail ? ` | ${planResult.detail}` : "")
+                );
+                return null;
+            }
+
+            const mergedPlan = mergeRefundPlans(existingPlan, planResult.refundPlan);
+
+            session.recoveryMetadata = {
+                ...(session.recoveryMetadata ?? {}),
+                refundPlan: mergedPlan
+            };
+
+            this._persistSession(session, "update");
+
+            this._logger?.info?.(
+                `ROOM_WALLET_REFUND_GAS_PLAN_FROZEN | roomId=${session.roomId} `
+                    + `| entries=${mergedPlan?.entries?.length ?? 0} `
+                    + `| mode=${mergedPlan?.mode ?? "unknown"}`
+            );
+
+            return mergedPlan;
         } finally {
             releasePlanning();
         }
-
-        if (!planResult?.ok) {
-            // Planning capability absent (mocked/legacy adapter behind the
-            // router): the adapter computes its own plan inside refundPayments
-            // and echoes it for defensive persistence.
-            if (planResult?.capabilityUnavailable === true) {
-                return undefined;
-            }
-            this._logger?.error?.(
-                "Room-Wallet refund gas plan unavailable | roomId=" + session.roomId + " | "
-                    + (planResult?.code ?? "unknown")
-                    + (planResult?.detail ? ` | ${planResult.detail}` : "")
-            );
-            return null;
-        }
-
-        const mergedPlan = mergeRefundPlans(existingPlan, planResult.refundPlan);
-
-        session.recoveryMetadata = {
-            ...(session.recoveryMetadata ?? {}),
-            refundPlan: mergedPlan
-        };
-
-        this._persistSession(session, "update");
-
-        this._logger?.info?.(
-            `ROOM_WALLET_REFUND_GAS_PLAN_FROZEN | roomId=${session.roomId} `
-                + `| entries=${mergedPlan?.entries?.length ?? 0} `
-                + `| mode=${mergedPlan?.mode ?? "unknown"}`
-        );
-
-        return mergedPlan;
 
     }
 
