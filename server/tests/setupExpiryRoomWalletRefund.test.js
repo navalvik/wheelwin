@@ -29,6 +29,9 @@ import {
 import { RoomLobbyBridge } from "../socket/RoomLobbyBridge.js";
 import { GameplayContextResolver } from "../socket/GameplayContextResolver.js";
 import { PlayerManager } from "../managers/PlayerManager.js";
+import { RoomWalletRegistry } from "../payment/roomWallet/RoomWalletRegistry.js";
+
+const ROOM_WALLET_ADDRESS = "EQDGQjwaP0OSExa9MfZih61De5TQuUITQPYiYZyfqAFzpvQB";
 
 function createLogger() {
 
@@ -46,12 +49,13 @@ function createLogger() {
  * Build a setup-expiry payment session with `paidCount` confirmed seats.
  * paidCount 3 → FULLY_PAID (all three players paid), otherwise PARTIALLY_PAID.
  */
-function paidSetupSession(roomId, paidCount) {
+function paidSetupSession(roomId, paidCount, { legacyDestinationOnly = false } = {}) {
 
     return new PaymentSession({
-        paymentSessionId: `pay-setup-${paidCount}of3`,
+        paymentSessionId: `pay-setup-${paidCount}of3-${roomId}`,
         roomId,
-        roomNumber: 7,
+        roomNumber: legacyDestinationOnly ? null : 7,
+        roomWalletAddress: legacyDestinationOnly ? null : ROOM_WALLET_ADDRESS,
         gameId: "game-setup",
         status: paidCount === 3
             ? PAYMENT_SESSION_STATUS.FULLY_PAID
@@ -60,6 +64,7 @@ function paidSetupSession(roomId, paidCount) {
             playerId: `p${index + 1}`,
             playerIndex: index,
             wallet: `wallet-${index + 1}`,
+            paymentDestination: ROOM_WALLET_ADDRESS,
             requiredGram: 10,
             status: index < paidCount
                 ? PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
@@ -70,7 +75,11 @@ function paidSetupSession(roomId, paidCount) {
 
 }
 
-function buildStack({ refundThrows = false, refundDefer = false } = {}) {
+function buildStack({
+    refundThrows = false,
+    refundDefer = false,
+    planRefundsHandler = null
+} = {}) {
 
     const logger = createLogger();
     const eventBus = new EventBus({
@@ -185,6 +194,10 @@ function buildStack({ refundThrows = false, refundDefer = false } = {}) {
         }
     };
 
+    if (typeof planRefundsHandler === "function") {
+        roomWalletSettlementAdapter.planRefunds = (request) => planRefundsHandler(request);
+    }
+
     const paymentSessionManager = new PaymentSessionManager({
         logger,
         eventBus,
@@ -198,6 +211,15 @@ function buildStack({ refundThrows = false, refundDefer = false } = {}) {
     });
 
     paymentSessionManager.initialize();
+    paymentSessionManager.setRoomWalletFinance({
+        registry: new RoomWalletRegistry({
+            entries: [{
+                roomNumber: 7,
+                address: ROOM_WALLET_ADDRESS,
+                network: "testnet"
+            }]
+        })
+    });
 
     gameContractManager.setFinancialEvidenceDeps({ paymentSessionManager });
 
@@ -574,6 +596,121 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
 
     console.log("  F. after GAME_INITIALIZED → no refund passed");
 
+}
+
+// G — legacy persisted PaymentSession with no roomNumber / roomWalletAddress:
+// recover the correct wallet from the server-authored participant paymentDestination.
+{
+    const stack = buildStack();
+
+    seedArchivedSetup(stack.setupSessionLifecycle, stack.roomId);
+
+    stack.paymentSessionManager._sessionsByRoom.set(
+        stack.roomId,
+        paidSetupSession(stack.roomId, 3, { legacyDestinationOnly: true })
+    );
+
+    await triggerSetupExpiry(stack);
+
+    assert.equal(stack.refundCalls.length, 1, "legacy fully-paid session refunds once");
+    assert.equal(
+        stack.refundCalls[0].roomNumber,
+        7,
+        "legacy room number is recovered from the persisted Room Wallet destination"
+    );
+
+    stack.shutdown();
+
+    console.log("  G. legacy destination-only session → safe room wallet mapping passed");
+}
+
+// H — simultaneous recovered refunds serialize fee planning and retry transient 429s.
+{
+    let activePlans = 0;
+    let maxActivePlans = 0;
+    let planCalls = 0;
+
+    const makePlan = (refunds) => ({
+        mode: "RECIPIENT_PAYS_GAS",
+        gasPolicyVersion: "test",
+        feeSource: "estimateExternalMessageFee",
+        marginBps: "2000",
+        marginFloorNano: "1000000",
+        entries: refunds.map((refund) => {
+            const grossNano = BigInt(Math.round(Number(refund.amount) * 1_000_000_000));
+            return {
+                playerId: refund.playerId,
+                playerIndex: refund.playerIndex ?? null,
+                wallet: refund.wallet,
+                grossRefundNano: String(grossNano),
+                recipientGasChargeNano: "1000000",
+                recipientTransferAmountNano: String(grossNano - 1_000_000n),
+                feeEvidence: {
+                    inFwdFeeNano: "1",
+                    storageFeeNano: "1",
+                    gasFeeNano: "1",
+                    fwdFeeNano: "1",
+                    totalNano: "4"
+                }
+            };
+        })
+    });
+
+    const stack = buildStack({
+        planRefundsHandler: async (request) => {
+            activePlans += 1;
+            maxActivePlans = Math.max(maxActivePlans, activePlans);
+            planCalls += 1;
+            const call = planCalls;
+            try {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+                if (call === 1) {
+                    return {
+                        ok: false,
+                        retryable: true,
+                        code: "PAYOUT_GAS_ESTIMATE_UNAVAILABLE",
+                        detail: "Request failed with status code 429"
+                    };
+                }
+                return { ok: true, refundPlan: makePlan(request.refunds) };
+            } finally {
+                activePlans -= 1;
+            }
+        }
+    });
+
+    const sessionA = paidSetupSession("legacy-plan-a", 3);
+    const sessionB = paidSetupSession("legacy-plan-b", 3);
+    const pendingA = [{
+        playerId: "p1", playerIndex: 0, wallet: "wallet-1", amount: 10
+    }];
+    const pendingB = [{
+        playerId: "p2", playerIndex: 1, wallet: "wallet-2", amount: 10
+    }];
+
+    const [planA, planB] = await Promise.all([
+        stack.paymentSessionManager._ensureRoomWalletRefundPlanFrozen({
+            session: sessionA,
+            roomNumber: 7,
+            pendingRefunds: pendingA,
+            refundRequestedAt: Date.now()
+        }),
+        stack.paymentSessionManager._ensureRoomWalletRefundPlanFrozen({
+            session: sessionB,
+            roomNumber: 7,
+            pendingRefunds: pendingB,
+            refundRequestedAt: Date.now()
+        })
+    ]);
+
+    assert.equal(maxActivePlans, 1, "fee plans must never run concurrently");
+    assert.equal(planCalls, 3, "one transient 429 is retried before the next plan");
+    assert.ok(planA?.entries?.length === 1, "first refund plan frozen");
+    assert.ok(planB?.entries?.length === 1, "second refund plan frozen");
+
+    stack.shutdown();
+
+    console.log("  H. fee planning serialized and transient 429 retried passed");
 }
 
 console.log("setupExpiryRoomWalletRefund.test.js passed");
