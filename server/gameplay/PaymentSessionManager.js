@@ -148,7 +148,7 @@ export class PaymentSessionManager {
         const suppliedRefundRetryDelays = Array.isArray(roomWalletRefundRetryDelaysMs)
             ? roomWalletRefundRetryDelaysMs
                 .map(Number)
-                .filter((delayMs) => Number.isFinite(delayMs) && delayMs >= 0)
+                .filter((delayMs) => Number.isFinite(delayMs) && delayMs > 0)
             : [];
         this._roomWalletRefundRetryDelaysMs = Object.freeze(
             suppliedRefundRetryDelays.length > 0
