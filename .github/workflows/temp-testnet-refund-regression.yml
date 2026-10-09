@@ -1,0 +1,36 @@
+name: Temporary Testnet Refund Regression
+
+on:
+  push:
+    branches:
+      - fix/testnet-room-wallet-refund-recovery
+
+permissions:
+  contents: read
+
+jobs:
+  room-wallet-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: Test setup-expiry refunds and recovery
+        run: node tests/setupExpiryRoomWalletRefund.test.js
+        working-directory: server
+
+      - name: Test incoming Room Wallet transaction observer
+        run: node tests/roomWalletIncomingObserver.test.js
+        working-directory: server
