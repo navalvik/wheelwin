@@ -13,7 +13,11 @@
  *   H    Room-Wallet-only mode does not create a second BlockchainMonitor
  *        room poller for the same Room Wallet (legacy path still does);
  *   I    PAYMENT_TRANSACTION_CONFIRMED still reaches PaymentSessionManager;
- *   J    simultaneous rooms stay isolated by roomNumber / roomWalletAddress.
+ *   J    simultaneous rooms stay isolated by roomNumber / roomWalletAddress;
+ *   K    legacy fully-paid game with a persisted gameplay checkpoint is never
+ *        misclassified as a setup-expiry refund after restart;
+ *   L    GAME_INITIALIZED is durably marked even if the gameplay checkpoint
+ *        has not yet been written.
  *
  * Mocked TON transactions only. No TESTNET/MAINNET funds.
  */
@@ -479,6 +483,140 @@ test("G: restored active PaymentSession resumes polling its assigned wallet", as
     assert.equal(result.skipped, false);
     assert.equal(result.activeSessions, 1);
     assert.equal(result.walletsPolled, 1);
+});
+
+test("K: historical fully-paid gameplay checkpoint blocks startup refunds", async (t) => {
+    const dataDir = mkdtempSync(join(tmpdir(), "ww-paid-game-refund-guard-k-"));
+    const entries = catalog64();
+    const players = threePlayers("k");
+    const roomId = "RGK1";
+    const gameId = "game-k-paid-and-played";
+    const room = {
+        roomId,
+        roomNumber: 23,
+        gameId,
+        players
+    };
+
+    const first = createHarness({
+        registryEntries: entries,
+        rooms: [room],
+        transport: createRecordingTransport(),
+        dataDir
+    });
+
+    const originalSession = first.manager.getSession(roomId);
+    for (const participant of originalSession.participants) {
+        first.manager.confirmBlockchainPayment(roomId, participant.playerId, {
+            txHash: `tx-k-${participant.playerId}`
+        });
+    }
+    assert.equal(originalSession.status, PAYMENT_SESSION_STATUS.FULLY_PAID);
+
+    finish(first);
+
+    const second = createHarness({
+        registryEntries: entries,
+        rooms: [],
+        transport: createRecordingTransport(),
+        dataDir
+    });
+    t.after(() => {
+        finish(second);
+        TonFinancialPersistence.destroyStorage(dataDir);
+    });
+
+    // Models a legacy successful game: the pre-marker PaymentSession remains
+    // FULLY_PAID, but the durable gameplay recovery record proves it initialized.
+    const originalLoader = second.persistence.loadRecoveryDataRecord.bind(second.persistence);
+    second.persistence.loadRecoveryDataRecord = (recordId) => (
+        recordId === gameId
+            ? { recordId: gameId, status: "TERMINAL", payload: { gameState: "RESULT" } }
+            : originalLoader(recordId)
+    );
+
+    const refundCalls = [];
+    second.manager.setRoomWalletFinance({
+        settlementAdapter: {
+            async refundPayments(request) {
+                refundCalls.push(request);
+                return { ok: false, retryable: true, code: "TEST_SHOULD_NOT_REFUND" };
+            }
+        }
+    });
+
+    const summary = await second.manager.restorePaymentSessions();
+
+    assert.equal(summary.restored, 0, "terminal paid gameplay must not be restored as a refund candidate");
+    assert.equal(second.manager.getSession(roomId), null);
+    assert.equal(refundCalls.length, 0, "a successful game's three stakes must never be automatically refunded");
+});
+
+test("L: GAME_INITIALIZED marker blocks refund if checkpoint write has not happened yet", async (t) => {
+    const dataDir = mkdtempSync(join(tmpdir(), "ww-paid-game-refund-guard-l-"));
+    const entries = catalog64();
+    const players = threePlayers("l");
+    const roomId = "RGL1";
+    const gameId = "game-l-initialized";
+    const room = {
+        roomId,
+        roomNumber: 24,
+        gameId,
+        players
+    };
+
+    const first = createHarness({
+        registryEntries: entries,
+        rooms: [room],
+        transport: createRecordingTransport(),
+        dataDir
+    });
+
+    const originalSession = first.manager.getSession(roomId);
+    for (const participant of originalSession.participants) {
+        first.manager.confirmBlockchainPayment(roomId, participant.playerId, {
+            txHash: `tx-l-${participant.playerId}`
+        });
+    }
+    assert.equal(originalSession.status, PAYMENT_SESSION_STATUS.FULLY_PAID);
+
+    first.eventBus.emit({
+        source: "test",
+        type: EVENT_TYPES.GAME_INITIALIZED,
+        payload: { roomId, gameId }
+    });
+
+    const saved = first.persistence.loadPaymentSession(originalSession.paymentSessionId);
+    assert.equal(saved.payload.recoveryMetadata.gameplayInitializedGameId, gameId);
+
+    finish(first);
+
+    const second = createHarness({
+        registryEntries: entries,
+        rooms: [],
+        transport: createRecordingTransport(),
+        dataDir
+    });
+    t.after(() => {
+        finish(second);
+        TonFinancialPersistence.destroyStorage(dataDir);
+    });
+
+    const refundCalls = [];
+    second.manager.setRoomWalletFinance({
+        settlementAdapter: {
+            async refundPayments(request) {
+                refundCalls.push(request);
+                return { ok: false, retryable: true, code: "TEST_SHOULD_NOT_REFUND" };
+            }
+        }
+    });
+
+    const summary = await second.manager.restorePaymentSessions();
+
+    assert.equal(summary.restored, 0, "GAME_INITIALIZED marker must prevent full-paid refund recovery");
+    assert.equal(second.manager.getSession(roomId), null);
+    assert.equal(refundCalls.length, 0);
 });
 
 function createWatchRecordingManager({
