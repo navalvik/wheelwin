@@ -802,4 +802,37 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
     console.log("  I. transient refund failure → automatic in-process retry passed");
 }
 
+// J — permanent settlement-safety rejection must not enter the retry loop.
+{
+    const stack = buildStack({
+        refundPaymentsHandler: async () => ({
+            ok: false,
+            retryable: false,
+            code: "PAYOUT_PLAN_MISMATCH",
+            results: []
+        })
+    });
+
+    const session = paidSetupSession(stack.roomId, 2);
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "setup_expired"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.REFUND_PENDING);
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryTimers.has(stack.roomId),
+        false,
+        "non-retryable safety failures must not schedule a background retry"
+    );
+
+    stack.shutdown();
+
+    console.log("  J. non-retryable settlement rejection → no automatic retry passed");
+}
+
 console.log("setupExpiryRoomWalletRefund.test.js passed");
