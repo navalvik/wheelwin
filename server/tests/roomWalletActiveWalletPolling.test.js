@@ -679,8 +679,8 @@ test("M: expired pre-game FULLY_PAID session with no checkpoint remains refundab
         }
     });
 
-    // No RoomManager entry and no recovery record means this expired session
-    // never crossed GAME_INITIALIZED; it must not be silently stranded.
+    // No RoomManager entry or recovery record leaves this legacy session on the
+    // pre-game refund-recovery path; it must not be silently stranded.
     const summary = await second.manager.restorePaymentSessions();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
