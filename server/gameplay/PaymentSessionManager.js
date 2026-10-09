@@ -2421,6 +2421,15 @@ export class PaymentSessionManager {
             refundRequestedAt
         });
 
+        if (refundPlan?.planFailure === true) {
+            return Object.freeze({
+                ok: false,
+                retryable: refundPlan.retryable === true,
+                code: refundPlan.code ?? "ROOM_WALLET_REFUND_PLAN_UNAVAILABLE",
+                detail: refundPlan.detail ?? null
+            });
+        }
+
         if (refundPlan === null) {
             return Object.freeze({
                 ok: false,
@@ -2500,10 +2509,13 @@ export class PaymentSessionManager {
             this._finalizePartialPaymentUnwind(session);
         }
 
+        const allRefunded = allConfirmedParticipantsRefunded(session);
+        const succeeded = result?.ok === true && allRefunded;
+
         return Object.freeze({
-            ok: result?.ok === true && allConfirmedParticipantsRefunded(session),
-            retryable: result?.ok !== true,
-            code: result?.ok === true
+            ok: succeeded,
+            retryable: result?.retryable ?? !succeeded,
+            code: succeeded
                 ? "ROOM_WALLET_REFUNDS_CONFIRMED"
                 : "ROOM_WALLET_REFUND_PENDING",
             result
@@ -2589,11 +2601,15 @@ export class PaymentSessionManager {
                         cutoffUtime: refundRequestedAt
                     });
                 } catch (error) {
+                    const detail = error?.message ?? String(error);
+                    const retryable = /(?:429|too many requests|rate.?limit|ratelimit exceed|network|timeout|econn|fetch failed|http 5(?:02|03|04))/i
+                        .test(String(detail));
+
                     planResult = {
                         ok: false,
-                        retryable: true,
+                        retryable,
                         code: "PAYOUT_GAS_ESTIMATE_UNAVAILABLE",
-                        detail: error?.message ?? String(error)
+                        detail
                     };
                 }
 
@@ -2638,7 +2654,12 @@ export class PaymentSessionManager {
                         + (planResult?.code ?? "unknown")
                         + (planResult?.detail ? ` | ${planResult.detail}` : "")
                 );
-                return null;
+                return Object.freeze({
+                    planFailure: true,
+                    retryable: planResult?.retryable === true,
+                    code: planResult?.code ?? "PAYOUT_GAS_ESTIMATE_UNAVAILABLE",
+                    detail: planResult?.detail ?? null
+                });
             }
 
             const mergedPlan = mergeRefundPlans(existingPlan, planResult.refundPlan);
