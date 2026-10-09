@@ -95,7 +95,8 @@ export class PaymentSessionManager {
         tonNetwork = null,
         devMode = false,
         roomWalletPaymentIntakeEnabled = false,
-        roomWalletSettlementAdapter = null
+        roomWalletSettlementAdapter = null,
+        roomWalletRefundRetryDelaysMs = null
     }) {
 
         this._logger = logger;
@@ -143,6 +144,20 @@ export class PaymentSessionManager {
         // trigger provider HTTP 429s and leave every affected refund pending.
         // This lock covers planning only, not on-chain broadcasts/confirmations.
         this._roomWalletRefundPlanningQueue = Promise.resolve();
+
+        const suppliedRefundRetryDelays = Array.isArray(roomWalletRefundRetryDelaysMs)
+            ? roomWalletRefundRetryDelaysMs
+                .map(Number)
+                .filter((delayMs) => Number.isFinite(delayMs) && delayMs >= 0)
+            : [];
+        this._roomWalletRefundRetryDelaysMs = Object.freeze(
+            suppliedRefundRetryDelays.length > 0
+                ? suppliedRefundRetryDelays
+                : [2_000, 5_000, 15_000, 30_000, 60_000]
+        );
+        this._roomWalletRefundRetryTimers = new Map();
+        this._roomWalletRefundRetryAttempts = new Map();
+        this._roomWalletRefundInFlight = new Map();
 
         this._sessionsByRoom = new Map();
 
@@ -1583,6 +1598,7 @@ export class PaymentSessionManager {
         }
 
         this._clearExpiry(session.roomId);
+        this._clearRoomWalletRefundRetry(session.roomId, true);
 
         this._blockchainMonitor?.stopRoom?.(session.roomId);
 
@@ -2128,7 +2144,161 @@ export class PaymentSessionManager {
 
     }
 
-    async _requestRoomWalletPartialPaymentRefund(session, reason = "payment_failed") {
+    _requestRoomWalletPartialPaymentRefund(session, reason = "payment_failed") {
+
+        if (!session?.roomId) {
+
+            return this._performRoomWalletPartialPaymentRefund(session, reason);
+
+        }
+
+        const roomId = session.roomId;
+        const existing = this._roomWalletRefundInFlight.get(roomId);
+
+        if (existing) {
+
+            return existing;
+
+        }
+
+        // An explicit caller may arrive before a scheduled backoff. Cancel the
+        // timer but preserve the attempt count until the refund completes.
+        this._clearRoomWalletRefundRetry(roomId, false);
+
+        let operation;
+        operation = (async () => {
+
+            try {
+
+                const result = await this._performRoomWalletPartialPaymentRefund(
+                    session,
+                    reason
+                );
+
+                if (result?.retryable === true) {
+
+                    this._scheduleRoomWalletRefundRetry(session, reason);
+
+                } else if (result?.ok === true) {
+
+                    this._clearRoomWalletRefundRetry(roomId, true);
+
+                }
+
+                return result;
+
+            } catch (error) {
+
+                this._scheduleRoomWalletRefundRetry(session, reason);
+
+                throw error;
+
+            } finally {
+
+                if (this._roomWalletRefundInFlight.get(roomId) === operation) {
+
+                    this._roomWalletRefundInFlight.delete(roomId);
+
+                }
+
+            }
+
+        })();
+
+        this._roomWalletRefundInFlight.set(roomId, operation);
+
+        return operation;
+
+    }
+
+    _scheduleRoomWalletRefundRetry(session, reason = "payment_failed") {
+
+        const roomId = session?.roomId;
+
+        if (
+            !roomId
+            || !this._initialized
+            || this._sessionsByRoom.get(roomId) !== session
+            || session.status !== PAYMENT_SESSION_STATUS.REFUND_PENDING
+            || this._roomWalletRefundRetryTimers.has(roomId)
+        ) {
+
+            return;
+
+        }
+
+        const attempt = Math.min(
+            this._roomWalletRefundRetryDelaysMs.length,
+            (this._roomWalletRefundRetryAttempts.get(roomId) ?? 0) + 1
+        );
+        const delayMs = this._roomWalletRefundRetryDelaysMs[attempt - 1];
+
+        this._roomWalletRefundRetryAttempts.set(roomId, attempt);
+
+        const timer = setTimeout(() => {
+
+            this._roomWalletRefundRetryTimers.delete(roomId);
+
+            const current = this._sessionsByRoom.get(roomId);
+
+            if (
+                !current
+                || current.status !== PAYMENT_SESSION_STATUS.REFUND_PENDING
+            ) {
+
+                this._roomWalletRefundRetryAttempts.delete(roomId);
+
+                return;
+
+            }
+
+            void this._requestRoomWalletPartialPaymentRefund(
+                current,
+                current.recoveryMetadata?.unwindReason ?? reason
+            ).catch((error) => {
+
+                this._logger?.error?.(
+                    "Room-Wallet scheduled refund retry failed | roomId=" + roomId + " | "
+                        + (error?.message ?? error)
+                );
+
+            });
+
+        }, delayMs);
+
+        timer.unref?.();
+
+        this._roomWalletRefundRetryTimers.set(roomId, timer);
+
+        this._logger?.warn?.(
+            "ROOM_WALLET_REFUND_RETRY_SCHEDULED | roomId=" + roomId
+                + " | attempt=" + attempt
+                + " | retryAfterMs=" + delayMs
+        );
+
+    }
+
+    _clearRoomWalletRefundRetry(roomId, clearAttempts = true) {
+
+        const timer = this._roomWalletRefundRetryTimers.get(roomId);
+
+        if (timer) {
+
+            clearTimeout(timer);
+
+            this._roomWalletRefundRetryTimers.delete(roomId);
+
+        }
+
+        if (clearAttempts) {
+
+            this._roomWalletRefundRetryAttempts.delete(roomId);
+
+        }
+
+    }
+
+    async _performRoomWalletPartialPaymentRefund(session, reason = "payment_failed") {
 
         if (
             !session
@@ -3439,6 +3609,14 @@ export class PaymentSessionManager {
             this._clearExpiry(roomId);
 
         }
+
+        for (const roomId of [...this._roomWalletRefundRetryTimers.keys()]) {
+
+            this._clearRoomWalletRefundRetry(roomId, true);
+
+        }
+
+        this._roomWalletRefundRetryAttempts.clear();
 
         this._sessionsByRoom.clear();
 
