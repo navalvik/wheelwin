@@ -138,6 +138,12 @@ export class PaymentSessionManager {
 
         this._roomWalletRegistry = null;
 
+        // R18 — Serialize fee-plan estimation across restored refunds. A process restart
+        // can discover many expired sessions at once; parallel TON fee estimates
+        // trigger provider HTTP 429s and leave every affected refund pending.
+        // This lock covers planning only, not on-chain broadcasts/confirmations.
+        this._roomWalletRefundPlanningQueue = Promise.resolve();
+
         this._sessionsByRoom = new Map();
 
         this._roomByGameId = new Map();
@@ -2164,9 +2170,60 @@ export class PaymentSessionManager {
         this._persistSession(session, "update");
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
-        const roomWalletAddress = session.roomWalletAddress
-            ?? session.participants?.find((participant) => participant?.contractAddress)?.contractAddress
-            ?? null;
+        const sessionRoomWalletAddress = typeof session.roomWalletAddress === "string"
+            ? session.roomWalletAddress.trim()
+            : "";
+
+        // Legacy Room-Wallet sessions may predate roomNumber / roomWalletAddress
+        // being persisted on the session itself. Every participant payment request
+        // still records the server-selected paymentDestination. Recover the wallet
+        // number from that persisted destination, but fail closed if destinations
+        // disagree (or disagree with the session-level authoritative address).
+        const participantPaymentDestinations = (session.participants ?? [])
+            .map((participant) => (
+                typeof participant?.paymentDestination === "string"
+                    ? participant.paymentDestination.trim()
+                    : ""
+            ))
+            .filter(Boolean);
+
+        const firstParticipantDestination = participantPaymentDestinations[0] ?? null;
+        const participantDestinationsAgree = firstParticipantDestination != null
+            && participantPaymentDestinations.every((destination) => (
+                tonWalletAccountsEqual(destination, firstParticipantDestination)
+            ));
+        const sessionDestinationConflict = Boolean(
+            sessionRoomWalletAddress
+            && participantPaymentDestinations.length > 0
+            && !participantPaymentDestinations.every((destination) => (
+                tonWalletAccountsEqual(destination, sessionRoomWalletAddress)
+            ))
+        );
+
+        if (
+            participantPaymentDestinations.length > 0
+            && (!participantDestinationsAgree || sessionDestinationConflict)
+        ) {
+            this._logger?.error?.(
+                "Room-Wallet refund blocked: conflicting payment destinations | roomId="
+                    + session.roomId
+            );
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_DESTINATION_MISMATCH"
+            });
+        }
+
+        // contractAddress remains a last-resort compatibility source only for
+        // historical records that do not retain paymentDestination.
+        const legacyContractAddress = participantPaymentDestinations.length === 0
+            ? session.participants?.find((participant) => participant?.contractAddress)?.contractAddress
+            : null;
+        const roomWalletAddress = sessionRoomWalletAddress
+            || firstParticipantDestination
+            || legacyContractAddress
+            || null;
 
         const roomNumber = session.roomNumber
             ?? this._roomWalletRegistry?.getByAddress?.(roomWalletAddress)?.roomNumber
@@ -2320,19 +2377,70 @@ export class PaymentSessionManager {
             return existingPlan;
         }
 
+        // At startup several persisted refunds can become eligible at once.
+        // Keep only fee estimation serialized; after each safe, frozen plan is
+        // available, independent Room Wallets can continue through their normal
+        // broadcast/confirmation path without holding this lock.
+        const previousPlanning = this._roomWalletRefundPlanningQueue;
+        let releasePlanning;
+        const planningLock = new Promise((resolve) => {
+            releasePlanning = resolve;
+        });
+        this._roomWalletRefundPlanningQueue = previousPlanning.then(
+            () => planningLock,
+            () => planningLock
+        );
+        await previousPlanning.catch(() => undefined);
+
         let planResult;
         try {
-            planResult = await adapter.planRefunds({
-                roomNumber,
-                refunds: uncovered,
-                cutoffUtime: refundRequestedAt
-            });
-        } catch (error) {
-            this._logger?.error?.(
-                "Room-Wallet refund gas plan failed | roomId=" + session.roomId + " | "
-                    + (error?.message ?? error)
-            );
-            return null;
+            const maxAttempts = 3;
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                try {
+                    planResult = await adapter.planRefunds({
+                        roomNumber,
+                        refunds: uncovered,
+                        cutoffUtime: refundRequestedAt
+                    });
+                } catch (error) {
+                    planResult = {
+                        ok: false,
+                        retryable: true,
+                        code: "PAYOUT_GAS_ESTIMATE_UNAVAILABLE",
+                        detail: error?.message ?? String(error)
+                    };
+                }
+
+                if (
+                    planResult?.ok === true
+                    || planResult?.capabilityUnavailable === true
+                ) {
+                    break;
+                }
+
+                const isTransientRateLimit = (
+                    planResult?.retryable === true
+                    && planResult?.code === "PAYOUT_GAS_ESTIMATE_UNAVAILABLE"
+                    && /(?:\b429\b|too many requests|rate.?limit|ratelimit exceed)/i.test(
+                        String(planResult?.detail ?? "")
+                    )
+                );
+
+                if (!isTransientRateLimit || attempt === maxAttempts) {
+                    break;
+                }
+
+                const retryDelayMs = attempt === 1 ? 1_000 : 3_000;
+                this._logger?.warn?.(
+                    "Room-Wallet refund fee estimation rate limited | roomId="
+                        + session.roomId
+                        + " | attempt=" + attempt + "/" + maxAttempts
+                        + " | retryAfterMs=" + retryDelayMs
+                );
+                await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+            }
+        } finally {
+            releasePlanning();
         }
 
         if (!planResult?.ok) {
