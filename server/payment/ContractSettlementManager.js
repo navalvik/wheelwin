@@ -221,6 +221,14 @@ export class ContractSettlementManager {
 
         }
 
+        // Room Wallet is the active settlement path (RoomWalletSettlementRouter):
+        // resolve the canonical GameEscrow-mode constant, never undefined.
+        if (this._isRoomWalletSettlementActive()) {
+
+            return GAME_ESCROW_MODE_GAME;
+
+        }
+
         return this._gameEscrowMode;
 
     }
