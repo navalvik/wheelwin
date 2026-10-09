@@ -971,7 +971,7 @@ export class PaymentSessionManager {
 
                 // A persisted FULLY_PAID session is terminal by design. Only consider
                 // auto-refund when the payment deadline has expired (or its room is
-                // gone) AND there is positive evidence that gameplay never initialized.
+                // gone) and no durable gameplay-initialization evidence is available.
                 // A durable recovery checkpoint or GAME_INITIALIZED marker means the
                 // funds belong to gameplay/settlement and must never be auto-refunded.
                 const hasUnrefundedFullyPaidFunds =
