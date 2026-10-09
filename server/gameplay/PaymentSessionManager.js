@@ -314,6 +314,14 @@ export class PaymentSessionManager {
             (envelope) => this._handleBlockchainRejected(envelope.payload)
         );
 
+        // Financial safety: persist a durable marker as soon as gameplay crosses
+        // GAME_INITIALIZED. A FULLY_PAID session is not a refund candidate after
+        // this point, even if the process restarts before the RESULT checkpoint.
+        this._subscribe(
+            EVENT_TYPES.GAME_INITIALIZED,
+            (envelope) => this._handleGameInitialized(envelope.payload)
+        );
+
         this._subscribe(
             EVENT_TYPES.ROOM_DESTROYED,
             (envelope) => {
@@ -805,6 +813,120 @@ export class PaymentSessionManager {
 
     }
 
+    /**
+     * Returns true when durable evidence proves this game's gameplay lifecycle
+     * initialized, false only when the recovery record is definitely absent,
+     * and null when absence cannot be safely established.
+     *
+     * This method is deliberately fail-closed: a failed/unavailable lookup
+     * must not authorize an automatic refund of a terminal FULLY_PAID session.
+     */
+    _hasPersistedGameplayInitializationEvidence(session) {
+
+        const metadata = session?.recoveryMetadata ?? {};
+
+        if (
+            session?.gameId
+            && metadata.gameplayInitializedGameId === session.gameId
+            && Number.isFinite(Number(metadata.gameplayInitializedAt))
+        ) {
+
+            return true;
+
+        }
+
+        const loader = this._financialPersistence?.loadRecoveryDataRecord;
+
+        if (!session?.gameId || typeof loader !== "function") {
+
+            return null;
+
+        }
+
+        try {
+
+            return Boolean(loader.call(this._financialPersistence, session.gameId));
+
+        } catch (error) {
+
+            if (
+                error?.name === "RecordNotFoundError"
+                || error?.code === "RECORD_NOT_FOUND"
+            ) {
+
+                return false;
+
+            }
+
+            this._logger?.error?.(
+                "Room-Wallet gameplay-evidence lookup failed; refund recovery blocked"
+                    + " | roomId=" + session.roomId
+                    + " | " + (error?.message ?? String(error))
+            );
+
+            return null;
+
+        }
+
+    }
+
+    /**
+     * Persist GAME_INITIALIZED against the authoritative payment session before
+     * any later teardown can erase the in-memory reference. This is financial
+     * recovery metadata only; it does not change gameplay or payment status.
+     */
+    _handleGameInitialized(payload) {
+
+        const roomId = payload?.roomId;
+        const gameId = payload?.gameId;
+
+        if (!roomId || !gameId) {
+
+            return;
+
+        }
+
+        const session = this._sessionsByRoom.get(roomId);
+
+        if (!session || String(session.gameId ?? "") !== String(gameId)) {
+
+            return;
+
+        }
+
+        const metadata = session.recoveryMetadata ?? {};
+
+        if (
+            metadata.gameplayInitializedGameId === session.gameId
+            && Number.isFinite(Number(metadata.gameplayInitializedAt))
+        ) {
+
+            return;
+
+        }
+
+        session.recoveryMetadata = {
+            ...metadata,
+            gameplayInitializedGameId: session.gameId,
+            gameplayInitializedAt: Date.now()
+        };
+
+        try {
+
+            this._persistSession(session, "update");
+
+        } catch (error) {
+
+            this._logger?.error?.(
+                "PaymentSession GAME_INITIALIZED marker persistence failed"
+                    + " | roomId=" + roomId
+                    + " | " + (error?.message ?? String(error))
+            );
+
+        }
+
+    }
+
     restorePaymentSessions() {
 
         this._assertInitialized();
@@ -847,13 +969,46 @@ export class PaymentSessionManager {
                 // R7.69C — restore CANCELLED sessions for refund sync / watch recovery.
                 const isCancelled = session.status === PAYMENT_SESSION_STATUS.CANCELLED;
 
-                // Room-Wallet refund recovery — a persisted FULLY_PAID session that
-                // still holds unrefunded paid funds must survive the terminal skip
-                // so its pending refunds can be re-requested below.
-                const refundableRestoredFullyPaid =
+                // A persisted FULLY_PAID session is terminal by design. Only consider
+                // auto-refund when the payment deadline has expired (or its room is
+                // gone) AND there is positive evidence that gameplay never initialized.
+                // A durable recovery checkpoint or GAME_INITIALIZED marker means the
+                // funds belong to gameplay/settlement and must never be auto-refunded.
+                const hasUnrefundedFullyPaidFunds =
                     this._roomWalletPaymentIntakeEnabled
                     && session.status === PAYMENT_SESSION_STATUS.FULLY_PAID
                     && sessionHasUnrefundedPaidFunds(session);
+
+                const fullyPaidRecoveryExpired = (
+                    Number(session.paymentDeadline ?? 0) <= Date.now()
+                    || !this._roomManager?.getRoom?.(session.roomId)
+                );
+
+                const gameplayInitializationEvidence = hasUnrefundedFullyPaidFunds
+                    && fullyPaidRecoveryExpired
+                    ? this._hasPersistedGameplayInitializationEvidence(session)
+                    : null;
+
+                const refundableRestoredFullyPaid = Boolean(
+                    hasUnrefundedFullyPaidFunds
+                    && fullyPaidRecoveryExpired
+                    && gameplayInitializationEvidence === false
+                );
+
+                if (
+                    hasUnrefundedFullyPaidFunds
+                    && fullyPaidRecoveryExpired
+                    && gameplayInitializationEvidence !== false
+                ) {
+                    this._logger?.warn?.(
+                        "Room-Wallet FULLY_PAID recovery skipped: gameplay ownership is "
+                            + "present or cannot be disproven | roomId=" + session.roomId
+                            + " | evidence="
+                            + (gameplayInitializationEvidence === true
+                                ? "GAMEPLAY_INITIALIZED"
+                                : "UNKNOWN")
+                    );
+                }
 
                 if (session.isTerminal() && !isCancelled && !refundableRestoredFullyPaid) {
 
