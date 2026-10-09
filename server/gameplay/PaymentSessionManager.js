@@ -2529,8 +2529,10 @@ export class PaymentSessionManager {
      *
      * Semantics of the return value:
      * - frozen plan object  → pass it to the adapter (exact persisted values)
-     * - null                → the adapter HAS plan capability but planning
-     *                         failed: fail closed, no refund broadcast
+     * - planFailure object  → the adapter HAS plan capability but planning
+     *                         failed; retryability/code are propagated and no
+     *                         refund broadcast occurs
+     * - null                → legacy defensive failure result; fail closed
      * - undefined           → the adapter has no plan capability (mocked or
      *                         legacy caller paths): the adapter computes its
      *                         own plan inside refundPayments and echoes it
