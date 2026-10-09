@@ -78,7 +78,9 @@ function paidSetupSession(roomId, paidCount, { legacyDestinationOnly = false } =
 function buildStack({
     refundThrows = false,
     refundDefer = false,
-    planRefundsHandler = null
+    planRefundsHandler = null,
+    refundPaymentsHandler = null,
+    roomWalletRefundRetryDelaysMs = null
 } = {}) {
 
     const logger = createLogger();
@@ -173,6 +175,16 @@ function buildStack({
 
             refundCalls.push(request);
 
+            if (typeof refundPaymentsHandler === "function") {
+
+                return await refundPaymentsHandler(
+                    request,
+                    refundCalls.length,
+                    buildRefundResult
+                );
+
+            }
+
             if (refundThrows) {
 
                 throw new Error("refund_broadcast_failed");
@@ -207,7 +219,8 @@ function buildStack({
         blockchainMonitor,
         devMode: false,
         roomWalletPaymentIntakeEnabled: true,
-        roomWalletSettlementAdapter
+        roomWalletSettlementAdapter,
+        roomWalletRefundRetryDelaysMs
     });
 
     paymentSessionManager.initialize();
@@ -311,6 +324,24 @@ function seedArchivedSetup(lifecycle, roomId) {
 async function waitForAsync() {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
+
+}
+
+async function waitUntil(predicate, timeoutMs = 1_000) {
+
+    const deadline = Date.now() + timeoutMs;
+
+    while (!predicate()) {
+
+        if (Date.now() >= deadline) {
+
+            throw new Error("waitUntil timed out");
+
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 5));
+
+    }
 
 }
 
@@ -714,6 +745,61 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
     stack.shutdown();
 
     console.log("  H. fee planning serialized and transient 429 retried passed");
+}
+
+// I — retryable Room Wallet refund failures retry in-process without a restart.
+{
+    let failFirstRefund = true;
+
+    const stack = buildStack({
+        roomWalletRefundRetryDelaysMs: [5],
+        refundPaymentsHandler: async (request, callNumber, buildRefundResult) => {
+            if (failFirstRefund) {
+                failFirstRefund = false;
+                throw new Error("temporary_rpc_unavailable");
+            }
+            return buildRefundResult();
+        }
+    });
+
+    const session = paidSetupSession(stack.roomId, 2);
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const first = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "setup_expired"
+    );
+
+    assert.equal(first.ok, false);
+    assert.equal(first.retryable, true);
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.REFUND_PENDING);
+    assert.equal(stack.refundCalls.length, 1);
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryTimers.has(stack.roomId),
+        true,
+        "a retry timer is registered after the transient failure"
+    );
+
+    await waitUntil(() => session.status === PAYMENT_SESSION_STATUS.CANCELLED);
+
+    assert.equal(stack.refundCalls.length, 2, "refund retried without server restart");
+    assert.equal(session.findParticipant("p1").refunded, true);
+    assert.equal(session.findParticipant("p2").refunded, true);
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryTimers.has(stack.roomId),
+        false,
+        "successful retry clears its timer"
+    );
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryAttempts.has(stack.roomId),
+        false,
+        "successful retry clears retry attempt state"
+    );
+
+    stack.shutdown();
+
+    assert.equal(stack.paymentSessionManager._roomWalletRefundRetryTimers.size, 0);
+    console.log("  I. transient refund failure → automatic in-process retry passed");
 }
 
 console.log("setupExpiryRoomWalletRefund.test.js passed");
