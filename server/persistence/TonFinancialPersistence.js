@@ -6,6 +6,7 @@
  */
 
 import {
+    copyFileSync,
     mkdirSync,
     readFileSync,
     readdirSync,
@@ -35,6 +36,7 @@ import {
 import {
     buildRecordEnvelope,
     cloneEnvelopeForUpdate,
+    computePayloadChecksum,
     resolveRecordId,
     validateRecordEnvelope
 } from "./tonFinancialRecordUtils.js";
@@ -387,9 +389,31 @@ export class TonFinancialPersistence {
 
                 try {
 
-                    const envelope = this._readEnvelopeFile(filePath);
+                    let envelope = this._readEnvelopeFile(filePath);
 
-                    const validationErrors = validateRecordEnvelope(envelope);
+                    let validationErrors = validateRecordEnvelope(envelope);
+
+                    // Migrate only the checksum pattern proven to result from
+                    // JSON.stringify dropping request.gameEscrowMode: undefined.
+                    // Any other checksum mismatch remains fail-closed.
+                    if (
+                        validationErrors.length === 1
+                        && validationErrors[0] === "checksum_mismatch"
+                    ) {
+
+                        const repairedEnvelope = this._repairLegacyRoomWalletEscrowModeRecord(
+                            envelope,
+                            filePath
+                        );
+
+                        if (repairedEnvelope) {
+
+                            envelope = repairedEnvelope;
+                            validationErrors = validateRecordEnvelope(envelope);
+
+                        }
+
+                    }
 
                     if (validationErrors.length > 0) {
 
@@ -1324,6 +1348,100 @@ export class TonFinancialPersistence {
             throw new CorruptedRecordError("manifest", "manifest", error?.message ?? "parse_failed");
 
         }
+
+    }
+
+    /**
+     * One-time recovery for the exact Room-Wallet settlement checksum defect:
+     * the checksum was calculated while request.gameEscrowMode was undefined,
+     * but JSON.stringify omitted that key on disk. We prove that exact legacy
+     * payload reproduces the stored checksum before changing anything.
+     *
+     * A byte-for-byte backup is created before the atomic rewrite. Any payload
+     * that does not match this exact signature remains corrupted and fail-closed.
+     */
+    _repairLegacyRoomWalletEscrowModeRecord(envelope, filePath) {
+
+        if (envelope?.recordType !== TON_FINANCIAL_RECORD_TYPES.SETTLEMENT) {
+
+            return null;
+
+        }
+
+        const payload = envelope?.payload;
+        const request = payload?.request;
+
+        if (
+            !payload
+            || typeof payload !== "object"
+            || !request
+            || typeof request !== "object"
+            || Array.isArray(request)
+            || Object.prototype.hasOwnProperty.call(request, "gameEscrowMode")
+        ) {
+
+            return null;
+
+        }
+
+        // Reconstruct the exact pre-serialization shape. If this checksum does
+        // not match, this is NOT the known defect and the record is untouched.
+        const legacyPayload = {
+            ...payload,
+            request: {
+                ...request,
+                gameEscrowMode: undefined
+            }
+        };
+
+        if (computePayloadChecksum(legacyPayload) !== envelope.checksum) {
+
+            return null;
+
+        }
+
+        // "game" is the canonical GameEscrow mode for the Room-Wallet path.
+        const repairedPayload = {
+            ...payload,
+            request: {
+                ...request,
+                gameEscrowMode: "game"
+            }
+        };
+
+        const repairedEnvelope = {
+            ...envelope,
+            payload: repairedPayload,
+            checksum: computePayloadChecksum(repairedPayload)
+        };
+
+        const validationErrors = validateRecordEnvelope(repairedEnvelope);
+
+        if (validationErrors.length > 0) {
+
+            throw new CorruptedRecordError(
+                envelope.recordType,
+                envelope.recordId,
+                `legacy_room_wallet_escrow_mode_repair_invalid:${validationErrors.join(",")}`
+            );
+
+        }
+
+        const backupPath = `${filePath}.pre-room-wallet-escrow-repair-${process.pid}-${Date.now()}.bak`;
+
+        // Preserve the exact source bytes before replacing the persisted record.
+        copyFileSync(filePath, backupPath);
+        this._writeJsonAtomic(filePath, repairedEnvelope);
+
+        this._logInfo(
+            "TonFinancialPersistence repaired legacy Room-Wallet settlement escrow mode"
+                + ` | recordId=${envelope.recordId}`
+                + ` | backup=${backupPath}`
+                + ` | oldChecksum=${envelope.checksum}`
+                + ` | newChecksum=${repairedEnvelope.checksum}`
+        );
+
+        return repairedEnvelope;
 
     }
 
