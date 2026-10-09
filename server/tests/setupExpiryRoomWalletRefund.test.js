@@ -679,8 +679,10 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
         }
     });
 
-    const sessionA = paidSetupSession("legacy-plan-a", 3);
-    const sessionB = paidSetupSession("legacy-plan-b", 3);
+    // Both calls target the same persisted session, as can occur when setup
+    // expiry and startup recovery converge. The second call must reuse the first
+    // frozen entry and estimate only the uncovered refund entry.
+    const sharedSession = paidSetupSession("same-session", 3);
     const pendingA = [{
         playerId: "p1", playerIndex: 0, wallet: "wallet-1", amount: 10
     }];
@@ -690,13 +692,13 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
 
     const [planA, planB] = await Promise.all([
         stack.paymentSessionManager._ensureRoomWalletRefundPlanFrozen({
-            session: sessionA,
+            session: sharedSession,
             roomNumber: 7,
             pendingRefunds: pendingA,
             refundRequestedAt: Date.now()
         }),
         stack.paymentSessionManager._ensureRoomWalletRefundPlanFrozen({
-            session: sessionB,
+            session: sharedSession,
             roomNumber: 7,
             pendingRefunds: pendingB,
             refundRequestedAt: Date.now()
@@ -704,9 +706,10 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
     ]);
 
     assert.equal(maxActivePlans, 1, "fee plans must never run concurrently");
-    assert.equal(planCalls, 3, "one transient 429 is retried before the next plan");
+    assert.equal(planCalls, 3, "one transient 429 is retried before next entry planning");
     assert.ok(planA?.entries?.length === 1, "first refund plan frozen");
-    assert.ok(planB?.entries?.length === 1, "second refund plan frozen");
+    assert.ok(planB?.entries?.length === 2, "second call reuses frozen entry and adds only uncovered refund");
+    assert.equal(sharedSession.recoveryMetadata.refundPlan.entries.length, 2);
 
     stack.shutdown();
 
