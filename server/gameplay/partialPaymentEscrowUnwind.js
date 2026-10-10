@@ -80,7 +80,7 @@ export function buildRefundQueryId(session, participant, seat) {
     }
 
     const digest = createHash("sha256")
-        .update("wheelwin:room-wallet-refund:v1\\0")
+        .update("wheelwin:room-wallet-refund:v1|")
         .update(JSON.stringify([intentId, playerId, playerIndex, wallet]))
         .digest("hex")
         .slice(0, 16);
