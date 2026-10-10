@@ -685,11 +685,23 @@ export class RoomWalletSettlementAdapter {
                 });
             }
 
+            let queryId;
+            try {
+                queryId = normalizeRefundQueryId(target?.queryId);
+            } catch (error) {
+                return Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "INVALID_REFUND_QUERY_ID",
+                    detail: error?.message ?? String(error)
+                });
+            }
+
             const fee = await this._estimateTransferFee({
                 roomNumber: normalizedRoomNumber,
                 destination: wallet,
                 amountNano,
-                queryId: target?.queryId ?? null
+                queryId
             });
 
             if (!fee.ok) {
@@ -721,6 +733,7 @@ export class RoomWalletSettlementAdapter {
                 playerId: target?.playerId ?? null,
                 playerIndex: target?.playerIndex ?? null,
                 wallet,
+                queryId,
                 grossRefundNano: nanoToPersistedString(amountNano),
                 recipientGasChargeNano: nanoToPersistedString(entry.recipientGasChargeNano),
                 recipientTransferAmountNano: nanoToPersistedString(entry.recipientTransferAmountNano),
@@ -765,6 +778,7 @@ export class RoomWalletSettlementAdapter {
      */
     async refundPayments({
         roomNumber,
+        paymentSessionId = null,
         refunds = [],
         refundPlan = null,
         cutoffUtime = null,
@@ -875,11 +889,29 @@ export class RoomWalletSettlementAdapter {
                 continue;
             }
 
+            const queryId = entry.queryId ?? target?.queryId ?? null;
+            if (
+                target?.queryId != null
+                && String(target.queryId) !== String(entry.queryId ?? "")
+            ) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "REFUND_QUERY_ID_MISMATCH",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano: netNano
+                }));
+                continue;
+            }
+
             const existing = await this._findExistingRefund({
                 roomNumber: normalizedRoomNumber,
                 wallet,
                 amountNano: netNano,
                 legacyAmountNano: amountNano === netNano ? null : amountNano,
+                queryId,
                 cutoffUtime
             });
 
@@ -1001,6 +1033,7 @@ export class RoomWalletSettlementAdapter {
                 expectedHash: sent.txHash ?? null,
                 destination: wallet,
                 amountNano: netNano,
+                queryId,
                 timeoutMs: confirmationTimeoutMs
             });
 
@@ -1047,6 +1080,7 @@ export class RoomWalletSettlementAdapter {
         wallet,
         amountNano,
         legacyAmountNano = null,
+        queryId = null,
         cutoffUtime
     }) {
         if (typeof this._roomWalletAdapter.getTransactions !== "function") {
@@ -1068,6 +1102,13 @@ export class RoomWalletSettlementAdapter {
                     && (transfer.amountNano === amountNano
                         || (legacyAmountNano != null && transfer.amountNano === legacyAmountNano))
                     && tonWalletAccountsEqual(transfer.destination, wallet)
+                    && (
+                        queryId == null
+                        || (
+                            transfer.hash != null
+                            && String(transfer.queryId ?? "") === String(queryId)
+                        )
+                    )
                     && (cutoff == null || transfer.utime > cutoff)
                 ) {
                     return transfer;
@@ -1104,6 +1145,13 @@ export class RoomWalletSettlementAdapter {
                 && (inbound.amountNano === amountNano
                     || (legacyAmountNano != null && inbound.amountNano === legacyAmountNano))
                 && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
+                && (
+                    queryId == null
+                    || (
+                        inbound.hash != null
+                        && String(inbound.queryId ?? "") === String(queryId)
+                    )
+                )
                 && (cutoff == null || inbound.utime > cutoff)
             ) {
                 return Object.freeze({
@@ -1792,6 +1840,7 @@ function validateRefundPlanShape(raw) {
                 return { ok: false, detail: "refundPlan entry is missing" };
             }
 
+            normalizeRefundQueryId(entry.queryId);
             const feeEvidence = parsePlanFeeEvidence(entry.feeEvidence, "refundPlan.entry");
             const gasCharge = toPlanNano(entry.recipientGasChargeNano, "entry.recipientGasChargeNano");
             const net = toPlanNano(entry.recipientTransferAmountNano, "entry.recipientTransferAmountNano");
@@ -1816,6 +1865,24 @@ function validateRefundPlanShape(raw) {
     }
 }
 
+function normalizeRefundQueryId(value) {
+    if (value == null || value === "") {
+        return null;
+    }
+
+    const text = String(value).trim();
+    if (!/^\d+$/.test(text)) {
+        throw new TypeError("refund queryId must be an unsigned decimal uint64");
+    }
+
+    const queryId = BigInt(text);
+    if (queryId < 0n || queryId > 0xffffffffffffffffn) {
+        throw new RangeError("refund queryId is outside uint64 range");
+    }
+
+    return queryId.toString(10);
+}
+
 function findRefundPlanEntry(plan, { target, wallet, amountNano }) {
     if (!plan || !Array.isArray(plan.entries)) {
         return null;
@@ -1827,6 +1894,18 @@ function findRefundPlanEntry(plan, { target, wallet, amountNano }) {
         }
 
         if (String(target?.playerId ?? "") !== String(entry.playerId ?? "")) {
+            return false;
+        }
+
+        let targetQueryId;
+        let entryQueryId;
+        try {
+            targetQueryId = normalizeRefundQueryId(target?.queryId);
+            entryQueryId = normalizeRefundQueryId(entry.queryId);
+        } catch {
+            return false;
+        }
+        if (targetQueryId !== entryQueryId) {
             return false;
         }
 
