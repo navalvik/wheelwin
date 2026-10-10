@@ -1236,7 +1236,7 @@ console.log("setupExpiryRoomWalletRefund.test.js passed");
     assert.equal(result.ok, false);
     assert.equal(result.retryable, false);
     assert.equal(result.code, "REFUND_HISTORY_COVERAGE_INCOMPLETE");
-    assert.equal(stack._roomWalletRefundRetryTimers?.size ?? 0, 0);
+    assert.equal(stack.paymentSessionManager._roomWalletRefundRetryTimers.size, 0);
     assert.equal(stack.refundCalls.length, 1, "only the mocked reconciliation attempt was made");
     assert.equal(session.findParticipant("p1").refunded, false);
 
