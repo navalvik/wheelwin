@@ -4036,10 +4036,19 @@ function resolveRoomWalletRefundParticipant(session, refund) {
 
     const { participant, position } = matches[0];
     if (refund?.wallet != null) {
-        if (
-            typeof participant?.wallet !== "string"
-            || !tonWalletAccountsEqual(refund.wallet, participant.wallet)
-        ) {
+        const targetWallet = typeof refund.wallet === "string" ? refund.wallet.trim() : "";
+        const participantWallet = typeof participant?.wallet === "string"
+            ? participant.wallet.trim()
+            : "";
+        const walletsMatch = Boolean(
+            targetWallet
+            && participantWallet
+            && (
+                targetWallet === participantWallet
+                || tonWalletAccountsEqual(targetWallet, participantWallet)
+            )
+        );
+        if (!walletsMatch) {
             return null;
         }
     }
