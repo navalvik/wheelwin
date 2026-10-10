@@ -5,7 +5,7 @@ import { beginCell } from "@ton/core";
 import { buildPartialPaymentRefundTargets } from "../gameplay/partialPaymentEscrowUnwind.js";
 import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 import { RoomWalletSettlementAdapter } from "../payment/roomWallet/RoomWalletSettlementAdapter.js";
-import { extractOutboundTransfers } from "../payment/roomWallet/roomWalletTerminalRecoveryChain.js";
+import { confirmPayoutOnChain, extractOutboundTransfers } from "../payment/roomWallet/roomWalletTerminalRecoveryChain.js";
 
 const ROOM_WALLET = "EQDGQjwaP0OSExa9MfZih61De5TQuUITQPYiYZyfqAFzpvQB";
 const PLAYER_WALLET = "EQAtggW7l5wfQcPyy38Y7mVuXnh0wRHcpFKPIdtCbcRHb8wM";
@@ -213,4 +213,35 @@ test("does not misattribute another session's tagged transfer", async () => {
     assert.equal(harness.sends.length, 1);
     assert.equal(harness.sends[0].queryId, "200");
     assert.equal(result.refundPlan.entries[0].queryId, "200");
+});
+
+test("confirmation with an unknown broadcast hash still requires the exact query ID", async () => {
+    const transactions = [
+        transaction({
+            hash: "other-session-first",
+            destination: PLAYER_WALLET,
+            value: NET_NANO,
+            queryId: "100"
+        }),
+        transaction({
+            hash: "target-session-second",
+            destination: PLAYER_WALLET,
+            value: NET_NANO,
+            queryId: "200"
+        })
+    ];
+    const confirmed = await confirmPayoutOnChain({
+        tonService: {
+            async getTransactions() { return transactions; }
+        },
+        roomWalletAddress: ROOM_WALLET,
+        expectedHash: null,
+        expectedQueryId: "200",
+        destination: PLAYER_WALLET,
+        amountNano: NET_NANO,
+        timeoutMs: 100,
+        pollIntervalMs: 0
+    });
+    assert.equal(confirmed.ok, true);
+    assert.equal(confirmed.hash, "target-session-second");
 });
