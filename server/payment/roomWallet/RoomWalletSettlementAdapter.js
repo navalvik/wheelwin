@@ -1051,6 +1051,7 @@ export class RoomWalletSettlementAdapter {
                 expectedHash: sent.txHash ?? null,
                 destination: wallet,
                 amountNano: netNano,
+                queryId: entry.queryId ?? target?.queryId ?? null,
                 timeoutMs: confirmationTimeoutMs
             });
 
