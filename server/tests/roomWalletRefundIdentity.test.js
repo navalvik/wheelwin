@@ -186,6 +186,37 @@ test("exact queryId is adopted when retry cutoff rounds to the same TON second",
     assert.equal(calls.length, 0, "same-intent transfer must be adopted instead of resent");
 });
 
+test("an incomplete 40-transaction history page blocks a repeat refund instead of broadcasting", async () => {
+    const target = buildPartialPaymentRefundTargets(makeSession("pay-history-coverage")).refunds[0];
+    const { adapter, calls, setTransactions } = makeAdapter();
+    const planResult = await adapter.planRefunds({ roomNumber: 7, refunds: [target] });
+    assert.equal(planResult.ok, true);
+    const entry = planResult.refundPlan.entries[0];
+    const txUtime = Math.floor(Date.now() / 1000);
+
+    setTransactions(Array.from({ length: 40 }, (_, index) => makeTaggedTransfer({
+        hash: "unrelated-recent-transfer-" + index,
+        destination: PLAYER_WALLET,
+        amountNano: entry.recipientTransferAmountNano,
+        queryId: String(BigInt(target.queryId) + 1n),
+        utime: txUtime - index
+    })));
+
+    const result = await adapter.refundPayments({
+        roomNumber: 7,
+        paymentSessionId: "pay-history-coverage",
+        refunds: [target],
+        refundPlan: planResult.refundPlan,
+        cutoffUtime: (txUtime - 100) * 1000
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.results[0].ok, false);
+    assert.equal(result.results[0].retryable, false);
+    assert.equal(result.results[0].code, "REFUND_HISTORY_COVERAGE_INCOMPLETE");
+    assert.equal(calls.length, 0, "truncated history is not evidence that a refund was never broadcast");
+});
+
 test("same destination and amount with a different query ID is not adopted", async () => {
     const target = buildPartialPaymentRefundTargets(makeSession("pay-current")).refunds[0];
     const { adapter, calls, setTransactions } = makeAdapter();
