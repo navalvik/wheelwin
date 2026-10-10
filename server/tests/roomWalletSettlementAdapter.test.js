@@ -1092,3 +1092,55 @@ test("player wallet reconciliation is skipped without a crash when getAddressTra
     assert.equal(result.results[0].code, "REFUND_CONFIRMED");
     assert.equal(broadcastCount, 1);
 });
+
+
+test("same destination and amount with a different refund query id is not adopted", async () => {
+    const wrongBody = beginCell().storeUint(54321n, 64).endCell().toBoc().toString("base64");
+    const cutoff = Math.floor(Date.now() / 1000) - 60;
+    const history = [{
+        transaction_id: { hash: "another-obligation-refund" },
+        utime: cutoff + 1,
+        success: true,
+        out_msgs: [{
+            destination: PLAYER_WALLET,
+            value: "1000000000",
+            msg_data: { body: wrongBody }
+        }]
+    }];
+
+    const { adapter, calls } = createAdapter({
+        getWalletAddress: async () => RW,
+        getTransactions: async () => history,
+        sendTransfer(input) {
+            history.push({
+                transaction_id: { hash: "fresh-tagged-refund" },
+                utime: cutoff + 2,
+                success: true,
+                out_msgs: [{
+                    destination: input.destination,
+                    value: input.amountNano.toString(),
+                    msg_data: { body: TEST_REFUND_QUERY_BODY }
+                }]
+            });
+            return { ok: true, code: "SENT", txHash: "fresh-tagged-refund" };
+        }
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 10,
+        cutoffUtime: (cutoff - 1) * 1000,
+        refunds: [{
+            playerId: "player-bob",
+            playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
+            wallet: PLAYER_WALLET,
+            amount: 1
+        }]
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.results[0].code, "REFUND_CONFIRMED");
+    assert.equal(result.results[0].txHash, "fresh-tagged-refund");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].queryId, TEST_REFUND_QUERY_ID);
+});
