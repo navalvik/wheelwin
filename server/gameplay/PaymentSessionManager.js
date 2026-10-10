@@ -153,7 +153,10 @@ export class PaymentSessionManager {
         this._roomWalletRefundRetryDelaysMs = Object.freeze(
             suppliedRefundRetryDelays.length > 0
                 ? suppliedRefundRetryDelays
-                : [2_000, 5_000, 15_000, 30_000, 60_000]
+                // Long-lived provider throttling must not keep every stuck
+                // session retrying once per minute indefinitely. Increase the
+                // quiet period to 15 minutes after repeated consecutive failures.
+                : [2_000, 5_000, 15_000, 30_000, 60_000, 120_000, 300_000, 900_000]
         );
         this._roomWalletRefundRetryTimers = new Map();
         this._roomWalletRefundRetryAttempts = new Map();
