@@ -28,6 +28,8 @@ import {
     UnexpectedPaymentError
 } from "./PaymentSessionManagerErrors.js";
 import { shouldPreserveFinancialEvidence } from "./financialEvidenceGuards.js";
+import { normalizeRoomWalletRefundQueryId, roomWalletRefundQueryIdsMatch } from "../payment/roomWallet/roomWalletRefundIdentity.js";
+import { quarantineDuplicateRefundTxHashClaims } from "../payment/roomWallet/roomWalletRefundClaims.js";
 import {
     allConfirmedParticipantsRefunded,
     buildPartialPaymentRefundTargets,
@@ -831,14 +833,12 @@ export class PaymentSessionManager {
         this._assertInitialized();
 
         if (!this._financialPersistence) {
-
             return Object.freeze({
                 restored: 0,
                 recovered: 0,
                 rewatched: 0,
                 syncedFromChain: 0
             });
-
         }
 
         const records = this._financialPersistence.listActive(
@@ -846,72 +846,51 @@ export class PaymentSessionManager {
         );
 
         let restored = 0;
-
         let recovered = 0;
-
         let rewatched = 0;
-
         const pendingSync = [];
+        const restoredSessions = [];
+        const allLoadedSessions = [];
 
+        // Hydrate the entire persisted inventory before any refund retry can
+        // start. Cross-session transaction-hash uniqueness cannot be decided
+        // safely while only the first few sessions are loaded.
         for (const record of records) {
-
             try {
-
                 const session = PaymentSession.fromRecord(record);
+                allLoadedSessions.push(session);
 
                 if (this._sessionsByRoom.has(session.roomId)) {
-
                     continue;
-
                 }
 
-                // R7.69C — restore CANCELLED sessions for refund sync / watch recovery.
                 const isCancelled = session.status === PAYMENT_SESSION_STATUS.CANCELLED;
-
-                // Room-Wallet refund recovery — a persisted FULLY_PAID session that
-                // still holds unrefunded paid funds must survive the terminal skip
-                // so its pending refunds can be re-requested below.
                 const refundableRestoredFullyPaid =
                     this._roomWalletPaymentIntakeEnabled
                     && session.status === PAYMENT_SESSION_STATUS.FULLY_PAID
                     && sessionHasUnrefundedPaidFunds(session);
 
                 if (session.isTerminal() && !isCancelled && !refundableRestoredFullyPaid) {
-
                     continue;
-
                 }
 
-                // Room-Wallet refund recovery — a refundable FULLY_PAID session
-                // stays FULLY_PAID here so _requestRoomWalletPartialPaymentRefund()
-                // performs the allowed FULLY_PAID → REFUND_PENDING transition
-                // (RECOVERED → REFUND_PENDING is not an allowed transition).
                 if (
                     !isCancelled
                     && !refundableRestoredFullyPaid
                     && !session.isInProgress()
                     && session.status !== PAYMENT_SESSION_STATUS.RECOVERED
                 ) {
-
                     session.status = PAYMENT_SESSION_STATUS.RECOVERED;
-
                 }
 
                 if (session.status === PAYMENT_SESSION_STATUS.RECOVERED) {
-
                     recovered += 1;
-
                 }
 
-                // R7.69B — restore seat indices for GameEscrow paidMask mapping.
                 session.participants.forEach((participant, index) => {
-
                     if (participant.playerIndex == null) {
-
                         participant.playerIndex = index;
-
                     }
-
                 });
 
                 this._indexSession(session);
@@ -921,55 +900,74 @@ export class PaymentSessionManager {
                     && session.paymentDeadline
                     && session.paymentDeadline > Date.now()
                 ) {
-
                     this._scheduleExpiry(session);
-
                 }
 
                 pendingSync.push(session);
-
-                if (
-                    this._roomWalletPaymentIntakeEnabled
-                    && (
-                        sessionHasUnrefundedPaidFunds(session)
-                        // Completed unwind — re-enter the existing refund function
-                        // so its ALREADY_REFUNDED branch finalizes the session
-                        // via _finalizePartialPaymentUnwind (no new broadcast).
-                        || (
-                            session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING
-                            && allConfirmedParticipantsRefunded(session)
-                        )
-                    )
-                    && (
-                        session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING
-                        || Number(session.paymentDeadline ?? 0) <= Date.now()
-                        || !this._roomManager?.getRoom?.(session.roomId)
-                    )
-                ) {
-                    void this._requestRoomWalletPartialPaymentRefund(
-                        session,
-                        session.recoveryMetadata?.unwindReason ?? "room_destroyed"
-                    ).catch((error) => {
-                        this._logger?.error?.(
-                            "Room-Wallet refund recovery failed | roomId=" + session.roomId + " | "
-                                + (error?.message ?? error)
-                        );
-                    });
-                }
-
+                restoredSessions.push(session);
                 this._emitDomain(EVENT_TYPES.PAYMENT_SESSION_RECOVERED, session);
-
                 restored += 1;
-
             } catch (error) {
-
                 this._logger.error(
                     `PaymentSession restore skipped | id=${record?.recordId} | `
                         + `${error?.message ?? error}`
                 );
+            }
+        }
 
+        // A transaction hash identifies one transaction, not a reusable
+        // refund receipt. Clear every duplicated claim (without selecting an
+        // owner) and preserve the evidence in durable manual-review metadata.
+        const duplicateClaimSessions = quarantineDuplicateRefundTxHashClaims(
+            allLoadedSessions
+        );
+
+        for (const session of duplicateClaimSessions) {
+            this._persistSession(session, "update");
+            this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+            this._logger?.error?.(
+                "Room-Wallet refund attribution quarantined | roomId="
+                    + session.roomId
+                    + " | reason=DUPLICATE_TRANSACTION_HASH"
+                    + " | action=MANUAL_RECONCILIATION_REQUIRED"
+            );
+        }
+
+        // Only after the complete inventory has been checked may recovery
+        // request refunds. Quarantined sessions must never auto-broadcast.
+        for (const session of restoredSessions) {
+            if (
+                session.recoveryMetadata?.refundAttributionQuarantine?.status
+                === "MANUAL_RECONCILIATION_REQUIRED"
+            ) {
+                continue;
             }
 
+            if (
+                this._roomWalletPaymentIntakeEnabled
+                && (
+                    sessionHasUnrefundedPaidFunds(session)
+                    || (
+                        session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING
+                        && allConfirmedParticipantsRefunded(session)
+                    )
+                )
+                && (
+                    session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING
+                    || Number(session.paymentDeadline ?? 0) <= Date.now()
+                    || !this._roomManager?.getRoom?.(session.roomId)
+                )
+            ) {
+                void this._requestRoomWalletPartialPaymentRefund(
+                    session,
+                    session.recoveryMetadata?.unwindReason ?? "room_destroyed"
+                ).catch((error) => {
+                    this._logger?.error?.(
+                        "Room-Wallet refund recovery failed | roomId=" + session.roomId + " | "
+                            + (error?.message ?? error)
+                    );
+                });
+            }
         }
 
         return this._finishPaymentSessionRestore({
