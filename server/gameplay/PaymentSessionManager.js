@@ -63,6 +63,7 @@ export const PAYMENT_ACCEPTANCE_CLOSING_WINDOW_MS = 5_000;
  * financial amounts, and never stores raw blockchain payloads.
  */
 const PLAYER_WALLET_INBOUND_RECONCILIATION = "PLAYER_WALLET_INBOUND";
+const ROOM_WALLET_REFUND_IDENTITY_VERSION = "room-wallet-refund-query-id-v1";
 
 const PAYMENT_READY_CONTRACT_STATUSES = new Set([
     GAME_CONTRACT_STATUS.DEPLOYED,
@@ -2312,6 +2313,94 @@ export class PaymentSessionManager {
 
     }
 
+    _readRoomWalletRefundHashClaims(currentSession = null) {
+        if (
+            !this._financialPersistence
+            || typeof this._financialPersistence.listActive !== "function"
+        ) {
+            return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
+        }
+
+        let records;
+        try {
+            records = this._financialPersistence.listActive(
+                TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION
+            );
+        } catch (error) {
+            this._logger?.error?.(
+                "Room-Wallet refund hash index unavailable | " + (error?.message ?? error)
+            );
+            return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
+        }
+        if (!Array.isArray(records)) {
+            return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
+        }
+
+        const sessions = new Map();
+        const addSession = (session) => {
+            if (!session || !Array.isArray(session.participants)) return;
+            for (const [position, participant] of session.participants.entries()) {
+                const ownerKey = roomWalletRefundOwnerKey(session, participant, position);
+                const hash = normalizeRefundHash(participant?.refundTxHash);
+                const existing = sessions.get(ownerKey);
+                if (existing) {
+                    if (hash) existing.refundHashes.add(hash);
+                    continue;
+                }
+                sessions.set(ownerKey, {
+                    ownerKey,
+                    session,
+                    participant,
+                    refundHashes: new Set(hash ? [hash] : [])
+                });
+            }
+        };
+
+        try {
+            for (const record of records) addSession(PaymentSession.fromRecord(record));
+        } catch (error) {
+            this._logger?.error?.(
+                "Room-Wallet refund hash index could not parse persisted session | "
+                    + (error?.message ?? error)
+            );
+            return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
+        }
+        for (const storedSession of this._sessionsByRoom.values()) addSession(storedSession);
+        addSession(currentSession);
+
+        const ownersByHash = new Map();
+        const hashesByOwner = new Map();
+        for (const { ownerKey, refundHashes } of sessions.values()) {
+            for (const hash of refundHashes) {
+                if (!ownersByHash.has(hash)) ownersByHash.set(hash, new Set());
+                ownersByHash.get(hash).add(ownerKey);
+                if (!hashesByOwner.has(ownerKey)) hashesByOwner.set(ownerKey, new Set());
+                hashesByOwner.get(ownerKey).add(hash);
+            }
+        }
+
+        const conflictedOwners = new Set();
+        for (const [ownerKey, hashes] of hashesByOwner) {
+            if (hashes.size > 1) conflictedOwners.add(ownerKey);
+        }
+        return { ok: true, ownersByHash, conflictedOwners };
+    }
+
+    _roomWalletRefundHashConflict(session, ownersByHash, conflictedOwners = new Set()) {
+        for (const [position, participant] of (session?.participants ?? []).entries()) {
+            const ownerKey = roomWalletRefundOwnerKey(session, participant, position);
+            if (conflictedOwners.has(ownerKey)) {
+                return normalizeRefundHash(participant?.refundTxHash)
+                    ?? "multiple-hashes-for-one-refund-obligation";
+            }
+            const hash = normalizeRefundHash(participant?.refundTxHash);
+            if (!hash) continue;
+            const owners = ownersByHash.get(hash);
+            if (owners && owners.size > 1) return hash;
+        }
+        return null;
+    }
+
     async _performRoomWalletPartialPaymentRefund(session, reason = "payment_failed") {
 
         if (
@@ -2326,11 +2415,42 @@ export class PaymentSessionManager {
             });
         }
 
+        const metadataAtEntry = session.recoveryMetadata ?? {};
+        const hasPriorRefundContext = (
+            session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING
+            || metadataAtEntry.refundRequestedAt != null
+            || metadataAtEntry.refundPlan != null
+            || (session.participants ?? []).some((participant) => (
+                participant?.refunded === true
+                || normalizeRefundHash(participant?.refundTxHash) != null
+            ))
+        );
+        if (
+            hasPriorRefundContext
+            && metadataAtEntry.refundIdentityVersion !== ROOM_WALLET_REFUND_IDENTITY_VERSION
+        ) {
+            this._logger?.error?.(
+                "ROOM_WALLET_REFUND_BLOCKED_LEGACY_IDENTITY | roomId=" + session.roomId
+            );
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_LEGACY_REFUND_REQUIRES_RECONCILIATION"
+            });
+        }
+
         const { refunds } = buildPartialPaymentRefundTargets(session);
         const pendingRefunds = refunds.filter((refund) => {
-            const participant = session.findParticipant(refund.playerId);
+            const participant = resolveRoomWalletRefundParticipant(session, refund);
             return participant?.refunded !== true;
         });
+        if (pendingRefunds.some((refund) => !resolveRoomWalletRefundParticipant(session, refund))) {
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_REFUND_PARTICIPANT_IDENTITY_MISMATCH"
+            });
+        }
 
         if (pendingRefunds.length === 0) {
             this._finalizePartialPaymentUnwind(session);
@@ -2424,6 +2544,58 @@ export class PaymentSessionManager {
             });
         }
 
+        let registeredRoomWallet = null;
+        try {
+            registeredRoomWallet = this._roomWalletRegistry?.get?.(roomNumber) ?? null;
+        } catch {
+            registeredRoomWallet = null;
+        }
+        if (
+            !roomWalletAddress
+            || !registeredRoomWallet?.address
+            || !tonWalletAccountsEqual(registeredRoomWallet.address, roomWalletAddress)
+        ) {
+            this._logger?.error?.(
+                "ROOM_WALLET_REFUND_BLOCKED_SOURCE_IDENTITY_MISMATCH | roomId="
+                    + session.roomId + " | roomNumber=" + String(roomNumber)
+            );
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_SOURCE_IDENTITY_MISMATCH"
+            });
+        }
+
+        const claimIndex = this._readRoomWalletRefundHashClaims(session);
+        if (!claimIndex.ok) {
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: claimIndex.code
+            });
+        }
+        const conflictedHash = this._roomWalletRefundHashConflict(
+            session,
+            claimIndex.ownersByHash,
+            claimIndex.conflictedOwners
+        );
+        if (conflictedHash) {
+            this._logger?.error?.(
+                "ROOM_WALLET_REFUND_BLOCKED_HASH_IDENTITY_CONFLICT | roomId="
+                    + session.roomId + " | hash=" + conflictedHash
+            );
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_REFUND_HASH_IDENTITY_CONFLICT"
+            });
+        }
+
+        session.recoveryMetadata = {
+            ...(session.recoveryMetadata ?? {}),
+            refundIdentityVersion: ROOM_WALLET_REFUND_IDENTITY_VERSION
+        };
+
         // PAYOUT GAS POLICY: freeze the recipient-pays-gas refund plan into
         // the persisted session recoveryMetadata BEFORE the first refund
         // broadcast, so refund recovery reuses the exact persisted net refund
@@ -2496,13 +2668,34 @@ export class PaymentSessionManager {
                 continue;
             }
 
-            const participant = session.findParticipant(refund.playerId);
+            const participant = resolveRoomWalletRefundParticipant(session, refund);
             if (!participant) {
+                this._logger?.error?.(
+                    "ROOM_WALLET_REFUND_RESULT_BLOCKED_PARTICIPANT_IDENTITY_MISMATCH | roomId="
+                        + session.roomId
+                );
                 continue;
             }
 
+            const refundHash = normalizeRefundHash(refund.txHash);
+            if (refundHash) {
+                const owners = claimIndex.ownersByHash.get(refundHash);
+                const ownerKey = roomWalletRefundOwnerKey(
+                    session,
+                    participant,
+                    session.participants.indexOf(participant)
+                );
+                if (owners && [...owners].some((owner) => owner !== ownerKey)) {
+                    this._logger?.error?.(
+                        "ROOM_WALLET_REFUND_RESULT_BLOCKED_HASH_ALREADY_CLAIMED | roomId="
+                            + session.roomId + " | hash=" + refundHash
+                    );
+                    continue;
+                }
+            }
+
             participant.refunded = true;
-            participant.refundTxHash = refund.txHash ?? null;
+            participant.refundTxHash = refundHash;
 
             // Stage 2 — preserve refund reconciliation provenance for
             // observability/forensic recovery. Non-authoritative metadata
@@ -3758,6 +3951,39 @@ export class PaymentSessionManager {
  * Amount comparison uses the same GRAM -> nano conversion as the settlement
  * adapter (resolveNano) so both sides agree byte-for-byte.
  */
+function normalizeRefundHash(value) {
+    const raw = String(value ?? "").trim();
+    return raw || null;
+}
+
+function roomWalletRefundOwnerKey(session, participant, position = null) {
+    const sessionKey = String(
+        session?.paymentSessionId ?? session?.roomId ?? "unknown-session"
+    );
+    const rawIndex = participant?.playerIndex ?? position;
+    const parsedIndex = Number(rawIndex);
+    const seatKey = rawIndex != null && Number.isInteger(parsedIndex) && parsedIndex >= 0
+        ? "seat:" + String(parsedIndex)
+        : "player:" + String(participant?.playerId ?? "unknown");
+    return sessionKey + "\u0000" + seatKey + "\u0000" + String(participant?.playerId ?? "");
+}
+
+function resolveRoomWalletRefundParticipant(session, refund) {
+    const expectedPlayerId = String(refund?.playerId ?? "");
+    const expectedSeat = Number(refund?.playerIndex);
+    const expectedWallet = refund?.wallet;
+    if (!expectedPlayerId || !Number.isInteger(expectedSeat) || expectedSeat < 0 || !expectedWallet) {
+        return null;
+    }
+    const matches = (session?.participants ?? []).filter((participant, position) => {
+        const rawSeat = participant?.playerIndex ?? position;
+        return String(participant?.playerId ?? "") === expectedPlayerId
+            && Number(rawSeat) === expectedSeat
+            && tonWalletAccountsEqual(participant?.wallet, expectedWallet);
+    });
+    return matches.length === 1 ? matches[0] : null;
+}
+
 function refundPlanCoversEntry(plan, refund) {
     if (!plan || !Array.isArray(plan.entries)) {
         return false;
