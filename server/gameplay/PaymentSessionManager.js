@@ -2304,7 +2304,7 @@ export class PaymentSessionManager {
      * retry/finalization. One TON transaction hash may belong to only one
      * participant refund obligation; ambiguous old claims fail closed.
      */
-    _readRoomWalletRefundHashClaims() {
+    _readRoomWalletRefundHashClaims(currentSession = null) {
         const sessions = new Map();
 
         const addSession = (session) => {
@@ -2352,6 +2352,7 @@ export class PaymentSessionManager {
         for (const session of this._sessionsByRoom.values()) {
             addSession(session);
         }
+        addSession(currentSession);
 
         const ownersByHash = new Map();
         for (const { participant, ownerKey } of sessions.values()) {
@@ -2466,7 +2467,7 @@ export class PaymentSessionManager {
             }
         }
 
-        const claimIndex = this._readRoomWalletRefundHashClaims();
+        const claimIndex = this._readRoomWalletRefundHashClaims(session);
         if (!claimIndex.ok) {
             return Object.freeze({
                 ok: false,
