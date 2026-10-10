@@ -1121,7 +1121,13 @@ export class RoomWalletSettlementAdapter {
         cutoffUtime
     }) {
         if (typeof this._roomWalletAdapter.getTransactions !== "function") {
-            return null;
+            return queryId != null
+                ? Object.freeze({
+                    conflict: true,
+                    code: "REFUND_HISTORY_COVERAGE_INCOMPLETE",
+                    hash: null
+                })
+                : null;
         }
 
         const cutoff = resolveCutoffUtime({ cutoffUtime });
