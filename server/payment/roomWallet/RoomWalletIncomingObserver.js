@@ -503,6 +503,28 @@ export class RoomWalletIncomingObserver {
             ) ?? canonicalizeTonWalletAddress(watchedAddress);
 
             if (failedHash && failedDestination) {
+                const observationId = buildRoomWalletIncomingObservationId(
+                    failedDestination,
+                    failedHash
+                );
+
+                // Failed transactions are handled before the normal deposit
+                // duplicate guard below. Consult the durable rejection ledger
+                // here too so each bounced/failed transaction is audited once,
+                // not logged and re-audited on every Room Wallet polling cycle.
+                if (observationId && this._hasObservation(observationId)) {
+                    return this._result(
+                        ROOM_WALLET_INCOMING_REJECTION_REASONS.DUPLICATE_TRANSACTION,
+                        {
+                            credited: false,
+                            observationId,
+                            txHash: failedHash,
+                            destination: failedDestination,
+                            duplicate: true
+                        }
+                    );
+                }
+
                 return this._rejectTerminal(
                     ROOM_WALLET_INCOMING_REJECTION_REASONS.FAILED_TRANSACTION,
                     {

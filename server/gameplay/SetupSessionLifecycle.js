@@ -1261,7 +1261,12 @@ export class SetupSessionLifecycle {
 
     _onExpiry(roomId) {
 
-        this._expiryTimers.delete(roomId);
+        // The expiry handler can also be invoked directly (for example by a
+        // forced-expiry path or a regression test), not only by the timer
+        // callback itself. Always clear the actual handle before removing it
+        // from the registry, otherwise a pending ref'd Timeout becomes orphaned
+        // and keeps the Node.js event loop alive until its original deadline.
+        this._clearExpiry(roomId);
 
         // R8.6 — After GAME_INITIALIZED Setup expiry has no destroy authority.
         if (this.isGameplayOwnershipReleased(roomId)) {

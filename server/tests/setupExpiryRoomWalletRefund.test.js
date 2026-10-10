@@ -29,6 +29,9 @@ import {
 import { RoomLobbyBridge } from "../socket/RoomLobbyBridge.js";
 import { GameplayContextResolver } from "../socket/GameplayContextResolver.js";
 import { PlayerManager } from "../managers/PlayerManager.js";
+import { RoomWalletRegistry } from "../payment/roomWallet/RoomWalletRegistry.js";
+
+const ROOM_WALLET_ADDRESS = "EQDGQjwaP0OSExa9MfZih61De5TQuUITQPYiYZyfqAFzpvQB";
 
 function createLogger() {
 
@@ -46,12 +49,13 @@ function createLogger() {
  * Build a setup-expiry payment session with `paidCount` confirmed seats.
  * paidCount 3 → FULLY_PAID (all three players paid), otherwise PARTIALLY_PAID.
  */
-function paidSetupSession(roomId, paidCount) {
+function paidSetupSession(roomId, paidCount, { legacyDestinationOnly = false } = {}) {
 
     return new PaymentSession({
-        paymentSessionId: `pay-setup-${paidCount}of3`,
+        paymentSessionId: `pay-setup-${paidCount}of3-${roomId}`,
         roomId,
-        roomNumber: 7,
+        roomNumber: legacyDestinationOnly ? null : 7,
+        roomWalletAddress: legacyDestinationOnly ? null : ROOM_WALLET_ADDRESS,
         gameId: "game-setup",
         status: paidCount === 3
             ? PAYMENT_SESSION_STATUS.FULLY_PAID
@@ -60,6 +64,7 @@ function paidSetupSession(roomId, paidCount) {
             playerId: `p${index + 1}`,
             playerIndex: index,
             wallet: `wallet-${index + 1}`,
+            paymentDestination: ROOM_WALLET_ADDRESS,
             requiredGram: 10,
             status: index < paidCount
                 ? PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
@@ -70,7 +75,13 @@ function paidSetupSession(roomId, paidCount) {
 
 }
 
-function buildStack({ refundThrows = false, refundDefer = false } = {}) {
+function buildStack({
+    refundThrows = false,
+    refundDefer = false,
+    planRefundsHandler = null,
+    refundPaymentsHandler = null,
+    roomWalletRefundRetryDelaysMs = null
+} = {}) {
 
     const logger = createLogger();
     const eventBus = new EventBus({
@@ -164,6 +175,16 @@ function buildStack({ refundThrows = false, refundDefer = false } = {}) {
 
             refundCalls.push(request);
 
+            if (typeof refundPaymentsHandler === "function") {
+
+                return await refundPaymentsHandler(
+                    request,
+                    refundCalls.length,
+                    buildRefundResult
+                );
+
+            }
+
             if (refundThrows) {
 
                 throw new Error("refund_broadcast_failed");
@@ -185,6 +206,10 @@ function buildStack({ refundThrows = false, refundDefer = false } = {}) {
         }
     };
 
+    if (typeof planRefundsHandler === "function") {
+        roomWalletSettlementAdapter.planRefunds = (request) => planRefundsHandler(request);
+    }
+
     const paymentSessionManager = new PaymentSessionManager({
         logger,
         eventBus,
@@ -194,10 +219,20 @@ function buildStack({ refundThrows = false, refundDefer = false } = {}) {
         blockchainMonitor,
         devMode: false,
         roomWalletPaymentIntakeEnabled: true,
-        roomWalletSettlementAdapter
+        roomWalletSettlementAdapter,
+        roomWalletRefundRetryDelaysMs
     });
 
     paymentSessionManager.initialize();
+    paymentSessionManager.setRoomWalletFinance({
+        registry: new RoomWalletRegistry({
+            entries: [{
+                roomNumber: 7,
+                address: ROOM_WALLET_ADDRESS,
+                network: "testnet"
+            }]
+        })
+    });
 
     gameContractManager.setFinancialEvidenceDeps({ paymentSessionManager });
 
@@ -289,6 +324,24 @@ function seedArchivedSetup(lifecycle, roomId) {
 async function waitForAsync() {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
+
+}
+
+async function waitUntil(predicate, timeoutMs = 1_000) {
+
+    const deadline = Date.now() + timeoutMs;
+
+    while (!predicate()) {
+
+        if (Date.now() >= deadline) {
+
+            throw new Error("waitUntil timed out");
+
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 5));
+
+    }
 
 }
 
@@ -574,6 +627,288 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
 
     console.log("  F. after GAME_INITIALIZED → no refund passed");
 
+}
+
+// G — legacy persisted PaymentSession with no roomNumber / roomWalletAddress:
+// recover the correct wallet from the server-authored participant paymentDestination.
+{
+    const stack = buildStack();
+
+    seedArchivedSetup(stack.setupSessionLifecycle, stack.roomId);
+
+    stack.paymentSessionManager._sessionsByRoom.set(
+        stack.roomId,
+        paidSetupSession(stack.roomId, 3, { legacyDestinationOnly: true })
+    );
+
+    await triggerSetupExpiry(stack);
+
+    assert.equal(stack.refundCalls.length, 1, "legacy fully-paid session refunds once");
+    assert.equal(
+        stack.refundCalls[0].roomNumber,
+        7,
+        "legacy room number is recovered from the persisted Room Wallet destination"
+    );
+
+    stack.shutdown();
+
+    console.log("  G. legacy destination-only session → safe room wallet mapping passed");
+}
+
+// H — simultaneous recovered refunds serialize fee planning and retry transient 429s.
+{
+    let activePlans = 0;
+    let maxActivePlans = 0;
+    let planCalls = 0;
+
+    const makePlan = (refunds) => ({
+        mode: "RECIPIENT_PAYS_GAS",
+        gasPolicyVersion: "test",
+        feeSource: "estimateExternalMessageFee",
+        marginBps: "2000",
+        marginFloorNano: "1000000",
+        entries: refunds.map((refund) => {
+            const grossNano = BigInt(Math.round(Number(refund.amount) * 1_000_000_000));
+            return {
+                playerId: refund.playerId,
+                playerIndex: refund.playerIndex ?? null,
+                wallet: refund.wallet,
+                grossRefundNano: String(grossNano),
+                recipientGasChargeNano: "1000000",
+                recipientTransferAmountNano: String(grossNano - 1_000_000n),
+                feeEvidence: {
+                    inFwdFeeNano: "1",
+                    storageFeeNano: "1",
+                    gasFeeNano: "1",
+                    fwdFeeNano: "1",
+                    totalNano: "4"
+                }
+            };
+        })
+    });
+
+    const stack = buildStack({
+        planRefundsHandler: async (request) => {
+            activePlans += 1;
+            maxActivePlans = Math.max(maxActivePlans, activePlans);
+            planCalls += 1;
+            const call = planCalls;
+            try {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+                if (call === 1) {
+                    return {
+                        ok: false,
+                        retryable: true,
+                        code: "PAYOUT_GAS_ESTIMATE_UNAVAILABLE",
+                        detail: "Request failed with status code 429"
+                    };
+                }
+                return { ok: true, refundPlan: makePlan(request.refunds) };
+            } finally {
+                activePlans -= 1;
+            }
+        }
+    });
+
+    // Both calls target the same persisted session, as can occur when setup
+    // expiry and startup recovery converge. The second call must reuse the first
+    // frozen entry and estimate only the uncovered refund entry.
+    const sharedSession = paidSetupSession("same-session", 3);
+    const pendingA = [{
+        playerId: "p1", playerIndex: 0, wallet: "wallet-1", amount: 10
+    }];
+    const pendingB = [{
+        playerId: "p2", playerIndex: 1, wallet: "wallet-2", amount: 10
+    }];
+
+    const [planA, planB] = await Promise.all([
+        stack.paymentSessionManager._ensureRoomWalletRefundPlanFrozen({
+            session: sharedSession,
+            roomNumber: 7,
+            pendingRefunds: pendingA,
+            refundRequestedAt: Date.now()
+        }),
+        stack.paymentSessionManager._ensureRoomWalletRefundPlanFrozen({
+            session: sharedSession,
+            roomNumber: 7,
+            pendingRefunds: pendingB,
+            refundRequestedAt: Date.now()
+        })
+    ]);
+
+    assert.equal(maxActivePlans, 1, "fee plans must never run concurrently");
+    assert.equal(planCalls, 3, "one transient 429 is retried before next entry planning");
+    assert.ok(planA?.entries?.length === 1, "first refund plan frozen");
+    assert.ok(planB?.entries?.length === 2, "second call reuses frozen entry and adds only uncovered refund");
+    assert.equal(sharedSession.recoveryMetadata.refundPlan.entries.length, 2);
+
+    stack.shutdown();
+
+    console.log("  H. fee planning serialized and transient 429 retried passed");
+}
+
+// I — retryable Room Wallet refund failures retry in-process without a restart.
+{
+    let failFirstRefund = true;
+
+    const stack = buildStack({
+        roomWalletRefundRetryDelaysMs: [5],
+        refundPaymentsHandler: async (request, callNumber, buildRefundResult) => {
+            if (failFirstRefund) {
+                failFirstRefund = false;
+                throw new Error("temporary_rpc_unavailable");
+            }
+            return buildRefundResult();
+        }
+    });
+
+    const session = paidSetupSession(stack.roomId, 2);
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const first = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "setup_expired"
+    );
+
+    assert.equal(first.ok, false);
+    assert.equal(first.retryable, true);
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.REFUND_PENDING);
+    assert.equal(stack.refundCalls.length, 1);
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryTimers.has(stack.roomId),
+        true,
+        "a retry timer is registered after the transient failure"
+    );
+
+    await waitUntil(() => session.status === PAYMENT_SESSION_STATUS.CANCELLED);
+
+    assert.equal(stack.refundCalls.length, 2, "refund retried without server restart");
+    assert.equal(session.findParticipant("p1").refunded, true);
+    assert.equal(session.findParticipant("p2").refunded, true);
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryTimers.has(stack.roomId),
+        false,
+        "successful retry clears its timer"
+    );
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryAttempts.has(stack.roomId),
+        false,
+        "successful retry clears retry attempt state"
+    );
+
+    stack.shutdown();
+
+    assert.equal(stack.paymentSessionManager._roomWalletRefundRetryTimers.size, 0);
+    console.log("  I. transient refund failure → automatic in-process retry passed");
+}
+
+// J — permanent settlement-safety rejection must not enter the retry loop.
+{
+    const stack = buildStack({
+        refundPaymentsHandler: async () => ({
+            ok: false,
+            retryable: false,
+            code: "PAYOUT_PLAN_MISMATCH",
+            results: []
+        })
+    });
+
+    const session = paidSetupSession(stack.roomId, 2);
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "setup_expired"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.REFUND_PENDING);
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryTimers.has(stack.roomId),
+        false,
+        "non-retryable safety failures must not schedule a background retry"
+    );
+
+    stack.shutdown();
+
+    console.log("  J. non-retryable settlement rejection → no automatic retry passed");
+}
+
+// J2 — an explicitly non-retryable thrown adapter error must remain non-retryable.
+{
+    const stack = buildStack({
+        refundPaymentsHandler: async () => {
+            const error = new Error("permanent settlement safety rejection");
+            error.retryable = false;
+            throw error;
+        }
+    });
+
+    const session = paidSetupSession(stack.roomId, 2);
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "setup_expired"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryTimers.has(stack.roomId),
+        false,
+        "an explicitly non-retryable thrown error must not schedule a background retry"
+    );
+
+    stack.shutdown();
+
+    console.log("  J2. explicitly non-retryable thrown adapter error → no automatic retry passed");
+}
+
+// K — direct expiry must clear the actual pending Setup Session timer.
+{
+    const stack = buildStack();
+    const timer = stack.setupSessionLifecycle._expiryTimers.get(stack.roomId);
+
+    assert.ok(timer, "a real setup expiry timer is armed before expiry");
+
+    const originalClearTimeout = globalThis.clearTimeout;
+    let targetTimerCleared = false;
+
+    globalThis.clearTimeout = (handle) => {
+        if (handle === timer) {
+            targetTimerCleared = true;
+        }
+        return originalClearTimeout(handle);
+    };
+
+    try {
+        await triggerSetupExpiry(stack);
+    } finally {
+        globalThis.clearTimeout = originalClearTimeout;
+
+        // Keep this regression test from leaving a five-minute orphan behind
+        // if the assertion fails against an older implementation.
+        if (!targetTimerCleared) {
+            originalClearTimeout(timer);
+        }
+    }
+
+    assert.equal(
+        targetTimerCleared,
+        true,
+        "_onExpiry must clear the live timer, not only delete its map entry"
+    );
+    assert.equal(
+        stack.setupSessionLifecycle._expiryTimers.has(stack.roomId),
+        false,
+        "the expired room must no longer have a registered Setup timer"
+    );
+
+    stack.shutdown();
+
+    console.log("  K. direct expiry clears pending timer handle passed");
 }
 
 console.log("setupExpiryRoomWalletRefund.test.js passed");

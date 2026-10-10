@@ -95,7 +95,8 @@ export class PaymentSessionManager {
         tonNetwork = null,
         devMode = false,
         roomWalletPaymentIntakeEnabled = false,
-        roomWalletSettlementAdapter = null
+        roomWalletSettlementAdapter = null,
+        roomWalletRefundRetryDelaysMs = null
     }) {
 
         this._logger = logger;
@@ -137,6 +138,26 @@ export class PaymentSessionManager {
         this._roomWalletSettlementAdapter = roomWalletSettlementAdapter ?? null;
 
         this._roomWalletRegistry = null;
+
+        // R18 — Serialize fee-plan estimation across restored refunds. A process restart
+        // can discover many expired sessions at once; parallel TON fee estimates
+        // trigger provider HTTP 429s and leave every affected refund pending.
+        // This lock covers planning only, not on-chain broadcasts/confirmations.
+        this._roomWalletRefundPlanningQueue = Promise.resolve();
+
+        const suppliedRefundRetryDelays = Array.isArray(roomWalletRefundRetryDelaysMs)
+            ? roomWalletRefundRetryDelaysMs
+                .map(Number)
+                .filter((delayMs) => Number.isFinite(delayMs) && delayMs > 0)
+            : [];
+        this._roomWalletRefundRetryDelaysMs = Object.freeze(
+            suppliedRefundRetryDelays.length > 0
+                ? suppliedRefundRetryDelays
+                : [2_000, 5_000, 15_000, 30_000, 60_000]
+        );
+        this._roomWalletRefundRetryTimers = new Map();
+        this._roomWalletRefundRetryAttempts = new Map();
+        this._roomWalletRefundInFlight = new Map();
 
         this._sessionsByRoom = new Map();
 
@@ -1577,6 +1598,7 @@ export class PaymentSessionManager {
         }
 
         this._clearExpiry(session.roomId);
+        this._clearRoomWalletRefundRetry(session.roomId, true);
 
         this._blockchainMonitor?.stopRoom?.(session.roomId);
 
@@ -2122,7 +2144,161 @@ export class PaymentSessionManager {
 
     }
 
-    async _requestRoomWalletPartialPaymentRefund(session, reason = "payment_failed") {
+    _requestRoomWalletPartialPaymentRefund(session, reason = "payment_failed") {
+
+        if (!session?.roomId) {
+
+            return this._performRoomWalletPartialPaymentRefund(session, reason);
+
+        }
+
+        const roomId = session.roomId;
+        const existing = this._roomWalletRefundInFlight.get(roomId);
+
+        if (existing) {
+
+            return existing;
+
+        }
+
+        // An explicit caller may arrive before a scheduled backoff. Cancel the
+        // timer but preserve the attempt count until the refund completes.
+        this._clearRoomWalletRefundRetry(roomId, false);
+
+        let operation;
+        operation = (async () => {
+
+            try {
+
+                const result = await this._performRoomWalletPartialPaymentRefund(
+                    session,
+                    reason
+                );
+
+                if (result?.retryable === true) {
+
+                    this._scheduleRoomWalletRefundRetry(session, reason);
+
+                } else if (result?.ok === true) {
+
+                    this._clearRoomWalletRefundRetry(roomId, true);
+
+                }
+
+                return result;
+
+            } catch (error) {
+
+                this._scheduleRoomWalletRefundRetry(session, reason);
+
+                throw error;
+
+            } finally {
+
+                if (this._roomWalletRefundInFlight.get(roomId) === operation) {
+
+                    this._roomWalletRefundInFlight.delete(roomId);
+
+                }
+
+            }
+
+        })();
+
+        this._roomWalletRefundInFlight.set(roomId, operation);
+
+        return operation;
+
+    }
+
+    _scheduleRoomWalletRefundRetry(session, reason = "payment_failed") {
+
+        const roomId = session?.roomId;
+
+        if (
+            !roomId
+            || !this._initialized
+            || this._sessionsByRoom.get(roomId) !== session
+            || session.status !== PAYMENT_SESSION_STATUS.REFUND_PENDING
+            || this._roomWalletRefundRetryTimers.has(roomId)
+        ) {
+
+            return;
+
+        }
+
+        const attempt = Math.min(
+            this._roomWalletRefundRetryDelaysMs.length,
+            (this._roomWalletRefundRetryAttempts.get(roomId) ?? 0) + 1
+        );
+        const delayMs = this._roomWalletRefundRetryDelaysMs[attempt - 1];
+
+        this._roomWalletRefundRetryAttempts.set(roomId, attempt);
+
+        const timer = setTimeout(() => {
+
+            this._roomWalletRefundRetryTimers.delete(roomId);
+
+            const current = this._sessionsByRoom.get(roomId);
+
+            if (
+                !current
+                || current.status !== PAYMENT_SESSION_STATUS.REFUND_PENDING
+            ) {
+
+                this._roomWalletRefundRetryAttempts.delete(roomId);
+
+                return;
+
+            }
+
+            void this._requestRoomWalletPartialPaymentRefund(
+                current,
+                current.recoveryMetadata?.unwindReason ?? reason
+            ).catch((error) => {
+
+                this._logger?.error?.(
+                    "Room-Wallet scheduled refund retry failed | roomId=" + roomId + " | "
+                        + (error?.message ?? error)
+                );
+
+            });
+
+        }, delayMs);
+
+        timer.unref?.();
+
+        this._roomWalletRefundRetryTimers.set(roomId, timer);
+
+        this._logger?.warn?.(
+            "ROOM_WALLET_REFUND_RETRY_SCHEDULED | roomId=" + roomId
+                + " | attempt=" + attempt
+                + " | retryAfterMs=" + delayMs
+        );
+
+    }
+
+    _clearRoomWalletRefundRetry(roomId, clearAttempts = true) {
+
+        const timer = this._roomWalletRefundRetryTimers.get(roomId);
+
+        if (timer) {
+
+            clearTimeout(timer);
+
+            this._roomWalletRefundRetryTimers.delete(roomId);
+
+        }
+
+        if (clearAttempts) {
+
+            this._roomWalletRefundRetryAttempts.delete(roomId);
+
+        }
+
+    }
+
+    async _performRoomWalletPartialPaymentRefund(session, reason = "payment_failed") {
 
         if (
             !session
@@ -2164,9 +2340,60 @@ export class PaymentSessionManager {
         this._persistSession(session, "update");
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
-        const roomWalletAddress = session.roomWalletAddress
-            ?? session.participants?.find((participant) => participant?.contractAddress)?.contractAddress
-            ?? null;
+        const sessionRoomWalletAddress = typeof session.roomWalletAddress === "string"
+            ? session.roomWalletAddress.trim()
+            : "";
+
+        // Legacy Room-Wallet sessions may predate roomNumber / roomWalletAddress
+        // being persisted on the session itself. Every participant payment request
+        // still records the server-selected paymentDestination. Recover the wallet
+        // number from that persisted destination, but fail closed if destinations
+        // disagree (or disagree with the session-level authoritative address).
+        const participantPaymentDestinations = (session.participants ?? [])
+            .map((participant) => (
+                typeof participant?.paymentDestination === "string"
+                    ? participant.paymentDestination.trim()
+                    : ""
+            ))
+            .filter(Boolean);
+
+        const firstParticipantDestination = participantPaymentDestinations[0] ?? null;
+        const participantDestinationsAgree = firstParticipantDestination != null
+            && participantPaymentDestinations.every((destination) => (
+                tonWalletAccountsEqual(destination, firstParticipantDestination)
+            ));
+        const sessionDestinationConflict = Boolean(
+            sessionRoomWalletAddress
+            && participantPaymentDestinations.length > 0
+            && !participantPaymentDestinations.every((destination) => (
+                tonWalletAccountsEqual(destination, sessionRoomWalletAddress)
+            ))
+        );
+
+        if (
+            participantPaymentDestinations.length > 0
+            && (!participantDestinationsAgree || sessionDestinationConflict)
+        ) {
+            this._logger?.error?.(
+                "Room-Wallet refund blocked: conflicting payment destinations | roomId="
+                    + session.roomId
+            );
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_DESTINATION_MISMATCH"
+            });
+        }
+
+        // contractAddress remains a last-resort compatibility source only for
+        // historical records that do not retain paymentDestination.
+        const legacyContractAddress = participantPaymentDestinations.length === 0
+            ? session.participants?.find((participant) => participant?.contractAddress)?.contractAddress
+            : null;
+        const roomWalletAddress = sessionRoomWalletAddress
+            || firstParticipantDestination
+            || legacyContractAddress
+            || null;
 
         const roomNumber = session.roomNumber
             ?? this._roomWalletRegistry?.getByAddress?.(roomWalletAddress)?.roomNumber
@@ -2194,6 +2421,15 @@ export class PaymentSessionManager {
             refundRequestedAt
         });
 
+        if (refundPlan?.planFailure === true) {
+            return Object.freeze({
+                ok: false,
+                retryable: refundPlan.retryable === true,
+                code: refundPlan.code ?? "ROOM_WALLET_REFUND_PLAN_UNAVAILABLE",
+                detail: refundPlan.detail ?? null
+            });
+        }
+
         if (refundPlan === null) {
             return Object.freeze({
                 ok: false,
@@ -2220,7 +2456,9 @@ export class PaymentSessionManager {
             );
             return Object.freeze({
                 ok: false,
-                retryable: true,
+                // Preserve explicit non-retryable adapter errors. Unknown errors
+                // remain retryable so transient TON/RPC failures can recover.
+                retryable: error?.retryable !== false,
                 code: "ROOM_WALLET_REFUND_ERROR"
             });
         }
@@ -2273,10 +2511,13 @@ export class PaymentSessionManager {
             this._finalizePartialPaymentUnwind(session);
         }
 
+        const allRefunded = allConfirmedParticipantsRefunded(session);
+        const succeeded = result?.ok === true && allRefunded;
+
         return Object.freeze({
-            ok: result?.ok === true && allConfirmedParticipantsRefunded(session),
-            retryable: result?.ok !== true,
-            code: result?.ok === true
+            ok: succeeded,
+            retryable: result?.retryable ?? !succeeded,
+            code: succeeded
                 ? "ROOM_WALLET_REFUNDS_CONFIRMED"
                 : "ROOM_WALLET_REFUND_PENDING",
             result
@@ -2290,8 +2531,10 @@ export class PaymentSessionManager {
      *
      * Semantics of the return value:
      * - frozen plan object  → pass it to the adapter (exact persisted values)
-     * - null                → the adapter HAS plan capability but planning
-     *                         failed: fail closed, no refund broadcast
+     * - planFailure object  → the adapter HAS plan capability but planning
+     *                         failed; retryability/code are propagated and no
+     *                         refund broadcast occurs
+     * - null                → legacy defensive failure result; fail closed
      * - undefined           → the adapter has no plan capability (mocked or
      *                         legacy caller paths): the adapter computes its
      *                         own plan inside refundPayments and echoes it
@@ -2303,69 +2546,145 @@ export class PaymentSessionManager {
         refundRequestedAt
     }) {
         const adapter = this._roomWalletSettlementAdapter;
-        const existingPlan = session?.recoveryMetadata?.refundPlan ?? null;
-        const uncovered = existingPlan
-            ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(existingPlan, refund))
+        const initialPlan = session?.recoveryMetadata?.refundPlan ?? null;
+        const initialUncovered = initialPlan
+            ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(initialPlan, refund))
             : pendingRefunds;
 
-        if (existingPlan && uncovered.length === 0) {
-            return existingPlan;
+        if (initialPlan && initialUncovered.length === 0) {
+            return initialPlan;
         }
 
         if (typeof adapter?.planRefunds !== "function") {
             return undefined;
         }
 
-        if (uncovered.length === 0) {
-            return existingPlan;
+        if (initialUncovered.length === 0) {
+            return initialPlan;
         }
 
-        let planResult;
-        try {
-            planResult = await adapter.planRefunds({
-                roomNumber,
-                refunds: uncovered,
-                cutoffUtime: refundRequestedAt
-            });
-        } catch (error) {
-            this._logger?.error?.(
-                "Room-Wallet refund gas plan failed | roomId=" + session.roomId + " | "
-                    + (error?.message ?? error)
-            );
-            return null;
-        }
-
-        if (!planResult?.ok) {
-            // Planning capability absent (mocked/legacy adapter behind the
-            // router): the adapter computes its own plan inside refundPayments
-            // and echoes it for defensive persistence.
-            if (planResult?.capabilityUnavailable === true) {
-                return undefined;
-            }
-            this._logger?.error?.(
-                "Room-Wallet refund gas plan unavailable | roomId=" + session.roomId + " | "
-                    + (planResult?.code ?? "unknown")
-                    + (planResult?.detail ? ` | ${planResult.detail}` : "")
-            );
-            return null;
-        }
-
-        const mergedPlan = mergeRefundPlans(existingPlan, planResult.refundPlan);
-
-        session.recoveryMetadata = {
-            ...(session.recoveryMetadata ?? {}),
-            refundPlan: mergedPlan
-        };
-
-        this._persistSession(session, "update");
-
-        this._logger?.info?.(
-            `ROOM_WALLET_REFUND_GAS_PLAN_FROZEN | roomId=${session.roomId} `
-                + `| entries=${mergedPlan?.entries?.length ?? 0} `
-                + `| mode=${mergedPlan?.mode ?? "unknown"}`
+        // At startup several persisted refunds can become eligible at once.
+        // Serialize fee planning THROUGH persistence of the frozen plan. Re-read
+        // recoveryMetadata after acquiring the queue so a second call for the
+        // same session reuses the first caller's frozen entries instead of
+        // estimating or replacing them again. Broadcasts and confirmations stay
+        // outside this queue.
+        const previousPlanning = this._roomWalletRefundPlanningQueue;
+        let releasePlanning;
+        const planningLock = new Promise((resolve) => {
+            releasePlanning = resolve;
+        });
+        this._roomWalletRefundPlanningQueue = previousPlanning.then(
+            () => planningLock,
+            () => planningLock
         );
+        await previousPlanning.catch(() => undefined);
 
-        return mergedPlan;
+        try {
+            const existingPlan = session?.recoveryMetadata?.refundPlan ?? null;
+            const uncovered = existingPlan
+                ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(existingPlan, refund))
+                : pendingRefunds;
+
+            if (existingPlan && uncovered.length === 0) {
+                return existingPlan;
+            }
+
+            if (uncovered.length === 0) {
+                return existingPlan;
+            }
+
+            let planResult;
+            const maxAttempts = 3;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                try {
+                    planResult = await adapter.planRefunds({
+                        roomNumber,
+                        refunds: uncovered,
+                        cutoffUtime: refundRequestedAt
+                    });
+                } catch (error) {
+                    const detail = error?.message ?? String(error);
+                    const retryable = /(?:429|too many requests|rate.?limit|ratelimit exceed|network|timeout|econn|fetch failed|http 5(?:02|03|04))/i
+                        .test(String(detail));
+
+                    planResult = {
+                        ok: false,
+                        retryable,
+                        code: "PAYOUT_GAS_ESTIMATE_UNAVAILABLE",
+                        detail
+                    };
+                }
+
+                if (
+                    planResult?.ok === true
+                    || planResult?.capabilityUnavailable === true
+                ) {
+                    break;
+                }
+
+                const isTransientRateLimit = (
+                    planResult?.retryable === true
+                    && planResult?.code === "PAYOUT_GAS_ESTIMATE_UNAVAILABLE"
+                    && /(?:429|too many requests|rate.?limit|ratelimit exceed)/i.test(
+                        String(planResult?.detail ?? "")
+                    )
+                );
+
+                if (!isTransientRateLimit || attempt === maxAttempts) {
+                    break;
+                }
+
+                const retryDelayMs = attempt === 1 ? 1_000 : 3_000;
+                this._logger?.warn?.(
+                    "Room-Wallet refund fee estimation rate limited | roomId="
+                        + session.roomId
+                        + " | attempt=" + attempt + "/" + maxAttempts
+                        + " | retryAfterMs=" + retryDelayMs
+                );
+                await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+            }
+
+            if (!planResult?.ok) {
+                // Planning capability absent (mocked/legacy adapter behind the
+                // router): the adapter computes its own plan inside refundPayments
+                // and echoes it for defensive persistence.
+                if (planResult?.capabilityUnavailable === true) {
+                    return undefined;
+                }
+                this._logger?.error?.(
+                    "Room-Wallet refund gas plan unavailable | roomId=" + session.roomId + " | "
+                        + (planResult?.code ?? "unknown")
+                        + (planResult?.detail ? ` | ${planResult.detail}` : "")
+                );
+                return Object.freeze({
+                    planFailure: true,
+                    retryable: planResult?.retryable === true,
+                    code: planResult?.code ?? "PAYOUT_GAS_ESTIMATE_UNAVAILABLE",
+                    detail: planResult?.detail ?? null
+                });
+            }
+
+            const mergedPlan = mergeRefundPlans(existingPlan, planResult.refundPlan);
+
+            session.recoveryMetadata = {
+                ...(session.recoveryMetadata ?? {}),
+                refundPlan: mergedPlan
+            };
+
+            this._persistSession(session, "update");
+
+            this._logger?.info?.(
+                `ROOM_WALLET_REFUND_GAS_PLAN_FROZEN | roomId=${session.roomId} `
+                    + `| entries=${mergedPlan?.entries?.length ?? 0} `
+                    + `| mode=${mergedPlan?.mode ?? "unknown"}`
+            );
+
+            return mergedPlan;
+        } finally {
+            releasePlanning();
+        }
 
     }
 
@@ -3315,6 +3634,14 @@ export class PaymentSessionManager {
             this._clearExpiry(roomId);
 
         }
+
+        for (const roomId of [...this._roomWalletRefundRetryTimers.keys()]) {
+
+            this._clearRoomWalletRefundRetry(roomId, true);
+
+        }
+
+        this._roomWalletRefundRetryAttempts.clear();
 
         this._sessionsByRoom.clear();
 
