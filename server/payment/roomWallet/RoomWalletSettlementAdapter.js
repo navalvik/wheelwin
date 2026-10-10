@@ -1115,6 +1115,15 @@ export class RoomWalletSettlementAdapter {
             || (legacyAmountNano != null && value === legacyAmountNano)
         );
         const afterCutoff = (utime) => cutoff == null || Number(utime) > cutoff;
+        const expectedQueryId = queryId == null ? null : String(queryId);
+        const isWithinRefundWindow = (candidate) => (
+            afterCutoff(candidate.utime)
+            || (
+                expectedQueryId != null
+                && candidate.queryId != null
+                && String(candidate.queryId) === expectedQueryId
+            )
+        );
         const sourceCandidates = [];
 
         if (typeof this._roomWalletAdapter.getTransactions === "function") {
@@ -1130,7 +1139,7 @@ export class RoomWalletSettlementAdapter {
                         && transfer.bounced !== true
                         && matchesAmount(transfer.amountNano)
                         && tonWalletAccountsEqual(transfer.destination, wallet)
-                        && afterCutoff(transfer.utime)
+                        && isWithinRefundWindow(transfer)
                     ) {
                         sourceCandidates.push(Object.freeze({
                             ...transfer,
@@ -1141,7 +1150,6 @@ export class RoomWalletSettlementAdapter {
             }
         }
 
-        const expectedQueryId = queryId == null ? null : String(queryId);
         const isRelevant = (candidate) => (
             candidate.queryId == null
             || (
@@ -1188,7 +1196,7 @@ export class RoomWalletSettlementAdapter {
                     && inbound.bounced !== true
                     && matchesAmount(inbound.amountNano)
                     && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
-                    && afterCutoff(inbound.utime)
+                    && isWithinRefundWindow(inbound)
                 ) {
                     playerCandidates.push(Object.freeze({
                         ...inbound,
