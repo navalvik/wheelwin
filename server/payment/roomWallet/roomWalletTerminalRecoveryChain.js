@@ -1,3 +1,4 @@
+import { Cell } from "@ton/core";
 import {
     canonicalizeTonWalletAddress,
     tonWalletAccountsEqual
@@ -88,6 +89,7 @@ export function extractOutboundTransfers(tx) {
         if (!destination || amountNano == null) {
             continue;
         }
+        const queryId = extractMessageQueryId(msg);
         transfers.push(Object.freeze({
             hash,
             lt: lt == null ? null : String(lt),
@@ -95,7 +97,8 @@ export function extractOutboundTransfers(tx) {
             destination,
             amountNano,
             success,
-            bounced: bounced === true
+            bounced: bounced === true,
+            ...(queryId == null ? {} : { queryId })
         }));
     }
 
@@ -109,6 +112,7 @@ export function extractInbound(tx) {
     }
 
     const amountNano = toNanoAmount(inMsg.value ?? inMsg.amount);
+    const queryId = extractMessageQueryId(inMsg);
     return Object.freeze({
         hash: extractTxHash(tx),
         lt: extractTxLt(tx) == null ? null : String(extractTxLt(tx)),
@@ -116,10 +120,42 @@ export function extractInbound(tx) {
         source: canonicalizeTonWalletAddress(msgSource(inMsg)) ?? msgSource(inMsg),
         amountNano,
         bounced: inMsg.bounced === true,
-        success: tx?.success !== false && tx?.aborted !== true
+        success: tx?.success !== false && tx?.aborted !== true,
+        ...(queryId == null ? {} : { queryId })
     });
 }
 
+/**
+ * Reads an optional 64-bit refund correlation ID from an internal message body.
+ * Legacy WheelWin transfers use an empty body and return null.
+ * Comments and non-64-bit bodies are deliberately ignored.
+ */
+export function extractMessageQueryId(message) {
+    const rawBody = message?.msg_data?.body
+        ?? message?.msgData?.body
+        ?? message?.message_content?.body
+        ?? message?.body?.boc
+        ?? message?.body
+        ?? null;
+
+    if (typeof rawBody !== "string" || !rawBody.trim()) {
+        return null;
+    }
+
+    try {
+        const cells = Cell.fromBoc(Buffer.from(rawBody, "base64"));
+        if (cells.length !== 1) {
+            return null;
+        }
+        const slice = cells[0].beginParse();
+        if (slice.remainingBits !== 64 || slice.remainingRefs !== 0) {
+            return null;
+        }
+        return slice.loadUintBig(64).toString(10);
+    } catch {
+        return null;
+    }
+}
 export function isLaterThanCutoff(tx, cutoffLt, cutoffUtime) {
     const lt = extractTxLt(tx);
     if (lt != null && cutoffLt != null) {
