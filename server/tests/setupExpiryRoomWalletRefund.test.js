@@ -80,7 +80,8 @@ function buildStack({
     refundDefer = false,
     planRefundsHandler = null,
     refundPaymentsHandler = null,
-    roomWalletRefundRetryDelaysMs = null
+    roomWalletRefundRetryDelaysMs = null,
+    financialPersistence = { listActive: () => [] }
 } = {}) {
 
     const logger = createLogger();
@@ -217,6 +218,7 @@ function buildStack({
         roomManager,
         gameContractManager,
         blockchainMonitor,
+        financialPersistence,
         devMode: false,
         roomWalletPaymentIntakeEnabled: true,
         roomWalletSettlementAdapter,
@@ -1010,4 +1012,27 @@ console.log("setupExpiryRoomWalletRefund.test.js passed");
 
     stack.shutdown();
     console.log("  N. success without transaction hash cannot mark a refund complete passed");
+}
+
+
+// O — refund hash uniqueness checks fail closed if the authoritative persisted
+// session index is unavailable. An in-memory session list alone is insufficient.
+{
+    const stack = buildStack({ financialPersistence: null });
+    const session = paidSetupSession(stack.roomId, 2);
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "test_hash_index_unavailable"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.code, "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE");
+    assert.equal(stack.refundCalls.length, 0, "no refund handoff without the global persisted claim index");
+    assert.equal(session.findParticipant("p1").refunded, false);
+
+    stack.shutdown();
+    console.log("  O. missing persisted hash index fails closed passed");
 }
