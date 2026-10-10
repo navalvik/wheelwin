@@ -76,6 +76,17 @@ function makeAdapter({ queryTransactions = [] } = {}) {
         },
         async sendTransfer(input) {
             calls.push(input);
+            // Mirror a successful send into the mocked source-wallet history so
+            // the production confirmation helper can independently observe it.
+            transactions = [
+                ...transactions,
+                makeTaggedTransfer({
+                    hash: "new-refund-tx",
+                    destination: input.destination,
+                    amountNano: input.amountNano,
+                    queryId: input.queryId
+                })
+            ];
             return { ok: true, code: "SENT", txHash: "new-refund-tx", seqno: 7 };
         }
     };
