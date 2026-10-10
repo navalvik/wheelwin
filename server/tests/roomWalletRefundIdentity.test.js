@@ -127,6 +127,17 @@ test("TON transaction message query IDs are parsed from BOC for inbound/outbound
     assert.equal(extractMessageQueryId(message), queryId);
     assert.equal(extractMessageQueryId({ msg_data: { body: beginCell().endCell().toBoc().toString("base64") } }), null);
     assert.equal(extractMessageQueryId({ msg_data: { body: "not-a-boc" } }), null);
+    const extendedBody = beginCell()
+        .storeUint(BigInt(queryId), 64)
+        .storeUint(0, 1)
+        .endCell()
+        .toBoc()
+        .toString("base64");
+    assert.equal(
+        extractMessageQueryId({ msg_data: { body: extendedBody } }),
+        null,
+        "a queryId followed by extra body bits is not a canonical WheelWin refund body"
+    );
 
     const outbound = extractOutboundTransfers({
         transaction_id: { hash: "outbound-hash" },
@@ -142,6 +153,37 @@ test("TON transaction message query IDs are parsed from BOC for inbound/outbound
         in_msg: { source: ROOM_WALLET, value: String(GROSS_NANO), msg_data: { body } }
     });
     assert.equal(inbound.queryId, queryId);
+});
+
+test("exact queryId is adopted when retry cutoff rounds to the same TON second", async () => {
+    const target = buildPartialPaymentRefundTargets(makeSession("pay-same-second")).refunds[0];
+    const { adapter, calls, setTransactions } = makeAdapter();
+    const planResult = await adapter.planRefunds({ roomNumber: 7, refunds: [target] });
+    assert.equal(planResult.ok, true);
+    const entry = planResult.refundPlan.entries[0];
+    const txUtime = Math.floor(Date.now() / 1000);
+
+    setTransactions([makeTaggedTransfer({
+        hash: "same-second-existing-refund",
+        destination: PLAYER_WALLET,
+        amountNano: entry.recipientTransferAmountNano,
+        queryId: target.queryId,
+        utime: txUtime
+    })]);
+
+    const result = await adapter.refundPayments({
+        roomNumber: 7,
+        paymentSessionId: "pay-same-second",
+        refunds: [target],
+        refundPlan: planResult.refundPlan,
+        // The original request was in the same one-second TON timestamp bucket.
+        cutoffUtime: txUtime * 1000 + 999
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.results[0].code, "REFUND_ADOPTED");
+    assert.equal(result.results[0].txHash, "same-second-existing-refund");
+    assert.equal(calls.length, 0, "same-intent transfer must be adopted instead of resent");
 });
 
 test("same destination and amount with a different query ID is not adopted", async () => {
