@@ -2754,9 +2754,14 @@ export class PaymentSessionManager {
 
         const hashesClaimedInBatch = new Map();
         let refundAttributionConflict = false;
+        let nonRetryableRefundFailureCode = null;
 
         for (const refund of result?.results ?? []) {
             if (refund?.ok !== true) {
+                if (refund?.retryable === false) {
+                    refundAttributionConflict = true;
+                    nonRetryableRefundFailureCode ??= refund.code ?? "ROOM_WALLET_REFUND_BLOCKED";
+                }
                 continue;
             }
 
@@ -2837,7 +2842,7 @@ export class PaymentSessionManager {
             // been credited to another obligation; require reconciliation first.
             retryable: refundAttributionConflict ? false : (result?.retryable ?? !succeeded),
             code: refundAttributionConflict
-                ? "ROOM_WALLET_REFUND_ATTRIBUTION_CONFLICT"
+                ? (nonRetryableRefundFailureCode ?? "ROOM_WALLET_REFUND_ATTRIBUTION_CONFLICT")
                 : succeeded
                     ? "ROOM_WALLET_REFUNDS_CONFIRMED"
                     : "ROOM_WALLET_REFUND_PENDING",
