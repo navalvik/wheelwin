@@ -2456,7 +2456,9 @@ export class PaymentSessionManager {
             );
             return Object.freeze({
                 ok: false,
-                retryable: true,
+                // Preserve explicit non-retryable adapter errors. Unknown errors
+                // remain retryable so transient TON/RPC failures can recover.
+                retryable: error?.retryable !== false,
                 code: "ROOM_WALLET_REFUND_ERROR"
             });
         }
