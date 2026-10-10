@@ -846,6 +846,21 @@ export class RoomWalletSettlementAdapter {
 
             assertNonNegativeNano(amountNano, "refundAmountNano");
 
+            let queryId;
+            try {
+                queryId = normalizeRefundQueryId(target?.queryId ?? null);
+            } catch {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "INVALID_REFUND_QUERY_ID",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet
+                }));
+                continue;
+            }
+
             if (amountNano <= 0n) {
                 results.push(Object.freeze({
                     ok: false,
