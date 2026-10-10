@@ -266,6 +266,7 @@ export async function confirmPayoutOnChain({
     expectedHash,
     destination,
     amountNano,
+    queryId = null,
     timeoutMs = 90_000,
     pollIntervalMs = 2_000,
     now = () => Date.now(),
@@ -286,7 +287,15 @@ export async function confirmPayoutOnChain({
             for (const transfer of extractOutboundTransfers(tx)) {
                 const matchDest = tonWalletAccountsEqual(transfer.destination, destination);
                 const matchAmount = transfer.amountNano === amountNano;
-                if (matchDest && matchAmount && transfer.success && transfer.bounced !== true) {
+                const matchQueryId = queryId == null
+                    || String(transfer.queryId ?? "") === String(queryId);
+                if (
+                    matchDest
+                    && matchAmount
+                    && matchQueryId
+                    && transfer.success
+                    && transfer.bounced !== true
+                ) {
                     return Object.freeze({
                         ok: true,
                         hash: transfer.hash,
