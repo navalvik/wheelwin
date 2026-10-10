@@ -1,0 +1,42 @@
+name: Refund attribution regression
+
+on:
+  push:
+    branches:
+      - fix/refund-attribution-recovery-20261010
+  pull_request:
+    branches:
+      - recovery/escrow-mode-fix-production-20261009
+    paths:
+      - "server/gameplay/partialPaymentEscrowUnwind.js"
+      - "server/gameplay/PaymentSessionManager.js"
+      - "server/payment/roomWallet/RoomWalletSettlementAdapter.js"
+      - "server/payment/roomWallet/roomWalletTerminalRecoveryChain.js"
+      - "server/tests/roomWalletRefundAttribution.test.js"
+      - ".github/workflows/refund-attribution-regression.yml"
+
+jobs:
+  refund-attribution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+      - name: Refund attribution safety tests
+        run: node --test tests/roomWalletRefundAttribution.test.js
+        working-directory: server
+      - name: Setup-expiry refund regression
+        run: node tests/setupExpiryRoomWalletRefund.test.js
+        working-directory: server
+      - name: Incoming observer regression
+        run: node --test tests/roomWalletIncomingObserver.test.js
+        working-directory: server
