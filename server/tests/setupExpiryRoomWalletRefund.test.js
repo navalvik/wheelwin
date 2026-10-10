@@ -911,4 +911,59 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
     console.log("  K. direct expiry clears pending timer handle passed");
 }
 
+// L — a transaction hash already assigned to another session must not be
+// marked refunded again if a concurrent/stale adapter result returns it.
+{
+    let submittedRequest = null;
+    const stack = buildStack({
+        refundPaymentsHandler: async (request) => {
+            submittedRequest = request;
+            return {
+                ok: true,
+                retryable: false,
+                results: request.refunds.map((refund) => ({
+                    ok: true,
+                    playerId: refund.playerId,
+                    txHash: "already-claimed-by-other-session"
+                }))
+            };
+        }
+    });
+
+    const session = paidSetupSession(stack.roomId, 1);
+    const otherSession = paidSetupSession("other-session", 1);
+    const otherParticipant = otherSession.findParticipant("p1");
+    otherParticipant.refunded = true;
+    otherParticipant.refundTxHash = "already-claimed-by-other-session";
+
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+    stack.paymentSessionManager._sessionsByRoom.set(otherSession.roomId, otherSession);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "setup_expired"
+    );
+
+    assert.ok(
+        submittedRequest.claimedRefunds.some((claim) => (
+            claim.txHash === "already-claimed-by-other-session"
+            && claim.intentId === otherSession.paymentSessionId
+            && claim.playerId === "p1"
+        )),
+        "the adapter receives a snapshot of prior transaction-hash claims"
+    );
+    assert.equal(session.findParticipant("p1").refunded, false);
+    assert.equal(session.findParticipant("p1").refundTxHash, null);
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryTimers.has(stack.roomId),
+        false,
+        "a proven cross-session hash conflict must not retry or broadcast"
+    );
+
+    stack.shutdown();
+    console.log("  L. cross-session refund hash claim is rejected without marking refunded passed");
+}
+
 console.log("setupExpiryRoomWalletRefund.test.js passed");
