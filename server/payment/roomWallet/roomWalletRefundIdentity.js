@@ -74,6 +74,9 @@ export function deriveRoomWalletRefundQueryId({
  * Null matches only an absent/unparseable on-chain query ID.
  */
 export function roomWalletRefundQueryIdsMatch(expected, observed) {
-    return normalizeRoomWalletRefundQueryId(expected)
-        === normalizeRoomWalletRefundQueryId(observed);
+    const expectedQueryId = normalizeRoomWalletRefundQueryId(expected);
+    const observedQueryId = normalizeRoomWalletRefundQueryId(observed);
+    return expectedQueryId !== null
+        && observedQueryId !== null
+        && expectedQueryId === observedQueryId;
 }
