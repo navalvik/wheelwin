@@ -40,7 +40,7 @@ import {
     PAYMENT_SESSION_STATUS,
     PaymentSession
 } from "../models/PaymentSession.js";
-import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
+import { TON_FINANCIAL_RECORD_TYPES, TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
 
 function waitForAsync(ms = 25) {
 
@@ -604,7 +604,7 @@ await runCase(results, "F. duplicated refund hash → both sessions quarantined 
 
         assert.equal(second.refundCalls.length, 0, "quarantined sessions never auto-broadcast");
 
-        const persisted = second.financialPersistence.listActive("PAYMENT_SESSION");
+        const persisted = second.financialPersistence.listActive(TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION);
         const quarantined = persisted.filter((record) => {
             const session = PaymentSession.fromRecord(record);
             return ["room-restore-rgft", "room-restore-snvb"].includes(session.roomId);
