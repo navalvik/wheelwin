@@ -194,11 +194,14 @@ test("an incomplete 40-transaction history page blocks a repeat refund instead o
     const entry = planResult.refundPlan.entries[0];
     const txUtime = Math.floor(Date.now() / 1000);
 
+    const differentQueryId = BigInt(target.queryId) === 0xffffffffffffffffn
+        ? "0"
+        : String(BigInt(target.queryId) + 1n);
     setTransactions(Array.from({ length: 40 }, (_, index) => makeTaggedTransfer({
         hash: "unrelated-recent-transfer-" + index,
         destination: PLAYER_WALLET,
         amountNano: entry.recipientTransferAmountNano,
-        queryId: String(BigInt(target.queryId) + 1n),
+        queryId: differentQueryId,
         utime: txUtime - index
     })));
 
