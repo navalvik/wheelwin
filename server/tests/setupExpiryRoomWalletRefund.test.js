@@ -1114,6 +1114,8 @@ console.log("setupExpiryRoomWalletRefund.test.js passed");
     );
 
     assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.code, "ROOM_WALLET_REFUND_ATTRIBUTION_CONFLICT");
     assert.equal(session.findParticipant("p1").refunded, false);
     assert.equal(session.findParticipant("p1").refundTxHash, null);
     assert.equal(session.findParticipant("p2").refunded, false);
@@ -1121,5 +1123,5 @@ console.log("setupExpiryRoomWalletRefund.test.js passed");
     assert.equal(session.status, PAYMENT_SESSION_STATUS.REFUND_PENDING);
 
     stack.shutdown();
-    console.log("  Q. mismatched playerId/playerIndex/wallet cannot credit a participant passed");
+    console.log("  Q. mismatched playerId/playerIndex/wallet cannot credit or auto-retry a participant passed");
 }
