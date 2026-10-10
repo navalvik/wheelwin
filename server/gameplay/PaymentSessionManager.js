@@ -2550,6 +2550,15 @@ export class PaymentSessionManager {
         const initialUncovered = initialPlan
             ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(initialPlan, refund))
             : pendingRefunds;
+        const conflictingInitialEntry = findRefundPlanQueryIdConflict(initialPlan, pendingRefunds);
+        if (conflictingInitialEntry) {
+            return Object.freeze({
+                planFailure: true,
+                retryable: false,
+                code: "ROOM_WALLET_REFUND_QUERY_ID_CONFLICT",
+                detail: "persisted refund queryId conflicts with the deterministic session/seat ID"
+            });
+        }
 
         if (initialPlan && initialUncovered.length === 0) {
             return initialPlan;
@@ -2582,6 +2591,15 @@ export class PaymentSessionManager {
 
         try {
             const existingPlan = session?.recoveryMetadata?.refundPlan ?? null;
+            const conflictingEntry = findRefundPlanQueryIdConflict(existingPlan, pendingRefunds);
+            if (conflictingEntry) {
+                return Object.freeze({
+                    planFailure: true,
+                    retryable: false,
+                    code: "ROOM_WALLET_REFUND_QUERY_ID_CONFLICT",
+                    detail: "persisted refund queryId conflicts with the deterministic session/seat ID"
+                });
+            }
             const uncovered = existingPlan
                 ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(existingPlan, refund))
                 : pendingRefunds;
@@ -3744,31 +3762,69 @@ function refundPlanCoversEntry(plan, refund) {
         entry
         && String(entry.playerId ?? "") === String(refund?.playerId ?? "")
         && String(entry.wallet ?? "") === String(refund?.wallet ?? "")
-        && /^\d+$/.test(String(entry.grossRefundNano ?? ""))
+        && String(entry.queryId ?? "") === String(refund?.queryId ?? "")
+        && /^[0-9]+$/.test(String(entry.grossRefundNano ?? ""))
         && BigInt(entry.grossRefundNano) === amountNano
     ));
 }
 
+function sameRefundTarget(entry, refund) {
+    return entry
+        && String(entry.playerId ?? "") === String(refund?.playerId ?? "")
+        && tonWalletAccountsEqual(entry.wallet, refund?.wallet)
+        && /^[0-9]+$/.test(String(entry.grossRefundNano ?? ""))
+        && BigInt(entry.grossRefundNano) === (
+            refund?.amountNano != null
+                ? BigInt(refund.amountNano)
+                : BigInt(Math.round(Number(refund?.amount) * 1_000_000_000))
+        );
+}
+
+function findRefundPlanQueryIdConflict(plan, refunds) {
+    if (!plan || !Array.isArray(plan.entries)) return null;
+    for (const refund of refunds ?? []) {
+        const sameTargetEntries = plan.entries.filter((entry) => sameRefundTarget(entry, refund));
+        const conflict = sameTargetEntries.find((entry) => (
+            entry?.queryId != null
+            && String(entry.queryId) !== String(refund?.queryId ?? "")
+        ));
+        if (conflict) return conflict;
+    }
+    return null;
+}
+
 /**
- * PAYOUT GAS POLICY helper: merge a previously frozen refund plan with a
- * freshly computed one. Existing entries keep their frozen gas/net values
- * (deterministic recovery); only genuinely new targets get new entries.
+ * Merge frozen plans while upgrading only legacy entries that have no
+ * correlation ID. A conflicting non-empty ID is never silently overwritten;
+ * findRefundPlanQueryIdConflict blocks that session fail-closed.
  */
 function mergeRefundPlans(existingPlan, freshPlan) {
     if (!existingPlan || !Array.isArray(existingPlan.entries)) {
         return freshPlan;
     }
 
+    const mergedEntries = [...existingPlan.entries];
     const freshEntries = Array.isArray(freshPlan?.entries) ? freshPlan.entries : [];
 
-    const mergedEntries = [
-        ...existingPlan.entries,
-        ...freshEntries.filter((entry) => !existingPlan.entries.some((existing) => (
-            String(existing?.playerId ?? "") === String(entry?.playerId ?? "")
-            && String(existing?.wallet ?? "") === String(entry?.wallet ?? "")
-            && String(existing?.grossRefundNano ?? "") === String(entry?.grossRefundNano ?? "")
-        )))
-    ];
+    for (const fresh of freshEntries) {
+        const index = mergedEntries.findIndex((existing) => (
+            String(existing?.playerId ?? "") === String(fresh?.playerId ?? "")
+            && tonWalletAccountsEqual(existing?.wallet, fresh?.wallet)
+            && String(existing?.grossRefundNano ?? "") === String(fresh?.grossRefundNano ?? "")
+        ));
+        if (index < 0) {
+            mergedEntries.push(fresh);
+            continue;
+        }
+        const existing = mergedEntries[index];
+        if (existing?.queryId == null && fresh?.queryId != null) {
+            mergedEntries[index] = fresh;
+        } else if (existing?.queryId != null
+            && fresh?.queryId != null
+            && String(existing.queryId) !== String(fresh.queryId)) {
+            // Preserve the contradictory evidence; caller refuses to send.
+        }
+    }
 
     return {
         ...freshPlan,
