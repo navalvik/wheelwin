@@ -3946,7 +3946,10 @@ function refundPlanCoversEntry(plan, refund) {
     return plan.entries.some((entry) => (
         entry
         && String(entry.playerId ?? "") === String(refund?.playerId ?? "")
-        && tonWalletAccountsEqual(entry.wallet, refund?.wallet)
+        && (
+            String(entry.wallet ?? "") === String(refund?.wallet ?? "")
+            || tonWalletAccountsEqual(entry.wallet, refund?.wallet)
+        )
         && roomWalletRefundQueryIdsMatch(entry.queryId, targetQueryId)
         && /^\d+$/.test(String(entry.grossRefundNano ?? ""))
         && BigInt(entry.grossRefundNano) === amountNano
