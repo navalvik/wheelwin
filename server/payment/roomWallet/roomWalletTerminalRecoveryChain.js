@@ -1,3 +1,5 @@
+import { Cell } from "@ton/core";
+
 import {
     canonicalizeTonWalletAddress,
     tonWalletAccountsEqual
@@ -72,6 +74,43 @@ function outMessages(tx) {
     return Array.isArray(outs) ? outs : [];
 }
 
+/**
+ * Read WheelWin's stable 64-bit refund correlation ID from an internal message.
+ * Legacy transfers with empty or unsupported bodies return null; unparsed bodies
+ * are never treated as positive correlation evidence.
+ */
+export function extractMessageQueryId(message) {
+    const explicit = message?.queryId ?? message?.query_id ?? null;
+    if (explicit != null && /^[0-9]+$/.test(String(explicit))) {
+        try {
+            const value = BigInt(String(explicit));
+            if (value >= 0n && value < (1n << 64n)) return value.toString(10);
+        } catch {}
+    }
+
+    const candidates = [
+        message?.msg_data?.body,
+        message?.msg_data?.boc,
+        message?.message_content?.body,
+        message?.messageContent?.body,
+        message?.raw_body,
+        message?.body
+    ];
+    for (const raw of candidates) {
+        if (typeof raw !== "string" || !raw.trim()) continue;
+        try {
+            const cells = Cell.fromBoc(Buffer.from(raw.trim(), "base64"));
+            if (cells.length !== 1) continue;
+            const cell = cells[0];
+            if (cell.bits.length !== 64 || cell.refs.length !== 0) continue;
+            return cell.beginParse().loadUintBig(64).toString(10);
+        } catch {
+            // TonCenter payload formats vary; do not guess when parsing fails.
+        }
+    }
+    return null;
+}
+
 export function extractOutboundTransfers(tx) {
     const hash = extractTxHash(tx);
     const utime = extractTxUtime(tx);
@@ -94,6 +133,7 @@ export function extractOutboundTransfers(tx) {
             utime,
             destination,
             amountNano,
+            queryId: extractMessageQueryId(msg),
             success,
             bounced: bounced === true
         }));
@@ -115,6 +155,7 @@ export function extractInbound(tx) {
         utime: extractTxUtime(tx),
         source: canonicalizeTonWalletAddress(msgSource(inMsg)) ?? msgSource(inMsg),
         amountNano,
+        queryId: extractMessageQueryId(inMsg),
         bounced: inMsg.bounced === true,
         success: tx?.success !== false && tx?.aborted !== true
     });
@@ -228,6 +269,7 @@ export async function confirmPayoutOnChain({
     tonService,
     roomWalletAddress,
     expectedHash,
+    expectedQueryId = null,
     destination,
     amountNano,
     timeoutMs = 90_000,
@@ -237,6 +279,7 @@ export async function confirmPayoutOnChain({
 }) {
     const deadline = now() + timeoutMs;
     const expected = String(expectedHash ?? "").toLowerCase();
+    const expectedQuery = expectedQueryId == null ? null : String(expectedQueryId);
     while (now() < deadline) {
         const transactions = await tonService.getTransactions(
             roomWalletAddress,
@@ -248,6 +291,9 @@ export async function confirmPayoutOnChain({
                 continue;
             }
             for (const transfer of extractOutboundTransfers(tx)) {
+                if (expectedQuery != null && String(transfer.queryId ?? "") !== expectedQuery) {
+                    continue;
+                }
                 const matchDest = tonWalletAccountsEqual(transfer.destination, destination);
                 const matchAmount = transfer.amountNano === amountNano;
                 if (matchDest && matchAmount && transfer.success && transfer.bounced !== true) {

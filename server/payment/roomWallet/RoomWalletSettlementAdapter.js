@@ -685,11 +685,22 @@ export class RoomWalletSettlementAdapter {
                 });
             }
 
+            let queryId;
+            try {
+                queryId = normalizeRefundQueryId(target?.queryId ?? null);
+            } catch {
+                return Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "INVALID_REFUND_QUERY_ID",
+                    detail: `playerId=${target?.playerId ?? "unknown"}`
+                });
+            }
             const fee = await this._estimateTransferFee({
                 roomNumber: normalizedRoomNumber,
                 destination: wallet,
                 amountNano,
-                queryId: target?.queryId ?? null
+                queryId
             });
 
             if (!fee.ok) {
@@ -721,6 +732,7 @@ export class RoomWalletSettlementAdapter {
                 playerId: target?.playerId ?? null,
                 playerIndex: target?.playerIndex ?? null,
                 wallet,
+                ...(queryId == null ? {} : { queryId }),
                 grossRefundNano: nanoToPersistedString(amountNano),
                 recipientGasChargeNano: nanoToPersistedString(entry.recipientGasChargeNano),
                 recipientTransferAmountNano: nanoToPersistedString(entry.recipientTransferAmountNano),
@@ -829,6 +841,21 @@ export class RoomWalletSettlementAdapter {
 
             assertNonNegativeNano(amountNano, "refundAmountNano");
 
+            let queryId;
+            try {
+                queryId = normalizeRefundQueryId(target?.queryId ?? null);
+            } catch {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "INVALID_REFUND_QUERY_ID",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet
+                }));
+                continue;
+            }
+
             if (amountNano <= 0n) {
                 results.push(Object.freeze({
                     ok: false,
@@ -880,8 +907,31 @@ export class RoomWalletSettlementAdapter {
                 wallet,
                 amountNano: netNano,
                 legacyAmountNano: amountNano === netNano ? null : amountNano,
-                cutoffUtime
+                cutoffUtime,
+                queryId
             });
+
+            if (existing?.ambiguous === true) {
+                this._logger?.error?.(
+                    "RoomWallet refund blocked by ambiguous idempotency evidence"
+                        + ` | room=${normalizedRoomNumber} | playerId=${target?.playerId ?? "unknown"}`
+                        + ` | reason=${existing.reason ?? "unknown"}`
+                );
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "REFUND_IDEMPOTENCY_AMBIGUOUS",
+                    reason: existing.reason ?? "unknown",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano: netNano,
+                    grossRefundNano: amountNano,
+                    recipientGasChargeNano: gasChargeNano,
+                    txHash: null
+                }));
+                continue;
+            }
 
             if (existing) {
                 const reconciledFromPlayerWallet =
@@ -927,7 +977,7 @@ export class RoomWalletSettlementAdapter {
                     // NET refund; the plan's fee estimate is the source-side
                     // funding requirement (not the legacy blanket reserve).
                     amountNano: netNano,
-                    queryId: target?.queryId ?? null,
+                    queryId,
                     sourceReserveNano: feeBudgetNano
                 });
             } catch (error) {
@@ -999,6 +1049,7 @@ export class RoomWalletSettlementAdapter {
                 tonService: createInspectTransport(this._roomWalletAdapter, normalizedRoomNumber),
                 roomWalletAddress: await this._roomWalletAdapter.getWalletAddress(normalizedRoomNumber),
                 expectedHash: sent.txHash ?? null,
+                expectedQueryId: queryId,
                 destination: wallet,
                 amountNano: netNano,
                 timeoutMs: confirmationTimeoutMs
@@ -1034,8 +1085,11 @@ export class RoomWalletSettlementAdapter {
             }));
         }
 
+        const ok = results.every((result) => result.ok === true);
+        const retryable = results.some((result) => result.ok !== true && result.retryable !== false);
         return Object.freeze({
-            ok: results.every((result) => result.ok === true),
+            ok,
+            retryable,
             roomNumber: normalizedRoomNumber,
             refundPlan: plan,
             results: Object.freeze(results)
@@ -1047,72 +1101,115 @@ export class RoomWalletSettlementAdapter {
         wallet,
         amountNano,
         legacyAmountNano = null,
-        cutoffUtime
+        cutoffUtime,
+        queryId = null
     }) {
+        const scoped = queryId != null;
+        const expectedQueryId = scoped ? normalizeRefundQueryId(queryId) : null;
+        const cutoff = resolveCutoffUtime({ cutoffUtime });
+        const historyLimit = 40;
+
         if (typeof this._roomWalletAdapter.getTransactions !== "function") {
-            return null;
+            return scoped
+                ? Object.freeze({ ambiguous: true, reason: "SOURCE_HISTORY_UNAVAILABLE" })
+                : null;
         }
 
-        const cutoff = resolveCutoffUtime({ cutoffUtime });
-        const transactions = await this._roomWalletAdapter.getTransactions(
+        const sourceTransactions = await this._roomWalletAdapter.getTransactions(
             roomNumber,
-            { limit: 40, archival: true }
+            { limit: historyLimit, archival: true }
         );
+        let untaggedSourceMatch = false;
 
-        for (const tx of transactions ?? []) {
-            const transfers = extractOutboundTransfers(tx);
-            for (const transfer of transfers) {
-                if (
-                    transfer.success
+        for (const tx of sourceTransactions ?? []) {
+            for (const transfer of extractOutboundTransfers(tx)) {
+                const matches = transfer.success
                     && transfer.bounced !== true
                     && (transfer.amountNano === amountNano
                         || (legacyAmountNano != null && transfer.amountNano === legacyAmountNano))
                     && tonWalletAccountsEqual(transfer.destination, wallet)
-                    && (cutoff == null || transfer.utime > cutoff)
-                ) {
-                    return transfer;
-                }
+                    && (cutoff == null || transfer.utime > cutoff);
+                if (!matches) continue;
+                if (!scoped) return transfer;
+                if (String(transfer.queryId ?? "") === expectedQueryId) return transfer;
+                if (transfer.queryId == null) untaggedSourceMatch = true;
             }
         }
 
-        // The Room Wallet history may have failed to observe a refund that in
-        // fact reached the player. Fall back to the destination player's own
-        // inbound history — read-only reconciliation; never a second broadcast.
+        // A destination-side read is also required for refunds that landed on
+        // the player wallet while the source history/indexer was incomplete.
         if (typeof this._roomWalletAdapter.getAddressTransactions !== "function") {
-            return null;
+            if (!scoped) return null;
+            return Object.freeze({
+                ambiguous: true,
+                reason: untaggedSourceMatch ? "LEGACY_UNTAGGED_MATCH" : "PLAYER_HISTORY_UNAVAILABLE"
+            });
         }
 
         const roomWalletAddress = typeof this._roomWalletAdapter.getWalletAddress === "function"
             ? await this._roomWalletAdapter.getWalletAddress(roomNumber)
             : null;
-
         if (!roomWalletAddress) {
-            return null;
+            return scoped
+                ? Object.freeze({ ambiguous: true, reason: "ROOM_WALLET_ADDRESS_UNAVAILABLE" })
+                : null;
         }
 
         const playerTransactions = await this._roomWalletAdapter.getAddressTransactions(
             wallet,
-            { limit: 40, archival: true }
+            { limit: historyLimit, archival: true }
         );
+        let untaggedPlayerMatch = false;
 
         for (const tx of playerTransactions ?? []) {
             const inbound = extractInbound(tx);
-            if (
-                inbound
+            const matches = inbound
                 && inbound.success
                 && inbound.bounced !== true
                 && (inbound.amountNano === amountNano
                     || (legacyAmountNano != null && inbound.amountNano === legacyAmountNano))
                 && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
-                && (cutoff == null || inbound.utime > cutoff)
-            ) {
+                && (cutoff == null || inbound.utime > cutoff);
+            if (!matches) continue;
+            if (!scoped) {
                 return Object.freeze({
                     ...inbound,
                     reconciliation: PLAYER_WALLET_INBOUND_RECONCILIATION
                 });
             }
+            if (String(inbound.queryId ?? "") === expectedQueryId) {
+                return Object.freeze({
+                    ...inbound,
+                    reconciliation: PLAYER_WALLET_INBOUND_RECONCILIATION
+                });
+            }
+            if (inbound.queryId == null) untaggedPlayerMatch = true;
         }
 
+        if (!scoped) return null;
+
+        if (untaggedSourceMatch || untaggedPlayerMatch) {
+            return Object.freeze({ ambiguous: true, reason: "LEGACY_UNTAGGED_MATCH" });
+        }
+
+        const historyCoversCutoff = (transactions) => {
+            if (!Array.isArray(transactions)) return false;
+            if (transactions.length < historyLimit) return true;
+            if (cutoff == null) return false;
+            return transactions.some((tx) => {
+                const timestamp = Number(tx?.utime ?? tx?.now ?? 0);
+                return Number.isFinite(timestamp) && timestamp <= cutoff;
+            });
+        };
+
+        if (!historyCoversCutoff(sourceTransactions)
+            || !historyCoversCutoff(playerTransactions)) {
+            return Object.freeze({ ambiguous: true, reason: "HISTORY_WINDOW_INCOMPLETE" });
+        }
+
+        // Both source and destination histories cover the entire time window;
+        // no transaction with this stable correlation ID exists, so a fresh
+        // broadcast is distinguishable from all legacy lookalikes.
         return null;
     }
 
@@ -1796,6 +1893,9 @@ function validateRefundPlanShape(raw) {
             const gasCharge = toPlanNano(entry.recipientGasChargeNano, "entry.recipientGasChargeNano");
             const net = toPlanNano(entry.recipientTransferAmountNano, "entry.recipientTransferAmountNano");
             const gross = toPlanNano(entry.grossRefundNano, "entry.grossRefundNano");
+            if (entry.queryId != null && normalizeRefundQueryId(entry.queryId) !== String(entry.queryId)) {
+                return { ok: false, detail: "entry.queryId is not canonical uint64 decimal" };
+            }
 
             const marginComponent = feeEvidence.totalNano * marginBps / 10_000n;
             const expectedMargin = marginComponent > marginFloorNano
@@ -1816,6 +1916,19 @@ function validateRefundPlanShape(raw) {
     }
 }
 
+function normalizeRefundQueryId(value) {
+    if (value == null) return null;
+    const raw = String(value);
+    if (!/^[0-9]+$/.test(raw)) {
+        throw new TypeError("refund queryId must be an unsigned decimal integer");
+    }
+    const parsed = BigInt(raw);
+    if (parsed < 0n || parsed >= (1n << 64n)) {
+        throw new RangeError("refund queryId must fit uint64");
+    }
+    return parsed.toString(10);
+}
+
 function findRefundPlanEntry(plan, { target, wallet, amountNano }) {
     if (!plan || !Array.isArray(plan.entries)) {
         return null;
@@ -1831,6 +1944,11 @@ function findRefundPlanEntry(plan, { target, wallet, amountNano }) {
         }
 
         if (!planDestinationMatches(entry.wallet, wallet)) {
+            return false;
+        }
+
+        if (target?.queryId != null
+            && String(entry.queryId ?? "") !== String(target.queryId)) {
             return false;
         }
 

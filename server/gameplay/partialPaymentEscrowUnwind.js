@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 
 /**
@@ -84,10 +85,28 @@ export function buildPartialPaymentRefundTargets(session) {
 
         expectedRefundMask |= (1 << seat);
 
+        const sessionIdentity = String(
+            session.paymentSessionId
+                ?? session.correlationId
+                ?? String(session.roomId ?? "unknown-room") + ":" + String(session.createdAt ?? session.updatedAt ?? "unknown-time")
+        );
+        const queryId = createHash("sha256")
+            .update([
+                "wheelwin-room-wallet-refund-v1",
+                sessionIdentity,
+                String(participant.playerId ?? ""),
+                String(seat),
+                String(participant.wallet ?? "").trim()
+            ].join("|"))
+            .digest()
+            .readBigUInt64BE(0)
+            .toString(10);
+
         refunds.push(Object.freeze({
             playerIndex: seat,
             playerId: participant.playerId ?? null,
             wallet: participant.wallet ?? null,
+            queryId,
             amount: participant.paidAmount || participant.requiredGram
         }));
 
