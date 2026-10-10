@@ -222,7 +222,9 @@ test("a legacy transaction hash already claimed by another session is not adopte
         claimedRefunds: [{
             txHash: "legacy-already-claimed",
             intentId: "session-other",
-            playerId: "player-1"
+            playerId: "player-1",
+            playerIndex: 0,
+            wallet: PLAYER_WALLET
         }],
         refundPlan: legacyPlan(),
         cutoffUtime: Date.now() - 10_000,
