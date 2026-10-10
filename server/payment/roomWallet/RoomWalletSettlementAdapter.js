@@ -676,21 +676,6 @@ export class RoomWalletSettlementAdapter {
             );
             assertNonNegativeNano(amountNano, "refundAmountNano");
 
-            let queryId;
-            try {
-                queryId = normalizeRefundQueryId(target?.queryId ?? null);
-            } catch {
-                results.push(Object.freeze({
-                    ok: false,
-                    retryable: false,
-                    code: "INVALID_REFUND_QUERY_ID",
-                    playerId: target?.playerId ?? null,
-                    playerIndex: target?.playerIndex ?? null,
-                    wallet
-                }));
-                continue;
-            }
-
             if (amountNano <= 0n) {
                 return Object.freeze({
                     ok: false,
@@ -700,7 +685,17 @@ export class RoomWalletSettlementAdapter {
                 });
             }
 
-            const queryId = normalizeRefundQueryId(target?.queryId ?? null);
+            let queryId;
+            try {
+                queryId = normalizeRefundQueryId(target?.queryId ?? null);
+            } catch {
+                return Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "INVALID_REFUND_QUERY_ID",
+                    detail: `playerId=${target?.playerId ?? "unknown"}`
+                });
+            }
             const fee = await this._estimateTransferFee({
                 roomNumber: normalizedRoomNumber,
                 destination: wallet,
