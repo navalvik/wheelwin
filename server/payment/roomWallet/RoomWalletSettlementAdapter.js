@@ -751,7 +751,7 @@ export class RoomWalletSettlementAdapter {
                 playerId: target?.playerId ?? null,
                 playerIndex: target?.playerIndex ?? null,
                 wallet,
-                queryId,
+                ...(queryId == null ? {} : { queryId }),
                 grossRefundNano: nanoToPersistedString(amountNano),
                 recipientGasChargeNano: nanoToPersistedString(entry.recipientGasChargeNano),
                 recipientTransferAmountNano: nanoToPersistedString(entry.recipientTransferAmountNano),
