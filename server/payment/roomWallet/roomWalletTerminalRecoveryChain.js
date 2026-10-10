@@ -1,3 +1,4 @@
+import { Cell } from "@ton/core";
 import {
     canonicalizeTonWalletAddress,
     tonWalletAccountsEqual
@@ -72,6 +73,40 @@ function outMessages(tx) {
     return Array.isArray(outs) ? outs : [];
 }
 
+/**
+ * Read our dedicated 64-bit refund query id from a TON internal-message body.
+ * Legacy empty bodies and arbitrary comments deliberately return null.
+ */
+export function extractMessageQueryId(message) {
+    const bodyB64 = message?.msg_data?.body
+        ?? message?.msgData?.body
+        ?? message?.body
+        ?? null;
+
+    if (typeof bodyB64 !== "string" || !bodyB64.trim()) {
+        return null;
+    }
+
+    try {
+        let cell;
+        try {
+            cell = Cell.fromBase64(bodyB64);
+        } catch {
+            cell = Cell.fromBoc(Buffer.from(bodyB64, "base64"))[0];
+        }
+        if (!cell) {
+            return null;
+        }
+        const slice = cell.beginParse();
+        if (slice.remainingBits !== 64 || slice.remainingRefs !== 0) {
+            return null;
+        }
+        return slice.loadUintBig(64).toString(10);
+    } catch {
+        return null;
+    }
+}
+
 export function extractOutboundTransfers(tx) {
     const hash = extractTxHash(tx);
     const utime = extractTxUtime(tx);
@@ -95,7 +130,8 @@ export function extractOutboundTransfers(tx) {
             destination,
             amountNano,
             success,
-            bounced: bounced === true
+            bounced: bounced === true,
+            queryId: extractMessageQueryId(msg)
         }));
     }
 
@@ -116,7 +152,8 @@ export function extractInbound(tx) {
         source: canonicalizeTonWalletAddress(msgSource(inMsg)) ?? msgSource(inMsg),
         amountNano,
         bounced: inMsg.bounced === true,
-        success: tx?.success !== false && tx?.aborted !== true
+        success: tx?.success !== false && tx?.aborted !== true,
+        queryId: extractMessageQueryId(inMsg)
     });
 }
 
