@@ -835,6 +835,37 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
     console.log("  J. non-retryable settlement rejection → no automatic retry passed");
 }
 
+// J2 — an explicitly non-retryable thrown adapter error must remain non-retryable.
+{
+    const stack = buildStack({
+        refundPaymentsHandler: async () => {
+            const error = new Error("permanent settlement safety rejection");
+            error.retryable = false;
+            throw error;
+        }
+    });
+
+    const session = paidSetupSession(stack.roomId, 2);
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "setup_expired"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(
+        stack.paymentSessionManager._roomWalletRefundRetryTimers.has(stack.roomId),
+        false,
+        "an explicitly non-retryable thrown error must not schedule a background retry"
+    );
+
+    stack.shutdown();
+
+    console.log("  J2. explicitly non-retryable thrown adapter error → no automatic retry passed");
+}
+
 // K — direct expiry must clear the actual pending Setup Session timer.
 {
     const stack = buildStack();
