@@ -2312,8 +2312,8 @@ export class PaymentSessionManager {
                 return;
             }
 
-            for (const participant of session.participants) {
-                const ownerKey = roomWalletRefundOwnerKey(session, participant);
+            for (const [position, participant] of session.participants.entries()) {
+                const ownerKey = roomWalletRefundOwnerKey(session, participant, position);
                 const existing = sessions.get(ownerKey);
                 const hash = normalizeRefundHash(participant?.refundTxHash);
 
@@ -2412,8 +2412,8 @@ export class PaymentSessionManager {
     }
 
     _roomWalletRefundHashConflict(session, ownersByHash, conflictedOwners = new Set()) {
-        for (const participant of session?.participants ?? []) {
-            const ownerKey = roomWalletRefundOwnerKey(session, participant);
+        for (const [position, participant] of (session?.participants ?? []).entries()) {
+            const ownerKey = roomWalletRefundOwnerKey(session, participant, position);
             if (conflictedOwners.has(ownerKey)) {
                 return normalizeRefundHash(participant?.refundTxHash)
                     ?? "multiple-hashes-for-one-refund-obligation";
@@ -2473,9 +2473,23 @@ export class PaymentSessionManager {
         }
 
         const { refunds } = buildPartialPaymentRefundTargets(session);
+        const hasUnresolvableRefundTarget = refunds.some((refund) => (
+            resolveRoomWalletRefundParticipant(session, refund) == null
+        ));
+        if (hasUnresolvableRefundTarget) {
+            this._logger?.error?.(
+                "ROOM_WALLET_REFUND_BLOCKED_PARTICIPANT_IDENTITY_MISMATCH | roomId="
+                    + session.roomId
+            );
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_REFUND_PARTICIPANT_IDENTITY_MISMATCH"
+            });
+        }
         const pendingRefunds = refunds.filter((refund) => {
-            const participant = session.findParticipant(refund.playerId);
-            return participant?.refunded !== true;
+            const resolved = resolveRoomWalletRefundParticipant(session, refund);
+            return resolved?.participant?.refunded !== true;
         });
 
         if (pendingRefunds.some((refund) => (
@@ -2707,10 +2721,16 @@ export class PaymentSessionManager {
                 continue;
             }
 
-            const participant = session.findParticipant(refund.playerId);
-            if (!participant) {
+            const resolvedParticipant = resolveRoomWalletRefundParticipant(session, refund);
+            if (!resolvedParticipant) {
+                this._logger?.error?.(
+                    "ROOM_WALLET_REFUND_RESULT_IDENTITY_MISMATCH | roomId=" + session.roomId
+                        + " | playerId=" + String(refund.playerId ?? "unknown")
+                        + " | playerIndex=" + String(refund.playerIndex ?? "unknown")
+                );
                 continue;
             }
+            const { participant, position } = resolvedParticipant;
 
             const transactionHash = normalizeRefundHash(refund.txHash);
             if (!transactionHash) {
@@ -2721,7 +2741,7 @@ export class PaymentSessionManager {
                 continue;
             }
 
-            const ownerKey = roomWalletRefundOwnerKey(session, participant);
+            const ownerKey = roomWalletRefundOwnerKey(session, participant, position);
             const claimedOwners = claimIndex.ownersByHash.get(transactionHash);
             const batchOwner = hashesClaimedInBatch.get(transactionHash);
             if (
@@ -3981,19 +4001,67 @@ export class PaymentSessionManager {
  * Amount comparison uses the same GRAM -> nano conversion as the settlement
  * adapter (resolveNano) so both sides agree byte-for-byte.
  */
+
+function resolveRoomWalletRefundParticipant(session, refund) {
+    const participants = Array.isArray(session?.participants) ? session.participants : [];
+    const playerId = refund?.playerId == null ? null : String(refund.playerId);
+    const hasPlayerIndex = refund?.playerIndex != null && String(refund.playerIndex).trim() !== "";
+    const playerIndex = hasPlayerIndex ? Number(refund.playerIndex) : null;
+
+    if (hasPlayerIndex && (!Number.isInteger(playerIndex) || playerIndex < 0)) {
+        return null;
+    }
+    if (playerId == null && !hasPlayerIndex) {
+        return null;
+    }
+
+    const matches = participants
+        .map((participant, position) => ({ participant, position }))
+        .filter(({ participant, position }) => {
+            if (
+                hasPlayerIndex
+                && Number(participant?.playerIndex ?? position) !== playerIndex
+            ) {
+                return false;
+            }
+            if (playerId != null && String(participant?.playerId ?? "") !== playerId) {
+                return false;
+            }
+            return true;
+        });
+
+    if (matches.length !== 1) {
+        return null;
+    }
+
+    const { participant, position } = matches[0];
+    if (refund?.wallet != null) {
+        if (
+            typeof participant?.wallet !== "string"
+            || !tonWalletAccountsEqual(refund.wallet, participant.wallet)
+        ) {
+            return null;
+        }
+    }
+
+    return { participant, position };
+}
+
 function normalizeRefundHash(value) {
     const raw = String(value ?? "").trim();
     return raw || null;
 }
 
-function roomWalletRefundOwnerKey(session, participant) {
+function roomWalletRefundOwnerKey(session, participant, position = null) {
     const sessionKey = String(
         session?.paymentSessionId ?? session?.roomId ?? "unknown-session"
     );
-    const participantKey = String(
-        participant?.playerId ?? ("seat:" + String(participant?.playerIndex ?? "unknown"))
-    );
-    return sessionKey + "\0" + participantKey;
+    const rawIndex = participant?.playerIndex ?? position;
+    const participantIndex = Number(rawIndex);
+    const seatKey = rawIndex != null && Number.isInteger(participantIndex) && participantIndex >= 0
+        ? "seat:" + String(participantIndex)
+        : "player:" + String(participant?.playerId ?? "unknown");
+    return sessionKey + "\0" + seatKey + "\0" + String(participant?.playerId ?? "");
 }
 
 function refundAmountNanoString(value) {
