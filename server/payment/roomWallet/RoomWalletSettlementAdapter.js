@@ -29,6 +29,8 @@ export const ROOM_WALLET_SETTLEMENT_SAFETY_CODES = Object.freeze({
     PAYOUT_PLAN_MISMATCH: PAYOUT_GAS_PLAN_CODES.PAYOUT_PLAN_MISMATCH
 });
 
+const REFUND_HISTORY_PAGE_LIMIT = 40;
+
 export const ROOM_WALLET_SETTLEMENT_RETRYABLE_CODES = Object.freeze({
     CHAIN_INSPECT_UNKNOWN: "CHAIN_INSPECT_UNKNOWN",
     UNCERTAIN_BROADCAST: "UNCERTAIN_BROADCAST",
@@ -565,12 +567,18 @@ export class RoomWalletSettlementAdapter {
         role,
         destination,
         planEntry,
+        paymentSessionId = null,
+        playerId = null,
+        queryId = null,
         seqno = null,
         txHash = null
     }) {
         this._logger?.info?.(
             `RoomWallet recipient-pays-gas transfer | game=${gameId ?? "unknown"} `
                 + `| room=${roomNumber} | role=${role} `
+                + `| paymentSessionId=${paymentSessionId ?? "unknown"} `
+                + `| playerId=${playerId ?? "unknown"} `
+                + `| queryId=${queryId ?? "unknown"} `
                 + `| gasPolicy=${PAYOUT_GAS_MODE.RECIPIENT_PAYS_GAS} `
                 + `| grossNano=${planEntry.grossPayoutNano} `
                 + `| recipientGasChargeNano=${planEntry.recipientGasChargeNano} `
@@ -666,6 +674,7 @@ export class RoomWalletSettlementAdapter {
         const normalizedRoomNumber = resolveRoomNumber({ roomNumber });
         const targets = Array.isArray(refunds) ? refunds : [];
         const entries = [];
+        const usedQueryIds = new Set();
 
         for (const target of targets) {
             const wallet = requireWallet(target?.wallet, "refund wallet");
@@ -685,11 +694,34 @@ export class RoomWalletSettlementAdapter {
                 });
             }
 
+            let queryId;
+            try {
+                queryId = normalizeRefundQueryId(target?.queryId);
+            } catch (error) {
+                return Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "INVALID_REFUND_QUERY_ID",
+                    detail: error?.message ?? String(error)
+                });
+            }
+
+            if (queryId != null && usedQueryIds.has(queryId)) {
+                return Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "DUPLICATE_REFUND_QUERY_ID"
+                });
+            }
+            if (queryId != null) {
+                usedQueryIds.add(queryId);
+            }
+
             const fee = await this._estimateTransferFee({
                 roomNumber: normalizedRoomNumber,
                 destination: wallet,
                 amountNano,
-                queryId: target?.queryId ?? null
+                queryId
             });
 
             if (!fee.ok) {
@@ -721,6 +753,7 @@ export class RoomWalletSettlementAdapter {
                 playerId: target?.playerId ?? null,
                 playerIndex: target?.playerIndex ?? null,
                 wallet,
+                ...(queryId == null ? {} : { queryId }),
                 grossRefundNano: nanoToPersistedString(amountNano),
                 recipientGasChargeNano: nanoToPersistedString(entry.recipientGasChargeNano),
                 recipientTransferAmountNano: nanoToPersistedString(entry.recipientTransferAmountNano),
@@ -765,6 +798,7 @@ export class RoomWalletSettlementAdapter {
      */
     async refundPayments({
         roomNumber,
+        paymentSessionId = null,
         refunds = [],
         refundPlan = null,
         cutoffUtime = null,
@@ -875,13 +909,45 @@ export class RoomWalletSettlementAdapter {
                 continue;
             }
 
+            const queryId = entry.queryId ?? target?.queryId ?? null;
+            if (
+                target?.queryId != null
+                && String(target.queryId) !== String(entry.queryId ?? "")
+            ) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "REFUND_QUERY_ID_MISMATCH",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano: netNano
+                }));
+                continue;
+            }
+
             const existing = await this._findExistingRefund({
                 roomNumber: normalizedRoomNumber,
                 wallet,
                 amountNano: netNano,
                 legacyAmountNano: amountNano === netNano ? null : amountNano,
+                queryId,
                 cutoffUtime
             });
+
+            if (existing?.conflict === true) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: existing.code,
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano: netNano,
+                    txHash: existing.hash ?? null
+                }));
+                continue;
+            }
 
             if (existing) {
                 const reconciledFromPlayerWallet =
@@ -951,6 +1017,9 @@ export class RoomWalletSettlementAdapter {
                 roomNumber: normalizedRoomNumber,
                 role: "REFUND",
                 destination: wallet,
+                paymentSessionId,
+                playerId: target?.playerId ?? null,
+                queryId,
                 planEntry: {
                     grossPayoutNano: amountNano,
                     recipientGasChargeNano: gasChargeNano,
@@ -1001,6 +1070,7 @@ export class RoomWalletSettlementAdapter {
                 expectedHash: sent.txHash ?? null,
                 destination: wallet,
                 amountNano: netNano,
+                queryId,
                 timeoutMs: confirmationTimeoutMs
             });
 
@@ -1047,17 +1117,40 @@ export class RoomWalletSettlementAdapter {
         wallet,
         amountNano,
         legacyAmountNano = null,
+        queryId = null,
         cutoffUtime
     }) {
         if (typeof this._roomWalletAdapter.getTransactions !== "function") {
-            return null;
+            return queryId != null
+                ? Object.freeze({
+                    conflict: true,
+                    code: "REFUND_HISTORY_COVERAGE_INCOMPLETE",
+                    hash: null
+                })
+                : null;
         }
 
         const cutoff = resolveCutoffUtime({ cutoffUtime });
+        const historyCoverageIncomplete = (transactions) => {
+            if (queryId == null || (transactions?.length ?? 0) < REFUND_HISTORY_PAGE_LIMIT) {
+                return false;
+            }
+            if (cutoff == null) {
+                return true;
+            }
+            const times = transactions.map((tx) => Number(tx?.utime ?? tx?.now ?? 0));
+            // With a full latest-page and its oldest transaction still newer than
+            // the persisted request cutoff, unseen older transactions may include
+            // this same queryId. Unknown timestamps are also not proof of absence.
+            return times.some((utime) => !Number.isFinite(utime) || utime <= 0)
+                || Math.min(...times) >= cutoff;
+        };
+
         const transactions = await this._roomWalletAdapter.getTransactions(
             roomNumber,
-            { limit: 40, archival: true }
+            { limit: REFUND_HISTORY_PAGE_LIMIT, archival: true }
         );
+        const sourceHistoryCoverageIncomplete = historyCoverageIncomplete(transactions);
 
         for (const tx of transactions ?? []) {
             const transfers = extractOutboundTransfers(tx);
@@ -1068,7 +1161,12 @@ export class RoomWalletSettlementAdapter {
                     && (transfer.amountNano === amountNano
                         || (legacyAmountNano != null && transfer.amountNano === legacyAmountNano))
                     && tonWalletAccountsEqual(transfer.destination, wallet)
-                    && (cutoff == null || transfer.utime > cutoff)
+                    && (
+                        queryId != null
+                            ? transfer.hash != null
+                                && String(transfer.queryId ?? "") === String(queryId)
+                            : (cutoff == null || transfer.utime > cutoff)
+                    )
                 ) {
                     return transfer;
                 }
@@ -1079,7 +1177,13 @@ export class RoomWalletSettlementAdapter {
         // fact reached the player. Fall back to the destination player's own
         // inbound history — read-only reconciliation; never a second broadcast.
         if (typeof this._roomWalletAdapter.getAddressTransactions !== "function") {
-            return null;
+            return sourceHistoryCoverageIncomplete
+                ? Object.freeze({
+                    conflict: true,
+                    code: "REFUND_HISTORY_COVERAGE_INCOMPLETE",
+                    hash: null
+                })
+                : null;
         }
 
         const roomWalletAddress = typeof this._roomWalletAdapter.getWalletAddress === "function"
@@ -1087,13 +1191,20 @@ export class RoomWalletSettlementAdapter {
             : null;
 
         if (!roomWalletAddress) {
-            return null;
+            return sourceHistoryCoverageIncomplete
+                ? Object.freeze({
+                    conflict: true,
+                    code: "REFUND_HISTORY_COVERAGE_INCOMPLETE",
+                    hash: null
+                })
+                : null;
         }
 
         const playerTransactions = await this._roomWalletAdapter.getAddressTransactions(
             wallet,
-            { limit: 40, archival: true }
+            { limit: REFUND_HISTORY_PAGE_LIMIT, archival: true }
         );
+        const destinationHistoryCoverageIncomplete = historyCoverageIncomplete(playerTransactions);
 
         for (const tx of playerTransactions ?? []) {
             const inbound = extractInbound(tx);
@@ -1104,13 +1215,26 @@ export class RoomWalletSettlementAdapter {
                 && (inbound.amountNano === amountNano
                     || (legacyAmountNano != null && inbound.amountNano === legacyAmountNano))
                 && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
-                && (cutoff == null || inbound.utime > cutoff)
+                && (
+                    queryId != null
+                        ? inbound.hash != null
+                            && String(inbound.queryId ?? "") === String(queryId)
+                        : (cutoff == null || inbound.utime > cutoff)
+                )
             ) {
                 return Object.freeze({
                     ...inbound,
                     reconciliation: PLAYER_WALLET_INBOUND_RECONCILIATION
                 });
             }
+        }
+
+        if (sourceHistoryCoverageIncomplete || destinationHistoryCoverageIncomplete) {
+            return Object.freeze({
+                conflict: true,
+                code: "REFUND_HISTORY_COVERAGE_INCOMPLETE",
+                hash: null
+            });
         }
 
         return null;
@@ -1783,6 +1907,7 @@ function validateRefundPlanShape(raw) {
 
         const marginBps = BigInt(String(raw.marginBps));
         const marginFloorNano = toPlanNano(raw.marginFloorNano, "refundPlan.marginFloorNano");
+        const usedQueryIds = new Set();
         if (marginBps < 0n) {
             return { ok: false, detail: "refundPlan.marginBps is negative" };
         }
@@ -1792,6 +1917,13 @@ function validateRefundPlanShape(raw) {
                 return { ok: false, detail: "refundPlan entry is missing" };
             }
 
+            const queryId = normalizeRefundQueryId(entry.queryId);
+            if (queryId != null && usedQueryIds.has(queryId)) {
+                return { ok: false, detail: "refundPlan contains duplicate query IDs" };
+            }
+            if (queryId != null) {
+                usedQueryIds.add(queryId);
+            }
             const feeEvidence = parsePlanFeeEvidence(entry.feeEvidence, "refundPlan.entry");
             const gasCharge = toPlanNano(entry.recipientGasChargeNano, "entry.recipientGasChargeNano");
             const net = toPlanNano(entry.recipientTransferAmountNano, "entry.recipientTransferAmountNano");
@@ -1816,6 +1948,24 @@ function validateRefundPlanShape(raw) {
     }
 }
 
+function normalizeRefundQueryId(value) {
+    if (value == null || value === "") {
+        return null;
+    }
+
+    const text = String(value).trim();
+    if (!/^\d+$/.test(text)) {
+        throw new TypeError("refund queryId must be an unsigned decimal uint64");
+    }
+
+    const queryId = BigInt(text);
+    if (queryId < 0n || queryId > 0xffffffffffffffffn) {
+        throw new RangeError("refund queryId is outside uint64 range");
+    }
+
+    return queryId.toString(10);
+}
+
 function findRefundPlanEntry(plan, { target, wallet, amountNano }) {
     if (!plan || !Array.isArray(plan.entries)) {
         return null;
@@ -1827,6 +1977,18 @@ function findRefundPlanEntry(plan, { target, wallet, amountNano }) {
         }
 
         if (String(target?.playerId ?? "") !== String(entry.playerId ?? "")) {
+            return false;
+        }
+
+        let targetQueryId;
+        let entryQueryId;
+        try {
+            targetQueryId = normalizeRefundQueryId(target?.queryId);
+            entryQueryId = normalizeRefundQueryId(entry.queryId);
+        } catch {
+            return false;
+        }
+        if (targetQueryId !== entryQueryId) {
             return false;
         }
 

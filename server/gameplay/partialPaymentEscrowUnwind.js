@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
 
 /**
@@ -61,6 +63,38 @@ export function sessionHasUnrefundedPaidFunds(session) {
 
 }
 
+/**
+ * Stable query ID for exactly one participant refund.
+ * TON query IDs are uint64; amount/destination are excluded because different
+ * games can legitimately refund the same wallet and same amount.
+ */
+export function buildRoomWalletRefundQueryId(session, participant, seat) {
+    const paymentSessionId = String(session?.paymentSessionId ?? "").trim();
+    const playerId = String(participant?.playerId ?? "").trim();
+    const playerIndex = Number(seat);
+
+    if (
+        !paymentSessionId
+        || !playerId
+        || !Number.isInteger(playerIndex)
+        || playerIndex < 0
+        || playerIndex > 2
+    ) {
+        return null;
+    }
+
+    return createHash("sha256")
+        .update("wheelwin-room-wallet-refund-query-id-v1\0")
+        .update(paymentSessionId)
+        .update("\0")
+        .update(playerId)
+        .update("\0")
+        .update(String(playerIndex))
+        .digest()
+        .readBigUInt64BE(0)
+        .toString(10);
+}
+
 export function buildPartialPaymentRefundTargets(session) {
 
     const refunds = [];
@@ -88,7 +122,8 @@ export function buildPartialPaymentRefundTargets(session) {
             playerIndex: seat,
             playerId: participant.playerId ?? null,
             wallet: participant.wallet ?? null,
-            amount: participant.paidAmount || participant.requiredGram
+            amount: participant.paidAmount || participant.requiredGram,
+            queryId: buildRoomWalletRefundQueryId(session, participant, seat)
         }));
 
     }
