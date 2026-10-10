@@ -269,6 +269,7 @@ export async function confirmPayoutOnChain({
     tonService,
     roomWalletAddress,
     expectedHash,
+    expectedQueryId = null,
     destination,
     amountNano,
     timeoutMs = 90_000,
@@ -278,6 +279,7 @@ export async function confirmPayoutOnChain({
 }) {
     const deadline = now() + timeoutMs;
     const expected = String(expectedHash ?? "").toLowerCase();
+    const expectedQuery = expectedQueryId == null ? null : String(expectedQueryId);
     while (now() < deadline) {
         const transactions = await tonService.getTransactions(
             roomWalletAddress,
@@ -289,6 +291,9 @@ export async function confirmPayoutOnChain({
                 continue;
             }
             for (const transfer of extractOutboundTransfers(tx)) {
+                if (expectedQuery != null && String(transfer.queryId ?? "") !== expectedQuery) {
+                    continue;
+                }
                 const matchDest = tonWalletAccountsEqual(transfer.destination, destination);
                 const matchAmount = transfer.amountNano === amountNano;
                 if (matchDest && matchAmount && transfer.success && transfer.bounced !== true) {
