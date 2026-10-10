@@ -2715,6 +2715,7 @@ export class PaymentSessionManager {
         }
 
         const hashesClaimedInBatch = new Map();
+        let refundAttributionConflict = false;
 
         for (const refund of result?.results ?? []) {
             if (refund?.ok !== true) {
@@ -2723,6 +2724,7 @@ export class PaymentSessionManager {
 
             const resolvedParticipant = resolveRoomWalletRefundParticipant(session, refund);
             if (!resolvedParticipant) {
+                refundAttributionConflict = true;
                 this._logger?.error?.(
                     "ROOM_WALLET_REFUND_RESULT_IDENTITY_MISMATCH | roomId=" + session.roomId
                         + " | playerId=" + String(refund.playerId ?? "unknown")
@@ -2748,6 +2750,7 @@ export class PaymentSessionManager {
                 (claimedOwners && [...claimedOwners].some((existingOwner) => existingOwner !== ownerKey))
                 || (batchOwner && batchOwner !== ownerKey)
             ) {
+                refundAttributionConflict = true;
                 this._logger?.error?.(
                     "ROOM_WALLET_REFUND_HASH_CONFLICT | roomId=" + session.roomId
                         + " | playerId=" + participant.playerId
@@ -2791,10 +2794,15 @@ export class PaymentSessionManager {
 
         return Object.freeze({
             ok: succeeded,
-            retryable: result?.retryable ?? !succeeded,
-            code: succeeded
-                ? "ROOM_WALLET_REFUNDS_CONFIRMED"
-                : "ROOM_WALLET_REFUND_PENDING",
+            // An ambiguous/mismatched attribution is not a transient RPC failure.
+            // Do not automatically retry a session after a transfer hash may have
+            // been credited to another obligation; require reconciliation first.
+            retryable: refundAttributionConflict ? false : (result?.retryable ?? !succeeded),
+            code: refundAttributionConflict
+                ? "ROOM_WALLET_REFUND_ATTRIBUTION_CONFLICT"
+                : succeeded
+                    ? "ROOM_WALLET_REFUNDS_CONFIRMED"
+                    : "ROOM_WALLET_REFUND_PENDING",
             result
         });
 
