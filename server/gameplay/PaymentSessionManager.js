@@ -2509,8 +2509,27 @@ export class PaymentSessionManager {
                 continue;
             }
 
+            const transactionHash = String(refund.txHash ?? "").trim();
+            if (!transactionHash) {
+                this._logger?.error?.(
+                    "Room-Wallet refund result missing transaction hash | roomId="
+                        + session.roomId + " | playerId=" + participant.playerId
+                );
+                continue;
+            }
+
+            // Tentatively add the result to the complete claim inventory. The
+            // same full transaction hash may not complete another participant's
+            // refund, even if an adapter/history match incorrectly returns it.
             participant.refunded = true;
-            participant.refundTxHash = refund.txHash ?? null;
+            participant.refundTxHash = transactionHash;
+            if (this._quarantineDuplicateRefundResultIfNeeded(
+                session,
+                participant,
+                transactionHash
+            )) {
+                continue;
+            }
 
             // Stage 2 — preserve refund reconciliation provenance for
             // observability/forensic recovery. Non-authoritative metadata
@@ -2521,7 +2540,7 @@ export class PaymentSessionManager {
                     playerId: refund.playerId ?? participant.playerId,
                     playerIndex: refund.playerIndex ?? participant.playerIndex,
                     wallet: refund.wallet ?? participant.wallet,
-                    transactionHash: refund.txHash ?? null
+                    transactionHash
                 });
             }
         }
@@ -2561,6 +2580,84 @@ export class PaymentSessionManager {
      *                         legacy caller paths): the adapter computes its
      *                         own plan inside refundPayments and echoes it
      */
+    _quarantineDuplicateRefundResultIfNeeded(session, participant, transactionHash) {
+        const transactionId = String(transactionHash ?? "").trim();
+        if (!transactionId) {
+            return true;
+        }
+
+        const sessionsById = new Map();
+        const identity = (candidate) => String(
+            candidate?.paymentSessionId ?? candidate?.roomId ?? ""
+        );
+        const currentSessionId = identity(session);
+
+        // Include persisted sessions (including terminal records not indexed in
+        // _sessionsByRoom), then prefer current in-memory sessions for IDs that
+        // have already been restored.
+        try {
+            const records = this._financialPersistence?.listActive?.(
+                TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION
+            ) ?? [];
+            for (const record of records) {
+                const recordSessionId = String(
+                    record?.paymentSessionId
+                    ?? record?.payload?.paymentSessionId
+                    ?? record?.metadata?.paymentSessionId
+                    ?? ""
+                );
+                if (recordSessionId && recordSessionId === currentSessionId) {
+                    continue;
+                }
+                try {
+                    const storedSession = PaymentSession.fromRecord(record);
+                    const storedId = identity(storedSession);
+                    if (storedId) {
+                        sessionsById.set(storedId, storedSession);
+                    }
+                } catch {
+                    // This record remains subject to startup recovery validation;
+                    // never emit its payload or raw financial data in logs.
+                }
+            }
+
+            for (const activeSession of this._sessionsByRoom.values()) {
+                const activeId = identity(activeSession);
+                if (activeId && activeId !== currentSessionId) {
+                    sessionsById.set(activeId, activeSession);
+                }
+            }
+            sessionsById.set(currentSessionId, session);
+        } catch (error) {
+            participant.refunded = false;
+            participant.refundTxHash = null;
+            this._quarantineRoomWalletRefundAttribution(session, {
+                reason: "REFUND_HASH_CLAIM_SCAN_FAILED",
+                detail: transactionId
+            });
+            return true;
+        }
+
+        const affected = quarantineDuplicateRefundTxHashClaims([...sessionsById.values()]);
+        for (const affectedSession of affected) {
+            this._persistSession(affectedSession, "update");
+            this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, affectedSession.toSnapshot());
+            this._logger?.error?.(
+                "Room-Wallet refund attribution quarantined | roomId="
+                    + affectedSession.roomId
+                    + " | reason=DUPLICATE_TRANSACTION_HASH"
+                    + " | action=MANUAL_RECONCILIATION_REQUIRED"
+            );
+            this._clearRoomWalletRefundRetry?.(affectedSession.roomId);
+        }
+
+        // If our provisional claim was part of a collision, the helper cleared
+        // it and preserved all competing claims in recoveryMetadata. Do not
+        // reapply refunded=true later in this result loop.
+        return participant.refunded !== true
+            || String(participant.refundTxHash ?? "").trim() !== transactionId;
+    }
+
     _quarantineRoomWalletRefundAttribution(session, { reason, detail = null } = {}) {
         if (!session) {
             return false;
