@@ -2317,10 +2317,18 @@ export class PaymentSessionManager {
             }
         };
 
-        if (this._financialPersistence) {
-            if (typeof this._financialPersistence.listActive !== "function") {
-                return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
-            }
+        if (
+            !this._financialPersistence
+            || typeof this._financialPersistence.listActive !== "function"
+        ) {
+            // Without the authoritative financial store, an in-memory-only
+            // index cannot prove that another persisted session does not
+            // already claim the same hash. Never permit a refund retry on an
+            // incomplete cross-session uniqueness index.
+            return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
+        }
+
+        {
             let records;
             try {
                 records = this._financialPersistence.listActive(
