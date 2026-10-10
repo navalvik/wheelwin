@@ -1088,3 +1088,38 @@ console.log("setupExpiryRoomWalletRefund.test.js passed");
     stack.shutdown();
     console.log("  P. stale in-memory copy cannot erase persisted refund-hash claim passed");
 }
+
+
+// Q — a success result for a different seat/wallet must not credit the named player.
+{
+    const stack = buildStack({
+        roomWalletRefundRetryDelaysMs: [60_000],
+        refundPaymentsHandler: async () => ({
+            ok: true,
+            results: [{
+                ok: true,
+                playerId: "p1",
+                playerIndex: 1,
+                wallet: "wallet-2",
+                txHash: "foreign-participant-refund"
+            }]
+        })
+    });
+    const session = paidSetupSession(stack.roomId, 2);
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "test_result_participant_identity_mismatch"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(session.findParticipant("p1").refunded, false);
+    assert.equal(session.findParticipant("p1").refundTxHash, null);
+    assert.equal(session.findParticipant("p2").refunded, false);
+    assert.equal(session.findParticipant("p2").refundTxHash, null);
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.REFUND_PENDING);
+
+    stack.shutdown();
+    console.log("  Q. mismatched playerId/playerIndex/wallet cannot credit a participant passed");
+}
