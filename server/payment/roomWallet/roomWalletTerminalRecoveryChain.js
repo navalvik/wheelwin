@@ -91,7 +91,10 @@ export function extractMessageQueryId(message) {
 
     try {
         const slice = Cell.fromBase64(raw.trim()).beginParse();
-        if (slice.remainingBits < 64) {
+        // WheelWin refund bodies contain exactly one uint64 queryId and no
+        // comments/references. A longer body must not be misclassified by
+        // interpreting its first 64 bits as this refund's identity.
+        if (slice.remainingBits !== 64 || slice.remainingRefs !== 0) {
             return null;
         }
         return slice.loadUintBig(64).toString(10);
