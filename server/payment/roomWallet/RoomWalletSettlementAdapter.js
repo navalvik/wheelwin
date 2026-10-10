@@ -128,6 +128,9 @@ export class RoomWalletSettlementAdapter {
         this._confirmPollMs = confirmPollMs;
         this._recipientGasMarginBps = recipientGasMarginBps;
         this._recipientGasMarginFloorNano = recipientGasMarginFloorNano;
+        // Prevent two concurrent legacy sessions from adopting the same untagged
+        // chain transfer before either session has durably persisted its hash.
+        this._refundReconciliationClaims = new Map();
     }
 
     /**
@@ -721,6 +724,7 @@ export class RoomWalletSettlementAdapter {
                 playerId: target?.playerId ?? null,
                 playerIndex: target?.playerIndex ?? null,
                 wallet,
+                ...(target?.queryId == null ? {} : { queryId: String(target.queryId) }),
                 grossRefundNano: nanoToPersistedString(amountNano),
                 recipientGasChargeNano: nanoToPersistedString(entry.recipientGasChargeNano),
                 recipientTransferAmountNano: nanoToPersistedString(entry.recipientTransferAmountNano),
@@ -768,7 +772,9 @@ export class RoomWalletSettlementAdapter {
         refunds = [],
         refundPlan = null,
         cutoffUtime = null,
-        confirmationTimeoutMs = 60_000
+        confirmationTimeoutMs = 60_000,
+        refundIntentId = null,
+        claimedRefunds = []
     } = {}) {
         const normalizedRoomNumber = resolveRoomNumber({ roomNumber });
         const targets = Array.isArray(refunds) ? refunds : [];
@@ -875,13 +881,37 @@ export class RoomWalletSettlementAdapter {
                 continue;
             }
 
+            const entryQueryId = entry.queryId == null ? null : String(entry.queryId);
+            const targetQueryId = target?.queryId == null ? null : String(target.queryId);
+            const expectedQueryId = entryQueryId ?? targetQueryId;
             const existing = await this._findExistingRefund({
                 roomNumber: normalizedRoomNumber,
                 wallet,
                 amountNano: netNano,
                 legacyAmountNano: amountNano === netNano ? null : amountNano,
-                cutoffUtime
+                cutoffUtime,
+                queryId: expectedQueryId,
+                allowLegacyMatch: entryQueryId == null,
+                refundIntentId,
+                playerId: target?.playerId ?? entry.playerId ?? null,
+                claimedRefunds
             });
+
+            if (existing?.conflict === true) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: existing.code,
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano: netNano,
+                    grossRefundNano: amountNano,
+                    recipientGasChargeNano: gasChargeNano,
+                    txHash: existing.hash ?? null
+                }));
+                continue;
+            }
 
             if (existing) {
                 const reconciledFromPlayerWallet =
@@ -920,6 +950,24 @@ export class RoomWalletSettlementAdapter {
 
             let sent;
             try {
+                // A pre-correlation frozen plan cannot safely authorize a new
+                // broadcast when no matching historical refund was found. Its
+                // earlier broadcast may be outside the bounded history window.
+                if (entry.queryId == null) {
+                    results.push(Object.freeze({
+                        ok: false,
+                        retryable: false,
+                        code: "LEGACY_REFUND_NOT_FOUND_FAIL_CLOSED",
+                        playerId: target?.playerId ?? null,
+                        playerIndex: target?.playerIndex ?? null,
+                        wallet,
+                        amountNano: netNano,
+                        grossRefundNano: amountNano,
+                        recipientGasChargeNano: gasChargeNano
+                    }));
+                    continue;
+                }
+
                 sent = await this._roomWalletAdapter.sendTransfer({
                     roomNumber: normalizedRoomNumber,
                     destination: wallet,
@@ -927,7 +975,7 @@ export class RoomWalletSettlementAdapter {
                     // NET refund; the plan's fee estimate is the source-side
                     // funding requirement (not the legacy blanket reserve).
                     amountNano: netNano,
-                    queryId: target?.queryId ?? null,
+                    queryId: entry.queryId,
                     sourceReserveNano: feeBudgetNano
                 });
             } catch (error) {
@@ -1034,8 +1082,10 @@ export class RoomWalletSettlementAdapter {
             }));
         }
 
+        const failures = results.filter((result) => result.ok !== true);
         return Object.freeze({
-            ok: results.every((result) => result.ok === true),
+            ok: failures.length === 0,
+            retryable: failures.some((result) => result.retryable !== false),
             roomNumber: normalizedRoomNumber,
             refundPlan: plan,
             results: Object.freeze(results)
@@ -1047,73 +1097,88 @@ export class RoomWalletSettlementAdapter {
         wallet,
         amountNano,
         legacyAmountNano = null,
-        cutoffUtime
+        cutoffUtime,
+        queryId = null,
+        allowLegacyMatch = false,
+        refundIntentId = null,
+        playerId = null,
+        claimedRefunds = []
     }) {
-        if (typeof this._roomWalletAdapter.getTransactions !== "function") {
-            return null;
-        }
-
         const cutoff = resolveCutoffUtime({ cutoffUtime });
-        const transactions = await this._roomWalletAdapter.getTransactions(
-            roomNumber,
-            { limit: 40, archival: true }
+        const roomWalletAddress = typeof this._roomWalletAdapter.getWalletAddress === "function"
+            ? await this._roomWalletAdapter.getWalletAddress(roomNumber)
+            : null;
+        const matchesAmount = (value) => (
+            value === amountNano
+            || (legacyAmountNano != null && value === legacyAmountNano)
         );
+        const afterCutoff = (utime) => cutoff == null || Number(utime) > cutoff;
+        const candidates = [];
 
-        for (const tx of transactions ?? []) {
-            const transfers = extractOutboundTransfers(tx);
-            for (const transfer of transfers) {
-                if (
-                    transfer.success
-                    && transfer.bounced !== true
-                    && (transfer.amountNano === amountNano
-                        || (legacyAmountNano != null && transfer.amountNano === legacyAmountNano))
-                    && tonWalletAccountsEqual(transfer.destination, wallet)
-                    && (cutoff == null || transfer.utime > cutoff)
-                ) {
-                    return transfer;
+        if (typeof this._roomWalletAdapter.getTransactions === "function") {
+            const transactions = await this._roomWalletAdapter.getTransactions(
+                roomNumber,
+                { limit: 40, archival: true }
+            );
+
+            for (const tx of transactions ?? []) {
+                for (const transfer of extractOutboundTransfers(tx)) {
+                    if (
+                        transfer.success
+                        && transfer.bounced !== true
+                        && matchesAmount(transfer.amountNano)
+                        && tonWalletAccountsEqual(transfer.destination, wallet)
+                        && afterCutoff(transfer.utime)
+                    ) {
+                        candidates.push(Object.freeze({
+                            ...transfer,
+                            reconciliationSource: "ROOM_WALLET_OUTBOUND"
+                        }));
+                    }
                 }
             }
         }
 
-        // The Room Wallet history may have failed to observe a refund that in
-        // fact reached the player. Fall back to the destination player's own
-        // inbound history — read-only reconciliation; never a second broadcast.
-        if (typeof this._roomWalletAdapter.getAddressTransactions !== "function") {
-            return null;
-        }
+        // If the source-wallet query did not reveal any candidate, query the
+        // recipient's history. This remains read-only and never authorizes a
+        // second transfer when an untagged/ambiguous legacy candidate exists.
+        if (
+            candidates.length === 0
+            && roomWalletAddress
+            && typeof this._roomWalletAdapter.getAddressTransactions === "function"
+        ) {
+            const playerTransactions = await this._roomWalletAdapter.getAddressTransactions(
+                wallet,
+                { limit: 40, archival: true }
+            );
 
-        const roomWalletAddress = typeof this._roomWalletAdapter.getWalletAddress === "function"
-            ? await this._roomWalletAdapter.getWalletAddress(roomNumber)
-            : null;
-
-        if (!roomWalletAddress) {
-            return null;
-        }
-
-        const playerTransactions = await this._roomWalletAdapter.getAddressTransactions(
-            wallet,
-            { limit: 40, archival: true }
-        );
-
-        for (const tx of playerTransactions ?? []) {
-            const inbound = extractInbound(tx);
-            if (
-                inbound
-                && inbound.success
-                && inbound.bounced !== true
-                && (inbound.amountNano === amountNano
-                    || (legacyAmountNano != null && inbound.amountNano === legacyAmountNano))
-                && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
-                && (cutoff == null || inbound.utime > cutoff)
-            ) {
-                return Object.freeze({
-                    ...inbound,
-                    reconciliation: PLAYER_WALLET_INBOUND_RECONCILIATION
-                });
+            for (const tx of playerTransactions ?? []) {
+                const inbound = extractInbound(tx);
+                if (
+                    inbound
+                    && inbound.success
+                    && inbound.bounced !== true
+                    && matchesAmount(inbound.amountNano)
+                    && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
+                    && afterCutoff(inbound.utime)
+                ) {
+                    candidates.push(Object.freeze({
+                        ...inbound,
+                        reconciliationSource: "PLAYER_WALLET_INBOUND"
+                    }));
+                }
             }
         }
 
-        return null;
+        return resolveRefundHistoryCandidate({
+            candidates,
+            queryId,
+            allowLegacyMatch,
+            refundIntentId,
+            playerId,
+            claimedRefunds,
+            localClaims: this._refundReconciliationClaims
+        });
     }
 
     async inspectSettlement(request = {}, { payoutPlan = null } = {}) {
@@ -1763,6 +1828,123 @@ function parsePlanFeeEvidence(evidence, label) {
  * entry to a concrete refund target additionally checks playerId, wallet and
  * the authoritative gross refundable amount (see findRefundPlanEntry).
  */
+function resolveRefundHistoryCandidate({
+    candidates,
+    queryId,
+    allowLegacyMatch,
+    refundIntentId,
+    playerId,
+    claimedRefunds,
+    localClaims
+}) {
+    const expectedQueryId = queryId == null ? null : String(queryId);
+    const exact = expectedQueryId == null
+        ? []
+        : candidates.filter((candidate) => (
+            candidate.queryId != null
+            && String(candidate.queryId) === expectedQueryId
+        ));
+    const untagged = candidates.filter((candidate) => candidate.queryId == null);
+    const taggedDifferent = candidates.filter((candidate) => (
+        candidate.queryId != null
+        && (expectedQueryId == null || String(candidate.queryId) !== expectedQueryId)
+    ));
+
+    // An untagged transfer with the same destination/amount could be an old
+    // broadcast whose hash was never persisted. Do not silently ignore it and
+    // send another transfer, even if a tagged candidate also exists.
+    if (exact.length > 0 && untagged.length > 0) {
+        return Object.freeze({
+            conflict: true,
+            code: "REFUND_MATCH_AMBIGUOUS",
+            hash: null
+        });
+    }
+
+    let eligible = exact;
+    if (eligible.length === 0 && allowLegacyMatch && untagged.length > 0) {
+        eligible = untagged;
+    }
+
+    const byHash = new Map();
+    for (const candidate of eligible) {
+        const hash = String(candidate.hash ?? "").trim();
+        if (!hash) {
+            return Object.freeze({
+                conflict: true,
+                code: "REFUND_TRANSACTION_HASH_MISSING",
+                hash: null
+            });
+        }
+        if (!byHash.has(hash)) {
+            byHash.set(hash, candidate);
+        }
+    }
+
+    if (byHash.size > 1) {
+        return Object.freeze({
+            conflict: true,
+            code: "REFUND_MATCH_AMBIGUOUS",
+            hash: null
+        });
+    }
+
+    if (byHash.size === 0) {
+        if (allowLegacyMatch && (candidates.length > 0 || candidates.length === 0)) {
+            return Object.freeze({
+                conflict: true,
+                code: candidates.length > 0 || taggedDifferent.length > 0
+                    ? "REFUND_MATCH_AMBIGUOUS"
+                    : "LEGACY_REFUND_NOT_FOUND_FAIL_CLOSED",
+                hash: null
+            });
+        }
+        if (untagged.length > 0) {
+            return Object.freeze({
+                conflict: true,
+                code: "LEGACY_REFUND_CANDIDATE_WITHOUT_QUERY_ID",
+                hash: null
+            });
+        }
+        return null;
+    }
+
+    const [hash, candidate] = byHash.entries().next().value;
+    const intent = String(refundIntentId ?? "").trim();
+    const player = String(playerId ?? "").trim();
+    const claims = Array.isArray(claimedRefunds) ? claimedRefunds : [];
+
+    for (const claim of claims) {
+        if (String(claim?.txHash ?? claim?.refundTxHash ?? "").trim() !== hash) {
+            continue;
+        }
+        const claimedIntent = String(claim?.intentId ?? "").trim();
+        const claimedPlayer = String(claim?.playerId ?? "").trim();
+        if (claimedIntent !== intent || claimedPlayer !== player) {
+            return Object.freeze({
+                conflict: true,
+                code: "REFUND_TRANSACTION_ALREADY_CLAIMED",
+                hash
+            });
+        }
+    }
+
+    const previousClaim = localClaims?.get(hash);
+    if (
+        previousClaim
+        && (previousClaim.intentId !== intent || previousClaim.playerId !== player)
+    ) {
+        return Object.freeze({
+            conflict: true,
+            code: "REFUND_TRANSACTION_ALREADY_CLAIMED",
+            hash
+        });
+    }
+
+    localClaims?.set(hash, { intentId: intent, playerId: player });
+    return candidate;
+}
+
 function validateRefundPlanShape(raw) {
     try {
         if (!raw || typeof raw !== "object") {
@@ -1796,6 +1978,12 @@ function validateRefundPlanShape(raw) {
             const gasCharge = toPlanNano(entry.recipientGasChargeNano, "entry.recipientGasChargeNano");
             const net = toPlanNano(entry.recipientTransferAmountNano, "entry.recipientTransferAmountNano");
             const gross = toPlanNano(entry.grossRefundNano, "entry.grossRefundNano");
+            if (entry.queryId != null) {
+                const queryId = String(entry.queryId);
+                if (!/^\\d+$/.test(queryId) || BigInt(queryId) > ((1n << 64n) - 1n)) {
+                    return { ok: false, detail: "entry.queryId must be an unsigned 64-bit decimal string" };
+                }
+            }
 
             const marginComponent = feeEvidence.totalNano * marginBps / 10_000n;
             const expectedMargin = marginComponent > marginFloorNano
@@ -1831,6 +2019,14 @@ function findRefundPlanEntry(plan, { target, wallet, amountNano }) {
         }
 
         if (!planDestinationMatches(entry.wallet, wallet)) {
+            return false;
+        }
+
+        if (
+            entry.queryId != null
+            && target?.queryId != null
+            && String(entry.queryId) !== String(target.queryId)
+        ) {
             return false;
         }
 
