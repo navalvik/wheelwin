@@ -3769,15 +3769,28 @@ function refundPlanCoversEntry(plan, refund) {
 }
 
 function sameRefundTarget(entry, refund) {
-    return entry
-        && String(entry.playerId ?? "") === String(refund?.playerId ?? "")
-        && tonWalletAccountsEqual(entry.wallet, refund?.wallet)
-        && /^[0-9]+$/.test(String(entry.grossRefundNano ?? ""))
-        && BigInt(entry.grossRefundNano) === (
-            refund?.amountNano != null
-                ? BigInt(refund.amountNano)
-                : BigInt(Math.round(Number(refund?.amount) * 1_000_000_000))
-        );
+    if (
+        !entry
+        || String(entry.playerId ?? "") !== String(refund?.playerId ?? "")
+        || !tonWalletAccountsEqual(entry.wallet, refund?.wallet)
+        || !/^[0-9]+$/.test(String(entry.grossRefundNano ?? ""))
+    ) {
+        return false;
+    }
+
+    try {
+        let amountNano;
+        if (refund?.amountNano != null) {
+            amountNano = BigInt(refund.amountNano);
+        } else if (refund?.amount != null && Number.isFinite(Number(refund.amount))) {
+            amountNano = BigInt(Math.round(Number(refund.amount) * 1_000_000_000));
+        } else {
+            return false;
+        }
+        return BigInt(entry.grossRefundNano) === amountNano;
+    } catch {
+        return false;
+    }
 }
 
 function findRefundPlanQueryIdConflict(plan, refunds) {
