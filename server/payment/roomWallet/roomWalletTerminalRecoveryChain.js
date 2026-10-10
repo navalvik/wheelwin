@@ -1,3 +1,5 @@
+import { Cell } from "@ton/core";
+
 import {
     canonicalizeTonWalletAddress,
     tonWalletAccountsEqual
