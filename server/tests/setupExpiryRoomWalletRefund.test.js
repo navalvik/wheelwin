@@ -1090,6 +1090,34 @@ console.log("setupExpiryRoomWalletRefund.test.js passed");
 }
 
 
+// R — a stale roomNumber must not route a refund from a different catalog wallet.
+{
+    const stack = buildStack();
+    const session = paidSetupSession(stack.roomId, 2);
+    const historicalWallet = "EQC9qwKAy72kX1oPtryX-g5y44B2mYZEB2HVdJAeJprla_Le";
+    session.roomWalletAddress = historicalWallet;
+    for (const participant of session.participants) {
+        participant.paymentDestination = historicalWallet;
+    }
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "test_historical_source_wallet_mismatch"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.code, "ROOM_WALLET_SOURCE_IDENTITY_MISMATCH");
+    assert.equal(stack.refundCalls.length, 0, "no transfer may be attempted from the currently mapped wallet");
+    assert.equal(session.findParticipant("p1").refunded, false);
+    assert.equal(session.findParticipant("p2").refunded, false);
+
+    stack.shutdown();
+    console.log("  R. stored historical source wallet must match the current room-wallet mapping passed");
+}
+
+
 // Q — a success result for a different seat/wallet must not credit the named player.
 {
     const stack = buildStack({
