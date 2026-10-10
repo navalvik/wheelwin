@@ -1049,6 +1049,7 @@ export class RoomWalletSettlementAdapter {
                 tonService: createInspectTransport(this._roomWalletAdapter, normalizedRoomNumber),
                 roomWalletAddress: await this._roomWalletAdapter.getWalletAddress(normalizedRoomNumber),
                 expectedHash: sent.txHash ?? null,
+                expectedQueryId: queryId,
                 destination: wallet,
                 amountNano: netNano,
                 timeoutMs: confirmationTimeoutMs
