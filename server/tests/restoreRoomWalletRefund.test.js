@@ -551,6 +551,80 @@ await runCase(results, "E. intake disabled → FULLY_PAID restore refund NOT act
 
 });
 
+// F — One full refund hash may not satisfy two separate session obligations.
+// The restore scan must quarantine both claims before any automatic retry.
+await runCase(results, "F. duplicated refund hash → both sessions quarantined before retry", async () => {
+
+    const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-restore-rw-f-"));
+    const first = buildStack({ dataDir });
+    const sharedHash = "shared-refund-transaction-hash";
+
+    const rgft = buildRestoreSession({
+        roomId: "room-restore-rgft",
+        status: PAYMENT_SESSION_STATUS.REFUND_PENDING,
+        refundedIndexes: [0]
+    });
+    rgft.participants[0].refundTxHash = sharedHash;
+
+    const snvb = buildRestoreSession({
+        roomId: "room-restore-snvb",
+        status: PAYMENT_SESSION_STATUS.REFUND_PENDING,
+        refundedIndexes: [0]
+    });
+    snvb.participants[0].refundTxHash = sharedHash;
+
+    first.paymentSessionManager._persistSession(rgft, "create");
+    first.paymentSessionManager._persistSession(snvb, "create");
+    first.shutdown();
+
+    const second = buildStack({ dataDir });
+
+    try {
+        await second.paymentSessionManager.restorePaymentSessions();
+        await waitForAsync();
+
+        for (const roomId of ["room-restore-rgft", "room-restore-snvb"]) {
+            const restored = second.paymentSessionManager.getSession(roomId);
+            assert.ok(restored, `restored ${roomId}`);
+            assert.equal(restored.participants[0].refunded, false);
+            assert.equal(restored.participants[0].refundTxHash, null);
+            assert.equal(
+                restored.recoveryMetadata.refundAttributionQuarantine.status,
+                "MANUAL_RECONCILIATION_REQUIRED"
+            );
+            assert.equal(
+                restored.recoveryMetadata.refundAttributionQuarantine.reason,
+                "DUPLICATE_TRANSACTION_HASH"
+            );
+            assert.equal(
+                restored.recoveryMetadata.refundAttributionQuarantine.conflicts[0].transactionHash,
+                sharedHash
+            );
+        }
+
+        assert.equal(second.refundCalls.length, 0, "quarantined sessions never auto-broadcast");
+
+        const persisted = second.financialPersistence.listActive("PAYMENT_SESSION");
+        const quarantined = persisted.filter((record) => {
+            const session = PaymentSession.fromRecord(record);
+            return ["room-restore-rgft", "room-restore-snvb"].includes(session.roomId);
+        });
+        assert.equal(quarantined.length, 2);
+        assert.equal(
+            quarantined.every((record) => (
+                PaymentSession.fromRecord(record)
+                    .recoveryMetadata.refundAttributionQuarantine.status
+                    === "MANUAL_RECONCILIATION_REQUIRED"
+            )),
+            true,
+            "quarantine is durably persisted"
+        );
+    } finally {
+        second.shutdown();
+        TonFinancialPersistence.destroyStorage(dataDir);
+    }
+});
+
 console.log("");
 
 console.log("restoreRoomWalletRefund results:");
