@@ -2311,9 +2311,29 @@ export class PaymentSessionManager {
             if (!session || !Array.isArray(session.participants)) {
                 return;
             }
+
             for (const participant of session.participants) {
                 const ownerKey = roomWalletRefundOwnerKey(session, participant);
-                sessions.set(ownerKey, { session, participant, ownerKey });
+                const existing = sessions.get(ownerKey);
+                const hash = normalizeRefundHash(participant?.refundTxHash);
+
+                if (existing) {
+                    // The same obligation can be represented by both a stored
+                    // record and a stale in-memory copy. Preserve every hash
+                    // claim seen; never let a stale copy with a null hash erase
+                    // the persisted claim from the global uniqueness index.
+                    if (hash) {
+                        existing.refundHashes.add(hash);
+                    }
+                    continue;
+                }
+
+                sessions.set(ownerKey, {
+                    session,
+                    participant,
+                    ownerKey,
+                    refundHashes: new Set(hash ? [hash] : [])
+                });
             }
         };
 
@@ -2363,22 +2383,42 @@ export class PaymentSessionManager {
         addSession(currentSession);
 
         const ownersByHash = new Map();
-        for (const { participant, ownerKey } of sessions.values()) {
-            const hash = normalizeRefundHash(participant?.refundTxHash);
-            if (!hash) {
-                continue;
+        const hashesByOwner = new Map();
+
+        for (const { ownerKey, refundHashes } of sessions.values()) {
+            for (const hash of refundHashes) {
+                if (!ownersByHash.has(hash)) {
+                    ownersByHash.set(hash, new Set());
+                }
+                ownersByHash.get(hash).add(ownerKey);
+
+                if (!hashesByOwner.has(ownerKey)) {
+                    hashesByOwner.set(ownerKey, new Set());
+                }
+                hashesByOwner.get(ownerKey).add(hash);
             }
-            if (!ownersByHash.has(hash)) {
-                ownersByHash.set(hash, new Set());
-            }
-            ownersByHash.get(hash).add(ownerKey);
         }
 
-        return { ok: true, ownersByHash };
+        const conflictedOwners = new Set();
+        for (const [ownerKey, hashes] of hashesByOwner) {
+            if (hashes.size > 1) {
+                // Different hashes are persisted for one obligation. Preserve
+                // each hash as a claim and quarantine that obligation.
+                conflictedOwners.add(ownerKey);
+            }
+        }
+
+        return { ok: true, ownersByHash, conflictedOwners };
     }
 
-    _roomWalletRefundHashConflict(session, ownersByHash) {
+    _roomWalletRefundHashConflict(session, ownersByHash, conflictedOwners = new Set()) {
         for (const participant of session?.participants ?? []) {
+            const ownerKey = roomWalletRefundOwnerKey(session, participant);
+            if (conflictedOwners.has(ownerKey)) {
+                return normalizeRefundHash(participant?.refundTxHash)
+                    ?? "multiple-hashes-for-one-refund-obligation";
+            }
+
             const hash = normalizeRefundHash(participant?.refundTxHash);
             if (!hash) {
                 continue;
@@ -2485,7 +2525,8 @@ export class PaymentSessionManager {
         }
         const conflictedHash = this._roomWalletRefundHashConflict(
             session,
-            claimIndex.ownersByHash
+            claimIndex.ownersByHash,
+            claimIndex.conflictedOwners
         );
         if (conflictedHash) {
             this._logger?.error?.(
