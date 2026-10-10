@@ -1,0 +1,85 @@
+name: Room Wallet refund attribution safety
+
+on:
+  push:
+    branches:
+      - fix/testnet-refund-attribution-20261010
+    paths:
+      - "server/gameplay/PaymentSessionManager.js"
+      - "server/gameplay/partialPaymentEscrowUnwind.js"
+      - "server/payment/roomWallet/**"
+      - "server/tests/roomWalletRefundIdentity.test.js"
+      - "server/tests/roomWalletSettlementAdapter.test.js"
+      - "server/tests/restoreRoomWalletRefund.test.js"
+      - "server/tests/setupExpiryRoomWalletRefund.test.js"
+      - "server/package.json"
+      - "server/package-lock.json"
+      - ".github/workflows/room-wallet-refund-safety.yml"
+  pull_request:
+    branches:
+      - recovery/escrow-mode-fix-production-20261009
+    paths:
+      - "server/gameplay/PaymentSessionManager.js"
+      - "server/gameplay/partialPaymentEscrowUnwind.js"
+      - "server/payment/roomWallet/**"
+      - "server/tests/roomWalletRefundIdentity.test.js"
+      - "server/tests/roomWalletSettlementAdapter.test.js"
+      - "server/tests/restoreRoomWalletRefund.test.js"
+      - "server/tests/setupExpiryRoomWalletRefund.test.js"
+      - "server/package.json"
+      - "server/package-lock.json"
+      - ".github/workflows/room-wallet-refund-safety.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-refund-attribution:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server dependencies
+        run: npm ci
+
+      - name: Check changed source and test syntax
+        run: |
+          node --check gameplay/PaymentSessionManager.js
+          node --check gameplay/partialPaymentEscrowUnwind.js
+          node --check payment/roomWallet/roomWalletRefundIdentity.js
+          node --check payment/roomWallet/roomWalletRefundClaims.js
+          node --check payment/roomWallet/RoomWalletSettlementAdapter.js
+          node --check payment/roomWallet/roomWalletTerminalRecoveryChain.js
+          node --check tests/roomWalletRefundIdentity.test.js
+          node --check tests/roomWalletSettlementAdapter.test.js
+          node --check tests/restoreRoomWalletRefund.test.js
+          node --check tests/setupExpiryRoomWalletRefund.test.js
+
+      - name: Test refund identity, BOC parsing, and hash quarantine
+        run: node --test tests/roomWalletRefundIdentity.test.js
+
+      - name: Test Room Wallet settlement/refund matching
+        run: node tests/roomWalletSettlementAdapter.test.js
+
+      - name: Test restart refund recovery
+        run: node tests/restoreRoomWalletRefund.test.js
+
+      - name: Test setup-expiry refund lifecycle
+        run: node tests/setupExpiryRoomWalletRefund.test.js
+
+      - name: Test creator-left refund lifecycle
+        run: node tests/creatorLeftRoomWalletRefund.test.js
+
+      - name: Test incoming observer regressions
+        run: node tests/roomWalletIncomingObserver.test.js
