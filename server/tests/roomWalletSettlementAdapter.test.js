@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { beginCell } from "@ton/core";
 
 import { RoomWalletSettlementAdapter } from "../payment/roomWallet/RoomWalletSettlementAdapter.js";
 import { GRAM_NANO } from "../payment/roomWallet/RoomWalletFinancialPolicy.js";
@@ -10,6 +11,12 @@ import { GRAM_NANO } from "../payment/roomWallet/RoomWalletFinancialPolicy.js";
 // STUB_GAS_CHARGE_NANO, so the on-chain transfer value is gross - 2000000n.
 const STUB_FEE_TOTAL_NANO = 1_000_000n;
 const STUB_GAS_CHARGE_NANO = 2_000_000n;
+const TEST_REFUND_QUERY_ID = "12345";
+const TEST_REFUND_QUERY_BODY = beginCell()
+    .storeUint(BigInt(TEST_REFUND_QUERY_ID), 64)
+    .endCell()
+    .toBoc()
+    .toString("base64");
 
 function createAdapter({
     balanceNano = 100n * GRAM_NANO,
@@ -600,7 +607,8 @@ test("refund cutoff derived from a millisecond timestamp is compared in TON utim
             success: true,
             out_msgs: [{
                 destination: WINNER,
-                value: "1000000000"
+                value: "1000000000",
+            msg_data: { body: TEST_REFUND_QUERY_BODY }
             }]
         }]
     });
@@ -611,6 +619,7 @@ test("refund cutoff derived from a millisecond timestamp is compared in TON utim
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: WINNER,
             amount: 1
         }]
@@ -633,7 +642,8 @@ test("transfer with utime before the millisecond-derived cutoff is not adopted â
         success: true,
         out_msgs: [{
             destination: WINNER,
-            value: "1000000000"
+            value: "1000000000",
+        msg_data: { body: TEST_REFUND_QUERY_BODY }
         }]
     }];
 
@@ -653,7 +663,8 @@ test("transfer with utime before the millisecond-derived cutoff is not adopted â
                 success: true,
                 out_msgs: [{
                     destination: input.destination,
-                    value: input.amountNano.toString()
+                    value: input.amountNano.toString(),
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
                 }]
             });
             return { ok: true, code: "SENT", txHash: hash };
@@ -666,6 +677,7 @@ test("transfer with utime before the millisecond-derived cutoff is not adopted â
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: WINNER,
             amount: 1
         }]
@@ -733,6 +745,7 @@ test("refund that reached the player wallet is reconciled from player wallet his
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: PLAYER_WALLET,
             amount: 1
         }]
@@ -797,7 +810,8 @@ test("inbound from another source is not accepted as an already completed refund
                 success: true,
                 out_msgs: [{
                     destination: input.destination,
-                    value: input.amountNano.toString()
+                    value: input.amountNano.toString(),
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
                 }]
             });
             return { ok: true, code: "SENT", txHash: hash };
@@ -810,6 +824,7 @@ test("inbound from another source is not accepted as an already completed refund
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: PLAYER_WALLET,
             amount: 1
         }]
@@ -848,7 +863,8 @@ test("player wallet inbound with a different amount is not accepted as an alread
                 success: true,
                 out_msgs: [{
                     destination: input.destination,
-                    value: input.amountNano.toString()
+                    value: input.amountNano.toString(),
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
                 }]
             });
             return { ok: true, code: "SENT", txHash: hash };
@@ -861,6 +877,7 @@ test("player wallet inbound with a different amount is not accepted as an alread
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: PLAYER_WALLET,
             amount: 1
         }]
@@ -898,7 +915,8 @@ test("player wallet inbound before the refund cutoff is not accepted â€” a fresh
                 success: true,
                 out_msgs: [{
                     destination: input.destination,
-                    value: input.amountNano.toString()
+                    value: input.amountNano.toString(),
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
                 }]
             });
             return { ok: true, code: "SENT", txHash: hash };
@@ -911,6 +929,7 @@ test("player wallet inbound before the refund cutoff is not accepted â€” a fresh
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: PLAYER_WALLET,
             amount: 1
         }]
@@ -949,7 +968,8 @@ test("bounced player wallet inbound is not accepted as an already completed refu
                 success: true,
                 out_msgs: [{
                     destination: input.destination,
-                    value: input.amountNano.toString()
+                    value: input.amountNano.toString(),
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
                 }]
             });
             return { ok: true, code: "SENT", txHash: hash };
@@ -962,6 +982,7 @@ test("bounced player wallet inbound is not accepted as an already completed refu
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: PLAYER_WALLET,
             amount: 1
         }]
@@ -985,7 +1006,8 @@ test("a matching Room Wallet outbound refund still wins over a player wallet inb
             success: true,
             out_msgs: [{
                 destination: PLAYER_WALLET,
-                value: "1000000000"
+                value: "1000000000",
+            msg_data: { body: TEST_REFUND_QUERY_BODY }
             }]
         }],
         getAddressTransactions: async () => [{
@@ -1009,6 +1031,7 @@ test("a matching Room Wallet outbound refund still wins over a player wallet inb
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: PLAYER_WALLET,
             amount: 1
         }]
@@ -1042,7 +1065,8 @@ test("player wallet reconciliation is skipped without a crash when getAddressTra
                 success: true,
                 out_msgs: [{
                     destination: input.destination,
-                    value: input.amountNano.toString()
+                    value: input.amountNano.toString(),
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
                 }]
             });
             return { ok: true, code: "SENT", txHash: hash };
@@ -1055,6 +1079,7 @@ test("player wallet reconciliation is skipped without a crash when getAddressTra
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: PLAYER_WALLET,
             amount: 1
         }]
