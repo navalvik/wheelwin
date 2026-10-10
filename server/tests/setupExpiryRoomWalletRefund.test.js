@@ -1036,3 +1036,55 @@ console.log("setupExpiryRoomWalletRefund.test.js passed");
     stack.shutdown();
     console.log("  O. missing persisted hash index fails closed passed");
 }
+
+ 
+// P — a stale in-memory copy must not erase a persisted cross-session hash claim.
+{
+    const sharedHash = "refund-claim-shared-across-sessions";
+    const persistedOwner = paidSetupSession("stale-owner", 1);
+    persistedOwner.status = PAYMENT_SESSION_STATUS.REFUND_PENDING;
+    persistedOwner.participants[0].refunded = true;
+    persistedOwner.participants[0].refundTxHash = sharedHash;
+
+    const persistedRecord = {
+        recordType: "payment_session",
+        recordId: persistedOwner.paymentSessionId,
+        payload: persistedOwner.toPayload()
+    };
+
+    const stack = buildStack({
+        financialPersistence: { listActive: () => [persistedRecord] },
+        refundPaymentsHandler: async () => ({
+            ok: true,
+            results: [{ ok: true, playerId: "p1", txHash: sharedHash }]
+        })
+    });
+
+    // Same paymentSessionId/playerId as persistedOwner, but the stale object
+    // has not yet learned about the persisted refund hash.
+    const staleOwner = paidSetupSession("stale-owner", 1);
+    staleOwner.participants[0].refunded = false;
+    staleOwner.participants[0].refundTxHash = null;
+    stack.paymentSessionManager._sessionsByRoom.set(staleOwner.roomId, staleOwner);
+
+    // Isolate the claim-index behavior from the test harness's persistence writer.
+    stack.paymentSessionManager._persistSession = () => {};
+
+    const competingSession = paidSetupSession("competing-owner", 1);
+    const result = await stack.paymentSessionManager._performRoomWalletPartialPaymentRefund(
+        competingSession,
+        "test_stale_memory_must_not_erase_claim"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(competingSession.findParticipant("p1").refunded, false);
+    assert.equal(competingSession.findParticipant("p1").refundTxHash, null);
+    assert.equal(
+        stack.refundCalls.length,
+        1,
+        "the adapter result is checked against persisted cross-session claims"
+    );
+
+    stack.shutdown();
+    console.log("  P. stale in-memory copy cannot erase persisted refund-hash claim passed");
+}
