@@ -2548,6 +2548,18 @@ export class PaymentSessionManager {
         this._persistSession(session, "update");
         this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
 
+        if (
+            session.recoveryMetadata?.refundAttributionQuarantine?.status
+            === "MANUAL_RECONCILIATION_REQUIRED"
+        ) {
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_REFUND_ATTRIBUTION_QUARANTINED",
+                result
+            });
+        }
+
         if (allConfirmedParticipantsRefunded(session)) {
             this._finalizePartialPaymentUnwind(session);
         }
