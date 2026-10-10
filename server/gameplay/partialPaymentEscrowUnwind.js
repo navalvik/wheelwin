@@ -1,4 +1,5 @@
 import { PAYMENT_PARTICIPANT_STATUS } from "../models/PaymentSession.js";
+import { deriveRoomWalletRefundQueryId } from "../payment/roomWallet/roomWalletRefundIdentity.js";
 
 /**
  * R17.8O.1 — Partial payment escrow unwind helpers.
@@ -88,7 +89,13 @@ export function buildPartialPaymentRefundTargets(session) {
             playerIndex: seat,
             playerId: participant.playerId ?? null,
             wallet: participant.wallet ?? null,
-            amount: participant.paidAmount || participant.requiredGram
+            amount: participant.paidAmount || participant.requiredGram,
+            queryId: deriveRoomWalletRefundQueryId({
+                paymentSessionId: session?.paymentSessionId,
+                playerId: participant.playerId,
+                playerIndex: seat,
+                wallet: participant.wallet
+            })
         }));
 
     }
