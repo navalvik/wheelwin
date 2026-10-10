@@ -673,6 +673,7 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
                 playerId: refund.playerId,
                 playerIndex: refund.playerIndex ?? null,
                 wallet: refund.wallet,
+                queryId: refund.queryId,
                 grossRefundNano: String(grossNano),
                 recipientGasChargeNano: "1000000",
                 recipientTransferAmountNano: String(grossNano - 1_000_000n),
@@ -715,10 +716,10 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
     // frozen entry and estimate only the uncovered refund entry.
     const sharedSession = paidSetupSession("same-session", 3);
     const pendingA = [{
-        playerId: "p1", playerIndex: 0, wallet: "wallet-1", amount: 10
+        playerId: "p1", playerIndex: 0, wallet: "wallet-1", amount: 10, queryId: "101"
     }];
     const pendingB = [{
-        playerId: "p2", playerIndex: 1, wallet: "wallet-2", amount: 10
+        playerId: "p2", playerIndex: 1, wallet: "wallet-2", amount: 10, queryId: "102"
     }];
 
     const [planA, planB] = await Promise.all([
