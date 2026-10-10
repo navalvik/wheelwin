@@ -245,3 +245,33 @@ test("confirmation with an unknown broadcast hash still requires the exact query
     assert.equal(confirmed.ok, true);
     assert.equal(confirmed.hash, "target-session-second");
 });
+
+test("blocks a new send when the queried history window is truncated", async () => {
+    const cutoff = Math.floor(Date.now() / 1000) - 1_000;
+    const sourceHistory = Array.from({ length: 40 }, (_, index) => transaction({
+        hash: "busy-source-" + index,
+        destination: ROOM_WALLET,
+        value: 7,
+        queryId: String(index + 1),
+        utime: cutoff + 10 + index
+    }));
+    const playerHistory = Array.from({ length: 40 }, (_, index) => playerTransaction({
+        hash: "busy-player-" + index,
+        source: PLAYER_WALLET,
+        value: 7,
+        queryId: String(index + 101),
+        utime: cutoff + 10 + index
+    }));
+    const harness = createHarness({ sourceHistory, playerHistory });
+    const result = await harness.adapter.refundPayments({
+        roomNumber: 1,
+        cutoffUtime: cutoff * 1000,
+        refunds: [refundTarget("999")]
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.results[0].code, "REFUND_IDEMPOTENCY_AMBIGUOUS");
+    assert.equal(result.results[0].reason, "HISTORY_WINDOW_INCOMPLETE");
+    assert.equal(harness.sends.length, 0);
+});
