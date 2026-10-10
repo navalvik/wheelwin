@@ -2344,8 +2344,14 @@ export class PaymentSessionManager {
         }
 
         const priorRefundRequestedAt = session.recoveryMetadata?.refundRequestedAt;
-        const hadPriorRefundRequest = Number.isFinite(Number(priorRefundRequestedAt))
-            && Number(priorRefundRequestedAt) > 0;
+        // REFUND_PENDING is entered before the frozen plan/broadcast window;
+        // on restore it is the only durable prior-request signal for legacy
+        // records that predate refundRequestedAt metadata.
+        const hadPriorRefundRequest = session.status === PAYMENT_SESSION_STATUS.REFUND_PENDING
+            || (
+                Number.isFinite(Number(priorRefundRequestedAt))
+                && Number(priorRefundRequestedAt) > 0
+            );
         const refundRequestedAt = Number(priorRefundRequestedAt ?? Date.now());
 
         session.recoveryMetadata = {
