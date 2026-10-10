@@ -895,6 +895,7 @@ export class RoomWalletSettlementAdapter {
                 failClosedWhenNoCandidate: refundPlan != null && entryQueryId == null,
                 refundIntentId,
                 playerId: target?.playerId ?? entry.playerId ?? null,
+                playerIndex: target?.playerIndex ?? entry.playerIndex ?? null,
                 claimedRefunds
             });
 
@@ -1104,6 +1105,7 @@ export class RoomWalletSettlementAdapter {
         failClosedWhenNoCandidate = false,
         refundIntentId = null,
         playerId = null,
+        playerIndex = null,
         claimedRefunds = []
     }) {
         const cutoff = resolveCutoffUtime({ cutoffUtime });
@@ -1170,6 +1172,8 @@ export class RoomWalletSettlementAdapter {
                 failClosedWhenNoCandidate,
                 refundIntentId,
                 playerId,
+                playerIndex,
+                wallet,
                 claimedRefunds,
                 localClaims: this._refundReconciliationClaims
             });
@@ -1215,6 +1219,8 @@ export class RoomWalletSettlementAdapter {
                 failClosedWhenNoCandidate,
                 refundIntentId,
                 playerId,
+                playerIndex,
+                wallet,
                 claimedRefunds,
                 localClaims: this._refundReconciliationClaims
             });
@@ -1914,6 +1920,8 @@ function resolveRefundHistoryCandidate({
     failClosedWhenNoCandidate,
     refundIntentId,
     playerId,
+    playerIndex,
+    wallet,
     claimedRefunds,
     localClaims
 }) {
@@ -1938,6 +1946,18 @@ function resolveRefundHistoryCandidate({
             conflict: true,
             code: "REFUND_MATCH_AMBIGUOUS",
             hash: null
+        });
+    }
+
+    if (
+        allowLegacyMatch
+        && untagged.length > 0
+        && String(refundIntentId ?? "").trim()
+    ) {
+        return Object.freeze({
+            conflict: true,
+            code: "LEGACY_REFUND_TRANSACTION_OWNER_UNPROVEN",
+            hash: untagged.length === 1 ? untagged[0].hash ?? null : null
         });
     }
 
@@ -1999,15 +2019,23 @@ function resolveRefundHistoryCandidate({
     const [hash, candidate] = byHash.entries().next().value;
     const intent = String(refundIntentId ?? "").trim();
     const player = String(playerId ?? "").trim();
+    const seat = playerIndex == null ? null : Number(playerIndex);
+    const destination = String(wallet ?? "").trim();
+    const sameObligation = (claim) => (
+        String(claim?.intentId ?? "").trim() === intent
+        && String(claim?.playerId ?? "").trim() === player
+        && (claim?.playerIndex == null || seat == null
+            ? claim?.playerIndex == null && seat == null
+            : Number(claim.playerIndex) === seat)
+        && tonWalletAccountsEqual(claim?.wallet ?? "", destination)
+    );
     const claims = Array.isArray(claimedRefunds) ? claimedRefunds : [];
 
     for (const claim of claims) {
         if (String(claim?.txHash ?? claim?.refundTxHash ?? "").trim() !== hash) {
             continue;
         }
-        const claimedIntent = String(claim?.intentId ?? "").trim();
-        const claimedPlayer = String(claim?.playerId ?? "").trim();
-        if (claimedIntent !== intent || claimedPlayer !== player) {
+        if (!sameObligation(claim)) {
             return Object.freeze({
                 conflict: true,
                 code: "REFUND_TRANSACTION_ALREADY_CLAIMED",
@@ -2019,7 +2047,7 @@ function resolveRefundHistoryCandidate({
     const previousClaim = localClaims?.get(hash);
     if (
         previousClaim
-        && (previousClaim.intentId !== intent || previousClaim.playerId !== player)
+        && !sameObligation(previousClaim)
     ) {
         return Object.freeze({
             conflict: true,
@@ -2028,7 +2056,12 @@ function resolveRefundHistoryCandidate({
         });
     }
 
-    localClaims?.set(hash, { intentId: intent, playerId: player });
+    localClaims?.set(hash, {
+        intentId: intent,
+        playerId: player,
+        playerIndex: seat,
+        wallet: destination
+    });
     return candidate;
 }
 
