@@ -2310,20 +2310,43 @@ export class PaymentSessionManager {
             });
         }
 
+        if (
+            session.recoveryMetadata?.refundAttributionQuarantine?.status
+            === "MANUAL_RECONCILIATION_REQUIRED"
+        ) {
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_REFUND_ATTRIBUTION_QUARANTINED"
+            });
+        }
+
         const { refunds } = buildPartialPaymentRefundTargets(session);
         const pendingRefunds = refunds.filter((refund) => {
             const participant = session.findParticipant(refund.playerId);
             return participant?.refunded !== true;
         });
 
+        if (pendingRefunds.some((refund) => normalizeRoomWalletRefundQueryId(refund.queryId) === null)) {
+            this._quarantineRoomWalletRefundAttribution(session, {
+                reason: "REFUND_QUERY_ID_UNAVAILABLE"
+            });
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_REFUND_QUERY_ID_UNAVAILABLE"
+            });
+        }
+
         if (pendingRefunds.length === 0) {
             this._finalizePartialPaymentUnwind(session);
             return Object.freeze({ ok: true, code: "ALREADY_REFUNDED" });
         }
 
-        const refundRequestedAt = Number(
-            session.recoveryMetadata?.refundRequestedAt ?? Date.now()
-        );
+        const priorRefundRequestedAt = session.recoveryMetadata?.refundRequestedAt;
+        const hadPriorRefundRequest = Number.isFinite(Number(priorRefundRequestedAt))
+            && Number(priorRefundRequestedAt) > 0;
+        const refundRequestedAt = Number(priorRefundRequestedAt ?? Date.now());
 
         session.recoveryMetadata = {
             ...(session.recoveryMetadata ?? {}),
@@ -2416,7 +2439,8 @@ export class PaymentSessionManager {
             session,
             roomNumber,
             pendingRefunds,
-            refundRequestedAt
+            refundRequestedAt,
+            hadPriorRefundRequest
         });
 
         if (refundPlan?.planFailure === true) {
@@ -2537,17 +2561,77 @@ export class PaymentSessionManager {
      *                         legacy caller paths): the adapter computes its
      *                         own plan inside refundPayments and echoes it
      */
+    _quarantineRoomWalletRefundAttribution(session, { reason, detail = null } = {}) {
+        if (!session) {
+            return false;
+        }
+
+        const existing = session.recoveryMetadata?.refundAttributionQuarantine;
+        if (existing?.status === "MANUAL_RECONCILIATION_REQUIRED") {
+            return false;
+        }
+
+        session.recoveryMetadata = {
+            ...(session.recoveryMetadata ?? {}),
+            refundAttributionQuarantine: {
+                status: "MANUAL_RECONCILIATION_REQUIRED",
+                reason: String(reason ?? "REFUND_ATTRIBUTION_UNCERTAIN"),
+                detectedAt: Date.now(),
+                ...(detail ? { detail: String(detail).slice(0, 240) } : {})
+            }
+        };
+
+        this._persistSession(session, "update");
+        this._emit(EVENT_TYPES.PAYMENT_SESSION_UPDATED, session.toSnapshot());
+        this._logger?.error?.(
+            "Room-Wallet refund attribution quarantined | roomId=" + session.roomId
+                + " | reason=" + String(reason ?? "REFUND_ATTRIBUTION_UNCERTAIN")
+                + " | action=MANUAL_RECONCILIATION_REQUIRED"
+        );
+        this._clearRoomWalletRefundRetry?.(session.roomId);
+        return true;
+    }
+
     async _ensureRoomWalletRefundPlanFrozen({
         session,
         roomNumber,
         pendingRefunds,
-        refundRequestedAt
+        refundRequestedAt,
+        hadPriorRefundRequest = false
     }) {
         const adapter = this._roomWalletSettlementAdapter;
         const initialPlan = session?.recoveryMetadata?.refundPlan ?? null;
         const initialUncovered = initialPlan
             ? pendingRefunds.filter((refund) => !refundPlanCoversEntry(initialPlan, refund))
             : pendingRefunds;
+
+        // A retry of an old refund request without its original frozen plan is
+        // ambiguous: a broadcast may have happened before the process died.
+        // Never generate a new plan and rebroadcast in this legacy crash window.
+        if (hadPriorRefundRequest && !initialPlan) {
+            this._quarantineRoomWalletRefundAttribution(session, {
+                reason: "LEGACY_REFUND_PLAN_MISSING_AFTER_PRIOR_REQUEST"
+            });
+            return Object.freeze({
+                planFailure: true,
+                retryable: false,
+                code: "LEGACY_REFUND_PLAN_REQUIRES_MANUAL_RECONCILIATION"
+            });
+        }
+
+        // If a prior plan exists but no longer correlates to every outstanding
+        // obligation by its stable queryId, we cannot infer whether the old
+        // transaction landed. Stop before fee estimation or broadcast.
+        if (hadPriorRefundRequest && initialPlan && initialUncovered.length > 0) {
+            this._quarantineRoomWalletRefundAttribution(session, {
+                reason: "LEGACY_REFUND_PLAN_QUERY_ID_MISSING_OR_MISMATCHED"
+            });
+            return Object.freeze({
+                planFailure: true,
+                retryable: false,
+                code: "LEGACY_REFUND_PLAN_REQUIRES_MANUAL_RECONCILIATION"
+            });
+        }
 
         if (initialPlan && initialUncovered.length === 0) {
             return initialPlan;
@@ -3738,10 +3822,17 @@ function refundPlanCoversEntry(plan, refund) {
         return false;
     }
 
+    const targetQueryId = normalizeRoomWalletRefundQueryId(refund?.queryId);
+
+    if (targetQueryId === null) {
+        return false;
+    }
+
     return plan.entries.some((entry) => (
         entry
         && String(entry.playerId ?? "") === String(refund?.playerId ?? "")
-        && String(entry.wallet ?? "") === String(refund?.wallet ?? "")
+        && tonWalletAccountsEqual(entry.wallet, refund?.wallet)
+        && roomWalletRefundQueryIdsMatch(entry.queryId, targetQueryId)
         && /^\d+$/.test(String(entry.grossRefundNano ?? ""))
         && BigInt(entry.grossRefundNano) === amountNano
     ));
