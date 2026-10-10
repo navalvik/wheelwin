@@ -1124,13 +1124,11 @@ export class RoomWalletSettlementAdapter {
                         || (legacyAmountNano != null && transfer.amountNano === legacyAmountNano))
                     && tonWalletAccountsEqual(transfer.destination, wallet)
                     && (
-                        queryId == null
-                        || (
-                            transfer.hash != null
-                            && String(transfer.queryId ?? "") === String(queryId)
-                        )
+                        queryId != null
+                            ? transfer.hash != null
+                                && String(transfer.queryId ?? "") === String(queryId)
+                            : (cutoff == null || transfer.utime > cutoff)
                     )
-                    && (cutoff == null || transfer.utime > cutoff)
                 ) {
                     return transfer;
                 }
@@ -1167,13 +1165,11 @@ export class RoomWalletSettlementAdapter {
                     || (legacyAmountNano != null && inbound.amountNano === legacyAmountNano))
                 && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
                 && (
-                    queryId == null
-                    || (
-                        inbound.hash != null
-                        && String(inbound.queryId ?? "") === String(queryId)
-                    )
+                    queryId != null
+                        ? inbound.hash != null
+                            && String(inbound.queryId ?? "") === String(queryId)
+                        : (cutoff == null || inbound.utime > cutoff)
                 )
-                && (cutoff == null || inbound.utime > cutoff)
             ) {
                 return Object.freeze({
                     ...inbound,
