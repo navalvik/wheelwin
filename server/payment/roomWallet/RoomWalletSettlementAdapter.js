@@ -892,6 +892,7 @@ export class RoomWalletSettlementAdapter {
                 cutoffUtime,
                 queryId: expectedQueryId,
                 allowLegacyMatch: entryQueryId == null,
+                failClosedWhenNoCandidate: refundPlan != null && entryQueryId == null,
                 refundIntentId,
                 playerId: target?.playerId ?? entry.playerId ?? null,
                 claimedRefunds
@@ -953,7 +954,7 @@ export class RoomWalletSettlementAdapter {
                 // A pre-correlation frozen plan cannot safely authorize a new
                 // broadcast when no matching historical refund was found. Its
                 // earlier broadcast may be outside the bounded history window.
-                if (entry.queryId == null) {
+                if (refundPlan != null && entry.queryId == null) {
                     results.push(Object.freeze({
                         ok: false,
                         retryable: false,
@@ -1100,6 +1101,7 @@ export class RoomWalletSettlementAdapter {
         cutoffUtime,
         queryId = null,
         allowLegacyMatch = false,
+        failClosedWhenNoCandidate = false,
         refundIntentId = null,
         playerId = null,
         claimedRefunds = []
@@ -1113,7 +1115,7 @@ export class RoomWalletSettlementAdapter {
             || (legacyAmountNano != null && value === legacyAmountNano)
         );
         const afterCutoff = (utime) => cutoff == null || Number(utime) > cutoff;
-        const candidates = [];
+        const sourceCandidates = [];
 
         if (typeof this._roomWalletAdapter.getTransactions === "function") {
             const transactions = await this._roomWalletAdapter.getTransactions(
@@ -1130,7 +1132,7 @@ export class RoomWalletSettlementAdapter {
                         && tonWalletAccountsEqual(transfer.destination, wallet)
                         && afterCutoff(transfer.utime)
                     ) {
-                        candidates.push(Object.freeze({
+                        sourceCandidates.push(Object.freeze({
                             ...transfer,
                             reconciliationSource: "ROOM_WALLET_OUTBOUND"
                         }));
@@ -1139,12 +1141,39 @@ export class RoomWalletSettlementAdapter {
             }
         }
 
-        // If the source-wallet query did not reveal any candidate, query the
-        // recipient's history. This remains read-only and never authorizes a
-        // second transfer when an untagged/ambiguous legacy candidate exists.
+        const expectedQueryId = queryId == null ? null : String(queryId);
+        const isRelevant = (candidate) => (
+            candidate.queryId == null
+            || (
+                expectedQueryId != null
+                && String(candidate.queryId) === expectedQueryId
+            )
+        );
+
+        // A matching destination/amount transfer with the wrong tagged queryId
+        // is evidence for a different refund intent. Still inspect the player
+        // history before deciding there is no match: the source wallet's bounded
+        // history may not include the transaction being reconciled.
+        const sourceRelevant = sourceCandidates.filter(isRelevant);
+        if (sourceRelevant.length > 0) {
+            const sourceResult = resolveRefundHistoryCandidate({
+                candidates: sourceRelevant,
+                queryId: expectedQueryId,
+                allowLegacyMatch,
+                failClosedWhenNoCandidate,
+                refundIntentId,
+                playerId,
+                claimedRefunds,
+                localClaims: this._refundReconciliationClaims
+            });
+            if (sourceResult) {
+                return sourceResult;
+            }
+        }
+
+        const playerCandidates = [];
         if (
-            candidates.length === 0
-            && roomWalletAddress
+            roomWalletAddress
             && typeof this._roomWalletAdapter.getAddressTransactions === "function"
         ) {
             const playerTransactions = await this._roomWalletAdapter.getAddressTransactions(
@@ -1162,7 +1191,7 @@ export class RoomWalletSettlementAdapter {
                     && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
                     && afterCutoff(inbound.utime)
                 ) {
-                    candidates.push(Object.freeze({
+                    playerCandidates.push(Object.freeze({
                         ...inbound,
                         reconciliationSource: "PLAYER_WALLET_INBOUND"
                     }));
@@ -1170,15 +1199,58 @@ export class RoomWalletSettlementAdapter {
             }
         }
 
-        return resolveRefundHistoryCandidate({
-            candidates,
-            queryId,
-            allowLegacyMatch,
-            refundIntentId,
-            playerId,
-            claimedRefunds,
-            localClaims: this._refundReconciliationClaims
-        });
+        const playerRelevant = playerCandidates.filter(isRelevant);
+        if (playerRelevant.length > 0) {
+            const playerResult = resolveRefundHistoryCandidate({
+                candidates: playerRelevant,
+                queryId: expectedQueryId,
+                allowLegacyMatch,
+                failClosedWhenNoCandidate,
+                refundIntentId,
+                playerId,
+                claimedRefunds,
+                localClaims: this._refundReconciliationClaims
+            });
+            if (playerResult) {
+                return Object.freeze({
+                    ...playerResult,
+                    ...(playerResult.reconciliationSource === "PLAYER_WALLET_INBOUND"
+                        ? { reconciliation: PLAYER_WALLET_INBOUND_RECONCILIATION }
+                        : {})
+                });
+            }
+        }
+
+        const allCandidates = [...sourceCandidates, ...playerCandidates];
+        if (failClosedWhenNoCandidate) {
+            return Object.freeze({
+                conflict: true,
+                code: allCandidates.length > 0
+                    ? "REFUND_MATCH_AMBIGUOUS"
+                    : "LEGACY_REFUND_NOT_FOUND_FAIL_CLOSED",
+                hash: null
+            });
+        }
+
+        // A queryId-less candidate could be a pre-queryId transfer that already
+        // paid this obligation. Never ignore it and issue another transfer.
+        if (allCandidates.some((candidate) => candidate.queryId == null)) {
+            return Object.freeze({
+                conflict: true,
+                code: "LEGACY_REFUND_CANDIDATE_WITHOUT_QUERY_ID",
+                hash: null
+            });
+        }
+
+        if (expectedQueryId == null && allCandidates.length > 0) {
+            return Object.freeze({
+                conflict: true,
+                code: "REFUND_MATCH_AMBIGUOUS",
+                hash: null
+            });
+        }
+
+        return null;
     }
 
     async inspectSettlement(request = {}, { payoutPlan = null } = {}) {
@@ -1832,6 +1904,7 @@ function resolveRefundHistoryCandidate({
     candidates,
     queryId,
     allowLegacyMatch,
+    failClosedWhenNoCandidate,
     refundIntentId,
     playerId,
     claimedRefunds,
@@ -1890,7 +1963,7 @@ function resolveRefundHistoryCandidate({
     }
 
     if (byHash.size === 0) {
-        if (allowLegacyMatch && (candidates.length > 0 || candidates.length === 0)) {
+        if (allowLegacyMatch && failClosedWhenNoCandidate) {
             return Object.freeze({
                 conflict: true,
                 code: candidates.length > 0 || taggedDifferent.length > 0
@@ -1980,7 +2053,7 @@ function validateRefundPlanShape(raw) {
             const gross = toPlanNano(entry.grossRefundNano, "entry.grossRefundNano");
             if (entry.queryId != null) {
                 const queryId = String(entry.queryId);
-                if (!/^\\d+$/.test(queryId) || BigInt(queryId) > ((1n << 64n) - 1n)) {
+                if (!/^\d+$/.test(queryId) || BigInt(queryId) > ((1n << 64n) - 1n)) {
                     return { ok: false, detail: "entry.queryId must be an unsigned 64-bit decimal string" };
                 }
             }
