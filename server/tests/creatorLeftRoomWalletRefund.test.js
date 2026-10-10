@@ -72,7 +72,11 @@ function paidCreatorSession(roomId, paidCount) {
 
 }
 
-function buildStack({ refundThrows = false, refundDefer = false } = {}) {
+function buildStack({
+    refundThrows = false,
+    refundDefer = false,
+    financialPersistence = { listActive: () => [] }
+} = {}) {
 
     const logger = createLogger();
     const eventBus = new EventBus({
@@ -194,6 +198,7 @@ function buildStack({ refundThrows = false, refundDefer = false } = {}) {
         roomManager,
         gameContractManager,
         blockchainMonitor,
+        financialPersistence,
         devMode: false,
         roomWalletPaymentIntakeEnabled: true,
         roomWalletSettlementAdapter
