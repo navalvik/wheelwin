@@ -912,3 +912,102 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
 }
 
 console.log("setupExpiryRoomWalletRefund.test.js passed");
+
+
+// L — a single on-chain hash must never satisfy two participant refund claims.
+{
+    const stack = buildStack();
+    const rgft = paidSetupSession("RGFT", 3);
+    const snvb = paidSetupSession("sNvb", 3);
+
+    for (const session of [rgft, snvb]) {
+        session.status = PAYMENT_SESSION_STATUS.REFUND_PENDING;
+        session.recoveryMetadata = {
+            refundIdentityVersion: "room-wallet-refund-query-id-v1",
+            refundRequestedAt: Date.now()
+        };
+        session.participants[0].refunded = true;
+        session.participants[0].refundTxHash = "same-on-chain-hash";
+        stack.paymentSessionManager._sessionsByRoom.set(session.roomId, session);
+    }
+
+    const beforeHash = rgft.participants[0].refundTxHash;
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        rgft,
+        "test_duplicate_hash"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.code, "ROOM_WALLET_REFUND_HASH_CONFLICT");
+    assert.equal(rgft.participants[0].refundTxHash, beforeHash);
+    assert.equal(stack.refundCalls.length, 0, "no broadcast occurs when a hash is double-claimed");
+
+    stack.shutdown();
+    console.log("  L. duplicate refund hash across sessions fails closed passed");
+}
+
+// M — legacy pending refunds without query IDs are blocked before a new broadcast.
+{
+    const stack = buildStack();
+    const session = paidSetupSession(stack.roomId, 2);
+    session.status = PAYMENT_SESSION_STATUS.REFUND_PENDING;
+    session.recoveryMetadata = {
+        refundRequestedAt: Date.now(),
+        refundPlan: {
+            mode: "RECIPIENT_PAYS_GAS",
+            entries: [{
+                playerId: "p1",
+                playerIndex: 0,
+                wallet: "wallet-1",
+                grossRefundNano: "10000000000",
+                recipientGasChargeNano: "1000000",
+                recipientTransferAmountNano: "9999000000"
+            }]
+        }
+    };
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "test_legacy_pending"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.code, "ROOM_WALLET_LEGACY_REFUND_REQUIRES_RECONCILIATION");
+    assert.equal(stack.refundCalls.length, 0);
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.REFUND_PENDING);
+
+    stack.shutdown();
+    console.log("  M. legacy untagged refund retry is blocked before broadcast passed");
+}
+
+// N — an adapter success without a transaction hash is not authoritative refund proof.
+{
+    const stack = buildStack({
+        roomWalletRefundRetryDelaysMs: [60_000],
+        refundPaymentsHandler: async () => ({
+            ok: true,
+            results: [
+                { ok: true, playerId: "p1", txHash: null },
+                { ok: true, playerId: "p2", txHash: "" }
+            ]
+        })
+    });
+    const session = paidSetupSession(stack.roomId, 2);
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "test_missing_hash"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(session.findParticipant("p1").refunded, false);
+    assert.equal(session.findParticipant("p2").refunded, false);
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.REFUND_PENDING);
+
+    stack.shutdown();
+    console.log("  N. success without transaction hash cannot mark a refund complete passed");
+}
