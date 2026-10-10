@@ -519,7 +519,8 @@ test("partial room-wallet refunds return exactly the paid amount and confirm on 
                 success: true,
                 out_msgs: [{
                     destination: input.destination,
-                    value: input.amountNano.toString()
+                    value: input.amountNano.toString(),
+                    msg_data: { body: TEST_REFUND_QUERY_BODY }
                 }]
             });
             return {
@@ -536,6 +537,7 @@ test("partial room-wallet refunds return exactly the paid amount and confirm on 
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: WINNER,
             amount: 1
         }]
@@ -564,7 +566,8 @@ test("existing room-wallet refund is adopted without a second send", async () =>
             success: true,
             out_msgs: [{
                 destination: WINNER,
-                value: "1000000000"
+                value: "1000000000",
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
             }]
         }]
     });
@@ -575,6 +578,7 @@ test("existing room-wallet refund is adopted without a second send", async () =>
         refunds: [{
             playerId: "player-bob",
             playerIndex: 1,
+            queryId: TEST_REFUND_QUERY_ID,
             wallet: WINNER,
             amount: 1
         }]
