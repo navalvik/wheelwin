@@ -1,0 +1,47 @@
+name: Room Wallet Refund Identity Regression
+
+on:
+  pull_request:
+    branches:
+      - recovery/escrow-mode-fix-production-20261009
+    paths:
+      - "server/gameplay/PaymentSessionManager.js"
+      - "server/gameplay/partialPaymentEscrowUnwind.js"
+      - "server/payment/roomWallet/RoomWalletSettlementAdapter.js"
+      - "server/payment/roomWallet/roomWalletTerminalRecoveryChain.js"
+      - "server/tests/roomWalletRefundIdentity.test.js"
+      - "server/tests/setupExpiryRoomWalletRefund.test.js"
+      - ".github/workflows/room-wallet-refund-identity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refund-identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci --ignore-scripts
+      - name: Syntax checks
+        working-directory: server
+        run: |
+          node --check gameplay/PaymentSessionManager.js
+          node --check gameplay/partialPaymentEscrowUnwind.js
+          node --check payment/roomWallet/RoomWalletSettlementAdapter.js
+          node --check payment/roomWallet/roomWalletTerminalRecoveryChain.js
+      - name: Refund identity and legacy-recovery regressions
+        working-directory: server
+        run: |
+          node --test tests/roomWalletRefundIdentity.test.js
+          node tests/setupExpiryRoomWalletRefund.test.js
