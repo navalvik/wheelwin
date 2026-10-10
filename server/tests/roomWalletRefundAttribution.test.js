@@ -10,6 +10,7 @@ import {
 } from "../payment/roomWallet/RoomWalletFinancialPolicy.js";
 import { RoomWalletSettlementAdapter } from "../payment/roomWallet/RoomWalletSettlementAdapter.js";
 import {
+    confirmPayoutOnChain,
     extractMessageQueryId,
     extractOutboundTransfers
 } from "../payment/roomWallet/roomWalletTerminalRecoveryChain.js";
@@ -154,6 +155,54 @@ test("chain history parser extracts only an exact 64-bit message-body queryId", 
     }));
     assert.equal(transfers.length, 1);
     assert.equal(transfers[0].queryId, "1234567890123");
+});
+
+test("on-chain confirmation must not accept an otherwise matching transfer with a different queryId", async () => {
+    const wrong = matchingOutboundTx({
+        hash: "another-session",
+        queryId: "111"
+    });
+    let clock = 0;
+    const confirmed = await confirmPayoutOnChain({
+        tonService: { async getTransactions() { return [wrong]; } },
+        roomWalletAddress: ROOM_WALLET,
+        expectedHash: null,
+        destination: PLAYER_WALLET,
+        amountNano: NET_REFUND_NANO,
+        queryId: "222",
+        timeoutMs: 2,
+        pollIntervalMs: 2,
+        now: () => clock,
+        sleep: async (ms) => { clock += ms; }
+    });
+
+    assert.equal(confirmed.ok, false);
+    assert.equal(confirmed.code, "PAYOUT_NOT_CONFIRMED");
+});
+
+test("on-chain confirmation selects the transfer with the exact queryId", async () => {
+    const wrong = matchingOutboundTx({
+        hash: "another-session",
+        queryId: "111"
+    });
+    const right = matchingOutboundTx({
+        hash: "current-session",
+        queryId: "222",
+        utime: Math.floor(Date.now() / 1000) + 1
+    });
+    const confirmed = await confirmPayoutOnChain({
+        tonService: { async getTransactions() { return [wrong, right]; } },
+        roomWalletAddress: ROOM_WALLET,
+        expectedHash: null,
+        destination: PLAYER_WALLET,
+        amountNano: NET_REFUND_NANO,
+        queryId: "222",
+        timeoutMs: 50,
+        pollIntervalMs: 1
+    });
+
+    assert.equal(confirmed.ok, true);
+    assert.equal(confirmed.hash, "current-session");
 });
 
 test("a same-amount transfer with a different queryId is not adopted for a new refund intent", async () => {
