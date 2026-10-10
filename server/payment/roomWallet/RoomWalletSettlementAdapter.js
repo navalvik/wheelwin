@@ -565,12 +565,18 @@ export class RoomWalletSettlementAdapter {
         role,
         destination,
         planEntry,
+        paymentSessionId = null,
+        playerId = null,
+        queryId = null,
         seqno = null,
         txHash = null
     }) {
         this._logger?.info?.(
             `RoomWallet recipient-pays-gas transfer | game=${gameId ?? "unknown"} `
                 + `| room=${roomNumber} | role=${role} `
+                + `| paymentSessionId=${paymentSessionId ?? "unknown"} `
+                + `| playerId=${playerId ?? "unknown"} `
+                + `| queryId=${queryId ?? "unknown"} `
                 + `| gasPolicy=${PAYOUT_GAS_MODE.RECIPIENT_PAYS_GAS} `
                 + `| grossNano=${planEntry.grossPayoutNano} `
                 + `| recipientGasChargeNano=${planEntry.recipientGasChargeNano} `
@@ -983,6 +989,9 @@ export class RoomWalletSettlementAdapter {
                 roomNumber: normalizedRoomNumber,
                 role: "REFUND",
                 destination: wallet,
+                paymentSessionId,
+                playerId: target?.playerId ?? null,
+                queryId,
                 planEntry: {
                     grossPayoutNano: amountNano,
                     recipientGasChargeNano: gasChargeNano,
