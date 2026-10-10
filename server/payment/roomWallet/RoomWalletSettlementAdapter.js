@@ -1949,18 +1949,6 @@ function resolveRefundHistoryCandidate({
         });
     }
 
-    if (
-        allowLegacyMatch
-        && untagged.length > 0
-        && String(refundIntentId ?? "").trim()
-    ) {
-        return Object.freeze({
-            conflict: true,
-            code: "LEGACY_REFUND_TRANSACTION_OWNER_UNPROVEN",
-            hash: untagged.length === 1 ? untagged[0].hash ?? null : null
-        });
-    }
-
     let eligible = exact;
     if (eligible.length === 0 && allowLegacyMatch && untagged.length > 0) {
         eligible = untagged;
@@ -2025,8 +2013,7 @@ function resolveRefundHistoryCandidate({
         String(claim?.intentId ?? "").trim() === intent
         && String(claim?.playerId ?? "").trim() === player
         && (claim?.playerIndex == null || seat == null
-            ? claim?.playerIndex == null && seat == null
-            : Number(claim.playerIndex) === seat)
+            || Number(claim.playerIndex) === seat)
         && tonWalletAccountsEqual(claim?.wallet ?? "", destination)
     );
     const claims = Array.isArray(claimedRefunds) ? claimedRefunds : [];
@@ -2052,6 +2039,18 @@ function resolveRefundHistoryCandidate({
         return Object.freeze({
             conflict: true,
             code: "REFUND_TRANSACTION_ALREADY_CLAIMED",
+            hash
+        });
+    }
+
+    if (
+        allowLegacyMatch
+        && candidate.queryId == null
+        && intent
+    ) {
+        return Object.freeze({
+            conflict: true,
+            code: "LEGACY_REFUND_TRANSACTION_OWNER_UNPROVEN",
             hash
         });
     }
