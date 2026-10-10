@@ -150,10 +150,11 @@ export class PaymentSessionManager {
                 .map(Number)
                 .filter((delayMs) => Number.isFinite(delayMs) && delayMs > 0)
             : [];
+        this._roomWalletRefundRetryJitter = suppliedRefundRetryDelays.length === 0;
         this._roomWalletRefundRetryDelaysMs = Object.freeze(
             suppliedRefundRetryDelays.length > 0
                 ? suppliedRefundRetryDelays
-                : [2_000, 5_000, 15_000, 30_000, 60_000]
+                : [5_000, 15_000, 30_000, 60_000, 300_000, 900_000]
         );
         this._roomWalletRefundRetryTimers = new Map();
         this._roomWalletRefundRetryAttempts = new Map();
@@ -2235,6 +2236,19 @@ export class PaymentSessionManager {
 
         this._roomWalletRefundRetryAttempts.set(roomId, attempt);
 
+        // Default production retries are spread deterministically to avoid
+        // synchronized startup retries hammering the same TON RPC provider.
+        let jitterSeed = attempt;
+        for (const character of String(roomId)) {
+            jitterSeed = (Math.imul(jitterSeed, 31) + character.charCodeAt(0)) >>> 0;
+        }
+        const jitterWindowMs = this._roomWalletRefundRetryJitter
+            ? Math.floor(delayMs / 4)
+            : 0;
+        const retryAfterMs = delayMs + (jitterWindowMs > 0
+            ? jitterSeed % (jitterWindowMs + 1)
+            : 0);
+
         const timer = setTimeout(() => {
 
             this._roomWalletRefundRetryTimers.delete(roomId);
@@ -2264,7 +2278,7 @@ export class PaymentSessionManager {
 
             });
 
-        }, delayMs);
+        }, retryAfterMs);
 
         timer.unref?.();
 
@@ -2273,7 +2287,7 @@ export class PaymentSessionManager {
         this._logger?.warn?.(
             "ROOM_WALLET_REFUND_RETRY_SCHEDULED | roomId=" + roomId
                 + " | attempt=" + attempt
-                + " | retryAfterMs=" + delayMs
+                + " | retryAfterMs=" + retryAfterMs
         );
 
     }
