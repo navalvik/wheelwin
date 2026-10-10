@@ -2663,37 +2663,79 @@ export class PaymentSessionManager {
             };
         }
 
-        for (const refund of result?.results ?? []) {
-            if (refund?.ok !== true) {
-                continue;
-            }
+        const successfulRefunds = (result?.results ?? []).filter((refund) => refund?.ok === true);
+        const validatedRefunds = [];
+        const resultOwnersByHash = new Map();
+        const resultHashesByOwner = new Map();
 
+        for (const refund of successfulRefunds) {
             const participant = resolveRoomWalletRefundParticipant(session, refund);
             if (!participant) {
                 this._logger?.error?.(
-                    "ROOM_WALLET_REFUND_RESULT_BLOCKED_PARTICIPANT_IDENTITY_MISMATCH | roomId="
-                        + session.roomId
+                    "ROOM_WALLET_REFUND_ATTRIBUTION_CONFLICT | roomId=" + session.roomId
                 );
-                continue;
+                return Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "ROOM_WALLET_REFUND_ATTRIBUTION_CONFLICT"
+                });
             }
 
+            const ownerKey = roomWalletRefundOwnerKey(
+                session,
+                participant,
+                session.participants.indexOf(participant)
+            );
             const refundHash = normalizeRefundHash(refund.txHash);
             if (refundHash) {
-                const owners = claimIndex.ownersByHash.get(refundHash);
-                const ownerKey = roomWalletRefundOwnerKey(
-                    session,
-                    participant,
-                    session.participants.indexOf(participant)
-                );
-                if (owners && [...owners].some((owner) => owner !== ownerKey)) {
+                const priorOwners = claimIndex.ownersByHash.get(refundHash);
+                if (priorOwners && [...priorOwners].some((owner) => owner !== ownerKey)) {
                     this._logger?.error?.(
-                        "ROOM_WALLET_REFUND_RESULT_BLOCKED_HASH_ALREADY_CLAIMED | roomId="
+                        "ROOM_WALLET_REFUND_HASH_IDENTITY_CONFLICT | roomId="
                             + session.roomId + " | hash=" + refundHash
                     );
-                    continue;
+                    return Object.freeze({
+                        ok: false,
+                        retryable: false,
+                        code: "ROOM_WALLET_REFUND_HASH_IDENTITY_CONFLICT"
+                    });
+                }
+                const batchOwners = resultOwnersByHash.get(refundHash);
+                if (batchOwners && [...batchOwners].some((owner) => owner !== ownerKey)) {
+                    this._logger?.error?.(
+                        "ROOM_WALLET_REFUND_BATCH_HASH_COLLISION | roomId="
+                            + session.roomId + " | hash=" + refundHash
+                    );
+                    return Object.freeze({
+                        ok: false,
+                        retryable: false,
+                        code: "ROOM_WALLET_REFUND_HASH_IDENTITY_CONFLICT"
+                    });
+                }
+                if (!resultOwnersByHash.has(refundHash)) {
+                    resultOwnersByHash.set(refundHash, new Set());
+                }
+                resultOwnersByHash.get(refundHash).add(ownerKey);
+
+                if (!resultHashesByOwner.has(ownerKey)) resultHashesByOwner.set(ownerKey, new Set());
+                resultHashesByOwner.get(ownerKey).add(refundHash);
+                if (resultHashesByOwner.get(ownerKey).size > 1) {
+                    this._logger?.error?.(
+                        "ROOM_WALLET_REFUND_PARTICIPANT_HASH_COLLISION | roomId=" + session.roomId
+                    );
+                    return Object.freeze({
+                        ok: false,
+                        retryable: false,
+                        code: "ROOM_WALLET_REFUND_HASH_IDENTITY_CONFLICT"
+                    });
                 }
             }
+            validatedRefunds.push({ refund, participant, refundHash });
+        }
 
+        // Apply results only after the entire success batch has passed identity
+        // and hash-uniqueness checks; do not partially credit a corrupted batch.
+        for (const { refund, participant, refundHash } of validatedRefunds) {
             participant.refunded = true;
             participant.refundTxHash = refundHash;
 
