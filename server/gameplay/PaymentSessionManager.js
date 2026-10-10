@@ -2509,22 +2509,34 @@ export class PaymentSessionManager {
         // plan entry which lacks/mismatches its original per-refund identity.
         const existingRefundPlan = metadataAtEntry.refundPlan;
         if (existingRefundPlan && Array.isArray(existingRefundPlan.entries)) {
-            const hasUnidentifiedPlanEntry = pendingRefunds.some((refund) => (
-                existingRefundPlan.entries.some((entry) => (
+            const hasUnidentifiedPlanEntry = pendingRefunds.some((refund) => {
+                const matchingObligationEntries = existingRefundPlan.entries.filter((entry) => (
                     String(entry?.playerId ?? "") === String(refund.playerId ?? "")
-                    && String(entry?.wallet ?? "") === String(refund.wallet ?? "")
                     && String(entry?.grossRefundNano ?? "") === refundAmountNanoString(refund.amount)
-                    && String(entry?.queryId ?? "") !== String(refund.queryId)
-                ))
-            ));
+                    && (
+                        entry?.playerIndex == null
+                        || refund.playerIndex == null
+                        || Number(entry.playerIndex) === Number(refund.playerIndex)
+                    )
+                ));
+
+                // Once a plan is frozen, the same obligation cannot silently
+                // migrate to a different recipient wallet or queryId. Matching
+                // only by wallet would miss a changed wallet and could append a
+                // second entry for the same paid participant.
+                return matchingObligationEntries.some((entry) => (
+                    String(entry?.wallet ?? "") !== String(refund.wallet ?? "")
+                    || String(entry?.queryId ?? "") !== String(refund.queryId ?? "")
+                ));
+            });
             if (hasUnidentifiedPlanEntry) {
                 this._logger?.error?.(
-                    "ROOM_WALLET_REFUND_BLOCKED_LEGACY_PLAN | roomId=" + session.roomId
+                    "ROOM_WALLET_REFUND_BLOCKED_PLAN_IDENTITY_MISMATCH | roomId=" + session.roomId
                 );
                 return Object.freeze({
                     ok: false,
                     retryable: false,
-                    code: "ROOM_WALLET_LEGACY_REFUND_REQUIRES_RECONCILIATION"
+                    code: "ROOM_WALLET_REFUND_PLAN_IDENTITY_MISMATCH"
                 });
             }
         }
