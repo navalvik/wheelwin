@@ -835,4 +835,49 @@ console.log("R18.XSDd setup expiry Room Wallet refund tests");
     console.log("  J. non-retryable settlement rejection → no automatic retry passed");
 }
 
+// K — direct expiry must clear the actual pending Setup Session timer.
+{
+    const stack = buildStack();
+    const timer = stack.setupSessionLifecycle._expiryTimers.get(stack.roomId);
+
+    assert.ok(timer, "a real setup expiry timer is armed before expiry");
+
+    const originalClearTimeout = globalThis.clearTimeout;
+    let targetTimerCleared = false;
+
+    globalThis.clearTimeout = (handle) => {
+        if (handle === timer) {
+            targetTimerCleared = true;
+        }
+        return originalClearTimeout(handle);
+    };
+
+    try {
+        await triggerSetupExpiry(stack);
+    } finally {
+        globalThis.clearTimeout = originalClearTimeout;
+
+        // Keep this regression test from leaving a five-minute orphan behind
+        // if the assertion fails against an older implementation.
+        if (!targetTimerCleared) {
+            originalClearTimeout(timer);
+        }
+    }
+
+    assert.equal(
+        targetTimerCleared,
+        true,
+        "_onExpiry must clear the live timer, not only delete its map entry"
+    );
+    assert.equal(
+        stack.setupSessionLifecycle._expiryTimers.has(stack.roomId),
+        false,
+        "the expired room must no longer have a registered Setup timer"
+    );
+
+    stack.shutdown();
+
+    console.log("  K. direct expiry clears pending timer handle passed");
+}
+
 console.log("setupExpiryRoomWalletRefund.test.js passed");
