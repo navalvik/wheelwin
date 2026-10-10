@@ -183,6 +183,34 @@ test("a same-amount transfer with a different queryId is not adopted for a new r
     assert.equal(result.results[0].txHash, "new-refund-1");
 });
 
+test("a matching queryId is adopted even when second-level utime falls before the retry cutoff", async () => {
+    const { adapter, sent } = makeSettlementAdapter({
+        sourceTransactions: [matchingOutboundTx({
+            hash: "same-intent-earlier-second",
+            queryId: "222",
+            utime: 1_700_000_000
+        })]
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 2,
+        refundIntentId: "session-current",
+        cutoffUtime: Date.now(),
+        refunds: [{
+            playerId: "player-1",
+            playerIndex: 0,
+            wallet: PLAYER_WALLET,
+            amount: 1,
+            queryId: "222"
+        }]
+    });
+
+    assert.equal(sent.length, 0);
+    assert.equal(result.ok, true);
+    assert.equal(result.results[0].code, "REFUND_ADOPTED");
+    assert.equal(result.results[0].txHash, "same-intent-earlier-second");
+});
+
 test("a legacy transaction hash already claimed by another session is not adopted or rebroadcast", async () => {
     const { adapter, sent } = makeSettlementAdapter({
         sourceTransactions: [matchingOutboundTx({ hash: "legacy-already-claimed" })]
