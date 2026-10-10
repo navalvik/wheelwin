@@ -1150,10 +1150,9 @@ export class RoomWalletSettlementAdapter {
             )
         );
 
-        // A matching destination/amount transfer with the wrong tagged queryId
-        // is evidence for a different refund intent. Still inspect the player
-        // history before deciding there is no match: the source wallet's bounded
-        // history may not include the transaction being reconciled.
+        // Exact/legacy-relevant source evidence is authoritative. Ignore only
+        // transfers bearing a different deterministic queryId, then inspect the
+        // destination wallet before deciding no matching broadcast exists.
         const sourceRelevant = sourceCandidates.filter(isRelevant);
         if (sourceRelevant.length > 0) {
             const sourceResult = resolveRefundHistoryCandidate({
@@ -1976,6 +1975,13 @@ function resolveRefundHistoryCandidate({
             return Object.freeze({
                 conflict: true,
                 code: "LEGACY_REFUND_CANDIDATE_WITHOUT_QUERY_ID",
+                hash: null
+            });
+        }
+        if (allowLegacyMatch && taggedDifferent.length > 0) {
+            return Object.freeze({
+                conflict: true,
+                code: "REFUND_MATCH_AMBIGUOUS",
                 hash: null
             });
         }
