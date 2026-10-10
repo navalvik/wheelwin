@@ -1065,6 +1065,23 @@ export class RoomWalletSettlementAdapter {
                 continue;
             }
 
+            const confirmedHash = String(confirmed.hash ?? sent.txHash ?? "").trim();
+            if (!confirmedHash) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: true,
+                    code: "REFUND_CONFIRMATION_HASH_MISSING",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano: netNano,
+                    grossRefundNano: amountNano,
+                    recipientGasChargeNano: gasChargeNano,
+                    queryId
+                }));
+                continue;
+            }
+
             results.push(Object.freeze({
                 ok: true,
                 code: "REFUND_CONFIRMED",
@@ -1075,7 +1092,8 @@ export class RoomWalletSettlementAdapter {
                 amountNano: netNano,
                 grossRefundNano: amountNano,
                 recipientGasChargeNano: gasChargeNano,
-                txHash: confirmed.hash ?? sent.txHash ?? null
+                queryId,
+                txHash: confirmedHash
             }));
         }
 
@@ -1114,7 +1132,8 @@ export class RoomWalletSettlementAdapter {
             const transfers = extractOutboundTransfers(tx);
             for (const transfer of transfers) {
                 if (
-                    transfer.success
+                    transfer.hash
+                    && transfer.success
                     && transfer.bounced !== true
                     && (transfer.amountNano === amountNano
                         || (legacyAmountNano != null && transfer.amountNano === legacyAmountNano))
@@ -1151,6 +1170,7 @@ export class RoomWalletSettlementAdapter {
             const inbound = extractInbound(tx);
             if (
                 inbound
+                && inbound.hash
                 && inbound.success
                 && inbound.bounced !== true
                 && (inbound.amountNano === amountNano
