@@ -2455,7 +2455,11 @@ export class PaymentSessionManager {
                 claimedRefunds.push({
                     txHash,
                     intentId,
-                    playerId: String(claimedParticipant?.playerId ?? "").trim()
+                    playerId: String(claimedParticipant?.playerId ?? "").trim(),
+                    playerIndex: claimedParticipant?.playerIndex == null
+                        ? null
+                        : Number(claimedParticipant.playerIndex),
+                    wallet: String(claimedParticipant?.wallet ?? "").trim()
                 });
             }
         }
