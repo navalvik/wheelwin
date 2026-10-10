@@ -1202,3 +1202,44 @@ console.log("setupExpiryRoomWalletRefund.test.js passed");
     stack.shutdown();
     console.log("  S. frozen refund plan blocks recipient wallet change passed");
 }
+
+// T — an explicit adapter safety block must not enter the automatic retry loop.
+{
+    const stack = buildStack({
+        roomWalletRefundRetryDelaysMs: [60_000],
+        refundPaymentsHandler: async (request) => ({
+            ok: false,
+            retryable: false,
+            results: [{
+                ok: false,
+                retryable: false,
+                code: "REFUND_HISTORY_COVERAGE_INCOMPLETE",
+                playerId: request.refunds[0]?.playerId ?? null,
+                playerIndex: request.refunds[0]?.playerIndex ?? null,
+                wallet: request.refunds[0]?.wallet ?? null
+            }]
+        })
+    });
+    const session = paidSetupSession(stack.roomId, 1);
+    session.status = PAYMENT_SESSION_STATUS.REFUND_PENDING;
+    session.recoveryMetadata = {
+        refundIdentityVersion: "room-wallet-refund-query-id-v1",
+        refundRequestedAt: Date.now()
+    };
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "test_incomplete_chain_history"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.code, "REFUND_HISTORY_COVERAGE_INCOMPLETE");
+    assert.equal(stack._roomWalletRefundRetryTimers?.size ?? 0, 0);
+    assert.equal(stack.refundCalls.length, 1, "only the mocked reconciliation attempt was made");
+    assert.equal(session.findParticipant("p1").refunded, false);
+
+    stack.shutdown();
+    console.log("  T. incomplete chain-history coverage stops automatic refund retries passed");
+}
