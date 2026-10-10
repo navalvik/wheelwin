@@ -16,6 +16,10 @@ import {
     tonWalletAccountsEqual
 } from "../../models/TonWalletAddress.js";
 import {
+    normalizeRoomWalletRefundQueryId,
+    roomWalletRefundQueryIdsMatch
+} from "./roomWalletRefundIdentity.js";
+import {
     confirmPayoutOnChain,
     extractInbound,
     extractOutboundTransfers,
@@ -674,7 +678,17 @@ export class RoomWalletSettlementAdapter {
                 target?.amount,
                 "refundAmount"
             );
+            const queryId = normalizeRoomWalletRefundQueryId(target?.queryId);
             assertNonNegativeNano(amountNano, "refundAmountNano");
+
+            if (queryId === null) {
+                return Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "REFUND_QUERY_ID_REQUIRED",
+                    detail: `playerId=${target?.playerId ?? "unknown"}`
+                });
+            }
 
             if (amountNano <= 0n) {
                 return Object.freeze({
@@ -689,7 +703,7 @@ export class RoomWalletSettlementAdapter {
                 roomNumber: normalizedRoomNumber,
                 destination: wallet,
                 amountNano,
-                queryId: target?.queryId ?? null
+                queryId
             });
 
             if (!fee.ok) {
@@ -721,6 +735,7 @@ export class RoomWalletSettlementAdapter {
                 playerId: target?.playerId ?? null,
                 playerIndex: target?.playerIndex ?? null,
                 wallet,
+                queryId,
                 grossRefundNano: nanoToPersistedString(amountNano),
                 recipientGasChargeNano: nanoToPersistedString(entry.recipientGasChargeNano),
                 recipientTransferAmountNano: nanoToPersistedString(entry.recipientTransferAmountNano),
@@ -826,8 +841,22 @@ export class RoomWalletSettlementAdapter {
                 target?.amount,
                 "refundAmount"
             );
+            const queryId = normalizeRoomWalletRefundQueryId(target?.queryId);
 
             assertNonNegativeNano(amountNano, "refundAmountNano");
+
+            if (queryId === null) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "REFUND_QUERY_ID_REQUIRED",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano
+                }));
+                continue;
+            }
 
             if (amountNano <= 0n) {
                 results.push(Object.freeze({
@@ -875,12 +904,28 @@ export class RoomWalletSettlementAdapter {
                 continue;
             }
 
+            const planQueryId = normalizeRoomWalletRefundQueryId(entry.queryId);
+            if (planQueryId === null || planQueryId !== queryId) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "REFUND_PLAN_QUERY_ID_MISMATCH",
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano,
+                    queryId
+                }));
+                continue;
+            }
+
             const existing = await this._findExistingRefund({
                 roomNumber: normalizedRoomNumber,
                 wallet,
                 amountNano: netNano,
                 legacyAmountNano: amountNano === netNano ? null : amountNano,
-                cutoffUtime
+                cutoffUtime,
+                queryId
             });
 
             if (existing) {
@@ -927,7 +972,7 @@ export class RoomWalletSettlementAdapter {
                     // NET refund; the plan's fee estimate is the source-side
                     // funding requirement (not the legacy blanket reserve).
                     amountNano: netNano,
-                    queryId: target?.queryId ?? null,
+                    queryId,
                     sourceReserveNano: feeBudgetNano
                 });
             } catch (error) {
@@ -1047,8 +1092,14 @@ export class RoomWalletSettlementAdapter {
         wallet,
         amountNano,
         legacyAmountNano = null,
-        cutoffUtime
+        cutoffUtime,
+        queryId = null
     }) {
+        const expectedQueryId = normalizeRoomWalletRefundQueryId(queryId);
+        if (expectedQueryId === null) {
+            return null;
+        }
+
         if (typeof this._roomWalletAdapter.getTransactions !== "function") {
             return null;
         }
@@ -1068,6 +1119,7 @@ export class RoomWalletSettlementAdapter {
                     && (transfer.amountNano === amountNano
                         || (legacyAmountNano != null && transfer.amountNano === legacyAmountNano))
                     && tonWalletAccountsEqual(transfer.destination, wallet)
+                    && roomWalletRefundQueryIdsMatch(expectedQueryId, transfer.queryId)
                     && (cutoff == null || transfer.utime > cutoff)
                 ) {
                     return transfer;
@@ -1104,6 +1156,7 @@ export class RoomWalletSettlementAdapter {
                 && (inbound.amountNano === amountNano
                     || (legacyAmountNano != null && inbound.amountNano === legacyAmountNano))
                 && tonWalletAccountsEqual(inbound.source, roomWalletAddress)
+                && roomWalletRefundQueryIdsMatch(expectedQueryId, inbound.queryId)
                 && (cutoff == null || inbound.utime > cutoff)
             ) {
                 return Object.freeze({
@@ -1793,6 +1846,9 @@ function validateRefundPlanShape(raw) {
             }
 
             const feeEvidence = parsePlanFeeEvidence(entry.feeEvidence, "refundPlan.entry");
+            if (entry.queryId != null && normalizeRoomWalletRefundQueryId(entry.queryId) === null) {
+                return { ok: false, detail: "refundPlan entry queryId is invalid" };
+            }
             const gasCharge = toPlanNano(entry.recipientGasChargeNano, "entry.recipientGasChargeNano");
             const net = toPlanNano(entry.recipientTransferAmountNano, "entry.recipientTransferAmountNano");
             const gross = toPlanNano(entry.grossRefundNano, "entry.grossRefundNano");
@@ -1827,6 +1883,12 @@ function findRefundPlanEntry(plan, { target, wallet, amountNano }) {
         }
 
         if (String(target?.playerId ?? "") !== String(entry.playerId ?? "")) {
+            return false;
+        }
+
+        const targetQueryId = normalizeRoomWalletRefundQueryId(target?.queryId);
+        const entryQueryId = normalizeRoomWalletRefundQueryId(entry.queryId);
+        if (targetQueryId === null || entryQueryId === null || targetQueryId !== entryQueryId) {
             return false;
         }
 
