@@ -2333,27 +2333,29 @@ export class PaymentSessionManager {
             records = this._financialPersistence.listActive(
                 TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION
             );
-            } catch (error) {
-                this._logger?.error?.(
-                    "Room-Wallet refund hash index unavailable | "
-                        + (error?.message ?? error)
-                );
-                return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
+        } catch (error) {
+            this._logger?.error?.(
+                "Room-Wallet refund hash index unavailable | "
+                    + (error?.message ?? error)
+            );
+            return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
+        }
+
+        if (!Array.isArray(records)) {
+            return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
+        }
+
+        try {
+            for (const record of records) {
+                addSession(PaymentSession.fromRecord(record));
             }
-            if (!Array.isArray(records)) {
-                return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
-            }
-            try {
-                for (const record of records) {
-                    addSession(PaymentSession.fromRecord(record));
-                }
-            } catch (error) {
-                this._logger?.error?.(
-                    "Room-Wallet refund hash index could not parse persisted session | "
-                        + (error?.message ?? error)
-                );
-                return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
-            }
+        } catch (error) {
+            this._logger?.error?.(
+                "Room-Wallet refund hash index could not parse persisted session | "
+                    + (error?.message ?? error)
+            );
+            return { ok: false, code: "ROOM_WALLET_REFUND_HASH_INDEX_UNAVAILABLE" };
+        }
 
         for (const session of this._sessionsByRoom.values()) {
             addSession(session);
