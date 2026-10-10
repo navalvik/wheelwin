@@ -2438,6 +2438,25 @@ export class PaymentSessionManager {
             });
         }
 
+        const refundIntentId = String(session.paymentSessionId ?? session.roomId ?? "").trim();
+        const claimedRefunds = [];
+        for (const claimedSession of this._sessionsByRoom.values()) {
+            const intentId = String(
+                claimedSession?.paymentSessionId ?? claimedSession?.roomId ?? ""
+            ).trim();
+            for (const claimedParticipant of claimedSession?.participants ?? []) {
+                const txHash = String(claimedParticipant?.refundTxHash ?? "").trim();
+                if (!txHash) {
+                    continue;
+                }
+                claimedRefunds.push({
+                    txHash,
+                    intentId,
+                    playerId: String(claimedParticipant?.playerId ?? "").trim()
+                });
+            }
+        }
+
         let result;
         try {
             result = await this._roomWalletSettlementAdapter.refundPayments({
@@ -2447,7 +2466,9 @@ export class PaymentSessionManager {
                 refunds: pendingRefunds,
                 ...(refundPlan === undefined ? {} : { refundPlan }),
                 cutoffUtime: refundRequestedAt,
-                confirmationTimeoutMs: 60_000
+                confirmationTimeoutMs: 60_000,
+                refundIntentId,
+                claimedRefunds
             });
         } catch (error) {
             this._logger?.error?.(
@@ -2487,8 +2508,52 @@ export class PaymentSessionManager {
                 continue;
             }
 
+            const refundTxHash = String(refund.txHash ?? "").trim();
+            if (!refundTxHash) {
+                this._logger?.error?.(
+                    "ROOM_WALLET_REFUND_CONFIRMED_WITHOUT_HASH | roomId=" + session.roomId
+                        + " | playerId=" + String(refund.playerId ?? "unknown")
+                );
+                continue;
+            }
+
+            const currentIntentId = String(
+                session.paymentSessionId ?? session.roomId ?? ""
+            ).trim();
+            let conflictingClaim = false;
+            for (const claimedSession of this._sessionsByRoom.values()) {
+                const claimedIntentId = String(
+                    claimedSession?.paymentSessionId ?? claimedSession?.roomId ?? ""
+                ).trim();
+                for (const claimedParticipant of claimedSession?.participants ?? []) {
+                    if (String(claimedParticipant?.refundTxHash ?? "").trim() !== refundTxHash) {
+                        continue;
+                    }
+                    if (
+                        claimedSession !== session
+                        || claimedParticipant !== participant
+                        || claimedIntentId !== currentIntentId
+                    ) {
+                        conflictingClaim = true;
+                        break;
+                    }
+                }
+                if (conflictingClaim) {
+                    break;
+                }
+            }
+
+            if (conflictingClaim) {
+                this._logger?.error?.(
+                    "ROOM_WALLET_REFUND_TX_HASH_CONFLICT | roomId=" + session.roomId
+                        + " | playerId=" + String(refund.playerId ?? "unknown")
+                        + " | txHash=" + refundTxHash
+                );
+                continue;
+            }
+
             participant.refunded = true;
-            participant.refundTxHash = refund.txHash ?? null;
+            participant.refundTxHash = refundTxHash;
 
             // Stage 2 — preserve refund reconciliation provenance for
             // observability/forensic recovery. Non-authoritative metadata
