@@ -729,7 +729,8 @@ test("refund that reached the player wallet is reconciled from player wallet his
                 success: true,
                 in_msg: {
                     source: RW, // authoritative Room Wallet
-                    value: "1000000000"
+                    value: "1000000000",
+                    msg_data: { body: TEST_REFUND_QUERY_BODY }
                 }
             }];
         },
@@ -802,7 +803,8 @@ test("inbound from another source is not accepted as an already completed refund
             success: true,
             in_msg: {
                 source: STRANGER_WALLET, // NOT the authoritative Room Wallet
-                value: "1000000000"
+                value: "1000000000",
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
             }
         }],
         sendTransfer(input) {
@@ -855,7 +857,8 @@ test("player wallet inbound with a different amount is not accepted as an alread
             success: true,
             in_msg: {
                 source: RW, // correct source…
-                value: "999000000" // …but a different amount
+                value: "999000000" // …but a different amount,
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
             }
         }],
         sendTransfer(input) {
@@ -907,7 +910,8 @@ test("player wallet inbound before the refund cutoff is not accepted — a fresh
             success: true,
             in_msg: {
                 source: RW,
-                value: "1000000000"
+                value: "1000000000",
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
             }
         }],
         sendTransfer(input) {
@@ -960,7 +964,8 @@ test("bounced player wallet inbound is not accepted as an already completed refu
             in_msg: {
                 source: RW,
                 value: "1000000000",
-                bounced: true
+                bounced: true,
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
             }
         }],
         sendTransfer(input) {
@@ -1020,7 +1025,8 @@ test("a matching Room Wallet outbound refund still wins over a player wallet inb
             success: true,
             in_msg: {
                 source: RW,
-                value: "1000000000"
+                value: "1000000000",
+                msg_data: { body: TEST_REFUND_QUERY_BODY }
             }
         }],
         logger: {
