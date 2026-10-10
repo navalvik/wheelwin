@@ -21,6 +21,23 @@ function obligationKey(session, participant, position) {
     ]);
 }
 
+function isRoomWalletRefundSession(session) {
+    if (!session || typeof session !== "object") {
+        return false;
+    }
+
+    if (
+        session.roomNumber != null
+        || String(session.roomWalletAddress ?? "").trim()
+    ) {
+        return true;
+    }
+
+    return (session.participants ?? []).some((participant) => (
+        String(participant?.paymentDestination ?? "").trim()
+    ));
+}
+
 function claimSnapshot(session, participant, txHash) {
     return Object.freeze({
         paymentSessionId: session?.paymentSessionId ?? null,
@@ -48,6 +65,13 @@ export function quarantineDuplicateRefundTxHashClaims(sessions, { now = () => Da
     const claimsByHash = new Map();
 
     for (const session of Array.isArray(sessions) ? sessions : []) {
+        // Preserve legacy GameEscrow semantics: this uniqueness guard is scoped
+        // to Room Wallet sessions only, identified by server-selected room
+        // wallet address/number/paymentDestination evidence.
+        if (!isRoomWalletRefundSession(session)) {
+            continue;
+        }
+
         for (const [position, participant] of (session?.participants ?? []).entries()) {
             const txHash = nonEmptyHash(participant?.refundTxHash);
             if (!txHash) {
