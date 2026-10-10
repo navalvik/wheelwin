@@ -1153,3 +1153,52 @@ console.log("setupExpiryRoomWalletRefund.test.js passed");
     stack.shutdown();
     console.log("  Q. mismatched playerId/playerIndex/wallet cannot credit or auto-retry a participant passed");
 }
+
+// S — a frozen refund obligation cannot be redirected to a changed player wallet.
+{
+    let planCalls = 0;
+    const stack = buildStack({
+        planRefundsHandler: async () => {
+            planCalls += 1;
+            return { ok: true, refundPlan: { mode: "RECIPIENT_PAYS_GAS", entries: [] } };
+        }
+    });
+    const session = paidSetupSession(stack.roomId, 2);
+    session.status = PAYMENT_SESSION_STATUS.REFUND_PENDING;
+    session.recoveryMetadata = {
+        refundIdentityVersion: "room-wallet-refund-query-id-v1",
+        refundRequestedAt: Date.now(),
+        refundPlan: {
+            mode: "RECIPIENT_PAYS_GAS",
+            entries: [{
+                playerId: "p1",
+                playerIndex: 0,
+                wallet: "wallet-1",
+                grossRefundNano: "10000000000",
+                recipientGasChargeNano: "1000000",
+                recipientTransferAmountNano: "9999000000",
+                queryId: "123456789"
+            }]
+        }
+    };
+    // Simulate a stale/corrupted recipient identity after the original plan
+    // was frozen; the source Room Wallet identity remains unchanged.
+    session.findParticipant("p1").wallet = "wallet-changed";
+    stack.paymentSessionManager._sessionsByRoom.set(stack.roomId, session);
+
+    const result = await stack.paymentSessionManager._requestRoomWalletPartialPaymentRefund(
+        session,
+        "test_frozen_plan_recipient_change"
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.code, "ROOM_WALLET_REFUND_PLAN_IDENTITY_MISMATCH");
+    assert.equal(planCalls, 0, "do not append a new plan entry for a changed recipient");
+    assert.equal(stack.refundCalls.length, 0, "do not broadcast to the changed recipient");
+    assert.equal(session.findParticipant("p1").refunded, false);
+    assert.equal(session.findParticipant("p1").wallet, "wallet-changed");
+
+    stack.shutdown();
+    console.log("  S. frozen refund plan blocks recipient wallet change passed");
+}
