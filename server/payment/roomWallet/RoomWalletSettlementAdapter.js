@@ -672,6 +672,7 @@ export class RoomWalletSettlementAdapter {
         const normalizedRoomNumber = resolveRoomNumber({ roomNumber });
         const targets = Array.isArray(refunds) ? refunds : [];
         const entries = [];
+        const usedQueryIds = new Set();
 
         for (const target of targets) {
             const wallet = requireWallet(target?.wallet, "refund wallet");
@@ -701,6 +702,17 @@ export class RoomWalletSettlementAdapter {
                     code: "INVALID_REFUND_QUERY_ID",
                     detail: error?.message ?? String(error)
                 });
+            }
+
+            if (queryId != null && usedQueryIds.has(queryId)) {
+                return Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: "DUPLICATE_REFUND_QUERY_ID"
+                });
+            }
+            if (queryId != null) {
+                usedQueryIds.add(queryId);
             }
 
             const fee = await this._estimateTransferFee({
@@ -1840,6 +1852,7 @@ function validateRefundPlanShape(raw) {
 
         const marginBps = BigInt(String(raw.marginBps));
         const marginFloorNano = toPlanNano(raw.marginFloorNano, "refundPlan.marginFloorNano");
+        const usedQueryIds = new Set();
         if (marginBps < 0n) {
             return { ok: false, detail: "refundPlan.marginBps is negative" };
         }
@@ -1849,7 +1862,13 @@ function validateRefundPlanShape(raw) {
                 return { ok: false, detail: "refundPlan entry is missing" };
             }
 
-            normalizeRefundQueryId(entry.queryId);
+            const queryId = normalizeRefundQueryId(entry.queryId);
+            if (queryId != null && usedQueryIds.has(queryId)) {
+                return { ok: false, detail: "refundPlan contains duplicate query IDs" };
+            }
+            if (queryId != null) {
+                usedQueryIds.add(queryId);
+            }
             const feeEvidence = parsePlanFeeEvidence(entry.feeEvidence, "refundPlan.entry");
             const gasCharge = toPlanNano(entry.recipientGasChargeNano, "entry.recipientGasChargeNano");
             const net = toPlanNano(entry.recipientTransferAmountNano, "entry.recipientTransferAmountNano");
