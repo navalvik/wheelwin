@@ -2647,6 +2647,32 @@ export class PaymentSessionManager {
             });
         }
 
+        // A persisted room number alone is not enough to identify the source
+        // wallet: the catalog may have changed since a legacy session received
+        // its funds. Never refund from today's wallet if the session's recorded
+        // deposit destination belongs to a different account.
+        let registeredRoomWallet = null;
+        try {
+            registeredRoomWallet = this._roomWalletRegistry?.get?.(roomNumber) ?? null;
+        } catch {
+            registeredRoomWallet = null;
+        }
+        if (
+            !roomWalletAddress
+            || !registeredRoomWallet?.address
+            || !tonWalletAccountsEqual(registeredRoomWallet.address, roomWalletAddress)
+        ) {
+            this._logger?.error?.(
+                "ROOM_WALLET_REFUND_BLOCKED_SOURCE_IDENTITY_MISMATCH | roomId="
+                    + session.roomId + " | roomNumber=" + String(roomNumber)
+            );
+            return Object.freeze({
+                ok: false,
+                retryable: false,
+                code: "ROOM_WALLET_SOURCE_IDENTITY_MISMATCH"
+            });
+        }
+
         // PAYOUT GAS POLICY: freeze the recipient-pays-gas refund plan into
         // the persisted session recoveryMetadata BEFORE the first refund
         // broadcast, so refund recovery reuses the exact persisted net refund
