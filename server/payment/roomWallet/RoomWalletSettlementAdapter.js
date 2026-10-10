@@ -29,6 +29,8 @@ export const ROOM_WALLET_SETTLEMENT_SAFETY_CODES = Object.freeze({
     PAYOUT_PLAN_MISMATCH: PAYOUT_GAS_PLAN_CODES.PAYOUT_PLAN_MISMATCH
 });
 
+const REFUND_HISTORY_PAGE_LIMIT = 40;
+
 export const ROOM_WALLET_SETTLEMENT_RETRYABLE_CODES = Object.freeze({
     CHAIN_INSPECT_UNKNOWN: "CHAIN_INSPECT_UNKNOWN",
     UNCERTAIN_BROADCAST: "UNCERTAIN_BROADCAST",
@@ -933,6 +935,20 @@ export class RoomWalletSettlementAdapter {
                 cutoffUtime
             });
 
+            if (existing?.conflict === true) {
+                results.push(Object.freeze({
+                    ok: false,
+                    retryable: false,
+                    code: existing.code,
+                    playerId: target?.playerId ?? null,
+                    playerIndex: target?.playerIndex ?? null,
+                    wallet,
+                    amountNano: netNano,
+                    txHash: existing.hash ?? null
+                }));
+                continue;
+            }
+
             if (existing) {
                 const reconciledFromPlayerWallet =
                     existing.reconciliation === PLAYER_WALLET_INBOUND_RECONCILIATION;
@@ -1109,10 +1125,26 @@ export class RoomWalletSettlementAdapter {
         }
 
         const cutoff = resolveCutoffUtime({ cutoffUtime });
+        const historyCoverageIncomplete = (transactions) => {
+            if (queryId == null || (transactions?.length ?? 0) < REFUND_HISTORY_PAGE_LIMIT) {
+                return false;
+            }
+            if (cutoff == null) {
+                return true;
+            }
+            const times = transactions.map((tx) => Number(tx?.utime ?? tx?.now ?? 0));
+            // With a full latest-page and its oldest transaction still newer than
+            // the persisted request cutoff, unseen older transactions may include
+            // this same queryId. Unknown timestamps are also not proof of absence.
+            return times.some((utime) => !Number.isFinite(utime) || utime <= 0)
+                || Math.min(...times) >= cutoff;
+        };
+
         const transactions = await this._roomWalletAdapter.getTransactions(
             roomNumber,
-            { limit: 40, archival: true }
+            { limit: REFUND_HISTORY_PAGE_LIMIT, archival: true }
         );
+        const sourceHistoryCoverageIncomplete = historyCoverageIncomplete(transactions);
 
         for (const tx of transactions ?? []) {
             const transfers = extractOutboundTransfers(tx);
@@ -1139,7 +1171,13 @@ export class RoomWalletSettlementAdapter {
         // fact reached the player. Fall back to the destination player's own
         // inbound history — read-only reconciliation; never a second broadcast.
         if (typeof this._roomWalletAdapter.getAddressTransactions !== "function") {
-            return null;
+            return sourceHistoryCoverageIncomplete
+                ? Object.freeze({
+                    conflict: true,
+                    code: "REFUND_HISTORY_COVERAGE_INCOMPLETE",
+                    hash: null
+                })
+                : null;
         }
 
         const roomWalletAddress = typeof this._roomWalletAdapter.getWalletAddress === "function"
@@ -1147,13 +1185,20 @@ export class RoomWalletSettlementAdapter {
             : null;
 
         if (!roomWalletAddress) {
-            return null;
+            return sourceHistoryCoverageIncomplete
+                ? Object.freeze({
+                    conflict: true,
+                    code: "REFUND_HISTORY_COVERAGE_INCOMPLETE",
+                    hash: null
+                })
+                : null;
         }
 
         const playerTransactions = await this._roomWalletAdapter.getAddressTransactions(
             wallet,
-            { limit: 40, archival: true }
+            { limit: REFUND_HISTORY_PAGE_LIMIT, archival: true }
         );
+        const destinationHistoryCoverageIncomplete = historyCoverageIncomplete(playerTransactions);
 
         for (const tx of playerTransactions ?? []) {
             const inbound = extractInbound(tx);
@@ -1176,6 +1221,14 @@ export class RoomWalletSettlementAdapter {
                     reconciliation: PLAYER_WALLET_INBOUND_RECONCILIATION
                 });
             }
+        }
+
+        if (sourceHistoryCoverageIncomplete || destinationHistoryCoverageIncomplete) {
+            return Object.freeze({
+                conflict: true,
+                code: "REFUND_HISTORY_COVERAGE_INCOMPLETE",
+                hash: null
+            });
         }
 
         return null;
