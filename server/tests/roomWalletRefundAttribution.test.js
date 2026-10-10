@@ -241,6 +241,32 @@ test("a legacy transaction hash already claimed by another session is not adopte
     assert.equal(result.results[0].code, "REFUND_TRANSACTION_ALREADY_CLAIMED");
 });
 
+test("a unique untagged historical transfer is not assigned to a session without queryId", async () => {
+    const { adapter, sent } = makeSettlementAdapter({
+        sourceTransactions: [matchingOutboundTx({ hash: "legacy-owner-unknown" })]
+    });
+
+    const result = await adapter.refundPayments({
+        roomNumber: 2,
+        refundIntentId: "session-current",
+        refundPlan: legacyPlan(),
+        cutoffUtime: Date.now() - 10_000,
+        refunds: [{
+            playerId: "player-1",
+            playerIndex: 0,
+            wallet: PLAYER_WALLET,
+            amount: 1,
+            queryId: "222"
+        }]
+    });
+
+    assert.equal(sent.length, 0);
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.results[0].code, "LEGACY_REFUND_TRANSACTION_OWNER_UNPROVEN");
+    assert.equal(result.results[0].txHash, "legacy-owner-unknown");
+});
+
 test("a legacy frozen refund plan with no matching chain evidence fails closed without a send", async () => {
     const { adapter, sent } = makeSettlementAdapter();
 
