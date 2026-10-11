@@ -31,7 +31,7 @@ import { AuditEngine } from "../engines/AuditEngine.js";
 import { AuditActivation } from "../gameplay/AuditActivation.js";
 import {
     completeRoomProfilesForConfiguration,
-    emitEntryPaymentCompleted,
+    emitGameStartAuthorized,
     exhaustAllPlayerInput,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
@@ -330,7 +330,7 @@ async function run() {
 
     completeRoomProfilesForConfiguration(playerManager, eventBus, room);
 
-    emitEntryPaymentCompleted(eventBus, roomId);
+    emitGameStartAuthorized(eventBus, roomId);
 
     const gameId = captured.gameId;
 

@@ -6,7 +6,6 @@ import InfoPanel from "../components/InfoPanel";
 
 import DocumentManager from "../components/document/DocumentManager";
 
-import TestnetWarningOverlay from "../components/TestnetWarningOverlay";
 
 import { useLanguage } from "../context/LanguageContext";
 

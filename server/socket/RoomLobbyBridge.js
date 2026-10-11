@@ -1,13 +1,7 @@
-import { formatDepositRestoreLog } from "../diagnostics/depositRestoreDiagnostics.js";
-import { registerRoomDestroyContext } from "../diagnostics/RoomDestroyForensics.js";
-import {
-    logPaymentStageReady,
-    logPaymentTransitionGate
-} from "../diagnostics/PaymentTransitionForensics.js";
-import { registerSetupStoragePaymentReady } from "../diagnostics/SetupSessionStorageForensics.js";
-import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { registerRoomDestroyContext } from "../recovery/RoomDestroyContextRegistry.js";
+import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
 import { ICONS } from "../catalog/Icons.js";
 import {
     isAllowedBaseStake,
@@ -21,14 +15,6 @@ import {
     SECRET_MATRIX_STATUS,
     SECRET_MATRIX_STATUS_REASONS
 } from "../models/SecretMatrixStatus.js";
-import { normalizeTelegramWallet } from "../models/TelegramWalletRules.js";
-import {
-    ENTRY_SMART_CONTRACT_STATUS,
-    EntryPaymentSession
-} from "../models/EntryPaymentSession.js";
-import { EntryPaymentLifecycle } from "../gameplay/EntryPaymentLifecycle.js";
-import { sessionNeedsEscrowUnwind } from "../gameplay/partialPaymentEscrowUnwind.js";
-import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import {
     isValidRoomId,
     normalizeRoomId
@@ -43,26 +29,14 @@ import { CONNECTION_STATE } from "../models/ConnectionState.js";
 import { PLAYER_STATE } from "../models/PlayerState.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import {
-    WALLET_CONNECTION_STATUS,
-    WalletConnectionSession
-} from "../models/WalletConnectionSession.js";
-import {
-    canonicalizeTonWalletAddress,
-    sessionWalletsMatch
-} from "../models/TonWalletAddress.js";
-import {
     LOBBY_ERROR_CODES,
     LOBBY_ERROR_MESSAGES,
     LOBBY_SERVER_EVENTS
 } from "./lobbyProtocol.js";
 
-import { SessionWalletStore } from "../session/SessionWalletStore.js";
 import {
     RecoveryCredentialStore
 } from "../gameplay/RecoveryCredentialStore.js";
-import {
-    projectDepositForPlayer
-} from "../deposit/projectDepositForPlayer.js";
 
 export class RoomLobbyBridge {
 
@@ -74,18 +48,12 @@ export class RoomLobbyBridge {
         gameplayContextResolver = null,
         setupSessionLifecycle = null,
         resultSessionLifecycle = null,
-        paymentSessionManager = null,
         gameStartAuthorization = null,
-        contractSettlementManager = null,
-        sessionWalletStore = null,
-        telegramWalletAdapter = null,
-        entryPaymentDelays = null,
         isDevelopment = false,
         lifecycleManager = null,
         roomConfig = null,
         telegramIdentityResolver = null,
-        metricsService = null,
-        depositSessionCoordinator = null
+        metricsService = null
     }) {
 
         this._logger = logger;
@@ -102,11 +70,7 @@ export class RoomLobbyBridge {
 
         this._resultSessionLifecycle = resultSessionLifecycle;
 
-        this._paymentSessionManager = paymentSessionManager;
-
         this._gameStartAuthorization = gameStartAuthorization;
-
-        this._contractSettlementManager = contractSettlementManager;
 
         // R7.0B — drain awareness for lobby create-room.
         this._lifecycleManager = lifecycleManager;
@@ -116,48 +80,8 @@ export class RoomLobbyBridge {
         // Never gates behavior; increment() no-ops when disabled/absent.
         this._metricsService = metricsService;
 
-        // R18 S3 — authoritative DepositSession source for requester-scoped
-        // client-facing projections. Optional; bridge fails closed when absent.
-        this._depositSessionCoordinator = depositSessionCoordinator;
-
-        // R7.24 — post-ARCHIVED stage timers (wallet connection barrier).
-        this._walletConnectionDurationMs = Number.isFinite(
-            roomConfig?.walletConnectionDurationMs
-        ) && roomConfig.walletConnectionDurationMs > 0
-            ? roomConfig.walletConnectionDurationMs
-            : 5 * 60 * 1000;
-
-        // roomId → timeout handle
-        this._walletConnectionTimersByRoom = new Map();
-
         // R1.3D — DEBUG_START_GAME is development-only.
         this._isDevelopment = isDevelopment === true;
-
-        this._telegramWalletAdapter = telegramWalletAdapter
-            ?? new TelegramWalletAdapter({ logger });
-
-        this._entryPaymentLifecycle = new EntryPaymentLifecycle({
-            logger,
-            telegramWalletAdapter: this._telegramWalletAdapter,
-            applySessionUpdate: (roomId, updater) => (
-                this._applyEntryPaymentUpdate(roomId, updater)
-            ),
-            playerPaymentDelayMs: entryPaymentDelays?.playerPaymentDelayMs
-                ?? 750,
-            smartContractDelayMs: entryPaymentDelays?.smartContractDelayMs
-                ?? 500
-        });
-
-        // C5.8E — authoritative 3s display after smartContractStatus=created.
-        this._entryPaymentCompletionDelayMs = entryPaymentDelays
-            ?.completionDelayMs
-            ?? 3000;
-
-        // roomId → { timeoutId, startedAt, durationMs }
-        this._entryPaymentCompletionTimerByRoom = new Map();
-
-        // Rooms that have already emitted ENTRY_PAYMENT_COMPLETED.
-        this._entryPaymentCompletedByRoom = new Set();
 
         this._socketToPlayer = new Map();
 
@@ -235,9 +159,6 @@ export class RoomLobbyBridge {
         // R6.5 — rooms currently running the single SESSION_FINISHED cleanup path.
         this._finishingResultSessions = new Set();
 
-        // P6.1 — session wallets keyed by room (not PlayerIdentity).
-        this._sessionWalletStore = sessionWalletStore ?? new SessionWalletStore();
-
         // Verify barrier: profiles stay private until every player confirms.
         this._verifyConfirmedByRoom = new Map();
 
@@ -250,26 +171,9 @@ export class RoomLobbyBridge {
         this._verifyIconsAssignedByRoom = new Set();
 
         // C5.8A — continuation barrier: all verified players press NEXT before
-        // PAYMENT_STAGE_READY. Keyed by roomId → Set(playerId).
-        this._continueToPaymentByRoom = new Map();
+        // the game start gate evaluates. Keyed by roomId → Set(playerId).
+        this._continueToVerifyByRoom = new Map();
 
-        this._paymentStageReadyByRoom = new Set();
-
-        // C5.8C — Entry Payment Session (Page4). One per room.
-        // Separate from winner-settlement PaymentEngine.
-        this._entryPaymentByRoom = new Map();
-
-        // P6.2 — Telegram Wallet connection session (Page4). One per room.
-        this._walletConnectionByRoom = new Map();
-
-        // R6.8 — Read-only TonConnect diagnostic timeline (roomId → events[]).
-        this._tonConnectEventsByRoom = new Map();
-
-        // R6.8 — Per-player diagnostic timestamps (roomId → Map(playerId → meta)).
-        this._tonConnectPlayerMetaByRoom = new Map();
-
-        // R6.11E — Forensic TonConnect autopsy snapshots (roomId → store).
-        this._tonConnectAutopsyByRoom = new Map();
 
         // Secret Matrix submissions keyed by roomId → Map(playerId → cells).
         this._secretMatrixByRoom = new Map();
@@ -284,15 +188,9 @@ export class RoomLobbyBridge {
 
         this._initialized = false;
 
-        this._forensicArchiveService = null;
 
     }
 
-    configureForensicArchiveService(forensicArchiveService) {
-
-        this._forensicArchiveService = forensicArchiveService ?? null;
-
-    }
 
     /**
      * R17.9T.6-C — wire the server-side Telegram identity lookup.
@@ -662,54 +560,7 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleVerifyNextRequest(
-                    envelope.payload.socketId,
-                    envelope.payload.walletAddress
-                );
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.LOBBY_WALLET_CONNECT_STARTED_REQUEST,
-            (envelope) => {
-
-                this._handleWalletConnectStarted(envelope.payload.socketId);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.LOBBY_WALLET_CONNECT_REPORT_REQUEST,
-            (envelope) => {
-
-                this._handleWalletConnectReport(
-                    envelope.payload.socketId,
-                    envelope.payload.connectedWallet
-                );
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.LOBBY_WALLET_DISCONNECT_REPORT_REQUEST,
-            (envelope) => {
-
-                this._handleWalletDisconnectReport(envelope.payload.socketId);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.LOBBY_TONCONNECT_AUTOPSY_SNAPSHOT_REQUEST,
-            (envelope) => {
-
-                this._handleTonConnectAutopsySnapshot(
-                    envelope.payload.socketId,
-                    envelope.payload.payload,
-                    {
-                        roomId: envelope.payload.roomId ?? null,
-                        playerId: envelope.payload.playerId ?? null
-                    }
+                    envelope.payload.socketId
                 );
 
             }
@@ -808,69 +659,6 @@ export class RoomLobbyBridge {
         );
 
         this._subscribe(
-            EVENT_TYPES.PAYMENT_SESSION_CREATED,
-            (envelope) => {
-
-                this._deliverPaymentSessionCreated(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.PAYMENT_SESSION_UPDATED,
-            (envelope) => {
-
-                this._deliverPaymentSessionUpdated(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.PAYMENT_REQUEST,
-            (envelope) => {
-
-                this._deliverPaymentRequest(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
-            (envelope) => {
-
-                this._deliverPaymentSessionCompleted(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.PAYMENT_SESSION_FAILED,
-            (envelope) => {
-
-                this._handlePaymentSessionFailed(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.LOBBY_PAYMENT_CONFIRM_INTENT_REQUEST,
-            (envelope) => {
-
-                this._handlePaymentConfirmIntent(envelope.payload.socketId);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.LOBBY_PAYMENT_CANCEL_INTENT_REQUEST,
-            (envelope) => {
-
-                this._handlePaymentCancelIntent(envelope.payload.socketId);
-
-            }
-        );
-
-        this._subscribe(
             EVENT_TYPES.GAME_START_AUTHORIZED,
             (envelope) => {
 
@@ -902,102 +690,6 @@ export class RoomLobbyBridge {
             (envelope) => {
 
                 this._handleGameStartFailed(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.DEPOSIT_PACKAGE_PUBLISHED,
-            (envelope) => {
-
-                this._deliverDepositPackagePublished(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.DEPOSIT_ACTIVATION_VERIFIED,
-            (envelope) => {
-
-                this._deliverDepositActivationVerified(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.DEPOSIT_SEAT_FUNDED,
-            (envelope) => {
-
-                this._deliverDepositPackagePublished(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.DEPOSIT_FULL_ONCHAIN,
-            (envelope) => {
-
-                this._deliverDepositPackagePublished(envelope.payload);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.SETTLEMENT_STARTED,
-            (envelope) => {
-
-                this._deliverSettlementEvent(
-                    LOBBY_SERVER_EVENTS.SETTLEMENT_STARTED,
-                    envelope.payload
-                );
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.SETTLEMENT_SUBMITTED,
-            (envelope) => {
-
-                this._deliverSettlementEvent(
-                    LOBBY_SERVER_EVENTS.SETTLEMENT_SUBMITTED,
-                    envelope.payload
-                );
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.SETTLEMENT_CONFIRMED,
-            (envelope) => {
-
-                this._deliverSettlementEvent(
-                    LOBBY_SERVER_EVENTS.SETTLEMENT_CONFIRMED,
-                    envelope.payload
-                );
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.SETTLEMENT_COMPLETED,
-            (envelope) => {
-
-                this._deliverSettlementEvent(
-                    LOBBY_SERVER_EVENTS.SETTLEMENT_COMPLETED,
-                    envelope.payload
-                );
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.SETTLEMENT_FAILED,
-            (envelope) => {
-
-                this._deliverSettlementEvent(
-                    LOBBY_SERVER_EVENTS.SETTLEMENT_FAILED,
-                    envelope.payload
-                );
 
             }
         );
@@ -1052,8 +744,6 @@ export class RoomLobbyBridge {
 
         this._finishingResultSessions.clear();
 
-        this._sessionWalletStore.clearAll();
-
         this._verifyConfirmedByRoom.clear();
 
         this._profilesRevealedByRoom.clear();
@@ -1062,39 +752,7 @@ export class RoomLobbyBridge {
 
         this._verifyIconsAssignedByRoom.clear();
 
-        this._continueToPaymentByRoom.clear();
-
-        this._paymentStageReadyByRoom.clear();
-
-        this._entryPaymentLifecycle.shutdown();
-
-        for (const roomId of [
-            ...this._entryPaymentCompletionTimerByRoom.keys()
-        ]) {
-
-            this._clearEntryPaymentCompletionTimer(roomId);
-
-        }
-
-        for (const roomId of [
-            ...this._walletConnectionTimersByRoom.keys()
-        ]) {
-
-            this._clearWalletConnectionTimeout(roomId);
-
-        }
-
-        this._entryPaymentByRoom.clear();
-
-        this._entryPaymentCompletedByRoom.clear();
-
-        this._walletConnectionByRoom.clear();
-
-        this._tonConnectEventsByRoom.clear();
-
-        this._tonConnectPlayerMetaByRoom.clear();
-
-        this._tonConnectAutopsyByRoom.clear();
+        this._continueToVerifyByRoom.clear();
 
         this._secretMatrixByRoom.clear();
 
@@ -1926,7 +1584,7 @@ export class RoomLobbyBridge {
      * R23 — deliver the bootstrap result to the authenticated Owner socket
      * ONLY. Payload: { roomId, network: "mainnet" } exactly — no handoff
      * internals, no claim state, no Telegram identity, no Testnet room id,
-     * no wallet or secret material.
+     * no secret material.
      */
     _deliverRoomNetworkHandoffBootstrapResult(socketId, roomId) {
 
@@ -2313,17 +1971,9 @@ export class RoomLobbyBridge {
 
         const room = roomId ? this._roomManager.getRoom(roomId) ?? null : null;
 
-        const walletConnection = roomId
-            ? this._walletConnectionByRoom.get(roomId) ?? null
-            : null;
-
-        const paymentSession = roomId
-            ? this._paymentSessionManager?.getSession?.(roomId) ?? null
-            : null;
-
         const stage = roomId
-            ? (this._paymentStageReadyByRoom.has(roomId)
-                ? "PAYMENT"
+            ? (this._continueToVerifyByRoom.has(roomId)
+                ? "VERIFY_COMPLETED"
                 : this._profilesRevealedByRoom.has(roomId)
                     ? "VERIFY"
                     : "SETUP")
@@ -2395,19 +2045,6 @@ export class RoomLobbyBridge {
                 : null,
             ProtectedSession: protectedSession,
             CurrentStage: stage,
-            WalletConnected: walletConnection?.paymentConnectionReady === true,
-            PaymentSession: paymentSession
-                ? {
-                    paymentSessionId: paymentSession.paymentSessionId ?? null,
-                    status: paymentSession.status ?? null
-                }
-                : null,
-            DeployState: contract
-                ? {
-                    contractId: contract.contractId ?? null,
-                    status: contract.status ?? null
-                }
-                : null,
             Creator: creatorId,
             RoomPlayerCount: room?.players.length ?? 0,
             RoomSocketCount: socketCount,
@@ -2965,10 +2602,10 @@ export class RoomLobbyBridge {
         const setupRecoverable = this._setupSessionLifecycle
             ?.isRecoverable(roomId) === true;
 
-        // Setup-only recovery while prep pages run. After ENTRY_PAYMENT_COMPLETED
+        // Setup-only recovery while prep pages run. After VERIFY_COMPLETED
         // (Page5), fall through to RecoveryEngine even if the Setup Timer remains.
         const setupActive = setupRecoverable
-            && !this._entryPaymentCompletedByRoom.has(roomId);
+            ;
 
         const syncPayload = this._setupSessionLifecycle?.buildSyncPayload(roomId);
 
@@ -3002,7 +2639,7 @@ export class RoomLobbyBridge {
         });
 
         // Re-deliver authoritative stage barriers so reconnect preserves
-        // continueToPayment progress and does not strand the client on Verify.
+        // continueToVerify progress and does not strand the client on Verify.
         if (this._profilesRevealedByRoom.has(roomId)) {
 
             this._deliverToSocket(
@@ -3014,65 +2651,9 @@ export class RoomLobbyBridge {
                 }
             );
 
-            // Restore authoritative wallet privately to the reconnecting seat.
-            this._deliverOwnWallet(socketId, playerId);
-
         }
 
-        if (this._paymentStageReadyByRoom.has(roomId)) {
-
-            this._deliverToSocket(
-                socketId,
-                LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
-                { roomId }
-            );
-
-            const entryPayment = this._entryPaymentByRoom.get(roomId);
-
-            if (entryPayment) {
-
-                this._deliverToSocket(
-                    socketId,
-                    LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
-                    entryPayment.toSnapshot()
-                );
-
-            }
-
-            const walletConnection = this._walletConnectionByRoom.get(roomId);
-
-            if (walletConnection) {
-
-                this._deliverToSocket(
-                    socketId,
-                    LOBBY_SERVER_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
-                    walletConnection.toSnapshot()
-                );
-
-                if (walletConnection.paymentConnectionReady) {
-
-                    this._deliverToSocket(
-                        socketId,
-                        LOBBY_SERVER_EVENTS.PAYMENT_CONNECTION_READY,
-                        { roomId }
-                    );
-
-                }
-
-            }
-
-            const paymentSession = this._paymentSessionManager
-                ?.getSession(roomId);
-
-            if (paymentSession) {
-
-                this._deliverToSocket(
-                    socketId,
-                    LOBBY_SERVER_EVENTS.PAYMENT_SESSION_UPDATED,
-                    paymentSession.toSnapshot()
-                );
-
-            }
+        if (this._continueToVerifyByRoom.has(roomId)) {
 
             const gameStart = this._gameStartAuthorization
                 ?.getReconnectSnapshot?.(roomId);
@@ -3091,9 +2672,7 @@ export class RoomLobbyBridge {
                         {
                             roomId,
                             gameId: gameStart.gameId,
-                            authorizedAt: gameStart.authorizedAt,
-                            blockchainCompletedAt:
-                                gameStart.blockchainCompletedAt
+                            authorizedAt: gameStart.authorizedAt
                         }
                     );
 
@@ -3116,66 +2695,19 @@ export class RoomLobbyBridge {
 
                 }
 
-            }
+                if (gameStart.phase === "OPEN_PAGE5") {
 
-            // After ENTRY_PAYMENT_COMPLETED, reconnect must enter Page5.
-            if (this._entryPaymentCompletedByRoom.has(roomId)) {
-
-                this._deliverToSocket(
-                    socketId,
-                    LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_COMPLETED,
-                    { roomId }
-                );
-
-                this._deliverToSocket(
-                    socketId,
-                    LOBBY_SERVER_EVENTS.OPEN_PAGE5,
-                    { roomId }
-                );
-
-            }
-
-            // P6.8B — restore settlement status without re-submitting.
-            const settleGameId = gameId
-                ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
-                ?? null;
-
-            const settlement = settleGameId
-                ? this._contractSettlementManager
-                    ?.getReconnectSnapshot?.(settleGameId)
-                : null;
-
-            if (settlement) {
-
-                const eventByStatus = {
-                    SETTLEMENT_PREPARING: LOBBY_SERVER_EVENTS.SETTLEMENT_STARTED,
-                    SETTLEMENT_SUBMITTED: LOBBY_SERVER_EVENTS.SETTLEMENT_SUBMITTED,
-                    SETTLEMENT_PENDING: LOBBY_SERVER_EVENTS.SETTLEMENT_SUBMITTED,
-                    SETTLEMENT_CONFIRMED: LOBBY_SERVER_EVENTS.SETTLEMENT_CONFIRMED,
-                    SETTLEMENT_COMPLETED: LOBBY_SERVER_EVENTS.SETTLEMENT_COMPLETED,
-                    SETTLEMENT_FAILED: LOBBY_SERVER_EVENTS.SETTLEMENT_FAILED
-                };
-
-                const eventName = eventByStatus[settlement.status];
-
-                if (eventName) {
-
-                    this._deliverToSocket(socketId, eventName, settlement);
+                    this._deliverToSocket(
+                        socketId,
+                        LOBBY_SERVER_EVENTS.OPEN_PAGE5,
+                        { roomId }
+                    );
 
                 }
 
             }
 
         }
-
-        // R18 S4 / R18-S16 — requester-scoped live Deposit snapshot.
-        this._deliverDepositProjectionToSocket({
-            socketId,
-            playerId,
-            roomId,
-            gameId,
-            reason: "reconnect_session"
-        });
 
         this._clearRecoveryOwnershipForPlayer(playerId);
 
@@ -3206,89 +2738,6 @@ export class RoomLobbyBridge {
 
     }
 
-    /**
-     * R18-S16 — Restore the live Deposit projection to an already-bound socket.
-     *
-     * Protected same-id reconnect keeps GameplayContextResolver + lobby maps.
-     * SESSION_RECOVERY_REQUEST therefore skips reconnectSession (credential
-     * rebind is not required). Soft-disconnect also leaves the Socket.IO room.
-     * This path re-joins the room and re-sends the CURRENT DepositSession
-     * projection without a second projector and without weakening identity.
-     *
-     * Idempotent. Fail-closed when the socket is unbound or no session exists.
-     */
-    restoreDepositProjectionForSocket(socketId, { reason = "bound_reconnect" } = {}) {
-
-        const context = this._getSocketContext(socketId);
-
-        this._logger.info(formatDepositRestoreLog({
-            event: "RESTORE_ATTEMPT",
-            roomId: context?.roomId ?? null,
-            playerId: context?.playerId ?? null,
-            socketId,
-            reason
-        }));
-
-        if (!context?.playerId || !context?.roomId) {
-
-            this._logger.info(formatDepositRestoreLog({
-                event: "RESTORE_RESULT",
-                roomId: context?.roomId ?? null,
-                playerId: context?.playerId ?? null,
-                socketId,
-                reason,
-                restored: false
-            }));
-
-            return {
-                restored: false,
-                reason: "unbound"
-            };
-
-        }
-
-        const { playerId, roomId } = context;
-
-        this._playerManager.setConnectionState(
-            playerId,
-            CONNECTION_STATE.CONNECTED
-        );
-
-        this._attachSocketToRoom(socketId, roomId);
-
-        const gameId = this._gameplayContextResolver?.resolve(socketId)?.gameId
-            ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
-            ?? this._playerManager.getRuntime(playerId)?.gameId
-            ?? null;
-
-        const result = this._deliverDepositProjectionToSocket({
-            socketId,
-            playerId,
-            roomId,
-            gameId,
-            reason
-        });
-
-        this._logger.info(formatDepositRestoreLog({
-            event: "RESTORE_RESULT",
-            roomId,
-            playerId,
-            socketId,
-            reason,
-            restored: result?.restored === true,
-            ...(result?.restored === true
-                ? {
-                    depositAddress: result.depositAddress ?? null,
-                    state: result.state ?? null,
-                    confirmedSeats: result.confirmedSeats ?? null,
-                    mySeatStatus: result.mySeatStatus ?? null
-                }
-                : {})
-        }));
-
-        return result;
-
-    }
 
     /**
      * Release a stale player→socket binding before recovery authorization when
@@ -3528,41 +2977,6 @@ export class RoomLobbyBridge {
 
         }
 
-        const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
-
-        const unwindNeeded = paymentSession
-            ? sessionNeedsEscrowUnwind(paymentSession)
-            : false;
-
-        const roomWalletPaymentIntakeEnabled =
-            this._paymentSessionManager?.isRoomWalletPaymentIntakeEnabled?.() === true;
-
-        const willFailSession = Boolean(
-            unwindNeeded
-            && (
-roomWalletPaymentIntakeEnabled
-            )
-        );
-
-        this._logger.info(
-            `SETUP_SESSION_EXPIRED unwind check | roomId=${roomId}`
-                + ` | gameId=${paymentSession?.gameId ?? payload?.gameId ?? "null"}`
-                + ` | paymentSessionId=${paymentSession?.paymentSessionId ?? "null"}`
-                + ` | paymentSession.status=${paymentSession?.status ?? "null"}`
-                + ` | sessionNeedsEscrowUnwind=${unwindNeeded}`
-                + ` | timestamp=${new Date().toISOString()}`
-                + ` | reason=setup_expired`
-                + ` | nextAction=${willFailSession ? "failSession" : "_closeRoom"}`
-        );
-
-        if (willFailSession) {
-
-            this._paymentSessionManager.failSession(roomId, "setup_expired");
-
-            return;
-
-        }
-
         void this._closeRoom(roomId, "setup_expired");
 
     }
@@ -3576,7 +2990,7 @@ roomWalletPaymentIntakeEnabled
         }
 
         // R1.1 — startGame (Page2 entry) fires at game prep / room-full,
-        // not at GAME_INITIALIZED (which now waits for entry payment).
+        // not at GAME_INITIALIZED (which now waits for verify barrier).
         this._deliverStartGame(roomId, gameId);
 
     }
@@ -3715,19 +3129,6 @@ roomWalletPaymentIntakeEnabled
             });
             console.trace("RoomLobbyBridge._removePlayerFromLobby creator_left trace");
             console.log("======================================================");
-
-            const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
-
-            if (
-                paymentSession
-                && sessionNeedsEscrowUnwind(paymentSession)
-            ) {
-
-                this._paymentSessionManager.failSession(roomId, "creator_left");
-
-                return;
-
-            }
 
             void this._closeRoom(roomId, "creator_left");
 
@@ -3902,8 +3303,8 @@ roomWalletPaymentIntakeEnabled
                 reason: "empty_room",
                 caller: "RoomLobbyBridge._removePlayerFromLobby",
                 triggerEvent: "PLAYER_LEFT_EMPTY_ROOM",
-                currentGameStage: this._paymentStageReadyByRoom.has(roomId)
-                    ? "PAYMENT"
+                currentGameStage: this._continueToVerifyByRoom.has(roomId)
+                    ? "VERIFY_COMPLETED"
                     : "SETUP"
             });
 
@@ -3959,7 +3360,7 @@ roomWalletPaymentIntakeEnabled
 
     _resolveGameManager() {
 
-        return this._paymentSessionManager?._gameManager
+        return this._gameStartAuthorization?._gameManager
             ?? null;
 
     }
@@ -4154,15 +3555,12 @@ roomWalletPaymentIntakeEnabled
             Timestamp: new Date().toISOString(),
             RoomId: roomId,
             Reason: reason ?? null,
-            CurrentStage: this._paymentStageReadyByRoom.has(roomId)
-                ? "PAYMENT"
+            CurrentStage: this._continueToVerifyByRoom.has(roomId)
+                ? "VERIFY_COMPLETED"
                 : this._profilesRevealedByRoom.has(roomId)
                     ? "VERIFY"
                     : "SETUP",
-            RoomPlayerCount: room?.players.length ?? 0,
-            HasPaymentSession: Boolean(
-                this._paymentSessionManager?.getSession?.(roomId)
-            ),
+            RoomPlayerCount: room?.players.length ?? 0
         });
         console.trace("RoomLobbyBridge._closeRoom trace");
         console.log("======================================================");
@@ -4191,8 +3589,6 @@ roomWalletPaymentIntakeEnabled
             roomId
         });
 
-        this._clearWalletConnectionTimeout(roomId);
-
         const playerIds = [...room.players];
 
         this._recoveryCredentials.invalidateRoom(roomId);
@@ -4200,11 +3596,6 @@ roomWalletPaymentIntakeEnabled
         this._resultSessionLifecycle?.cancel(roomId);
 
         const gameId = this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
-            ?? null;
-
-        const walletConnection = this._walletConnectionByRoom.get(roomId);
-
-        const paymentSession = this._paymentSessionManager?.getSession?.(roomId)
             ?? null;
 
         const setupSnapshot = this._setupSessionLifecycle?.buildSyncPayload?.(roomId)
@@ -4215,60 +3606,16 @@ roomWalletPaymentIntakeEnabled
             caller: "RoomLobbyBridge._closeRoom",
             triggerEvent: reason ?? "ROOM_CLOSE",
             gameId,
-            currentGameStage: this._paymentStageReadyByRoom.has(roomId)
-                ? "PAYMENT"
+            currentGameStage: this._continueToVerifyByRoom.has(roomId)
+                ? "VERIFY_COMPLETED"
                 : this._profilesRevealedByRoom.has(roomId)
                     ? "VERIFY"
                     : "SETUP",
             setupSession: setupSnapshot?.state ?? null,
-            walletConnectionSession: walletConnection
-                ? {
-                    paymentConnectionReady: walletConnection.paymentConnectionReady === true,
-                    players: walletConnection.players?.map((seat) => ({
-                        playerId: seat.playerId,
-                        status: seat.status
-                    })) ?? []
-                }
-                : null,
-            paymentSession: paymentSession
-                ? {
-                    paymentSessionId: paymentSession.paymentSessionId ?? null,
-                    status: paymentSession.status ?? null
-                }
-                : null,
             socketCount: playerIds.filter(
                 (playerId) => Boolean(this._playerToSocket.get(playerId))
             ).length
         });
-
-        const forensicService = this._forensicArchiveService;
-
-        if (forensicService) {
-
-            try {
-
-                await forensicService.ensureArchivedAndUploaded({
-                    roomId,
-                    gameId,
-                    reason: reason ?? "room_destroyed"
-                });
-
-            } catch (error) {
-
-                this._logger.error(
-                    `FORENSIC_ARCHIVE_BLOCKED_ROOM_DESTROY | roomId=${roomId}`
-                    + ` | gameId=${gameId ?? "null"} | error=${error.message}`
-                );
-
-                if (forensicService.isBlockingEnabled()) {
-
-                    return;
-
-                }
-
-            }
-
-        }
 
         this._roomManager.destroyRoom(roomId);
 
@@ -4366,7 +3713,7 @@ roomWalletPaymentIntakeEnabled
 
         // Pre-Confirm public identity: nickname / age / icon / sectorCount so
         // peers can verify participants. Color, arrangement and all private
-        // crypto/wallet/matrix fields stay hidden until VERIFY_COMPLETED.
+        // crypto/matrix fields stay hidden until VERIFY_COMPLETED.
         if (!reveal) {
 
             const sectorCount = identity?.sectorCount ?? null;
@@ -4494,7 +3841,7 @@ roomWalletPaymentIntakeEnabled
 
         // Self-ack with full profile — peers receive public identity
         // (nickname/age/icon/sectorCount) so Verify can confirm participants
-        // without leaking color/arrangement or private crypto/wallet fields.
+        // without leaking color/arrangement or private crypto/matrix fields.
         const fullPayload = this._mapIdentityToLobbyPlayer(
             identity,
             playerId,
@@ -5224,7 +4571,7 @@ roomWalletPaymentIntakeEnabled
 
     }
 
-    _handleVerifyNextRequest(socketId, rawWalletAddress) {
+    _handleVerifyNextRequest(socketId) {
 
         const context = this._assertAuthoritativeMutation(
             socketId,
@@ -5258,61 +4605,23 @@ roomWalletPaymentIntakeEnabled
 
         }
 
-        if (this._paymentStageReadyByRoom.has(roomId)) {
-
-            this._deliverToSocket(
-                socketId,
-                LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
-                { roomId }
-            );
+        if (this._continueToVerifyByRoom.has(roomId)) {
 
             return;
 
         }
 
-        const wallet = normalizeTelegramWallet(rawWalletAddress);
-
-        if (!wallet) {
-
-            this._deliverToSocket(
-                socketId,
-                LOBBY_SERVER_EVENTS.WALLET_REJECTED,
-                {
-                    roomId,
-                    code: LOBBY_ERROR_CODES.INVALID_WALLET,
-                    message: LOBBY_ERROR_MESSAGES[
-                        LOBBY_ERROR_CODES.INVALID_WALLET
-                    ]
-                }
-            );
-
-            return;
-
-        }
-
-        // P6.1 — wallet is session data for this room only (never PlayerIdentity).
-        this._sessionWalletStore.setWallet(roomId, playerId, wallet);
-
-        // Private ack so reconnect / local mirror can restore the session wallet.
-        this._deliverOwnWallet(socketId, playerId, roomId);
-
-        let continued = this._continueToPaymentByRoom.get(roomId);
+        let continued = this._continueToVerifyByRoom.get(roomId);
 
         if (!continued) {
 
             continued = new Set();
 
-            this._continueToPaymentByRoom.set(roomId, continued);
+            this._continueToVerifyByRoom.set(roomId, continued);
 
         }
 
-        // First successful submit joins the barrier; later submits before freeze
-        // may replace the session wallet without re-entering the barrier.
         if (continued.has(playerId)) {
-
-            this._logger.info(
-                `Verify NEXT wallet updated | roomId=${roomId} | playerId=${playerId}`
-            );
 
             return;
 
@@ -5331,122 +4640,26 @@ roomWalletPaymentIntakeEnabled
 
         }
 
-        this._broadcastPaymentStageReady(roomId);
+        this._completeVerifyBarrier(roomId);
 
     }
 
-    _deliverOwnWallet(socketId, playerId, roomId = null) {
 
-        const resolvedRoomId = roomId
-            ?? this._playerManager.getRuntime(playerId)?.roomId
-            ?? null;
+    _completeVerifyBarrier(roomId) {
 
-        const wallet = this._sessionWalletStore.getWallet(
-            resolvedRoomId,
-            playerId
-        );
-
-        if (!wallet) {
+        if (this._continueToVerifyByRoom.has(roomId)) {
 
             return;
 
         }
 
-        this._deliverToSocket(
-            socketId,
-            LOBBY_SERVER_EVENTS.PLAYER_UPDATE,
-            {
-                playerId,
-                wallet
-            }
-        );
-
-    }
-
-    _broadcastPaymentStageReady(roomId) {
-
-        if (this._paymentStageReadyByRoom.has(roomId)) {
-
-            return;
-
-        }
-
-        const setupSession = this._setupSessionLifecycle?.getSession(roomId) ?? null;
-
-        const recoverable = this._setupSessionLifecycle?.isRecoverable(roomId) ?? false;
-
-        const room = this._roomManager.getRoom(roomId);
-
-        const continued = this._continueToPaymentByRoom.get(roomId);
-
-        const verifiedCount = continued?.size ?? 0;
-
-        const walletReady = room
-            ? room.players.every((playerId) => Boolean(
-                this._sessionWalletStore.getWallet(roomId, playerId)
-            ))
-            : false;
-
-        logPaymentTransitionGate({
-            roomId,
-            currentStage: this._profilesRevealedByRoom.has(roomId)
-                ? "VERIFY_COMPLETE"
-                : "PRE_VERIFY",
-            setupExists: Boolean(setupSession),
-            setupState: setupSession?.state ?? null,
-            recoverable,
-            archiveForPaymentResult: "pending",
-            roomExists: Boolean(room),
-            roomDestroying: room?.status === "DESTROYED",
-            verifiedPlayers: room
-                ? `${verifiedCount}/${room.players.length}`
-                : `${verifiedCount}/unknown`,
-            walletReady,
-            willEmitPaymentStageReady: true,
-            caller: "RoomLobbyBridge._broadcastPaymentStageReady"
-        });
-
-        this._paymentStageReadyByRoom.add(roomId);
-
-        registerSetupStoragePaymentReady(roomId);
+        this._continueToVerifyByRoom.add(roomId);
 
         // R6.38 — Setup permanently relinquishes timer + destroy authority.
-        // Payment lifecycle is the sole room owner from this boundary onward.
+        // The authoritative game start gate owns the room from this boundary.
         const archivedSetup = this._setupSessionLifecycle
-            ?.archiveForPayment?.(roomId)
+            ?.archive?.(roomId)
             ?? null;
-
-        const archiveResult = archivedSetup?.state
-            ?? (archivedSetup ? "snapshot" : "null");
-
-        this._logger.decisionTrace({
-            stage: "PAYMENT_STAGE_READY",
-            decision: archivedSetup ? "ALLOW" : "ALLOW_WITHOUT_ARCHIVE",
-            reason: archivedSetup
-                ? "Transition gate passed; Setup archived."
-                : `Transition gate passed; archiveForPayment returned ${archiveResult}.`,
-            caller: "RoomLobbyBridge._broadcastPaymentStageReady",
-            nextAction: "Wallet Connection",
-            roomId
-        });
-
-        logPaymentStageReady({
-            roomId,
-            archiveForPaymentResult: archiveResult,
-            setupState: this._setupSessionLifecycle?.getSession(roomId)?.state
-                ?? setupSession?.state
-                ?? null,
-            recoverable: this._setupSessionLifecycle?.isRecoverable(roomId) ?? false,
-            currentStage: "PAYMENT_STAGE_READY",
-            roomDestroying: this._roomManager.getRoom(roomId)?.status === "DESTROYED",
-            emissionTarget: "room"
-        });
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
-            { roomId }
-        );
 
         if (archivedSetup) {
 
@@ -5456,1621 +4669,45 @@ roomWalletPaymentIntakeEnabled
                 archivedSetup
             );
 
-            this._logger.decisionTrace({
-                stage: "SETUP_SESSION_SYNC",
-                decision: "EMIT",
-                reason: "Archived Setup snapshot delivered to room.",
-                caller: "RoomLobbyBridge._broadcastPaymentStageReady",
-                nextAction: "Wallet Connection",
-                roomId
-            });
-
-        } else {
-
-            this._logger.decisionTrace({
-                stage: "SETUP_SESSION_SYNC",
-                decision: "SKIP",
-                reason: "archiveForPayment returned null; SETUP_SESSION_SYNC not emitted.",
-                caller: "RoomLobbyBridge._broadcastPaymentStageReady",
-                nextAction: "Wallet Connection",
-                roomId
-            });
-
         }
 
-        this._logger.info(`Payment stage ready | roomId=${roomId}`);
+        this._logger.info(`Verify barrier complete | roomId=${roomId}`);
 
-        // P6.2 — start wallet connection barrier (no payment simulation).
-        this._createAndBroadcastWalletConnectionSession(roomId);
-
-        // Keep EntryPaymentSession shell for DEBUG_START_GAME / later stages,
-        // but do not auto-run TelegramWalletAdapter simulation.
-        this._createEntryPaymentSessionShell(roomId);
-
-    }
-
-    _createAndBroadcastWalletConnectionSession(roomId) {
-
-        if (this._walletConnectionByRoom.has(roomId)) {
-
-            this._broadcastWalletConnectionSession(roomId);
-
-            return;
-
-        }
-
-        const room = this._roomManager.getRoom(roomId);
-
-        if (!room) {
-
-            return;
-
-        }
-
-        const roster = room.players.map((playerId) => ({
-            playerId,
-            sessionWallet: this._sessionWalletStore.getWallet(roomId, playerId)
-        }));
-
-        const session = WalletConnectionSession.createInitial(roomId, roster);
-
-        this._walletConnectionByRoom.set(roomId, session);
-
-        this._tonConnectEventsByRoom.set(roomId, []);
-
-        this._tonConnectPlayerMetaByRoom.set(roomId, new Map());
-
-        this._tonConnectAutopsyByRoom.set(roomId, {
-            latest: null,
-            byPlayer: new Map()
-        });
-
-        this._scheduleWalletConnectionTimeout(roomId);
-
-        console.log("[TonConnect TRACE] handshake transition", {
-            old: null,
-            next: "WAITING",
-            stage: "WAITING",
-            roomId,
-            reason: "WALLET_CONNECTION_SESSION_CREATED",
-            playerCount: session.players.length,
-            timestamp: Date.now()
-        });
-
-        this._recordTonConnectEvent(roomId, {
-            type: "WALLET_CONNECTION_SESSION_CREATED",
-            playerId: null
-        });
-
-        this._broadcastWalletConnectionSession(roomId);
-
-        this._logger.info(
-            `Wallet connection session created | roomId=${roomId} | `
-                + `players=${session.players.length}`
-        );
-
-    }
-
-    _createEntryPaymentSessionShell(roomId) {
-
-        if (this._entryPaymentByRoom.has(roomId)) {
-
-            return;
-
-        }
-
-        const room = this._roomManager.getRoom(roomId);
-
-        if (!room) {
-
-            return;
-
-        }
-
-        const roster = room.players.map((playerId) => ({
-            playerId,
-            wallet: this._sessionWalletStore.getWallet(roomId, playerId)
-        }));
-
-        const session = EntryPaymentSession.createInitial(roomId, roster);
-
-        this._entryPaymentByRoom.set(roomId, session);
-
-        this._logger.info(
-            `Entry payment session shell created | roomId=${roomId} | `
-                + `players=${session.players.length}`
-        );
-
-    }
-
-    _createAndBroadcastEntryPaymentSession(roomId) {
-
-        if (this._entryPaymentByRoom.has(roomId)) {
-
-            this._broadcastEntryPaymentSession(roomId);
-
-            return;
-
-        }
-
-        const room = this._roomManager.getRoom(roomId);
-
-        if (!room) {
-
-            return;
-
-        }
-
-        const roster = room.players.map((playerId) => {
-
-            return {
-                playerId,
-                wallet: this._sessionWalletStore.getWallet(roomId, playerId)
-            };
-
-        });
-
-        const session = EntryPaymentSession.createInitial(roomId, roster);
-
-        this._entryPaymentByRoom.set(roomId, session);
-
-        this._broadcastEntryPaymentSession(roomId);
-
-        // Legacy simulation path retained for explicit callers only (not P6.2).
-        this._entryPaymentLifecycle.start(roomId, session);
-
-        this._logger.info(
-            `Entry payment session created | roomId=${roomId} | `
-                + `players=${session.players.length}`
-        );
-
-    }
-
-    _handleWalletConnectStarted(socketId) {
-
-        console.log("[TonConnect TRACE] _handleWalletConnectStarted", {
-            event: "WALLET_CONNECT_STARTED",
-            socketId,
-            timestamp: Date.now()
-        });
-
-        const context = this._getSocketContext(socketId);
-
-        if (!context) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: null,
-                requested: "CONNECTING",
-                reason: "no_socket_context",
-                socketId,
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        const { playerId, roomId } = context;
-
-        console.log("[TonConnect TRACE] incoming wallet handler context", {
-            event: "WALLET_CONNECT_STARTED",
-            socketId,
-            playerId,
-            roomId,
-            payload: null,
-            timestamp: Date.now()
-        });
-
-        if (!this._paymentStageReadyByRoom.has(roomId)) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: null,
-                requested: "CONNECTING",
-                reason: "not_payment_stage",
-                roomId,
-                playerId,
-                socketId,
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        const session = this._walletConnectionByRoom.get(roomId);
-
-        if (!session) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: null,
-                requested: "CONNECTING",
-                reason: "no_wallet_connection_session",
-                roomId,
-                playerId,
-                socketId,
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        const seat = session.findPlayer(playerId);
-
-        const oldStatus = seat?.status ?? null;
-
-        if (!session.setConnecting(playerId)) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: oldStatus,
-                requested: "CONNECTING",
-                reason: !seat
-                    ? "no_seat"
-                    : session.paymentConnectionReady
-                        ? "payment_connection_already_ready"
-                        : "setConnecting_failed",
-                roomId,
-                playerId,
-                socketId,
-                paymentConnectionReady: session.paymentConnectionReady,
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        console.log("[TonConnect TRACE] handshake transition", {
-            old: oldStatus,
-            next: "CONNECTING",
-            stage: "CONNECTING",
-            roomId,
-            playerId,
-            socketId,
-            timestamp: Date.now()
-        });
-
-        this._touchTonConnectPlayerMeta(roomId, playerId, {
-            lastStatusChangeAt: Date.now(),
-            lastEvent: "WALLET_CONNECT_STARTED"
-        });
-
-        this._recordTonConnectEvent(roomId, {
-            type: "WALLET_CONNECT_STARTED",
-            playerId
-        });
-
-        this._broadcastWalletConnectionSession(roomId);
-
-    }
-
-    _handleWalletConnectReport(socketId, rawConnectedWallet) {
-
-        const context = this._getSocketContext(socketId);
-
-        if (!context) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: null,
-                requested: "CONNECTED",
-                reason: "no_socket_context",
-                socketId,
-                payload: { connectedWallet: rawConnectedWallet },
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        const { playerId, roomId } = context;
-
-        console.log("[TonConnect TRACE] incoming wallet handler context", {
-            event: "WALLET_CONNECT_REPORT",
-            socketId,
-            playerId,
-            roomId,
-            payload: { connectedWallet: rawConnectedWallet },
-            timestamp: Date.now()
-        });
-
-        if (!this._paymentStageReadyByRoom.has(roomId)) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: null,
-                requested: "CONNECTED",
-                reason: "not_payment_stage",
-                roomId,
-                playerId,
-                socketId,
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        const session = this._walletConnectionByRoom.get(roomId);
-
-        if (!session) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: null,
-                requested: "CONNECTED",
-                reason: "no_wallet_connection_session",
-                roomId,
-                playerId,
-                socketId,
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        const seat = session.findPlayer(playerId);
-
-        const oldStatus = seat?.status ?? null;
-
-        const sessionWallet = this._sessionWalletStore.getWallet(
-            roomId,
-            playerId
-        );
-
-        const connectedWallet = canonicalizeTonWalletAddress(rawConnectedWallet);
-
-        console.log("[TonConnect TRACE] _handleWalletConnectReport", {
-            roomId,
-            playerId,
-            socketId,
-            oldStatus,
-            sessionWallet,
-            rawConnectedWallet,
-            canonicalConnectedWallet: connectedWallet,
-            timestamp: Date.now()
-        });
-
-        if (!connectedWallet) {
-
-            console.log("[TonConnect TRACE] handshake transition", {
-                old: oldStatus,
-                next: "ADDRESS_MISMATCH",
-                stage: "ADDRESS_MISMATCH",
-                reason: "connectedWallet_null_after_canonicalize",
-                roomId,
-                playerId,
-                socketId,
-                timestamp: Date.now()
-            });
-
-            session.setAddressMismatch(playerId, null);
-
-            this._touchTonConnectPlayerMeta(roomId, playerId, {
-                lastStatusChangeAt: Date.now(),
-                lastReportAt: Date.now(),
-                lastEvent: "REPORT_INVALID_WALLET"
-            });
-
-            this._recordTonConnectEvent(roomId, {
-                type: "REPORT_RECEIVED",
-                playerId,
-                detail: "invalid_wallet"
-            });
-
-            this._broadcastWalletConnectionSession(roomId);
-
-            return;
-
-        }
-
-        if (!sessionWalletsMatch(sessionWallet, connectedWallet)) {
-
-            console.log("[TonConnect TRACE] handshake transition", {
-                old: oldStatus,
-                next: "ADDRESS_MISMATCH",
-                stage: "ADDRESS_MISMATCH",
-                reason: "session_wallet_mismatch",
-                roomId,
-                playerId,
-                socketId,
-                sessionWallet,
-                connectedWallet,
-                timestamp: Date.now()
-            });
-
-            session.setAddressMismatch(playerId, connectedWallet);
-
-            this._logger.decisionTrace({
-                stage: "WALLET_CONNECT_REPORT",
-                decision: "ADDRESS_MISMATCH",
-                reason: "Connected SDK wallet does not match VERIFY session wallet.",
-                caller: "RoomLobbyBridge._handleWalletConnectReport",
-                nextAction: "Require disconnect then connect correct wallet",
-                roomId,
-                playerId,
-                oldStatus,
-                nextStatus: WALLET_CONNECTION_STATUS.ADDRESS_MISMATCH
-            });
-
-            this._touchTonConnectPlayerMeta(roomId, playerId, {
-                lastStatusChangeAt: Date.now(),
-                lastReportAt: Date.now(),
-                lastEvent: "ADDRESS_MISMATCH"
-            });
-
-            this._recordTonConnectEvent(roomId, {
-                type: "ADDRESS_MISMATCH",
-                playerId
-            });
-
-            this._broadcastWalletConnectionSession(roomId);
-
-            this._logger.info(
-                `Wallet address mismatch | roomId=${roomId} | playerId=${playerId}`
-            );
-
-            return;
-
-        }
-
-        console.log("[TonConnect TRACE] handshake transition", {
-            old: oldStatus,
-            next: "CONNECTED",
-            stage: "CONNECTED",
-            roomId,
-            playerId,
-            socketId,
-            connectedWallet,
-            timestamp: Date.now()
-        });
-
-        session.setConnected(playerId, connectedWallet);
-
-        // R7.26 — restored SDK sessions report WAITING → CONNECTED without
-        // an intermediate CONNECTING seat transition.
-        this._logger.decisionTrace({
-            stage: "WALLET_CONNECT_REPORT",
-            decision: oldStatus === WALLET_CONNECTION_STATUS.WAITING
-                || oldStatus == null
-                ? "SERVER_SYNCHRONIZED"
-                : "ALLOW",
-            reason: oldStatus === WALLET_CONNECTION_STATUS.WAITING
-                || oldStatus == null
-                ? "SDK wallet synchronized without CONNECTING (restored session)."
-                : `Wallet connect report accepted from ${oldStatus}.`,
-            caller: "RoomLobbyBridge._handleWalletConnectReport",
-            nextAction: session.paymentConnectionReady
-                ? "Deliver PAYMENT_CONNECTION_READY"
-                : "Await remaining wallet connections",
-            roomId,
-            playerId,
-            oldStatus,
-            nextStatus: WALLET_CONNECTION_STATUS.CONNECTED
-        });
-
-        this._touchTonConnectPlayerMeta(roomId, playerId, {
-            lastStatusChangeAt: Date.now(),
-            lastReportAt: Date.now(),
-            lastEvent: "CONNECTED"
-        });
-
-        this._recordTonConnectEvent(roomId, {
-            type: "REPORT_RECEIVED",
-            playerId
-        });
-
-        this._recordTonConnectEvent(roomId, {
-            type: "CONNECTED",
-            playerId
-        });
-
-        console.log("[TonConnect TRACE] after setConnected", {
-            session: session.toSnapshot(),
-            allPlayerStatuses: session.players.map((p) => ({
-                playerId: p.playerId,
-                status: p.status
-            })),
-            paymentConnectionReady: session.paymentConnectionReady,
-            timestamp: Date.now()
-        });
-
-        this._broadcastWalletConnectionSession(roomId);
-
-        if (session.paymentConnectionReady) {
-
-            console.log("[TonConnect TRACE] handshake transition", {
-                old: "CONNECTED",
-                next: "PAYMENT_READY",
-                stage: "PAYMENT_READY",
-                roomId,
-                playerId,
-                socketId,
-                timestamp: Date.now()
-            });
-
-            this._recordTonConnectEvent(roomId, {
-                type: "PAYMENT_READY",
-                playerId: null
-            });
-
-            // R7.50 temporary diagnostics — PAYMENT_READY → PaymentSession pipeline.
-            console.log("[R7.50 DIAG] PAYMENT_READY received", {
-                roomId,
-                playerId,
-                paymentConnectionReady: session.paymentConnectionReady === true,
-                next: "_deliverPaymentConnectionReady → EventBus PAYMENT_CONNECTION_READY",
-                timestamp: Date.now()
-            });
-
-            this._deliverPaymentConnectionReady(roomId);
-
-        } else {
-
-            console.log("[TonConnect TRACE] PAYMENT_READY not reached", {
-                reason: "not_all_players_CONNECTED",
-                roomId,
-                playerId,
-                allPlayerStatuses: session.players.map((p) => ({
-                    playerId: p.playerId,
-                    status: p.status
-                })),
-                timestamp: Date.now()
-            });
-
-        }
-
-    }
-
-    _handleWalletDisconnectReport(socketId) {
-
-        const context = this._getSocketContext(socketId);
-
-        if (!context) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: null,
-                requested: "WAITING",
-                reason: "no_socket_context",
-                socketId,
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        const { playerId, roomId } = context;
-
-        console.log("[TonConnect TRACE] incoming wallet handler context", {
-            event: "WALLET_DISCONNECT_REPORT",
-            socketId,
-            playerId,
-            roomId,
-            payload: null,
-            timestamp: Date.now()
-        });
-
-        const session = this._walletConnectionByRoom.get(roomId);
-
-        if (!session) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: null,
-                requested: "WAITING",
-                reason: "no_wallet_connection_session",
-                roomId,
-                playerId,
-                socketId,
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        const seat = session.findPlayer(playerId);
-
-        const oldStatus = seat?.status ?? null;
-
-        if (!session.setWaiting(playerId)) {
-
-            console.log("[TonConnect TRACE] handshake transition REJECTED", {
-                old: oldStatus,
-                requested: "WAITING",
-                reason: !seat ? "no_seat" : "setWaiting_failed",
-                roomId,
-                playerId,
-                socketId,
-                timestamp: Date.now()
-            });
-
-            return;
-
-        }
-
-        console.log("[TonConnect TRACE] handshake transition", {
-            old: oldStatus,
-            next: "WAITING",
-            stage: "WAITING",
-            reason: "DISCONNECTED",
-            roomId,
-            playerId,
-            socketId,
-            timestamp: Date.now()
-        });
-
-        this._touchTonConnectPlayerMeta(roomId, playerId, {
-            lastStatusChangeAt: Date.now(),
-            lastEvent: "WALLET_DISCONNECT_REPORT"
-        });
-
-        this._recordTonConnectEvent(roomId, {
-            type: "DISCONNECTED",
-            playerId
-        });
-
-        this._broadcastWalletConnectionSession(roomId);
-
-    }
-
-    /**
-     * R6.8 — Read-only TonConnect diagnostics for Developer Console.
-     * Does not mutate gameplay state.
-     */
-    getTonConnectDiagnostics(roomId) {
-
-        if (!roomId) {
-
-            return null;
-
-        }
-
-        const session = this._walletConnectionByRoom.get(roomId) ?? null;
-        const events = this._tonConnectEventsByRoom.get(roomId) ?? [];
-        const metaByPlayer = this._tonConnectPlayerMetaByRoom.get(roomId)
-            ?? new Map();
-        const paymentSession = this._paymentSessionManager?.getSession?.(roomId)
-            ?? null;
-
-        const seats = session
-            ? session.players.map((seat) => {
-
-                const meta = metaByPlayer.get(String(seat.playerId)) ?? {};
-                const socketId = this._playerToSocket.get(seat.playerId)
-                    ?? null;
-                const player = this._playerManager.getPlayer?.(seat.playerId);
-                const displayStatus = seat.status === "WAITING"
-                    && meta.lastEvent === "WALLET_DISCONNECT_REPORT"
-                    ? "DISCONNECTED"
-                    : seat.status;
-
-                return Object.freeze({
-                    playerId: seat.playerId,
-                    nickname: player?.identity?.nickname ?? null,
-                    socketId,
-                    status: seat.status,
-                    displayStatus,
-                    sessionWallet: seat.sessionWallet ?? null,
-                    connectedWallet: seat.connectedWallet ?? null,
-                    walletProvider: null,
-                    walletName: null,
-                    walletAddress: seat.connectedWallet
-                        ?? seat.sessionWallet
-                        ?? null,
-                    walletChain: null,
-                    walletNetwork: null,
-                    walletPublicKey: null,
-                    lastTonConnectEvent: meta.lastEvent ?? null,
-                    lastStatusChangeAt: meta.lastStatusChangeAt ?? null,
-                    lastReportAt: meta.lastReportAt ?? null
-                });
-
-            })
-            : [];
-
-        const statuses = seats.map((seat) => seat.status);
-        const anyConnecting = statuses.includes("CONNECTING");
-        const anyConnected = statuses.includes("CONNECTED");
-        const allConnected = session?.paymentConnectionReady === true
-            || (
-                statuses.length > 0
-                && statuses.every((status) => status === "CONNECTED")
-            );
-        const anyMismatch = statuses.includes("ADDRESS_MISMATCH");
-
-        let handshakeStage = "IDLE";
-        let handshakeOwner = "WalletConnectionSession";
-
-        if (!session) {
-
-            handshakeStage = "NO_SESSION";
-            handshakeOwner = "RoomLobbyBridge";
-
-        } else if (allConnected && session.paymentConnectionReady) {
-
-            handshakeStage = "PAYMENT_READY";
-            handshakeOwner = "Payment Session";
-
-        } else if (allConnected) {
-
-            handshakeStage = "CONNECTED";
-            handshakeOwner = "WalletConnectionSession";
-
-        } else if (anyMismatch) {
-
-            handshakeStage = "ADDRESS_MISMATCH";
-            handshakeOwner = "WalletConnectionSession";
-
-        } else if (anyConnecting) {
-
-            handshakeStage = "WAITING_FOR_CONNECTEVENT";
-            handshakeOwner = "TonConnect SDK / Bridge";
-
-        } else if (anyConnected) {
-
-            handshakeStage = "PARTIAL_CONNECTED";
-            handshakeOwner = "WalletConnectionSession";
-
-        } else {
-
-            handshakeStage = "WAITING";
-            handshakeOwner = "TonConnect SDK";
-
-        }
-
-        const lastEvent = events.length > 0 ? events[events.length - 1] : null;
-
-        return Object.freeze({
-            roomId,
-            hasWalletConnectionSession: Boolean(session),
-            paymentConnectionReady: session?.paymentConnectionReady === true,
-            paymentSessionActive: Boolean(paymentSession),
-            paymentSessionStatus: paymentSession?.status ?? null,
-            createdAt: session?.createdAt ?? null,
-            handshakeStage,
-            handshakeOwner,
-            ownership: Object.freeze({
-                tonConnectSdk: anyConnecting,
-                bridge: anyConnecting,
-                socket: seats.some((seat) => seat.socketId != null),
-                roomLobbyBridge: Boolean(session),
-                walletConnectionSession: Boolean(session),
-                paymentSession: Boolean(paymentSession)
-            }),
-            bridge: Object.freeze({
-                type: "http",
-                provider: "wallet-registry",
-                transport: "SSE",
-                note: "Client SDK fields (chain/provider/appName) are not "
-                    + "reported to the server; bridge activity inferred from "
-                    + "WALLET_CONNECT_* lobby events.",
-                connectedPlayers: statuses.filter(
-                    (status) => status === "CONNECTED"
-                ).length,
-                waitingPlayers: statuses.filter(
-                    (status) => status === "WAITING"
-                    || status === "CONNECTING"
-                ).length,
-                disconnectedPlayers: seats.filter(
-                    (seat) => seat.displayStatus === "DISCONNECTED"
-                ).length,
-                lastBridgeActivityAt: lastEvent?.at ?? null,
-                sessionState: allConnected
-                    ? "Connected"
-                    : anyConnecting
-                        ? "Waiting"
-                        : session
-                            ? "Disconnected"
-                            : "None"
-            }),
-            players: Object.freeze(seats),
-            events: Object.freeze(events.map((event) => Object.freeze({
-                ...event
-            }))),
-            autopsy: this._projectTonConnectAutopsy(roomId)
-        });
-
-    }
-
-    /**
-     * R6.11E — Project latest forensic autopsy into tonConnect diagnostics.
-     */
-    _projectTonConnectAutopsy(roomId) {
-
-        const store = this._tonConnectAutopsyByRoom.get(roomId);
-
-        if (!store?.latest) {
-
-            return null;
-
-        }
-
-        const latest = store.latest;
-        const byPlayer = {};
-
-        if (store.byPlayer instanceof Map) {
-
-            for (const [playerId, entry] of store.byPlayer.entries()) {
-
-                byPlayer[playerId] = Object.freeze({
-                    ...(entry.autopsy ?? {}),
-                    roomId: entry.roomId ?? roomId,
-                    playerId: entry.playerId ?? playerId,
-                    sessionId: entry.sessionId ?? null,
-                    attemptId: entry.attemptId ?? null,
-                    startedAt: entry.startedAt ?? null,
-                    capturedAt: entry.capturedAt ?? null,
-                    receivedAt: entry.receivedAt ?? null,
-                    flushReason: entry.flushReason ?? null
-                });
-
-            }
-
-        }
-
-        return Object.freeze({
-            ...latest.autopsy,
-            roomId: latest.roomId ?? roomId,
-            playerId: latest.playerId ?? null,
-            sessionId: latest.sessionId ?? null,
-            attemptId: latest.attemptId ?? null,
-            startedAt: latest.startedAt ?? null,
-            capturedAt: latest.capturedAt ?? null,
-            receivedAt: latest.receivedAt ?? null,
-            flushReason: latest.flushReason ?? null,
-            byPlayer: Object.freeze(byPlayer)
-        });
-
-    }
-
-    /**
-     * R6.11E — Ingest forensic autopsy snapshot (socket or HTTP beacon).
-     * Does not mutate wallet handshake / payment state.
-     */
-    ingestTonConnectAutopsySnapshot(rawPayload = {}, hints = {}) {
-
-        const payload = rawPayload && typeof rawPayload === "object"
-            ? rawPayload
-            : {};
-
-        const autopsyIn = payload.autopsy && typeof payload.autopsy === "object"
-            ? payload.autopsy
-            : payload;
-
-        const roomId = hints.roomId
-            ?? payload.roomId
-            ?? null;
-
-        if (!roomId) {
-
-            return false;
-
-        }
-
-        const playerId = hints.playerId
-            ?? payload.playerId
-            ?? null;
-
-        const playerKey = playerId != null ? String(playerId) : "_unknown";
-
-        const normalizedAutopsy = Object.freeze({
-            lastSuccessfulStep: autopsyIn.lastSuccessfulStep ?? null,
-            failureStep: autopsyIn.failureStep ?? null,
-            timeline: Object.freeze(
-                Array.isArray(autopsyIn.timeline)
-                    ? autopsyIn.timeline.slice(-120)
-                    : []
-            ),
-            sdkErrors: Object.freeze(
-                Array.isArray(autopsyIn.sdkErrors)
-                    ? autopsyIn.sdkErrors.slice(-40)
-                    : []
-            ),
-            walletEvents: Object.freeze(
-                Array.isArray(autopsyIn.walletEvents)
-                    ? autopsyIn.walletEvents.slice(-40)
-                    : []
-            ),
-            browserErrors: Object.freeze(
-                Array.isArray(autopsyIn.browserErrors)
-                    ? autopsyIn.browserErrors.slice(-40)
-                    : []
-            ),
-            rawObjects: Object.freeze(
-                Array.isArray(autopsyIn.rawObjects)
-                    ? autopsyIn.rawObjects.slice(-40)
-                    : []
-            )
-        });
-
-        const entry = Object.freeze({
-            roomId: String(roomId),
-            playerId: playerId != null ? String(playerId) : null,
-            sessionId: payload.sessionId ?? null,
-            attemptId: payload.attemptId ?? null,
-            startedAt: payload.startedAt ?? null,
-            capturedAt: payload.capturedAt ?? null,
-            flushReason: payload.flushReason ?? null,
-            receivedAt: new Date().toISOString(),
-            autopsy: normalizedAutopsy
-        });
-
-        let store = this._tonConnectAutopsyByRoom.get(roomId);
-
-        if (!store) {
-
-            store = {
-                latest: null,
-                byPlayer: new Map()
-            };
-            this._tonConnectAutopsyByRoom.set(roomId, store);
-
-        }
-
-        store.byPlayer.set(playerKey, entry);
-        store.latest = entry;
-
-        this._recordTonConnectEvent(roomId, {
-            type: "TONCONNECT_AUTOPSY_SNAPSHOT",
-            playerId: entry.playerId,
-            detail: Object.freeze({
-                sessionId: entry.sessionId,
-                failureStep: normalizedAutopsy.failureStep,
-                lastSuccessfulStep: normalizedAutopsy.lastSuccessfulStep,
-                timelineCount: normalizedAutopsy.timeline.length,
-                flushReason: entry.flushReason
-            })
-        });
-
-        return true;
-
-    }
-
-    _handleTonConnectAutopsySnapshot(socketId, payload, hints = {}) {
-
-        const context = this._getSocketContext(socketId);
-
-        const roomId = context?.roomId
-            ?? hints.roomId
-            ?? payload?.roomId
-            ?? null;
-
-        const playerId = context?.playerId
-            ?? hints.playerId
-            ?? payload?.playerId
-            ?? null;
-
-        if (!roomId) {
-
-            return;
-
-        }
-
-        this.ingestTonConnectAutopsySnapshot(payload, {
-            roomId,
-            playerId
-        });
-
-    }
-
-    _recordTonConnectEvent(roomId, { type, playerId = null, detail = null }) {
-
-        if (!roomId || !type) {
-
-            return;
-
-        }
-
-        const list = this._tonConnectEventsByRoom.get(roomId) ?? [];
-
-        list.push(Object.freeze({
-            at: Date.now(),
-            type,
-            playerId,
-            detail
-        }));
-
-        const MAX_EVENTS = 50;
-
-        if (list.length > MAX_EVENTS) {
-
-            list.splice(0, list.length - MAX_EVENTS);
-
-        }
-
-        this._tonConnectEventsByRoom.set(roomId, list);
-
-    }
-
-    _touchTonConnectPlayerMeta(roomId, playerId, patch) {
-
-        if (!roomId || !playerId || !patch) {
-
-            return;
-
-        }
-
-        let byPlayer = this._tonConnectPlayerMetaByRoom.get(roomId);
-
-        if (!byPlayer) {
-
-            byPlayer = new Map();
-            this._tonConnectPlayerMetaByRoom.set(roomId, byPlayer);
-
-        }
-
-        const key = String(playerId);
-        const previous = byPlayer.get(key) ?? {};
-
-        byPlayer.set(key, {
-            ...previous,
-            ...patch
-        });
-
-    }
-
-    _broadcastWalletConnectionSession(roomId) {
-
-        const session = this._walletConnectionByRoom.get(roomId);
-
-        if (!session) {
-
-            return;
-
-        }
-
-        const snapshot = session.toSnapshot();
-
-        console.log("[TonConnect TRACE] broadcast WALLET_CONNECTION_SESSION_UPDATED", {
-            roomId,
-            paymentConnectionReady: snapshot.paymentConnectionReady,
-            players: snapshot.players.map((p) => ({
-                playerId: p.playerId,
-                status: p.status
-            })),
-            timestamp: Date.now()
-        });
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
-            snapshot
-        );
-
-    }
-
-    _deliverPaymentConnectionReady(roomId) {
-
-        this._clearWalletConnectionTimeout(roomId);
-
-        console.log("[TonConnect TRACE] handshake transition", {
-            old: "CONNECTED",
-            next: "PAYMENT_READY",
-            stage: "PAYMENT_READY",
-            reason: "deliver_PAYMENT_CONNECTION_READY",
-            roomId,
-            timestamp: Date.now()
-        });
-
-        // R7.50 temporary diagnostics — EventBus emit before PaymentSessionManager.
-        console.log("[R7.50 DIAG] emitting PAYMENT_CONNECTION_READY", {
-            roomId,
-            event: EVENT_TYPES.PAYMENT_CONNECTION_READY,
-            subscriberHint: "PaymentSessionManager._handlePaymentConnectionReady",
-            timestamp: Date.now()
-        });
-
+        // Trigger the authoritative game start gate .
         this._eventBus.emit({
             source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
-            type: EVENT_TYPES.PAYMENT_CONNECTION_READY,
-            payload: { roomId, timestamp: Date.now() }
-        });
-
-        console.log("[R7.50 DIAG] PAYMENT_CONNECTION_READY emit returned", {
-            roomId,
-            hasPaymentSessionAfterEmit: Boolean(
-                this._paymentSessionManager?.getSession?.(roomId)
-            ),
-            paymentSessionId: this._paymentSessionManager?.getSession?.(roomId)
-                ?.paymentSessionId ?? null,
-            timestamp: Date.now()
-        });
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.PAYMENT_CONNECTION_READY,
-            { roomId }
-        );
-
-        this._logger.info(`Payment connection ready | roomId=${roomId}`);
-
-        this._logger.decisionTrace({
-            stage: "PAYMENT_CONNECTION_READY",
-            decision: "ALLOW",
-            reason: "All wallets connected.",
-            caller: "RoomLobbyBridge._deliverPaymentConnectionReady",
-            nextAction: "Create PaymentSession",
-            roomId
-        });
-
-        this._logger.decisionTrace({
-            stage: "TERMINAL_SUCCESS",
-            decision: "WALLET_CONNECTION",
-            reason: "Wallet connection barrier cleared.",
-            caller: "RoomLobbyBridge._deliverPaymentConnectionReady",
-            nextAction: "Create PaymentSession",
-            roomId
+            type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
+            payload: { roomId }
         });
 
     }
 
-    _scheduleWalletConnectionTimeout(roomId) {
 
-        if (!roomId || this._walletConnectionTimersByRoom.has(roomId)) {
 
-            return;
 
-        }
 
-        const timeoutId = setTimeout(() => {
 
-            this._walletConnectionTimersByRoom.delete(roomId);
 
-            this._handleWalletConnectionTimeout(roomId);
 
-        }, this._walletConnectionDurationMs);
 
-        this._walletConnectionTimersByRoom.set(roomId, timeoutId);
 
-    }
 
-    _clearWalletConnectionTimeout(roomId) {
 
-        const timeoutId = this._walletConnectionTimersByRoom.get(roomId);
 
-        if (!timeoutId) {
 
-            return;
 
-        }
 
-        clearTimeout(timeoutId);
 
-        this._walletConnectionTimersByRoom.delete(roomId);
 
-    }
 
-    /**
-     * R7.24 — Stage-owned wallet barrier terminator.
-     * Soft-disconnect protection must not leave ARCHIVED rooms forever.
-     */
-    _handleWalletConnectionTimeout(roomId) {
 
-        if (!roomId || !this._roomManager.getRoom(roomId)) {
 
-            return;
 
-        }
 
-        const session = this._walletConnectionByRoom.get(roomId);
 
-        if (session?.paymentConnectionReady === true) {
 
-            return;
 
-        }
 
-        this._logger.decisionTrace({
-            stage: "LIFECYCLE_TIMEOUT",
-            decision: "WALLET_CONNECTION_TIMEOUT",
-            reason: `Wallet connection exceeded ${this._walletConnectionDurationMs}ms`,
-            caller: "RoomLobbyBridge._handleWalletConnectionTimeout",
-            nextAction: "TERMINAL_FAILURE → _closeRoom",
-            roomId
-        });
-
-        this._logger.decisionTrace({
-            stage: "TERMINAL_FAILURE",
-            decision: "FAIL",
-            reason: "wallet_connection_timeout",
-            caller: "RoomLobbyBridge._handleWalletConnectionTimeout",
-            nextAction: "ROOM_TERMINATION",
-            roomId
-        });
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_FAILED,
-            {
-                roomId,
-                reason: "wallet_connection_timeout"
-            }
-        );
-
-        this._logger.decisionTrace({
-            stage: "ROOM_TERMINATION",
-            decision: "CLOSE",
-            reason: "wallet_connection_timeout",
-            caller: "RoomLobbyBridge._handleWalletConnectionTimeout",
-            nextAction: "destroyRoom()",
-            roomId
-        });
-
-        void this._closeRoom(roomId, "wallet_connection_timeout");
-
-    }
-
-    _deliverPaymentSessionCreated(payload) {
-
-        const roomId = payload?.roomId;
-
-        if (!roomId) {
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_CREATED,
-            payload
-        );
-
-    }
-
-    _deliverPaymentSessionUpdated(payload) {
-
-        const roomId = payload?.roomId;
-
-        if (!roomId) {
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_UPDATED,
-            payload
-        );
-
-    }
-
-    _deliverPaymentRequest(payload) {
-
-        const roomId = payload?.roomId;
-
-        const playerId = payload?.playerId;
-
-        if (!roomId || !playerId) {
-
-            return;
-
-        }
-
-        // Broadcast so every client sees every seat's request; key by playerId.
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.PAYMENT_REQUEST,
-            payload
-        );
-
-    }
-
-    _deliverPaymentSessionCompleted(payload) {
-
-        const roomId = payload?.roomId;
-
-        if (!roomId) {
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_COMPLETED,
-            payload
-        );
-
-    }
-
-    _handlePaymentSessionFailed(payload) {
-
-        const roomId = payload?.roomId;
-
-        if (!roomId) {
-
-            return;
-
-        }
-
-        if (payload?.status === "REFUND_PENDING") {
-
-            this._deliverToRoom(
-                roomId,
-                LOBBY_SERVER_EVENTS.PAYMENT_SESSION_FAILED,
-                payload
-            );
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.PAYMENT_SESSION_FAILED,
-            payload
-        );
-
-        // Mirror setup expiry: cancel the room; game never starts.
-        if (!this._roomManager.getRoom(roomId)) {
-
-            const gameManager = this._paymentSessionManager?._gameManager
-                ?? null;
-
-            if (!gameManager?.hasInitializedGameplay?.(roomId)) {
-
-                this._paymentSessionManager?.destroySession(roomId);
-
-            }
-
-            return;
-
-        }
-
-        this._logger.decisionTrace({
-            stage: "TERMINAL_FAILURE",
-            decision: "FAIL",
-            reason: payload?.reason ?? "payment_failed",
-            caller: "RoomLobbyBridge._handlePaymentSessionFailed",
-            nextAction: "ROOM_TERMINATION → _closeRoom",
-            roomId
-        });
-
-        void this._closeRoom(roomId, payload?.reason ?? "payment_failed");
-
-    }
-
-    _handlePaymentConfirmIntent(socketId) {
-
-        const context = this._getSocketContext(socketId);
-
-        if (!context) {
-
-            return;
-
-        }
-
-        const { playerId, roomId } = context;
-
-        this._paymentSessionManager?.submitPlayerConfirmation(roomId, playerId);
-
-    }
-
-    _handlePaymentCancelIntent(socketId) {
-
-        const context = this._getSocketContext(socketId);
-
-        if (!context) {
-
-            return;
-
-        }
-
-        const { playerId, roomId } = context;
-
-        this._paymentSessionManager?.reportPlayerCancel(roomId, playerId);
-
-    }
-
-    /**
-     * R18 S4 / R18-S16 — single requester-scoped Deposit restore.
-     * Reads live DepositSession via projectDepositForPlayer. Never uses the
-     * frozen publish-time metadata.depositPackage.bindings for funded counts.
-     */
-    _deliverDepositProjectionToSocket({
-        socketId = null,
-        playerId = null,
-        roomId = null,
-        gameId = null,
-        reason = "deposit_restore"
-    } = {}) {
-
-        const depositTargetGameId = gameId
-            ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
-            ?? null;
-
-        if (!socketId || !playerId || !roomId || !depositTargetGameId) {
-
-            return {
-                restored: false,
-                reason: "missing_context"
-            };
-
-        }
-
-        if (!this._depositSessionCoordinator) {
-
-            return {
-                restored: false,
-                reason: "no_coordinator"
-            };
-
-        }
-
-        const depositProjection = projectDepositForPlayer({
-            playerId,
-            roomId,
-            gameId: depositTargetGameId,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            roomLobbyBridge: this
-        });
-
-        if (!depositProjection) {
-
-            return {
-                restored: false,
-                reason: "no_session"
-            };
-
-        }
-
-        this._deliverToSocket(
-            socketId,
-            LOBBY_SERVER_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
-            {
-                deposit: depositProjection
-            }
-        );
-
-        this._logger.info(formatDepositRestoreLog({
-            event: "PROJECTION_EMITTED",
-            roomId,
-            playerId,
-            socketId,
-            reason,
-            depositAddress: depositProjection.depositAddress ?? null,
-            state: depositProjection.phase ?? null,
-            confirmedSeats: depositProjection.confirmedSeats ?? null,
-            mySeatStatus: depositProjection.mySeatStatus ?? null
-        }));
-
-        if (
-            depositProjection.activationStatus === "VERIFIED"
-            || depositProjection.activationStatus === "ALREADY_VERIFIED"
-        ) {
-
-            this._deliverToSocket(
-                socketId,
-                LOBBY_SERVER_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
-                {
-                    depositId: depositProjection.depositId,
-                    roomId,
-                    gameId: depositTargetGameId,
-                    depositAddress: depositProjection.depositAddress,
-                    status: depositProjection.activationStatus
-                }
-            );
-
-        }
-
-        this._logger.info(
-            `[R18-S16 Recovery] deposit projection restored`
-            + ` | playerId=${playerId}`
-            + ` | socket.id=${socketId}`
-            + ` | gameId=${depositTargetGameId}`
-            + ` | depositId=${depositProjection.depositId ?? "null"}`
-            + ` | confirmedSeats=${depositProjection.confirmedSeats ?? "null"}`
-            + ` | mySeatStatus=${depositProjection.mySeatStatus ?? "null"}`
-            + ` | reason=${reason}`
-        );
-
-        return {
-            restored: true,
-            reason,
-            depositId: depositProjection.depositId ?? null,
-            depositAddress: depositProjection.depositAddress ?? null,
-            state: depositProjection.phase ?? null,
-            confirmedSeats: depositProjection.confirmedSeats ?? null,
-            mySeatStatus: depositProjection.mySeatStatus ?? null
-        };
-
-    }
-
-    _deliverDepositPackagePublished(payload) {
-
-        const roomId = payload?.roomId;
-        const gameId = payload?.gameId;
-
-        if (!roomId || !gameId) {
-
-            return;
-
-        }
-
-        if (!this._depositSessionCoordinator) {
-
-            return;
-
-        }
-
-        const room = this._roomManager.getRoom(roomId);
-
-        if (!room) {
-
-            return;
-
-        }
-
-        for (const playerId of room.players) {
-
-            const socketId = this._playerToSocket.get(playerId);
-
-            if (!socketId) {
-
-                continue;
-
-            }
-
-            const projection = projectDepositForPlayer({
-                playerId,
-                roomId,
-                gameId,
-                depositSessionCoordinator: this._depositSessionCoordinator,
-                roomLobbyBridge: this
-            });
-
-            if (!projection) {
-
-                continue;
-
-            }
-
-            this._deliverToSocket(
-                socketId,
-                LOBBY_SERVER_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
-                {
-                    deposit: projection
-                }
-            );
-
-        }
-
-    }
-
-    _deliverDepositActivationVerified(payload) {
-
-        const roomId = payload?.roomId;
-        const status = payload?.status ?? null;
-
-        if (!roomId) {
-
-            return;
-
-        }
-
-        if (status !== "VERIFIED" && status !== "ALREADY_VERIFIED") {
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
-            {
-                depositId: payload.depositId ?? null,
-                roomId,
-                gameId: payload.gameId ?? null,
-                depositAddress: payload.depositAddress ?? null,
-                status
-            }
-        );
-
-        this._deliverDepositPackagePublished(payload);
-
-    }
 
     _deliverGameStartAuthorized(payload) {
 
@@ -7109,7 +4746,7 @@ roomWalletPaymentIntakeEnabled
     }
 
     /**
-     * P6.7 — after validation succeeds, reuse ENTRY_PAYMENT_COMPLETED → OPEN_PAGE5.
+     * P6.7 — after the game start gate validates, navigate to Page5.
      */
     _handleGameStartBootstrapReady(payload) {
 
@@ -7121,7 +4758,7 @@ roomWalletPaymentIntakeEnabled
 
         }
 
-        this._completeEntryPayment(roomId);
+        this._deliverOpenPage5(roomId);
 
     }
 
@@ -7155,142 +4792,18 @@ roomWalletPaymentIntakeEnabled
             roomId
         });
 
-        // Cancel game; payment + audit records stay on the ledger.
+        // Cancel game; audit records stay on the ledger.
         void this._closeRoom(roomId, payload?.reason ?? "game_start_failed");
 
     }
 
-    _deliverSettlementEvent(eventName, payload) {
 
-        const roomId = payload?.roomId
-            ?? (payload?.gameId
-                ? this._gameplayContextResolver?.resolveRoomByGameId(payload.gameId)
-                : null);
 
-        if (!roomId || !eventName) {
 
-            return;
-
-        }
-
-        // Never forward ownerWallet — strip any accidental field.
-        const { ownerWallet: _omit, ...safePayload } = payload ?? {};
-
-        this._deliverToRoom(roomId, eventName, safePayload);
-
-    }
-
-    _applyEntryPaymentUpdate(roomId, updater) {
-
-        const current = this._entryPaymentByRoom.get(roomId);
-
-        if (!current) {
-
-            return null;
-
-        }
-
-        const next = updater(current);
-
-        if (!next || next === current) {
-
-            return current;
-
-        }
-
-        this._entryPaymentByRoom.set(roomId, next);
-
-        this._broadcastEntryPaymentSession(roomId);
-
-        if (next.smartContractStatus === ENTRY_SMART_CONTRACT_STATUS.CREATED) {
-
-            this._startEntryPaymentCompletionTimer(roomId);
-
-        }
-
-        return next;
-
-    }
-
-    _startEntryPaymentCompletionTimer(roomId) {
-
-        if (this._entryPaymentCompletedByRoom.has(roomId)) {
-
-            return;
-
-        }
-
-        // Do not restart — reconnect during the 3s display keeps this timer.
-        if (this._entryPaymentCompletionTimerByRoom.has(roomId)) {
-
-            return;
-
-        }
-
-        const durationMs = this._entryPaymentCompletionDelayMs;
-
-        const startedAt = Date.now();
-
-        const timeoutId = setTimeout(() => {
-
-            this._completeEntryPayment(roomId);
-
-        }, durationMs);
-
-        this._entryPaymentCompletionTimerByRoom.set(roomId, {
-            timeoutId,
-            startedAt,
-            durationMs
-        });
-
-        this._logger.info(
-            `Entry payment completion timer started | roomId=${roomId} | `
-                + `durationMs=${durationMs}`
-        );
-
-    }
-
-    _completeEntryPayment(roomId) {
-
-        if (this._entryPaymentCompletedByRoom.has(roomId)) {
-
-            return;
-
-        }
-
-        this._clearEntryPaymentCompletionTimer(roomId);
-
-        this._entryPaymentCompletedByRoom.add(roomId);
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_COMPLETED,
-            { roomId }
-        );
-
-        // R1.1 — notify GameManager to start physics / clock / READY phases.
-        this._eventBus.emit({
-            source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
-            type: EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
-            payload: { roomId }
-        });
-
-        this._logger.info(`Entry payment completed | roomId=${roomId}`);
-
-        // Lifecycle timers are finished; keep EntryPaymentSession until room
-        // cleanup so late reconnect can still restore the final snapshot +
-        // ENTRY_PAYMENT_COMPLETED.
-        this._entryPaymentLifecycle.cancel(roomId);
-
-        // R1.3D — production + debug share one Page5 open signal (after
-        // ENTRY_PAYMENT_COMPLETED activation has run synchronously).
-        this._deliverOpenPage5(roomId);
-
-    }
 
     /**
-     * R1.3D — Development-only shortcut past wallet / smart-contract simulation.
-     * Reuses the same ENTRY_PAYMENT_COMPLETED → activation path as production.
+     * R1.3D — Development-only shortcut past the verify barrier.
+     * Reuses the same VERIFY_BARRIER_COMPLETED → activation path as production.
      */
     _handleDebugStartGame(socketId) {
 
@@ -7334,7 +4847,7 @@ roomWalletPaymentIntakeEnabled
             `DEBUG_START_GAME | roomId=${roomId} | playerId=${playerId}`
         );
 
-        if (this._entryPaymentCompletedByRoom.has(roomId)) {
+        if (this._startedRooms.has(roomId)) {
 
             this._deliverOpenPage5(roomId);
 
@@ -7346,7 +4859,7 @@ roomWalletPaymentIntakeEnabled
         // ConfigurationEngine never builds from null defaults.
         this._ensureDebugProfilesReady(roomId);
 
-        this._completeEntryPayment(roomId);
+        this._completeVerifyBarrier(roomId);
 
     }
 
@@ -7487,72 +5000,8 @@ roomWalletPaymentIntakeEnabled
 
     }
 
-    _clearEntryPaymentCompletionTimer(roomId) {
-
-        const active = this._entryPaymentCompletionTimerByRoom.get(roomId);
-
-        if (!active) {
-
-            return;
-
-        }
-
-        clearTimeout(active.timeoutId);
-
-        this._entryPaymentCompletionTimerByRoom.delete(roomId);
-
-    }
-
-    _destroyEntryPaymentArtifacts(roomId) {
-
-        this._entryPaymentLifecycle.cancel(roomId);
-
-        this._clearEntryPaymentCompletionTimer(roomId);
-
-        this._entryPaymentByRoom.delete(roomId);
-
-        this._entryPaymentCompletedByRoom.delete(roomId);
-
-        this._walletConnectionByRoom.delete(roomId);
-
-        this._tonConnectEventsByRoom.delete(roomId);
-
-        this._tonConnectPlayerMetaByRoom.delete(roomId);
-
-        this._tonConnectAutopsyByRoom.delete(roomId);
-
-        // R8.8 — never wipe PaymentSession after gameplay init.
-        const gameManager = this._paymentSessionManager?._gameManager
-            ?? null;
-
-        if (gameManager?.hasInitializedGameplay?.(roomId)) {
-
-            return;
-
-        }
-
-        this._paymentSessionManager?.destroySession(roomId);
 
 
-    }
-
-    _broadcastEntryPaymentSession(roomId) {
-
-        const session = this._entryPaymentByRoom.get(roomId);
-
-        if (!session) {
-
-            return;
-
-        }
-
-        this._deliverToRoom(
-            roomId,
-            LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
-            session.toSnapshot()
-        );
-
-    }
 
     _revealVerifyRoster(roomId, room) {
 
@@ -7601,7 +5050,7 @@ roomWalletPaymentIntakeEnabled
             decision: "PASS",
             reason: `All ${revealedPlayers.length} players verified.`,
             caller: "RoomLobbyBridge._revealVerifyRoster",
-            nextAction: "await VERIFY_NEXT wallets → archiveForPayment()",
+            nextAction: "await VERIFY_NEXT → archive()",
             roomId
         });
 
@@ -7617,22 +5066,13 @@ roomWalletPaymentIntakeEnabled
 
         this._verifyIconsAssignedByRoom.delete(roomId);
 
-        this._continueToPaymentByRoom.delete(roomId);
-
-        this._paymentStageReadyByRoom.delete(roomId);
-
-        this._clearWalletConnectionTimeout(roomId);
-
-        this._destroyEntryPaymentArtifacts(roomId);
+        this._continueToVerifyByRoom.delete(roomId);
 
         this._secretMatrixByRoom.delete(roomId);
 
         this._secretMatrixRevisionByRoom.delete(roomId);
 
         this._secretMatrixAcceptedByRoom.delete(roomId);
-
-        // P6.1 — destroy session wallets with the finished setup / result session.
-        this._sessionWalletStore.clearRoom(roomId);
 
     }
 
@@ -8188,7 +5628,7 @@ roomWalletPaymentIntakeEnabled
      * Soft disconnect / reconnect while a Setup Session is recoverable
      * (ACTIVE / COMPLETED / ARCHIVED) or while Game Session has started
      * (_startedRooms). R6.38 — ARCHIVED keeps reclaim/SYNC but Setup no longer
-     * owns room destroy after PAYMENT_STAGE_READY.
+     * owns room destroy after VERIFY_BARRIER_COMPLETED.
      *
      * Waiting lobby membership before Setup Session exists still uses hard
      * leave so creator disconnect can close an unfilled room — but Setup
@@ -8210,18 +5650,7 @@ roomWalletPaymentIntakeEnabled
 
     }
 
-    /** P6.1 — test / report access to session-scoped wallets. */
-    getSessionWallet(roomId, playerId) {
 
-        return this._sessionWalletStore.getWallet(roomId, playerId);
-
-    }
-
-    clearSessionWallets(roomId) {
-
-        this._sessionWalletStore.clearRoom(roomId);
-
-    }
 
     _isRecoverableIdentity(playerId, roomId) {
 

@@ -1,17 +1,8 @@
-import { registerRoomDestroyContext } from "../diagnostics/RoomDestroyForensics.js";
-import {
-    getSetupStorageStageContext,
-    logSetupStorageClear,
-    logSetupStorageDelete,
-    logSetupStorageMiss,
-    logSetupStorageMutation
-} from "../diagnostics/SetupSessionStorageForensics.js";
-import { logPaymentTransitionFailure } from "../diagnostics/PaymentTransitionForensics.js";
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
+import { registerRoomDestroyContext } from "../recovery/RoomDestroyContextRegistry.js";
 import { SetupSession } from "../models/SetupSession.js";
 import { SETUP_SESSION_STATUS } from "../models/SetupSessionStatus.js";
-import { PAYMENT_SESSION_STATUS } from "../models/PaymentSession.js";
 
 // R7.70C19 — fallback aligned with rooms.js DEFAULT_SETUP_DURATION_MS (8 min).
 const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
@@ -65,7 +56,6 @@ export class SetupSessionLifecycle {
         /** @type {{ isAcceptingNewWork: () => boolean } | null} R7.0B */
         this._lifecycleGate = null;
 
-        this._paymentSessionManager = null;
 
     }
 
@@ -96,19 +86,6 @@ export class SetupSessionLifecycle {
     }
 
     /**
-     * R17.8O.4 — Late-bind payment session for setup-expiry escrow unwind deferral.
-     */
-    setEscrowUnwindBridgeDeps({ paymentSessionManager = null } = {}) {
-
-        if (paymentSessionManager) {
-
-            this._paymentSessionManager = paymentSessionManager;
-
-        }
-
-    }
-
-    /**
      * Late-bind GameManager when constructed before managers are fully wired.
      */
     setGameManager(gameManager) {
@@ -135,8 +112,7 @@ export class SetupSessionLifecycle {
         const session = this._sessions.get(roomId);
 
         return {
-            currentStage: session?.state ?? null,
-            ...getSetupStorageStageContext(roomId)
+            currentStage: session?.state ?? null
         };
 
     }
@@ -157,30 +133,9 @@ export class SetupSessionLifecycle {
         const session = this._sessions.get(roomId) ?? null;
         const stage = this._storageStageContext(roomId);
 
-        logSetupStorageMutation({
-            operation: "GET",
-            roomId,
-            currentState: session?.state ?? null,
-            recoverable: this._isSessionRecoverable(session),
-            caller,
-            mapSizeBefore,
-            mapSizeAfter: this._sessions.size,
-            currentStage: stage.currentStage,
-            paymentStage: stage.PaymentStage,
-            deployStage: stage.DeployStage
-        });
 
         if (!session && logMiss) {
 
-            logSetupStorageMiss({
-                roomId,
-                caller,
-                currentStage: stage.currentStage,
-                paymentStage: stage.PaymentStage,
-                deployStage: stage.DeployStage,
-                mapSize: this._sessions.size,
-                existingKeys: [...this._sessions.keys()]
-            });
 
         }
 
@@ -195,18 +150,6 @@ export class SetupSessionLifecycle {
         const session = exists ? this._sessions.get(roomId) : null;
         const stage = this._storageStageContext(roomId);
 
-        logSetupStorageMutation({
-            operation: "HAS",
-            roomId,
-            currentState: session?.state ?? null,
-            recoverable: this._isSessionRecoverable(session),
-            caller,
-            mapSizeBefore,
-            mapSizeAfter: this._sessions.size,
-            currentStage: stage.currentStage,
-            paymentStage: stage.PaymentStage,
-            deployStage: stage.DeployStage
-        });
 
         return exists;
 
@@ -219,19 +162,6 @@ export class SetupSessionLifecycle {
 
         this._sessions.set(roomId, session);
 
-        logSetupStorageMutation({
-            operation: "SET",
-            roomId,
-            currentState: session?.state ?? null,
-            recoverable: this._isSessionRecoverable(session),
-            caller,
-            reason,
-            mapSizeBefore,
-            mapSizeAfter: this._sessions.size,
-            currentStage: stage.currentStage,
-            paymentStage: stage.PaymentStage,
-            deployStage: stage.DeployStage
-        });
 
     }
 
@@ -244,31 +174,7 @@ export class SetupSessionLifecycle {
 
         this._sessions.delete(roomId);
 
-        logSetupStorageDelete({
-            roomId,
-            previousState: session?.state ?? null,
-            recoverable,
-            caller,
-            reason,
-            currentStage: stage.currentStage,
-            deployStage: stage.DeployStage,
-            mapSizeBefore,
-            mapSizeAfter: this._sessions.size
-        });
 
-        logSetupStorageMutation({
-            operation: "DELETE",
-            roomId,
-            currentState: session?.state ?? null,
-            recoverable,
-            caller,
-            reason,
-            mapSizeBefore,
-            mapSizeAfter: this._sessions.size,
-            currentStage: stage.currentStage,
-            paymentStage: stage.PaymentStage,
-            deployStage: stage.DeployStage
-        });
 
     }
 
@@ -278,22 +184,7 @@ export class SetupSessionLifecycle {
 
         this._sessions.clear();
 
-        logSetupStorageClear({
-            caller,
-            reason,
-            currentStage: "shutdown",
-            deployStage: null,
-            previousMapSize
-        });
 
-        logSetupStorageMutation({
-            operation: "CLEAR",
-            roomId: null,
-            caller,
-            reason,
-            mapSizeBefore: previousMapSize,
-            mapSizeAfter: this._sessions.size
-        });
 
     }
 
@@ -955,19 +846,6 @@ export class SetupSessionLifecycle {
         console.log("======================================================");
 
         this._sessionDelete(roomId, "SetupSessionLifecycle._onExpiry", "setup_expired");
-
-        // R17.8O.4 — Defer room destroy while O.1 escrow unwind is in progress.
-        const paymentSession = this._paymentSessionManager?.getSession?.(roomId);
-
-        if (paymentSession?.status === PAYMENT_SESSION_STATUS.REFUND_PENDING) {
-
-            this._log(
-                `DEFER_ROOM_DESTROY | roomId=${roomId} | reason=escrow_unwind_in_progress`
-            );
-
-            return;
-
-        }
 
         // RoomManager decides destruction. Bridge may already have closed the
         // room while handling EXPIRED (sync); destroy only if still present.

@@ -6,7 +6,7 @@ import { PlayerManager } from "../managers/PlayerManager.js";
 import { RoomManager } from "../managers/RoomManager.js";
 import { LoggerService } from "../services/LoggerService.js";
 import {
-    emitEntryPaymentCompleted,
+    emitGameStartAuthorized,
     exhaustAllPlayerInput,
     seedCompletePlayerProfiles,
     shutdownGameplayBootstrap,
@@ -201,7 +201,7 @@ function startGame() {
     }
 
     // R1.1 — gameplay clock/physics wait for entry payment completion.
-    emitEntryPaymentCompleted(eventBus, room.roomId);
+    emitGameStartAuthorized(eventBus, room.roomId);
 
     const gameId = roomToGameId.get(room.roomId);
 

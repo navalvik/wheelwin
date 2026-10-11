@@ -6,7 +6,6 @@ import RoomLobby from "./pages/RoomLobby";
 import Page2PlayerSetup from "./pages/Page2PlayerSetup";
 import PageMatrix from "./pages/PageMatrix";
 import Page3VerifyPlayers from "./pages/Page3VerifyPlayers";
-import Page4Payment from "./pages/Page4Payment";
 import Page5Game from "./pages/Page5Game";
 import Page6Result from "./pages/Page6Result";
 
@@ -281,18 +280,6 @@ function GameFlow() {
 
                 return (
 
-                    <Page4Payment
-
-                        onNavigate={navigate}
-
-                    />
-
-                );
-
-            case 7:
-
-                return (
-
                     <Page5Game
 
                         onNavigate={navigate}
@@ -301,7 +288,7 @@ function GameFlow() {
 
                 );
 
-            case 8:
+            case 7:
 
                 return (
 

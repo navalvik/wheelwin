@@ -14,8 +14,6 @@ export const TRANSLATIONS = Object.freeze({
         "common.waiting": "Waiting",
         "common.icon": "ICON",
         "common.status": "Status",
-        "common.wallet": "Wallet",
-        "common.copy": "Copy",
         "common.copied": "Copied",
         "common.bannerAlt": "WheelWin Banner",
 
@@ -29,15 +27,7 @@ export const TRANSLATIONS = Object.freeze({
         "menu.changelog": "CHANGELOG",
 
         "welcome.testMode": "⚠️ TEST MODE",
-        "welcome.testnetBody":
-            "THIS PROJECT IS CURRENTLY RUNNING ON THE TON TESTNET.",
-        "welcome.testnetWalletsOnly":
-            "USE TESTNET GRAM (TON) WALLETS ONLY.",
         "welcome.mainnetMode": "⚠️ MAINNET",
-        "welcome.mainnetBody":
-            "THIS PROJECT IS CURRENTLY RUNNING ON THE TON MAINNET.",
-        "welcome.mainnetWalletsOnly":
-            "USE TELEGRAM WALLET ONLY.",
 
         "welcome.testnetDismiss": "Tap anywhere on this message to continue.",
 
@@ -46,7 +36,6 @@ export const TRANSLATIONS = Object.freeze({
         "page.setup.title": "PLAYER SETUP",
         "page.matrix.title": "SECRET MATRIX",
         "page.verify.title": "VERIFY",
-        "page.payment.title": "PAYMENT",
         "page.result.title": "GAME FINISHED",
 
         "room.createRoom": "CREATE ROOM",
@@ -70,13 +59,10 @@ export const TRANSLATIONS = Object.freeze({
         "setup.nickname": "INPUT YOUR NICKNAME",
         "setup.age": "HOW OLD ARE YOU?",
         "setup.ageHint": "You must be between {min} and {max} years old.",
-        "setup.baseStake": "BASE STAKE",
         "setup.sectors": "SECTORS",
         "setup.arrangement": "ARRANGEMENT",
         "setup.colorSector1": "COLOR FOR SECTOR 1",
         "setup.colorSector2": "COLOR FOR SECTOR 2",
-        "setup.oneGram": "1 GRAM",
-        "setup.tenGram": "10 GRAM",
         "setup.oneSector": "1 SECTOR",
         "setup.twoSectors": "2 SECTORS",
         "setup.together": "TOGETHER",
@@ -100,86 +86,12 @@ export const TRANSLATIONS = Object.freeze({
         "verify.waitingForPlayers": "Waiting for players…",
         "verify.waitingConfirm": "Waiting for all players to confirm…",
         "verify.waitingContinue": "Waiting for all players to continue…",
-        "verify.continuingToPayment":
-            "Players verified. Continuing to payment…",
-        "verify.enterWalletToContinue":
-            "Players verified. Enter a valid wallet to continue.",
-        "verify.baseStake": "BASE STAKE",
-        "verify.youNeedPayGram": "YOU NEED PAY GRAM",
-        "verify.walletLabel":
-            "ENTER YOUR GRAM (TON) TELEGRAM WALLET ADDRESS",
-        "verify.invalidWallet": "Invalid TON wallet address.",
-        "verify.youNeedPay": "YOU NEED PAY",
 
         "player.you": "PLAYER {n} — YOU",
         "player.other": "PLAYER {n}",
         "player.yourNickname": "YOUR NICKNAME",
         "player.playerNickname": "PLAYER NICKNAME",
 
-        "payment.connectWallet": "CONNECT TELEGRAM WALLET",
-        "payment.disconnect": "DISCONNECT",
-        "payment.confirmInWallet": "CONFIRM IN YOUR TON WALLET",
-        "payment.payAmount": "PAY {amount} TON",
-        "payment.waitingGameEscrow": "Preparing game payment…",
-        "payment.waitingCreatorDeposit":
-            "Waiting for the room creator to deploy the deposit…",
-        "payment.entryFailed": "Entry payment failed.",
-        "payment.openingWallet": "OPENING WALLET…",
-        "payment.allConfirmed": "All payments confirmed",
-        "payment.deploymentFailed": "Deployment failed",
-        "payment.sessionFailed": "Payment session failed",
-        "payment.desktopConnection": "Desktop connection",
-        "payment.universalLink": "Universal Link",
-        "payment.openWallet": "Open Wallet",
-        "payment.walletMismatch":
-            "Connected wallet does not match the wallet entered during VERIFY.",
-        "payment.telegramSessionNoAddress":
-            "Telegram Wallet session is active but no account address "
-            + "is available. Disconnect and connect again.",
-        "payment.unableOpenTelegramWallet": "Unable to open Telegram Wallet.",
-        "payment.telegramNotConnected": "Telegram Wallet is not connected.",
-        "payment.unablePrepareTransaction":
-            "Unable to prepare payment transaction.",
-        "payment.walletRejected":
-            "Wallet rejected or cancelled the payment request.",
-        "payment.walletConnected": "Wallet Connected ✓",
-        "payment.addressMismatch": "Address Mismatch",
-        "payment.connecting": "Connecting…",
-        "payment.walletPending": "Wallet Pending",
-        "payment.walletRegistered": "Wallet Registered ✓",
-        "payment.walletMissing": "Wallet Missing",
-        "payment.paid": "Paid ✓",
-        "payment.failed": "Failed",
-        "payment.cancelled": "Cancelled",
-        "payment.waitingConfirmation": "Waiting for Confirmation",
-        "payment.waitingBlockchain": "Waiting for Blockchain...",
-        "payment.waitingForPayments": "Waiting for payments",
-        "payment.waitingDepositActivation": "Waiting for deposit activation…",
-        "payment.waitingDepositFull": "Waiting for all seats to fund…",
-        "payment.depositActivationNotVerified":
-            "Deposit activation is not yet verified.",
-        "payment.fundSeatUnavailable":
-            "Seat funding is unavailable until deposit activation is verified.",
-        "payment.fundSeatFailed": "Seat funding transaction failed.",
-        "payment.depositDeployFailed": "Deposit deployment failed.",
-        "payment.stakeUnavailable": "Game stake is not available yet.",
-        "payment.stakeFailed": "Game stake transaction failed.",
-        "payment.serverStateMismatch":
-            "Server payment state does not match this session.",
-        "payment.depositSeatsProgress": "{funded} of 3 seats funded",
-        "payment.mySeatFunded": "Your seat is funded",
-        "payment.mySeatPending": "Your seat is not funded yet",
-        "payment.paymentRequested": "Payment Requested",
-        "payment.paymentConfirmed": "Payment Confirmed",
-        "payment.preparing": "Preparing payment...",
-        "payment.statusWaiting": "WAITING",
-        "payment.statusConnecting": "CONNECTING",
-        "payment.statusConnected": "CONNECTED",
-        "payment.statusAddressMismatch": "ADDRESS MISMATCH",
-        "payment.creating": "Creating...",
-        "payment.created": "Created ✓",
-        "payment.smartContractFailed": "Smart Contract Failed",
-        "player.age": "AGE",
         "player.sector": "SECTOR",
 
         "game.youMustWin": "YOU MUST WIN",
@@ -200,15 +112,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.gameSummary": "Game summary",
         "result.winningSector": "Winning Sector",
         "result.winningColor": "Winning Color",
-        "result.winnerPayout": "Winner Payout",
-        "result.youReceived": "You received",
-        "result.awaitingSettlement": "Awaiting settlement…",
-        "result.settlementInProgress": "Settlement in progress…",
-        "result.paymentCompleted": "Payment completed",
-        "result.paymentFailed": "Payment failed",
-        "result.auditPending": "Audit pending",
-        "result.auditCompleted": "Audit completed",
-        "result.auditUnavailable": "Audit unavailable",
         "result.gameReport": "Game Report",
         "result.downloadTxt": "Download TXT",
         "result.awaitingReport": "Awaiting authoritative report…",
@@ -217,7 +120,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.recoveryInformation": "Recovery Information",
         "result.playAgain": "Play Again",
         "result.roomReturn": "Room Return",
-        "result.zeroGrm": "0.00 GRM",
 
         "infobar.roomId": "ROOM ID",
         "infobar.players": "PLAYERS",
@@ -242,8 +144,6 @@ export const TRANSLATIONS = Object.freeze({
         "common.waiting": "Esperando",
         "common.icon": "ICONO",
         "common.status": "Estado",
-        "common.wallet": "Wallet",
-        "common.copy": "Copiar",
         "common.copied": "Copiado",
         "common.bannerAlt": "Banner de WheelWin",
 
@@ -257,17 +157,6 @@ export const TRANSLATIONS = Object.freeze({
         "menu.changelog": "CAMBIOS",
 
         "welcome.testMode": "⚠️ MODO DE PRUEBA",
-        "welcome.testnetBody":
-            "ESTE PROYECTO ESTÁ FUNCIONANDO ACTUALMENTE EN LA TON TESTNET.",
-        "welcome.testnetWalletsOnly":
-            "USA SOLO WALLETS DE GRAM (TON) DE TESTNET.",
-
-        "welcome.mainnetMode": "⚠️ MAINNET",
-        "welcome.mainnetBody":
-            "ESTE PROYECTO ESTÁ FUNCIONANDO ACTUALMENTE EN LA TON MAINNET.",
-        "welcome.mainnetWalletsOnly":
-            "USA SOLO TELEGRAM WALLET.",
-
         "welcome.testnetDismiss": "Toca este mensaje en cualquier lugar para continuar.",
 
         "page.welcome.title": "BIENVENIDO A WHEELWIN",
@@ -275,7 +164,6 @@ export const TRANSLATIONS = Object.freeze({
         "page.setup.title": "CONFIGURACIÓN DEL JUGADOR",
         "page.matrix.title": "MATRIZ SECRETA",
         "page.verify.title": "VERIFICAR",
-        "page.payment.title": "PAGO",
         "page.result.title": "JUEGO TERMINADO",
 
         "room.createRoom": "CREAR SALA",
@@ -293,13 +181,10 @@ export const TRANSLATIONS = Object.freeze({
         "setup.nickname": "INGRESA TU APODO",
         "setup.age": "¿CUÁNTOS AÑOS TIENES?",
         "setup.ageHint": "Debes tener entre {min} y {max} años.",
-        "setup.baseStake": "APUESTA BASE",
         "setup.sectors": "SECTORES",
         "setup.arrangement": "DISPOSICIÓN",
         "setup.colorSector1": "COLOR DEL SECTOR 1",
         "setup.colorSector2": "COLOR DEL SECTOR 2",
-        "setup.oneGram": "1 GRAM",
-        "setup.tenGram": "10 GRAM",
         "setup.oneSector": "1 SECTOR",
         "setup.twoSectors": "2 SECTORES",
         "setup.together": "JUNTOS",
@@ -323,86 +208,12 @@ export const TRANSLATIONS = Object.freeze({
         "verify.waitingForPlayers": "Esperando jugadores…",
         "verify.waitingConfirm": "Esperando que todos los jugadores confirmen…",
         "verify.waitingContinue": "Esperando que todos los jugadores continúen…",
-        "verify.continuingToPayment":
-            "Jugadores verificados. Continuando al pago…",
-        "verify.enterWalletToContinue":
-            "Jugadores verificados. Ingresa una wallet válida para continuar.",
-        "verify.baseStake": "APUESTA BASE",
-        "verify.youNeedPayGram": "DEBES PAGAR GRAM",
-        "verify.walletLabel":
-            "INGRESA LA DIRECCIÓN DE TU WALLET DE GRAM (TON) TELEGRAM",
-        "verify.invalidWallet": "Dirección de wallet TON no válida.",
-        "verify.youNeedPay": "DEBES PAGAR",
 
         "player.you": "JUGADOR {n} — TÚ",
         "player.other": "JUGADOR {n}",
         "player.yourNickname": "TU APODO",
         "player.playerNickname": "APODO DEL JUGADOR",
 
-        "payment.connectWallet": "CONECTAR TELEGRAM WALLET",
-        "payment.disconnect": "DESCONECTAR",
-        "payment.confirmInWallet": "CONFIRMAR EN TU TON WALLET",
-        "payment.payAmount": "PAGAR {amount} TON",
-        "payment.waitingGameEscrow": "Preparando el pago del juego…",
-        "payment.waitingCreatorDeposit":
-            "Esperando a que el creador de la sala despliegue el depósito…",
-        "payment.entryFailed": "El pago de entrada falló.",
-        "payment.openingWallet": "ABRIENDO WALLET…",
-        "payment.allConfirmed": "Todos los pagos confirmados",
-        "payment.deploymentFailed": "Error en el despliegue",
-        "payment.sessionFailed": "Error en la sesión de pago",
-        "payment.desktopConnection": "Conexión de escritorio",
-        "payment.universalLink": "Universal Link",
-        "payment.openWallet": "Abrir Wallet",
-        "payment.walletMismatch":
-            "La wallet conectada no coincide con la wallet ingresada en VERIFY.",
-        "payment.telegramSessionNoAddress":
-            "La sesión de Telegram Wallet está activa, pero no hay "
-            + "dirección de cuenta disponible. Desconecta y vuelve a conectar.",
-        "payment.unableOpenTelegramWallet": "No se pudo abrir Telegram Wallet.",
-        "payment.telegramNotConnected": "Telegram Wallet no está conectada.",
-        "payment.unablePrepareTransaction":
-            "No se pudo preparar la transacción de pago.",
-        "payment.walletRejected":
-            "La wallet rechazó o canceló la solicitud de pago.",
-        "payment.walletConnected": "Wallet conectada ✓",
-        "payment.addressMismatch": "Dirección no coincide",
-        "payment.connecting": "Conectando…",
-        "payment.walletPending": "Wallet pendiente",
-        "payment.walletRegistered": "Wallet registrada ✓",
-        "payment.walletMissing": "Wallet faltante",
-        "payment.paid": "Pagado ✓",
-        "payment.failed": "Fallido",
-        "payment.cancelled": "Cancelado",
-        "payment.waitingConfirmation": "Esperando confirmación",
-        "payment.waitingBlockchain": "Esperando la blockchain...",
-        "payment.waitingForPayments": "Esperando pagos",
-        "payment.waitingDepositActivation": "Esperando la activación del depósito…",
-        "payment.waitingDepositFull": "Esperando que todos los asientos se financien…",
-        "payment.depositActivationNotVerified":
-            "La activación del depósito aún no está verificada.",
-        "payment.fundSeatUnavailable":
-            "La financiación del asiento no está disponible hasta que se verifique la activación.",
-        "payment.fundSeatFailed": "La transacción de financiación del asiento falló.",
-        "payment.depositDeployFailed": "El despliegue del depósito falló.",
-        "payment.stakeUnavailable": "La apuesta del juego aún no está disponible.",
-        "payment.stakeFailed": "La transacción de apuesta del juego falló.",
-        "payment.serverStateMismatch":
-            "El estado de pago del servidor no coincide con esta sesión.",
-        "payment.depositSeatsProgress": "{funded} de 3 asientos financiados",
-        "payment.mySeatFunded": "Tu asiento está financiado",
-        "payment.mySeatPending": "Tu asiento aún no está financiado",
-        "payment.paymentRequested": "Pago solicitado",
-        "payment.paymentConfirmed": "Pago confirmado",
-        "payment.preparing": "Preparando el pago...",
-        "payment.statusWaiting": "ESPERANDO",
-        "payment.statusConnecting": "CONECTANDO",
-        "payment.statusConnected": "CONECTADO",
-        "payment.statusAddressMismatch": "DIRECCIÓN NO COINCIDE",
-        "payment.creating": "Creando...",
-        "payment.created": "Creado ✓",
-        "payment.smartContractFailed": "Error del smart contract",
-        "player.age": "EDAD",
         "player.sector": "SECTOR",
 
         "game.youMustWin": "DEBES GANAR",
@@ -423,15 +234,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.gameSummary": "Resumen de la partida",
         "result.winningSector": "Sector ganador",
         "result.winningColor": "Color ganador",
-        "result.winnerPayout": "Pago al ganador",
-        "result.youReceived": "Recibiste",
-        "result.awaitingSettlement": "Esperando liquidación…",
-        "result.settlementInProgress": "Liquidación en curso…",
-        "result.paymentCompleted": "Pago completado",
-        "result.paymentFailed": "Pago fallido",
-        "result.auditPending": "Auditoría pendiente",
-        "result.auditCompleted": "Auditoría completada",
-        "result.auditUnavailable": "Auditoría no disponible",
         "result.gameReport": "Informe de la partida",
         "result.downloadTxt": "Descargar TXT",
         "result.awaitingReport": "Esperando el informe oficial…",
@@ -440,7 +242,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.recoveryInformation": "Información de recuperación",
         "result.playAgain": "Jugar de nuevo",
         "result.roomReturn": "Volver a la sala",
-        "result.zeroGrm": "0.00 GRM",
 
         "infobar.roomId": "ID DE SALA",
         "infobar.players": "JUGADORES",
@@ -465,8 +266,6 @@ export const TRANSLATIONS = Object.freeze({
         "common.waiting": "Aguardando",
         "common.icon": "ÍCONE",
         "common.status": "Status",
-        "common.wallet": "Wallet",
-        "common.copy": "Copiar",
         "common.copied": "Copiado",
         "common.bannerAlt": "Banner do WheelWin",
 
@@ -480,17 +279,6 @@ export const TRANSLATIONS = Object.freeze({
         "menu.changelog": "MUDANÇAS",
 
         "welcome.testMode": "⚠️ MODO DE TESTE",
-        "welcome.testnetBody":
-            "ESTE PROJETO ESTÁ RODANDO ATUALMENTE NA TON TESTNET.",
-        "welcome.testnetWalletsOnly":
-            "USE APENAS WALLETS DE GRAM (TON) DA TESTNET.",
-
-        "welcome.mainnetMode": "⚠️ MAINNET",
-        "welcome.mainnetBody":
-            "ESTE PROJETO ESTÁ RODANDO ATUALMENTE NA TON MAINNET.",
-        "welcome.mainnetWalletsOnly":
-            "USE APENAS TELEGRAM WALLET.",
-
         "welcome.testnetDismiss": "Toque em qualquer lugar nesta mensagem para continuar.",
 
         "page.welcome.title": "BEM-VINDO AO WHEELWIN",
@@ -498,7 +286,6 @@ export const TRANSLATIONS = Object.freeze({
         "page.setup.title": "CONFIGURAÇÃO DO JOGADOR",
         "page.matrix.title": "MATRIZ SECRETA",
         "page.verify.title": "VERIFICAR",
-        "page.payment.title": "PAGAMENTO",
         "page.result.title": "JOGO FINALIZADO",
 
         "room.createRoom": "CRIAR SALA",
@@ -516,13 +303,10 @@ export const TRANSLATIONS = Object.freeze({
         "setup.nickname": "DIGITE SEU APELIDO",
         "setup.age": "QUANTOS ANOS VOCÊ TEM?",
         "setup.ageHint": "Você deve ter entre {min} e {max} anos.",
-        "setup.baseStake": "APOSTA BASE",
         "setup.sectors": "SETORES",
         "setup.arrangement": "DISPOSIÇÃO",
         "setup.colorSector1": "COR DO SETOR 1",
         "setup.colorSector2": "COR DO SETOR 2",
-        "setup.oneGram": "1 GRAM",
-        "setup.tenGram": "10 GRAM",
         "setup.oneSector": "1 SETOR",
         "setup.twoSectors": "2 SETORES",
         "setup.together": "JUNTOS",
@@ -546,86 +330,12 @@ export const TRANSLATIONS = Object.freeze({
         "verify.waitingForPlayers": "Aguardando jogadores…",
         "verify.waitingConfirm": "Aguardando todos os jogadores confirmarem…",
         "verify.waitingContinue": "Aguardando todos os jogadores continuarem…",
-        "verify.continuingToPayment":
-            "Jogadores verificados. Continuando para o pagamento…",
-        "verify.enterWalletToContinue":
-            "Jogadores verificados. Digite uma wallet válida para continuar.",
-        "verify.baseStake": "APOSTA BASE",
-        "verify.youNeedPayGram": "VOCÊ PRECISA PAGAR GRAM",
-        "verify.walletLabel":
-            "DIGITE O ENDEREÇO DA SUA WALLET DE GRAM (TON) TELEGRAM",
-        "verify.invalidWallet": "Endereço de wallet TON inválido.",
-        "verify.youNeedPay": "VOCÊ PRECISA PAGAR",
 
         "player.you": "JOGADOR {n} — VOCÊ",
         "player.other": "JOGADOR {n}",
         "player.yourNickname": "SEU APELIDO",
         "player.playerNickname": "APELIDO DO JOGADOR",
 
-        "payment.connectWallet": "CONECTAR TELEGRAM WALLET",
-        "payment.disconnect": "DESCONECTAR",
-        "payment.confirmInWallet": "CONFIRMAR NA SUA TON WALLET",
-        "payment.payAmount": "PAGAR {amount} TON",
-        "payment.waitingGameEscrow": "Preparando o pagamento do jogo…",
-        "payment.waitingCreatorDeposit":
-            "Aguardando o criador da sala implantar o depósito…",
-        "payment.entryFailed": "O pagamento de entrada falhou.",
-        "payment.openingWallet": "ABRINDO WALLET…",
-        "payment.allConfirmed": "Todos os pagamentos confirmados",
-        "payment.deploymentFailed": "Falha no deploy",
-        "payment.sessionFailed": "Falha na sessão de pagamento",
-        "payment.desktopConnection": "Conexão desktop",
-        "payment.universalLink": "Universal Link",
-        "payment.openWallet": "Abrir Wallet",
-        "payment.walletMismatch":
-            "A wallet conectada não corresponde à wallet informada em VERIFY.",
-        "payment.telegramSessionNoAddress":
-            "A sessão da Telegram Wallet está ativa, mas nenhum endereço "
-            + "de conta está disponível. Desconecte e conecte novamente.",
-        "payment.unableOpenTelegramWallet": "Não foi possível abrir a Telegram Wallet.",
-        "payment.telegramNotConnected": "Telegram Wallet não está conectada.",
-        "payment.unablePrepareTransaction":
-            "Não foi possível preparar a transação de pagamento.",
-        "payment.walletRejected":
-            "A wallet rejeitou ou cancelou a solicitação de pagamento.",
-        "payment.walletConnected": "Wallet conectada ✓",
-        "payment.addressMismatch": "Endereço não corresponde",
-        "payment.connecting": "Conectando…",
-        "payment.walletPending": "Wallet pendente",
-        "payment.walletRegistered": "Wallet registrada ✓",
-        "payment.walletMissing": "Wallet ausente",
-        "payment.paid": "Pago ✓",
-        "payment.failed": "Falhou",
-        "payment.cancelled": "Cancelado",
-        "payment.waitingConfirmation": "Aguardando confirmação",
-        "payment.waitingBlockchain": "Aguardando a blockchain...",
-        "payment.waitingForPayments": "Aguardando pagamentos",
-        "payment.waitingDepositActivation": "Aguardando a ativação do depósito…",
-        "payment.waitingDepositFull": "Aguardando o financiamento de todos os assentos…",
-        "payment.depositActivationNotVerified":
-            "A ativação do depósito ainda não foi verificada.",
-        "payment.fundSeatUnavailable":
-            "O financiamento do assento fica indisponível até a ativação ser verificada.",
-        "payment.fundSeatFailed": "A transação de financiamento do assento falhou.",
-        "payment.depositDeployFailed": "A implantação do depósito falhou.",
-        "payment.stakeUnavailable": "A aposta do jogo ainda não está disponível.",
-        "payment.stakeFailed": "A transação de aposta do jogo falhou.",
-        "payment.serverStateMismatch":
-            "O estado de pagamento do servidor não corresponde a esta sessão.",
-        "payment.depositSeatsProgress": "{funded} de 3 assentos financiados",
-        "payment.mySeatFunded": "Seu assento está financiado",
-        "payment.mySeatPending": "Seu assento ainda não está financiado",
-        "payment.paymentRequested": "Pagamento solicitado",
-        "payment.paymentConfirmed": "Pagamento confirmado",
-        "payment.preparing": "Preparando pagamento...",
-        "payment.statusWaiting": "AGUARDANDO",
-        "payment.statusConnecting": "CONECTANDO",
-        "payment.statusConnected": "CONECTADO",
-        "payment.statusAddressMismatch": "ENDEREÇO NÃO CORRESPONDE",
-        "payment.creating": "Criando...",
-        "payment.created": "Criado ✓",
-        "payment.smartContractFailed": "Falha no smart contract",
-        "player.age": "IDADE",
         "player.sector": "SETOR",
 
         "game.youMustWin": "VOCÊ PRECISA GANHAR",
@@ -646,15 +356,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.gameSummary": "Resumo da partida",
         "result.winningSector": "Setor vencedor",
         "result.winningColor": "Cor vencedora",
-        "result.winnerPayout": "Pagamento ao vencedor",
-        "result.youReceived": "Você recebeu",
-        "result.awaitingSettlement": "Aguardando liquidação…",
-        "result.settlementInProgress": "Liquidação em andamento…",
-        "result.paymentCompleted": "Pagamento concluído",
-        "result.paymentFailed": "Pagamento falhou",
-        "result.auditPending": "Auditoria pendente",
-        "result.auditCompleted": "Auditoria concluída",
-        "result.auditUnavailable": "Auditoria indisponível",
         "result.gameReport": "Relatório da partida",
         "result.downloadTxt": "Baixar TXT",
         "result.awaitingReport": "Aguardando o relatório oficial…",
@@ -663,7 +364,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.recoveryInformation": "Informações de recuperação",
         "result.playAgain": "Jogar novamente",
         "result.roomReturn": "Voltar à sala",
-        "result.zeroGrm": "0.00 GRM",
 
         "infobar.roomId": "ID DA SALA",
         "infobar.players": "JOGADORES",
@@ -688,8 +388,6 @@ export const TRANSLATIONS = Object.freeze({
         "common.waiting": "En attente",
         "common.icon": "ICÔNE",
         "common.status": "Statut",
-        "common.wallet": "Wallet",
-        "common.copy": "Copier",
         "common.copied": "Copié",
         "common.bannerAlt": "Bannière WheelWin",
 
@@ -703,16 +401,8 @@ export const TRANSLATIONS = Object.freeze({
         "menu.changelog": "JOURNAL",
 
         "welcome.testMode": "⚠️ MODE TEST",
-        "welcome.testnetBody":
-            "CE PROJET TOURNE ACTUELLEMENT SUR LE TON TESTNET.",
-        "welcome.testnetWalletsOnly":
-            "UTILISEZ UNIQUEMENT DES WALLETS GRAM (TON) TESTNET.",
 
         "welcome.mainnetMode": "⚠️ MAINNET",
-        "welcome.mainnetBody":
-            "CE PROJET TOURNE ACTUELLEMENT SUR LE TON MAINNET.",
-        "welcome.mainnetWalletsOnly":
-            "UTILISEZ UNIQUEMENT TELEGRAM WALLET.",
 
         "welcome.testnetDismiss": "Touchez n’importe où sur ce message pour continuer.",
 
@@ -721,7 +411,6 @@ export const TRANSLATIONS = Object.freeze({
         "page.setup.title": "CONFIGURATION DU JOUEUR",
         "page.matrix.title": "MATRICE SECRÈTE",
         "page.verify.title": "VÉRIFIER",
-        "page.payment.title": "PAIEMENT",
         "page.result.title": "PARTIE TERMINÉE",
 
         "room.createRoom": "CRÉER UNE SALLE",
@@ -739,13 +428,10 @@ export const TRANSLATIONS = Object.freeze({
         "setup.nickname": "SAISISSEZ VOTRE PSEUDO",
         "setup.age": "QUEL ÂGE AVEZ-VOUS ?",
         "setup.ageHint": "Vous devez avoir entre {min} et {max} ans.",
-        "setup.baseStake": "MISE DE BASE",
         "setup.sectors": "SECTEURS",
         "setup.arrangement": "DISPOSITION",
         "setup.colorSector1": "COULEUR DU SECTEUR 1",
         "setup.colorSector2": "COULEUR DU SECTEUR 2",
-        "setup.oneGram": "1 GRAM",
-        "setup.tenGram": "10 GRAM",
         "setup.oneSector": "1 SECTEUR",
         "setup.twoSectors": "2 SECTEURS",
         "setup.together": "ENSEMBLE",
@@ -769,86 +455,12 @@ export const TRANSLATIONS = Object.freeze({
         "verify.waitingForPlayers": "En attente des joueurs…",
         "verify.waitingConfirm": "En attente de la confirmation de tous les joueurs…",
         "verify.waitingContinue": "En attente que tous les joueurs continuent…",
-        "verify.continuingToPayment":
-            "Joueurs vérifiés. Passage au paiement…",
-        "verify.enterWalletToContinue":
-            "Joueurs vérifiés. Saisissez un wallet valide pour continuer.",
-        "verify.baseStake": "MISE DE BASE",
-        "verify.youNeedPayGram": "VOUS DEVEZ PAYER EN GRAM",
-        "verify.walletLabel":
-            "SAISISSEZ L’ADRESSE DE VOTRE WALLET GRAM (TON) TELEGRAM",
-        "verify.invalidWallet": "Adresse de wallet TON invalide.",
-        "verify.youNeedPay": "VOUS DEVEZ PAYER",
 
         "player.you": "JOUEUR {n} — VOUS",
         "player.other": "JOUEUR {n}",
         "player.yourNickname": "VOTRE PSEUDO",
         "player.playerNickname": "PSEUDO DU JOUEUR",
 
-        "payment.connectWallet": "CONNECTER TELEGRAM WALLET",
-        "payment.disconnect": "DÉCONNECTER",
-        "payment.confirmInWallet": "CONFIRMER DANS VOTRE TON WALLET",
-        "payment.payAmount": "PAYER {amount} TON",
-        "payment.waitingGameEscrow": "Préparation du paiement de la partie…",
-        "payment.waitingCreatorDeposit":
-            "En attente que le créateur de la salle déploie le dépôt…",
-        "payment.entryFailed": "Le paiement d’entrée a échoué.",
-        "payment.openingWallet": "OUVERTURE DU WALLET…",
-        "payment.allConfirmed": "Tous les paiements confirmés",
-        "payment.deploymentFailed": "Échec du déploiement",
-        "payment.sessionFailed": "Échec de la session de paiement",
-        "payment.desktopConnection": "Connexion bureau",
-        "payment.universalLink": "Universal Link",
-        "payment.openWallet": "Ouvrir le Wallet",
-        "payment.walletMismatch":
-            "Le wallet connecté ne correspond pas au wallet saisi dans VERIFY.",
-        "payment.telegramSessionNoAddress":
-            "La session Telegram Wallet est active, mais aucune adresse "
-            + "de compte n’est disponible. Déconnectez-vous puis reconnectez-vous.",
-        "payment.unableOpenTelegramWallet": "Impossible d’ouvrir Telegram Wallet.",
-        "payment.telegramNotConnected": "Telegram Wallet n’est pas connecté.",
-        "payment.unablePrepareTransaction":
-            "Impossible de préparer la transaction de paiement.",
-        "payment.walletRejected":
-            "Le wallet a rejeté ou annulé la demande de paiement.",
-        "payment.walletConnected": "Wallet connecté ✓",
-        "payment.addressMismatch": "Adresse non correspondante",
-        "payment.connecting": "Connexion…",
-        "payment.walletPending": "Wallet en attente",
-        "payment.walletRegistered": "Wallet enregistré ✓",
-        "payment.walletMissing": "Wallet manquant",
-        "payment.paid": "Payé ✓",
-        "payment.failed": "Échoué",
-        "payment.cancelled": "Annulé",
-        "payment.waitingConfirmation": "En attente de confirmation",
-        "payment.waitingBlockchain": "En attente de la blockchain...",
-        "payment.waitingForPayments": "En attente des paiements",
-        "payment.waitingDepositActivation": "En attente de l’activation du dépôt…",
-        "payment.waitingDepositFull": "En attente du financement de tous les sièges…",
-        "payment.depositActivationNotVerified":
-            "L’activation du dépôt n’est pas encore vérifiée.",
-        "payment.fundSeatUnavailable":
-            "Le financement du siège est indisponible tant que l’activation n’est pas vérifiée.",
-        "payment.fundSeatFailed": "La transaction de financement du siège a échoué.",
-        "payment.depositDeployFailed": "Le déploiement du dépôt a échoué.",
-        "payment.stakeUnavailable": "La mise du jeu n’est pas encore disponible.",
-        "payment.stakeFailed": "La transaction de mise du jeu a échoué.",
-        "payment.serverStateMismatch":
-            "L’état de paiement du serveur ne correspond pas à cette session.",
-        "payment.depositSeatsProgress": "{funded} sièges sur 3 financés",
-        "payment.mySeatFunded": "Votre siège est financé",
-        "payment.mySeatPending": "Votre siège n’est pas encore financé",
-        "payment.paymentRequested": "Paiement demandé",
-        "payment.paymentConfirmed": "Paiement confirmé",
-        "payment.preparing": "Préparation du paiement...",
-        "payment.statusWaiting": "EN ATTENTE",
-        "payment.statusConnecting": "CONNEXION",
-        "payment.statusConnected": "CONNECTÉ",
-        "payment.statusAddressMismatch": "ADRESSE NON CORRESPONDANTE",
-        "payment.creating": "Création...",
-        "payment.created": "Créé ✓",
-        "payment.smartContractFailed": "Échec du smart contract",
-        "player.age": "ÂGE",
         "player.sector": "SECTEUR",
 
         "game.youMustWin": "VOUS DEVEZ GAGNER",
@@ -869,15 +481,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.gameSummary": "Résumé de la partie",
         "result.winningSector": "Secteur gagnant",
         "result.winningColor": "Couleur gagnante",
-        "result.winnerPayout": "Paiement au gagnant",
-        "result.youReceived": "Vous avez reçu",
-        "result.awaitingSettlement": "En attente du règlement…",
-        "result.settlementInProgress": "Règlement en cours…",
-        "result.paymentCompleted": "Paiement terminé",
-        "result.paymentFailed": "Paiement échoué",
-        "result.auditPending": "Audit en attente",
-        "result.auditCompleted": "Audit terminé",
-        "result.auditUnavailable": "Audit indisponible",
         "result.gameReport": "Rapport de partie",
         "result.downloadTxt": "Télécharger TXT",
         "result.awaitingReport": "En attente du rapport officiel…",
@@ -886,7 +489,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.recoveryInformation": "Informations de récupération",
         "result.playAgain": "Rejouer",
         "result.roomReturn": "Retour à la salle",
-        "result.zeroGrm": "0.00 GRM",
 
         "infobar.roomId": "ID DE SALLE",
         "infobar.players": "JOUEURS",
@@ -911,8 +513,6 @@ export const TRANSLATIONS = Object.freeze({
         "common.waiting": "等待中",
         "common.icon": "图标",
         "common.status": "状态",
-        "common.wallet": "Wallet",
-        "common.copy": "复制",
         "common.copied": "已复制",
         "common.bannerAlt": "WheelWin 横幅",
 
@@ -926,17 +526,6 @@ export const TRANSLATIONS = Object.freeze({
         "menu.changelog": "更新日志",
 
         "welcome.testMode": "⚠️ 测试模式",
-        "welcome.testnetBody":
-            "本项目当前运行在 TON TESTNET 上。",
-        "welcome.testnetWalletsOnly":
-            "请仅使用 TESTNET GRAM (TON) Wallet。",
-
-        "welcome.mainnetMode": "⚠️ 主网",
-        "welcome.mainnetBody":
-            "本项目当前运行在 TON MAINNET 上。",
-        "welcome.mainnetWalletsOnly":
-            "请仅使用 TELEGRAM WALLET。",
-
         "welcome.testnetDismiss": "点击此消息任意位置以继续。",
 
         "page.welcome.title": "欢迎来到 WHEELWIN",
@@ -944,7 +533,6 @@ export const TRANSLATIONS = Object.freeze({
         "page.setup.title": "玩家设置",
         "page.matrix.title": "秘密矩阵",
         "page.verify.title": "验证",
-        "page.payment.title": "支付",
         "page.result.title": "游戏结束",
 
         "room.createRoom": "创建房间",
@@ -962,13 +550,10 @@ export const TRANSLATIONS = Object.freeze({
         "setup.nickname": "输入你的昵称",
         "setup.age": "你多大了？",
         "setup.ageHint": "你的年龄必须在 {min} 到 {max} 岁之间。",
-        "setup.baseStake": "基础赌注",
         "setup.sectors": "扇区",
         "setup.arrangement": "布局",
         "setup.colorSector1": "扇区 1 颜色",
         "setup.colorSector2": "扇区 2 颜色",
-        "setup.oneGram": "1 GRAM",
-        "setup.tenGram": "10 GRAM",
         "setup.oneSector": "1 扇区",
         "setup.twoSectors": "2 扇区",
         "setup.together": "相邻",
@@ -992,85 +577,12 @@ export const TRANSLATIONS = Object.freeze({
         "verify.waitingForPlayers": "正在等待玩家…",
         "verify.waitingConfirm": "正在等待所有玩家确认…",
         "verify.waitingContinue": "正在等待所有玩家继续…",
-        "verify.continuingToPayment":
-            "玩家已验证。正在进入支付…",
-        "verify.enterWalletToContinue":
-            "玩家已验证。请输入有效的 Wallet 以继续。",
-        "verify.baseStake": "基础赌注",
-        "verify.youNeedPayGram": "你需要支付 GRAM",
-        "verify.walletLabel":
-            "输入你的 GRAM (TON) TELEGRAM WALLET 地址",
-        "verify.invalidWallet": "TON Wallet 地址无效。",
-        "verify.youNeedPay": "你需要支付",
 
         "player.you": "玩家 {n} — 你",
         "player.other": "玩家 {n}",
         "player.yourNickname": "你的昵称",
         "player.playerNickname": "玩家昵称",
 
-        "payment.connectWallet": "连接 TELEGRAM WALLET",
-        "payment.disconnect": "断开连接",
-        "payment.confirmInWallet": "在您的 TON WALLET 中确认",
-        "payment.payAmount": "支付 {amount} TON",
-        "payment.waitingGameEscrow": "正在准备游戏付款…",
-        "payment.waitingCreatorDeposit": "正在等待房主部署押金合约…",
-        "payment.entryFailed": "入场支付失败。",
-        "payment.openingWallet": "正在打开 Wallet…",
-        "payment.allConfirmed": "所有支付已确认",
-        "payment.deploymentFailed": "部署失败",
-        "payment.sessionFailed": "支付会话失败",
-        "payment.desktopConnection": "桌面连接",
-        "payment.universalLink": "Universal Link",
-        "payment.openWallet": "打开 Wallet",
-        "payment.walletMismatch":
-            "已连接的 Wallet 与 VERIFY 阶段输入的 Wallet 不一致。",
-        "payment.telegramSessionNoAddress":
-            "Telegram Wallet 会话已激活，但无法获取账户地址。"
-            + "请断开连接后重新连接。",
-        "payment.unableOpenTelegramWallet": "无法打开 Telegram Wallet。",
-        "payment.telegramNotConnected": "Telegram Wallet 未连接。",
-        "payment.unablePrepareTransaction":
-            "无法准备支付交易。",
-        "payment.walletRejected":
-            "Wallet 已拒绝或取消支付请求。",
-        "payment.walletConnected": "Wallet 已连接 ✓",
-        "payment.addressMismatch": "地址不匹配",
-        "payment.connecting": "正在连接…",
-        "payment.walletPending": "Wallet 待处理",
-        "payment.walletRegistered": "Wallet 已注册 ✓",
-        "payment.walletMissing": "缺少 Wallet",
-        "payment.paid": "已支付 ✓",
-        "payment.failed": "失败",
-        "payment.cancelled": "已取消",
-        "payment.waitingConfirmation": "等待确认",
-        "payment.waitingBlockchain": "等待区块链确认...",
-        "payment.waitingForPayments": "等待支付",
-        "payment.waitingDepositActivation": "正在等待押金激活…",
-        "payment.waitingDepositFull": "正在等待所有座位完成注资…",
-        "payment.depositActivationNotVerified":
-            "押金激活尚未验证。",
-        "payment.fundSeatUnavailable":
-            "在押金激活验证完成前，无法为座位注资。",
-        "payment.fundSeatFailed": "座位注资交易失败。",
-        "payment.depositDeployFailed": "押金合约部署失败。",
-        "payment.stakeUnavailable": "游戏押注尚不可用。",
-        "payment.stakeFailed": "游戏押注交易失败。",
-        "payment.serverStateMismatch":
-            "服务器支付状态与当前会话不匹配。",
-        "payment.depositSeatsProgress": "已注资 {funded} / 3 个座位",
-        "payment.mySeatFunded": "你的座位已注资",
-        "payment.mySeatPending": "你的座位尚未注资",
-        "payment.paymentRequested": "已请求支付",
-        "payment.paymentConfirmed": "支付已确认",
-        "payment.preparing": "正在准备支付...",
-        "payment.statusWaiting": "等待中",
-        "payment.statusConnecting": "连接中",
-        "payment.statusConnected": "已连接",
-        "payment.statusAddressMismatch": "地址不匹配",
-        "payment.creating": "创建中...",
-        "payment.created": "已创建 ✓",
-        "payment.smartContractFailed": "智能合约失败",
-        "player.age": "年龄",
         "player.sector": "扇区",
 
         "game.youMustWin": "你必须获胜",
@@ -1091,15 +603,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.gameSummary": "游戏摘要",
         "result.winningSector": "获胜扇区",
         "result.winningColor": "获胜颜色",
-        "result.winnerPayout": "赢家奖金",
-        "result.youReceived": "你收到了",
-        "result.awaitingSettlement": "等待结算…",
-        "result.settlementInProgress": "结算进行中…",
-        "result.paymentCompleted": "支付已完成",
-        "result.paymentFailed": "支付失败",
-        "result.auditPending": "审计待处理",
-        "result.auditCompleted": "审计已完成",
-        "result.auditUnavailable": "审计不可用",
         "result.gameReport": "游戏报告",
         "result.downloadTxt": "下载 TXT",
         "result.awaitingReport": "等待官方报告…",
@@ -1108,7 +611,6 @@ export const TRANSLATIONS = Object.freeze({
         "result.recoveryInformation": "恢复信息",
         "result.playAgain": "再玩一次",
         "result.roomReturn": "返回房间",
-        "result.zeroGrm": "0.00 GRM",
 
         "infobar.roomId": "房间 ID",
         "infobar.players": "玩家",

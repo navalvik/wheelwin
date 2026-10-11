@@ -18,20 +18,17 @@ import { ResultActivation } from "../../gameplay/ResultActivation.js";
 import { PreGameReadyActivation } from "../../gameplay/PreGameReadyActivation.js";
 import { ReadyPhaseBroadcaster } from "../../gameplay/ReadyPhaseBroadcaster.js";
 import { BrakePhaseController } from "../../gameplay/BrakePhaseController.js";
-import { PaymentActivation } from "../../gameplay/PaymentActivation.js";
 import { GameplayLifecycle } from "../../gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "../../gameplay/SetupSessionLifecycle.js";
-import { PaymentEngine } from "../../engines/PaymentEngine.js";
-import { TelegramWalletAdapter } from "../../services/telegram/TelegramWalletAdapter.js";
 import { EVENT_SOURCES } from "../../events/EventSources.js";
 import { EVENT_TYPES } from "../../events/EventTypes.js";
 
 /**
- * R1.1 — After room-full prep, emit entry-payment completion so GameManager
+ * R1.1 — After room-full prep, emit GAME_START_AUTHORIZED so GameManager
  * starts GameClock in PRE_GAME_READY (physics stays CREATED until READY).
- * Used by tests that skip the lobby payment UI.
+ * Used by tests that skip the lobby/verify barrier UI.
  */
-export function emitEntryPaymentCompleted(eventBus, roomId) {
+export function emitGameStartAuthorized(eventBus, roomId) {
 
     if (!eventBus || !roomId) {
 
@@ -41,7 +38,7 @@ export function emitEntryPaymentCompleted(eventBus, roomId) {
 
     eventBus.emit({
         source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
-        type: EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
+        type: EVENT_TYPES.GAME_START_AUTHORIZED,
         payload: { roomId }
     });
 
@@ -210,7 +207,6 @@ export function wireGameplayBootstrap({
     gameplayContextResolver = null,
     devMode = true,
     enableLifecycle = false,
-    walletAdapter = null,
     setupDurationMs = 10 * 60 * 1000,
     deferGameBootstrap = false
 }) {
@@ -388,27 +384,6 @@ export function wireGameplayBootstrap({
 
     preGameReadyActivation.initialize();
 
-    const paymentEngine = new PaymentEngine({
-        logger,
-        eventBus,
-        winnerEngine,
-        configurationEngine,
-        gameCatalog: catalog,
-        telegramWalletAdapter: walletAdapter
-            ?? new TelegramWalletAdapter({ logger })
-    });
-
-    paymentEngine.initialize();
-
-    const paymentActivation = new PaymentActivation({
-        logger,
-        eventBus,
-        paymentEngine,
-        devMode
-    });
-
-    paymentActivation.initialize();
-
     let gameplayLifecycle = null;
 
     if (enableLifecycle) {
@@ -427,8 +402,6 @@ export function wireGameplayBootstrap({
             resultActivation,
             speedActivation,
             offlineInputContinuation,
-            paymentEngine,
-            paymentActivation,
             gameManager,
             devMode
         });
@@ -472,8 +445,6 @@ export function wireGameplayBootstrap({
         brakePhaseController,
         resultActivation,
         preGameReadyActivation,
-        paymentEngine,
-        paymentActivation,
         gameplayLifecycle,
         setupSessionLifecycle
     };
@@ -499,10 +470,6 @@ export function shutdownGameplayBootstrap(engines) {
         engines.setupSessionLifecycle.shutdown();
 
     }
-
-    engines.paymentActivation.shutdown();
-
-    engines.paymentEngine.shutdown();
 
     if (engines.resultActivation) {
 

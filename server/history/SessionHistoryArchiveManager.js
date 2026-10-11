@@ -15,23 +15,13 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { OwnerConfiguration } from "../config/OwnerConfiguration.js";
-import { getTonDeployDebug } from "../diagnostics/DeployPipelineForensics.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
-import {
-    buildBlockchainLifecycle,
-    createBlockchainTrack
-} from "./buildBlockchainLifecycle.js";
 
 export const LIFECYCLE_RESULTS = Object.freeze({
     GAME_COMPLETED: "GAME_COMPLETED",
     SETUP_EXPIRED: "SETUP_EXPIRED",
     VERIFY_ABORTED: "VERIFY_ABORTED",
     VERIFY_TIMEOUT: "VERIFY_TIMEOUT",
-    PAYMENT_TIMEOUT: "PAYMENT_TIMEOUT",
-    PAYMENT_FAILED: "PAYMENT_FAILED",
-    TONCONNECT_TIMEOUT: "TONCONNECT_TIMEOUT",
-    TONCONNECT_FAILED: "TONCONNECT_FAILED",
     ROOM_DESTROYED: "ROOM_DESTROYED",
     RECOVERY_FAILED: "RECOVERY_FAILED",
     SERVER_ABORT: "SERVER_ABORT",
@@ -43,9 +33,6 @@ export const LIFECYCLE_RESULTS = Object.freeze({
 export const FAILURE_OWNERS = Object.freeze({
     SERVER: "SERVER",
     CLIENT: "CLIENT",
-    PAYMENT: "PAYMENT",
-    TONCONNECT: "TONCONNECT",
-    BLOCKCHAIN: "BLOCKCHAIN",
     TIMEOUT: "TIMEOUT",
     USER: "USER",
     ADMIN: "ADMIN",
@@ -124,25 +111,13 @@ function resolveLifecycleResult({ reason, flags, gameId }) {
 
     if (normalized.includes("payment_timeout") || normalized.includes("payment timeout")) {
 
-        return LIFECYCLE_RESULTS.PAYMENT_TIMEOUT;
-
-    }
-
-    if (normalized.includes("payment") || flags.paymentFailed) {
-
-        return LIFECYCLE_RESULTS.PAYMENT_FAILED;
+        return LIFECYCLE_RESULTS.SETUP_EXPIRED;
 
     }
 
     if (normalized.includes("tonconnect") && normalized.includes("timeout")) {
 
-        return LIFECYCLE_RESULTS.TONCONNECT_TIMEOUT;
-
-    }
-
-    if (normalized.includes("tonconnect") || normalized.includes("wallet_connect")) {
-
-        return LIFECYCLE_RESULTS.TONCONNECT_FAILED;
+        return LIFECYCLE_RESULTS.VERIFY_TIMEOUT;
 
     }
 
@@ -197,15 +172,7 @@ function resolveFailureOwner(lifecycleResult, reason) {
 
         case LIFECYCLE_RESULTS.SETUP_EXPIRED:
         case LIFECYCLE_RESULTS.VERIFY_TIMEOUT:
-        case LIFECYCLE_RESULTS.PAYMENT_TIMEOUT:
-        case LIFECYCLE_RESULTS.TONCONNECT_TIMEOUT:
             return FAILURE_OWNERS.TIMEOUT;
-
-        case LIFECYCLE_RESULTS.PAYMENT_FAILED:
-            return FAILURE_OWNERS.PAYMENT;
-
-        case LIFECYCLE_RESULTS.TONCONNECT_FAILED:
-            return FAILURE_OWNERS.TONCONNECT;
 
         case LIFECYCLE_RESULTS.RECOVERY_FAILED:
             return FAILURE_OWNERS.SERVER;
@@ -223,9 +190,7 @@ function resolveFailureOwner(lifecycleResult, reason) {
             return FAILURE_OWNERS.USER;
 
         default:
-            return String(reason ?? "").toLowerCase().includes("blockchain")
-                ? FAILURE_OWNERS.BLOCKCHAIN
-                : FAILURE_OWNERS.UNKNOWN;
+            return FAILURE_OWNERS.UNKNOWN;
 
     }
 
@@ -242,18 +207,6 @@ function resolveFinalStage(lifecycleResult, flags) {
     if (flags.gameStarted) {
 
         return "GAME";
-
-    }
-
-    if (flags.paymentEntered) {
-
-        return "PAYMENT";
-
-    }
-
-    if (flags.tonConnectSeen) {
-
-        return "TONCONNECT";
 
     }
 
@@ -385,29 +338,6 @@ export class SessionHistoryArchiveManager {
 
         });
 
-        this._subscribe(EVENT_TYPES.PAYMENT_CONNECTION_READY, (envelope) => {
-
-            this._flag(envelope.payload?.roomId, "tonConnectSeen", true);
-            this._flag(envelope.payload?.roomId, "paymentEntered", true);
-            this._pushTimeline(
-                envelope.payload?.roomId,
-                "TONCONNECT",
-                "PAYMENT_CONNECTION_READY"
-            );
-
-        });
-
-        this._subscribe(EVENT_TYPES.PAYMENT_SESSION_FAILED, (envelope) => {
-
-            const roomId = envelope.payload?.roomId;
-            const reason = envelope.payload?.reason ?? "payment_failed";
-
-            this._flag(roomId, "paymentFailed", true);
-            this._setTerminalHint(roomId, reason, envelope.payload);
-            this._pushTimeline(roomId, "PAYMENT", `Payment session failed (${reason})`);
-
-        });
-
         this._subscribe(EVENT_TYPES.GAME_START_FAILED, (envelope) => {
 
             const roomId = envelope.payload?.roomId;
@@ -480,40 +410,6 @@ export class SessionHistoryArchiveManager {
             });
 
             this._pushTimeline(roomId, "RESULT", "WINNER_DETERMINED — authoritative result persisted");
-
-        });
-
-        // Persist payment preparation facts separately from settlement. These
-        // are server-produced financial references used only as recovery evidence.
-        this._subscribe(EVENT_TYPES.PAYMENT_PREPARED, (envelope) => {
-
-            const roomId = this._resolvePendingRoomId(envelope.payload);
-            const pending = this._ensurePending(roomId);
-
-            if (!pending) {
-
-                return;
-
-            }
-
-            if (envelope.payload?.gameId) {
-
-                pending.gameId = envelope.payload.gameId;
-
-            }
-
-            pending.paymentPreparation = Object.freeze({
-                gameId: envelope.payload?.gameId ?? pending.gameId ?? null,
-                winnerId: envelope.payload?.winnerId ?? null,
-                totalPrize: envelope.payload?.totalPrize ?? null,
-                winnerAmount: envelope.payload?.winnerAmount ?? null,
-                organizerAmount: envelope.payload?.organizerAmount
-                    ?? envelope.payload?.commissionAmount
-                    ?? envelope.payload?.platformFee
-                    ?? null,
-                traceSeed: envelope.payload?.traceSeed ?? null,
-                timestamp: envelope.payload?.timestamp ?? Date.now()
-            });
 
         });
 
@@ -597,124 +493,6 @@ export class SessionHistoryArchiveManager {
 
         });
 
-        // R7.57 — observe deploy / settlement events into pending forensic track
-        // (managers clear themselves on ROOM_DESTROYED before archive finalize).
-        this._subscribe(EVENT_TYPES.CONTRACT_DEPLOYING, (envelope) => {
-
-            this._onDeployLifecycle("BEGIN_DEPLOY", envelope.payload);
-
-        });
-
-        this._subscribe(EVENT_TYPES.GAME_CONTRACT_DEPLOYED, (envelope) => {
-
-            this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
-                status: "SUCCESS",
-                contractAddress: envelope.payload?.contractAddress ?? null,
-                transactionHash: envelope.payload?.deploymentTxId
-                    ?? envelope.payload?.deploymentTxHash
-                    ?? null
-            });
-
-        });
-
-        this._subscribe(EVENT_TYPES.GAME_CONTRACT_DEPLOY_FAILED, (envelope) => {
-
-            this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
-                status: "FAILED",
-                error: envelope.payload?.reason
-                    ?? envelope.payload?.deployError
-                    ?? envelope.payload?.failureReason
-                    ?? null
-            });
-
-        });
-
-        this._subscribe(EVENT_TYPES.CONTRACT_DEPLOYED, (envelope) => {
-
-            this._onDeployLifecycle("DEPLOY_RESULT", envelope.payload, {
-                status: "SUCCESS"
-            });
-
-        });
-
-        this._subscribe(EVENT_TYPES.SETTLEMENT_STARTED, (envelope) => {
-
-            this._onSettlementLifecycle("SETTLEMENT_STARTED", envelope.payload);
-
-        });
-
-        this._subscribe(EVENT_TYPES.SETTLEMENT_SUBMITTED, (envelope) => {
-
-            this._onSettlementLifecycle("SETTLEMENT_SUBMITTED", envelope.payload);
-
-        });
-
-        this._subscribe(EVENT_TYPES.SETTLEMENT_PENDING, (envelope) => {
-
-            this._onSettlementLifecycle("SETTLEMENT_PENDING", envelope.payload);
-
-        });
-
-        this._subscribe(EVENT_TYPES.SETTLEMENT_CONFIRMED, (envelope) => {
-
-            this._onSettlementLifecycle("SETTLEMENT_CONFIRMED", envelope.payload);
-
-        });
-
-        this._subscribe(EVENT_TYPES.SETTLEMENT_COMPLETED, (envelope) => {
-
-            this._onSettlementLifecycle("SETTLEMENT_COMPLETED", envelope.payload, {
-                status: "SETTLEMENT_COMPLETED"
-            });
-
-        });
-
-        this._subscribe(EVENT_TYPES.SETTLEMENT_FAILED, (envelope) => {
-
-            this._onSettlementLifecycle("SETTLEMENT_FAILED", envelope.payload, {
-                status: "SETTLEMENT_FAILED",
-                error: envelope.payload?.reason ?? null
-            });
-
-        });
-
-        this._subscribe(EVENT_TYPES.SETTLEMENT_TIMEOUT, (envelope) => {
-
-            this._onSettlementLifecycle("SETTLEMENT_FAILED", envelope.payload, {
-                status: "SETTLEMENT_TIMEOUT",
-                error: envelope.payload?.reason ?? "settlement_timeout"
-            });
-
-        });
-
-        // R7.70C16 — persist payment confirmation chain into GAME_COMPLETED archive.
-        this._subscribe(EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED, (envelope) => {
-
-            this._onPaymentConfirmationLifecycle(
-                EVENT_TYPES.PAYMENT_TRANSACTION_CONFIRMED,
-                envelope.payload
-            );
-
-        });
-
-        this._subscribe(EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED, (envelope) => {
-
-            this._onPaymentConfirmationLifecycle(
-                EVENT_TYPES.GAME_ESCROW_STAKE_CONFIRMED,
-                envelope.payload
-            );
-
-        });
-
-        this._subscribe(EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED, (envelope) => {
-
-            this._onPaymentConfirmationLifecycle(
-                EVENT_TYPES.PAYMENT_BLOCKCHAIN_CONFIRMED,
-                envelope.payload
-            );
-
-        });
-
         this._subscribe(EVENT_TYPES.ROOM_DESTROYED, (envelope) => {
 
             this._finalize(envelope.payload);
@@ -758,7 +536,6 @@ export class SessionHistoryArchiveManager {
         gameId = null,
         lifecycleResult = null,
         playerNickname = null,
-        walletAddress = null,
         fromAt = null,
         toAt = null,
         sort = "newest",
@@ -798,16 +575,6 @@ export class SessionHistoryArchiveManager {
 
             rows = rows.filter((row) => (row.playerNicknames ?? []).some(
                 (name) => String(name ?? "").toLowerCase().includes(needle)
-            ));
-
-        }
-
-        if (walletAddress) {
-
-            const needle = String(walletAddress).toLowerCase();
-
-            rows = rows.filter((row) => (row.walletAddresses ?? []).some(
-                (wallet) => String(wallet ?? "").toLowerCase().includes(needle)
             ));
 
         }
@@ -1005,9 +772,6 @@ export class SessionHistoryArchiveManager {
                 setupCompleted: false,
                 setupExpired: false,
                 verifyCompleted: false,
-                paymentEntered: false,
-                paymentFailed: false,
-                tonConnectSeen: false,
                 gameInitialized: false,
                 gameStarted: false,
                 gameCompleted: false,
@@ -1022,7 +786,6 @@ export class SessionHistoryArchiveManager {
                 game: null,
                 frozen: null
             },
-            blockchain: createBlockchainTrack(),
             gameResult: null,
             paymentPreparation: null
         });
@@ -1061,243 +824,8 @@ export class SessionHistoryArchiveManager {
 
     }
 
-    _onDeployLifecycle(stage, payload, fields = {}) {
 
-        const roomId = this._resolvePendingRoomId(payload);
-        const pending = this._ensurePending(roomId);
 
-        if (!pending) {
-
-            return;
-
-        }
-
-        if (payload?.gameId && !pending.gameId) {
-
-            pending.gameId = payload.gameId;
-
-        }
-
-        const deploy = pending.blockchain.deploy;
-
-        deploy.began = true;
-
-        if (stage && !deploy.stages.includes(stage)) {
-
-            deploy.stages.push(stage);
-
-        }
-
-        if (fields.status) {
-
-            deploy.status = fields.status;
-
-        }
-
-        if (fields.contractAddress) {
-
-            deploy.contractAddress = fields.contractAddress;
-
-        }
-
-        if (fields.transactionHash) {
-
-            deploy.transactionHash = fields.transactionHash;
-
-        }
-
-        if (fields.error) {
-
-            deploy.error = fields.error;
-
-        }
-
-        this._pushTimeline(roomId, "BLOCKCHAIN", stage);
-
-    }
-
-    _onSettlementLifecycle(stage, payload, fields = {}) {
-
-        const roomId = this._resolvePendingRoomId(payload);
-        const pending = this._ensurePending(roomId);
-
-        if (!pending) {
-
-            return;
-
-        }
-
-        if (payload?.gameId && !pending.gameId) {
-
-            pending.gameId = payload.gameId;
-
-        }
-
-        const settlement = pending.blockchain.settlement;
-
-        if (stage && !settlement.stages.includes(stage)) {
-
-            settlement.stages.push(stage);
-
-        }
-
-        if (fields.status) {
-
-            settlement.status = fields.status;
-
-        } else if (payload?.status && !settlement.status) {
-
-            settlement.status = payload.status;
-
-        }
-
-        if (payload?.winnerWallet) {
-
-            settlement.winnerWallet = payload.winnerWallet;
-
-        }
-
-        if (payload?.winnerAmount != null) {
-
-            settlement.winnerAmount = payload.winnerAmount;
-
-        }
-
-        if (payload?.organizerAmount != null) {
-
-            settlement.commissionAmount = payload.organizerAmount;
-
-        }
-
-        if (payload?.commissionAmount != null) {
-
-            settlement.commissionAmount = payload.commissionAmount;
-
-        }
-
-        const txHash = payload?.settlementTxHash
-            ?? payload?.transactionHash
-            ?? payload?.settlementTransactionHash
-            ?? null;
-
-        if (txHash) {
-
-            settlement.transactionHash = txHash;
-
-        }
-
-        if (fields.error || payload?.reason) {
-
-            settlement.error = fields.error ?? payload.reason;
-
-        }
-
-        if (!settlement.commissionWallet) {
-
-            try {
-
-                settlement.commissionWallet = OwnerConfiguration.getOwnerWallet();
-
-            } catch {
-
-                settlement.commissionWallet = payload?.ownerWallet ?? null;
-
-            }
-
-        }
-
-        this._pushTimeline(roomId, "BLOCKCHAIN", stage);
-
-    }
-
-    /**
-     * R7.70C16 — observe payment confirmation events into pending forensic track.
-     * Preserves chronological emission order. Does not invent missing fields.
-     */
-    _onPaymentConfirmationLifecycle(type, payload = {}) {
-
-        const roomId = this._resolvePendingRoomId(payload);
-        const pending = this._ensurePending(roomId);
-
-        if (!pending) {
-
-            return;
-
-        }
-
-        if (payload?.gameId && !pending.gameId) {
-
-            pending.gameId = payload.gameId;
-
-        }
-
-        if (!pending.blockchain.paymentConfirmation) {
-
-            pending.blockchain.paymentConfirmation = {
-                paidMask: null,
-                events: []
-            };
-
-        }
-
-        const track = pending.blockchain.paymentConfirmation;
-
-        const playerIndex = payload.playerIndex == null
-            ? null
-            : Number(payload.playerIndex);
-
-        const paidMask = payload.paidMask == null
-            ? null
-            : Number(payload.paidMask);
-
-        const paidMaskBit = payload.paidMaskBit == null
-            ? (
-                playerIndex == null || !Number.isFinite(playerIndex)
-                    ? null
-                    : (1 << playerIndex)
-            )
-            : Number(payload.paidMaskBit);
-
-        const transactionHash = payload.transactionId
-            ?? payload.txHash
-            ?? payload.transactionHash
-            ?? null;
-
-        const contractAddress = payload.contractAddress
-            ?? payload.escrowAddress
-            ?? payload.address
-            ?? null;
-
-        const at = payload.timestamp
-            ?? payload.confirmedAt
-            ?? Date.now();
-
-        track.events.push({
-            type,
-            at,
-            roomId: payload.roomId ?? roomId ?? null,
-            gameId: payload.gameId ?? pending.gameId ?? null,
-            playerId: payload.playerId ?? null,
-            playerIndex: Number.isFinite(playerIndex) ? playerIndex : null,
-            contractAddress,
-            paymentReference: payload.paymentReference ?? null,
-            transactionHash,
-            expectedGram: payload.expectedGram ?? null,
-            amount: payload.amount ?? null,
-            sender: payload.sender ?? null,
-            paidMask,
-            paidMaskBit: Number.isFinite(paidMaskBit) ? paidMaskBit : null
-        });
-
-        if (paidMask != null && Number.isFinite(paidMask)) {
-
-            track.paidMask = paidMask;
-
-        }
-
-        this._pushTimeline(roomId, "PAYMENT", type);
-
-    }
 
     _ensurePending(roomId) {
 
@@ -1367,14 +895,10 @@ export class SessionHistoryArchiveManager {
         const nickname = player?.identity?.nickname
             ?? payload?.nickname
             ?? null;
-        const wallet = player?.identity?.wallet
-            ?? payload?.wallet
-            ?? null;
 
         pending.players.set(String(playerId), {
             playerId,
             nickname,
-            walletAddress: wallet,
             status: player?.runtime?.playerState ?? null,
             socketId: null
         });
@@ -1471,64 +995,8 @@ export class SessionHistoryArchiveManager {
         // Snapshot while sibling destroy listeners may still have artifacts.
         const roomDetail = this._projectionService?.buildRoomDetail?.(roomId)
             ?? null;
-        const tonConnect = this._roomLobbyBridge?.getTonConnectDiagnostics?.(roomId)
-            ?? roomDetail?.tonConnect
-            ?? null;
-
-        // R7.51.30 — persist last TON deploy diagnostics into ROOM_DESTROYED JSON.
-        // Prefer room-scoped match; never include mnemonic/secret material.
-        const tonDeployDebugRaw = getTonDeployDebug();
-        const tonDeployDebug = (() => {
-
-            if (!tonDeployDebugRaw) {
-
-                return null;
-
-            }
-
-            if (tonDeployDebugRaw.roomId != null
-                && String(tonDeployDebugRaw.roomId) !== String(roomId)) {
-
-                return null;
-
-            }
-
-            return tonDeployDebugRaw;
-
-        })();
-
-        const blockchainLifecycle = buildBlockchainLifecycle({
-            tonDeployDebug,
-            deployTrack: pending.blockchain?.deploy ?? null,
-            settlementTrack: pending.blockchain?.settlement ?? null,
-            paymentConfirmationTrack: pending.blockchain?.paymentConfirmation ?? null
-        });
 
         this._refreshPlayersFromManagers(pending);
-
-        if (tonConnect?.events?.length) {
-
-            for (const event of tonConnect.events) {
-
-                pending.timeline.push({
-                    at: event.at,
-                    subsystem: "TONCONNECT",
-                    message: `${event.type}${event.playerId ? ` (${event.playerId})` : ""}`
-                });
-
-            }
-
-            pending.timeline.sort((left, right) => (left.at ?? 0) - (right.at ?? 0));
-
-            if (pending.timeline.length > MAX_TIMELINE) {
-
-                pending.timeline = pending.timeline.slice(-MAX_TIMELINE);
-
-            }
-
-            pending.flags.tonConnectSeen = true;
-
-        }
 
         const lifecycleResult = resolveLifecycleResult({
             reason: pending.reason,
@@ -1551,21 +1019,11 @@ export class SessionHistoryArchiveManager {
 
         const players = [...pending.players.values()].map((player) => {
 
-            const seat = tonConnect?.players?.find(
-                (entry) => String(entry.playerId) === String(player.playerId)
-            );
-
             return Object.freeze({
                 playerId: player.playerId,
-                nickname: player.nickname ?? seat?.nickname ?? null,
-                walletAddress: seat?.walletAddress
-                    ?? player.walletAddress
-                    ?? null,
-                status: seat?.displayStatus
-                    ?? seat?.status
-                    ?? player.status
-                    ?? null,
-                socketId: seat?.socketId ?? player.socketId ?? null
+                nickname: player.nickname ?? null,
+                status: player.status ?? null,
+                socketId: player.socketId ?? null
             });
 
         });
@@ -1606,20 +1064,8 @@ export class SessionHistoryArchiveManager {
             verify: Object.freeze({
                 completed: pending.flags.verifyCompleted === true
             }),
-            payment: roomDetail?.paymentSession ?? null,
-            tonConnect: tonConnect ?? null,
-            tonDeployDebug: tonDeployDebug ?? null,
-            blockchainLifecycle,
             // Authoritative gameplay result is preserved even when settlement fails.
             gameResult: pending.gameResult ?? null,
-            paymentPreparation: pending.paymentPreparation ?? null,
-            walletConnectionSession: tonConnect
-                ? Object.freeze({
-                    paymentConnectionReady: tonConnect.paymentConnectionReady,
-                    handshakeStage: tonConnect.handshakeStage,
-                    players: tonConnect.players
-                })
-                : null,
             timeline: Object.freeze(pending.timeline.map((entry) => Object.freeze({
                 ...entry
             }))),
@@ -1629,10 +1075,6 @@ export class SessionHistoryArchiveManager {
             finalSnapshot: Object.freeze({
                 room: roomDetail?.room ?? { roomId, status: "DESTROYED" },
                 players,
-                payment: roomDetail?.paymentSession ?? null,
-                tonConnect,
-                tonDeployDebug: tonDeployDebug ?? null,
-                blockchainLifecycle,
                 serverState: Object.freeze({
                     roomDestroyed: true,
                     playerCountAtDestroy: payload?.playerCount ?? players.length
@@ -1672,7 +1114,6 @@ export class SessionHistoryArchiveManager {
             pending.players.set(playerId, {
                 ...existing,
                 nickname: player.identity?.nickname ?? existing.nickname,
-                walletAddress: player.identity?.wallet ?? existing.walletAddress,
                 status: player.runtime?.playerState ?? existing.status
             });
 
@@ -1680,21 +1121,9 @@ export class SessionHistoryArchiveManager {
 
         if (pending.players.size === 0 && this._roomLobbyBridge) {
 
-            const diagnostics = this._roomLobbyBridge.getTonConnectDiagnostics?.(
-                pending.roomId
-            );
-
-            for (const seat of diagnostics?.players ?? []) {
-
-                pending.players.set(String(seat.playerId), {
-                    playerId: seat.playerId,
-                    nickname: seat.nickname,
-                    walletAddress: seat.walletAddress,
-                    status: seat.displayStatus ?? seat.status,
-                    socketId: seat.socketId
-                });
-
-            }
+            // No seats recorded yet; the authoritative room state is the
+            // fallback source of record (wallet diagnostics are no longer
+            // collected).
 
         }
 
@@ -1737,11 +1166,6 @@ export class SessionHistoryArchiveManager {
             playerNicknames: Object.freeze(
                 (record.players ?? [])
                     .map((player) => player.nickname)
-                    .filter(Boolean)
-            ),
-            walletAddresses: Object.freeze(
-                (record.players ?? [])
-                    .map((player) => player.walletAddress)
                     .filter(Boolean)
             ),
             filename: record.downloadFilename
@@ -1842,9 +1266,6 @@ export class SessionHistoryArchiveManager {
                     playerCount: record.players?.length ?? 0,
                     playerNicknames: (record.players ?? [])
                         .map((player) => player.nickname)
-                        .filter(Boolean),
-                    walletAddresses: (record.players ?? [])
-                        .map((player) => player.walletAddress)
                         .filter(Boolean),
                     filename: record.downloadFilename ?? filename
                 });

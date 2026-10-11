@@ -1,37 +1,20 @@
 /**
  * R17.9T.6-C — Recovery Data Contract persistence layer.
  *
- * Thin wrapper around TonFinancialPersistence that provides recovery-specific
- * validation, version compatibility checks, and fail-closed behavior for
- * Recovery Data Contract records.
+ * Self-contained persistence for Recovery Data Contract records (post
+ * financial-subsystem purge). Provides recovery-specific validation, version
+ * compatibility checks, and fail-closed behavior for Recovery Data Contract
+ * records.
  *
- * This layer stores gameplay recovery data and REFERENCES financial records.
- * It does NOT duplicate financial authority. Financial fields such as
- * paymentStatus, paidAmount, confirmationStatus, refundTxHash, and
- * settlementTransactionHash remain owned by TonFinancialPersistence financial
- * records and are NOT stored here.
- *
- * Scope limit (R17.9T.6-C):
+ * Scope limit:
  *   - ONLY durable persistence for Recovery Data Contract records.
  *   - NO gameplay reconstruction.
  *   - NO runtime manager recovery.
  *   - NO financial reconciliation logic.
+ *   - NO financial fields (payment/settlement/wallet identities) are stored.
  */
 
-import {
-    CorruptedRecordError,
-    ImmutableRecordError,
-    RecordNotFoundError,
-    TonFinancialPersistenceError
-} from "./TonFinancialPersistenceErrors.js";
-import {
-    RECOVERY_DATA_TERMINAL_STATUSES,
-    TON_FINANCIAL_RECORD_TYPES,
-    TON_FINANCIAL_SCHEMA_VERSION
-} from "./TonFinancialRecordTypes.js";
-import {
-    computePayloadChecksum
-} from "./tonFinancialRecordUtils.js";
+import { createHash } from "node:crypto";
 
 /**
  * Recovery Data Contract version.
@@ -53,15 +36,19 @@ export const RECOVERY_CONTRACT_VERSION = 1;
 export const MAX_SUPPORTED_RECOVERY_CONTRACT_VERSION = 1;
 
 /**
+ * Terminal statuses that make a record immutable.
+ */
+export const RECOVERY_DATA_TERMINAL_STATUSES = Object.freeze([
+    "TERMINAL"
+]);
+
+/**
  * Required identity fields in every recovery record payload.
  */
 const REQUIRED_IDENTITY_FIELDS = Object.freeze([
     "recoveryRecordId",
     "roomId",
-    "gameId",
-    "contractId",
-    "paymentSessionId",
-    "tonNetwork"
+    "gameId"
 ]);
 
 /**
@@ -71,8 +58,7 @@ const REQUIRED_CONFIGURATION_FIELDS = Object.freeze([
     "configuration",
     "configurationHash",
     "configurationVersion",
-    "traceSeed",
-    "snapshotHash"
+    "traceSeed"
 ]);
 
 /**
@@ -90,9 +76,7 @@ const REQUIRED_GAMEPLAY_STATE_FIELDS = Object.freeze([
 const REQUIRED_PLAYER_FIELDS = Object.freeze([
     "playerId",
     "playerIndex",
-    "wallet",
     "nickname",
-    "baseStake",
     "sectorCount",
     "color",
     "colorSector2",
@@ -123,45 +107,61 @@ const REQUIRED_TERMINAL_PHYSICS_FIELDS = Object.freeze([
 ]);
 
 /**
- * Financial fields that must NOT be duplicated in recovery records.
- * These are owned by TonFinancialPersistence financial records.
+ * Local error types (fully self-contained persistence error family).
  */
-const FORBIDDEN_FINANCIAL_AUTHORITY_FIELDS = Object.freeze([
-    "paymentStatus",
-    "paidAmount",
-    "confirmationStatus",
-    "refundTxHash",
-    "settlementTransactionHash",
-    "prizeAmount",
-    "organizerAmount",
-    "totalPot",
-    "requiredGram"
-]);
+export class RecoveryDataError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "RecoveryDataError";
+    }
+}
+
+export class RecordNotFoundError extends RecoveryDataError {
+    constructor(recordId) {
+        super(`Recovery data record not found: ${recordId}`);
+        this.name = "RecordNotFoundError";
+    }
+}
+
+export class ImmutableRecordError extends RecoveryDataError {
+    constructor(recordId) {
+        super(`Recovery data record is immutable (terminal): ${recordId}`);
+        this.name = "ImmutableRecordError";
+    }
+}
+
+export class CorruptedRecordError extends RecoveryDataError {
+    constructor(recordId, reason) {
+        super(`Recovery data record is corrupted: ${recordId} | ${reason}`);
+        this.name = "CorruptedRecordError";
+    }
+}
+
+/**
+ * Compute a deterministic checksum for a payload (sha256 of stable JSON).
+ *
+ * @param {object} payload
+ * @returns {string} Hex digest.
+ */
+export function computePayloadChecksum(payload) {
+    return createHash("sha256").update(JSON.stringify(payload ?? null)).digest("hex");
+}
 
 /**
  * @typedef {object} RecoveryDataPersistenceOptions
- * @property {object} financialPersistence - Initialized TonFinancialPersistence instance.
  * @property {object} [logger]
  */
-
 export class RecoveryDataPersistence {
 
     /**
      * @param {RecoveryDataPersistenceOptions} options
      */
-    constructor({ financialPersistence, logger = null } = {}) {
-
-        if (!financialPersistence) {
-
-            throw new TonFinancialPersistenceError(
-                "RecoveryDataPersistence requires a TonFinancialPersistence instance"
-            );
-
-        }
-
-        this._financialPersistence = financialPersistence;
+    constructor({ logger = null } = {}) {
 
         this._logger = logger;
+
+        /** @type {Map<string, object>} */
+        this._records = new Map();
 
     }
 
@@ -175,18 +175,39 @@ export class RecoveryDataPersistence {
      * @param {object} recoveryData - The recovery data contract payload.
      * @param {object} [metadata] - Optional envelope metadata overrides.
      * @returns {object} The created public record.
-     * @throws {TonFinancialPersistenceError} If validation fails or persistence error occurs.
+     * @throws {RecoveryDataError} If validation fails.
      */
     createRecoveryRecord(recoveryData, metadata = {}) {
 
         this._validateRecoveryPayload(recoveryData);
 
-        const enrichedMetadata = this._buildEnvelopeMetadata(recoveryData, metadata);
+        const recordId = recoveryData.recoveryRecordId;
 
-        return this._financialPersistence.createRecoveryDataRecord(
-            recoveryData,
-            enrichedMetadata
-        );
+        if (this._records.has(recordId)) {
+
+            throw new RecoveryDataError(
+                `Recovery data record already exists: ${recordId}`
+            );
+
+        }
+
+        const status = metadata.status ?? "ACTIVE";
+
+        const record = Object.freeze({
+            recordId,
+            status,
+            immutable: RECOVERY_DATA_TERMINAL_STATUSES.includes(status),
+            version: RECOVERY_CONTRACT_VERSION,
+            checksum: computePayloadChecksum(recoveryData),
+            payload: Object.freeze({ ...recoveryData }),
+            metadata: Object.freeze({ ...metadata })
+        });
+
+        this._records.set(recordId, record);
+
+        this._logInfo(`RecoveryDataPersistence: record created | id=${recordId}`);
+
+        return record;
 
     }
 
@@ -195,39 +216,30 @@ export class RecoveryDataPersistence {
      *
      * @param {string} recordId - The recovery record ID (typically the gameId).
      * @returns {object|null} The loaded public record, or null if not found.
-     * @throws {TonFinancialPersistenceError} If the record is corrupted or invalid.
+     * @throws {CorruptedRecordError} If the record is corrupted or invalid.
      */
     loadRecoveryRecord(recordId) {
 
-        try {
+        const record = this._records.get(recordId) ?? null;
 
-            const record = this._financialPersistence.loadRecoveryDataRecord(recordId);
+        if (!record) {
 
-            const validationResult = this.validateRecoveryRecord(record);
-
-            if (!validationResult.valid) {
-
-                throw new CorruptedRecordError(
-                    TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA,
-                    recordId,
-                    validationResult.errors.join(",")
-                );
-
-            }
-
-            return record;
-
-        } catch (error) {
-
-            if (error instanceof RecordNotFoundError) {
-
-                return null;
-
-            }
-
-            throw error;
+            return null;
 
         }
+
+        const validationResult = this.validateRecoveryRecord(record);
+
+        if (!validationResult.valid) {
+
+            throw new CorruptedRecordError(
+                recordId,
+                validationResult.errors.join(",")
+            );
+
+        }
+
+        return record;
 
     }
 
@@ -238,9 +250,7 @@ export class RecoveryDataPersistence {
      */
     listRecoveryRecords() {
 
-        const records = this._financialPersistence.listActiveRecoveryDataRecords();
-
-        return records.filter((record) => {
+        return [...this._records.values()].filter((record) => {
 
             const result = this.validateRecoveryRecord(record);
 
@@ -269,37 +279,48 @@ export class RecoveryDataPersistence {
      * @param {object} [metadata] - Optional envelope metadata overrides.
      * @returns {object} The updated public record.
      * @throws {ImmutableRecordError} If the record is terminal (immutable).
-     * @throws {TonFinancialPersistenceError} If validation fails or persistence error occurs.
+     * @throws {RecoveryDataError} If validation fails or the record is missing.
      */
     updateRecoveryRecord(recordId, recoveryData, metadata = {}) {
 
         this._validateRecoveryPayload(recoveryData);
 
-        const existing = this._financialPersistence.loadRecoveryDataRecord(recordId);
+        const existing = this._records.get(recordId);
 
-        if (existing.immutable) {
+        if (!existing) {
 
-            throw new ImmutableRecordError(
-                TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA,
-                recordId
-            );
+            throw new RecordNotFoundError(recordId);
 
         }
 
-        const enrichedMetadata = this._buildEnvelopeMetadata(recoveryData, metadata);
+        if (existing.immutable) {
 
-        return this._financialPersistence.updateRecoveryDataRecord(
+            throw new ImmutableRecordError(recordId);
+
+        }
+
+        const status = metadata.status ?? existing.status;
+
+        const record = Object.freeze({
             recordId,
-            recoveryData,
-            enrichedMetadata
-        );
+            status,
+            immutable: RECOVERY_DATA_TERMINAL_STATUSES.includes(status),
+            version: RECOVERY_CONTRACT_VERSION,
+            checksum: computePayloadChecksum(recoveryData),
+            payload: Object.freeze({ ...recoveryData }),
+            metadata: Object.freeze({ ...existing.metadata, ...metadata })
+        });
+
+        this._records.set(recordId, record);
+
+        return record;
 
     }
 
     /**
      * Validate a recovery record's integrity, version compatibility, and structure.
      *
-     * @param {object} record - The public record returned by TonFinancialPersistence.
+     * @param {object} record - The public record.
      * @returns {{valid: boolean, errors: string[]}} Validation result.
      */
     validateRecoveryRecord(record) {
@@ -326,21 +347,15 @@ export class RecoveryDataPersistence {
 
         // --- Schema version ---
 
-        if (record.version !== TON_FINANCIAL_SCHEMA_VERSION) {
+        if (record.version !== RECOVERY_CONTRACT_VERSION) {
 
             errors.push(
-                `schema_version_incompatible:${record.version}:${TON_FINANCIAL_SCHEMA_VERSION}`
+                `schema_version_incompatible:${record.version}:${RECOVERY_CONTRACT_VERSION}`
             );
 
         }
 
         const payload = record.payload ?? {};
-
-        // Room-Wallet recovery references intentionally have no GameContract
-        // identity. Both fields must be absent/null together; a partially
-        // populated pair remains invalid.
-        const roomWalletPayload =
-            payload.contractId == null && payload.snapshotHash == null;
 
         // --- Recovery contract version ---
 
@@ -372,10 +387,9 @@ export class RecoveryDataPersistence {
                 payload[field] == null
                 || payload[field] === ""
             ) {
-                if (roomWalletPayload && field === "contractId") {
-                    continue;
-                }
+
                 errors.push(`identity_missing:${field}`);
+
             }
 
         }
@@ -385,10 +399,9 @@ export class RecoveryDataPersistence {
         for (const field of REQUIRED_CONFIGURATION_FIELDS) {
 
             if (payload[field] == null || payload[field] === "") {
-                if (roomWalletPayload && field === "snapshotHash") {
-                    continue;
-                }
+
                 errors.push(`configuration_missing:${field}`);
+
             }
 
         }
@@ -483,18 +496,6 @@ export class RecoveryDataPersistence {
 
         }
 
-        // --- Financial authority duplication check ---
-
-        for (const field of FORBIDDEN_FINANCIAL_AUTHORITY_FIELDS) {
-
-            if (field in payload) {
-
-                errors.push(`financial_authority_duplication:${field}`);
-
-            }
-
-        }
-
         return {
             valid: errors.length === 0,
             errors: Object.freeze(errors)
@@ -502,22 +503,18 @@ export class RecoveryDataPersistence {
 
     }
 
-    // -------------------------------------------------------------------------
-    // Internal helpers
-    // -------------------------------------------------------------------------
-
     /**
      * Validate a recovery data payload before persistence.
      * Throws on invalid data.
      *
      * @param {object} payload - The recovery data payload.
-     * @throws {TonFinancialPersistenceError} If validation fails.
+     * @throws {RecoveryDataError} If validation fails.
      */
     _validateRecoveryPayload(payload) {
 
         if (!payload || typeof payload !== "object") {
 
-            throw new TonFinancialPersistenceError(
+            throw new RecoveryDataError(
                 "Recovery data payload must be a non-null object"
             );
 
@@ -527,7 +524,7 @@ export class RecoveryDataPersistence {
 
         if (typeof payload.recoveryContractVersion !== "number") {
 
-            throw new TonFinancialPersistenceError(
+            throw new RecoveryDataError(
                 "Recovery data payload missing recoveryContractVersion"
             );
 
@@ -535,7 +532,7 @@ export class RecoveryDataPersistence {
 
         if (payload.recoveryContractVersion > MAX_SUPPORTED_RECOVERY_CONTRACT_VERSION) {
 
-            throw new TonFinancialPersistenceError(
+            throw new RecoveryDataError(
                 `Recovery contract version ${payload.recoveryContractVersion} `
                     + `is incompatible (max supported: ${MAX_SUPPORTED_RECOVERY_CONTRACT_VERSION})`
             );
@@ -544,36 +541,19 @@ export class RecoveryDataPersistence {
 
         if (payload.recoveryContractVersion < 1) {
 
-            throw new TonFinancialPersistenceError(
+            throw new RecoveryDataError(
                 `Recovery contract version ${payload.recoveryContractVersion} is invalid`
-            );
-
-        }
-
-        // --- Schema version ---
-
-        if (payload.schemaVersion !== TON_FINANCIAL_SCHEMA_VERSION) {
-
-            throw new TonFinancialPersistenceError(
-                `Schema version ${payload.schemaVersion} is incompatible `
-                    + `(expected: ${TON_FINANCIAL_SCHEMA_VERSION})`
             );
 
         }
 
         // --- Identity fields ---
 
-        const roomWalletPayload =
-            payload.contractId == null && payload.snapshotHash == null;
-
         for (const field of REQUIRED_IDENTITY_FIELDS) {
 
             if (payload[field] == null || payload[field] === "") {
-                if (roomWalletPayload && field === "contractId") {
-                    continue;
-                }
 
-                throw new TonFinancialPersistenceError(
+                throw new RecoveryDataError(
                     `Recovery data payload missing required identity field: ${field}`
                 );
 
@@ -586,11 +566,8 @@ export class RecoveryDataPersistence {
         for (const field of REQUIRED_CONFIGURATION_FIELDS) {
 
             if (payload[field] == null || payload[field] === "") {
-                if (roomWalletPayload && field === "snapshotHash") {
-                    continue;
-                }
 
-                throw new TonFinancialPersistenceError(
+                throw new RecoveryDataError(
                     `Recovery data payload missing required configuration field: ${field}`
                 );
 
@@ -606,7 +583,7 @@ export class RecoveryDataPersistence {
 
             if (computedHash !== payload.configurationHash) {
 
-                throw new TonFinancialPersistenceError(
+                throw new RecoveryDataError(
                     "Recovery data payload configurationHash does not match configuration"
                 );
 
@@ -620,7 +597,7 @@ export class RecoveryDataPersistence {
 
             if (payload[field] == null) {
 
-                throw new TonFinancialPersistenceError(
+                throw new RecoveryDataError(
                     `Recovery data payload missing required gameplay state field: ${field}`
                 );
 
@@ -632,7 +609,7 @@ export class RecoveryDataPersistence {
 
         if (!Array.isArray(payload.players)) {
 
-            throw new TonFinancialPersistenceError(
+            throw new RecoveryDataError(
                 "Recovery data payload missing players array"
             );
 
@@ -640,7 +617,7 @@ export class RecoveryDataPersistence {
 
         if (payload.players.length === 0) {
 
-            throw new TonFinancialPersistenceError(
+            throw new RecoveryDataError(
                 "Recovery data payload players array is empty"
             );
 
@@ -654,25 +631,11 @@ export class RecoveryDataPersistence {
 
                 if (!(field in player)) {
 
-                    throw new TonFinancialPersistenceError(
+                    throw new RecoveryDataError(
                         `Recovery data payload player ${i} missing field: ${field}`
                     );
 
                 }
-
-            }
-
-        }
-
-        // --- Financial authority duplication check ---
-
-        for (const field of FORBIDDEN_FINANCIAL_AUTHORITY_FIELDS) {
-
-            if (field in payload) {
-
-                throw new TonFinancialPersistenceError(
-                    `Recovery data payload must not duplicate financial authority field: ${field}`
-                );
 
             }
 
@@ -693,8 +656,6 @@ export class RecoveryDataPersistence {
             recoveryRecordId: payload.recoveryRecordId,
             roomId: payload.roomId,
             gameId: payload.gameId,
-            contractId: payload.contractId,
-            tonNetwork: payload.tonNetwork,
             correlationId: payload.correlationId ?? overrides.correlationId ?? null,
             status: overrides.status ?? "ACTIVE",
             ...overrides
@@ -715,4 +676,3 @@ export class RecoveryDataPersistence {
     }
 
 }
-

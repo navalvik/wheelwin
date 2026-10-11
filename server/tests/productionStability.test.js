@@ -1,6 +1,5 @@
 import { GameCatalog } from "../catalog/GameCatalog.js";
 import { createStandardConfigurationPlayers } from "./helpers/configurationPlayers.js";
-import { PAYMENT_STATUS } from "../catalog/PaymentRules.js";
 import { loadProductionConfig } from "../config/production.js";
 import {
     validateCatalogConsistency,
@@ -12,7 +11,6 @@ import { ConfigurationEngine } from "../engines/ConfigurationEngine.js";
 import { GameClockEngine } from "../engines/GameClockEngine.js";
 import { GameStateEngine } from "../engines/GameStateEngine.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
-import { PaymentEngine } from "../engines/PaymentEngine.js";
 import { PhysicsEngine } from "../engines/PhysicsEngine.js";
 import { RecoveryEngine } from "../engines/RecoveryEngine.js";
 import { WinnerEngine } from "../engines/WinnerEngine.js";
@@ -22,7 +20,6 @@ import { HealthService } from "../services/HealthService.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { MetricsService } from "../services/MetricsService.js";
 import { RandomService } from "../services/RandomService.js";
-import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 
 function assert(condition, message) {
 

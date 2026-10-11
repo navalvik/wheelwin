@@ -9,7 +9,6 @@ import { ConfigurationEngine } from "../engines/ConfigurationEngine.js";
 import { GameStateEngine } from "../engines/GameStateEngine.js";
 import { PhysicsEngine } from "../engines/PhysicsEngine.js";
 import { WinnerEngine } from "../engines/WinnerEngine.js";
-import { PaymentEngine } from "../engines/PaymentEngine.js";
 import { RecoveryEngine } from "../engines/RecoveryEngine.js";
 import { AuditEngine } from "../engines/AuditEngine.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
@@ -18,10 +17,8 @@ import { PLAYER_STATE } from "../models/PlayerState.js";
 import { PlayerManager } from "../managers/PlayerManager.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { RandomService } from "../services/RandomService.js";
-import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import { SimulationLoop } from "../simulation/SimulationLoop.js";
 import { WinnerActivation } from "../gameplay/WinnerActivation.js";
-import { PaymentActivation } from "../gameplay/PaymentActivation.js";
 import { AuditActivation } from "../gameplay/AuditActivation.js";
 import { GameplayLifecycle } from "../gameplay/GameplayLifecycle.js";
 import { buildClientRecoveryPayload } from "../socket/gameplayRecoveryProtocol.js";
@@ -541,8 +538,6 @@ function createPlayers(stack, count, label) {
             snapshot,
             playerId: playerIds[0],
             roomId: `room-${gameId}`,
-            paymentStatus: stack.paymentEngine.getPaymentStatus(gameId),
-            payment: stack.paymentEngine.getPayment(gameId),
             auditStatus: "READY"
         });
 

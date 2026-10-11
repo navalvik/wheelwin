@@ -44,7 +44,6 @@ export function readEnvironmentState(env = process.env) {
 
         return Object.freeze({
             appEnvironment,
-            tonNetwork: String(parsed?.tonNetwork || "").trim().toLowerCase() || null,
             updatedAt: parsed?.updatedAt ?? null,
             updatedBy: parsed?.updatedBy ?? null
         });
@@ -60,7 +59,6 @@ export function readEnvironmentState(env = process.env) {
 /**
  * @param {{
  *   appEnvironment: string,
- *   tonNetwork: string,
  *   updatedBy?: string | null
  * }} state
  * @param {NodeJS.ProcessEnv} [env]
@@ -73,7 +71,6 @@ export function writeEnvironmentState(state, env = process.env) {
 
     const payload = {
         appEnvironment: state.appEnvironment,
-        tonNetwork: state.tonNetwork,
         updatedAt: new Date().toISOString(),
         updatedBy: state.updatedBy ?? null
     };
@@ -105,13 +102,6 @@ export function applyEnvironmentStateToEnv(env = process.env) {
     if (env.APP_ENVIRONMENT === undefined && env.BLOCKCHAIN_NETWORK === undefined) {
 
         merged.APP_ENVIRONMENT = persisted.appEnvironment;
-
-    }
-
-    if (env.TON_NETWORK === undefined) {
-
-        merged.TON_NETWORK = persisted.tonNetwork
-            || (persisted.appEnvironment === "MAINNET" ? "mainnet" : "testnet");
 
     }
 

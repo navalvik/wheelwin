@@ -30,7 +30,7 @@ import { AuditEngine } from "../../engines/AuditEngine.js";
 import { AuditActivation } from "../../gameplay/AuditActivation.js";
 import {
     completeRoomProfilesForConfiguration,
-    emitEntryPaymentCompleted,
+    emitGameStartAuthorized,
     shutdownGameplayBootstrap,
     wireGameplayBootstrap
 } from "./gameplayBootstrapHarness.js";
@@ -651,7 +651,7 @@ export async function buildProductionStack() {
 
             completeRoomProfilesForConfiguration(playerManager, eventBus, room);
 
-            emitEntryPaymentCompleted(eventBus, roomId);
+            emitGameStartAuthorized(eventBus, roomId);
 
             const gameId = current.gameId;
 

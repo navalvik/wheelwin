@@ -1,4 +1,3 @@
-import { logClientDepositRestore } from "./clientDepositRestoreDiagnostics.js";
 
 /**
  * C5.2 — Authoritative Session Model (foundation).
@@ -15,9 +14,6 @@ import { logClientDepositRestore } from "./clientDepositRestoreDiagnostics.js";
  * --------------------------------------|----------------------------------
  * roomId, maxPlayers, player roster     | AuthoritativeSession (C5.3/C5.4)
  * setup timer (startedAt/expiresAt)     | AuthoritativeSession.setup (C5.6C)
- * payment display (Page4)               | AuthoritativeSession.entryPayment (C5.8C)
- * settlement payment (Page6)            | AuthoritativeSession.payment (C5.5)
- * baseStake / paymentGram (Page3)       | GameSessionContext (pending migration)
  * currentPhase (pre-game shell)         | GameSessionContext (InfoBar label gate)
  * gameState, clock, physics, winner     | AuthoritativeSession + gameplay contexts
  * currentPage                           | App.jsx (client navigation shell)
@@ -32,37 +28,13 @@ export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     PLAYER_OFFLINE: "PLAYER_OFFLINE",
     WHEEL_CONFIGURATION: "WHEEL_CONFIGURATION",
     GAME_RESULT: "GAME_RESULT",
-    PAYMENT: "PAYMENT",
-    AUDIT: "AUDIT",
     SESSION_SNAPSHOT: "SESSION_SNAPSHOT",
     SESSION_RECOVERY_FAILED: "SESSION_RECOVERY_FAILED",
     SETUP_SESSION: "SETUP_SESSION",
     SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
     VERIFY_COMPLETED: "VERIFY_COMPLETED",
-    PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
-    ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
-    ENTRY_PAYMENT_COMPLETED: "ENTRY_PAYMENT_COMPLETED",
-    WALLET_CONNECTION_SESSION_UPDATED: "WALLET_CONNECTION_SESSION_UPDATED",
-    PAYMENT_CONNECTION_READY: "PAYMENT_CONNECTION_READY",
-    PAYMENT_SESSION_CREATED: "PAYMENT_SESSION_CREATED",
-    PAYMENT_SESSION_UPDATED: "PAYMENT_SESSION_UPDATED",
-    PAYMENT_REQUEST: "PAYMENT_REQUEST",
-    PAYMENT_SESSION_COMPLETED: "PAYMENT_SESSION_COMPLETED",
-    PAYMENT_SESSION_FAILED: "PAYMENT_SESSION_FAILED",
-    GAME_CONTRACT_UPDATED: "GAME_CONTRACT_UPDATED",
-    GAME_CONTRACT_DEPLOYED: "GAME_CONTRACT_DEPLOYED",
-    GAME_CONTRACT_DEPLOY_FAILED: "GAME_CONTRACT_DEPLOY_FAILED",
-    // R18 S4 — requester-scoped Deposit package (informational mirror only).
-    DEPOSIT_PACKAGE_PUBLISHED: "DEPOSIT_PACKAGE_PUBLISHED",
-    // R18-S16 — existing server activation event, mirrored for Page4 gating.
-    DEPOSIT_ACTIVATION_VERIFIED: "DEPOSIT_ACTIVATION_VERIFIED",
     GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
     GAME_INITIALIZING: "GAME_INITIALIZING",
-    SETTLEMENT_STARTED: "SETTLEMENT_STARTED",
-    SETTLEMENT_SUBMITTED: "SETTLEMENT_SUBMITTED",
-    SETTLEMENT_CONFIRMED: "SETTLEMENT_CONFIRMED",
-    SETTLEMENT_COMPLETED: "SETTLEMENT_COMPLETED",
-    SETTLEMENT_FAILED: "SETTLEMENT_FAILED",
     GAME_END: "GAME_END",
     RESET: "RESET"
 });
@@ -76,14 +48,6 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     previousGameState: null,
     clock: null,
     configuration: null,
-    payment: null,
-    entryPayment: null,
-    walletConnection: null,
-    paymentSession: null,
-    gameContract: null,
-    // R18 S4 — requester-scoped Deposit projection mirror (informational only).
-    deposit: null,
-    audit: null,
     winner: null,
     recovery: null,
     setup: null,
@@ -92,14 +56,8 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
         gameEnded: false,
         cleanupObserved: false,
         verifyCompleted: false,
-        paymentStageReady: false,
-        entryPaymentCompleted: false,
-        paymentConnectionReady: false,
-        depositActivationVerified: false,
         gameStartAuthorized: false,
-        gameInitializing: false,
-        settlementCompleted: false,
-        settlementFailed: false
+        gameInitializing: false
     }),
     lastEventType: null,
     lastUpdatedAt: null
@@ -150,7 +108,6 @@ const PRESERVE_WHEN_NULL = new Set([
     "sectorArrangement",
     "sectorLabel",
     "sectorValue",
-    "wallet",
     "name"
 ]);
 
@@ -263,14 +220,10 @@ export function unwrapAuthoritativeSocketRecord(payload) {
         nested
         && typeof nested === "object"
         && !Array.isArray(nested)
-        && payload.escrowMode == null
-        && payload.contractAddress == null
         && payload.status == null
         && !Array.isArray(payload.participants)
         && (
-            nested.escrowMode != null
-            || nested.contractAddress != null
-            || nested.status != null
+            nested.status != null
             || Array.isArray(nested.participants)
         )
     ) {
@@ -279,87 +232,7 @@ export function unwrapAuthoritativeSocketRecord(payload) {
 
     }
 
-    if (
-        payload.gameContract
-        && typeof payload.gameContract === "object"
-        && payload.escrowMode == null
-        && payload.contractAddress == null
-    ) {
-
-        return {
-            ...payload,
-            ...payload.gameContract
-        };
-
-    }
-
     return payload;
-
-}
-
-function shouldDropDepositForSession(deposit, nextRoomId, nextGameId, previousRoomId) {
-
-    if (!deposit) {
-
-        return false;
-
-    }
-
-    if (
-        deposit.roomId
-        && nextRoomId
-        && String(deposit.roomId) !== String(nextRoomId)
-    ) {
-
-        return true;
-
-    }
-
-    if (
-        deposit.gameId
-        && nextGameId
-        && String(deposit.gameId) !== String(nextGameId)
-    ) {
-
-        return true;
-
-    }
-
-    if (
-        !deposit.roomId
-        && nextRoomId
-        && previousRoomId
-        && String(nextRoomId) !== String(previousRoomId)
-    ) {
-
-        return true;
-
-    }
-
-    return false;
-
-}
-
-function applySessionScopedDeposit(state, nextRoomId, nextGameId) {
-
-    if (!shouldDropDepositForSession(
-        state.deposit,
-        nextRoomId,
-        nextGameId,
-        state.roomId
-    )) {
-
-        return {
-            deposit: state.deposit,
-            depositActivationVerified: state.lifecycle?.depositActivationVerified === true
-        };
-
-    }
-
-    return {
-        deposit: null,
-        depositActivationVerified: false
-    };
 
 }
 
@@ -392,24 +265,12 @@ export function authoritativeSessionReducer(state, action) {
                 gameId: payload.gameId ?? state.gameId,
                 maxPlayers: payload.maxPlayers ?? state.maxPlayers,
                 players,
-                entryPayment: null,
-                walletConnection: null,
-                paymentSession: null,
-                gameContract: null,
-                // R18-S16 — game-scoped Deposit mirror. A new GAME_START must
-                // not keep the previous game's depositAddress / VERIFIED flag
-                // (dvgw funded the stale sZqc contract).
-                deposit: null,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     gameStarted: true,
                     gameEnded: false,
                     cleanupObserved: false,
-                    verifyCompleted: false,
-                    paymentStageReady: false,
-                    entryPaymentCompleted: false,
-                    paymentConnectionReady: false,
-                    depositActivationVerified: false
+                    verifyCompleted: false
                 })
             }, action.type);
 
@@ -539,45 +400,7 @@ export function authoritativeSessionReducer(state, action) {
 
         }
 
-        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT: {
 
-            if (!payload?.status) {
-
-                return state;
-
-            }
-
-            return stamp({
-                ...state,
-                gameId: payload.gameId ?? state.gameId,
-                payment: Object.freeze({ ...payload })
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.AUDIT: {
-
-            if (!payload?.status) {
-
-                return state;
-
-            }
-
-            const cleanupObserved = payload.status === "READY"
-                || payload.status === "FAILED"
-                || state.lifecycle.cleanupObserved;
-
-            return stamp({
-                ...state,
-                gameId: payload.gameId ?? state.gameId,
-                audit: Object.freeze({ ...payload }),
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    cleanupObserved
-                })
-            }, action.type);
-
-        }
 
         case AUTHORITATIVE_SESSION_ACTIONS.SESSION_SNAPSHOT: {
 
@@ -610,9 +433,7 @@ export function authoritativeSessionReducer(state, action) {
                 winner: payload.gameResult
                     ? Object.freeze({ ...payload.gameResult })
                     : state.winner,
-                payment: payload.payment
-                    ? Object.freeze({ ...payload.payment })
-                    : state.payment,
+                // payment field removed
                 audit: payload.audit
                     ? Object.freeze({ ...payload.audit })
                     : state.audit,
@@ -647,12 +468,10 @@ export function authoritativeSessionReducer(state, action) {
             }
 
             const nextRoomId = payload.roomId ?? state.roomId;
-            const scoped = applySessionScopedDeposit(state, nextRoomId, state.gameId);
 
             return stamp({
                 ...state,
                 roomId: nextRoomId,
-                deposit: scoped.deposit,
                 setup: Object.freeze({
                     setupSessionId: payload.setupSessionId,
                     roomId: payload.roomId ?? null,
@@ -662,12 +481,7 @@ export function authoritativeSessionReducer(state, action) {
                         ? payload.remainingTime
                         : Math.max(0, payload.expiresAt - Date.now()),
                     state: payload.state ?? null,
-                    verificationState: payload.verificationState ?? null,
-                    paymentPrepState: payload.paymentPrepState ?? null
-                }),
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    depositActivationVerified: scoped.depositActivationVerified
+                    verificationState: payload.verificationState ?? null
                 })
             }, action.type);
 
@@ -701,371 +515,13 @@ export function authoritativeSessionReducer(state, action) {
 
         }
 
-        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_STAGE_READY: {
 
-            return stamp({
-                ...state,
-                roomId: payload?.roomId ?? state.roomId,
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    paymentStageReady: true
-                })
-            }, action.type);
 
-        }
 
-        case AUTHORITATIVE_SESSION_ACTIONS.ENTRY_PAYMENT_SESSION_UPDATED: {
 
-            if (!payload || typeof payload !== "object") {
 
-                return state;
 
-            }
 
-            const players = Array.isArray(payload.players)
-                ? Object.freeze(
-                    payload.players.map((player) => Object.freeze({
-                        playerId: player?.playerId ?? null,
-                        wallet: player?.wallet ?? null,
-                        paymentStatus: player?.paymentStatus ?? null
-                    }))
-                )
-                : Object.freeze([]);
-
-            return stamp({
-                ...state,
-                roomId: payload.roomId ?? state.roomId,
-                entryPayment: Object.freeze({
-                    roomId: payload.roomId ?? null,
-                    createdAt: payload.createdAt ?? null,
-                    players,
-                    smartContractStatus: payload.smartContractStatus ?? null
-                })
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.ENTRY_PAYMENT_COMPLETED: {
-
-            return stamp({
-                ...state,
-                roomId: payload?.roomId ?? state.roomId,
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    entryPaymentCompleted: true
-                })
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.WALLET_CONNECTION_SESSION_UPDATED: {
-
-            if (!payload || typeof payload !== "object") {
-
-                return state;
-
-            }
-
-            const players = Array.isArray(payload.players)
-                ? Object.freeze(
-                    payload.players.map((player) => Object.freeze({
-                        playerId: player?.playerId ?? null,
-                        sessionWallet: player?.sessionWallet ?? null,
-                        connectedWallet: player?.connectedWallet ?? null,
-                        status: player?.status ?? "WAITING"
-                    }))
-                )
-                : Object.freeze([]);
-
-            return stamp({
-                ...state,
-                roomId: payload.roomId ?? state.roomId,
-                walletConnection: Object.freeze({
-                    roomId: payload.roomId ?? null,
-                    createdAt: payload.createdAt ?? null,
-                    paymentConnectionReady:
-                        payload.paymentConnectionReady === true,
-                    players
-                }),
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    paymentConnectionReady:
-                        payload.paymentConnectionReady === true
-                            ? true
-                            : state.lifecycle.paymentConnectionReady
-                })
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_CONNECTION_READY: {
-
-            return stamp({
-                ...state,
-                roomId: payload?.roomId ?? state.roomId,
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    paymentConnectionReady: true
-                }),
-                walletConnection: state.walletConnection
-                    ? Object.freeze({
-                        ...state.walletConnection,
-                        paymentConnectionReady: true
-                    })
-                    : state.walletConnection
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_CREATED:
-        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_UPDATED:
-        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_COMPLETED:
-        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_FAILED: {
-
-            if (!payload || typeof payload !== "object") {
-
-                return state;
-
-            }
-
-            const record = unwrapAuthoritativeSocketRecord(payload);
-
-            if (!record || typeof record !== "object") {
-
-                return state;
-
-            }
-
-            const participants = Array.isArray(record.participants)
-                ? Object.freeze(
-                    record.participants.map((participant) => Object.freeze({
-                        playerId: participant?.playerId ?? null,
-                        // R7.70C10 — server seat index for GameEscrow STAKE body.
-                        playerIndex: participant?.playerIndex ?? null,
-                        requiredGram: participant?.requiredGram ?? null,
-                        status: participant?.status ?? "WAITING",
-                        wallet: participant?.wallet
-                            ?? participant?.walletAddress
-                            ?? null,
-                        walletAddress: participant?.walletAddress
-                            ?? participant?.wallet
-                            ?? null,
-                        paymentDestination: participant?.paymentDestination
-                            ?? null,
-                        paymentReference: participant?.paymentReference ?? null,
-                        contractAddress: participant?.contractAddress ?? null,
-                        txHash: participant?.txHash ?? null
-                    }))
-                )
-                : Object.freeze([]);
-
-            const nextRoomId = record.roomId ?? state.roomId;
-            const nextGameId = record.gameId ?? state.gameId;
-            const scoped = applySessionScopedDeposit(state, nextRoomId, nextGameId);
-
-            return stamp({
-                ...state,
-                roomId: nextRoomId,
-                gameId: nextGameId,
-                deposit: scoped.deposit,
-                paymentSession: Object.freeze({
-                    paymentSessionId: record.paymentSessionId ?? null,
-                    roomId: record.roomId ?? null,
-                    roomNumber: record.roomNumber ?? null,
-                    gameId: record.gameId ?? null,
-                    network: record.network ?? null,
-                    roomWalletAddress: record.roomWalletAddress ?? null,
-                    createdAt: record.createdAt ?? null,
-                    expiresAt: record.expiresAt ?? null,
-                    completedAt: record.completedAt ?? null,
-                    status: record.status ?? null,
-                    reason: record.reason ?? null,
-                    participants
-                }),
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    depositActivationVerified: scoped.depositActivationVerified
-                })
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_REQUEST: {
-
-            // Individual requests are informational; session UPDATED owns display.
-            if (!payload || typeof payload !== "object") {
-
-                return state;
-
-            }
-
-            return stamp({
-                ...state,
-                roomId: payload.roomId ?? state.roomId,
-                gameId: payload.gameId ?? state.gameId
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED:
-        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOYED:
-        case AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOY_FAILED: {
-
-            if (!payload || typeof payload !== "object") {
-
-                return state;
-
-            }
-
-            const record = unwrapAuthoritativeSocketRecord(payload);
-
-            if (!record || typeof record !== "object") {
-
-                return state;
-
-            }
-
-            const nextRoomId = record.roomId ?? state.roomId;
-            const nextGameId = record.gameId ?? state.gameId;
-            const scoped = applySessionScopedDeposit(state, nextRoomId, nextGameId);
-
-            return stamp({
-                ...state,
-                roomId: nextRoomId,
-                gameId: nextGameId,
-                deposit: scoped.deposit,
-                gameContract: Object.freeze({
-                    contractId: record.contractId ?? null,
-                    gameId: record.gameId ?? null,
-                    roomId: record.roomId ?? null,
-                    status: record.status ?? null,
-                    createdAt: record.createdAt ?? null,
-                    contractAddress: record.contractAddress ?? null,
-                    deploymentStatus: record.deploymentStatus ?? null,
-                    deployedAt: record.deployedAt ?? null,
-                    paymentsCompletedAt: record.paymentsCompletedAt ?? null,
-                    deployError: record.deployError ?? null,
-                    escrowMode: record.escrowMode
-                        ?? record.snapshot?.escrowMode
-                        ?? state.gameContract?.escrowMode
-                        ?? null
-                }),
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    depositActivationVerified: scoped.depositActivationVerified
-                })
-            }, action.type);
-
-        }
-
-        // R18 S4 — requester-scoped Deposit projection mirror. The payload is
-        // shipped already requester-scoped by the server (projectDepositForPlayer).
-        // This reducer never derives seat/creator/amount and never infers funding —
-        // it stores the received projection verbatim (frozen).
-        case AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED: {
-
-            if (!payload || typeof payload !== "object") {
-
-                // Fail closed — no projection, no change.
-                return state;
-
-            }
-
-            const deposit = payload.deposit;
-
-            if (!deposit || typeof deposit !== "object") {
-
-                // Fail closed — never invent a Deposit projection.
-                return state;
-
-            }
-
-            const pkg = deposit.package && typeof deposit.package === "object"
-                ? Object.freeze({ ...deposit.package })
-                : null;
-
-            logClientDepositRestore("DEPOSIT_PACKAGE_RECEIVED", {
-                roomId: state.roomId,
-                depositId: deposit.depositId,
-                depositAddress: deposit.depositAddress,
-                state: deposit.phase,
-                confirmedSeats: deposit.confirmedSeats,
-                mySeatStatus: deposit.mySeatStatus,
-                deployValueNanotons: pkg?.deployValueNanotons
-            });
-
-            const incomingActivation = deposit.activationStatus ?? null;
-            const previousActivation = state.deposit?.activationStatus ?? null;
-            const activationStatus = incomingActivation != null
-                ? incomingActivation
-                : previousActivation ?? null;
-            const depositActivationVerified = activationStatus === "VERIFIED"
-                || activationStatus === "ALREADY_VERIFIED"
-                || state.lifecycle?.depositActivationVerified === true;
-
-            const appliedDeposit = Object.freeze({
-                phase: deposit.phase ?? null,
-                depositId: deposit.depositId ?? null,
-                depositAddress: deposit.depositAddress ?? null,
-                network: deposit.network ?? null,
-                roomId: payload.roomId ?? deposit.roomId ?? state.roomId ?? null,
-                gameId: payload.gameId ?? deposit.gameId ?? state.gameId ?? null,
-                ...(pkg ? { package: pkg } : {}),
-                mySeatIndex: deposit.mySeatIndex ?? null,
-                isCreator: deposit.isCreator ?? null,
-                mySeatStatus: deposit.mySeatStatus ?? null,
-                myExpectedAmountNanotons: deposit.myExpectedAmountNanotons ?? null,
-                confirmedSeats: deposit.confirmedSeats ?? null,
-                activationStatus
-            });
-
-            logClientDepositRestore("DEPOSIT_STATE_APPLIED", {
-                roomId: state.roomId,
-                depositId: appliedDeposit.depositId,
-                depositAddress: appliedDeposit.depositAddress,
-                state: appliedDeposit.phase,
-                confirmedSeats: appliedDeposit.confirmedSeats,
-                mySeatStatus: appliedDeposit.mySeatStatus
-            });
-
-            return stamp({
-                ...state,
-                deposit: appliedDeposit,
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    depositActivationVerified
-                })
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_ACTIVATION_VERIFIED: {
-
-            const status = payload?.status ?? null;
-
-            if (status !== "VERIFIED" && status !== "ALREADY_VERIFIED") {
-
-                return state;
-
-            }
-
-            const nextDeposit = state.deposit
-                ? Object.freeze({
-                    ...state.deposit,
-                    activationStatus: status
-                })
-                : state.deposit;
-
-            return stamp({
-                ...state,
-                deposit: nextDeposit,
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    depositActivationVerified: true
-                })
-            }, action.type);
-
-        }
 
         case AUTHORITATIVE_SESSION_ACTIONS.GAME_START_AUTHORIZED: {
 
@@ -1096,46 +552,8 @@ export function authoritativeSessionReducer(state, action) {
 
         }
 
-        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_STARTED:
-        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_SUBMITTED:
-        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_CONFIRMED: {
 
-            return stamp({
-                ...state,
-                roomId: payload?.roomId ?? state.roomId,
-                gameId: payload?.gameId ?? state.gameId
-            }, action.type);
 
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_COMPLETED: {
-
-            return stamp({
-                ...state,
-                roomId: payload?.roomId ?? state.roomId,
-                gameId: payload?.gameId ?? state.gameId,
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    settlementCompleted: true,
-                    settlementFailed: false
-                })
-            }, action.type);
-
-        }
-
-        case AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_FAILED: {
-
-            return stamp({
-                ...state,
-                roomId: payload?.roomId ?? state.roomId,
-                gameId: payload?.gameId ?? state.gameId,
-                lifecycle: Object.freeze({
-                    ...state.lifecycle,
-                    settlementFailed: true
-                })
-            }, action.type);
-
-        }
 
         case AUTHORITATIVE_SESSION_ACTIONS.GAME_END: {
 

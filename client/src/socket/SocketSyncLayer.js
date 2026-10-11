@@ -269,142 +269,6 @@ export class SocketSyncLayer {
 
         };
 
-        this._handlePaymentStageReady = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY,
-                payload
-            });
-
-        };
-
-        this._handleEntryPaymentSessionUpdated = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
-                payload
-            });
-
-        };
-
-        this._handleEntryPaymentCompleted = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
-                payload
-            });
-
-        };
-
-        this._handleWalletConnectionSessionUpdated = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
-                payload
-            });
-
-        };
-
-        this._handlePaymentConnectionReady = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.PAYMENT_CONNECTION_READY,
-                payload
-            });
-
-        };
-
-        this._handlePaymentSessionCreated = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_CREATED,
-                payload
-            });
-
-        };
-
-        this._handlePaymentSessionUpdated = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_UPDATED,
-                payload
-            });
-
-        };
-
-        this._handlePaymentRequest = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST,
-                payload
-            });
-
-        };
-
-        this._handlePaymentSessionCompleted = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_COMPLETED,
-                payload
-            });
-
-        };
-
-        this._handlePaymentSessionFailed = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED,
-                payload
-            });
-
-        };
-
-        this._handleGameContractUpdated = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED,
-                payload
-            });
-
-        };
-
-        this._handleGameContractDeployed = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED,
-                payload
-            });
-
-        };
-
-        this._handleGameContractDeployFailed = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
-                payload
-            });
-
-        };
-
-        // R18 S4 — requester-scoped Deposit package (informational mirror).
-        this._handleDepositPackagePublished = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
-                payload
-            });
-
-        };
-
-        this._handleDepositActivationVerified = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
-                payload
-            });
-
-        };
-
         this._handleGameStartAuthorized = (payload) => {
 
             this._handleIncoming({
@@ -423,50 +287,7 @@ export class SocketSyncLayer {
 
         };
 
-        this._handleSettlementStarted = (payload) => {
 
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_STARTED,
-                payload
-            });
-
-        };
-
-        this._handleSettlementSubmitted = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_SUBMITTED,
-                payload
-            });
-
-        };
-
-        this._handleSettlementConfirmed = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_CONFIRMED,
-                payload
-            });
-
-        };
-
-        this._handleSettlementCompleted = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_COMPLETED,
-                payload
-            });
-
-        };
-
-        this._handleSettlementFailed = (payload) => {
-
-            this._handleIncoming({
-                type: INCOMING_SOCKET_EVENTS.SETTLEMENT_FAILED,
-                payload
-            });
-
-        };
 
         this._handleOpenPage5 = (payload) => {
 
@@ -530,80 +351,7 @@ export class SocketSyncLayer {
             this._handleVerifyCompleted
         );
 
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY,
-            this._handlePaymentStageReady
-        );
 
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
-            this._handleEntryPaymentSessionUpdated
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
-            this._handleEntryPaymentCompleted
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
-            this._handleWalletConnectionSessionUpdated
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.PAYMENT_CONNECTION_READY,
-            this._handlePaymentConnectionReady
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_CREATED,
-            this._handlePaymentSessionCreated
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_UPDATED,
-            this._handlePaymentSessionUpdated
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST,
-            this._handlePaymentRequest
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_COMPLETED,
-            this._handlePaymentSessionCompleted
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED,
-            this._handlePaymentSessionFailed
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED,
-            this._handleGameContractUpdated
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED,
-            this._handleGameContractDeployed
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
-            this._handleGameContractDeployFailed
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
-            this._handleDepositPackagePublished
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
-            this._handleDepositActivationVerified
-        );
 
         this._socket.on(
             INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED,
@@ -615,30 +363,7 @@ export class SocketSyncLayer {
             this._handleGameInitializing
         );
 
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_STARTED,
-            this._handleSettlementStarted
-        );
 
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_SUBMITTED,
-            this._handleSettlementSubmitted
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_CONFIRMED,
-            this._handleSettlementConfirmed
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_COMPLETED,
-            this._handleSettlementCompleted
-        );
-
-        this._socket.on(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_FAILED,
-            this._handleSettlementFailed
-        );
 
         this._socket.on(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,
@@ -702,80 +427,7 @@ export class SocketSyncLayer {
             this._handleVerifyCompleted
         );
 
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY,
-            this._handlePaymentStageReady
-        );
 
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
-            this._handleEntryPaymentSessionUpdated
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED,
-            this._handleEntryPaymentCompleted
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.WALLET_CONNECTION_SESSION_UPDATED,
-            this._handleWalletConnectionSessionUpdated
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.PAYMENT_CONNECTION_READY,
-            this._handlePaymentConnectionReady
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_CREATED,
-            this._handlePaymentSessionCreated
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_UPDATED,
-            this._handlePaymentSessionUpdated
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST,
-            this._handlePaymentRequest
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_COMPLETED,
-            this._handlePaymentSessionCompleted
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED,
-            this._handlePaymentSessionFailed
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED,
-            this._handleGameContractUpdated
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED,
-            this._handleGameContractDeployed
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED,
-            this._handleGameContractDeployFailed
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED,
-            this._handleDepositPackagePublished
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED,
-            this._handleDepositActivationVerified
-        );
 
         this._socket.off(
             INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED,
@@ -787,30 +439,7 @@ export class SocketSyncLayer {
             this._handleGameInitializing
         );
 
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_STARTED,
-            this._handleSettlementStarted
-        );
 
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_SUBMITTED,
-            this._handleSettlementSubmitted
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_CONFIRMED,
-            this._handleSettlementConfirmed
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_COMPLETED,
-            this._handleSettlementCompleted
-        );
-
-        this._socket.off(
-            INCOMING_SOCKET_EVENTS.SETTLEMENT_FAILED,
-            this._handleSettlementFailed
-        );
 
         this._socket.off(
             INCOMING_SOCKET_EVENTS.OPEN_PAGE5,

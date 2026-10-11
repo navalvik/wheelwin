@@ -16,7 +16,6 @@ import { FailureRecoveryScenario } from "./scenarios/FailureRecoveryScenario.js"
 import { MonitoringScenario } from "./scenarios/MonitoringScenario.js";
 import { LoggingScenario } from "./scenarios/LoggingScenario.js";
 import { DeploymentScenario } from "./scenarios/DeploymentScenario.js";
-import { BlockchainSimulationScenario } from "./scenarios/BlockchainSimulationScenario.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

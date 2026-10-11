@@ -45,9 +45,6 @@ import {
     buildWinnerResultMessage
 } from "./gameplayWinnerProtocol.js";
 import {
-    buildPaymentStatusMessage
-} from "./gameplayPaymentProtocol.js";
-import {
     buildAuditStatusMessage,
     AUDIT_CLIENT_STATUS
 } from "./gameplayAuditProtocol.js";
@@ -76,7 +73,6 @@ export class SocketGateway {
         gameplayContextResolver = null,
         recoveryEngine = null,
         recoverySnapshotCache = null,
-        paymentEngine = null,
         auditEngine = null,
         roomLobbyBridge = null,
         resultSessionLifecycle = null,
@@ -99,8 +95,6 @@ export class SocketGateway {
         this._recoveryEngine = recoveryEngine;
 
         this._recoverySnapshotCache = recoverySnapshotCache;
-
-        this._paymentEngine = paymentEngine;
 
         this._auditEngine = auditEngine;
 
@@ -135,11 +129,8 @@ export class SocketGateway {
 
         this._winnerDeterminedHandler = null;
 
-        this._paymentStartedHandler = null;
 
-        this._paymentCompletedHandler = null;
 
-        this._paymentFailedHandler = null;
 
         this._auditStartedHandler = null;
 
@@ -313,48 +304,6 @@ export class SocketGateway {
             this._winnerDeterminedHandler
         );
 
-        this._paymentStartedHandler = (envelope) => {
-
-            this._handlePaymentEvent(
-                EVENT_TYPES.PAYMENT_STARTED,
-                envelope.payload
-            );
-
-        };
-
-        eventBus.subscribe(
-            EVENT_TYPES.PAYMENT_STARTED,
-            this._paymentStartedHandler
-        );
-
-        this._paymentCompletedHandler = (envelope) => {
-
-            this._handlePaymentEvent(
-                EVENT_TYPES.PAYMENT_COMPLETED,
-                envelope.payload
-            );
-
-        };
-
-        eventBus.subscribe(
-            EVENT_TYPES.PAYMENT_COMPLETED,
-            this._paymentCompletedHandler
-        );
-
-        this._paymentFailedHandler = (envelope) => {
-
-            this._handlePaymentEvent(
-                EVENT_TYPES.PAYMENT_FAILED,
-                envelope.payload
-            );
-
-        };
-
-        eventBus.subscribe(
-            EVENT_TYPES.PAYMENT_FAILED,
-            this._paymentFailedHandler
-        );
-
         this._auditStartedHandler = (envelope) => {
 
             this._handleAuditEvent(
@@ -485,33 +434,6 @@ export class SocketGateway {
 
         }
 
-        if (this._eventBus && this._paymentStartedHandler) {
-
-            this._eventBus.unsubscribe(
-                EVENT_TYPES.PAYMENT_STARTED,
-                this._paymentStartedHandler
-            );
-
-        }
-
-        if (this._eventBus && this._paymentCompletedHandler) {
-
-            this._eventBus.unsubscribe(
-                EVENT_TYPES.PAYMENT_COMPLETED,
-                this._paymentCompletedHandler
-            );
-
-        }
-
-        if (this._eventBus && this._paymentFailedHandler) {
-
-            this._eventBus.unsubscribe(
-                EVENT_TYPES.PAYMENT_FAILED,
-                this._paymentFailedHandler
-            );
-
-        }
-
         if (this._eventBus && this._auditStartedHandler) {
 
             this._eventBus.unsubscribe(
@@ -564,11 +486,8 @@ export class SocketGateway {
 
         this._winnerDeterminedHandler = null;
 
-        this._paymentStartedHandler = null;
 
-        this._paymentCompletedHandler = null;
 
-        this._paymentFailedHandler = null;
 
         this._auditStartedHandler = null;
 
@@ -748,7 +667,6 @@ export class SocketGateway {
     configureRecovery({
         recoveryEngine,
         recoverySnapshotCache,
-        paymentEngine,
         auditEngine,
         roomLobbyBridge,
         resultSessionLifecycle
@@ -763,12 +681,6 @@ export class SocketGateway {
         if (recoverySnapshotCache) {
 
             this._recoverySnapshotCache = recoverySnapshotCache;
-
-        }
-
-        if (paymentEngine) {
-
-            this._paymentEngine = paymentEngine;
 
         }
 
@@ -802,18 +714,6 @@ export class SocketGateway {
             + ` | playerId=${bound?.ok ? bound.playerId : "null"}`
             + ` | socket.id=${socket.id}`
         );
-
-        // R18-S16 — same-id protected reconnect can skip SESSION_RECOVERY_REQUEST
-        // (Keah 05:55:53Z). The binding already identifies the player; restore
-        // the live Deposit projection without a new auth flow or unbind.
-        if (bound?.ok === true) {
-
-            this._roomLobbyBridge?.restoreDepositProjectionForSocket?.(
-                socket.id,
-                { reason: "protected_connect" }
-            );
-
-        }
 
         socket.on(LOBBY_CLIENT_EVENTS.CREATE_ROOM, () => {
 
@@ -910,115 +810,12 @@ export class SocketGateway {
             this._emitLobbyRequest(EVENT_TYPES.LOBBY_VERIFY_NEXT_REQUEST, {
                 socketId: socket.id,
                 roomId: payload?.roomId ?? null,
-                playerId: payload?.playerId ?? null,
-                walletAddress: payload?.walletAddress ?? null
+                playerId: payload?.playerId ?? null
             });
 
         });
 
-        socket.on(LOBBY_CLIENT_EVENTS.WALLET_CONNECT_STARTED, () => {
-
-            const bound = this._gameplayContextResolver?.resolve(socket.id);
-
-            console.log("[TonConnect TRACE] incoming socket event", {
-                event: LOBBY_CLIENT_EVENTS.WALLET_CONNECT_STARTED,
-                socketId: socket.id,
-                playerId: bound?.ok ? bound.playerId : null,
-                roomId: bound?.ok ? bound.roomId : null,
-                payload: null,
-                timestamp: Date.now()
-            });
-
-            this._emitLobbyRequest(
-                EVENT_TYPES.LOBBY_WALLET_CONNECT_STARTED_REQUEST,
-                { socketId: socket.id }
-            );
-
-        });
-
-        socket.on(LOBBY_CLIENT_EVENTS.WALLET_CONNECT_REPORT, (payload) => {
-
-            const bound = this._gameplayContextResolver?.resolve(socket.id);
-
-            console.log("[TonConnect TRACE] incoming socket event", {
-                event: LOBBY_CLIENT_EVENTS.WALLET_CONNECT_REPORT,
-                socketId: socket.id,
-                playerId: bound?.ok ? bound.playerId : (payload?.playerId ?? null),
-                roomId: bound?.ok ? bound.roomId : (payload?.roomId ?? null),
-                payload,
-                timestamp: Date.now()
-            });
-
-            this._emitLobbyRequest(
-                EVENT_TYPES.LOBBY_WALLET_CONNECT_REPORT_REQUEST,
-                {
-                    socketId: socket.id,
-                    connectedWallet: payload?.connectedWallet ?? null
-                }
-            );
-
-        });
-
-        socket.on(LOBBY_CLIENT_EVENTS.WALLET_DISCONNECT_REPORT, () => {
-
-            const bound = this._gameplayContextResolver?.resolve(socket.id);
-
-            console.log("[TonConnect TRACE] incoming socket event", {
-                event: LOBBY_CLIENT_EVENTS.WALLET_DISCONNECT_REPORT,
-                socketId: socket.id,
-                playerId: bound?.ok ? bound.playerId : null,
-                roomId: bound?.ok ? bound.roomId : null,
-                payload: null,
-                timestamp: Date.now()
-            });
-
-            this._emitLobbyRequest(
-                EVENT_TYPES.LOBBY_WALLET_DISCONNECT_REPORT_REQUEST,
-                { socketId: socket.id }
-            );
-
-        });
-
-        // R6.11E — forensic only; does not mutate wallet handshake / payment.
-        socket.on(LOBBY_CLIENT_EVENTS.TONCONNECT_AUTOPSY_SNAPSHOT, (payload) => {
-
-            const bound = this._gameplayContextResolver?.resolve(socket.id);
-
-            this._emitLobbyRequest(
-                EVENT_TYPES.LOBBY_TONCONNECT_AUTOPSY_SNAPSHOT_REQUEST,
-                {
-                    socketId: socket.id,
-                    roomId: bound?.ok
-                        ? bound.roomId
-                        : (payload?.roomId ?? null),
-                    playerId: bound?.ok
-                        ? bound.playerId
-                        : (payload?.playerId ?? null),
-                    payload: payload ?? null
-                }
-            );
-
-        });
-
-        socket.on(LOBBY_CLIENT_EVENTS.PAYMENT_CONFIRM_INTENT, () => {
-
-            this._emitLobbyRequest(
-                EVENT_TYPES.LOBBY_PAYMENT_CONFIRM_INTENT_REQUEST,
-                { socketId: socket.id }
-            );
-
-        });
-
-        socket.on(LOBBY_CLIENT_EVENTS.PAYMENT_CANCEL_INTENT, () => {
-
-            this._emitLobbyRequest(
-                EVENT_TYPES.LOBBY_PAYMENT_CANCEL_INTENT_REQUEST,
-                { socketId: socket.id }
-            );
-
-        });
-
-        // R12.5G — observation-only. Never mutates gameplay / navigation / payment.
+        // R12.5G — observation-only. Never mutates gameplay / navigation.
         socket.on(LOBBY_CLIENT_EVENTS.PAGE6_CLIENT_DIAG, (payload) => {
 
             this._handlePage6ClientDiag(socket, payload);
@@ -1412,20 +1209,6 @@ export class SocketGateway {
 
         const roomId = context.roomId;
 
-        // R17.8B — Pre-game reclaim already delivered lobby/payment sync via
-        // RoomLobbyBridge.reconnectSession when the socket was unbound.
-        // R18-S16 — protected same-id reconnect keeps the gameplay binding
-        // (bound=true), so reconnectSession is skipped. Still restore the live
-        // Deposit projection; identity is the existing server binding.
-        if (context?.ok === true) {
-
-            this._roomLobbyBridge?.restoreDepositProjectionForSocket?.(
-                socket.id,
-                { reason: "bound_recovery" }
-            );
-
-        }
-
         // Do not call RecoveryEngine until GAME_INITIALIZED (live gameState)
         // or RESULT cache exists.
         const liveGameState = this._peekRecoveryGameState(gameId);
@@ -1485,10 +1268,6 @@ export class SocketGateway {
 
         let authoritativeSnapshot = null;
 
-        let paymentStatus = null;
-
-        let payment = null;
-
         let auditStatus = null;
 
         let snapshotError = null;
@@ -1499,10 +1278,6 @@ export class SocketGateway {
                 gameId,
                 playerId
             );
-
-            paymentStatus = this._paymentEngine?.getPaymentStatus(gameId) ?? null;
-
-            payment = this._paymentEngine?.getPayment(gameId) ?? null;
 
             auditStatus = this._resolveAuditStatus(gameId);
 
@@ -1527,10 +1302,6 @@ export class SocketGateway {
             if (cached?.snapshot) {
 
                 authoritativeSnapshot = cached.snapshot;
-
-                paymentStatus = cached.paymentStatus ?? null;
-
-                payment = cached.payment ?? null;
 
                 auditStatus = cached.auditStatus ?? null;
 
@@ -1574,8 +1345,6 @@ export class SocketGateway {
                 snapshot: authoritativeSnapshot,
                 playerId,
                 roomId,
-                paymentStatus,
-                payment,
                 auditStatus
             }),
             {
@@ -2015,48 +1784,6 @@ export class SocketGateway {
 
     }
 
-    _handlePaymentEvent(eventType, paymentPayload) {
-
-        if (!this._io || !paymentPayload?.gameId) {
-
-            return;
-
-        }
-
-        if (!this._gameplayContextResolver) {
-
-            this._logPaymentSyncDrop("gameplay context resolver is not configured");
-
-            return;
-
-        }
-
-        const roomId = this._gameplayContextResolver
-            .resolveRoomByGameId(paymentPayload.gameId);
-
-        if (!roomId) {
-
-            this._logPaymentSyncDrop(
-                `no active room for gameId=${paymentPayload.gameId}`
-            );
-
-            return;
-
-        }
-
-        const { channel, message } = buildPaymentStatusMessage(
-            eventType,
-            paymentPayload
-        );
-
-        this._logPaymentSyncStep(`${eventType} → ${message.payload.status}`);
-
-        this._io.to(roomId).emit(channel, message);
-
-        this._logPaymentSyncStep("Payment status sent");
-
-    }
-
     _handleAuditEvent(eventType, auditPayload) {
 
         if (!this._io || !auditPayload?.gameId) {
@@ -2188,30 +1915,6 @@ export class SocketGateway {
         }
 
         this._logger.debug(`[AuditSync] dropped | ${message}`);
-
-    }
-
-    _logPaymentSyncStep(message) {
-
-        if (!this._devMode) {
-
-            return;
-
-        }
-
-        this._logger.debug(`[PaymentSync] ${message}`);
-
-    }
-
-    _logPaymentSyncDrop(reason) {
-
-        if (!this._devMode) {
-
-            return;
-
-        }
-
-        this._logger.debug(`[PaymentSync] Dropped: ${reason}`);
 
     }
 
@@ -2456,7 +2159,7 @@ export class SocketGateway {
 
     /**
      * R12.5G — Accept untrusted client Page6 diagnostics and forward to EventBus
-     * / logger only. No gameplay, recovery, payment, or navigation side effects.
+     * / logger only. No gameplay, recovery, or navigation side effects.
      */
     _handlePage6ClientDiag(socket, rawPayload) {
 

@@ -35,11 +35,9 @@ export class RuntimeConfiguration {
      *   server: object,
      *   production: object,
      *   rooms: object,
-     *   ton: object,
      *   socket: object,
      *   eventBus: object,
      *   gameplayPhases: object,
-     *   owner: object,
      *   developer: object,
      *   validatedCategories: string[],
      *   version?: string
@@ -55,15 +53,11 @@ export class RuntimeConfiguration {
 
         this.rooms = input.rooms;
 
-        this.ton = input.ton;
-
         this.socket = input.socket;
 
         this.eventBus = input.eventBus;
 
         this.gameplayPhases = input.gameplayPhases;
-
-        this.owner = input.owner;
 
         this.developer = input.developer;
 
@@ -96,7 +90,6 @@ export class RuntimeConfiguration {
                     this.production.runStartupDemonstrations === true,
                 debugSimulationLoop:
                     this.production.debugSimulationLoop === true,
-                tonDeployMode: this.ton.deployMode,
                 eventBusLogging: this.eventBus.logEvents === true
             }),
             server: Object.freeze({
@@ -123,29 +116,6 @@ export class RuntimeConfiguration {
                 maxPlayers: this.rooms.maxPlayers,
                 maxConcurrentRooms: this.rooms.maxConcurrentRooms
             }),
-            ton: Object.freeze({
-                network: this.ton.network,
-                deployMode: this.ton.deployMode,
-                pollIntervalMs: this.ton.pollIntervalMs,
-                endpointConfigured: Boolean(this.ton.endpoint),
-                apiKeyConfigured: Boolean(this.ton.apiKey),
-                mnemonicConfigured: Boolean(this.ton.deployerMnemonic),
-                // R7.67B — public expected-address pin (not a secret).
-                expectedAddressConfigured: Boolean(
-                    this.ton.deployerExpectedAddress
-                ),
-                gameEscrowMode: this.ton.gameEscrowMode ?? null,
-                // R7.68 / R7.70A.2 — oracle pins (not secrets).
-                oracleConfigured: Boolean(this.ton.oracleAddress),
-                oracleSource: this.ton.oracleSource ?? null,
-                artifactHashConfigured: Boolean(
-                    this.ton.artifactSha256Expected
-                ),
-                mainnetProfileConfigured: Boolean(
-                    this.ton.profiles?.mainnet?.oracleWallet
-                    && this.ton.profiles?.mainnet?.deployerExpectedAddress
-                )
-            }),
             developerConsole: Object.freeze({
                 authEnabled: this.developer.enabled === true,
                 authConfigured: this.developer.configured === true,
@@ -153,13 +123,6 @@ export class RuntimeConfiguration {
                 nodeEnvironmentLabel: this.developer.nodeEnvironmentLabel,
                 accessTokenTtlSeconds: this.developer.accessTokenTtlSeconds,
                 refreshTokenTtlSeconds: this.developer.refreshTokenTtlSeconds
-            }),
-            owner: Object.freeze({
-                loaded: this.owner.loaded === true,
-                configPathSet: Boolean(this.owner.configPath)
-            }),
-            payments: Object.freeze({
-                ownerConfigured: this.owner.loaded === true
             }),
             metrics: Object.freeze({
                 enabled: this.production.metricsEnabled === true,
@@ -256,11 +219,6 @@ export class RuntimeConfiguration {
             server: this.server,
             production: this.production,
             rooms: this.rooms,
-            ton: this.ton,
-            owner: {
-                loaded: this.owner.loaded,
-                configPath: this.owner.configPath
-            },
             developer: {
                 enabled: this.developer.enabled,
                 configured: this.developer.configured,

@@ -39,10 +39,6 @@ import { Room } from "../models/Room.js";
 import { Game } from "../models/Game.js";
 import { PlayerIdentity } from "../models/PlayerIdentity.js";
 import { PlayerRuntime } from "../models/PlayerRuntime.js";
-import { computePayloadChecksum } from "../persistence/tonFinancialRecordUtils.js";
-import {
-    RECOVERY_DATA_TERMINAL_STATUSES
-} from "../persistence/TonFinancialRecordTypes.js";
 
 /**
  * Gameplay phases eligible for full reconstruction under the current
@@ -1250,7 +1246,7 @@ export class RecoveryOrchestrator {
 
         // IDENTITY
         for (const field of [
-            "roomId", "gameId", "contractId", "paymentSessionId", "tonNetwork"
+            "roomId", "gameId"
         ]) {
 
             if (payload[field] == null || payload[field] === "") {
@@ -1575,7 +1571,6 @@ export class RecoveryOrchestrator {
             const identity = new PlayerIdentity({
                 playerId: persistedPlayer.playerId,
                 nickname: persistedPlayer.nickname,
-                wallet: persistedPlayer.wallet,
                 icon: persistedPlayer.icon,
                 age: persistedPlayer.age,
                 color: persistedPlayer.color,

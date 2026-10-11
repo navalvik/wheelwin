@@ -5,13 +5,10 @@ import { buildRoomsIndex } from "./projectionBuilders/buildRoomsIndex.js";
 import { buildRoomDetail } from "./projectionBuilders/buildRoomDetail.js";
 import { buildGameDetail } from "./projectionBuilders/buildGameDetail.js";
 import { buildPlayersIndex } from "./projectionBuilders/buildPlayersIndex.js";
-import { buildPaymentsOverview } from "./projectionBuilders/buildPaymentsOverview.js";
 import { buildRecoveryOverview } from "./projectionBuilders/buildRecoveryOverview.js";
 import { buildSimulationOverview } from "./projectionBuilders/buildSimulationOverview.js";
 import { buildMetricsOverview } from "./projectionBuilders/buildMetricsOverview.js";
 import { buildSystemInformation } from "./projectionBuilders/buildSystemInformation.js";
-import { buildBlockchainStatus } from "./projectionBuilders/buildBlockchainStatus.js";
-import { buildDeployerWalletStatus as buildDeployerWalletStatusDto } from "./projectionBuilders/buildDeployerWalletStatus.js";
 import { buildRuntimeConfigurationSnapshot } from "./configuration/buildRuntimeConfigurationSnapshot.js";
 import { buildAudioRegistrySnapshot } from "./configuration/buildAudioRegistrySnapshot.js";
 
@@ -37,9 +34,6 @@ export class DeveloperConsoleProjectionService {
         gameManager,
         playerManager,
         setupSessionLifecycle = null,
-        paymentSessionManager = null,
-        gameContractManager = null,
-        contractSettlementManager = null,
         gameStartAuthorization = null,
         resultSessionLifecycle = null,
         recoveryEngine = null,
@@ -56,14 +50,9 @@ export class DeveloperConsoleProjectionService {
         lifecycleManager = null,
         gameplayContextResolver = null,
         runtimeConfig = null,
-        tonService = null,
-        blockchainMonitor = null,
-        walletManager = null,
-        tonFinancialRecovery = null,
         roomLobbyBridge = null,
         runtimeConfigurationService = null,
         audioRegistryService = null,
-        walletBalanceMonitor = null,
         version = packageJson.version,
         startedAt = Date.now()
     }) {
@@ -72,9 +61,6 @@ export class DeveloperConsoleProjectionService {
         this._gameManager = gameManager;
         this._playerManager = playerManager;
         this._setupSessionLifecycle = setupSessionLifecycle;
-        this._paymentSessionManager = paymentSessionManager;
-        this._gameContractManager = gameContractManager;
-        this._contractSettlementManager = contractSettlementManager;
         this._gameStartAuthorization = gameStartAuthorization;
         this._resultSessionLifecycle = resultSessionLifecycle;
         this._recoveryEngine = recoveryEngine;
@@ -92,14 +78,9 @@ export class DeveloperConsoleProjectionService {
         this._lifecycleManager = lifecycleManager;
         this._gameplayContextResolver = gameplayContextResolver;
         this._runtimeConfig = runtimeConfig;
-        this._tonService = tonService;
-        this._blockchainMonitor = blockchainMonitor;
-        this._walletManager = walletManager;
-        this._tonFinancialRecovery = tonFinancialRecovery;
         this._roomLobbyBridge = roomLobbyBridge;
         this._runtimeConfigurationService = runtimeConfigurationService;
         this._audioRegistryService = audioRegistryService;
-        this._walletBalanceMonitor = walletBalanceMonitor;
         this._version = version;
         this._startedAt = startedAt;
 
@@ -148,8 +129,6 @@ export class DeveloperConsoleProjectionService {
             playerManager: this._playerManager,
             gameManager: this._gameManager,
             setupSessionLifecycle: this._setupSessionLifecycle,
-            paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
             gameStartAuthorization: this._gameStartAuthorization,
             gameStateEngine: this._gameStateEngine,
             gameClockEngine: this._gameClockEngine,
@@ -175,9 +154,6 @@ export class DeveloperConsoleProjectionService {
             winnerEngine: this._winnerEngine,
             physicsEngine: this._physicsEngine,
             simulationLoop: this._simulationLoop,
-            paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
-            contractSettlementManager: this._contractSettlementManager,
             gameStartAuthorization: this._gameStartAuthorization,
             resultSessionLifecycle: this._resultSessionLifecycle,
             gameplayContextResolver: this._gameplayContextResolver
@@ -192,20 +168,9 @@ export class DeveloperConsoleProjectionService {
             roomManager: this._roomManager,
             gameManager: this._gameManager,
             setupSessionLifecycle: this._setupSessionLifecycle,
-            paymentSessionManager: this._paymentSessionManager,
             gameStartAuthorization: this._gameStartAuthorization,
             gameStateEngine: this._gameStateEngine,
             resultSessionLifecycle: this._resultSessionLifecycle
-        });
-
-    }
-
-    buildPaymentsOverview() {
-
-        return buildPaymentsOverview({
-            paymentSessionManager: this._paymentSessionManager,
-            gameContractManager: this._gameContractManager,
-            contractSettlementManager: this._contractSettlementManager
         });
 
     }
@@ -256,30 +221,6 @@ export class DeveloperConsoleProjectionService {
 
     }
 
-    buildBlockchainStatus() {
-
-        return buildBlockchainStatus({
-            runtimeConfig: this._runtimeConfig,
-            tonService: this._tonService,
-            blockchainMonitor: this._blockchainMonitor,
-            walletManager: this._walletManager,
-            gameContractManager: this._gameContractManager,
-            paymentSessionManager: this._paymentSessionManager,
-            contractSettlementManager: this._contractSettlementManager,
-            tonFinancialRecovery: this._tonFinancialRecovery
-        });
-
-    }
-
-    buildDeployerWalletStatus() {
-
-        return buildDeployerWalletStatusDto({
-            runtimeConfig: this._runtimeConfig,
-            tonService: this._tonService
-        });
-
-    }
-
     /**
      * R17.9G.1 — Runtime configuration projection (admin sees values; viewer redacted).
      * @param {{ canEdit?: boolean }} [options]
@@ -288,40 +229,14 @@ export class DeveloperConsoleProjectionService {
 
         const service = this._runtimeConfigurationService;
         const state = service?.getState?.() ?? null;
-        const settlementDefault = this._contractSettlementManager
-            ?.getSettlementTimeoutMs?.()
-            ?? undefined;
 
         return buildRuntimeConfigurationSnapshot({
             runtimeConfig: this._runtimeConfig,
             env: process.env,
             overrides: service?.getOverrides?.() ?? null,
             configVersion: state?.configVersion ?? null,
-            canEdit: canEdit === true,
-            settlementTimeoutMsDefault: settlementDefault
+            canEdit: canEdit === true
         });
-
-    }
-
-    /**
-     * R17.9H — Cached wallet balance monitor snapshot (read-only).
-     */
-    buildWalletBalances() {
-
-        if (!this._walletBalanceMonitor?.getSnapshot) {
-
-            return Object.freeze({
-                schemaVersion: 1,
-                refreshIntervalMs: 30000,
-                network: this._runtimeConfig?.ton?.network ?? null,
-                generatedAt: Date.now(),
-                wallets: Object.freeze([]),
-                error: "Wallet balance monitor unavailable"
-            });
-
-        }
-
-        return this._walletBalanceMonitor.getSnapshot();
 
     }
 

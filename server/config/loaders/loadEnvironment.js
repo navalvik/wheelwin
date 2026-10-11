@@ -5,7 +5,6 @@
 import { loadServerConfig } from "../server.js";
 import { loadProductionConfig } from "../production.js";
 import { loadRoomConfig } from "../rooms.js";
-import { loadTonConfig } from "../ton.js";
 import { loadSocketConfig } from "../socket.js";
 import { loadEventBusConfig } from "../events.js";
 import { loadGameplayPhaseConfig } from "../gameplayPhases.js";
@@ -31,7 +30,6 @@ function wrapLoaderError(key, error, suggestedFix) {
  *   server: object,
  *   production: object,
  *   rooms: object,
- *   ton: object,
  *   socket: object,
  *   eventBus: object,
  *   gameplayPhases: object,
@@ -111,24 +109,6 @@ export function loadEnvironment(env = process.env) {
 
     }
 
-    let ton;
-
-    try {
-
-        ton = loadTonConfig(env);
-
-    } catch (error) {
-
-        throw wrapLoaderError(
-            String(error?.message || "").includes("GAME_ESCROW_MODE")
-                ? "GAME_ESCROW_MODE"
-                : "TON_NETWORK",
-            error,
-            "Set TON_NETWORK and optional TON_* / GAME_ESCROW_MODE correctly (v4|game)."
-        );
-
-    }
-
     const socket = loadSocketConfig(server);
 
     const eventBus = loadEventBusConfig(env, server);
@@ -145,7 +125,6 @@ export function loadEnvironment(env = process.env) {
         server,
         production,
         rooms,
-        ton,
         socket,
         eventBus,
         gameplayPhases,

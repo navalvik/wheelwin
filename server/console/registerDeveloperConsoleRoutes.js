@@ -1,7 +1,6 @@
 import { createAdministratorAuthMiddleware } from "./auth/developerAuthMiddleware.js";
 import { readMultipartOggUpload } from "./configuration/readMultipartOggUpload.js";
 import { AUDIO_UPLOAD_MAX_BYTES } from "./configuration/uploadAudioRegistryAsset.js";
-import { selectWalletNetworkSnapshot } from "./wallet/WalletBalanceMonitor.js";
 
 /**
  * R6.0C / R6.1 — Read-only Developer Console HTTP routes.
@@ -16,8 +15,7 @@ export function registerDeveloperConsoleRoutes(
         gameDiagnosticLogManager = null,
         sessionHistoryArchive = null,
         runtimeConfigurationService = null,
-        audioRegistryService = null,
-        roomWalletTerminalSettlementRecovery = null
+        audioRegistryService = null
     } = {}
 ) {
 
@@ -202,69 +200,6 @@ export function registerDeveloperConsoleRoutes(
 
             res.status(500).json({
                 error: "Failed to load audio registry",
-                message: error?.message ?? "Unknown error"
-            });
-
-        }
-
-    });
-
-    app.get("/console/blockchain", (req, res) => {
-
-        res.json(projectionService.buildBlockchainStatus());
-
-    });
-
-    /**
-     * R17.9I.3 — Administrator-only wallet balance monitor.
-     *
-     * r18-s104 — Optional explicit network selection: `?network=testnet` or
-     * `?network=mainnet` returns ONLY that profile's data. An unavailable or
-     * unknown network returns 400 — there is no cross-network fallback.
-     * Without the parameter the full multi-profile snapshot is returned
-     * (backward compatible).
-     */
-    app.get("/console/wallets/balances", adminGate, (req, res) => {
-
-        try {
-
-            const snapshot = projectionService.buildWalletBalances();
-
-            const requestedNetwork = typeof req.query.network === "string"
-                ? req.query.network.trim().toLowerCase()
-                : null;
-
-            if (!requestedNetwork) {
-
-                res.json(snapshot);
-
-                return;
-
-            }
-
-            const selected = selectWalletNetworkSnapshot(snapshot, requestedNetwork);
-
-            if (!selected) {
-
-                res.status(400).json({
-                    error: "Requested wallet monitoring network profile is not available",
-                    network: requestedNetwork
-                });
-
-                return;
-
-            }
-
-            res.json({
-                ...snapshot,
-                network: selected.profile.network,
-                wallets: selected.profile.wallets
-            });
-
-        } catch (error) {
-
-            res.status(500).json({
-                error: "Failed to load wallet balances",
                 message: error?.message ?? "Unknown error"
             });
 
@@ -472,32 +407,6 @@ export function registerDeveloperConsoleRoutes(
     );
 
     /**
-     * R17.8M.1 — Live deployer wallet observability (Administrator-only).
-     */
-    app.get(
-        "/console/ton/deployer-wallet",
-        requireAdministrator ?? ((req, res, next) => next()),
-        async (req, res) => {
-
-            try {
-
-                const status = await projectionService.buildDeployerWalletStatus();
-
-                res.json(status);
-
-            } catch (error) {
-
-                res.status(500).json({
-                    error: "Failed to load deployer wallet status",
-                    message: error?.message ?? "Unknown error"
-                });
-
-            }
-
-        }
-    );
-
-    /**
      * R7.0 — Immutable session lifecycle history (read-only archive).
      */
     app.get("/console/history", (req, res) => {
@@ -517,7 +426,6 @@ export function registerDeveloperConsoleRoutes(
             gameId: query.gameId || null,
             lifecycleResult: query.lifecycleResult || null,
             playerNickname: query.playerNickname || null,
-            walletAddress: query.walletAddress || null,
             fromAt: query.fromAt ? Number(query.fromAt) : null,
             toAt: query.toAt ? Number(query.toAt) : null,
             sort: query.sort || "newest",
@@ -585,49 +493,6 @@ export function registerDeveloperConsoleRoutes(
         res.setHeader("Cache-Control", "no-store");
 
         res.end(download.buffer);
-
-    });
-
-    /**
-     * Administrator-only recovery of a terminal FAILED Room-Wallet settlement.
-     * Operator supplies identity pins only. Amounts and destinations are derived.
-     */
-    app.post("/console/settlements/operator-recovery", adminGate, async (req, res) => {
-
-        if (!roomWalletTerminalSettlementRecovery?.recover) {
-
-            res.status(503).json({ error: "Operator settlement recovery unavailable" });
-
-            return;
-
-        }
-
-        try {
-
-            const result = await roomWalletTerminalSettlementRecovery.recover({
-                gameId: req.body?.gameId,
-                roomNumber: req.body?.roomNumber,
-                roomWalletAddress: req.body?.roomWalletAddress
-            });
-
-            const status = result?.ok
-                ? 200
-                : result?.code === "PIN_MISMATCH" || result?.code === "OPERATOR_OVERRIDE_FORBIDDEN"
-                    ? 400
-                    : result?.code === "ROOM_OCCUPIED" || result?.code === "WALLET_REUSED"
-                        ? 409
-                        : 422;
-
-            res.status(status).json(result);
-
-        } catch (error) {
-
-            res.status(500).json({
-                error: "Operator settlement recovery failed",
-                message: error?.message ?? "Unknown error"
-            });
-
-        }
 
     });
 

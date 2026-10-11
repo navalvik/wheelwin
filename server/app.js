@@ -9,7 +9,6 @@ import { fileURLToPath } from "node:url";
 import { GameCatalog } from "./catalog/GameCatalog.js";
 import { ConfigurationManager } from "./config/ConfigurationManager.js";
 import { ConfigurationError } from "./config/ConfigurationError.js";
-import { OwnerConfiguration } from "./config/OwnerConfiguration.js";
 import {
     validateEngineDependencies,
     validateStartupConfiguration
@@ -28,7 +27,6 @@ import { ConfigurationEngine } from "./engines/ConfigurationEngine.js";
 import { createStandardConfigurationPlayers } from "./engines/configuration/configurationPlayers.js";
 import { GameClockEngine } from "./engines/GameClockEngine.js";
 import { GameStateEngine } from "./engines/GameStateEngine.js";
-import { PaymentEngine } from "./engines/PaymentEngine.js";
 import { PhysicsEngine } from "./engines/PhysicsEngine.js";
 import { RecoveryEngine } from "./engines/RecoveryEngine.js";
 import { WinnerEngine } from "./engines/WinnerEngine.js";
@@ -43,7 +41,6 @@ import { HealthService } from "./services/HealthService.js";
 import { OperationalMetrics } from "./services/OperationalMetrics.js";
 import { RandomService } from "./services/RandomService.js";
 import { TimerService } from "./services/TimerService.js";
-import { TonService } from "./services/TonService.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
@@ -64,7 +61,6 @@ import { PLAYER_STATE } from "./models/PlayerState.js";
 
 import { InputAuthority } from "./input/InputAuthority.js";
 
-import { TelegramWalletAdapter } from "./services/telegram/TelegramWalletAdapter.js";
 
 import { SocketGateway } from "./socket/SocketGateway.js";
 import { GameplayContextResolver } from "./socket/GameplayContextResolver.js";
@@ -85,123 +81,24 @@ import { SpeedActivation } from "./gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
 import { ResultActivation } from "./gameplay/ResultActivation.js";
-import { PaymentActivation } from "./gameplay/PaymentActivation.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
-import { PaymentSessionManager } from "./gameplay/PaymentSessionManager.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
-import { ContractSettlementManager } from "./payment/ContractSettlementManager.js";
-import { composeRoomWalletSettlementRouter, isRoomWalletOnlyFinancialPath } from "./payment/roomWallet/roomWalletConfig.js";
-import { createRoomWalletRegistryFromEnv } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
-import { RoomWalletIncomingObserver } from "./payment/roomWallet/RoomWalletIncomingObserver.js";
-import { RoomWalletLedgerRegistry } from "./payment/roomWallet/RoomWalletLedger.js";
-import { RoomWalletResidualSweepRepository } from "./payment/roomWallet/RoomWalletResidualSweepRepository.js";
-import { RoomWalletResidualSweepWorker } from "./payment/roomWallet/RoomWalletResidualSweepWorker.js";
 import { RuntimeConfigurationService } from "./console/configuration/RuntimeConfigurationService.js";
 import { AudioRegistryService } from "./console/configuration/AudioRegistryService.js";
-import { WalletBalanceMonitor } from "./console/wallet/WalletBalanceMonitor.js";
-import { loadMainnetTonProfile } from "./config/tonNetworkProfiles.js";
 import { TIMER_PHASES } from "./catalog/Timers.js";
-import { PAYMENT_RULES } from "./catalog/PaymentRules.js";
-import { deriveDeployerWalletIdentity } from "./payment/ton/deriveDeployerWalletIdentity.js";
-import {
-    assertDeployerWalletMatchesExpected,
-    printTonWalletIdentityDebug,
-    setTonWalletIdentityDebug,
-    tonAddressesEqual
-} from "./diagnostics/TonWalletIdentityDebug.js";
-import {
-    assertMainnetStartupSafe,
-    evaluateMainnetReadiness,
-    printTonMainnetDryRunDebug,
-    printTonMainnetReadiness,
-    setTonMainnetReadiness
-} from "./diagnostics/TonMainnetReadiness.js";
-import {
-    printTonMainnetWalletIdentityDebug,
-    setTonMainnetWalletIdentityDebug
-} from "./diagnostics/TonMainnetWalletIdentityDebug.js";
-import {
-    printTonTestnetOracleDebug,
-    setTonTestnetOracleDebug
-} from "./diagnostics/TonTestnetOracleDebug.js";
-import {
-    evaluateTonTestnetWalletReadiness,
-    printTonTestnetWalletReadiness,
-    setTonTestnetWalletReadiness
-} from "./diagnostics/TonTestnetWalletReadiness.js";
-import { verifyGameEscrowArtifact } from "./payment/ton/verifyGameEscrowArtifact.js";
-import {
-    BlockchainMonitor,
-    EntryPaymentAuditLedger
-} from "./payment/BlockchainMonitor.js";
-import { SessionWalletStore } from "./session/SessionWalletStore.js";
-import { TonFinancialRecovery } from "./recovery/TonFinancialRecovery.js";
 import { RecoveryCheckpointManager } from "./recovery/RecoveryCheckpointManager.js";
 import { RecoveryOrchestrator } from "./recovery/RecoveryOrchestrator.js";
 import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.js";
-import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
-import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
-import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
-import { DeploymentAuthorizationCoordinator } from "./deposit/DeploymentAuthorizationCoordinator.js";
-import { TonFinancialDeploymentAuthorizationPersistence } from "./deposit/DeploymentAuthorizationPersistencePort.js";
-import { TonFinancialDepositObservationPersistence } from "./deposit/DepositObservationPersistencePort.js";
-import { DepositFullAuthorizationAutomation } from "./deposit/DepositFullAuthorizationAutomation.js";
-import { EntryDeploymentAuthorizationAutomation } from "./deposit/EntryDeploymentAuthorizationAutomation.js";
-import { DepositMonitor } from "./deposit/DepositMonitor.js";
-import { RealTonDepositBlockchainSource } from "./deposit/RealTonDepositBlockchainSource.js";
-import { DepositOnChainVerificationCoordinator } from "./deposit/DepositOnChainVerificationCoordinator.js";
-import { DepositActivationVerificationCoordinator } from "./deposit/DepositActivationVerificationCoordinator.js";
-import { resolveDepositOrchestrationFinancials } from "./deposit/resolveDepositOrchestrationFinancials.js";
-import { DeploymentCostSnapshotRepository } from "./payment/reimbursement/DeploymentCostSnapshotRepository.js";
-import { DeploymentCostService } from "./payment/reimbursement/DeploymentCostService.js";
-import { DeploymentReimbursementRepository } from "./payment/reimbursement/DeploymentReimbursementRepository.js";
-import { DeploymentReimbursementService } from "./payment/reimbursement/DeploymentReimbursementService.js";
-import { DeploymentReimbursementWorker } from "./payment/reimbursement/DeploymentReimbursementWorker.js";
-import { ReimbursementTransferService } from "./payment/reimbursement/ReimbursementTransferService.js";
-import { ReimbursementWalletAdapter } from "./payment/reimbursement/ReimbursementWalletAdapter.js";
-import { ReimbursementConfirmationService } from "./payment/reimbursement/ReimbursementConfirmationService.js";
-import { ReimbursementPolicy } from "./payment/reimbursement/ReimbursementPolicy.js";
-import { ReimbursementWalletMonitor } from "./payment/reimbursement/ReimbursementWalletMonitor.js";
-import { ReimbursementTransactionScanner } from "./payment/reimbursement/ReimbursementTransactionScanner.js";
-import { isDeploymentReimbursementEnabled } from "./payment/reimbursement/deploymentReimbursementConfig.js";
-import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
-import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
-import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
-
-const SERVER_ROOT_DIR = dirname(fileURLToPath(import.meta.url));
-
-/**
- * R8.10 — Resolve durable financial storage directory.
- * Priority: TON_FINANCIAL_DATA_DIR → WHEELWIN_FINANCIAL_DATA_DIR → server/data/ton-financial
- */
-function resolveTonFinancialDataDir(env = process.env) {
-
-    const fromEnv = String(
-        env.TON_FINANCIAL_DATA_DIR
-            || env.WHEELWIN_FINANCIAL_DATA_DIR
-            || ""
-    ).trim();
-
-    if (fromEnv) {
-
-        return fromEnv;
-
-    }
-
-    return join(SERVER_ROOT_DIR, "data", "ton-financial");
-
-}
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
 import { RoomNetworkHandoffStore } from "./network/RoomNetworkHandoffStore.js";
 import { RoomNetworkHandoffClient } from "./network/RoomNetworkHandoffClient.js";
 import { registerRoomNetworkHandoffRoutes } from "./network/registerRoomNetworkHandoffRoutes.js";
-import { RoomWalletTerminalSettlementRecovery } from "./payment/roomWallet/RoomWalletTerminalSettlementRecovery.js";
 import { DeveloperConsoleGateway } from "./console/DeveloperConsoleGateway.js";
 import { DeveloperAuthService } from "./console/auth/DeveloperAuthService.js";
 import { createDeveloperAuthMiddleware } from "./console/auth/developerAuthMiddleware.js";
@@ -296,8 +193,6 @@ class WheelWinApplication {
 
         this._resultActivation = null;
 
-        this._paymentActivation = null;
-
         this._auditActivation = null;
 
         this._recoverySnapshotCache = null;
@@ -312,20 +207,11 @@ class WheelWinApplication {
 
         this._resultSessionLifecycle = null;
 
-        this._paymentSessionManager = null;
-
-
-        this._deploymentCostService = null;
-
         this._gameStartAuthorization = null;
-
-        this._contractSettlementManager = null;
 
         this._runtimeConfigurationService = null;
 
         this._audioRegistryService = null;
-
-        this._walletBalanceMonitor = null;
 
         this._consoleProjectionService = null;
 
@@ -333,24 +219,7 @@ class WheelWinApplication {
 
         this._developerAuthService = null;
 
-        this._blockchainMonitor = null;
-
-        this._entryPaymentAuditLedger = null;
-
-        this._sessionWalletStore = null;
-
-        this._financialPersistence = null;
-
-        this._depositSessionCoordinator = null;
-
-
-        this._deploymentAuthorizationCoordinator = null;
-
-        this._tonFinancialRecovery = null;
-
         this._recoveryCheckpointManager = null;
-
-        this._tonConfig = null;
 
         this._lifecycleManager = null;
 
@@ -402,8 +271,6 @@ class WheelWinApplication {
         this._serverConfig = this._runtimeConfig.server;
 
         this._productionConfig = this._runtimeConfig.production;
-
-        this._tonConfig = this._runtimeConfig.ton;
 
         this._roomConfig = this._runtimeConfig.rooms;
 
@@ -514,7 +381,6 @@ class WheelWinApplication {
         this._certificationManager.initialize({
             productionConfig: this._productionConfig,
             runtimeConfig: this._runtimeConfig,
-            tonConfig: this._runtimeConfig.ton,
             safeConfiguration: this._runtimeConfig.toSafeSummary(),
             profile: this._runtimeConfig.profile,
             providers: {
@@ -598,7 +464,6 @@ class WheelWinApplication {
                 deploymentHealth: () => this._deploymentManager
                     ?.getHealthManager?.()
                     ?.getSafeStatus?.() ?? null,
-                tonConfig: () => this._runtimeConfig?.ton ?? null,
                 safeConfiguration: () => this._runtimeConfig?.toSafeSummary?.()
                     ?? null,
                 logging: () => LoggingManager.getInstance().getSafeStatus(),
@@ -644,7 +509,6 @@ class WheelWinApplication {
                 deploymentHealth: () => this._deploymentManager
                     ?.getHealthManager?.()
                     ?.getSafeStatus?.() ?? null,
-                tonConfig: () => this._runtimeConfig?.ton ?? null,
                 safeConfiguration: () => this._runtimeConfig?.toSafeSummary?.()
                     ?? null,
                 logging: () => LoggingManager.getInstance().getSafeStatus(),
@@ -745,12 +609,7 @@ class WheelWinApplication {
                 developerConsole: () => ({
                     enabled: this._developerAuthService?.isEnabled?.() === true
                 }),
-                tonConfig: () => this._runtimeConfig?.ton
-                    ? {
-                        network: this._runtimeConfig.ton.network ?? null,
-                        deployMode: this._runtimeConfig.ton.deployMode ?? null
-                    }
-                    : null,
+
                 version: () => this._runtimeConfig?.version ?? null
             }
         });
@@ -785,28 +644,18 @@ class WheelWinApplication {
 
         this._logger.startupLine("ConfigurationManager");
 
-        this._logger.startupLine("OwnerConfiguration");
+        this._logger.info("");
 
         const socketConfig = this._runtimeConfig.socket;
 
         validateStartupConfiguration({
             serverConfig: this._serverConfig,
-            tonConfig: this._tonConfig,
             roomConfig: this._roomConfig
         });
 
-        this._services = this._createServices(this._tonConfig);
+        this._services = this._createServices();
 
         this._initializeServices();
-
-        // R7.67B — Railway wallet identity + balance diagnostics (fail on mismatch).
-        await this._runTonWalletIdentityDiagnostics();
-
-        // R7.70B — Testnet wallet readiness for settlement validation prep.
-        await this._runTonTestnetWalletReadinessDiagnostics();
-
-        // R7.68 — Mainnet readiness report (does not enable Mainnet).
-        await this._runTonMainnetReadinessDiagnostics();
 
         this._metricsService.initialize();
 
@@ -824,7 +673,6 @@ class WheelWinApplication {
 
         validateStartupConfiguration({
             serverConfig: this._serverConfig,
-            tonConfig: this._tonConfig,
             roomConfig: this._roomConfig,
             gameCatalog: this._gameCatalog
         });
@@ -1045,17 +893,6 @@ class WheelWinApplication {
 
         this._logger.startupLine("ResultActivation");
 
-        this._paymentActivation = new PaymentActivation({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            paymentEngine: this._engines.paymentEngine,
-            devMode: this._productionConfig.isDevelopment
-        });
-
-        this._paymentActivation.initialize();
-
-        this._logger.startupLine("PaymentActivation");
-
         this._gameplayLifecycle = new GameplayLifecycle({
             logger: this._logger,
             eventBus: this._eventBus,
@@ -1069,8 +906,6 @@ class WheelWinApplication {
             winnerActivation: this._winnerActivation,
             resultActivation: this._resultActivation,
             speedActivation: this._speedActivation,
-            paymentEngine: this._engines.paymentEngine,
-            paymentActivation: this._paymentActivation,
             gameManager: this._managers.gameManager,
             devMode: this._productionConfig.isDevelopment
         });
@@ -1160,7 +995,6 @@ class WheelWinApplication {
             physicsEngine: this._engines.physicsEngine,
             inputAuthority: this._inputAuthority,
             winnerEngine: this._engines.winnerEngine,
-            paymentEngine: this._engines.paymentEngine,
             resultActivation: this._resultActivation,
             preGameReadyActivation: this._preGameReadyActivation,
             resultSessionLifecycle: this._resultSessionLifecycle,
@@ -1181,7 +1015,6 @@ class WheelWinApplication {
             physicsEngine: this._engines.physicsEngine,
             inputAuthority: this._inputAuthority,
             winnerEngine: this._engines.winnerEngine,
-            paymentEngine: this._engines.paymentEngine,
             recoveryEngine: this._recoveryEngine,
             metricsService: this._metricsService
         });
@@ -1190,33 +1023,10 @@ class WheelWinApplication {
 
         this._logger.startupLine("AuditEngine");
 
-        // R8.10 — Single shared TonFinancialPersistence for restart recovery.
-        const financialDataDir = resolveTonFinancialDataDir();
-
-        this._financialPersistence = new TonFinancialPersistence({
-            logger: this._logger,
-            dataDir: financialDataDir
-        });
-
-        const persistenceSummary = this._financialPersistence.initialize();
-
-        this._logger.startupLine("TonFinancialPersistence");
-
-        this._logger.info(
-            `TonFinancialPersistence dataDir=${financialDataDir} | `
-                + `records=${persistenceSummary?.recordCount ?? 0}`
-        );
-
-        this._sessionWalletStore = new SessionWalletStore({
-            financialPersistence: this._financialPersistence,
-            logger: this._logger
-        });
-
         this._gameReportEngine = new GameReportEngine({
             logger: this._logger,
             gameCatalog: this._gameCatalog,
             playerManager: this._managers.playerManager,
-            sessionWalletStore: this._sessionWalletStore,
             serverVersion: "1.0.0"
         });
 
@@ -1247,7 +1057,6 @@ class WheelWinApplication {
             logger: this._logger,
             eventBus: this._eventBus,
             recoveryEngine: this._recoveryEngine,
-            paymentEngine: this._engines.paymentEngine,
             auditEngine: this._auditEngine,
             resultSessionLifecycle: this._resultSessionLifecycle,
             devMode: this._productionConfig.isDevelopment
@@ -1266,7 +1075,6 @@ class WheelWinApplication {
             gameClockEngine: this._engines.gameClockEngine,
             physicsEngine: this._engines.physicsEngine,
             winnerEngine: this._engines.winnerEngine,
-            paymentEngine: this._engines.paymentEngine,
             inputAuthority: this._inputAuthority,
             recoveryEngine: this._recoveryEngine,
             auditEngine: this._auditEngine
@@ -1295,12 +1103,10 @@ class WheelWinApplication {
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
             winnerActivation: Boolean(this._winnerActivation),
             resultActivation: Boolean(this._resultActivation),
-            paymentActivation: Boolean(this._paymentActivation),
             auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
             winnerEngine: Boolean(this._engines?.winnerEngine),
-            paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
             recoveryEngine: Boolean(this._recoveryEngine),
             recoverySnapshotCache: Boolean(this._recoverySnapshotCache),
@@ -1321,241 +1127,6 @@ class WheelWinApplication {
         this._managers.gameManager.linkGameplayContextResolver(
             this._gameplayContextResolver
         );
-
-        this._entryPaymentAuditLedger = new EntryPaymentAuditLedger();
-
-        this._blockchainMonitor = new BlockchainMonitor({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            transport: this._services.tonService.getTransport(),
-            auditLedger: this._entryPaymentAuditLedger,
-            pollIntervalMs: this._tonConfig.pollIntervalMs
-        });
-
-        this._blockchainMonitor.initialize();
-
-        this._logger.startupLine("BlockchainMonitor");
-
-        this._paymentSessionManager = new PaymentSessionManager({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            playerManager: this._managers.playerManager,
-            roomManager: this._managers.roomManager,
-            gameManager: this._managers.gameManager,
-            roomConfig: this._roomConfig,
-            gameplayContextResolver: this._gameplayContextResolver,
-            sessionWalletStore: this._sessionWalletStore,
-            blockchainMonitor: this._blockchainMonitor,
-            financialPersistence: this._financialPersistence,
-            tonNetwork: this._tonConfig?.network ?? null,
-            devMode: this._productionConfig.isDevelopment,
-            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({ env: process.env })
-        });
-
-        this._paymentSessionManager.initialize();
-
-        this._logger.startupLine("PaymentSessionManager");
-
-        this._services.timerService.registerPaymentSessionManager(
-            this._paymentSessionManager
-        );
-
-        // R17.8V.2P.J / R17.8V.2P.K — Deployment cost snapshot capture + freeze.
-        this._deploymentCostService = new DeploymentCostService({
-            repository: new DeploymentCostSnapshotRepository({
-                persistence: this._financialPersistence,
-                tonNetwork: this._tonConfig?.network ?? "testnet"
-            }),
-            eventBus: this._eventBus,
-            transport: this._services?.tonService?.getTransport?.() ?? null,
-            logger: this._logger,
-            env: process.env
-        });
-
-        this._deploymentCostService.initialize();
-
-        this._logger.startupLine("DeploymentCostService");
-
-        // R17.8V.2P.M — Deployment reimbursement queue foundation (no TON send).
-        this._deploymentReimbursementRepository = new DeploymentReimbursementRepository({
-            persistence: this._financialPersistence,
-            tonNetwork: this._tonConfig?.network ?? "testnet"
-        });
-
-        // R17.8V.2P.N — Settlement → reimbursement queue (async; no TON send).
-        this._deploymentReimbursementService = new DeploymentReimbursementService({
-            repository: this._deploymentReimbursementRepository,
-            snapshotRepository: new DeploymentCostSnapshotRepository({
-                persistence: this._financialPersistence,
-                tonNetwork: this._tonConfig?.network ?? "testnet"
-            }),
-            financialPersistence: this._financialPersistence,
-            eventBus: this._eventBus,
-            logger: this._logger,
-            env: process.env
-        });
-
-        this._deploymentReimbursementService.initialize();
-
-        this._logger.startupLine("DeploymentReimbursementService");
-
-        // R17.8V.2P.O / Q — Transfer boundary with production safety gates.
-        const reimbursementSnapshotRepository = new DeploymentCostSnapshotRepository({
-            persistence: this._financialPersistence,
-            tonNetwork: this._tonConfig?.network ?? "testnet"
-        });
-
-        const reimbursementAdapter = new ReimbursementWalletAdapter({
-            tonService: this._services?.tonService ?? null,
-            logger: this._logger,
-            env: process.env
-        });
-
-        const reimbursementPolicy = new ReimbursementPolicy({
-            repository: this._deploymentReimbursementRepository,
-            env: process.env,
-            eventBus: this._eventBus,
-            logger: this._logger
-        });
-
-        const reimbursementWalletMonitor = new ReimbursementWalletMonitor({
-            tonService: this._services?.tonService ?? null,
-            getAddress: () => reimbursementAdapter.getAddress(),
-            env: process.env,
-            eventBus: this._eventBus,
-            logger: this._logger
-        });
-
-        this._reimbursementTransferService = new ReimbursementTransferService({
-            adapter: reimbursementAdapter,
-            snapshotRepository: reimbursementSnapshotRepository,
-            policy: reimbursementPolicy,
-            walletMonitor: reimbursementWalletMonitor,
-            logger: this._logger,
-            env: process.env
-        });
-
-        await this._reimbursementTransferService.initialize();
-
-        const reimbursementTransport =
-            this._services?.tonService?.getTransport?.() ?? null;
-
-        // R17.8V.2P.P / Q — Chain confirmation + deep hash recovery (no new sends).
-        this._reimbursementConfirmationService = new ReimbursementConfirmationService({
-            repository: this._deploymentReimbursementRepository,
-            transport: reimbursementTransport,
-            scanner: new ReimbursementTransactionScanner({
-                transport: reimbursementTransport,
-                logger: this._logger
-            }),
-            eventBus: this._eventBus,
-            logger: this._logger,
-            env: process.env
-        });
-
-        this._reimbursementConfirmationService.initialize();
-
-        if (isDeploymentReimbursementEnabled(process.env)) {
-
-            void this._reimbursementConfirmationService
-                .recoverPendingConfirmations()
-                .catch((error) => {
-
-                    this._logger?.error?.(
-                        `ReimbursementConfirmationService recovery failed | `
-                            + `${error?.message ?? error}`
-                    );
-
-                });
-
-        }
-
-        this._logger.startupLine("ReimbursementConfirmationService");
-
-        this._deploymentReimbursementWorker = new DeploymentReimbursementWorker({
-            repository: this._deploymentReimbursementRepository,
-            transferService: this._reimbursementTransferService,
-            confirmationService: this._reimbursementConfirmationService,
-            logger: this._logger,
-            env: process.env
-        });
-
-        this._deploymentReimbursementWorker.initialize();
-
-        this._logger.startupLine(
-            "DeploymentReimbursementWorker (send permanently retired)"
-        );
-
-        const deployerWalletAddress = await this._resolveDeployerWalletAddress();
-
-        this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
-            tonService: this._services?.tonService ?? null,
-            logger: this._logger,
-            env: process.env
-        });
-
-        this._logger.startupLine(
-            this._roomWalletSettlementRouter.isEnabled()
-                ? "RoomWalletSettlementRouter (ROOM_WALLET)"
-                : "RoomWalletSettlementRouter (legacy)"
-        );
-
-        this._contractSettlementManager = new ContractSettlementManager({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            winnerEngine: this._engines.winnerEngine,
-            configurationEngine: this._engines.configurationEngine,
-            settlementAdapter: this._roomWalletSettlementRouter,
-            blockchainMonitor: this._blockchainMonitor,
-            deployerWalletAddress,
-            auditLedger: this._entryPaymentAuditLedger,
-            paymentSessionManager: this._paymentSessionManager,
-            gameplayContextResolver: this._gameplayContextResolver,
-            gameManager: this._managers.gameManager,
-            roomManager: this._managers.roomManager,
-            financialPersistence: this._financialPersistence,
-            tonNetwork: this._tonConfig?.network ?? null,
-            devMode: this._productionConfig.isDevelopment
-        });
-
-        this._contractSettlementManager.initialize();
-
-        this._roomWalletTerminalSettlementRecovery = new RoomWalletTerminalSettlementRecovery({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            financialPersistence: this._financialPersistence,
-            sessionHistoryArchive: null,
-            settlementAdapter: this._roomWalletSettlementRouter,
-            tonService: this._services?.tonService ?? null,
-            roomManager: this._managers.roomManager,
-            gameManager: this._managers.gameManager,
-            ownerConfiguration: OwnerConfiguration,
-            env: process.env
-        });
-
-        this._logger.startupLine("RoomWalletTerminalSettlementRecovery");
-
-        // R5.19 — Page5 → Page6 must follow authoritative RESULT_COMPLETED →
-        // OPEN_PAGE6. Settlement continues independently and must not gate
-        // presentation navigation (SETTLEMENT_FAILED / hang left clients stuck
-        // on Page5 after the winner was already shown).
-        this._gameplayPhaseLifecycle.configureSettlementGate({ enabled: false });
-
-        // R8.6 — GAME_DESTROYED waits for settlement terminal; OPEN_PAGE6 stays ungated.
-        this._gameplayLifecycle.configureSettlementTeardownGate({
-            contractSettlementManager: this._contractSettlementManager,
-        });
-
-        // R8.8 — Cross-wire financial retention checks (SESSION_FINISHED / room).
-        this._paymentSessionManager.setFinancialEvidenceDeps({
-            contractSettlementManager: this._contractSettlementManager
-        });
-
-        this._setupSessionLifecycle.setEscrowUnwindBridgeDeps({
-            paymentSessionManager: this._paymentSessionManager
-        });
-
-        this._logger.startupLine("ContractSettlementManager");
 
         // R17.9G.1 — Durable runtime configuration overrides (future sessions only).
         this._runtimeConfigurationService = new RuntimeConfigurationService({
@@ -1580,203 +1151,19 @@ class WheelWinApplication {
 
         this._logger.startupLine("AudioRegistryService");
 
-        this._depositSessionCoordinator = new DepositSessionCoordinator({
-            eventBus: this._eventBus,
-            persistence: new TonFinancialDepositPersistence(this._financialPersistence)
-        });
-
-        this._logger.startupLine("DepositSessionCoordinator");
-
-        this._deploymentAuthorizationCoordinator = new DeploymentAuthorizationCoordinator({
-            eventBus: this._eventBus,
-            persistence: new TonFinancialDeploymentAuthorizationPersistence(
-                this._financialPersistence
-            )
-        });
-
-        this._logger.startupLine("DeploymentAuthorizationCoordinator");
-
-        this._depositFullAuthorizationAutomation = new DepositFullAuthorizationAutomation({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator
-        });
-
-        this._depositFullAuthorizationAutomation.initialize();
-
-        this._entryDeploymentAuthorizationAutomation = new EntryDeploymentAuthorizationAutomation({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator
-        });
-
-        this._entryDeploymentAuthorizationAutomation.initialize();
-
-        this._logger.startupLine("EntryDeploymentAuthorizationAutomation");
-
-        this._tonDepositBlockchainSource = new RealTonDepositBlockchainSource({
-            logger: this._logger,
-            tonService: this._services.tonService,
-            network: this._tonConfig?.network ?? "testnet"
-        });
-
-        this._depositMonitor = new DepositMonitor({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            persistence: new TonFinancialDepositObservationPersistence(
-                this._financialPersistence
-            ),
-            blockchainSource: this._tonDepositBlockchainSource,
-            network: this._tonConfig?.network ?? "testnet",
-            requireActivationVerification: true,
-            roomManager: this._managers.roomManager
-        });
-
-        this._depositMonitor.initialize();
-
-        this._blockchainMonitor.setDepositMonitor?.(this._depositMonitor);
-
-        this._logger.startupLine("DepositMonitor");
-
-        this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
-
-        this._roomWalletLedgerRegistry = new RoomWalletLedgerRegistry();
-
-        this._roomWalletIncomingObserver = new RoomWalletIncomingObserver({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            paymentSessionManager: this._paymentSessionManager,
-            financialPersistence: this._financialPersistence,
-            registry: this._roomWalletRegistry,
-            roomManager: this._managers.roomManager,
-            ledgerRegistry: this._roomWalletLedgerRegistry,
-            transport: this._services?.tonService?.getTransport?.() ?? null,
-            tonService: this._services?.tonService ?? null,
-            auditLedger: this._entryPaymentAuditLedger,
-            network: this._tonConfig?.network ?? null
-        });
-
-        this._blockchainMonitor.setRoomWalletIncomingObserver?.(
-            this._roomWalletIncomingObserver
-        );
-
-        this._logger.startupLine(
-            this._roomWalletRegistry.size() > 0
-                ? `RoomWalletIncomingObserver (${this._roomWalletRegistry.size()} wallets)`
-                : "RoomWalletIncomingObserver (unconfigured)"
-        );
-
-        this._paymentSessionManager.setRoomWalletFinance({
-            registry: this._roomWalletRegistry,
-            settlementAdapter: this._roomWalletSettlementRouter,
-            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({ env: process.env })
-        });
-
-        this._roomWalletResidualSweepRepository = new RoomWalletResidualSweepRepository({
-            persistence: this._financialPersistence,
-            tonNetwork: this._tonConfig?.network ?? "testnet"
-        });
-
-        this._roomWalletResidualSweepWorker = new RoomWalletResidualSweepWorker({
-            repository: this._roomWalletResidualSweepRepository,
-            registry: this._roomWalletRegistry,
-            roomManager: this._managers.roomManager,
-            blockchainMonitor: this._blockchainMonitor,
-            eventBus: this._eventBus,
-            logger: this._logger,
-            env: process.env,
-            tonService: this._services?.tonService ?? null
-        });
-
-        this._roomWalletResidualSweepWorker.initialize();
-
-        this._logger.startupLine("RoomWalletResidualSweepWorker");
-
-        await this._blockchainMonitor.start();
-
-        this._logger.startupLine("BlockchainMonitor started");
-
-        this._depositOnChainVerification = new DepositOnChainVerificationCoordinator({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            observationPersistence: new TonFinancialDepositObservationPersistence(
-                this._financialPersistence
-            ),
-            network: this._tonConfig?.network ?? "testnet"
-        });
-
-        this._depositOnChainVerification.initialize();
-
-        this._logger.startupLine("DepositOnChainVerificationCoordinator");
-
-        this._depositActivationVerification = new DepositActivationVerificationCoordinator({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            depositMonitor: this._depositMonitor,
-            blockchainSource: this._tonDepositBlockchainSource,
-            tonService: this._services.tonService,
-            network: this._tonConfig?.network ?? "testnet",
-            roomManager: this._managers.roomManager
-        });
-
-        this._logger.startupLine("DepositActivationVerificationCoordinator");
-
-        // Legacy DepositOrchestrator is intentionally not initialized.
-        // Player payments use only the authoritative Room Wallet path.
-
-        this._tonFinancialRecovery = new TonFinancialRecovery({
-            logger: this._logger,
-            eventBus: this._eventBus,
-            sessionWalletStore: this._sessionWalletStore,
-            paymentSessionManager: this._paymentSessionManager,
-            contractSettlementManager: this._contractSettlementManager,
-            blockchainMonitor: this._blockchainMonitor,
-            playerManager: this._managers.playerManager,
-            roomManager: this._managers.roomManager,
-            financialPersistence: this._financialPersistence,
-            depositSessionCoordinator: this._depositSessionCoordinator,
-            deploymentAuthorizationCoordinator: this._deploymentAuthorizationCoordinator,
-            depositMonitor: this._depositMonitor,
-            depositActivationVerificationCoordinator: this._depositActivationVerification
-        });
-
-        this._tonFinancialRecovery.initialize();
-
-        await this._tonFinancialRecovery.recover({
-            trigger: "server_restart",
-            reason: "application_startup"
-        });
-
-        this._logger.startupLine("TonFinancialRecovery");
-
-        // R17.9L.6 — DepositFull → DeploymentAuthorization VALID automation.
-        // No TON and no GameContractManager calls; only ensures VALID authorizations exist.
-        this._depositFullAuthorizationAutomation.syncFromActiveDepositSessions();
-
-        this._depositOnChainVerification.syncFromPersistedObservations();
-
         this._gameStartAuthorization = new GameStartAuthorization({
             logger: this._logger,
             eventBus: this._eventBus,
             roomManager: this._managers.roomManager,
             playerManager: this._managers.playerManager,
             gameManager: this._managers.gameManager,
-            paymentSessionManager: this._paymentSessionManager,
             configurationEngine: this._engines.configurationEngine,
             physicsEngine: this._engines.physicsEngine,
             gameClockEngine: this._engines.gameClockEngine,
             gameplayContextResolver: this._gameplayContextResolver,
             recoveryEngine: this._recoveryEngine,
-            auditLedger: this._entryPaymentAuditLedger,
             roomConfig: this._roomConfig,
-            devMode: this._productionConfig.isDevelopment,
-            roomWalletPaymentIntakeEnabled: isRoomWalletOnlyFinancialPath({ env: process.env }),
-            roomWalletLedgerRegistry: this._roomWalletLedgerRegistry
+            devMode: this._productionConfig.isDevelopment
         });
 
         this._gameStartAuthorization.initialize();
@@ -1785,12 +1172,11 @@ class WheelWinApplication {
 
         // R17.9T.6 — Authoritative gameplay recovery checkpoint writer.
         // Additive wiring only: constructs the single centralized
-        // RecoveryCheckpointManager on top of the existing
-        // TonFinancialPersistence-backed RecoveryDataPersistence and subscribes
+        // RecoveryCheckpointManager on top of the local
+        // RecoveryDataPersistence and subscribes
         // it to the existing EventBus lifecycle events. No startup-order,
         // readiness, Socket.IO, or RecoveryOrchestrator integration changes.
         const recoveryDataPersistence = new RecoveryDataPersistence({
-            financialPersistence: this._financialPersistence,
             logger: this._logger
         });
 
@@ -1806,8 +1192,7 @@ class WheelWinApplication {
             gameClockEngine: this._engines.gameClockEngine,
             physicsEngine: this._engines.physicsEngine,
             winnerEngine: this._engines.winnerEngine,
-            inputAuthority: this._inputAuthority,
-            paymentSessionManager: this._paymentSessionManager
+            inputAuthority: this._inputAuthority
         });
 
         this._recoveryCheckpointManager.initialize();
@@ -1958,15 +1343,11 @@ class WheelWinApplication {
             gameplayContextResolver: this._gameplayContextResolver,
             setupSessionLifecycle: this._setupSessionLifecycle,
             resultSessionLifecycle: this._resultSessionLifecycle,
-            paymentSessionManager: this._paymentSessionManager,
             gameStartAuthorization: this._gameStartAuthorization,
-            contractSettlementManager: this._contractSettlementManager,
-            sessionWalletStore: this._sessionWalletStore,
             isDevelopment: this._productionConfig.isDevelopment,
             lifecycleManager: this._lifecycleManager,
             roomConfig: this._roomConfig,
-            metricsService: this._metricsService,
-            depositSessionCoordinator: this._depositSessionCoordinator
+            metricsService: this._metricsService
         });
 
         this._roomLobbyBridge.initialize();
@@ -2007,7 +1388,6 @@ class WheelWinApplication {
         this._socketGateway.configureRecovery({
             recoveryEngine: this._recoveryEngine,
             recoverySnapshotCache: this._recoverySnapshotCache,
-            paymentEngine: this._engines.paymentEngine,
             auditEngine: this._auditEngine,
             roomLobbyBridge: this._roomLobbyBridge,
             resultSessionLifecycle: this._resultSessionLifecycle
@@ -2040,13 +1420,10 @@ class WheelWinApplication {
             gameClockBroadcaster: Boolean(this._gameClockBroadcaster),
             winnerActivation: Boolean(this._winnerActivation),
             resultActivation: Boolean(this._resultActivation),
-            paymentActivation: Boolean(this._paymentActivation),
             auditActivation: Boolean(this._auditActivation),
             gameplayLifecycle: Boolean(this._gameplayLifecycle),
             setupSessionLifecycle: Boolean(this._setupSessionLifecycle),
-            paymentSessionManager: Boolean(this._paymentSessionManager),
             winnerEngine: Boolean(this._engines?.winnerEngine),
-            paymentEngine: Boolean(this._engines?.paymentEngine),
             inputAuthority: Boolean(this._inputAuthority),
             recoveryEngine: Boolean(this._recoveryEngine),
             recoverySnapshotCache: Boolean(this._recoverySnapshotCache),
@@ -2059,75 +1436,12 @@ class WheelWinApplication {
         // C4.5 — expose live runtime counts through the existing HealthService.
         this._healthService.registerRuntimeProvider(() => this._collectRuntime());
 
-        // R17.9H — Read-only wallet balance monitor (30s refresh).
-        //
-        // r18-s104 — Optional read-only MAINNET monitoring profile. Balances
-        // only. The mainnet TonService is bound to the mainnet profile endpoint
-        // (TON_MAINNET_ENDPOINT, default https://toncenter.com/api/v2/jsonRPC)
-        // and is created ONLY when mainnet-only public address pins exist
-        // (TON_MAINNET_OWNER_WALLET / TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS /
-        // TON_MAINNET_RESIDUES_EXPECTED_ADDRESS). Without pins the Mainnet
-        // profile stays NOT_CONFIGURED — never a fallback to Testnet.
-        const mainnetPinsConfigured = Boolean(
-            process.env.TON_MAINNET_OWNER_WALLET
-            || process.env.TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS
-            || process.env.TON_MAINNET_RESIDUES_EXPECTED_ADDRESS
-        );
-
-        let mainnetTonService = null;
-
-        if (mainnetPinsConfigured) {
-
-            try {
-
-                mainnetTonService = new TonService({
-                    logger: this._logger,
-                    tonConfig: {
-                        network: "mainnet",
-                        endpoint: loadMainnetTonProfile(process.env).endpoint,
-                        apiKey: process.env.TON_MAINNET_API_KEY ?? null,
-                        deployMode: "stub",
-                        pollIntervalMs: 2000
-                    }
-                });
-
-                mainnetTonService.initialize();
-
-            } catch (error) {
-
-                this._logger?.warn?.(
-                    `Mainnet monitoring TonService init failed | ${error?.message ?? error}`
-                );
-
-                mainnetTonService = null;
-
-            }
-
-        }
-
-        this._mainnetMonitoringTonService = mainnetTonService;
-
-        this._walletBalanceMonitor = new WalletBalanceMonitor({
-            logger: this._logger,
-            tonService: this._services?.tonService ?? null,
-            mainnetTonService,
-            runtimeConfig: this._runtimeConfig,
-            env: process.env
-        });
-
-        await this._walletBalanceMonitor.initialize();
-        this._walletBalanceMonitor.start();
-
-        this._logger.startupLine("WalletBalanceMonitor");
-
         // R6.0C — Developer Console read-only projection layer (/console/*).
         this._consoleProjectionService = new DeveloperConsoleProjectionService({
             roomManager: this._managers.roomManager,
             gameManager: this._managers.gameManager,
             playerManager: this._managers.playerManager,
             setupSessionLifecycle: this._setupSessionLifecycle,
-            paymentSessionManager: this._paymentSessionManager,
-            contractSettlementManager: this._contractSettlementManager,
             gameStartAuthorization: this._gameStartAuthorization,
             resultSessionLifecycle: this._resultSessionLifecycle,
             recoveryEngine: this._recoveryEngine,
@@ -2143,15 +1457,9 @@ class WheelWinApplication {
             monitoringManager: MonitoringManager.getInstance(),
             lifecycleManager: this._lifecycleManager,
             gameplayContextResolver: this._gameplayContextResolver,
-            runtimeConfig: this._runtimeConfig,
-            tonService: this._services?.tonService ?? null,
-            blockchainMonitor: this._blockchainMonitor,
-            walletManager: null,
-            tonFinancialRecovery: this._tonFinancialRecovery,
             roomLobbyBridge: this._roomLobbyBridge,
             runtimeConfigurationService: this._runtimeConfigurationService,
             audioRegistryService: this._audioRegistryService,
-            walletBalanceMonitor: this._walletBalanceMonitor,
             startedAt: this._serverStartedAt
         });
 
@@ -2169,45 +1477,6 @@ class WheelWinApplication {
         this._sessionHistoryArchive.rebuildIndexFromDisk();
 
         this._logger.startupLine("SessionHistoryArchiveManager");
-
-        if (this._roomWalletTerminalSettlementRecovery) {
-            this._roomWalletTerminalSettlementRecovery.bindSessionHistoryArchive(
-                this._sessionHistoryArchive
-            );
-        }
-
-        // R13.9H — Forensic lifecycle archive (collect → ZIP → private Cloudflare R2).
-        const forensicArchiveConfig = resolveForensicArchiveConfig();
-
-        const forensicArchiveUploader = new R2ForensicArchiveUploader({
-            logger: this._logger,
-            bucket: forensicArchiveConfig.bucket,
-            prefix: forensicArchiveConfig.prefix,
-            endpoint: forensicArchiveConfig.endpoint,
-            accessKeyId: forensicArchiveConfig.accessKeyId,
-            secretAccessKey: forensicArchiveConfig.secretAccessKey,
-            accountId: forensicArchiveConfig.accountId
-        });
-
-        this._forensicArchiveService = new ForensicArchiveService({
-            logger: this._logger,
-            config: forensicArchiveConfig,
-            uploader: forensicArchiveUploader,
-            sessionHistoryArchive: this._sessionHistoryArchive,
-            financialPersistence: this._financialPersistence,
-            gameReportEngine: this._gameReportEngine
-        });
-
-        this._roomLobbyBridge.configureForensicArchiveService(
-            this._forensicArchiveService
-        );
-
-        this._logger.startupLine("ForensicArchiveService");
-        this._logger.info(
-            `R2_FORENSIC_ARCHIVE_ENABLED | configured=${forensicArchiveUploader.isConfigured()}`
-            + ` | required=${forensicArchiveConfig.required === true}`
-            + ` | bucket=${forensicArchiveConfig.bucket ? "set" : "unset"}`
-        );
 
         // R6.1 / R7.0C — Secure Developer Access from immutable runtime config.
         this._developerAuthService = new DeveloperAuthService({
@@ -2323,9 +1592,7 @@ class WheelWinApplication {
                 gameDiagnosticLogManager: this._gameDiagnosticLogManager,
                 sessionHistoryArchive: this._sessionHistoryArchive,
                 runtimeConfigurationService: this._runtimeConfigurationService,
-                audioRegistryService: this._audioRegistryService,
-                roomWalletTerminalSettlementRecovery:
-                    this._roomWalletTerminalSettlementRecovery
+                audioRegistryService: this._audioRegistryService
             }
         );
 
@@ -2543,121 +1810,11 @@ class WheelWinApplication {
 
         });
 
-        this._safeShutdownStep("paymentSessionManager", () => {
-
-            if (this._paymentSessionManager) {
-
-                this._paymentSessionManager.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("roomWalletIncomingObserver", () => {
-
-            if (this._roomWalletIncomingObserver) {
-
-                this._roomWalletIncomingObserver.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("roomWalletResidualSweepWorker", () => {
-
-            if (this._roomWalletResidualSweepWorker) {
-
-                this._roomWalletResidualSweepWorker.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("blockchainMonitor", () => {
-
-            if (this._blockchainMonitor) {
-
-                this._blockchainMonitor.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("deploymentCostService", () => {
-
-            if (this._deploymentCostService) {
-
-                this._deploymentCostService.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("deploymentReimbursementWorker", () => {
-
-            if (this._deploymentReimbursementWorker) {
-
-                this._deploymentReimbursementWorker.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("reimbursementTransferService", () => {
-
-            if (this._reimbursementTransferService) {
-
-                this._reimbursementTransferService.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("reimbursementConfirmationService", () => {
-
-            if (this._reimbursementConfirmationService) {
-
-                this._reimbursementConfirmationService.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("deploymentReimbursementService", () => {
-
-            if (this._deploymentReimbursementService) {
-
-                this._deploymentReimbursementService.shutdown();
-
-            }
-
-        });
-
         this._safeShutdownStep("gameStartAuthorization", () => {
 
             if (this._gameStartAuthorization) {
 
                 this._gameStartAuthorization.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("contractSettlementManager", () => {
-
-            if (this._contractSettlementManager) {
-
-                this._contractSettlementManager.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("financialPersistence", () => {
-
-            if (this._financialPersistence) {
-
-                this._financialPersistence.shutdown({ checkpoint: true });
 
             }
 
@@ -2713,26 +1870,6 @@ class WheelWinApplication {
 
         });
 
-        this._safeShutdownStep("walletBalanceMonitor", () => {
-
-            if (this._walletBalanceMonitor) {
-
-                this._walletBalanceMonitor.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("mainnetMonitoringTonService", () => {
-
-            if (this._mainnetMonitoringTonService) {
-
-                void this._mainnetMonitoringTonService.shutdown();
-
-            }
-
-        });
-
         await this._safeShutdownStep("socketGateway", async () => {
 
             if (this._socketGateway) {
@@ -2748,16 +1885,6 @@ class WheelWinApplication {
             if (this._gameplayLifecycle) {
 
                 this._gameplayLifecycle.shutdown();
-
-            }
-
-        });
-
-        this._safeShutdownStep("paymentActivation", () => {
-
-            if (this._paymentActivation) {
-
-                this._paymentActivation.shutdown();
 
             }
 
@@ -3103,9 +2230,6 @@ class WheelWinApplication {
                 playerManager: this._managers?.playerManager,
                 setupSessionLifecycle: this._setupSessionLifecycle,
                 resultSessionLifecycle: this._resultSessionLifecycle,
-                paymentSessionManager: this._paymentSessionManager,
-                paymentEngine: this._engines?.paymentEngine,
-                contractSettlementManager: this._contractSettlementManager,
                 recoveryEngine: this._recoveryEngine,
                 simulationLoop: this._simulationLoop,
                 physicsEngine: this._engines?.physicsEngine,
@@ -3170,7 +2294,6 @@ class WheelWinApplication {
                 deploymentHealth: () => this._deploymentManager
                     ?.getHealthManager?.()
                     ?.getSafeStatus?.() ?? null,
-                tonConfig: () => this._runtimeConfig?.ton ?? null,
                 safeConfiguration: () => this._runtimeConfig?.toSafeSummary?.()
                     ?? null,
                 logging: () => LoggingManager.getInstance().getSafeStatus(),
@@ -3200,7 +2323,7 @@ class WheelWinApplication {
                 deploymentHealth: () => this._deploymentManager
                     ?.getHealthManager?.()
                     ?.getSafeStatus?.() ?? null,
-                tonConfig: () => this._runtimeConfig?.ton ?? null,
+
                 safeConfiguration: () => this._runtimeConfig?.toSafeSummary?.()
                     ?? null,
                 logging: () => LoggingManager.getInstance().getSafeStatus(),
@@ -3261,12 +2384,6 @@ class WheelWinApplication {
                 developerConsole: () => ({
                     enabled: this._developerAuthService?.isEnabled?.() === true
                 }),
-                tonConfig: () => this._runtimeConfig?.ton
-                    ? {
-                        network: this._runtimeConfig.ton.network ?? null,
-                        deployMode: this._runtimeConfig.ton.deployMode ?? null
-                    }
-                    : null,
                 version: () => this._runtimeConfig?.version ?? null
             });
 
@@ -3408,13 +2525,6 @@ class WheelWinApplication {
             setupSessions:
                 this._setupSessionLifecycle?.getActiveSessionCount?.() ?? 0,
             activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
-            paymentSessions:
-                this._paymentSessionManager?.getActiveSessionCount?.() ?? 0,
-            pendingPayments:
-                this._engines?.paymentEngine?.getActivePaymentCount?.() ?? 0,
-            settlements:
-                this._contractSettlementManager?.getActiveSettlementCount?.()
-                    ?? 0,
             pendingTeardowns:
                 this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
             activeSimulations:
@@ -3454,9 +2564,6 @@ class WheelWinApplication {
                 this._socketGateway?.getConnectedSocketCount?.() ?? 0,
             pendingTeardowns:
                 this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
-            pendingPayments:
-                    this._engines?.paymentEngine?.getActivePaymentCount?.()
-                        ?? 0,
             pendingAudits:
                     this._auditEngine?.getActiveAuditCount?.() ?? 0,
                 lifecycle: drain?.state ?? null,
@@ -3559,9 +2666,6 @@ class WheelWinApplication {
                     this._socketGateway?.getConnectedSocketCount?.() ?? 0,
                 pendingTeardowns:
                     this._gameplayLifecycle?.getPendingTeardownCount?.() ?? 0,
-                pendingPayments:
-                    this._engines?.paymentEngine?.getActivePaymentCount?.()
-                        ?? 0,
                 pendingAudits:
                     this._auditEngine?.getActiveAuditCount?.() ?? 0,
                 lifecycle: drain?.state ?? null,
@@ -3579,21 +2683,15 @@ class WheelWinApplication {
 
     }
 
-    _createServices(tonConfig) {
+    _createServices() {
 
         const timerService = new TimerService({ logger: this._logger });
 
         const randomService = new RandomService({ logger: this._logger });
 
-        const tonService = new TonService({
-            logger: this._logger,
-            tonConfig
-        });
-
         return {
             timerService,
-            randomService,
-            tonService
+            randomService
         };
 
     }
@@ -3613,142 +2711,6 @@ class WheelWinApplication {
         this._logger.startupLine("RandomService");
 
         this._logRandomServiceSummary();
-
-        this._services.tonService.initialize();
-
-        this._logger.startupLine("TonService");
-
-        // R7.67A — surface active escrow mode at startup (v4 | game).
-        this._logger.startupLine(
-            `GameEscrowMode=${this._tonConfig?.gameEscrowMode ?? "unknown"} `
-                + `(network=${this._tonConfig?.network ?? "unknown"})`
-        );
-
-        // R7.70A.2 — Testnet oracle diagnostics (public address only).
-        if ((this._tonConfig?.network ?? "").toLowerCase() === "testnet") {
-
-            const oracleAddress = this._tonConfig?.oracleAddress ?? null;
-            const oracleSource = this._tonConfig?.oracleSource ?? null;
-
-            setTonTestnetOracleDebug({
-                network: "testnet",
-                oracleConfigured: Boolean(oracleAddress),
-                oracleAddress,
-                oracleSource,
-                timestamp: Date.now()
-            });
-            printTonTestnetOracleDebug();
-
-            this._logger.startupLine(
-                `TonTestnetOracle configured=${Boolean(oracleAddress)} `
-                    + `source=${oracleSource ?? "none"} `
-                    + `address=${oracleAddress ?? "null"}`
-            );
-
-        }
-
-    }
-
-    /**
-     * R7.70B — Print R7.70 WALLET READINESS (read-only; no on-chain mutations).
-     */
-    async _runTonTestnetWalletReadinessDiagnostics() {
-
-        if ((this._tonConfig?.network ?? "").toLowerCase() !== "testnet") {
-
-            return;
-
-        }
-
-        let deployAddress = null;
-        let deployWalletId = null;
-        let deployBalanceTon = null;
-        let ownerAddress = null;
-        let ownerBalanceTon = null;
-
-        try {
-
-            const mnemonic = this._tonConfig?.deployerMnemonic;
-
-            if (mnemonic) {
-
-                const identity = await deriveDeployerWalletIdentity({
-                    mnemonic,
-                    network: "testnet"
-                });
-
-                deployAddress = identity.address;
-                deployWalletId = identity.walletId;
-
-                try {
-
-                    const nano = await this._services.tonService.getBalance(
-                        identity.address
-                    );
-
-                    deployBalanceTon = Number(nano) / 1e9;
-
-                } catch {
-
-                    deployBalanceTon = null;
-
-                }
-
-            }
-
-        } catch {
-
-            // identity probe best-effort
-        }
-
-        try {
-
-            if (OwnerConfiguration.isLoaded()) {
-
-                ownerAddress = OwnerConfiguration.getOwnerWallet();
-
-                try {
-
-                    const nano = await this._services.tonService.getBalance(
-                        ownerAddress
-                    );
-
-                    ownerBalanceTon = Number(nano) / 1e9;
-
-                } catch {
-
-                    ownerBalanceTon = null;
-
-                }
-
-            }
-
-        } catch {
-
-            ownerAddress = null;
-
-        }
-
-        const walletReadiness = evaluateTonTestnetWalletReadiness({
-            network: this._tonConfig?.network,
-            gameEscrowMode: this._tonConfig?.gameEscrowMode,
-            deployAddress,
-            deployWalletId,
-            deployBalanceTon,
-            oracleAddress: this._tonConfig?.oracleAddress ?? null,
-            oracleSource: this._tonConfig?.oracleSource ?? null,
-            ownerAddress,
-            ownerBalanceTon
-        });
-
-        setTonTestnetWalletReadiness(walletReadiness);
-        printTonTestnetWalletReadiness(walletReadiness);
-
-        this._logger.startupLine(
-            `R770WalletReadiness=${walletReadiness.status} `
-                + `stake=${walletReadiness.stakeGram}Gram `
-                + `mode=${walletReadiness.mode}`
-        );
 
     }
 
@@ -3808,7 +2770,6 @@ class WheelWinApplication {
 
         const player = playerManager.createPlayer({
             nickname: "Demo Player",
-            wallet: null,
             icon: "default"
         });
 
@@ -4190,51 +3151,6 @@ class WheelWinApplication {
 
     }
 
-    _runPaymentEngineDemonstration() {
-
-        const {
-            configurationEngine,
-            physicsEngine,
-            winnerEngine,
-            paymentEngine
-        } = this._engines;
-
-        const gameId = "payment-demo-game";
-
-        configurationEngine.generateConfiguration(
-            gameId,
-            { roomId: "payment-demo-room", stake: 10 },
-            createStandardConfigurationPlayers([
-                "payment-player-1",
-                "payment-player-2",
-                "payment-player-3"
-            ])
-        );
-
-        physicsEngine.createSimulation(gameId);
-
-        physicsEngine.startSimulation(gameId);
-
-        physicsEngine.stopSimulation(gameId);
-
-        winnerEngine.resolveResult(gameId);
-
-        paymentEngine.preparePayment(gameId);
-
-        paymentEngine.processPayment(gameId);
-
-        paymentEngine.removePayment(gameId);
-
-        winnerEngine.removeResult(gameId);
-
-        configurationEngine.removeConfiguration(gameId);
-
-        physicsEngine.removeSimulation(gameId);
-
-        this._logger.info("");
-
-    }
-
     _runRecoveryEngineDemonstration() {
 
         const {
@@ -4315,8 +3231,7 @@ class WheelWinApplication {
             gameStateEngine,
             gameClockEngine,
             physicsEngine,
-            winnerEngine,
-            paymentEngine
+            winnerEngine
         } = this._engines;
 
         const gameId = "audit-demo-game";
@@ -4365,10 +3280,6 @@ class WheelWinApplication {
 
         winnerEngine.resolveResult(gameId);
 
-        paymentEngine.preparePayment(gameId);
-
-        paymentEngine.processPayment(gameId);
-
         this._recoveryEngine.recoverSession(gameId);
 
         this._auditEngine.buildAuditReport(gameId);
@@ -4378,8 +3289,6 @@ class WheelWinApplication {
         this._auditEngine.removeAuditReport(gameId);
 
         this._recoveryEngine.removeRecoverySnapshot(gameId);
-
-        paymentEngine.removePayment(gameId);
 
         winnerEngine.removeResult(gameId);
 
@@ -4440,8 +3349,6 @@ class WheelWinApplication {
 
     _shutdownServices() {
 
-        this._services.tonService.shutdown();
-
         this._services.randomService.shutdown();
 
         this._services.timerService.shutdown();
@@ -4457,272 +3364,8 @@ class WheelWinApplication {
     }
 
     /**
-     * R7.67B — Derive WalletContractV4R2 identity, log TON_WALLET_IDENTITY_DEBUG,
-     * check balance, and fail startup if derived address ≠ expected pin.
-     * Never logs mnemonic. Does not change wallet type or payment/GameEscrow paths.
-     */
-    async _runTonWalletIdentityDiagnostics() {
-
-        const mnemonic = this._tonConfig?.deployerMnemonic;
-        const network = this._tonConfig?.network ?? null;
-        const expectedAddress = this._tonConfig?.deployerExpectedAddress ?? null;
-
-        if (!mnemonic || typeof mnemonic !== "string") {
-
-            setTonWalletIdentityDebug({
-                mnemonicConfigured: false,
-                network,
-                expectedAddress,
-                identityMatch: null,
-                lastCheckedAt: null
-            });
-            printTonWalletIdentityDebug();
-            this._logger.startupLine(
-                "TonWalletIdentity (mnemonic not configured)"
-            );
-
-            return;
-
-        }
-
-        const identity = await deriveDeployerWalletIdentity({
-            mnemonic,
-            network
-        });
-
-        const lastCheckedAt = Date.now();
-        let balanceNano = null;
-        let balanceTon = null;
-        let balanceError = null;
-
-        try {
-
-            const nano = await this._services.tonService.getBalance(
-                identity.address
-            );
-
-            balanceNano = String(nano);
-            balanceTon = Number(nano) / 1e9;
-
-        } catch (error) {
-
-            balanceError = error?.message ?? String(error);
-
-        }
-
-        const identityMatch = expectedAddress
-            ? tonAddressesEqual(identity.address, expectedAddress)
-            : null;
-
-        setTonWalletIdentityDebug({
-            walletContractType: identity.walletContractType,
-            workchain: identity.workchain,
-            walletId: identity.walletId,
-            address: identity.address,
-            network: identity.network,
-            balanceTon,
-            balanceNano,
-            lastCheckedAt,
-            expectedAddress,
-            identityMatch,
-            mnemonicConfigured: true,
-            balanceError
-        });
-        printTonWalletIdentityDebug();
-
-        this._logger.info(
-            `TON wallet balance | address=${identity.address} | `
-                + `balanceTon=${balanceTon ?? "n/a"} | `
-                + `lastCheckedAt=${new Date(lastCheckedAt).toISOString()}`
-        );
-
-        this._logger.startupLine(
-            `TonWalletIdentity=${identity.walletContractType} `
-                + `walletId=${identity.walletId} `
-                + `address=${identity.address}`
-        );
-
-        assertDeployerWalletMatchesExpected(identity.address, expectedAddress, {
-            network
-        });
-
-    }
-
-    /**
-     * R7.68 / R8.1A / R8.1B — Print TON_MAINNET_READINESS and fail-fast when active network is mainnet.
-     * Testnet runtime stays unchanged (report may FAIL until mainnet env is filled).
-     * Does not enable Mainnet GameEscrow gameplay.
-     */
-    async _runTonMainnetReadinessDiagnostics() {
-
-        const network = this._tonConfig?.network ?? null;
-        const mnemonic = this._tonConfig?.deployerMnemonic;
-        const mainnetProfile = this._tonConfig?.profiles?.mainnet ?? null;
-
-        let walletType = null;
-        let workchain = null;
-        let walletId = null;
-        let walletAddress = null;
-        let balanceTon = null;
-        let balanceNano = null;
-        let seqno = null;
-
-        if (mnemonic && typeof mnemonic === "string") {
-
-            try {
-
-                const identity = await deriveDeployerWalletIdentity({
-                    mnemonic,
-                    network
-                });
-
-                walletType = identity.walletContractType;
-                workchain = identity.workchain;
-                walletId = identity.walletId;
-                walletAddress = identity.address;
-
-                try {
-
-                    const nano = await this._services.tonService.getBalance(
-                        identity.address
-                    );
-
-                    balanceNano = String(nano);
-                    balanceTon = Number(nano) / 1e9;
-
-                } catch {
-
-                    balanceTon = null;
-                    balanceNano = null;
-
-                }
-
-                try {
-
-                    seqno = await this._services.tonService.getSeqno(
-                        identity.address
-                    );
-
-                } catch {
-
-                    seqno = null;
-
-                }
-
-            } catch (error) {
-
-                this._logger?.warn?.(
-                    `Mainnet readiness wallet probe skipped | ${error?.message ?? error}`
-                );
-
-            }
-
-        }
-
-        const artifact = verifyGameEscrowArtifact({
-            expectedSha256: this._tonConfig?.artifactSha256Expected
-                ?? mainnetProfile?.artifactSha256
-                ?? null,
-            requirePresent: network === "mainnet"
-                || this._tonConfig?.gameEscrowMode === "game",
-            requireLoadable: network === "mainnet"
-                || this._tonConfig?.gameEscrowMode === "game"
-        });
-
-        // Integrity: when an expected hash is known, mismatch fails on any network.
-        if (artifact.expectedSha256 && artifact.present && artifact.match === false) {
-
-            throw new Error(artifact.reasons[0] ?? "GameEscrow artifact SHA256 mismatch");
-
-        }
-
-        if (
-            (network === "mainnet" || this._tonConfig?.gameEscrowMode === "game")
-            && !artifact.present
-        ) {
-
-            throw new Error(
-                artifact.reasons[0] ?? "GameEscrow artifact missing"
-            );
-
-        }
-
-        if (
-            (network === "mainnet" || this._tonConfig?.gameEscrowMode === "game")
-            && artifact.loadable === false
-        ) {
-
-            throw new Error(
-                artifact.reasons.find((reason) => reason.includes("loadable"))
-                    ?? "GameEscrow artifact not loadable by StateInit builder"
-            );
-
-        }
-
-        const readiness = evaluateMainnetReadiness({
-            env: process.env,
-            activeNetwork: network,
-            walletType,
-            workchain,
-            walletId,
-            walletAddress,
-            balanceTon,
-            balanceNano,
-            seqno,
-            requireLiveWallet: network === "mainnet"
-        });
-
-        setTonMainnetReadiness(readiness);
-        printTonMainnetReadiness();
-        printTonMainnetDryRunDebug(readiness);
-
-        setTonMainnetWalletIdentityDebug({
-            network: "mainnet",
-            walletType: readiness.walletType,
-            workchain: readiness.workchain,
-            walletId: readiness.walletId,
-            derivedAddress: readiness.walletAddress,
-            expectedAddress: readiness.expectedAddress,
-            oracleAddress: readiness.oracleAddress,
-            identityMatch: readiness.identityMatch,
-            balanceTon: readiness.balanceTon,
-            balanceNano: readiness.balanceNano,
-            seqno: readiness.seqno,
-            timestamp: readiness.validationTimestamp
-        });
-        printTonMainnetWalletIdentityDebug();
-
-        this._logger.startupLine(
-            `TonMainnetReadiness=${readiness.status} `
-                + `(active=${network ?? "unknown"} escrow=${readiness.escrowMode})`
-        );
-
-        if (network === "mainnet") {
-
-            assertMainnetStartupSafe({
-                profile: mainnetProfile ?? readiness.profile,
-                walletAddress,
-                walletType,
-                workchain,
-                walletId,
-                artifact
-            });
-
-            if (readiness.status !== "PASS") {
-
-                throw new Error(
-                    `Mainnet startup validation failed: ${readiness.reasons.join("; ")}`
-                );
-
-            }
-
-        }
-
-    }
-
-    /**
      * R17.9G.1 — Adapters that push durable overrides into session defaults.
-     * Existing Setup/Payment sessions and frozen GAME_INITIALIZED snapshots
+     * Existing Setup sessions and frozen GAME_INITIALIZED snapshots
      * are never rewritten.
      */
     _buildRuntimeConfigurationApplyAdapters() {
@@ -4731,11 +3374,6 @@ class WheelWinApplication {
             setSetupDurationMs: (durationMs) => {
 
                 this._setupSessionLifecycle?.setDurationMs?.(durationMs);
-
-            },
-            setPaymentDurationMs: (durationMs) => {
-
-                this._paymentSessionManager?.setDurationMs?.(durationMs);
 
             },
             setPhaseTimerOverrides: ({
@@ -4781,108 +3419,8 @@ class WheelWinApplication {
 
                 this._gameCatalog.configurePhaseTimers(next);
 
-            },
-            setSettlementTimeoutMs: (timeoutMs) => {
-
-                this._contractSettlementManager?.setSettlementTimeoutMs?.(timeoutMs);
-
-            },
-            setFinancialOverrides: ({
-                baseStake1Gram,
-                baseStake2Gram,
-                ownerFeePercent
-            } = {}) => {
-
-                if (!this._gameCatalog?.getPaymentRules) {
-
-                    return;
-
-                }
-
-                const currentStakes = [...(this._gameCatalog.getStakes() ?? [])];
-                const stake1 = Number.isFinite(Number(baseStake1Gram))
-                    ? Number(baseStake1Gram)
-                    : currentStakes[0];
-                const stake2 = Number.isFinite(Number(baseStake2Gram))
-                    ? Number(baseStake2Gram)
-                    : currentStakes[1];
-
-                if (Number.isFinite(stake1) && Number.isFinite(stake2)) {
-
-                    this._gameCatalog.configureStakes([stake1, stake2]);
-
-                }
-
-                const currentRules = this._gameCatalog.getPaymentRules();
-                const feePercent = Number.isFinite(Number(ownerFeePercent))
-                    ? Number(ownerFeePercent)
-                    : Math.round(Number(currentRules.platformFeeRate) * 1000) / 10;
-                const platformFeeRate = Number.isFinite(feePercent)
-                    ? feePercent / 100
-                    : (PAYMENT_RULES.platformFeeRate ?? 0.05);
-
-                const contributionByStake = {};
-
-                if (Number.isFinite(stake1)) {
-
-                    contributionByStake[stake1] = stake1;
-
-                }
-
-                if (Number.isFinite(stake2)) {
-
-                    contributionByStake[stake2] = stake2;
-
-                }
-
-                const nextRules = {
-                    ...currentRules,
-                    platformFeeRate,
-                    contributionByStake: {
-                        ...(currentRules.contributionByStake ?? {}),
-                        ...contributionByStake
-                    }
-                };
-
-                this._gameCatalog.configurePaymentRules(nextRules);
-
             }
         };
-
-    }
-
-    /**
-     * R7.62 / R7.67B — Derive deployer WalletContractV4R2 address for settlement tx watches.
-     * Never logs mnemonic. Returns null when mnemonic is not configured.
-     */
-    async _resolveDeployerWalletAddress() {
-
-        const mnemonic = this._tonConfig?.deployerMnemonic;
-
-        if (!mnemonic || typeof mnemonic !== "string") {
-
-            return null;
-
-        }
-
-        try {
-
-            const identity = await deriveDeployerWalletIdentity({
-                mnemonic,
-                network: this._tonConfig?.network ?? null
-            });
-
-            return identity.address;
-
-        } catch (error) {
-
-            this._logger?.error?.(
-                `Deployer wallet address resolve failed | ${error?.message ?? error}`
-            );
-
-            return null;
-
-        }
 
     }
 
@@ -4903,7 +3441,7 @@ class WheelWinApplication {
     _runStartupDemonstrations() {
 
         // Retired after C3.8+/C4.x. These development demonstrations predate the
-        // authoritative activation layer (WinnerActivation, PaymentActivation,
+        // authoritative activation layer (WinnerActivation,
         // AuditActivation, GameplayLifecycle), which is now always initialized and
         // subscribed to the shared EventBus. Because the demos drive the real
         // engines on that same bus, they collide with the live pipeline — e.g.
@@ -4997,10 +3535,6 @@ class WheelWinApplication {
             gameCatalog: this._gameCatalog
         });
 
-        const telegramWalletAdapter = new TelegramWalletAdapter({
-            logger: this._logger
-        });
-
         return {
             configurationEngine,
             gameStateEngine: new GameStateEngine({
@@ -5009,16 +3543,7 @@ class WheelWinApplication {
             }),
             gameClockEngine,
             physicsEngine,
-            winnerEngine,
-            paymentEngine: new PaymentEngine({
-                logger: this._logger,
-                eventBus: this._eventBus,
-                winnerEngine,
-                configurationEngine,
-                gameCatalog: this._gameCatalog,
-                telegramWalletAdapter,
-                metricsService: this._metricsService
-            })
+            winnerEngine
         };
 
     }
@@ -5045,15 +3570,9 @@ class WheelWinApplication {
 
         this._logger.startupLine("WinnerEngine");
 
-        this._engines.paymentEngine.initialize();
-
-        this._logger.startupLine("PaymentEngine");
-
     }
 
     _shutdownEngines() {
-
-        this._engines.paymentEngine.shutdown();
 
         this._engines.winnerEngine.shutdown();
 
@@ -5107,59 +3626,6 @@ class WheelWinApplication {
             next();
 
         });
-
-        // R6.11E — forensic unload beacon (own limit; before global 32kb).
-        // Accepts text/plain (sendBeacon-safe) or JSON.
-        app.post(
-            "/api/diagnostics/tonconnect-autopsy",
-            express.text({ type: "*/*", limit: "512kb" }),
-            (req, res) => {
-
-                try {
-
-                    let body = req.body;
-
-                    if (typeof body === "string") {
-
-                        if (!body.trim()) {
-
-                            res.status(400).json({
-                                ok: false,
-                                error: "empty body"
-                            });
-
-                            return;
-
-                        }
-
-                        body = JSON.parse(body);
-
-                    }
-
-                    const ok = this._roomLobbyBridge
-                        ?.ingestTonConnectAutopsySnapshot?.(body) === true;
-
-                    if (!ok) {
-
-                        res.status(400).json({
-                            ok: false,
-                            error: "roomId required"
-                        });
-
-                        return;
-
-                    }
-
-                    res.status(204).end();
-
-                } catch {
-
-                    res.status(500).json({ ok: false });
-
-                }
-
-            }
-        );
 
         // R14.3 — advertisement upload may carry base64 banner bytes (<= ~400KB).
         app.use((req, res, next) => {
@@ -5572,23 +4038,6 @@ class WheelWinApplication {
                 if (!snapshot) {
 
                     res.status(404).json({ error: "Game result not found" });
-
-                    return;
-
-                }
-
-                res.json(snapshot);
-
-            });
-
-            app.get("/debug/payment/:gameId", (req, res) => {
-
-                const snapshot = this._engines.paymentEngine
-                    .getDebugSnapshot(req.params.gameId);
-
-                if (!snapshot) {
-
-                    res.status(404).json({ error: "Payment not found" });
 
                     return;
 

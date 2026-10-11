@@ -1,15 +1,11 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
-import {
-    PAYMENT_PARTICIPANT_STATUS,
-    PAYMENT_SESSION_STATUS
-} from "../models/PaymentSession.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 
 /**
- * P6.7 — Authoritative gameplay start after blockchain payment confirmation.
+ * P6.7 — Authoritative gameplay start gate.
  *
- * PAYMENTS_COMPLETE → GAME_START_AUTHORIZED → GAME_INITIALIZING → OPEN_PAGE5
+ * GAME_START_AUTHORIZED → GAME_INITIALIZING → OPEN_PAGE5
  *
  * Clients never decide when the game starts. This module is the sole gate.
  */
@@ -28,17 +24,13 @@ export class GameStartAuthorization {
         roomManager,
         playerManager,
         gameManager,
-        paymentSessionManager,
         configurationEngine,
         physicsEngine = null,
         gameClockEngine = null,
         gameplayContextResolver = null,
         recoveryEngine = null,
-        auditLedger = null,
         roomConfig = null,
-        devMode = false,
-        roomWalletPaymentIntakeEnabled = false,
-        roomWalletLedgerRegistry = null,
+        devMode = false
     }) {
 
         this._logger = logger;
@@ -51,9 +43,6 @@ export class GameStartAuthorization {
 
         this._gameManager = gameManager;
 
-        this._paymentSessionManager = paymentSessionManager;
-
-
         this._configurationEngine = configurationEngine;
 
         this._physicsEngine = physicsEngine;
@@ -64,8 +53,6 @@ export class GameStartAuthorization {
 
         this._recoveryEngine = recoveryEngine;
 
-        this._auditLedger = auditLedger;
-
         this._expectedPlayers = roomConfig?.maxPlayers ?? 3;
 
         this._authorizationDurationMs = Number.isFinite(
@@ -75,10 +62,6 @@ export class GameStartAuthorization {
             : 60 * 1000;
 
         this._devMode = devMode;
-
-        this._roomWalletPaymentIntakeEnabled = roomWalletPaymentIntakeEnabled === true;
-
-        this._roomWalletLedgerRegistry = roomWalletLedgerRegistry;
 
         // roomId → { phase, gameId, authorizedAt, initializingAt, openPage5At }
         this._lifecycleByRoom = new Map();
@@ -95,40 +78,10 @@ export class GameStartAuthorization {
     initialize() {
 
         this._subscribe(
-            EVENT_TYPES.PAYMENT_SESSION_COMPLETED,
+            EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
             (envelope) => {
 
                 this._evaluate(envelope.payload?.roomId);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.DEPOSIT_FULL,
-            (envelope) => {
-
-                this._evaluate(envelope.payload?.roomId);
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.PAYMENT_SESSION_CREATED,
-            (envelope) => {
-
-                this._resetLifecycleForNewGame(
-                    envelope.payload?.roomId,
-                    envelope.payload?.gameId
-                );
-
-            }
-        );
-
-        this._subscribe(
-            EVENT_TYPES.PAYMENT_SESSION_FAILED,
-            (envelope) => {
-
-                this._abandon(envelope.payload?.roomId, "payment_session_failed");
 
             }
         );
@@ -208,8 +161,7 @@ export class GameStartAuthorization {
             phase: lifecycle.phase,
             authorizedAt: lifecycle.authorizedAt ?? null,
             initializingAt: lifecycle.initializingAt ?? null,
-            openPage5At: lifecycle.openPage5At ?? null,
-            blockchainCompletedAt: lifecycle.blockchainCompletedAt ?? null
+            openPage5At: lifecycle.openPage5At ?? null
         });
 
     }
@@ -345,64 +297,24 @@ export class GameStartAuthorization {
 
         }
 
-        const session = this._paymentSessionManager?.getSession(roomId);
-
-        if (!session || session.status !== PAYMENT_SESSION_STATUS.COMPLETED) {
-
-            return { ok: false, reason: "payment_session_incomplete" };
-
-        }
-
-        if (!session.allConfirmed()) {
-
-            return { ok: false, reason: "payments_not_all_confirmed" };
-
-        }
-
-        const unpaid = session.participants.some(
-            (participant) => (
-                participant.status !== PAYMENT_PARTICIPANT_STATUS.PAYMENT_CONFIRMED
-            )
-        );
-
-        if (unpaid) {
-
-            return { ok: false, reason: "seat_not_confirmed" };
-
-        }
-
-        if (session.participants.length !== this._expectedPlayers) {
+        if (Array.isArray(room.players)
+            && room.players.length !== this._expectedPlayers) {
 
             return {
                 ok: false,
                 reason: "expected_player_count",
-                gameId: session.gameId ?? null
+                gameId: null
             };
 
         }
 
-        const ledgerGate = this._checkRoomWalletLedger(session);
-
-        if (!ledgerGate.ok) {
-
-            return ledgerGate;
-
-        }
-
-        const gameId = session.gameId
-            ?? this._gameManager?.getPendingGameplayGameId?.(roomId)
+        const gameId = this._gameManager?.getPendingGameplayGameId?.(roomId)
             ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId)
             ?? null;
 
         if (!gameId) {
 
             return { ok: false, reason: "game_missing" };
-
-        }
-
-        if (session.gameId && session.gameId !== gameId) {
-
-            return { ok: false, reason: "payment_session_wrong_game", gameId };
 
         }
 
@@ -415,12 +327,7 @@ export class GameStartAuthorization {
         return {
             ok: true,
             room,
-            session,
-            contract,
-            gameId,
-            blockchainCompletedAt: session.completedAt
-                ?? contract?.paymentsCompletedAt
-                ?? Date.now()
+            gameId
         };
 
     }
@@ -449,87 +356,26 @@ export class GameStartAuthorization {
 
     }
 
-    _checkRoomWalletLedger(session) {
-
-        if (!this._roomWalletLedgerRegistry
-            || typeof this._roomWalletLedgerRegistry.listPlayerPayments !== "function") {
-
-            return {
-                ok: false,
-                reason: "room_wallet_ledger_missing",
-                gameId: session.gameId ?? null
-            };
-
-        }
-
-        const payments = this._roomWalletLedgerRegistry.listPlayerPayments(session.gameId)
-            ?? [];
-        const fundedPlayers = new Set();
-
-        for (const payment of payments) {
-
-            const playerId = payment.playerId ?? payment.counterparty;
-
-            if (playerId) {
-
-                fundedPlayers.add(String(playerId));
-
-            }
-
-        }
-
-        for (const participant of session.participants) {
-
-            if (!fundedPlayers.has(String(participant.playerId))) {
-
-                return {
-                    ok: false,
-                    reason: "room_wallet_ledger_incomplete",
-                    gameId: session.gameId ?? null
-                };
-
-            }
-
-        }
-
-        return { ok: true, gameId: session.gameId ?? null };
-
-    }
-
     _authorizeAndBootstrap(roomId, gate) {
 
         this._clearAuthorizationTimeout(roomId);
 
-        const { gameId, blockchainCompletedAt } = gate;
+        const { gameId } = gate;
 
         const authorizedAt = Date.now();
 
         this._lifecycleByRoom.set(roomId, {
             phase: GAME_START_PHASE.AUTHORIZED,
             gameId,
-            blockchainCompletedAt,
             authorizedAt,
             initializingAt: null,
             openPage5At: null
         });
 
-        this._audit(roomId, {
-            type: "BLOCKCHAIN_COMPLETE",
-            gameId,
-            at: blockchainCompletedAt
-        });
-
-        this._audit(roomId, {
-            type: "GAME_START_AUTHORIZED",
-            gameId,
-            at: authorizedAt
-        });
-
         this._emit(EVENT_TYPES.GAME_START_AUTHORIZED, {
             roomId,
             gameId,
-            authorizedAt,
-            blockchainCompletedAt
+            authorizedAt
         });
 
         this._log(
@@ -543,12 +389,6 @@ export class GameStartAuthorization {
         lifecycle.phase = GAME_START_PHASE.INITIALIZING;
 
         lifecycle.initializingAt = initializingAt;
-
-        this._audit(roomId, {
-            type: "GAME_INITIALIZING",
-            gameId,
-            at: initializingAt
-        });
 
         this._emit(EVENT_TYPES.GAME_INITIALIZING, {
             roomId,
@@ -678,7 +518,7 @@ export class GameStartAuthorization {
 
         }
 
-        // Re-check payment / contract gates immediately before open.
+        // Re-check gates immediately before open.
         const gate = this._checkStartConditions(roomId);
 
         if (!gate.ok) {
@@ -776,15 +616,6 @@ export class GameStartAuthorization {
         this._clearAuthorizationTimeout(roomId);
 
         this._lifecycleByRoom.delete(roomId);
-
-    }
-
-    _audit(roomId, entry) {
-
-        this._auditLedger?.append?.(roomId, Object.freeze({
-            category: "GAME_START",
-            ...entry
-        }));
 
     }
 

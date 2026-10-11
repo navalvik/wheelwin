@@ -38,7 +38,6 @@ function logSession(state) {
         playerCount: Object.keys(state.players).length,
         hasConfiguration: Boolean(state.configuration),
         hasWinner: Boolean(state.winner),
-        paymentStatus: state.payment?.status ?? null,
         auditStatus: state.audit?.status ?? null,
         recovery: state.recovery,
         lifecycle: state.lifecycle
@@ -194,24 +193,6 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
-        onPayment: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT,
-                payload
-            });
-
-        },
-
-        onAudit: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.AUDIT,
-                payload
-            });
-
-        },
-
         onSessionSnapshot: (payload) => {
 
             store.dispatch({
@@ -257,142 +238,6 @@ export function AuthoritativeSessionProvider({ children }) {
 
         },
 
-        onPaymentStageReady: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_STAGE_READY,
-                payload
-            });
-
-        },
-
-        onEntryPaymentSessionUpdated: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.ENTRY_PAYMENT_SESSION_UPDATED,
-                payload
-            });
-
-        },
-
-        onEntryPaymentCompleted: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.ENTRY_PAYMENT_COMPLETED,
-                payload
-            });
-
-        },
-
-        onWalletConnectionSessionUpdated: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.WALLET_CONNECTION_SESSION_UPDATED,
-                payload
-            });
-
-        },
-
-        onPaymentConnectionReady: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_CONNECTION_READY,
-                payload
-            });
-
-        },
-
-        onPaymentSessionCreated: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_CREATED,
-                payload
-            });
-
-        },
-
-        onPaymentSessionUpdated: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_UPDATED,
-                payload
-            });
-
-        },
-
-        onPaymentRequest: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_REQUEST,
-                payload
-            });
-
-        },
-
-        onPaymentSessionCompleted: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_COMPLETED,
-                payload
-            });
-
-        },
-
-        onPaymentSessionFailed: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.PAYMENT_SESSION_FAILED,
-                payload
-            });
-
-        },
-
-        onGameContractUpdated: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_UPDATED,
-                payload
-            });
-
-        },
-
-        onGameContractDeployed: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOYED,
-                payload
-            });
-
-        },
-
-        onGameContractDeployFailed: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.GAME_CONTRACT_DEPLOY_FAILED,
-                payload
-            });
-
-        },
-
-        // R18 S4 — store the requester-scoped Deposit projection (mirror only).
-        onDepositPackagePublished: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_PACKAGE_PUBLISHED,
-                payload
-            });
-
-        },
-
-        onDepositActivationVerified: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.DEPOSIT_ACTIVATION_VERIFIED,
-                payload
-            });
-
-        },
-
         onGameStartAuthorized: (payload) => {
 
             store.dispatch({
@@ -406,51 +251,6 @@ export function AuthoritativeSessionProvider({ children }) {
 
             store.dispatch({
                 type: AUTHORITATIVE_SESSION_ACTIONS.GAME_INITIALIZING,
-                payload
-            });
-
-        },
-
-        onSettlementStarted: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_STARTED,
-                payload
-            });
-
-        },
-
-        onSettlementSubmitted: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_SUBMITTED,
-                payload
-            });
-
-        },
-
-        onSettlementConfirmed: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_CONFIRMED,
-                payload
-            });
-
-        },
-
-        onSettlementCompleted: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_COMPLETED,
-                payload
-            });
-
-        },
-
-        onSettlementFailed: (payload) => {
-
-            store.dispatch({
-                type: AUTHORITATIVE_SESSION_ACTIONS.SETTLEMENT_FAILED,
                 payload
             });
 

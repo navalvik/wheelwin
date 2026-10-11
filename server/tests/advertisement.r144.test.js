@@ -383,10 +383,9 @@ function createHarness({ slotDurationMs = 20_000 } = {}) {
         "AdvertisementScheduler"
     );
 
-    // Gameplay / payment / room event names remain intact.
+    // Gameplay / room event names remain intact.
     assert.equal(EVENT_TYPES.PHYSICS_UPDATED, "PHYSICS_UPDATED");
     assert.equal(EVENT_TYPES.CLOCK_UPDATE, "CLOCK_UPDATE");
-    assert.equal(EVENT_TYPES.PAYMENT_STARTED, "PAYMENT_STARTED");
     assert.equal(EVENT_TYPES.ROOM_CREATED, "ROOM_CREATED");
     assert.equal(EVENT_TYPES.GAME_STATE_CHANGED, "GAME_STATE_CHANGED");
 

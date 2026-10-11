@@ -5,13 +5,6 @@
 
 export const RUNTIME_CONFIG_EDITABLE_KEYS = Object.freeze([
     "setupTimeoutMs",
-    "paymentTimeoutMs",
     "countdownDurationMs",
-    "brakeDurationMs",
-    "settlementTimeoutMs",
-    "baseStake1Gram",
-    "baseStake2Gram",
-    "ownerFeePercent"
+    "brakeDurationMs"
 ]);
-
-export const DEFAULT_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;

@@ -4,21 +4,8 @@ import { EventBus } from "../../events/EventBus.js";
 import { GameManager } from "../../managers/GameManager.js";
 import { PlayerManager } from "../../managers/PlayerManager.js";
 import { RoomManager } from "../../managers/RoomManager.js";
-import { PaymentSessionManager } from "../../gameplay/PaymentSessionManager.js";
-import { GameContractManager } from "../../gameplay/GameContractManager.js";
 import { GameStartAuthorization } from "../../gameplay/GameStartAuthorization.js";
-import { GameContractDeployAdapter } from "../../payment/GameContractDeployAdapter.js";
-import {
-    BlockchainMonitor,
-    EntryPaymentAuditLedger
-} from "../../payment/BlockchainMonitor.js";
-import { MockTonTransport } from "../../payment/ton/MockTonTransport.js";
-import {
-    OWNER_CONFIG_EXAMPLE_PATH,
-    OwnerConfiguration
-} from "../../config/OwnerConfiguration.js";
 import { LoggerService } from "../../services/LoggerService.js";
-import { SessionWalletStore } from "../../session/SessionWalletStore.js";
 import { GameplayContextResolver } from "../../socket/GameplayContextResolver.js";
 import { RoomLobbyBridge } from "../../socket/RoomLobbyBridge.js";
 import { SocketGateway } from "../../socket/SocketGateway.js";
@@ -28,10 +15,6 @@ import {
 } from "./gameplayBootstrapHarness.js";
 
 export async function createLobbyIntegrationHarness() {
-
-    OwnerConfiguration.resetForTests();
-
-    OwnerConfiguration.load({ configPath: OWNER_CONFIG_EXAMPLE_PATH });
 
     const logger = new LoggerService({ logLevel: "error" });
 
@@ -77,49 +60,24 @@ export async function createLobbyIntegrationHarness() {
         gameplayContextResolver
     });
 
-    const sessionWalletStore = new SessionWalletStore();
+    // Dev harness identity: every socket is authenticated server-side with a
+    // deterministic numeric Telegram-user marker (never client-supplied).
+    const telegramIdentityBySocket = new Map();
 
-    const tonTransport = new MockTonTransport();
+    const telegramIdentityResolver = (socketId) => {
 
-    const entryPaymentAuditLedger = new EntryPaymentAuditLedger();
+        if (!telegramIdentityBySocket.has(socketId)) {
 
-    const blockchainMonitor = new BlockchainMonitor({
-        logger,
-        eventBus,
-        transport: tonTransport,
-        auditLedger: entryPaymentAuditLedger,
-        pollIntervalMs: 60_000
-    });
+            telegramIdentityBySocket.set(
+                socketId,
+                900000 + telegramIdentityBySocket.size
+            );
 
-    blockchainMonitor.initialize();
+        }
 
-    const paymentSessionManager = new PaymentSessionManager({
-        logger,
-        eventBus,
-        playerManager,
-        roomManager,
-        roomConfig: { paymentSessionDurationMs: 60_000 },
-        gameplayContextResolver,
-        sessionWalletStore,
-        blockchainMonitor,
-        devMode: false
-    });
+        return telegramIdentityBySocket.get(socketId);
 
-    paymentSessionManager.initialize();
-
-    const gameContractManager = new GameContractManager({
-        logger,
-        eventBus,
-        playerManager,
-        roomManager,
-        sessionWalletStore,
-        configurationEngine: bootstrapEngines.configurationEngine,
-        deployAdapter: new GameContractDeployAdapter({ deployDelayMs: 0 }),
-        creatingDelayMs: 0,
-        devMode: false
-    });
-
-    gameContractManager.initialize();
+    };
 
     const gameStartAuthorization = new GameStartAuthorization({
         logger,
@@ -127,13 +85,10 @@ export async function createLobbyIntegrationHarness() {
         roomManager,
         playerManager,
         gameManager,
-        paymentSessionManager,
-        gameContractManager,
         configurationEngine: bootstrapEngines.configurationEngine,
         physicsEngine: bootstrapEngines.physicsEngine,
         gameClockEngine: bootstrapEngines.gameClockEngine,
         gameplayContextResolver,
-        auditLedger: entryPaymentAuditLedger,
         roomConfig: { maxPlayers: 3 },
         devMode: false
     });
@@ -165,16 +120,9 @@ export async function createLobbyIntegrationHarness() {
         playerManager,
         gameplayContextResolver,
         setupSessionLifecycle: bootstrapEngines.setupSessionLifecycle,
-        paymentSessionManager,
-        gameContractManager,
         gameStartAuthorization,
-        sessionWalletStore,
-        isDevelopment: true,
-        entryPaymentDelays: {
-            playerPaymentDelayMs: 40,
-            smartContractDelayMs: 40,
-            completionDelayMs: 80
-        }
+        telegramIdentityResolver,
+        isDevelopment: true
     });
 
     roomLobbyBridge.initialize();
@@ -195,25 +143,13 @@ export async function createLobbyIntegrationHarness() {
         playerManager,
         gameManager,
         gameplayContextResolver,
-        paymentSessionManager,
-        gameContractManager,
         gameStartAuthorization,
-        blockchainMonitor,
-        tonTransport,
-        entryPaymentAuditLedger,
-        sessionWalletStore,
         bootstrapEngines,
         socketGateway,
         roomLobbyBridge,
         async shutdown() {
 
             roomLobbyBridge.shutdown();
-
-            paymentSessionManager.shutdown();
-
-            blockchainMonitor.shutdown();
-
-            gameContractManager.shutdown();
 
             gameStartAuthorization.shutdown();
 
@@ -256,8 +192,6 @@ export async function createLobbyIntegrationHarness() {
             });
 
             logger.shutdown();
-
-            OwnerConfiguration.resetForTests();
 
         }
     };

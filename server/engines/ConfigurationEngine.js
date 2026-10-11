@@ -10,7 +10,6 @@ import {
     generateWheelLayout,
     validateWheelLayout
 } from "./configuration/wheelLayoutGenerator.js";
-import { stableStringify } from "../persistence/tonFinancialRecordUtils.js";
 
 export class ConfigurationEngine {
 
@@ -30,8 +29,6 @@ export class ConfigurationEngine {
         this._randomService = randomService;
 
         this._configurations = new Map();
-
-        this._economies = new Map();
 
         this._infrastructureHandlers = [];
 
@@ -55,22 +52,6 @@ export class ConfigurationEngine {
         this._infrastructureHandlers.push({
             event: EVENT_TYPES.SERVER_SHUTDOWN,
             handler: shutdownHandler
-        });
-
-        const gameInitializedHandler = (envelope) => {
-
-            this._handleGameInitialized(envelope);
-
-        };
-
-        this._eventBus.subscribe(
-            EVENT_TYPES.GAME_INITIALIZED,
-            gameInitializedHandler
-        );
-
-        this._infrastructureHandlers.push({
-            event: EVENT_TYPES.GAME_INITIALIZED,
-            handler: gameInitializedHandler
         });
 
         this._initialized = true;
@@ -794,87 +775,6 @@ export class ConfigurationEngine {
 
     }
 
-    /**
-     * R17.9J.2I.2B — Freeze payment economy for one game at GAME_INITIALIZED.
-     * Idempotent. Immutable after creation.
-     */
-    freezeEconomy(gameId) {
-
-        this._assertInitialized();
-
-        const key = String(gameId ?? "").trim();
-
-        if (!key) {
-
-            throw new ConfigurationValidationError({
-                gameId: null,
-                reason: "gameId is required"
-            });
-
-        }
-
-        const existing = this._economies.get(key);
-
-        if (existing) {
-
-            return existing;
-
-        }
-
-        if (!this._configurations.has(key)) {
-
-            throw new ConfigurationValidationError({
-                gameId: key,
-                reason: "Configuration must exist before economy freeze"
-            });
-
-        }
-
-        const paymentRules = this._gameCatalog.getPaymentRules();
-        const organizerFeeRate = Number(paymentRules?.platformFeeRate);
-
-        if (!Number.isFinite(organizerFeeRate)) {
-
-            throw new ConfigurationValidationError({
-                gameId: key,
-                reason: "Payment rules platformFeeRate is invalid"
-            });
-
-        }
-
-        const ownerFeePercent = Math.round(organizerFeeRate * 1000) / 10;
-        const winnerPercentage = Math.round((1 - organizerFeeRate) * 1_000_000) / 1_000_000;
-
-        const economy = Object.freeze({
-            ownerFeePercent,
-            organizerFeeRate,
-            winnerPercentage,
-            frozenAt: Date.now()
-        });
-
-        this._economies.set(key, economy);
-
-        return economy;
-
-    }
-
-    /**
-     * R17.9J.2I.2B — Read frozen payment economy for one game.
-     */
-    getEconomy(gameId) {
-
-        const key = String(gameId ?? "").trim();
-
-        if (!key) {
-
-            return null;
-
-        }
-
-        return this._economies.get(key) ?? null;
-
-    }
-
     removeConfiguration(gameId) {
 
         const configuration = this._configurations.get(gameId);
@@ -890,8 +790,6 @@ export class ConfigurationEngine {
         }
 
         this._configurations.delete(gameId);
-
-        this._economies.delete(gameId);
 
         this._emit(EVENT_TYPES.CONFIGURATION_REMOVED, {
             gameId,
@@ -923,8 +821,6 @@ export class ConfigurationEngine {
         }
 
         this._configurations.delete(gameId);
-
-        this._economies.delete(gameId);
 
         return true;
 
@@ -1144,34 +1040,6 @@ export class ConfigurationEngine {
                 reason: `${label} must be a non-empty array`,
                 traceSeed
             });
-
-        }
-
-    }
-
-    _handleGameInitialized(envelope) {
-
-        const gameId = envelope.payload?.gameId;
-
-        if (!gameId || !this._configurations.has(gameId) || this._economies.has(gameId)) {
-
-            return;
-
-        }
-
-        try {
-
-            this.freezeEconomy(gameId);
-
-        } catch (error) {
-
-            this._logger.error(
-                [
-                    "Economy freeze failed",
-                    `gameId=${gameId}`,
-                    `reason=${error?.message ?? "unknown"}`
-                ].join(" | ")
-            );
 
         }
 

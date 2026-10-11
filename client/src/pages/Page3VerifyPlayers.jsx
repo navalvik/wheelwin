@@ -3,23 +3,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import GameLayout from "../layouts/GameLayout";
 
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
-import { useGameSession } from "../context/GameSessionContext";
 import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import {
-    getAuthoritativePlayerSectorCount,
     hasAuthoritativePlayers,
     listAuthoritativePlayers,
     mapAuthoritativePlayerToInfoProp,
     resolveLocalPlayerId
 } from "../game/session";
-
-import { calculatePaymentGram } from "../utils/playerProfileRules";
-
-import {
-    isValidTelegramWallet
-} from "../utils/telegramWalletRules";
 
 import socket from "../socket/socket";
 
@@ -68,11 +60,9 @@ function verifyDecisionTrace(step, detail = {}) {
 
 export default function Page3VerifyPlayers({ onNavigate }) {
 
-    // AuthoritativeSession.players → lookup by playerId → nickname / sectorCount /
-    // payment for highlight + footer. Never by array order.
+    // AuthoritativeSession.players → lookup by playerId → nickname / sectorCount
+    // for the roster. Never by array order.
     const authoritative = useAuthoritativeSession();
-
-    const { session } = useGameSession();
 
     const { t } = useLanguage();
 
@@ -80,35 +70,15 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     const verifyCompleted = authoritative.lifecycle?.verifyCompleted === true;
 
-    const paymentStageReady = authoritative.lifecycle?.paymentStageReady === true;
-
     const localPlayerId = resolveLocalPlayerId(
         identity.playerId ?? null,
         authoritative.players,
         { verifyCompleted }
     );
 
-    const localAuthoritativePlayer = localPlayerId
-        ? (authoritative.players[localPlayerId] ?? null)
-        : null;
-
-    // P6.1 — session wallet ack only (never localStorage / permanent identity).
-    const authoritativeWallet = typeof localAuthoritativePlayer?.wallet === "string"
-        ? localAuthoritativePlayer.wallet
-        : "";
-
-    const [walletAddress, setWalletAddress] = useState("");
-
     const [waitingForVerify, setWaitingForVerify] = useState(false);
 
-    const [waitingForPaymentStage, setWaitingForPaymentStage] = useState(false);
-
-    const [walletError, setWalletError] = useState("");
-
-    const isWalletValid = isValidTelegramWallet(walletAddress);
-
-    // P6.1 — locked only after server freezes setup (PAYMENT_STAGE_READY).
-    const walletLocked = paymentStageReady;
+    const [waitingForContinue, setWaitingForContinue] = useState(false);
 
     const playersReady = hasAuthoritativePlayers(authoritative.players);
 
@@ -118,17 +88,10 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                 player,
                 index,
                 {
-                    localPlayerId,
-                    baseStake: session.baseStake
+                    localPlayerId
                 }
             )),
-        [authoritative.players, localPlayerId, session.baseStake]
-    );
-
-    // Footer YOU NEED PAY — from the authoritative local player record only.
-    const youNeedPay = calculatePaymentGram(
-        session.baseStake,
-        getAuthoritativePlayerSectorCount(localAuthoritativePlayer)
+        [authoritative.players, localPlayerId]
     );
 
     const roomId = authoritative.roomId ?? null;
@@ -149,70 +112,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
         }
 
     }, [verifyCompleted]);
-
-    // Reconnect / private ack: restore authoritative wallet into the input.
-    useEffect(() => {
-
-        if (!authoritativeWallet) {
-
-            return;
-
-        }
-
-        setWalletAddress((current) => (
-            current.trim() === authoritativeWallet
-                ? current
-                : authoritativeWallet
-        ));
-
-    }, [authoritativeWallet]);
-
-    useEffect(() => {
-
-        if (!paymentStageReady) {
-
-            return;
-
-        }
-
-        setWaitingForPaymentStage(false);
-
-        setWalletError("");
-
-        onNavigate(6);
-
-    }, [paymentStageReady, onNavigate]);
-
-    useEffect(() => {
-
-        function handleWalletRejected(payload) {
-
-            // Allow a single retry after server rejection (invalid wallet).
-            clearVerifyNextSeat(roomId, emitPlayerId);
-
-            autoVerifyNextInFlightRef.current = false;
-
-            setWaitingForPaymentStage(false);
-
-            setWalletError(
-                typeof payload?.message === "string" && payload.message
-                    ? payload.message
-                    : t("verify.invalidWallet")
-            );
-
-        }
-
-        socket.on("WALLET_REJECTED", handleWalletRejected);
-
-        return () => {
-
-            socket.off("WALLET_REJECTED", handleWalletRejected);
-
-        };
-
-    }, [roomId, emitPlayerId]);
-
-    /**
+/**
      * R7.30 — sole VERIFY_NEXT_REQUEST emitter (auto path).
      * Protocol unchanged; trigger is automatic after VERIFY_COMPLETED.
      */
@@ -229,9 +129,9 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                 seatKey
             });
 
-            if (!waitingForPaymentStage && !paymentStageReady) {
+            if (!waitingForContinue) {
 
-                setWaitingForPaymentStage(true);
+                setWaitingForContinue(true);
 
             }
 
@@ -239,10 +139,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         }
 
-        if (!verifyCompleted
-            || waitingForVerify
-            || waitingForPaymentStage
-            || paymentStageReady) {
+        if (!verifyCompleted || waitingForVerify || waitingForContinue) {
 
             verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_NOT_READY", {
                 source,
@@ -250,20 +147,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                 playerId: emitPlayerId,
                 verifyCompleted,
                 waitingForVerify,
-                waitingForPaymentStage,
-                paymentStageReady
-            });
-
-            return false;
-
-        }
-
-        if (!isWalletValid) {
-
-            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_INVALID_WALLET", {
-                source,
-                roomId,
-                playerId: emitPlayerId
+                waitingForContinue
             });
 
             return false;
@@ -300,9 +184,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         verifyNextEmittedSeats.add(seatKey);
 
-        setWalletError("");
-
-        setWaitingForPaymentStage(true);
+        setWaitingForContinue(true);
 
         verifyDecisionTrace("AUTO_VERIFY_NEXT_EMIT", {
             source,
@@ -313,8 +195,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         socket.emit("VERIFY_NEXT_REQUEST", {
             roomId,
-            playerId: emitPlayerId,
-            walletAddress: walletAddress.trim()
+            playerId: emitPlayerId
         });
 
         return true;
@@ -324,22 +205,12 @@ export default function Page3VerifyPlayers({ onNavigate }) {
         emitPlayerId,
         verifyCompleted,
         waitingForVerify,
-        waitingForPaymentStage,
-        paymentStageReady,
-        isWalletValid,
-        walletAddress
+        waitingForContinue
     ]);
-
-    // R7.30 — automatic VERIFY continuation after VERIFY_COMPLETED.
+// R7.30 — automatic VERIFY continuation after VERIFY_COMPLETED.
     useEffect(() => {
 
         if (!verifyCompleted) {
-
-            return;
-
-        }
-
-        if (paymentStageReady) {
 
             return;
 
@@ -354,9 +225,9 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                 seatKey: emitSeatKey
             });
 
-            if (!waitingForPaymentStage) {
+            if (!waitingForContinue) {
 
-                setWaitingForPaymentStage(true);
+                setWaitingForContinue(true);
 
             }
 
@@ -364,26 +235,14 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         }
 
-        if (waitingForVerify || waitingForPaymentStage) {
+        if (waitingForVerify || waitingForContinue) {
 
             verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_NOT_READY", {
                 source: "auto_effect",
                 roomId,
                 playerId: emitPlayerId,
                 waitingForVerify,
-                waitingForPaymentStage
-            });
-
-            return;
-
-        }
-
-        if (!isWalletValid) {
-
-            verifyDecisionTrace("AUTO_VERIFY_NEXT_SKIP_INVALID_WALLET", {
-                source: "auto_effect",
-                roomId,
-                playerId: emitPlayerId
+                waitingForContinue
             });
 
             return;
@@ -400,11 +259,8 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     }, [
         verifyCompleted,
-        paymentStageReady,
         waitingForVerify,
-        waitingForPaymentStage,
-        isWalletValid,
-        walletAddress,
+        waitingForContinue,
         emitSeatKey,
         roomId,
         emitPlayerId,
@@ -413,7 +269,7 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     function handleConfirmVerify() {
 
-        if (!isWalletValid || waitingForVerify || verifyCompleted) {
+        if (waitingForVerify || verifyCompleted) {
 
             return;
 
@@ -421,37 +277,12 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
         setWaitingForVerify(true);
 
-        setWalletError("");
-
         socket.emit("confirmVerify");
 
     }
 
     function handleNext() {
-
-        if (!isWalletValid) {
-
-            setWalletError(
-                t("verify.invalidWallet")
-            );
-
-            return;
-
-        }
-
-        // R7.30 — after VERIFY_COMPLETED, continuation is automatic.
-        // Manual NEXT is only for barrier #1 (confirmVerify).
-        if (verifyCompleted) {
-
-            return;
-
-        }
-
-        handleConfirmVerify();
-
-    }
-
-    return (
+return (
 
         <GameLayout
 
@@ -462,9 +293,9 @@ export default function Page3VerifyPlayers({ onNavigate }) {
             onBack={() => onNavigate(4)}
 
             nextEnabled={
-                paymentStageReady || verifyCompleted
+                verifyCompleted
                     ? false
-                    : (isWalletValid && !waitingForVerify)
+                    : !waitingForVerify
             }
 
             onNext={handleNext}
@@ -514,13 +345,6 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                                         <strong>{player.sectorValue}</strong>
                                     </div>
 
-                                    <div className="verifyPlayerStat">
-                                        <span>{player.paymentLabel?.includes(".")
-                                            ? t(player.paymentLabel)
-                                            : player.paymentLabel}</span>
-                                        <strong>{player.paymentDisplay}</strong>
-                                    </div>
-
                                 </div>
 
                             ))
@@ -553,115 +377,18 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
                     )}
 
-                    {verifyCompleted && !paymentStageReady && (
+                    {verifyCompleted && (
 
                         <div
                             className="verifyPlayersWaiting"
                             aria-live="polite"
                         >
 
-                            {waitingForPaymentStage
-                                ? t("verify.waitingContinue")
-                                : isWalletValid
-                                    ? t("verify.continuingToPayment")
-                                    : t("verify.enterWalletToContinue")}
+                            {t("verify.waitingContinue")}
 
                         </div>
 
                     )}
-
-                    {walletError && (
-
-                        <div
-                            className="verifyPlayersWaiting"
-                            aria-live="assertive"
-                        >
-
-                            {walletError}
-
-                        </div>
-
-                    )}
-
-                    <div className="verifyFinanceRow">
-
-                        <div className="verifyFinanceGroup">
-
-                            <span className="verifyFinanceLabel">
-
-                                {t("verify.baseStake")}
-
-                            </span>
-
-                            <span className="verifyFinanceValue">
-
-                                {session.baseStake}
-
-                            </span>
-
-                        </div>
-
-                        <div className="verifyFinanceGroup">
-
-                            <span className="verifyFinanceLabel">
-
-                                {t("verify.youNeedPayGram")}
-
-                            </span>
-
-                            <span className="verifyFinanceValue">
-
-                                {youNeedPay}
-
-                            </span>
-
-                        </div>
-
-                    </div>
-
-                    <div className="verifyWallet">
-
-                        <label
-                            className="verifyWalletLabel"
-                            htmlFor="verifyWalletAddress"
-                        >
-
-                            {t("verify.walletLabel")}
-
-                        </label>
-
-                        <input
-                            id="verifyWalletAddress"
-                            className="verifyWalletInput"
-                            type="text"
-                            value={walletAddress}
-                            disabled={walletLocked}
-                            onChange={(e) => {
-
-                                setWalletError("");
-
-                                setWalletAddress(e.target.value);
-
-                                // P6.1 / R7.30 — editing before freeze allows one
-                                // corrected auto VERIFY_NEXT after rejection/edit.
-                                if (!paymentStageReady) {
-
-                                    clearVerifyNextSeat(roomId, emitPlayerId);
-
-                                    autoVerifyNextInFlightRef.current = false;
-
-                                    if (waitingForPaymentStage) {
-
-                                        setWaitingForPaymentStage(false);
-
-                                    }
-
-                                }
-
-                            }}
-                        />
-
-                    </div>
 
                 </div>
 
@@ -672,3 +399,15 @@ export default function Page3VerifyPlayers({ onNavigate }) {
     );
 
 }
+
+        // R7.30 — after VERIFY_COMPLETED, continuation is automatic.
+        // Manual NEXT is only for barrier #1 (confirmVerify).
+        if (verifyCompleted) {
+
+            return;
+
+        }
+
+        handleConfirmVerify();
+
+    }

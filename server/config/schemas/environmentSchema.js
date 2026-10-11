@@ -163,14 +163,6 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Metrics",
         suggestedFix: "Set SIMULATION_COLLECTION_INTERVAL_MS to an integer >= 50."
     }),
-    PAYMENT_COLLECTION_INTERVAL_MS: Object.freeze({
-        key: "PAYMENT_COLLECTION_INTERVAL_MS",
-        type: "integer",
-        required: false,
-        min: 50,
-        category: "Metrics",
-        suggestedFix: "Set PAYMENT_COLLECTION_INTERVAL_MS to an integer >= 50."
-    }),
     RECOVERY_COLLECTION_INTERVAL_MS: Object.freeze({
         key: "RECOVERY_COLLECTION_INTERVAL_MS",
         type: "integer",
@@ -587,201 +579,7 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Logging",
         suggestedFix: "Set EVENT_BUS_LOGGING to true or false."
     }),
-    TON_NETWORK: Object.freeze({
-        key: "TON_NETWORK",
-        type: "string",
-        required: true,
-        category: "TON",
-        suggestedFix: "Set TON_NETWORK to testnet or mainnet."
-    }),
-    TON_POLL_INTERVAL_MS: Object.freeze({
-        key: "TON_POLL_INTERVAL_MS",
-        type: "integer",
-        required: false,
-        min: 200,
-        category: "TON",
-        suggestedFix: "Set TON_POLL_INTERVAL_MS to an integer >= 200."
-    }),
-    TON_DEPLOY_MODE: Object.freeze({
-        key: "TON_DEPLOY_MODE",
-        type: "enum",
-        required: false,
-        allowed: Object.freeze(["stub", "live"]),
-        category: "TON",
-        suggestedFix: "Set TON_DEPLOY_MODE to stub or live."
-    }),
-    // R7.67A — testnet defaults to game when unset; mainnet defaults to v4.
-    GAME_ESCROW_MODE: Object.freeze({
-        key: "GAME_ESCROW_MODE",
-        type: "enum",
-        required: false,
-        allowed: Object.freeze(["v4", "game"]),
-        category: "TON",
-        suggestedFix: "Set GAME_ESCROW_MODE to game (testnet default) or v4 (rollback / mainnet default)."
-    }),
-    // R7.67B — public address pin for deployer identity mismatch checks.
-    TON_DEPLOYER_EXPECTED_ADDRESS: Object.freeze({
-        key: "TON_DEPLOYER_EXPECTED_ADDRESS",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix: "Set TON_DEPLOYER_EXPECTED_ADDRESS to the expected deployer wallet friendly address."
-    }),
-    // R17.8V.2P.H — Deployment cost snapshot foundation (default off; no runtime wiring yet).
-    DEPLOYMENT_COST_SNAPSHOT_ENABLED: Object.freeze({
-        key: "DEPLOYMENT_COST_SNAPSHOT_ENABLED",
-        type: "boolean",
-        required: false,
-        defaultValue: false,
-        category: "TON",
-        suggestedFix:
-            "Set DEPLOYMENT_COST_SNAPSHOT_ENABLED to true only after capture wiring. Default false."
-    }),
-    // R17.8V.2P.M — Deployment reimbursement worker foundation (default off; no TON send).
-    DEPLOYMENT_REIMBURSEMENT_ENABLED: Object.freeze({
-        key: "DEPLOYMENT_REIMBURSEMENT_ENABLED",
-        type: "boolean",
-        required: false,
-        defaultValue: false,
-        category: "TON",
-        suggestedFix:
-            "DEPLOYMENT_REIMBURSEMENT_ENABLED has no send effect. "
-            + "Reimbursement transfers are permanently retired."
-    }),
-    REIMBURSEMENT_ENABLED: Object.freeze({
-        key: "REIMBURSEMENT_ENABLED",
-        type: "boolean",
-        required: false,
-        defaultValue: false,
-        category: "TON",
-        suggestedFix:
-            "REIMBURSEMENT_ENABLED cannot authorize sends. "
-            + "Reimbursement transfers are permanently retired."
-    }),
-    // R17.8V.2P.O — Per-transfer amount cap (TON decimal string).
-    REIMBURSEMENT_MAX_TRANSFER: Object.freeze({
-        key: "REIMBURSEMENT_MAX_TRANSFER",
-        type: "string",
-        required: false,
-        defaultValue: "0.05",
-        category: "TON",
-        suggestedFix:
-            "Set REIMBURSEMENT_MAX_TRANSFER to the max TON amount per reimbursement send."
-    }),
-    // R17.8V.2P.Q — UTC daily spend cap (confirmed + in-flight).
-    REIMBURSEMENT_DAILY_LIMIT: Object.freeze({
-        key: "REIMBURSEMENT_DAILY_LIMIT",
-        type: "string",
-        required: false,
-        defaultValue: "1",
-        category: "TON",
-        suggestedFix:
-            "Set REIMBURSEMENT_DAILY_LIMIT to the max TON reimbursed per UTC day."
-    }),
-    // R17.8V.2P.Q — Leave this reserve in the reimbursement wallet after sends.
-    REIMBURSEMENT_WALLET_RESERVE: Object.freeze({
-        key: "REIMBURSEMENT_WALLET_RESERVE",
-        type: "string",
-        required: false,
-        defaultValue: "0.05",
-        category: "TON",
-        suggestedFix:
-            "Set REIMBURSEMENT_WALLET_RESERVE to TON left in the reimbursement wallet after each send."
-    }),
-    // R17.8V.2P.O — Reimbursement wallet mnemonic (Railway secret; never log).
-    TON_REIMBURSEMENT_MNEMONIC: Object.freeze({
-        key: "TON_REIMBURSEMENT_MNEMONIC",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Compatibility secret for Residues Wallet identity only. "
-            + "Prefer TON_RESIDUES_MNEMONIC. Cannot authorize reimbursement sends."
-    }),
-    TON_REIMBURSEMENT_EXPECTED_ADDRESS: Object.freeze({
-        key: "TON_REIMBURSEMENT_EXPECTED_ADDRESS",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Compatibility public pin for Residues Wallet. Prefer "
-            + "TON_RESIDUES_EXPECTED_ADDRESS. Must match the same physical address."
-    }),
     // R7.68 — Mainnet readiness profile (does not enable mainnet by itself).
-    TON_MAINNET_ENDPOINT: Object.freeze({
-        key: "TON_MAINNET_ENDPOINT",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix: "Set TON_MAINNET_ENDPOINT to the mainnet TonCenter JSON-RPC URL."
-    }),
-    TON_MAINNET_ORACLE_ADDRESS: Object.freeze({
-        key: "TON_MAINNET_ORACLE_ADDRESS",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix: "Set TON_MAINNET_ORACLE_ADDRESS to the mainnet oracle wallet."
-    }),
-    // R7.70A.2 — Testnet oracle pin (temporary deployer-as-oracle for settlement validation).
-    TON_TESTNET_ORACLE_ADDRESS: Object.freeze({
-        key: "TON_TESTNET_ORACLE_ADDRESS",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Set TON_TESTNET_ORACLE_ADDRESS to the Testnet oracle bounceable address "
-            + "(falls back to TON_ORACLE_ADDRESS / GAME_ESCROW_ORACLE)."
-    }),
-    TON_ORACLE_ADDRESS: Object.freeze({
-        key: "TON_ORACLE_ADDRESS",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Optional shared oracle fallback. Prefer TON_TESTNET_ORACLE_ADDRESS on Testnet."
-    }),
-    TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS: Object.freeze({
-        key: "TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix: "Set TON_MAINNET_DEPLOYER_EXPECTED_ADDRESS to the expected mainnet deployer address."
-    }),
-    TON_MAINNET_GAME_ESCROW_MODE: Object.freeze({
-        key: "TON_MAINNET_GAME_ESCROW_MODE",
-        type: "enum",
-        required: false,
-        allowed: Object.freeze(["v4", "game"]),
-        category: "TON",
-        suggestedFix: "Keep TON_MAINNET_GAME_ESCROW_MODE=v4 until Mainnet GameEscrow cutover."
-    }),
-    TON_GAME_ESCROW_ARTIFACT_SHA256: Object.freeze({
-        key: "TON_GAME_ESCROW_ARTIFACT_SHA256",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix: "Set TON_GAME_ESCROW_ARTIFACT_SHA256 to the SHA256 of GameEscrow.code.boc."
-    }),
-    // R8.1A — Mainnet dry-run diagnostics (does not enable Mainnet gameplay).
-    TON_MAINNET_DRY_RUN_DEBUG: Object.freeze({
-        key: "TON_MAINNET_DRY_RUN_DEBUG",
-        type: "boolean",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Set TON_MAINNET_DRY_RUN_DEBUG to true to print TON_MAINNET_DRY_RUN_DEBUG "
-            + "readiness diagnostics (network, wallet, artifact, escrow mode)."
-    }),
-    // R8.1B — Mainnet wallet identity diagnostics (does not enable Mainnet gameplay).
-    TON_MAINNET_WALLET_IDENTITY_DEBUG: Object.freeze({
-        key: "TON_MAINNET_WALLET_IDENTITY_DEBUG",
-        type: "boolean",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Set TON_MAINNET_WALLET_IDENTITY_DEBUG to true to print "
-            + "TON_MAINNET_WALLET_IDENTITY_DEBUG (derived vs expected address; no mnemonic)."
-    }),
     SETUP_DURATION_MS: Object.freeze({
         key: "SETUP_DURATION_MS",
         type: "integer",
@@ -798,100 +596,14 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Recovery",
         suggestedFix: "Set RESULT_SESSION_DURATION_MS to a positive integer."
     }),
-    PAYMENT_SESSION_DURATION_MS: Object.freeze({
-        key: "PAYMENT_SESSION_DURATION_MS",
-        type: "integer",
-        required: false,
-        min: 1,
-        category: "Payments",
-        suggestedFix: "Set PAYMENT_SESSION_DURATION_MS to a positive integer."
-    }),
-    WALLET_CONNECTION_DURATION_MS: Object.freeze({
-        key: "WALLET_CONNECTION_DURATION_MS",
-        type: "integer",
-        required: false,
-        min: 1,
-        category: "Payments",
-        suggestedFix: "Set WALLET_CONNECTION_DURATION_MS to a positive integer."
-    }),
-    GAME_CONTRACT_DEPLOY_TIMEOUT_MS: Object.freeze({
-        key: "GAME_CONTRACT_DEPLOY_TIMEOUT_MS",
-        type: "integer",
-        required: false,
-        min: 1,
-        category: "Payments",
-        suggestedFix: "Set GAME_CONTRACT_DEPLOY_TIMEOUT_MS to a positive integer."
-    }),
     GAME_START_AUTHORIZATION_DURATION_MS: Object.freeze({
         key: "GAME_START_AUTHORIZATION_DURATION_MS",
         type: "integer",
         required: false,
         min: 1,
-        category: "Payments",
+        category: "Lifecycle",
         suggestedFix: "Set GAME_START_AUTHORIZATION_DURATION_MS to a positive integer."
     }),
-    ROOM_WALLET_PAYMENT_INTAKE_MODE: Object.freeze({
-        key: "ROOM_WALLET_PAYMENT_INTAKE_MODE",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Leave unset to keep legacy Deposit + GameEscrow readiness. "
-            + "Set ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET to enable Room Wallet intake."
-    }),
-    ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: Object.freeze({
-        key: "ROOM_WALLET_RESIDUAL_SWEEP_ENABLED",
-        type: "boolean",
-        required: false,
-        defaultValue: false,
-        category: "TON",
-        suggestedFix:
-            "Leave unset/false. Set ROOM_WALLET_RESIDUAL_SWEEP_ENABLED=true only after "
-            + "Residues destination is configured and sweep sends are explicitly authorized."
-    }),
-    TON_RESIDUES_EXPECTED_ADDRESS: Object.freeze({
-        key: "TON_RESIDUES_EXPECTED_ADDRESS",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Canonical public Residues Wallet bounceable address (former Reimbursement "
-            + "Wallet). Missing or invalid prevents residual sweep sends; the application "
-            + "still starts. Compatibility fallback: TON_REIMBURSEMENT_EXPECTED_ADDRESS."
-    }),
-    TON_RESIDUES_MNEMONIC: Object.freeze({
-        key: "TON_RESIDUES_MNEMONIC",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Canonical Residues Wallet mnemonic (same secret as the former Reimbursement "
-            + "Wallet). Never log. Compatibility fallback: TON_REIMBURSEMENT_MNEMONIC."
-    }),
-    ROOM_WALLETS_JSON: Object.freeze({
-        key: "ROOM_WALLETS_JSON",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix:
-            "Railway secret only; never commit. JSON array of 64 Room Wallet identities "
-            + "(roomNumber 1..64, address, publicKey, secretKey). Required when "
-            + "ROOM_WALLET_PAYMENT_INTAKE_MODE=ROOM_WALLET."
-    }),
-    ROOM_WALLETS_TESTNET_JSON: Object.freeze({
-        key: "ROOM_WALLETS_TESTNET_JSON",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix: "Railway secret only; Testnet JSON catalog of exactly 64 Room Wallet identities."
-    }),
-    ROOM_WALLETS_MAINNET_JSON: Object.freeze({
-        key: "ROOM_WALLETS_MAINNET_JSON",
-        type: "string",
-        required: false,
-        category: "TON",
-        suggestedFix: "Railway secret only; Mainnet JSON catalog of exactly 64 Room Wallet identities."
-    })
 });
 
 export const CONFIGURATION_CATEGORIES = Object.freeze([
@@ -900,8 +612,6 @@ export const CONFIGURATION_CATEGORIES = Object.freeze([
     "Logging",
     "Developer Console",
     "Authentication",
-    "TON",
-    "Payments",
     "Recovery",
     "Simulation",
     "Metrics",

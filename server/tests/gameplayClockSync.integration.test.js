@@ -6,7 +6,7 @@ import { GAME_CLOCK_MESSAGE_TYPE } from "../socket/gameplayClockProtocol.js";
 import { GAME_MESSAGE_CHANNEL } from "../socket/events.js";
 import { createGameplaySocketHarness } from "./helpers/gameplaySocketHarness.js";
 import {
-    emitEntryPaymentCompleted,
+    emitGameStartAuthorized,
     exhaustAllPlayerInput
 } from "./helpers/gameplayBootstrapHarness.js";
 
@@ -179,7 +179,7 @@ try {
 
     await Promise.all(startPromises);
 
-    emitEntryPaymentCompleted(harness.eventBus, created.roomId);
+    emitGameStartAuthorized(harness.eventBus, created.roomId);
 
     const games = harness.gameManager.getGames();
 

@@ -6,8 +6,7 @@ import {
     APP_ENVIRONMENT,
     isValidAppEnvironment,
     normalizeAppEnvironment,
-    resolveAppEnvironment,
-    tonNetworkForAppEnvironment
+    resolveAppEnvironment
 } from "./AppEnvironment.js";
 import {
     readEnvironmentState,
@@ -58,7 +57,6 @@ export class AppEnvironmentService {
 
         return Object.freeze({
             appEnvironment: current,
-            tonNetwork: tonNetworkForAppEnvironment(current),
             persisted: persisted !== null,
             restartRequired: false,
             mainnetProtectionRequired: current !== APP_ENVIRONMENT.MAINNET
@@ -70,21 +68,15 @@ export class AppEnvironmentService {
 
         const current = this.getCurrent();
 
-        const tonNetwork = tonNetworkForAppEnvironment(current);
-
         const isMainnet = current === APP_ENVIRONMENT.MAINNET;
 
         return Object.freeze({
             appEnvironment: current,
-            tonNetwork,
-            blockchainLabel: isMainnet ? "TON Mainnet" : "TON Testnet",
-            paymentsMode: isMainnet ? "LIVE PAYMENTS" : "TEST MODE",
-            contractsLabel: isMainnet ? "Mainnet" : "Testnet",
+            mainnetEnvironment: isMainnet,
             consoleAuthState: !authEnabled
                 ? "Open"
                 : (authenticated ? "Authenticated" : "Not authenticated"),
             consoleRole: role,
-            realMoneyMode: isMainnet,
             startedAt: Number(this._env.SERVER_STARTED_AT || 0) || null,
             uptimeMs: Number(this._env.SERVER_STARTED_AT || 0)
                 ? Math.max(0, Date.now() - Number(this._env.SERVER_STARTED_AT))
@@ -133,7 +125,6 @@ export class AppEnvironmentService {
             return {
                 ok: true,
                 appEnvironment: current,
-                tonNetwork: tonNetworkForAppEnvironment(current),
                 restartRequired: false,
                 message: "Environment is already active"
             };
@@ -235,11 +226,8 @@ export class AppEnvironmentService {
 
         }
 
-        const tonNetwork = tonNetworkForAppEnvironment(target);
-
         writeEnvironmentState({
             appEnvironment: target,
-            tonNetwork,
             updatedBy: input?.username ?? null
         }, this._env);
 
@@ -259,10 +247,9 @@ export class AppEnvironmentService {
         return {
             ok: true,
             appEnvironment: target,
-            tonNetwork,
             previousEnvironment: current,
             restartRequired: true,
-            message: "Environment updated. Restart the server to apply blockchain network changes."
+            message: "Environment updated. Restart the server to apply environment changes."
         };
 
     }

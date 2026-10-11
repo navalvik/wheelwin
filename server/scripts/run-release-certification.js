@@ -104,13 +104,6 @@ manager.initialize({
     repoRoot,
     productionConfig: production,
     profile: production.deployment?.profile || "development",
-    tonConfig: {
-        network: process.env.TON_NETWORK || "testnet",
-        deployMode: process.env.TON_DEPLOY_MODE || "stub",
-        endpointConfigured: Boolean(process.env.TON_ENDPOINT),
-        apiKeyConfigured: Boolean(process.env.TON_API_KEY),
-        mnemonicConfigured: Boolean(process.env.TON_DEPLOYER_MNEMONIC)
-    },
     safeConfiguration: {
         profile: production.deployment?.profile || "development",
         developerConsole: {

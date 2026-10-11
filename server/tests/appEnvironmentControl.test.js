@@ -116,8 +116,6 @@ try {
 
             assert.equal(persisted.appEnvironment, APP_ENVIRONMENT.MAINNET);
 
-            assert.equal(persisted.tonNetwork, "mainnet");
-
             console.log("  mainnet protection flow: OK");
 
         } finally {

@@ -15,7 +15,6 @@ import { PlayerIdentity } from "../models/PlayerIdentity.js";
 import { PlayerRuntime } from "../models/PlayerRuntime.js";
 import { GameCatalog } from "../catalog/GameCatalog.js";
 import { LoggerService } from "../services/LoggerService.js";
-import { stableStringify } from "../persistence/tonFinancialRecordUtils.js";
 
 function assert(condition, message) {
 
@@ -139,7 +138,6 @@ function buildPlayerManager() {
         const identity = new PlayerIdentity({
             playerId,
             nickname: `Player${index}`,
-            wallet: `EQwallet${index}`,
             icon: ["dice", "spade", "queen"][index],
             age: 25,
             color: ["RED", "GREEN", "BLUE"][index],

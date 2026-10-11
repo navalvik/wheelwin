@@ -40,16 +40,12 @@ import { InputAuthority } from "../input/InputAuthority.js";
 import { GameCatalog } from "../catalog/GameCatalog.js";
 import { LoggerService } from "../services/LoggerService.js";
 import {
-    TonFinancialPersistence
-} from "../persistence/TonFinancialPersistence.js";
-import {
     RecoveryDataPersistence
 } from "../persistence/RecoveryDataPersistence.js";
 import {
     RecoveryOrchestrator,
     RECOVERY_RESULT_STATUS
 } from "../recovery/RecoveryOrchestrator.js";
-import { stableStringify } from "../persistence/tonFinancialRecordUtils.js";
 
 function assert(condition, message) {
 
@@ -237,14 +233,11 @@ function buildPayload(overrides = {}) {
         roomId: ROOM_ID,
         gameId: GAME_ID,
         contractId: "contract_d3_001",
-        paymentSessionId: "payment_session_d3_001",
-        tonNetwork: "testnet",
         correlationId: null,
         players: [
             {
                 playerId: PLAYER_IDS[0],
                 playerIndex: 0,
-                wallet: "EQwalletA",
                 nickname: "Player0",
                 baseStake: 10,
                 sectorCount: 1,
@@ -257,7 +250,6 @@ function buildPayload(overrides = {}) {
             {
                 playerId: PLAYER_IDS[1],
                 playerIndex: 1,
-                wallet: "EQwalletB",
                 nickname: "Player1",
                 baseStake: 10,
                 sectorCount: 1,
@@ -270,7 +262,6 @@ function buildPayload(overrides = {}) {
             {
                 playerId: PLAYER_IDS[2],
                 playerIndex: 2,
-                wallet: "EQwalletC",
                 nickname: "Player2",
                 baseStake: 10,
                 sectorCount: 1,
@@ -582,7 +573,6 @@ function attachUnrelatedRuntime(graph) {
             identity: {
                 playerId,
                 nickname: `U${index}`,
-                wallet: `EQu${index}`,
                 icon: null,
                 age: null,
                 color: null,

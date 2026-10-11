@@ -1,4 +1,3 @@
-import { PAYMENT_STATUS } from "../../catalog/PaymentRules.js";
 import { CLOCK_PHASE_SEQUENCE } from "../gameClock/ClockPhases.js";
 import { CONFIGURATION_VERSION } from "../configuration/ConfigurationVersion.js";
 import { GAME_STATES } from "../gameState/GameStates.js";
@@ -6,8 +5,6 @@ import { isTransitionAllowed } from "../gameState/TransitionTable.js";
 import { PHYSICS_SIMULATION_STATE } from "../physics/PhysicsSimulationState.js";
 import { GeometryAdapter } from "../winner/GeometryAdapter.js";
 import { PlayerResolver } from "../winner/PlayerResolver.js";
-import { PrizeCalculator } from "../payment/PrizeCalculator.js";
-import { resolveGameFinancialRules } from "../payment/resolveGameFinancialRules.js";
 import { SectorResolver } from "../winner/SectorResolver.js";
 
 function createCheckResult({ passed, errors = [], warnings = [] }) {
@@ -24,19 +21,12 @@ export class AuditVerifier {
 
     constructor({
         gameCatalog,
-        configurationEngine = null,
-        gameContractManager = null
+        configurationEngine = null
     }) {
 
         this._gameCatalog = gameCatalog;
 
         this._configurationEngine = configurationEngine;
-
-        this._gameContractManager = gameContractManager;
-
-        this._prizeCalculator = new PrizeCalculator({
-            paymentRules: gameCatalog.getPaymentRules()
-        });
 
         const winnerRules = gameCatalog.getWinnerRules();
 
@@ -47,12 +37,6 @@ export class AuditVerifier {
         });
 
         this._playerResolver = new PlayerResolver();
-
-    }
-
-    setGameContractManager(gameContractManager) {
-
-        this._gameContractManager = gameContractManager ?? null;
 
     }
 
@@ -72,12 +56,6 @@ export class AuditVerifier {
             sources.physics
         );
 
-        const paymentCheck = this.verifyPayment(
-            sources.payment,
-            sources.winner,
-            sources.configuration
-        );
-
         const recoveryCheck = this.verifyRecovery(
             sources.recovery,
             sources
@@ -89,7 +67,6 @@ export class AuditVerifier {
             clock: clockCheck,
             physics: physicsCheck,
             winner: winnerCheck,
-            payment: paymentCheck,
             recovery: recoveryCheck
         };
 
@@ -414,93 +391,6 @@ export class AuditVerifier {
 
     }
 
-    verifyPayment(payment, winner, configuration) {
-
-        if (!payment) {
-
-            return createCheckResult({
-                passed: false,
-                errors: ["Payment result is missing"]
-            });
-
-        }
-
-        const errors = [];
-
-        if (!Object.isFrozen(payment)) {
-
-            errors.push("Payment result is not immutable");
-
-        }
-
-        if (payment.paymentStatus !== PAYMENT_STATUS.COMPLETED) {
-
-            errors.push("Payment is not completed");
-
-        }
-
-        if (!winner) {
-
-            errors.push("Winner result is required for payment verification");
-
-            return createCheckResult({
-                passed: false,
-                errors
-            });
-
-        }
-
-        if (payment.winnerId !== winner.winningPlayer.playerId) {
-
-            errors.push("Payment winner does not match game result");
-
-        }
-
-        try {
-
-            const gameId = configuration?.gameId
-                ?? winner?.gameId
-                ?? payment?.gameId;
-
-            const paymentRules = this._resolvePaymentRules(gameId);
-
-            const expectedBreakdown = this._prizeCalculator.calculate({
-                configuration,
-                gameResult: winner,
-                paymentRules
-            });
-
-            if (payment.totalPrize !== expectedBreakdown.totalPrize) {
-
-                errors.push("Payment total prize does not match catalog rules");
-
-            }
-
-            if (payment.platformFee !== expectedBreakdown.platformFee) {
-
-                errors.push("Payment platform fee does not match catalog rules");
-
-            }
-
-            if (payment.winnerAmount !== expectedBreakdown.winnerAmount) {
-
-                errors.push("Payment winner amount does not match catalog rules");
-
-            }
-
-        } catch (error) {
-
-            errors.push(error.message);
-
-        }
-
-        return createCheckResult({
-            passed: errors.length === 0,
-            errors
-        });
-
-    }
-
     verifyRecovery(recovery, sources) {
 
         if (!recovery) {
@@ -549,29 +439,10 @@ export class AuditVerifier {
 
         }
 
-        if (sources.payment
-            && recovery.payment?.winnerId !== sources.payment.winnerId) {
-
-            errors.push("Recovery payment does not match authoritative payment");
-
-        }
-
         return createCheckResult({
             passed: errors.length === 0,
             errors
         });
-
-    }
-
-    _resolvePaymentRules(gameId) {
-
-        const resolved = resolveGameFinancialRules(gameId, {
-            gameContractManager: this._gameContractManager,
-            configurationEngine: this._configurationEngine,
-            gameCatalog: this._gameCatalog
-        });
-
-        return resolved.paymentRules;
 
     }
 

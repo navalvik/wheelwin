@@ -43,16 +43,12 @@ import { InputAuthority } from "../input/InputAuthority.js";
 import { GameCatalog } from "../catalog/GameCatalog.js";
 import { LoggerService } from "../services/LoggerService.js";
 import {
-    TonFinancialPersistence
-} from "../persistence/TonFinancialPersistence.js";
-import {
     RecoveryDataPersistence
 } from "../persistence/RecoveryDataPersistence.js";
 import {
     RecoveryOrchestrator,
     RECOVERY_RESULT_STATUS
 } from "../recovery/RecoveryOrchestrator.js";
-import { stableStringify } from "../persistence/tonFinancialRecordUtils.js";
 import { PlayerRuntime } from "../models/PlayerRuntime.js";
 
 function assert(condition, message) {
@@ -197,14 +193,11 @@ function buildPayload(overrides = {}, { phaseAgeMs = 500 } = {}) {
         roomId: ROOM_ID,
         gameId: GAME_ID,
         contractId: "contract_conn_001",
-        paymentSessionId: "payment_session_conn_001",
-        tonNetwork: "testnet",
         correlationId: null,
         players: [
             {
                 playerId: PLAYER_IDS[0],
                 playerIndex: 0,
-                wallet: "EQconnA",
                 nickname: "Player0",
                 baseStake: 10,
                 sectorCount: 1,
@@ -217,7 +210,6 @@ function buildPayload(overrides = {}, { phaseAgeMs = 500 } = {}) {
             {
                 playerId: PLAYER_IDS[1],
                 playerIndex: 1,
-                wallet: "EQconnB",
                 nickname: "Player1",
                 baseStake: 10,
                 sectorCount: 1,
@@ -230,7 +222,6 @@ function buildPayload(overrides = {}, { phaseAgeMs = 500 } = {}) {
             {
                 playerId: PLAYER_IDS[2],
                 playerIndex: 2,
-                wallet: "EQconnC",
                 nickname: "Player2",
                 baseStake: 10,
                 sectorCount: 1,
@@ -957,7 +948,6 @@ async function testCaseG() {
             identity: {
                 playerId,
                 nickname: `N${index}`,
-                wallet: `EQn${index}`,
                 icon: null,
                 age: null,
                 color: null,

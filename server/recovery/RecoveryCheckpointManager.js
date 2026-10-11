@@ -13,9 +13,7 @@
  *       RESULT         → UPDATE + mark envelope TERMINAL
  *   - assemble the recovery payload exclusively from authoritative runtime
  *     owners (RoomManager, PlayerManager, GameManager, ConfigurationEngine,
- *     GameStateEngine, GameClockEngine, PhysicsEngine, WinnerEngine) and
- *     existing financial reference identifiers (GameContractManager,
- *     PaymentSessionManager — references ONLY, zero financial authority);
+ *     GameStateEngine, GameClockEngine, PhysicsEngine, WinnerEngine);
  *   - validate checkpoint safety before writing (clock unpaused, physics
  *     CREATED for pre-motion phases / STOPPED with finite final angles for
  *     RESULT, input registry in safe default shape, exactly 3 ordered players);
@@ -68,11 +66,6 @@ import { CONFIGURATION_VERSION } from "../engines/configuration/ConfigurationVer
 import {
     RECOVERY_CONTRACT_VERSION
 } from "../persistence/RecoveryDataPersistence.js";
-import {
-    RECOVERY_DATA_TERMINAL_STATUSES,
-    TON_FINANCIAL_SCHEMA_VERSION
-} from "../persistence/TonFinancialRecordTypes.js";
-import { computePayloadChecksum } from "../persistence/tonFinancialRecordUtils.js";
 
 /**
  * Local monotonic phase ranking (forward-only progression guard).
@@ -102,8 +95,6 @@ const EXPECTED_PLAYER_COUNT = 3;
  * @property {object} physicsEngine
  * @property {object} winnerEngine
  * @property {object} inputAuthority
- * @property {object|null} [gameContractManager]
- * @property {object|null} [paymentSessionManager]
  */
 
 export class RecoveryCheckpointManager {
@@ -123,9 +114,7 @@ export class RecoveryCheckpointManager {
         gameClockEngine,
         physicsEngine,
         winnerEngine,
-        inputAuthority,
-        gameContractManager = null,
-        paymentSessionManager = null
+        inputAuthority
     } = {}) {
 
         if (!recoveryDataPersistence) {
@@ -159,10 +148,6 @@ export class RecoveryCheckpointManager {
         this._winnerEngine = winnerEngine;
 
         this._inputAuthority = inputAuthority;
-
-        this._gameContractManager = gameContractManager;
-
-        this._paymentSessionManager = paymentSessionManager;
 
         this._handlers = [];
 
@@ -443,60 +428,9 @@ export class RecoveryCheckpointManager {
 
         const configurationHash = computePayloadChecksum(configuration);
 
-        // --- Financial references (references ONLY) --------------------------
-
-        const session = this._safeCall(
-            () => this._paymentSessionManager?.getSessionByGameId?.(gameId)
-                ?? null
-        );
-
-        // A live PaymentSession carrying the authoritative Room Wallet
-        // destination is the narrowest runtime discriminator. This keeps the
-        // recovery writer independent from settlement/router construction.
-        const roomWalletOnly = session?.roomWalletAddress != null;
-
-        const contract = roomWalletOnly
-            ? null
-            : this._safeCall(
-                () => this._gameContractManager?.getContractByGameId?.(gameId)
-                    ?? null
-            );
-
-        const contractId = roomWalletOnly
-            ? null
-            : contract?.contractId ?? null;
-
-        const tonNetwork = roomWalletOnly
-            ? session?.network ?? null
-            : contract?.tonNetwork ?? null;
-
-        const snapshotHash = roomWalletOnly
-            ? null
-            : contract?.snapshotHash ?? null;
-
-        const correlationId = roomWalletOnly
-            ? session?.correlationId ?? null
-            : contract?.correlationId ?? null;
-
-        const paymentSessionId = session?.paymentSessionId ?? null;
-
-        if (
-            !paymentSessionId
-            || !tonNetwork
-            || (!roomWalletOnly && (!contractId || !snapshotHash))
-        ) {
-
-            return this._skip(
-                gameId,
-                phase,
-                "financial_reference_unavailable"
-            );
-
-        }
-
         // --- Players (authoritative ordered room list) -----------------------
 
-        const playersResult = this._assemblePlayers(roomId, session);
+        const playersResult = this._assemblePlayers(roomId);
 
         if (!playersResult.ok) {
 
@@ -558,21 +492,15 @@ export class RecoveryCheckpointManager {
 
         const payload = {
             recoveryContractVersion: RECOVERY_CONTRACT_VERSION,
-            schemaVersion: TON_FINANCIAL_SCHEMA_VERSION,
 
             recoveryRecordId: gameId,
             roomId,
             gameId,
-            contractId,
-            paymentSessionId,
-            tonNetwork,
-            ...(correlationId != null ? { correlationId } : {}),
 
             configuration,
             configurationHash,
             configurationVersion: CONFIGURATION_VERSION,
             traceSeed: configuration.traceSeed,
-            snapshotHash,
 
             gameState: phase,
             gameStatus: game.status ?? null,
@@ -812,19 +740,8 @@ export class RecoveryCheckpointManager {
         const identityFields = [
             "recoveryRecordId",
             "roomId",
-            "gameId",
-            "paymentSessionId",
-            "tonNetwork"
+            "gameId"
         ];
-
-        // Room-Wallet checkpoints have no GameContract identity. Preserve
-        // contractId conflict checking for legacy contract-backed records.
-        if (
-            persistedPayload.contractId != null
-            || incomingPayload.contractId != null
-        ) {
-            identityFields.push("contractId");
-        }
 
         for (const field of identityFields) {
 
@@ -841,19 +758,6 @@ export class RecoveryCheckpointManager {
 
             return true;
 
-        }
-
-        // Room-Wallet checkpoints intentionally carry no GameContract
-        // snapshotHash. Compare it only when either record actually has one.
-        if (
-            persistedPayload.snapshotHash != null
-            || incomingPayload.snapshotHash != null
-        ) {
-            if (persistedPayload.snapshotHash !== incomingPayload.snapshotHash) {
-
-                return true;
-
-            }
         }
 
         const persistedPlayerIds = Array.isArray(persistedPayload.players)
@@ -1059,11 +963,10 @@ export class RecoveryCheckpointManager {
 
     /**
      * Assemble the ordered player list from the authoritative room order and
-     * PlayerManager identities, cross-referenced against the payment session
-     * participants (wallet references). Validates exactly 3 players, unique
+     * PlayerManager identities. Validates exactly 3 players, unique
      * ids, playerIndex set {0,1,2}, and index == authoritative room order.
      */
-    _assemblePlayers(roomId, session) {
+    _assemblePlayers(roomId) {
 
         const room = this._safeCall(
             () => this._roomManager?.getRoom?.(roomId) ?? null
@@ -1081,18 +984,6 @@ export class RecoveryCheckpointManager {
                 ok: false,
                 reason: `player_count_must_be_${EXPECTED_PLAYER_COUNT}`
             };
-
-        }
-
-        const participantsById = new Map();
-
-        for (const participant of session?.participants ?? []) {
-
-            if (participant?.playerId != null) {
-
-                participantsById.set(String(participant.playerId), participant);
-
-            }
 
         }
 
@@ -1125,25 +1016,10 @@ export class RecoveryCheckpointManager {
 
             }
 
-            const participant = participantsById.get(String(playerId));
-
-            const wallet = participant?.wallet ?? identity.wallet ?? null;
-
-            if (!wallet) {
-
-                return {
-                    ok: false,
-                    reason: `player_wallet_missing:${playerId}`
-                };
-
-            }
-
             players.push({
                 playerId,
                 playerIndex: index,
-                wallet,
                 nickname: identity.nickname ?? null,
-                baseStake: identity.baseStake ?? null,
                 sectorCount: identity.sectorCount ?? null,
                 color: identity.color ?? null,
                 colorSector2: identity.colorSector2 ?? null,

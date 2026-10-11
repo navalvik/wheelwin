@@ -104,7 +104,7 @@ try {
 
     const busEvents = [];
 
-    harness.eventBus.subscribe(EVENT_TYPES.ENTRY_PAYMENT_COMPLETED, (e) => {
+    harness.eventBus.subscribe(EVENT_TYPES.GAME_START_AUTHORIZED, (e) => {
 
         busEvents.push(e.type);
 
@@ -129,8 +129,8 @@ try {
     );
 
     assert(
-        busEvents.includes(EVENT_TYPES.ENTRY_PAYMENT_COMPLETED),
-        "DEBUG_START_GAME must reuse ENTRY_PAYMENT_COMPLETED"
+        busEvents.includes(EVENT_TYPES.GAME_START_AUTHORIZED),
+        "DEBUG_START_GAME must route through the game start gate"
     );
 
     assert(
@@ -152,7 +152,7 @@ try {
     harness.roomLobbyBridge._isDevelopment = false;
 
     const rejectedBefore = harness.roomLobbyBridge
-        ._entryPaymentCompletedByRoom.has(created.roomId);
+        ._startedRooms.has(created.roomId);
 
     guestA.emit("DEBUG_START_GAME");
 

@@ -24,8 +24,6 @@ import {
     FAILURE_CATEGORY
 } from "./failureTypes.js";
 import { GameplayPolicy } from "./policies/GameplayPolicy.js";
-import { PaymentPolicy } from "./policies/PaymentPolicy.js";
-import { BlockchainPolicy } from "./policies/BlockchainPolicy.js";
 import { NetworkPolicy } from "./policies/NetworkPolicy.js";
 import { StoragePolicy } from "./policies/StoragePolicy.js";
 

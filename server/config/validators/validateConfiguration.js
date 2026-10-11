@@ -2,23 +2,19 @@
  * R7.0C — Cross-cutting configuration validation after loaders succeed.
  */
 
-import { isMissing } from "../parseHelpers.js";
-
 /**
  * @param {import("../ConfigurationError.js").ConfigurationIssueCollector} collector
  * @param {{
  *   server: object,
  *   production: object,
  *   rooms: object,
- *   ton: object,
- *   owner: object,
  *   developer: object,
  *   profile: string
  * }} loaded
  */
 export function validateConfiguration(collector, loaded) {
 
-    const { server, production, rooms, ton, owner, developer, profile } = loaded;
+    const { server, production, rooms, developer, profile } = loaded;
 
     if (!Number.isInteger(server.port)
         || server.port < 1
@@ -42,30 +38,6 @@ export function validateConfiguration(collector, loaded) {
             expectedType: "integer>0",
             received: rooms.maxPlayers,
             suggestedFix: "Set ROOM_MAX_PLAYERS to a positive integer."
-        });
-
-    }
-
-    if (!ton.network) {
-
-        collector.add({
-            key: "TON_NETWORK",
-            reason: "TON network missing after load",
-            expectedType: "string",
-            received: ton.network,
-            suggestedFix: "Set TON_NETWORK."
-        });
-
-    }
-
-    if (!owner?.loaded || isMissing(owner?.ownerWallet)) {
-
-        collector.add({
-            key: "ownerWallet",
-            reason: "Owner configuration was not loaded",
-            expectedType: "tonAddress",
-            received: "<missing>",
-            suggestedFix: "Ensure config/owner.json is valid."
         });
 
     }

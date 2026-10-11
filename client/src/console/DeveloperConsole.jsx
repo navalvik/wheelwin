@@ -27,10 +27,7 @@ import PlatformGovernancePanel from "./panels/PlatformGovernancePanel";
 import RoomsExplorerPanel from "./panels/RoomsExplorerPanel";
 import GameDetailPanel from "./panels/GameDetailPanel";
 import PlayersInspectorPanel from "./panels/PlayersInspectorPanel";
-import PaymentsPanel from "./panels/PaymentsPanel";
-import WalletMonitoringPanel from "./panels/WalletMonitoringPanel";
 import AdvertisingPanel from "./panels/AdvertisingPanel";
-import TonConnectDiagnosticsPanel from "./panels/TonConnectDiagnosticsPanel";
 import HistoryPanel from "./panels/HistoryPanel";
 import RecoveryPanel from "./panels/RecoveryPanel";
 import SimulationPanel from "./panels/SimulationPanel";
@@ -40,8 +37,6 @@ import TimelinePanel from "./panels/TimelinePanel";
 import DeveloperLogPanel from "./panels/DeveloperLogPanel";
 import SettingsPanel from "./panels/SettingsPanel";
 import SystemInformationPanel from "./panels/SystemInformationPanel";
-import BlockchainStatusPanel from "./panels/BlockchainStatusPanel";
-import DeployerWalletPanel from "./panels/DeployerWalletPanel";
 import MaintenancePanel from "./panels/MaintenancePanel";
 import RuntimeConfigurationPanel from "./panels/RuntimeConfigurationPanel";
 import AudioRegistryPanel from "./panels/AudioRegistryPanel";
@@ -60,10 +55,8 @@ const SECTION_PANEL_RENDERERS = Object.freeze({
     rooms: () => <RoomsExplorerPanel />,
     games: () => <GameDetailPanel />,
     players: () => <PlayersInspectorPanel />,
-    payments: () => <PaymentsPanel />,
     "wallet-monitoring": () => <WalletMonitoringPanel />,
     advertising: () => <AdvertisingPanel />,
-    tonconnect: () => <TonConnectDiagnosticsPanel />,
     history: () => <HistoryPanel />,
     recovery: () => <RecoveryPanel />,
     simulation: () => <SimulationPanel />,

@@ -1,10 +1,12 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
-import { consumeRoomDestroyContext, registerRoomDestroyContext } from "../diagnostics/RoomDestroyForensics.js";
+import {
+    consumeRoomDestroyContext,
+    registerRoomDestroyContext
+} from "../recovery/RoomDestroyContextRegistry.js";
 import { Room } from "../models/Room.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import { generateRoomId } from "./room/roomIdAlphabet.js";
-import { ROOM_WALLET_COUNT } from "../payment/roomWallet/RoomWalletRegistry.js";
 
 export class RoomManager {
 
@@ -847,7 +849,9 @@ export class RoomManager {
 
     _allocateRoomNumber() {
 
-        for (let roomNumber = 1; roomNumber <= ROOM_WALLET_COUNT; roomNumber += 1) {
+        const maxRoomNumbers = this._resolveMaxConcurrentRooms();
+
+        for (let roomNumber = 1; roomNumber <= maxRoomNumbers; roomNumber += 1) {
 
             if (!this._occupiedRoomNumbers.has(roomNumber)) {
 
@@ -877,9 +881,11 @@ export class RoomManager {
 
     _claimExistingOrAllocateRoomNumber(room) {
 
+        const maxRoomNumbers = this._resolveMaxConcurrentRooms();
+
         if (Number.isInteger(room.roomNumber)) {
 
-            if (room.roomNumber < 1 || room.roomNumber > ROOM_WALLET_COUNT) {
+            if (room.roomNumber < 1 || room.roomNumber > maxRoomNumbers) {
 
                 this._logger.error(
                     `Room attach failed: invalid roomNumber (${room.roomNumber})`

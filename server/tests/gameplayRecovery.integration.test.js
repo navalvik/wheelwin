@@ -8,7 +8,6 @@ import { ConfigurationEngine } from "../engines/ConfigurationEngine.js";
 import { GameStateEngine } from "../engines/GameStateEngine.js";
 import { PhysicsEngine } from "../engines/PhysicsEngine.js";
 import { WinnerEngine } from "../engines/WinnerEngine.js";
-import { PaymentEngine } from "../engines/PaymentEngine.js";
 import { RecoveryEngine } from "../engines/RecoveryEngine.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 import { InputAuthority } from "../input/InputAuthority.js";
@@ -16,12 +15,10 @@ import { PLAYER_STATE } from "../models/PlayerState.js";
 import { PlayerManager } from "../managers/PlayerManager.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { RandomService } from "../services/RandomService.js";
-import { TelegramWalletAdapter } from "../services/telegram/TelegramWalletAdapter.js";
 import { SimulationLoop } from "../simulation/SimulationLoop.js";
 import { WinnerActivation } from "../gameplay/WinnerActivation.js";
 import { ResultActivation } from "../gameplay/ResultActivation.js";
 import { GameplayPhaseLifecycle } from "../gameplay/GameplayPhaseLifecycle.js";
-import { PaymentActivation } from "../gameplay/PaymentActivation.js";
 import { RecoverySnapshotCache } from "../gameplay/RecoverySnapshotCache.js";
 import { GameplayContextResolver } from "../socket/GameplayContextResolver.js";
 import { RoomLobbyBridge } from "../socket/RoomLobbyBridge.js";
@@ -408,7 +405,6 @@ function activateGame(stack, gameId, playerIds) {
             snapshot,
             playerId: actualPlayerId,
             roomId: "recovery-room",
-            paymentStatus: stack.paymentEngine.getPaymentStatus(gameId),
             payment: stack.paymentEngine.getPayment(gameId)
         });
 
@@ -513,7 +509,6 @@ function activateGame(stack, gameId, playerIds) {
             snapshot: cached.snapshot,
             playerId,
             roomId: "recovery-room",
-            paymentStatus: cached.paymentStatus,
             payment: cached.payment
         });
 

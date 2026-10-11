@@ -10,12 +10,10 @@ import { createRequire } from "node:module";
 import { ConfigurationIssueCollector, ConfigurationError } from "./ConfigurationError.js";
 import { RuntimeConfiguration, CONFIGURATION_CATEGORIES } from "./RuntimeConfiguration.js";
 import { loadEnvironment } from "./loaders/loadEnvironment.js";
-import { loadOwnerConfiguration } from "./loaders/loadOwnerConfiguration.js";
 import { loadDeveloperConfiguration } from "./loaders/loadDeveloperConfiguration.js";
 import { validateEnvironment } from "./validators/validateEnvironment.js";
 import { validateSecrets } from "./validators/validateSecrets.js";
 import { validateConfiguration } from "./validators/validateConfiguration.js";
-import { DEFAULT_OWNER_CONFIG_PATH } from "./OwnerConfiguration.js";
 import { applyEnvironmentStateToEnv } from "../console/environment/environmentStateStore.js";
 
 const require = createRequire(import.meta.url);
@@ -38,7 +36,6 @@ export class ConfigurationManager {
      */
     static load({
         env = process.env,
-        ownerConfigPath = DEFAULT_OWNER_CONFIG_PATH,
         resetForTests = false,
         version = packageJson.version
     } = {}) {
@@ -71,27 +68,7 @@ export class ConfigurationManager {
 
         const nodeEnv = effectiveEnv.NODE_ENV || "development";
 
-        const tonDeployMode = String(env.TON_DEPLOY_MODE || "stub")
-            .trim()
-            .toLowerCase() === "live"
-            ? "live"
-            : "stub";
-
-        validateSecrets(collector, effectiveEnv, {
-            nodeEnv,
-            tonDeployMode,
-            developer: { enabled: false, configured: false, openAccess: false }
-        });
-
-        collector.throwIfAny();
-
         const environment = loadEnvironment(effectiveEnv);
-
-        const owner = loadOwnerConfiguration({
-            configPath: ownerConfigPath,
-            env: effectiveEnv,
-            resetForTests
-        });
 
         const developer = loadDeveloperConfiguration(
             effectiveEnv,
@@ -100,7 +77,6 @@ export class ConfigurationManager {
 
         validateSecrets(collector, effectiveEnv, {
             nodeEnv: environment.server.nodeEnv,
-            tonDeployMode: environment.ton.deployMode,
             developer
         });
 
@@ -108,8 +84,6 @@ export class ConfigurationManager {
             server: environment.server,
             production: environment.production,
             rooms: environment.rooms,
-            ton: environment.ton,
-            owner,
             developer,
             profile: environment.profile
         });
@@ -121,11 +95,9 @@ export class ConfigurationManager {
             server: environment.server,
             production: environment.production,
             rooms: environment.rooms,
-            ton: environment.ton,
             socket: environment.socket,
             eventBus: environment.eventBus,
             gameplayPhases: environment.gameplayPhases,
-            owner,
             developer,
             validatedCategories: CONFIGURATION_CATEGORIES,
             version
@@ -200,7 +172,7 @@ export class ConfigurationManager {
             "Enabled modules | "
                 + `metrics=${safe.features.metricsEnabled} `
                 + `developerAuth=${safe.features.developerAuthEnabled} `
-                + `tonDeploy=${safe.features.tonDeployMode} `
+                + ``
                 + `eventBusLogging=${safe.features.eventBusLogging}`
         );
 

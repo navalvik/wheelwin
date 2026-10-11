@@ -112,48 +112,12 @@ export class EngineBridge {
                 session()?.onGameResult?.(payload);
 
             },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_STARTED]: (payload) => {
 
-                modules.payment?.onPaymentStarted?.(payload);
 
-                session()?.onPayment?.(payload);
 
-            },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_COMPLETED]: (payload) => {
 
-                modules.payment?.onPaymentCompleted?.(payload);
 
-                session()?.onPayment?.(payload);
 
-            },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_FAILED]: (payload) => {
-
-                modules.payment?.onPaymentFailed?.(payload);
-
-                session()?.onPayment?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.AUDIT_STARTED]: (payload) => {
-
-                modules.audit?.onAuditStarted?.(payload);
-
-                session()?.onAudit?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.AUDIT_READY]: (payload) => {
-
-                modules.audit?.onAuditReady?.(payload);
-
-                session()?.onAudit?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.AUDIT_FAILED]: (payload) => {
-
-                modules.audit?.onAuditFailed?.(payload);
-
-                session()?.onAudit?.(payload);
-
-            },
             [INCOMING_SOCKET_EVENTS.GAME_START]: (payload) => {
 
                 modules.audio?.onGameStart?.(payload);
@@ -188,82 +152,6 @@ export class EngineBridge {
                 session()?.onVerifyCompleted?.(payload);
 
             },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY]: (payload) => {
-
-                session()?.onPaymentStageReady?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED]: (payload) => {
-
-                session()?.onEntryPaymentSessionUpdated?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_COMPLETED]: (payload) => {
-
-                session()?.onEntryPaymentCompleted?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.WALLET_CONNECTION_SESSION_UPDATED]: (payload) => {
-
-                session()?.onWalletConnectionSessionUpdated?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_CONNECTION_READY]: (payload) => {
-
-                session()?.onPaymentConnectionReady?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_CREATED]: (payload) => {
-
-                session()?.onPaymentSessionCreated?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_UPDATED]: (payload) => {
-
-                session()?.onPaymentSessionUpdated?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST]: (payload) => {
-
-                session()?.onPaymentRequest?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_COMPLETED]: (payload) => {
-
-                session()?.onPaymentSessionCompleted?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.PAYMENT_SESSION_FAILED]: (payload) => {
-
-                session()?.onPaymentSessionFailed?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.GAME_CONTRACT_UPDATED]: (payload) => {
-
-                session()?.onGameContractUpdated?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOYED]: (payload) => {
-
-                session()?.onGameContractDeployed?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.GAME_CONTRACT_DEPLOY_FAILED]: (payload) => {
-
-                session()?.onGameContractDeployFailed?.(payload);
-
-            },
-            // R18 S4 — requester-scoped Deposit package (informational mirror).
-            [INCOMING_SOCKET_EVENTS.DEPOSIT_PACKAGE_PUBLISHED]: (payload) => {
-
-                session()?.onDepositPackagePublished?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.DEPOSIT_ACTIVATION_VERIFIED]: (payload) => {
-
-                session()?.onDepositActivationVerified?.(payload);
-
-            },
             [INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED]: (payload) => {
 
                 session()?.onGameStartAuthorized?.(payload);
@@ -274,31 +162,11 @@ export class EngineBridge {
                 session()?.onGameInitializing?.(payload);
 
             },
-            [INCOMING_SOCKET_EVENTS.SETTLEMENT_STARTED]: (payload) => {
 
-                session()?.onSettlementStarted?.(payload);
 
-            },
-            [INCOMING_SOCKET_EVENTS.SETTLEMENT_SUBMITTED]: (payload) => {
 
-                session()?.onSettlementSubmitted?.(payload);
 
-            },
-            [INCOMING_SOCKET_EVENTS.SETTLEMENT_CONFIRMED]: (payload) => {
 
-                session()?.onSettlementConfirmed?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.SETTLEMENT_COMPLETED]: (payload) => {
-
-                session()?.onSettlementCompleted?.(payload);
-
-            },
-            [INCOMING_SOCKET_EVENTS.SETTLEMENT_FAILED]: (payload) => {
-
-                session()?.onSettlementFailed?.(payload);
-
-            },
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE5]: (payload) => {
 
                 modules.pageNavigation?.onOpenPage5?.(payload);

@@ -29,18 +29,14 @@ export class GameManager {
 
         this._profilesReadyHandler = null;
 
-        this._entryPaymentCompletedHandler = null;
-
+        
         this._bootstrap = null;
 
-        // roomId → gameId waiting for ENTRY_PAYMENT_COMPLETED (R1.1).
+        // roomId → gameId waiting for GAME_START_AUTHORIZED (R1.1).
         this._pendingGameplayActivation = new Map();
 
         // R5.15 — roomId → gameId waiting for complete Page2 profiles.
         this._pendingConfigurationByRoom = new Map();
-
-        // R8.8 — games activated via authoritative ENTRY_PAYMENT_COMPLETED.
-        this._entryPaymentActivatedGames = new Set();
 
         this._initialized = false;
 
@@ -140,22 +136,20 @@ export class GameManager {
 
         }
 
-        if (this._entryPaymentCompletedHandler) {
+        if (this._gameStartAuthorizedHandler) {
 
             this._eventBus.unsubscribe(
-                EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
-                this._entryPaymentCompletedHandler
+                EVENT_TYPES.GAME_START_AUTHORIZED,
+                this._gameStartAuthorizedHandler
             );
 
-            this._entryPaymentCompletedHandler = null;
+            this._gameStartAuthorizedHandler = null;
 
         }
 
         this._pendingGameplayActivation.clear();
 
         this._pendingConfigurationByRoom.clear();
-
-        this._entryPaymentActivatedGames.clear();
 
         for (const gameId of [...this._games.keys()]) {
 
@@ -395,7 +389,7 @@ export class GameManager {
     }
 
     /**
-     * P6.7 — gameId waiting for authoritative ENTRY_PAYMENT_COMPLETED activation.
+     * P6.7 — gameId waiting for authoritative GAME_START_AUTHORIZED activation.
      */
     getPendingGameplayGameId(roomId) {
 
@@ -473,7 +467,7 @@ export class GameManager {
      *
      * Cleans only GameManager-owned bookkeeping directly associated with this
      * gameId: pending activation/configuration entries that point to this
-     * game, the entry-payment activation marker, and this game's own event
+     * game, the activation marker, and this game's own event
      * subscriptions (unsubscribe only — no listener callbacks are triggered).
      *
      * @param {string} gameId
@@ -510,8 +504,6 @@ export class GameManager {
             }
 
         }
-
-        this._entryPaymentActivatedGames.delete(gameId);
 
         // Remove this game's own event subscriptions without triggering any
         // listener callbacks (unsubscribe only — no events are emitted).
@@ -577,26 +569,6 @@ export class GameManager {
         }
 
         return null;
-
-    }
-
-    /**
-     * R8.8 — True when this gameId was activated by ENTRY_PAYMENT_COMPLETED.
-     * Authoritative paid-game marker (not inferred from live contract maps).
-     */
-    wasEntryPaymentActivated(gameId) {
-
-        return Boolean(gameId) && this._entryPaymentActivatedGames.has(gameId);
-
-    }
-
-    markEntryPaymentActivated(gameId) {
-
-        if (gameId) {
-
-            this._entryPaymentActivatedGames.add(gameId);
-
-        }
 
     }
 
@@ -717,15 +689,15 @@ export class GameManager {
             this._profilesReadyHandler
         );
 
-        this._entryPaymentCompletedHandler = (envelope) => {
+        this._gameStartAuthorizedHandler = (envelope) => {
 
-            this._handleEntryPaymentCompleted(envelope);
+            this._handleGameStartAuthorized(envelope);
 
         };
 
         this._eventBus.subscribe(
-            EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
-            this._entryPaymentCompletedHandler
+            EVENT_TYPES.GAME_START_AUTHORIZED,
+            this._gameStartAuthorizedHandler
         );
 
     }
@@ -801,14 +773,14 @@ export class GameManager {
             this._bootstrap.gameClockEngine.createClock(game.gameId);
 
             // R1.1 — Do not start simulation / clock / READY phases until
-            // ENTRY_PAYMENT_COMPLETED. Prep only; gameplay waits.
+            // GAME_START_AUTHORIZED. Prep only; gameplay waits.
             this._pendingGameplayActivation.set(roomId, game.gameId);
 
             // R5.15 — Configuration waits for complete Page2 profiles.
             this._pendingConfigurationByRoom.set(roomId, game.gameId);
 
             this._logBootstrap(
-                "Gameplay prep ready — waiting for player profiles / ENTRY_PAYMENT"
+                "Gameplay prep ready — waiting for player profiles / GAME_START_AUTHORIZED"
             );
 
             this._tryGenerateConfiguration(roomId);
@@ -955,7 +927,7 @@ export class GameManager {
 
     }
 
-    _handleEntryPaymentCompleted(envelope) {
+    _handleGameStartAuthorized(envelope) {
 
         const roomId = envelope.payload?.roomId;
 
@@ -989,7 +961,7 @@ export class GameManager {
         if (!this._bootstrap.configurationEngine.getConfiguration(gameId)) {
 
             this._logBootstrap(
-                `ENTRY_PAYMENT_COMPLETED deferred — waiting for configuration | roomId=${roomId}`
+                `GAME_START_AUTHORIZED deferred — waiting for configuration | roomId=${roomId}`
             );
 
             this._tryGenerateConfiguration(roomId);
@@ -1052,7 +1024,7 @@ export class GameManager {
         try {
 
             this._logBootstrap(
-                `ENTRY_PAYMENT_COMPLETED — activating gameplay | roomId=${roomId}`
+                `GAME_START_AUTHORIZED — activating gameplay | roomId=${roomId}`
             );
 
             this._logBootstrap("Initializing GameState...");
@@ -1067,9 +1039,6 @@ export class GameManager {
             this._bootstrap.gameClockEngine.startClock(gameId);
 
             this.initializeGame(gameId);
-
-            // R8.8 — durable paid-activation marker from authoritative entry payment.
-            this.markEntryPaymentActivated(gameId);
 
             this._pendingGameplayActivation.delete(roomId);
 

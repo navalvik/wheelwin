@@ -55,9 +55,6 @@ import { InputAuthority } from "../input/InputAuthority.js";
 import { GameCatalog } from "../catalog/GameCatalog.js";
 import { LoggerService } from "../services/LoggerService.js";
 import {
-    TonFinancialPersistence
-} from "../persistence/TonFinancialPersistence.js";
-import {
     RecoveryDataPersistence
 } from "../persistence/RecoveryDataPersistence.js";
 import {
@@ -65,7 +62,6 @@ import {
     RECOVERY_RESULT_STATUS
 } from "../recovery/RecoveryOrchestrator.js";
 import { LifecycleError } from "../errors/LifecycleError.js";
-import { stableStringify } from "../persistence/tonFinancialRecordUtils.js";
 
 function assert(condition, message) {
 
@@ -296,13 +292,10 @@ function buildPayload(ids, overrides = {}) {
         roomId: ids.roomId,
         gameId: ids.gameId,
         contractId: `contract_${ids.gameId}`,
-        paymentSessionId: `payment_session_${ids.gameId}`,
-        tonNetwork: "testnet",
         correlationId: null,
         players: ids.playerIds.map((playerId, index) => ({
             playerId,
             playerIndex: index,
-            wallet: `EQwallet${index}_${ids.gameId}`,
             nickname: `Player${index}`,
             baseStake: 10,
             sectorCount: 1,

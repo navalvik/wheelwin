@@ -17,7 +17,6 @@ import { PlayerIdentity } from "../models/PlayerIdentity.js";
 import { PlayerRuntime } from "../models/PlayerRuntime.js";
 import { GameCatalog } from "../catalog/GameCatalog.js";
 import { LoggerService } from "../services/LoggerService.js";
-import { stableStringify } from "../persistence/tonFinancialRecordUtils.js";
 
 function assert(condition, message) {
 
@@ -376,7 +375,6 @@ function assertZeroForbiddenEvents(label) {
         return new PlayerIdentity({
             playerId,
             nickname,
-            wallet: `EQwallet-${nickname}`,
             icon: "dice",
             age: 25,
             color: "RED",

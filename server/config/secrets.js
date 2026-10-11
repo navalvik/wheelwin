@@ -5,31 +5,14 @@
 
 export const SECRET_ENV_KEYS = Object.freeze([
     "DEVELOPER_AUTH_PASSWORD",
-    "DEVELOPER_AUTH_SECRET",
-    "TON_DEPLOYER_MNEMONIC",
-    "TON_TESTNET_DEPOSIT_DEPLOYER_MNEMONIC",
-    "TON_REIMBURSEMENT_MNEMONIC",
-    "TON_RESIDUES_MNEMONIC",
-    "L25_PLAYER_0_MNEMONIC",
-    "L25_PLAYER_1_MNEMONIC",
-    "L25_PLAYER_2_MNEMONIC",
-    "TON_API_KEY",
-    "ROOM_WALLETS_JSON",
-    "ROOM_WALLETS_TESTNET_JSON",
-    "ROOM_WALLETS_MAINNET_JSON"
+    "DEVELOPER_AUTH_SECRET"
 ]);
 
 export const SECRET_CONFIG_KEYS = Object.freeze([
     ...SECRET_ENV_KEYS,
-    "ownerWallet",
     "developer.secret",
     "developer.password",
-    "developer.passwordHash",
-    "ton.deployerMnemonic",
-    "ton.testnetDepositDeployerMnemonic",
-    "ton.reimbursementMnemonic",
-    "ton.residuesMnemonic",
-    "ton.apiKey"
+    "developer.passwordHash"
 ]);
 
 const INSECURE_SECRET_DEFAULTS = Object.freeze([

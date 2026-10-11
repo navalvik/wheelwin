@@ -3,12 +3,11 @@
  * Server does not store currentPage; this is a read-only projection heuristic.
  *
  * 1 Welcome | 2 Lobby | 3 PlayerSetup | 4 Matrix | 5 Verify |
- * 6 Payment | 7 Game | 8 Result
+ * 6 (retired payment page) | 7 Game | 8 Result
  */
 export function inferConsolePage({
     room = null,
     setupSession = null,
-    paymentSession = null,
     gameStart = null,
     gameState = null,
     resultSession = null,
@@ -35,24 +34,7 @@ export function inferConsolePage({
 
     }
 
-    if (paymentSession
-        && paymentSession.status !== "COMPLETED"
-        && paymentSession.status !== "FAILED") {
-
-        return 6;
-
-    }
-
-    if (paymentSession?.status === "COMPLETED"
-        && (gameStart?.phase === "GAME_START_AUTHORIZED"
-            || gameStart?.phase === "GAME_INITIALIZING")) {
-
-        return 6;
-
-    }
-
-    if (setupSession?.verificationState === "READY"
-        && setupSession?.paymentPrepState !== "READY") {
+    if (setupSession?.verificationState === "READY") {
 
         return 5;
 

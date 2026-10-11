@@ -1,7 +1,6 @@
 import { COLORS } from "./Colors.js";
 import { ICONS } from "./Icons.js";
 import { INPUT_RULES } from "./InputRules.js";
-import { PAYMENT_RULES } from "./PaymentRules.js";
 import { STAKES } from "./Stakes.js";
 import { TIMERS } from "./Timers.js";
 import { WHEEL_RULES } from "./WheelRules.js";
@@ -127,8 +126,6 @@ export class GameCatalog {
 
         this._winnerRules = null;
 
-        this._paymentRules = null;
-
         this._catalogVersion = CATALOG_VERSION;
 
         this._initialized = false;
@@ -165,11 +162,6 @@ export class GameCatalog {
 
         this._winnerRules = deepFreeze({ ...WINNER_RULES });
 
-        this._paymentRules = deepFreeze({
-            ...PAYMENT_RULES,
-            contributionByStake: { ...PAYMENT_RULES.contributionByStake }
-        });
-
         this._initialized = true;
 
     }
@@ -203,28 +195,6 @@ export class GameCatalog {
         validateStakes(stakes);
 
         this._stakes = deepFreeze([...stakes]);
-
-    }
-
-    /**
-     * R17.9G.1 — Replace payment rules for future contract snapshots.
-     */
-    configurePaymentRules(paymentRules) {
-
-        this._assertInitialized();
-
-        if (!paymentRules || typeof paymentRules !== "object") {
-
-            throw new Error("GameCatalog.configurePaymentRules requires paymentRules");
-
-        }
-
-        this._paymentRules = deepFreeze({
-            ...paymentRules,
-            contributionByStake: {
-                ...(paymentRules.contributionByStake ?? {})
-            }
-        });
 
     }
 
@@ -284,14 +254,6 @@ export class GameCatalog {
 
     }
 
-    getPaymentRules() {
-
-        this._assertInitialized();
-
-        return this._paymentRules;
-
-    }
-
     getCatalogVersion() {
 
         return this._catalogVersion;
@@ -310,8 +272,7 @@ export class GameCatalog {
             wheelRules: this._wheelRules,
             timers: this._timers,
             inputRules: this._inputRules,
-            winnerRules: this._winnerRules,
-            paymentRules: this._paymentRules
+            winnerRules: this._winnerRules
         };
 
     }

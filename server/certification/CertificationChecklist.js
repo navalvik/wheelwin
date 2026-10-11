@@ -8,7 +8,6 @@ import { DocumentationCheck } from "./checks/DocumentationCheck.js";
 import { InfrastructureCheck } from "./checks/InfrastructureCheck.js";
 import { MonitoringCheck } from "./checks/MonitoringCheck.js";
 import { LoggingCheck } from "./checks/LoggingCheck.js";
-import { BlockchainCheck } from "./checks/BlockchainCheck.js";
 import { SecurityCheck } from "./checks/SecurityCheck.js";
 import { DeploymentCheck } from "./checks/DeploymentCheck.js";
 import { GameplayIntegrityCheck } from "./checks/GameplayIntegrityCheck.js";
@@ -27,7 +26,6 @@ export class CertificationChecklist {
             new InfrastructureCheck(),
             new MonitoringCheck(),
             new LoggingCheck(),
-            new BlockchainCheck(),
             new SecurityCheck(),
             new DeploymentCheck(),
             new GameplayIntegrityCheck()

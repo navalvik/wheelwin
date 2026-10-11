@@ -8,7 +8,6 @@ import { MetricsSnapshot } from "./MetricsSnapshot.js";
 import { RuntimeMetricsCollector } from "./RuntimeMetricsCollector.js";
 import { GameplayMetricsCollector } from "./GameplayMetricsCollector.js";
 import { SimulationMetricsCollector } from "./SimulationMetricsCollector.js";
-import { PaymentMetricsCollector } from "./PaymentMetricsCollector.js";
 import { RecoveryMetricsCollector } from "./RecoveryMetricsCollector.js";
 import { DeveloperMetricsCollector } from "./DeveloperMetricsCollector.js";
 import { SystemMetricsCollector } from "./SystemMetricsCollector.js";
@@ -115,7 +114,6 @@ export class MonitoringManager {
                 runtime: {},
                 gameplay: {},
                 simulation: {},
-                payments: {},
                 recovery: {},
                 developer: {},
                 system: {},
@@ -136,9 +134,6 @@ export class MonitoringManager {
             }),
             new SimulationMetricsCollector({
                 intervalMs: intervals.simulationMs ?? 500
-            }),
-            new PaymentMetricsCollector({
-                intervalMs: intervals.paymentMs ?? 5000
             }),
             new RecoveryMetricsCollector({
                 intervalMs: intervals.recoveryMs ?? 5000
@@ -240,7 +235,6 @@ export class MonitoringManager {
                 runtime: {},
                 gameplay: {},
                 simulation: {},
-                payments: {},
                 recovery: {},
                 developer: {},
                 system: {},
@@ -262,7 +256,6 @@ export class MonitoringManager {
                 runtime: {},
                 gameplay: {},
                 simulation: {},
-                payments: {},
                 recovery: {},
                 developer: {},
                 system: {},

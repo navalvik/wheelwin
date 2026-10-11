@@ -80,49 +80,16 @@ function mapAuditStatusForClient(auditStatus) {
 
 }
 
-function mapPaymentStatusForClient(paymentStatus, payment) {
-
-    if (payment?.paymentStatus === "COMPLETED") {
-
-        return {
-            status: "COMPLETED",
-            winnerAmount: payment.winnerAmount ?? null
-        };
-
-    }
-
-    if (paymentStatus === "FAILED") {
-
-        return {
-            status: "FAILED",
-            reason: "Settlement failed"
-        };
-
-    }
-
-    if (paymentStatus === "PREPARED" || paymentStatus === "PENDING") {
-
-        return { status: "STARTED" };
-
-    }
-
-    return null;
-
-}
-
 /**
- * Maps the authoritative RecoveryEngine snapshot (plus optional payment
- * enrichment) into the client SESSION_SNAPSHOT shape. The client must never
- * infer gameplay state — it only displays what the server provides here.
+ * Maps the authoritative RecoveryEngine snapshot into the client
+ * SESSION_SNAPSHOT shape. The client must never infer gameplay state — it only
+ * displays what the server provides here.
  */
 export function buildClientRecoveryPayload({
     snapshot,
     playerId,
     roomId,
-    paymentStatus = null,
-    payment = null,
-    auditStatus = null,
-    deposit = null
+    auditStatus = null
 }) {
 
     const gameId = snapshot?.gameId ?? null;
@@ -263,10 +230,6 @@ export function buildClientRecoveryPayload({
         resultSessionExpiresAt: Number.isFinite(snapshot?.resultSessionExpiresAt)
             ? snapshot.resultSessionExpiresAt
             : null,
-        payment: mapPaymentStatusForClient(
-            paymentStatus ?? payment?.paymentStatus ?? null,
-            payment ?? snapshot?.payment
-        ),
         preGameReady: snapshot?.preGameReady
             ? {
                 readyPlayers: { ...snapshot.preGameReady.readyPlayers },
@@ -278,15 +241,6 @@ export function buildClientRecoveryPayload({
         timestamp: snapshot?.recoveredAt ?? Date.now(),
         traceSeed: snapshot?.metadata?.traceSeed ?? null
     };
-
-    // R18 / S1 — additive, optional requester-scoped Deposit projection.
-    // Only set when explicitly supplied by the authoritative caller;
-    // preserves full backward compatibility when deposit is null/unset.
-    if (deposit !== null && deposit !== undefined) {
-
-        result.deposit = deposit;
-
-    }
 
     return result;
 

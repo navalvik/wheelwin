@@ -8,13 +8,11 @@ const REQUIRED_CATALOG_ACCESSORS = [
     "getWheelRules",
     "getInputRules",
     "getWinnerRules",
-    "getPaymentRules",
     "getCatalogVersion"
 ];
 
 export function validateEnvironmentVariables({
     serverConfig,
-    tonConfig,
     roomConfig
 }) {
 
@@ -51,12 +49,6 @@ export function validateEnvironmentVariables({
             || roomConfig.maxConcurrentRooms <= 0)) {
 
         errors.push("ROOM_MAX_CONCURRENT must be a positive integer");
-
-    }
-
-    if (!tonConfig.network) {
-
-        errors.push("TON_NETWORK is required");
 
     }
 
@@ -108,8 +100,6 @@ export function validateCatalogConsistency(gameCatalog) {
 
     const wheelRules = gameCatalog.getWheelRules();
 
-    const paymentRules = gameCatalog.getPaymentRules();
-
     if (!Array.isArray(colors) || colors.length === 0) {
 
         throw new LifecycleError({
@@ -160,20 +150,6 @@ export function validateCatalogConsistency(gameCatalog) {
 
     }
 
-    for (const stake of stakes) {
-
-        if (!paymentRules.contributionByStake[stake]) {
-
-            throw new LifecycleError({
-                phase: "startup",
-                component: "GameCatalog",
-                reason: `Payment rules missing contribution for stake (${stake})`
-            });
-
-        }
-
-    }
-
 }
 
 export function validateEngineDependencies(dependencies) {
@@ -187,7 +163,6 @@ export function validateEngineDependencies(dependencies) {
         ["gameClockEngine", "GameClockEngine"],
         ["physicsEngine", "PhysicsEngine"],
         ["winnerEngine", "WinnerEngine"],
-        ["paymentEngine", "PaymentEngine"],
         ["inputAuthority", "InputAuthority"],
         ["recoveryEngine", "RecoveryEngine"],
         ["auditEngine", "AuditEngine"]
@@ -219,12 +194,11 @@ export function validateEngineDependencies(dependencies) {
 
 export function validateStartupConfiguration({
     serverConfig,
-    tonConfig,
     roomConfig,
     gameCatalog
 }) {
 
-    validateEnvironmentVariables({ serverConfig, tonConfig, roomConfig });
+    validateEnvironmentVariables({ serverConfig, roomConfig });
 
     if (gameCatalog) {
 
