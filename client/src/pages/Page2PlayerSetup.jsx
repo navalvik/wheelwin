@@ -390,7 +390,7 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
                                     <span className="colorFieldLabel">
 
-                                        Sector 2
+                                        {t("setup.sector2")}
 
                                     </span>
 

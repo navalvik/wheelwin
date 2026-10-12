@@ -72,6 +72,11 @@ export const TRANSLATIONS = Object.freeze({
         "setup.twoSectors": "2 SECTORS",
         "setup.together": "TOGETHER",
         "setup.separate": "SEPARATE",
+        "setup.baseStake": "BASE STAKE",
+        "setup.oneGram": "1 Gram",
+        "setup.tenGram": "10 Gram",
+        "setup.sector1": "SECTOR 1",
+        "setup.sector2": "SECTOR 2",
 
         "matrix.title": "Secret Matrix",
         "matrix.instruction":
@@ -194,6 +199,11 @@ export const TRANSLATIONS = Object.freeze({
         "setup.twoSectors": "2 SECTORES",
         "setup.together": "JUNTOS",
         "setup.separate": "SEPARADOS",
+        "setup.baseStake": "APUESTA BASE",
+        "setup.oneGram": "1 Gramo",
+        "setup.tenGram": "10 Gramos",
+        "setup.sector1": "SECTOR 1",
+        "setup.sector2": "SECTOR 2",
 
         "matrix.title": "Matriz secreta",
         "matrix.instruction":
@@ -316,6 +326,11 @@ export const TRANSLATIONS = Object.freeze({
         "setup.twoSectors": "2 SETORES",
         "setup.together": "JUNTOS",
         "setup.separate": "SEPARADOS",
+        "setup.baseStake": "APOSTA BASE",
+        "setup.oneGram": "1 Grama",
+        "setup.tenGram": "10 Gramas",
+        "setup.sector1": "SETOR 1",
+        "setup.sector2": "SETOR 2",
 
         "matrix.title": "Matriz secreta",
         "matrix.instruction":
@@ -446,6 +461,11 @@ export const TRANSLATIONS = Object.freeze({
         "setup.twoSectors": "2 SECTEURS",
         "setup.together": "ENSEMBLE",
         "setup.separate": "SÉPARÉS",
+        "setup.baseStake": "MISE DE BASE",
+        "setup.oneGram": "1 Gramme",
+        "setup.tenGram": "10 Grammes",
+        "setup.sector1": "SECTEUR 1",
+        "setup.sector2": "SECTEUR 2",
 
         "matrix.title": "Matrice secrète",
         "matrix.instruction":
@@ -574,6 +594,11 @@ export const TRANSLATIONS = Object.freeze({
         "setup.twoSectors": "2 扇区",
         "setup.together": "相邻",
         "setup.separate": "分开",
+        "setup.baseStake": "基础下注",
+        "setup.oneGram": "1 克",
+        "setup.tenGram": "10 克",
+        "setup.sector1": "扇区 1",
+        "setup.sector2": "扇区 2",
 
         "matrix.title": "秘密矩阵",
         "matrix.instruction":
