@@ -29,7 +29,12 @@ export const TRANSLATIONS = Object.freeze({
         "welcome.testMode": "⚠️ TEST MODE",
         "welcome.mainnetMode": "⚠️ MAINNET",
 
+        "welcome.testnetBody":
+            "This project runs on TON Testnet, a test network. It is NOT the production Mainnet, and no real funds are involved.",
+        "welcome.mainnetBody":
+            "This project runs on TON Mainnet, the production network. Actions here may have real financial consequences.",
         "welcome.testnetDismiss": "Tap anywhere on this message to continue.",
+        "welcome.mainnetDismiss": "Tap anywhere on this message to continue.",
 
         "page.welcome.title": "WELCOME TO WHEELWIN",
         "page.lobby.title": "CREATE OR JOIN ROOM",
@@ -406,6 +411,11 @@ export const TRANSLATIONS = Object.freeze({
 
         "welcome.testnetDismiss": "Touchez n’importe où sur ce message pour continuer.",
 
+        "welcome.testnetBody":
+            "Ce projet s'exécute sur TON Testnet, un réseau de test. Ce n'est pas la Mainnet de production et aucun fond réel n'est impliqué.",
+        "welcome.mainnetBody":
+            "Ce projet s'exécute sur TON Mainnet, le réseau de production. Les actions ici peuvent avoir des conséquences financières réelles.",
+
         "page.welcome.title": "BIENVENUE SUR WHEELWIN",
         "page.lobby.title": "CRÉER OU REJOINDRE UNE SALLE",
         "page.setup.title": "CONFIGURATION DU JOUEUR",
@@ -526,7 +536,13 @@ export const TRANSLATIONS = Object.freeze({
         "menu.changelog": "更新日志",
 
         "welcome.testMode": "⚠️ 测试模式",
+        "welcome.mainnetMode": "⚠️ 主网",
+        "welcome.testnetBody":
+            "本项目运行于 TON 测试网，这是一个测试网络。它不是生产主网，不涉及真实资金。",
+        "welcome.mainnetBody":
+            "本项目运行于 TON 主网，即生产网络。此处的操作可能产生真实的财务后果。",
         "welcome.testnetDismiss": "点击此消息任意位置以继续。",
+        "welcome.mainnetDismiss": "点击此消息任意位置以继续。",
 
         "page.welcome.title": "欢迎来到 WHEELWIN",
         "page.lobby.title": "创建或加入房间",

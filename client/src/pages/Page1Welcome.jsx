@@ -6,6 +6,8 @@ import InfoPanel from "../components/InfoPanel";
 
 import DocumentManager from "../components/document/DocumentManager";
 
+import NetworkWarningOverlay from "../components/NetworkWarningOverlay";
+
 
 import { useLanguage } from "../context/LanguageContext";
 
@@ -60,6 +62,8 @@ export default function Page1Welcome({
             </InfoPanel>
 
         </GameLayout>
+
+        <NetworkWarningOverlay />
 
         </>
 
