@@ -61,6 +61,10 @@ export {
 } from "./PaymentIntentStore.js";
 
 export {
+    isPaymentIntentStoreContract
+} from "./PaymentIntentStoreContract.js";
+
+export {
     RoomWalletPaymentService,
     ROOM_WALLET_PAYMENT_PHASE
 } from "./RoomWalletPaymentService.js";

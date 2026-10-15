@@ -30,6 +30,30 @@ import {
     PaymentValidationError
 } from "./PaymentErrors.js";
 
+const STORAGE_VERSION_TOKEN = Symbol("PaymentIntent storage version");
+
+function createStorageVersionMetadata(expectedStorageVersion) {
+
+    return {
+        [STORAGE_VERSION_TOKEN]: true,
+        expectedStorageVersion
+    };
+
+}
+
+function assertExpectedStorageVersion(value) {
+
+    if (!Number.isSafeInteger(value) || value < 1) {
+
+        throw new PaymentValidationError(
+            "expectedStorageVersion must be a positive safe integer",
+            { expectedStorageVersion: value }
+        );
+
+    }
+
+}
+
 /**
  * @param {unknown} value
  * @returns {asserts value is string}
@@ -70,6 +94,8 @@ export function assertAtomicAmount(value) {
 
 export class PaymentIntent {
 
+    #expectedStorageVersion = null;
+
     constructor({
         paymentReference,
         roomId,
@@ -87,7 +113,26 @@ export class PaymentIntent {
         transactionId = null,
         updatedAt = null,
         schemaVersion = PAYMENT_INTENT_SCHEMA_VERSION
-    }) {
+    }, storageVersionMetadata = null) {
+
+        if (storageVersionMetadata !== null) {
+
+            if (storageVersionMetadata?.[STORAGE_VERSION_TOKEN] !== true) {
+
+                throw new PaymentValidationError(
+                    "storage version metadata must be created by PaymentIntent"
+                );
+
+            }
+
+            assertExpectedStorageVersion(
+                storageVersionMetadata.expectedStorageVersion
+            );
+
+            this.#expectedStorageVersion =
+                storageVersionMetadata.expectedStorageVersion;
+
+        }
 
         // --- R5: mandatory identity fields ---------------------------------
         assertNonEmptyString(paymentReference, "paymentReference");
@@ -274,7 +319,25 @@ export class PaymentIntent {
 
         }
 
-        return new PaymentIntent(nextFields);
+        return this.#expectedStorageVersion === null
+            ? new PaymentIntent(nextFields)
+            : new PaymentIntent(
+                nextFields,
+                createStorageVersionMetadata(this.#expectedStorageVersion)
+            );
+
+    }
+
+    /**
+     * Read the opaque expected storage version attached by a persistence
+     * adapter. `null` means this object has not been associated with a
+     * persisted generation. This value is not part of the business record.
+     *
+     * @returns {number|null}
+     */
+    getExpectedStorageVersion() {
+
+        return this.#expectedStorageVersion;
 
     }
 
@@ -348,6 +411,33 @@ export class PaymentIntent {
         }
 
         return new PaymentIntent(record);
+
+    }
+
+    /**
+     * Rebuild from a persisted record and attach its expected storage version.
+     * The version is adapter metadata, not a business-record field.
+     *
+     * @param {object} record
+     * @param {number} expectedStorageVersion
+     * @returns {PaymentIntent}
+     */
+    static fromStorageRecord(record, expectedStorageVersion) {
+
+        if (!record || typeof record !== "object") {
+
+            throw new PaymentValidationError(
+                "payment intent record must be a non-null object"
+            );
+
+        }
+
+        assertExpectedStorageVersion(expectedStorageVersion);
+
+        return new PaymentIntent(
+            record,
+            createStorageVersionMetadata(expectedStorageVersion)
+        );
 
     }
 

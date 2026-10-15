@@ -1,0 +1,586 @@
+/**
+ * Phase 3 — Room payment observation service (Toncenter Testnet).
+ *
+ * The ONLY entry point for observing room wallet payments. It is explicitly
+ * caller-driven: nothing here starts, schedules or repeats on its own.
+ *
+ *   - no setInterval, no cron, no background polling, no startup scanning,
+ *     no recurring requests;
+ *   - one `checkRoomPayments()` call = at most ONE provider request for that
+ *     room's assigned wallet;
+ *   - simultaneous checks for the same room/wallet are coalesced into ONE
+ *     provider request that both callers share;
+ *   - every Toncenter request passes through one shared rate limiter
+ *     (configurable; default 8 requests/second);
+ *   - HTTP 429 stops the call with `ToncenterRateLimitError` — never
+ *     retried, never converted into a hidden polling loop;
+ *   - results are observation-only. A match NEVER marks an intent paid or
+ *     confirmed: no intent is read from or written to any store, and no
+ *     payment intent is mutated. A transfer matching several intents, and
+ *     several transfers matching one intent, are both reported as ambiguous
+ *     and are never attributed by guessing.
+ *
+ * Per-check flow: acquire a rate slot -> ONE bounded transaction query for
+ * the room wallet -> Phase 2 normalization -> evaluate every payment intent
+ * configured for the room against every observed transfer using the Phase 2
+ * pure matcher.
+ */
+
+import {
+    PAYMENT_CONFIRMATION_DISPOSITION,
+    IncomingTransfer,
+    matchIncomingTransferToIntent,
+    normalizeIncomingTransferRecord
+} from "../incoming/index.js";
+
+import {
+    INCOMING_TRANSFER_ADAPTER_FORBIDDEN_OPERATIONS,
+    assertNoOperations
+} from "../incoming/IncomingTransferProvider.js";
+
+import {
+    TONCENTER_DEFAULT_TRANSACTION_LIMIT,
+    TONCENTER_MAX_TRANSACTION_LIMIT,
+    TONCENTER_NETWORK,
+    TONCENTER_PROVIDER_ID
+} from "./ToncenterConstants.js";
+
+import { ToncenterRateLimiter } from "./ToncenterRateLimiter.js";
+
+import { ToncenterIncomingProvider } from "./ToncenterIncomingProvider.js";
+
+import { PaymentConfigurationError, PaymentValidationError } from "../PaymentErrors.js";
+
+/**
+ * Module-private registry of the EXACT immutable observation result objects
+ * this module returned after a successful provider observation, keyed by the
+ * service instance that produced them.
+ *
+ * A `WeakMap`/`WeakSet` pair is the whole mechanism, and it is module-private
+ * on purpose:
+ *
+ *   - a caller cannot register, mark, mint or copy an entry — there is no
+ *     exported write operation anywhere in this module;
+ *   - identity is object identity, so a copied, spread, serialized or
+ *     re-frozen object is NEVER in the set;
+ *   - the result is bound to the instance that actually performed the
+ *     observation, so a result produced by a DIFFERENT
+ *     `RoomPaymentObservationService` instance is never trusted by another one.
+ *
+ * Observation-only, always: an entry in this set proves ONLY that the
+ * configured provider returned the mapped transaction for the queried account
+ * inside the requested window. It establishes NOTHING about finality,
+ * confirmation depth or irreversibility.
+ */
+const trustedObservationResults = new WeakMap();
+
+/**
+ * Mark one immutable observation result as produced by `service`. Private to
+ * this module: nothing outside it can ever call this function.
+ *
+ * @param {RoomPaymentObservationService} service
+ * @param {Readonly<object>} result
+ * @returns {void}
+ */
+function markTrustedObservationResult(service, result) {
+
+    let results = trustedObservationResults.get(service);
+
+    if (results === undefined) {
+
+        results = new WeakSet();
+
+        trustedObservationResults.set(service, results);
+
+    }
+
+    results.add(result);
+
+}
+
+/**
+ * Read-only predicate: is `result` the EXACT immutable observation result that
+ * `observationService` returned from a completed provider observation?
+ *
+ * This function can only ever answer that one question. It cannot register,
+ * mark, mint or derive a trusted result, and it never inspects field values a
+ * hand-made object could carry — only object identity against the
+ * module-private registry of that one service instance.
+ *
+ * @param {unknown} result
+ * @param {unknown} observationService
+ * @returns {boolean}
+ */
+export function isTrustedRoomPaymentObservationResult(result, observationService) {
+
+    if (result === null || typeof result !== "object") {
+
+        return false;
+
+    }
+
+    if (observationService === null
+        || typeof observationService !== "object") {
+
+        return false;
+
+    }
+
+    const results = trustedObservationResults.get(observationService);
+
+    return results === undefined ? false : results.has(result);
+
+}
+
+function assertNonEmptyString(value, field) {
+
+    if (typeof value !== "string" || value.trim() === "") {
+
+        throw new PaymentValidationError(
+            `${field} must be a non-empty string`,
+            { field }
+        );
+
+    }
+
+}
+
+export class RoomPaymentObservationService {
+
+    /**
+     * @param {{
+     *   provider: ToncenterIncomingProvider,
+     *   incomingProvider?: ToncenterIncomingProvider,
+     *   rateLimiter?: ToncenterRateLimiter,
+     *   requestsPerSecond?: number,
+     *   limit?: number,
+     *   nowProvider?: () => number
+     * }} options
+     */
+    constructor({
+        provider = null,
+        incomingProvider = null,
+        rateLimiter = null,
+        requestsPerSecond,
+        limit = TONCENTER_DEFAULT_TRANSACTION_LIMIT,
+        nowProvider = Date.now
+    } = {}) {
+
+        // Structural proof: this service exposes no write or confirmation
+        // operation, now or ever.
+        assertNoOperations(
+            RoomPaymentObservationService.prototype,
+            INCOMING_TRANSFER_ADAPTER_FORBIDDEN_OPERATIONS
+        );
+
+        const effectiveProvider = provider ?? incomingProvider;
+
+        if (!(effectiveProvider instanceof ToncenterIncomingProvider)) {
+
+            throw new PaymentConfigurationError(
+                "provider must be a ToncenterIncomingProvider instance"
+            );
+
+        }
+
+        if (requestsPerSecond !== undefined && rateLimiter !== null) {
+
+            throw new PaymentConfigurationError(
+                "pass either requestsPerSecond (to build a limiter) or a"
+                    + " rateLimiter instance, not both"
+            );
+
+        }
+
+        this._provider = effectiveProvider;
+
+        this._rateLimiter = rateLimiter ?? new ToncenterRateLimiter({
+
+            requestsPerSecond: requestsPerSecond
+
+        });
+
+        if (!Number.isSafeInteger(limit)
+            || limit < 1
+            || limit > TONCENTER_MAX_TRANSACTION_LIMIT) {
+
+            throw new PaymentConfigurationError(
+                `limit must be an integer in`
+                    + ` 1..${TONCENTER_MAX_TRANSACTION_LIMIT}`,
+                { limit }
+            );
+
+        }
+
+        if (typeof nowProvider !== "function") {
+
+            throw new PaymentConfigurationError(
+                "nowProvider must be a function"
+            );
+
+        }
+
+        this._limit = limit;
+
+        this._nowProvider = nowProvider;
+
+        /** @type {Map<string, Promise<object>>} in-flight checks, keyed per room/wallet */
+        this._inFlight = new Map();
+
+    }
+
+    /** The shared rate limiter used by every Toncenter request. */
+    get rateLimiter() {
+
+        return this._rateLimiter;
+
+    }
+
+    /** Number of room checks currently in flight. */
+    get inFlightCheckCount() {
+
+        return this._inFlight.size;
+
+    }
+
+    /**
+     * Always `"observation-only"`: observing a provider transaction is NOT a
+     * payment confirmation.
+     */
+    get confirmationDisposition() {
+
+        return PAYMENT_CONFIRMATION_DISPOSITION.OBSERVATION_ONLY;
+
+    }
+
+    /** Always false. */
+    canConfirmPayments() {
+
+        return false;
+
+    }
+
+    /**
+     * Explicitly cancel nothing: there is nothing scheduled. This accessor
+     * exists so callers can ASSERT the service holds no background work.
+     *
+     * @returns {boolean} always false
+     */
+    hasBackgroundWork() {
+
+        return false;
+
+    }
+
+    /**
+     * Observe incoming transactions for one room's assigned wallet and
+     * evaluate them against that room's payment intents.
+     *
+     * @param {{
+     *   roomId: string,
+     *   walletAddress: string,
+     *   paymentIntents: Array<object>,
+     *   floorMs: number,
+     *   ceilingMs?: number,
+     *   limit?: number,
+     *   destinationWalletId?: string|null
+     * }} request
+     * @returns {Promise<Readonly<object>>} observation-only result
+     */
+    checkRoomPayments({
+        roomId,
+        walletAddress,
+        paymentIntents,
+        floorMs,
+        ceilingMs,
+        limit = this._limit,
+        destinationWalletId = null
+    }) {
+
+        assertNonEmptyString(roomId, "roomId");
+        assertNonEmptyString(walletAddress, "walletAddress");
+
+        if (!Array.isArray(paymentIntents) || paymentIntents.length === 0) {
+
+            throw new PaymentValidationError(
+                "paymentIntents must be a non-empty array"
+            );
+
+        }
+
+        if (!Number.isSafeInteger(floorMs) || floorMs <= 0) {
+
+            throw new PaymentValidationError(
+                "floorMs must be a positive integer epoch-milliseconds value",
+                { floorMs }
+            );
+
+        }
+
+        const effectiveCeiling = ceilingMs ?? this._nowProvider();
+
+        if (!Number.isSafeInteger(effectiveCeiling)
+            || effectiveCeiling <= 0) {
+
+            throw new PaymentValidationError(
+                "ceilingMs must be a positive integer epoch-milliseconds value",
+                { ceilingMs: effectiveCeiling }
+            );
+
+        }
+
+        if (floorMs > effectiveCeiling) {
+
+            throw new PaymentValidationError(
+                "floorMs must not be greater than ceilingMs",
+                { floorMs, ceilingMs: effectiveCeiling }
+            );
+
+        }
+
+        const walletKey = walletAddress.trim();
+
+        // Coalescing key: one in-flight request per room AND wallet. The NUL
+        // separator cannot occur inside the identifiers.
+        const coalesceKey = `${roomId.trim()}\u0000${walletKey}`;
+
+        const inFlight = this._inFlight.get(coalesceKey);
+
+        if (inFlight) {
+
+            // Simultaneous check for the same room/wallet: share the ONE
+            // provider request instead of issuing a second one.
+            return inFlight;
+
+        }
+
+        const pending = this._runCheck({
+
+            roomId: roomId.trim(),
+            walletAddress: walletKey,
+            paymentIntents,
+            floorMs,
+            ceilingMs: effectiveCeiling,
+            limit,
+            destinationWalletId
+
+        });
+
+        this._inFlight.set(coalesceKey, pending);
+
+        const clear = () => {
+
+            if (this._inFlight.get(coalesceKey) === pending) {
+
+                this._inFlight.delete(coalesceKey);
+
+            }
+
+        };
+
+        pending.then(clear, clear);
+
+        return pending;
+
+    }
+
+    /**
+     * The actual single-flight check. One rate slot, one provider request.
+     *
+     * @returns {Promise<Readonly<object>>}
+     */
+    async _runCheck({
+        roomId,
+        walletAddress,
+        paymentIntents,
+        floorMs,
+        ceilingMs,
+        limit,
+        destinationWalletId
+    }) {
+
+        await this._rateLimiter.acquire();
+
+        const observation = await this._provider.listIncomingTransactions({
+            account: walletAddress,
+            floorMs,
+            ceilingMs,
+            limit,
+            destinationWalletId
+        });
+
+        const now = this._nowProvider();
+
+        const transfers = [];
+
+        const observations = [];
+
+        /** paymentReference -> Set<transactionId> of transfers matching it. */
+        const matchedTransactionIdsByReference = new Map();
+
+        for (const record of observation.records) {
+
+            const transfer = normalizeIncomingTransferRecord(record, {
+                network: TONCENTER_NETWORK,
+                providerId: TONCENTER_PROVIDER_ID,
+                now
+            });
+
+            transfers.push(transfer);
+
+            const entry = this._evaluateTransfer(transfer, paymentIntents);
+
+            observations.push(entry);
+
+            if (entry.status === "matched") {
+
+                const transactionIds = matchedTransactionIdsByReference
+                    .get(entry.paymentReference) ?? new Set();
+
+                transactionIds.add(entry.transactionId);
+
+                matchedTransactionIdsByReference.set(entry.paymentReference, transactionIds);
+
+            }
+
+        }
+
+        // Mirror of the Phase 2 ambiguity rule: an intent must not be
+        // attributed to more than one distinct transaction either. Two
+        // different transactions matching the same payment reference (for
+        // example a duplicated transfer comment) are reported as ambiguous —
+        // never resolved by guessing which one is "the" payment.
+        const finalObservations = observations.map((entry) => {
+
+            if (entry.status !== "matched") {
+
+                return entry;
+
+            }
+
+            const transactionIds = matchedTransactionIdsByReference
+                .get(entry.paymentReference) ?? new Set();
+
+            if (transactionIds.size <= 1) {
+
+                return entry;
+
+            }
+
+            return Object.freeze({
+                ...entry,
+                status: "ambiguous",
+                paymentReference: null,
+                candidateTransactionIds: Object.freeze([...transactionIds])
+            });
+
+        });
+
+        const result = Object.freeze({
+            roomId,
+            walletAddress,
+            disposition: PAYMENT_CONFIRMATION_DISPOSITION.OBSERVATION_ONLY,
+            paymentConfirmation: false,
+            canConfirmPayments: false,
+            providerRequests: 1,
+            resultWindowComplete: observation.resultWindowComplete === true,
+            window: Object.freeze({
+                floorMs,
+                ceilingMs,
+                limit,
+                rowsReturned: observation.rowsReturned
+            }),
+            transfers: Object.freeze([...transfers]),
+            observations: Object.freeze([...finalObservations])
+        });
+
+        // The ONE thing that makes this result usable as settlement evidence:
+        // it is registered in the module-private registry of THIS instance.
+        // Nothing a caller supplies afterwards can enter that registry.
+        markTrustedObservationResult(this, result);
+
+        return result;
+
+    }
+
+    /**
+     * Evaluate one observed transfer against the room's payment intents using
+     * the Phase 2 pure matcher. Pure: nothing is mutated anywhere.
+     *
+     * A transfer matching more than one intent is reported as ambiguous and
+     * is never attributed to a single intent by guessing. The caller applies
+     * the mirror rule (several transfers matching one intent), because that
+     * decision needs the whole observation set.
+     *
+     * @param {IncomingTransfer} transfer
+     * @param {Array<object>} paymentIntents
+     * @returns {Readonly<object>}
+     */
+    _evaluateTransfer(transfer, paymentIntents) {
+
+        const candidates = [];
+
+        for (const intent of paymentIntents) {
+
+            const result = matchIncomingTransferToIntent(transfer, intent);
+
+            if (result.matched) {
+
+                candidates.push(result);
+
+            }
+
+        }
+
+        if (candidates.length > 1) {
+
+            return Object.freeze({
+                status: "ambiguous",
+                transactionId: transfer.transactionId,
+                paymentReference: null,
+                candidatePaymentReferences: Object.freeze(
+                    candidates.map((candidate) => candidate.paymentReference)
+                ),
+                candidateTransactionIds: null,
+                amountAtomic: transfer.amountAtomic,
+                senderAddress: transfer.senderAddress,
+                transactionTime: transfer.transactionTime,
+                paymentConfirmed: false
+            });
+
+        }
+
+        if (candidates.length === 1) {
+
+            return Object.freeze({
+                status: "matched",
+                transactionId: transfer.transactionId,
+                paymentReference: candidates[0].paymentReference,
+                candidatePaymentReferences: null,
+                candidateTransactionIds: null,
+                amountAtomic: transfer.amountAtomic,
+                senderAddress: transfer.senderAddress,
+                transactionTime: transfer.transactionTime,
+                paymentConfirmed: false
+            });
+
+        }
+
+        // "no-match-observed" means exactly that: no matching transaction was
+        // observed inside this (possibly incomplete) window. It is NOT a
+        // statement that the payment does not exist.
+        return Object.freeze({
+            status: "no-match-observed",
+            transactionId: transfer.transactionId,
+            paymentReference: null,
+            candidatePaymentReferences: null,
+            candidateTransactionIds: null,
+            amountAtomic: transfer.amountAtomic,
+            senderAddress: transfer.senderAddress,
+            transactionTime: transfer.transactionTime,
+            paymentConfirmed: false
+        });
+
+    }
+
+}

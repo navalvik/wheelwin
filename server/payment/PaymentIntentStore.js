@@ -18,14 +18,19 @@
  */
 
 import {
+    closeSync,
     existsSync,
+    fsyncSync,
+    linkSync,
     mkdirSync,
+    openSync,
     readdirSync,
     readFileSync,
     renameSync,
     unlinkSync,
     writeFileSync
 } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
 import { PAYMENT_INTENT_SCHEMA_VERSION } from "./RoomPaymentConstants.js";
@@ -40,6 +45,41 @@ import {
 
 export const PAYMENT_INTENT_STORAGE_SCHEMA_VERSION = 1;
 
+const PAYMENT_INTENT_RECORD_FIELDS = Object.freeze([
+    "schemaVersion",
+    "paymentReference",
+    "roomId",
+    "playerId",
+    "network",
+    "destinationWalletId",
+    "destinationWalletAddress",
+    "expectedSender",
+    "amountAtomic",
+    "asset",
+    "createdAt",
+    "expiresAt",
+    "roomDeadlineMs",
+    "state",
+    "transactionId",
+    "updatedAt"
+]);
+
+const IMMUTABLE_PAYMENT_INTENT_FIELDS = Object.freeze([
+    "schemaVersion",
+    "paymentReference",
+    "roomId",
+    "playerId",
+    "network",
+    "destinationWalletId",
+    "destinationWalletAddress",
+    "expectedSender",
+    "amountAtomic",
+    "asset",
+    "createdAt",
+    "expiresAt",
+    "roomDeadlineMs"
+]);
+
 /**
  * @param {string} filePath
  * @param {object} payload
@@ -53,6 +93,58 @@ function atomicWriteJson(filePath, payload) {
     writeFileSync(temp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 
     renameSync(temp, filePath);
+
+}
+
+function atomicCreateJson(filePath, payload) {
+
+    mkdirSync(dirname(filePath), { recursive: true });
+
+    const tempPath = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+
+    let fd = null;
+
+    try {
+
+        fd = openSync(tempPath, "wx");
+
+        writeFileSync(fd, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+
+        fsyncSync(fd);
+
+        closeSync(fd);
+
+        fd = null;
+
+        try {
+
+            linkSync(tempPath, filePath);
+
+            return true;
+
+        } catch (error) {
+
+            if (error?.code === "EEXIST") {
+
+                return false;
+
+            }
+
+            throw error;
+
+        }
+
+    } finally {
+
+        if (fd !== null) {
+
+            try { closeSync(fd); } catch { /* preserve the original failure */ }
+
+        }
+
+        try { unlinkSync(tempPath); } catch { /* absent after cleanup or crash */ }
+
+    }
 
 }
 
@@ -338,7 +430,7 @@ export class PaymentIntentStore {
 
         }
 
-        this._writeToDisk(intent);
+        this._writeNewToDisk(intent);
 
         this._byReference.set(intent.paymentReference, intent);
 
@@ -371,6 +463,24 @@ export class PaymentIntentStore {
 
         }
 
+        const persisted = this._readExistingRecord(existing);
+
+        for (const field of IMMUTABLE_PAYMENT_INTENT_FIELDS) {
+
+            if (!Object.is(persisted[field], next[field])) {
+
+                throw new PaymentValidationError(
+                    `payment intent immutable field cannot be changed: ${field}`,
+                    {
+                        paymentReference: existing.paymentReference,
+                        field
+                    }
+                );
+
+            }
+
+        }
+
         if (next.transactionId !== null) {
 
             const creditedTo = this._transactionIndex.get(next.transactionId);
@@ -397,6 +507,95 @@ export class PaymentIntentStore {
         }
 
         return next;
+
+    }
+
+    _readExistingRecord(indexedIntent) {
+
+        const paymentReference = indexedIntent.paymentReference;
+
+        const filePath = this._intentPath(paymentReference);
+
+        let parsed;
+
+        try {
+
+            parsed = JSON.parse(readFileSync(filePath, "utf8"));
+
+        } catch (error) {
+
+            throw new CorruptedPaymentRecordError(
+                paymentReference,
+                `unable to establish existing persisted identity | ${error?.message ?? error}`
+            );
+
+        }
+
+        if (parsed?.schemaVersion !== PAYMENT_INTENT_SCHEMA_VERSION) {
+
+            throw new CorruptedPaymentRecordError(
+                paymentReference,
+                `unsupported schemaVersion ${parsed?.schemaVersion}`
+            );
+
+        }
+
+        let persistedIntent;
+
+        try {
+
+            persistedIntent = PaymentIntent.fromRecord(parsed);
+
+        } catch (error) {
+
+            throw new CorruptedPaymentRecordError(
+                paymentReference,
+                `invalid existing intent | ${error?.message ?? error}`
+            );
+
+        }
+
+        if (fileNameOf(filePath) !== `${persistedIntent.paymentReference}.json`) {
+
+            throw new CorruptedPaymentRecordError(
+                paymentReference,
+                "file name does not match the persisted payment reference"
+            );
+
+        }
+
+        const record = persistedIntent.toRecord();
+        const persistedKeys = Object.keys(parsed);
+
+        if (persistedKeys.length !== PAYMENT_INTENT_RECORD_FIELDS.length
+            || PAYMENT_INTENT_RECORD_FIELDS.some((field) => (
+                !Object.prototype.hasOwnProperty.call(parsed, field)
+            ))
+            || persistedKeys.some((field) => (
+                !PAYMENT_INTENT_RECORD_FIELDS.includes(field)
+            ))) {
+
+            throw new CorruptedPaymentRecordError(
+                paymentReference,
+                "existing intent record does not match the persisted schema"
+            );
+
+        }
+
+        const indexedRecord = indexedIntent.toRecord();
+
+        if (PAYMENT_INTENT_RECORD_FIELDS.some((field) => (
+            !Object.is(record[field], indexedRecord[field])
+        ))) {
+
+            throw new CorruptedPaymentRecordError(
+                paymentReference,
+                "existing persisted record disagrees with the in-memory index"
+            );
+
+        }
+
+        return record;
 
     }
 
@@ -458,6 +657,33 @@ export class PaymentIntentStore {
             atomicWriteJson(this._intentPath(intent.paymentReference), intent.toRecord());
 
         } catch (error) {
+
+            throw new PaymentStorageError(
+                `failed to persist payment intent: ${error?.message ?? error}`,
+                { paymentReference: intent.paymentReference }
+            );
+
+        }
+
+    }
+
+    _writeNewToDisk(intent) {
+
+        try {
+
+            if (!atomicCreateJson(this._intentPath(intent.paymentReference), intent.toRecord())) {
+
+                throw new PaymentReferenceCollisionError(intent.paymentReference);
+
+            }
+
+        } catch (error) {
+
+            if (error instanceof PaymentReferenceCollisionError) {
+
+                throw error;
+
+            }
 
             throw new PaymentStorageError(
                 `failed to persist payment intent: ${error?.message ?? error}`,

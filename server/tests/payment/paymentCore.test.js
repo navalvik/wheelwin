@@ -1,5 +1,5 @@
 /**
- * Phase 1 — Room Wallet Payment Core (ISOLATED).
+ * Phase 1 вЂ” Room Wallet Payment Core (ISOLATED).
  *
  * This test is fully self-contained: it builds a synthetic 64-wallet catalog in
  * a temporary directory, so it never depends on, reads, or mutates any
@@ -9,7 +9,7 @@
  *
  * Covered scenarios (per Phase 1 scope):
  *   1. Normal flow (wallet reservation, intent creation, credit, settle)
- *   2. Duplicate transactions (R7 — one tx id credited to at most one intent)
+ *   2. Duplicate transactions (R7 вЂ” one tx id credited to at most one intent)
  *   3. Duplicate / conflicting wallet reservations (R3 / R8)
  *   4. Expiration + the immutable 480000 ms room deadline (R1)
  *   5. Restart-safe durable persistence (R4)
@@ -20,6 +20,7 @@
  * and no external dependencies are required.
  */
 
+import { createHash } from "node:crypto";
 import {
     mkdirSync,
     mkdtempSync,
@@ -32,12 +33,29 @@ import { join } from "node:path";
 import {
     ROOM_LIFETIME_MS,
     ROOM_WALLET_POOL_SIZE,
+    PAYMENT_INTENT_STATE,
     AssetDenominationRegistry,
+    InvalidPaymentStateTransitionError,
     PaymentIntentStore,
     RoomWalletPaymentService,
     WalletPoolRegistry,
     canTransition
 } from "../../payment/index.js";
+
+import {
+    deriveTonAddressIdentity,
+    formatPaymentReference
+} from "../../payment/incoming/index.js";
+
+import {
+    RoomPaymentObservationService,
+    ToncenterIncomingProvider,
+    ToncenterTransactionsClient
+} from "../../payment/toncenter/index.js";
+
+import {
+    IncomingPaymentSettlementCoordinator
+} from "../../payment/incoming/IncomingPaymentSettlementCoordinator.js";
 
 // ---------------------------------------------------------------------------
 // Minimal assertion harness (project convention)
@@ -92,10 +110,72 @@ function expectThrow(fn, expectedName, message) {
 }
 
 // ---------------------------------------------------------------------------
-// Isolated workspace fixture (synthetic catalog — no secrets, no repo access)
+// Isolated workspace fixture (synthetic catalog вЂ” no secrets, no repo access)
 // ---------------------------------------------------------------------------
 
 const ROOM_CREATED_AT = 1_700_000_000_000;
+
+/** Synthetic key fixture вЂ” never read from the environment, never real. */
+const SYNTHETIC_API_KEY = "SYNTHETIC-TONCENTER-TEST-KEY-NOT-REAL";
+
+function crc16Xmodem(template) {
+
+    const poly = 0x1021;
+
+    let register = 0;
+
+    const message = Buffer.alloc(template.length + 2);
+
+    message.set(template);
+
+    for (const byte of message) {
+
+        for (let mask = 0x80; mask > 0; mask >>= 1) {
+
+            register <<= 1;
+
+            if (byte & mask) {
+
+                register += 1;
+
+            }
+
+            if (register > 0xffff) {
+
+                register &= 0xffff;
+                register ^= poly;
+
+            }
+
+        }
+
+    }
+
+    return [Math.floor(register / 256), register % 256];
+
+}
+
+/**
+ * Deterministic, checksum-valid synthetic TON address (test data only). Same
+ * construction `TonAddressIdentity.js` validates, so every fixture address
+ * below is a real address of a synthetic account.
+ */
+function friendlyAddressFor(seed) {
+
+    const hashHex = createHash("sha256")
+        .update(`wheelwin-payment-core:${seed}`, "utf8")
+        .digest("hex");
+
+    const payload = Buffer.concat([
+        Buffer.from([0x11, 0x00]),
+        Buffer.from(hashHex, "hex")
+    ]);
+
+    const [high, low] = crc16Xmodem(payload);
+
+    return Buffer.concat([payload, Buffer.from([high, low])]).toString("base64url");
+
+}
 
 function isolatedWorkspace() {
 
@@ -105,14 +185,14 @@ function isolatedWorkspace() {
 
     mkdirSync(configDir, { recursive: true });
 
-    // Synthetic 64-wallet testnet pool. Public identity only — no secret keys.
+    // Synthetic 64-wallet testnet pool. Public identity only вЂ” no secret keys.
     const catalog = [];
 
     for (let roomNumber = 1; roomNumber <= ROOM_WALLET_POOL_SIZE; roomNumber += 1) {
 
         catalog.push({
             roomNumber,
-            address: `EQRoomWallet${String(roomNumber).padStart(3, "0")}____________`,
+            address: friendlyAddressFor(`room-wallet-${roomNumber}`),
             publicKey: null,
             workchain: 0,
             network: "testnet"
@@ -134,7 +214,7 @@ function isolatedWorkspace() {
 
 function configuredAssets() {
 
-    // Explicit mapping — NOT hardcoded. `Gram` is never assumed to equal a
+    // Explicit mapping вЂ” NOT hardcoded. `Gram` is never assumed to equal a
     // particular amount of TON; the atomic-unit value comes from config.
     return [
         {
@@ -151,6 +231,8 @@ function buildHarness({ assets = configuredAssets(), clock = null } = {}) {
 
     const env = isolatedWorkspace();
 
+    let syntheticTransactions = [];
+
     const nowProvider = clock ?? (() => ROOM_CREATED_AT + 1_000);
 
     const walletPool = new WalletPoolRegistry({
@@ -165,15 +247,47 @@ function buildHarness({ assets = configuredAssets(), clock = null } = {}) {
 
     const assetRegistry = AssetDenominationRegistry.fromConfiguration({ assets });
 
+    const client = new ToncenterTransactionsClient({
+
+        apiKeyProvider: () => SYNTHETIC_API_KEY,
+
+        fetchImpl: async () => ({
+
+            status: 200,
+
+            json: async () => ({
+
+                transactions: syntheticTransactions,
+                address_book: {}
+
+            })
+
+        })
+
+    });
+
+    const observationService = new RoomPaymentObservationService({ provider: new ToncenterIncomingProvider({ client }), nowProvider });
     const service = new RoomWalletPaymentService({
         walletPool,
         intentStore,
         assetRegistry,
         snapshotDir: env.dataDir,
-        nowProvider
+        nowProvider,
+        observationService
     });
 
-    return { env, nowProvider, walletPool, intentStore, assetRegistry, service };
+    return {
+        env,
+        nowProvider,
+        walletPool,
+        intentStore,
+        assetRegistry,
+        observationService,
+        service,
+        setSyntheticTransactions(transactions) {
+            syntheticTransactions = [...transactions];
+        }
+    };
 
 }
 
@@ -183,7 +297,7 @@ function createIntent(harness, overrides = {}) {
         paymentReference: `pay-${Math.random().toString(36).slice(2, 11)}`,
         roomId: "room-a",
         playerId: "player-1",
-        expectedSender: "EQSENDER____111",
+        expectedSender: friendlyAddressFor("sender-111"),
         amountAtomic: 2_000_000_000,
         asset: "TON",
         network: "testnet",
@@ -195,7 +309,116 @@ function createIntent(harness, overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Group 1 — normal flow
+// Phase 3D вЂ” trusted observation stack (synthetic response, no network)
+// ---------------------------------------------------------------------------
+
+/** A synthetic player sender address (synthetic test data only). */
+function syntheticSender(tag) {
+
+    return friendlyAddressFor(`sender-${tag}`);
+
+}
+
+/**
+ * One transaction in the documented v3 response shape for `intent`, mapped
+ * inside the observation window the coordinator derives from the intents of the
+ * room.
+ */
+function syntheticTransactionRow(harness, intent, overrides = {}) {
+
+    const destination = deriveTonAddressIdentity(intent.destinationWalletAddress);
+
+    const source = deriveTonAddressIdentity(intent.expectedSender);
+
+    const nowSeconds = Math.floor(harness.nowProvider() / 1000);
+
+    return {
+        account: destination,
+        hash: overrides.hash ?? "a".repeat(64),
+        lt: "40576730000001",
+        now: nowSeconds,
+        orig_status: "active",
+        end_status: "active",
+        total_fees: "1234",
+        prev_trans_hash: "0".repeat(64),
+        prev_trans_lt: "40576730000000",
+        description: {
+            type: "trans_ord",
+            aborted: false,
+            destroyed: false,
+            credit_first: true,
+            storage_ph: { status_change: "unchanged" },
+            compute_ph: { success: true, exit_code: 0, gas_used: "0" },
+            action: { success: true, valid: true, no_funds: false }
+        },
+        in_msg: {
+            hash: "c".repeat(64),
+            source,
+            destination,
+            value: String(intent.amountAtomic),
+            fwd_fee: "1",
+            ihr_fee: "0",
+            created_lt: "40576730000001",
+            created_at: String(nowSeconds),
+            opcode: 0,
+            bounce: true,
+            bounced: false,
+            message_content: {
+                hash: "d".repeat(64),
+                body: "te6cckEBAQEAAgAAAEysuc0=",
+                decoded: {
+                    type: "text_comment",
+                    comment: formatPaymentReference(intent.paymentReference)
+                }
+            }
+        },
+        out_msgs: []
+    };
+
+}
+
+/**
+ * The Phase 3D settlement coordinator over the REAL observation stack with a
+ * synthetic in-memory provider response. Nothing here talks to the network.
+ *
+ * @param {object} harness
+ * @param {object} intent authoritative intent the observation must confirm
+ * @param {{ hash?: string }} [overrides]
+ */
+function buildObservationCoordinator(harness, intent, overrides = {}) {
+
+    harness.setSyntheticTransactions([
+        syntheticTransactionRow(harness, intent, overrides)
+    ]);
+
+    return new IncomingPaymentSettlementCoordinator({
+        paymentService: harness.service,
+        observationService: harness.observationService,
+        nowProvider: () => harness.nowProvider()
+    });
+
+}
+
+/**
+ * Settle `intent` through the trusted observation boundary.
+ *
+ * @param {object} harness
+ * @param {object} intent
+ * @param {{ hash?: string }} [overrides]
+ */
+async function settleFromObservation(harness, intent, overrides = {}) {
+
+    const coordinator = buildObservationCoordinator(harness, intent, overrides);
+
+    return coordinator.settleRoomPayments({
+        roomId: intent.roomId,
+        now: harness.nowProvider()
+    });
+
+}
+
+// ---------------------------------------------------------------------------
+// Group 1 вЂ” normal flow
 // ---------------------------------------------------------------------------
 
 {
@@ -207,11 +430,11 @@ function createIntent(harness, overrides = {}) {
     const intent = createIntent(harness, {
         paymentReference: "pay-normal-1",
         playerId: "player-1",
-        expectedSender: "EQSENDER____111",
+        expectedSender: syntheticSender("111"),
         amountAtomic: 3_000_000_000
     });
 
-    // R5 — every required identity field present.
+    // R5 вЂ” every required identity field present.
     check(intent.roomId === "room-a", "payment intent must identify the room");
     check(intent.playerId === "player-1", "payment intent must identify the player");
     check(intent.network === "testnet", "payment intent must identify the network");
@@ -221,7 +444,7 @@ function createIntent(harness, overrides = {}) {
         "payment intent must identify the assigned destination wallet"
     );
     check(
-        intent.expectedSender === "EQSENDER____111",
+        intent.expectedSender === syntheticSender("111"),
         "payment intent must identify the expected sender"
     );
     check(
@@ -242,11 +465,11 @@ function createIntent(harness, overrides = {}) {
     );
     check(intent.state === "PENDING", "new payment intent must start PENDING");
 
-    // R3 — exactly one wallet per room; a second player reuses it.
+    // R3 вЂ” exactly one wallet per room; a second player reuses it.
     const secondIntent = createIntent(harness, {
         paymentReference: "pay-normal-2",
         playerId: "player-2",
-        expectedSender: "EQSENDER____222",
+        expectedSender: syntheticSender("222"),
         amountAtomic: 1_000_000_000
     });
 
@@ -260,7 +483,7 @@ function createIntent(harness, overrides = {}) {
         "one reservation must back both intents of the room"
     );
 
-    // Retrieve by unique reference (R6 — identity is the reference).
+    // Retrieve by unique reference (R6 вЂ” identity is the reference).
     const fetched = harness.service.getPaymentIntent("pay-normal-1");
 
     check(
@@ -268,24 +491,78 @@ function createIntent(harness, overrides = {}) {
         "payment intents must be retrievable by their unique payment reference"
     );
 
-    // Credit then settle.
-    const matched = harness.service.matchTransaction("pay-normal-1", "tx-0001");
+    // Credit then settle вЂ” the credit transition of the second room-mate.
+    const matched = harness.service.matchTransaction("pay-normal-2", "tx-0002");
 
     check(matched.state === "MATCHED", "credited intent must be MATCHED");
     check(
-        matched.transactionId === "tx-0001",
+        matched.transactionId === "tx-0002",
         "the credited transaction id must be recorded"
     );
 
-    const settled = harness.service.settlePayment("pay-normal-1");
+    // Phase 3D вЂ” a credit alone can NEVER settle a payment: settlement requires
+    // a trusted observation authority issued by the settlement coordinator.
+    const direct = expectThrow(
+        () => harness.service.settlePayment("pay-normal-2"),
+        "PaymentValidationError",
+        "settlePayment() must fail closed without a trusted observation authority"
+    );
 
-    check(settled.state === "SETTLED", "matched intent must be settleable");
+    check(
+        direct.code === "PAYMENT_VALIDATION_INVALID",
+        "a direct settlement must be a payment validation failure"
+    );
+
+    expectThrow(
+        () => harness.service.settlePayment("pay-normal-2", {
+            paymentReference: "pay-normal-2",
+            transactionId: "tx-0002",
+            providerConfirmed: true
+        }),
+        "PaymentValidationError",
+        "an object with matching field names must never authorize a settlement"
+    );
+
+    // The first payment, settled only through the trusted observation boundary.
+    const report = await settleFromObservation(harness, intent);
+
+    check(
+        report.settled.length === 1
+            && report.settled[0].paymentReference === "pay-normal-1",
+        "a validated observation must settle exactly the observed payment"
+    );
+
+    check(
+        harness.service.getPaymentIntent("pay-normal-1").state === "SETTLED",
+        "the persisted payment intent must be SETTLED"
+    );
+
+    check(
+        harness.service.getPaymentIntent("pay-normal-1").transactionId
+            === report.settled[0].transactionId,
+        "the settled intent must carry the observed transaction identity"
+    );
+
+    // The credited room-mate was NOT observed, so it can never settle.
+    check(
+        harness.service.getPaymentIntent("pay-normal-2").state === "MATCHED",
+        "a payment without a matching observation must stay MATCHED"
+    );
 
     // Invalid transitions must be rejected.
     expectThrow(
-        () => harness.service.settlePayment("pay-normal-1"),
+        () => harness.intentStore.get("pay-normal-1").transition("SETTLED"),
         "InvalidPaymentStateTransitionError",
         "settling an already SETTLED intent must be rejected"
+    );
+
+    // State transition invariant only; no refund transfer is performed.
+    const settledIntent = harness.service.getPaymentIntent("pay-normal-1");
+
+    expectThrow(
+        () => settledIntent.transition(PAYMENT_INTENT_STATE.REFUNDED),
+        InvalidPaymentStateTransitionError.name,
+        "an already-SETTLED intent must reject transition to REFUNDED"
     );
 
     expectThrow(
@@ -306,7 +583,7 @@ function createIntent(harness, overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Group 2 — duplicate transactions (R7 idempotency)
+// Group 2 вЂ” duplicate transactions (R7 idempotency)
 // ---------------------------------------------------------------------------
 
 {
@@ -318,18 +595,18 @@ function createIntent(harness, overrides = {}) {
     createIntent(harness, {
         paymentReference: "pay-tx-A",
         playerId: "player-1",
-        expectedSender: "EQSENDER____111",
+        expectedSender: syntheticSender("111"),
         amountAtomic: 2_000_000_000
     });
 
     createIntent(harness, {
         paymentReference: "pay-tx-B",
         playerId: "player-2",
-        expectedSender: "EQSENDER____222",
+        expectedSender: syntheticSender("222"),
         amountAtomic: 2_000_000_000
     });
 
-    // Same amount + same destination + a close timestamp — but distinct
+    // Same amount + same destination + a close timestamp вЂ” but distinct
     // references. Neither may be credited to the same transaction.
     harness.service.matchTransaction("pay-tx-A", "tx-shared-1");
 
@@ -382,7 +659,7 @@ function createIntent(harness, overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Group 3 — duplicate / conflicting wallet reservations (R3 / R8)
+// Group 3 вЂ” duplicate / conflicting wallet reservations (R3 / R8)
 // ---------------------------------------------------------------------------
 
 {
@@ -444,7 +721,7 @@ function createIntent(harness, overrides = {}) {
         "a duplicate payment reference must be rejected"
     );
 
-    // R8 — release is blocked while the room's intent is PENDING.
+    // R8 вЂ” release is blocked while the room's intent is PENDING.
     expectThrow(
         () => harness.service.releaseWalletForRoom("room-dup"),
         "WalletRecyclingBlockedError",
@@ -458,7 +735,7 @@ function createIntent(harness, overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Group 4 — expiration + immutable 480000 ms room deadline (R1)
+// Group 4 вЂ” expiration + immutable 480000 ms room deadline (R1)
 // ---------------------------------------------------------------------------
 
 {
@@ -486,7 +763,7 @@ function createIntent(harness, overrides = {}) {
         paymentReference: "pay-exp-1",
         roomId: "room-exp",
         playerId: "player-1",
-        expectedSender: "EQSENDER____111",
+        expectedSender: syntheticSender("111"),
         amountAtomic: 2_000_000_000
     });
 
@@ -536,7 +813,7 @@ function createIntent(harness, overrides = {}) {
             paymentReference: "pay-exp-late",
             roomId: "room-exp-late",
             playerId: "player-9",
-            expectedSender: "EQSENDER____999",
+            expectedSender: syntheticSender("999"),
             amountAtomic: 1_000_000_000,
             now: afterDeadline
         }),
@@ -551,7 +828,7 @@ function createIntent(harness, overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Group 5 — restart-safe durable persistence (R4)
+// Group 5 вЂ” restart-safe durable persistence (R4)
 // ---------------------------------------------------------------------------
 
 {
@@ -564,7 +841,7 @@ function createIntent(harness, overrides = {}) {
         paymentReference: "pay-persist-1",
         roomId: "room-p",
         playerId: "player-1",
-        expectedSender: "EQSENDER____111",
+        expectedSender: syntheticSender("111"),
         amountAtomic: 4_000_000_000
     });
 
@@ -572,13 +849,26 @@ function createIntent(harness, overrides = {}) {
         paymentReference: "pay-persist-2",
         roomId: "room-q",
         playerId: "player-2",
-        expectedSender: "EQSENDER____222",
+        expectedSender: syntheticSender("222"),
         amountAtomic: 1_000_000_000
     });
 
-    harness.service.matchTransaction("pay-persist-1", "tx-persist-1");
+    // Phase 3D вЂ” the payment can only reach SETTLED through the trusted
+    // observation boundary.
+    const persistReport = await settleFromObservation(
+        harness,
+        harness.service.getPaymentIntent("pay-persist-1")
+    );
 
-    harness.service.settlePayment("pay-persist-1");
+    check(
+        persistReport.settled.length === 1,
+        "a validated observation must settle the observed payment"
+    );
+
+    check(
+        persistReport.settled[0].transactionId.startsWith("ttx_"),
+        "the settled transaction must be the server-derived transaction identity"
+    );
 
     const qWalletBeforeRestart = harness.service.getWalletForRoom("room-q");
 
@@ -594,13 +884,26 @@ function createIntent(harness, overrides = {}) {
         dataDir: harness.env.dataDir
     });
 
+    const restartedClient = new ToncenterTransactionsClient({
+        apiKeyProvider: () => SYNTHETIC_API_KEY,
+        fetchImpl: async () => ({
+            status: 200,
+            json: async () => ({ transactions: [], address_book: {} })
+        })
+    });
+    const restartedObservationService = new RoomPaymentObservationService({
+        provider: new ToncenterIncomingProvider({ client: restartedClient }),
+        nowProvider: harness.nowProvider
+    });
+
     const restartedService = new RoomWalletPaymentService({
         walletPool: restartedWalletPool,
         intentStore: restartedStore,
         assetRegistry: AssetDenominationRegistry.fromConfiguration({
             assets: configuredAssets()
         }),
-        snapshotDir: harness.env.dataDir
+        snapshotDir: harness.env.dataDir,
+        observationService: restartedObservationService
     });
 
     restartedService.initialize();
@@ -618,7 +921,7 @@ function createIntent(harness, overrides = {}) {
     );
 
     check(
-        restored.transactionId === "tx-persist-1",
+        restored.transactionId === persistReport.settled[0].transactionId,
         "the credited transaction must survive a restart"
     );
 
@@ -629,7 +932,10 @@ function createIntent(harness, overrides = {}) {
 
     // R7 must hold across restarts.
     expectThrow(
-        () => restartedService.matchTransaction("pay-persist-2", "tx-persist-1"),
+        () => restartedService.matchTransaction(
+            "pay-persist-2",
+            persistReport.settled[0].transactionId
+        ),
         "TransactionAlreadyCreditedError",
         "a transaction credited before a restart must not be reusable after it"
     );
@@ -662,7 +968,7 @@ function createIntent(harness, overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Group 6 — execution gate + explicit denomination mapping
+// Group 6 вЂ” execution gate + explicit denomination mapping
 // ---------------------------------------------------------------------------
 
 {

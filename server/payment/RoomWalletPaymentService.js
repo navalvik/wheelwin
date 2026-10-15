@@ -29,8 +29,9 @@ import {
     WalletPoolRegistry,
     atomicWriteJson
 } from "./WalletPoolRegistry.js";
-import { PaymentIntentStore } from "./PaymentIntentStore.js";
+import { isPaymentIntentStoreContract } from "./PaymentIntentStoreContract.js";
 import {
+    PaymentConfigurationError,
     PaymentExecutionBlockedError,
     PaymentIntentExpiredError,
     PaymentReferenceCollisionError,
@@ -39,7 +40,47 @@ import {
     WalletAssignmentConflictError
 } from "./PaymentErrors.js";
 
+import { IncomingTransfer } from "./incoming/IncomingTransfer.js";
+import {
+    deriveIncomingTransactionId,
+    matchIncomingTransferToIntent,
+    normalizeNetwork
+} from "./incoming/index.js";
+import {
+    deriveTonAddressIdentity,
+    tonAddressIdentitiesEqual
+} from "./incoming/TonAddressIdentity.js";
+import { isPaymentReference } from "./incoming/PaymentReferenceCodec.js";
+import {
+    isTrustedRoomPaymentObservationResult,
+    RoomPaymentObservationService
+} from "./toncenter/RoomPaymentObservationService.js";
+
 export const ROOM_WALLET_PAYMENT_PHASE = 1;
+
+// ---------------------------------------------------------------------------
+// Phase 3D — settlement bound to trusted observation results
+//
+// `settlePayment()` is PROTECTED. It may only be reached with an immutable
+// observation result returned by the configured RoomPaymentObservationService
+// after a successful provider observation. Object identity is required: a plain
+// object, a copied result, a Proxy, or an object carrying only field names
+// is rejected. Only that exact frozen result is trusted; it cannot be
+// registered or minted by callers.
+//
+// The coordinator no longer produces or passes a transferable authority token.
+// All security-critical checks (identity binding to the exact observation
+// instance, completeness, ambiguity, collisions, time/window and expiry,
+// sender/destination/network/asset/amount/reference) are enforced by this
+// service boundary. Finality depth and irreversibility remain unverified.
+// ---------------------------------------------------------------------------
+
+/** PaymentIntent states that are terminal and therefore cannot be settled. */
+function isTerminalState(state) {
+
+    return isTerminalPaymentIntentState(state);
+
+}
 
 export class RoomWalletPaymentService {
 
@@ -51,7 +92,8 @@ export class RoomWalletPaymentService {
         snapshotDir = null,
         nowProvider = Date.now,
         paymentWindowMs = ROOM_LIFETIME_MS,
-        persistSnapshots = true
+        persistSnapshots = true,
+        observationService
     } = {}) {
 
         if (!(walletPool instanceof WalletPoolRegistry)) {
@@ -62,10 +104,11 @@ export class RoomWalletPaymentService {
 
         }
 
-        if (!(intentStore instanceof PaymentIntentStore)) {
+        if (!isPaymentIntentStoreContract(intentStore)) {
 
-            throw new PaymentValidationError(
-                "intentStore must be a PaymentIntentStore instance"
+            throw new PaymentConfigurationError(
+                "intentStore must implement the payment intent store contract",
+                { intentStore: intentStore === undefined ? null : typeof intentStore }
             );
 
         }
@@ -74,6 +117,16 @@ export class RoomWalletPaymentService {
 
             throw new PaymentValidationError(
                 "assetRegistry must be an AssetDenominationRegistry instance"
+            );
+
+        }
+
+        if (!(observationService instanceof RoomPaymentObservationService)) {
+
+            throw new PaymentConfigurationError(
+                "observationService must be the RoomPaymentObservationService instance "
+                    + "whose trusted observation results this service may settle from",
+                { observationService: observationService === undefined ? null : typeof observationService }
             );
 
         }
@@ -95,6 +148,8 @@ export class RoomWalletPaymentService {
 
         this._assetRegistry = assetRegistry;
 
+        this._observationService = observationService;
+
         this._logger = logger;
 
         this._snapshotDir = snapshotDir ?? join(intentStore.dataDir, "payment-core");
@@ -106,6 +161,21 @@ export class RoomWalletPaymentService {
         this._persistSnapshots = persistSnapshots === true;
 
         this._initialized = false;
+
+    }
+
+    /**
+     * Return the authoritative configured denomination for an asset/network.
+     * The returned AssetDenomination is immutable and exposes no registry
+     * mutation API, so callers can safely use it for read-only validation.
+     *
+     * @param {string} network
+     * @param {string} asset
+     * @returns {import("./AssetDenomination.js").AssetDenomination}
+     */
+    requireAssetDenomination(network, asset) {
+
+        return this._assetRegistry.requireMapping(network, asset);
 
     }
 
@@ -127,17 +197,58 @@ export class RoomWalletPaymentService {
 
         this._intentStore.initialize();
 
+        // Validate every persisted open obligation before changing any wallet
+        // reservation. Missing reservations are reconstructed from the exact
+        // public wallet identity recorded by their authoritative intents.
+        const recoveries = this._collectWalletReservationRecoveries();
+
+        if (recoveries.length > 0 && !this._persistSnapshots) {
+
+            throw new PaymentConfigurationError(
+                "cannot recover open room wallet reservations without durable snapshot persistence"
+            );
+
+        }
+
         // R8 — a wallet is never recycled while its previous room still has
         // unresolved obligations. Restore only still-owed reservations.
         const obligations = this._collectObligationsByRoom();
 
-        this._walletPool.reconcile({ obligationsByRoom: obligations });
+        const reconciliation = this._walletPool.reconcile({
+            obligationsByRoom: obligations
+        });
+
+        for (const recovery of recoveries) {
+
+            if (this._walletPool.hasReservationForRoom(recovery.roomId)) {
+
+                continue;
+
+            }
+
+            this._walletPool.reserve({
+                roomId: recovery.roomId,
+                network: recovery.network,
+                walletId: recovery.walletId,
+                now: this._now()
+            });
+
+        }
+
+        // Startup must not report success until recovered reservations are
+        // durable. Persisting after reconciliation also records any releases.
+        if (this._persistSnapshots
+            && (recoveries.length > 0 || reconciliation.released > 0)) {
+
+            this._walletPool.persistSnapshot(snapshotDir);
+
+        }
 
         this._initialized = true;
 
         this._logInfo(
             "RoomWalletPaymentService ready"
-                + ` | phase=${ROOM_WALLET_PAYMENT_PHASE}`
+                 + ` | observation=${this._observationService.constructor.name}`
                 + ` | wallets=${this._walletPool.size}`
                 + ` | intents=${this._intentStore.size}`
                 + ` | transfersEnabled=false`
@@ -161,6 +272,11 @@ export class RoomWalletPaymentService {
 
     }
 
+    get observationService() {
+        return this._observationService;
+    }
+
+    // -------------------------------------------------------------------------
     shutdown() {
 
         this.persistSnapshot();
@@ -169,7 +285,6 @@ export class RoomWalletPaymentService {
 
     }
 
-    // -------------------------------------------------------------------------
     // Room deadline (R1)
     // -------------------------------------------------------------------------
 
@@ -356,7 +471,7 @@ export class RoomWalletPaymentService {
                 roomDeadlineMs: roomDeadline.deadlineMs
             });
 
-            this._intentStore.save(intent);
+            intent = this._intentStore.save(intent);
 
         } catch (error) {
 
@@ -473,7 +588,7 @@ export class RoomWalletPaymentService {
             now: this._now()
         });
 
-        this._intentStore.update(next);
+        const committed = this._intentStore.update(next);
 
         this.persistSnapshot();
 
@@ -482,26 +597,60 @@ export class RoomWalletPaymentService {
                 + ` | transaction=${transactionId}`
         );
 
-        return next;
+        return committed;
 
     }
 
     /**
      * Mark a matched payment intent as settled (funds received).
      *
+     * PHASE 3D — PROTECTED PATH. This method can only be reached through a
+     * exact, immutable result returned by the configured observation service,
+     * plus the selected transaction id. The transaction id selects a candidate;
+     * it is never proof by itself.
+     *
+     * Every other route fails closed: a direct `settlePayment(ref)` call, a
+     * `matchTransaction(ref, arbitraryTxId)` + `settlePayment(ref)` pair, and a
+     * hand-made object that merely carries the expected field names are all
+     * rejected with `PaymentValidationError`. Nothing is settled.
+     *
      * @param {string} paymentReference
+     * @param {Readonly<object>|null} observationResult exact trusted batch result
+     * @param {string} transactionId selected transaction id
      * @returns {PaymentIntent}
      */
-    settlePayment(paymentReference) {
+    settlePayment(paymentReference, observationResult = null, transactionId = null) {
 
         this._assertInitialized();
 
         const intent = this._intentStore.require(paymentReference);
 
-        if (intent.transactionId === null) {
+        this.#assertTrustedObservationCandidate(
+            observationResult,
+            transactionId,
+            intent
+        );
+
+        if (intent.state === PAYMENT_INTENT_STATE.SETTLED) {
+
+            if (intent.transactionId === transactionId) {
+
+                return intent;
+
+            }
 
             throw new PaymentValidationError(
-                "cannot settle a payment intent without a credited transaction",
+                "a settled payment intent cannot be rebound to another transaction",
+                { paymentReference }
+            );
+
+        }
+
+        if (intent.state !== PAYMENT_INTENT_STATE.MATCHED
+            || intent.transactionId !== transactionId) {
+
+            throw new PaymentValidationError(
+                "settlement requires the intent to be matched to the observed transaction",
                 { paymentReference }
             );
 
@@ -511,44 +660,223 @@ export class RoomWalletPaymentService {
             now: this._now()
         });
 
-        this._intentStore.update(next);
+        const committed = this._intentStore.update(next);
 
         this.persistSnapshot();
 
-        return next;
+        // A successful transition is persisted once; an exact replay returns
+        // the already-settled intent above without another write.
+
+        return committed;
 
     }
 
     /**
-     * Mark a matched payment intent as refunded.
+     * Fail-closed validation of a trusted batch result and one selected
+     * candidate against the current authoritative intent.
      *
-     * @param {string} paymentReference
-     * @returns {PaymentIntent}
+     * @param {unknown} observationResult
+     * @param {string} transactionId
+     * @param {PaymentIntent} intent authoritative intent from the store
+     * @returns {void}
      */
-    refundPayment(paymentReference) {
+    #assertTrustedObservationCandidate(observationResult, transactionId, intent) {
 
-        this._assertInitialized();
-
-        const intent = this._intentStore.require(paymentReference);
-
-        if (intent.transactionId === null) {
+        if (typeof transactionId !== "string" || transactionId.trim() === "") {
 
             throw new PaymentValidationError(
-                "cannot refund a payment intent without a credited transaction",
-                { paymentReference }
+                "settlement requires a selected observed transaction id",
+                { paymentReference: intent.paymentReference }
             );
 
         }
 
-        const next = intent.transition(PAYMENT_INTENT_STATE.REFUNDED, {
-            now: this._now()
-        });
+        if (!isTrustedRoomPaymentObservationResult(
+            observationResult,
+            this._observationService
+        )) {
 
-        this._intentStore.update(next);
+            throw new PaymentValidationError(
+                "settlement requires the exact trusted observation result "
+                    + "returned by the configured observation service",
+                { paymentReference: intent.paymentReference }
+            );
 
-        this.persistSnapshot();
+        }
 
-        return next;
+        const observations = observationResult.observations;
+        const transfers = observationResult.transfers;
+        const window = observationResult.window;
+        const reservation = this.getWalletForRoom(intent.roomId);
+
+        const deeplyFrozen = Object.isFrozen(observationResult)
+            && Object.isFrozen(window)
+            && Object.isFrozen(observations)
+            && Object.isFrozen(transfers)
+            && Array.isArray(observations)
+            && Array.isArray(transfers)
+            && transfers.every((transfer) => transfer instanceof IncomingTransfer
+                && Object.isFrozen(transfer)
+                && Object.isFrozen(transfer.providerTransactionIdentity))
+            && observations.every((entry) => Object.isFrozen(entry)
+                && (entry.candidatePaymentReferences === null
+                    || Object.isFrozen(entry.candidatePaymentReferences))
+                && (entry.candidateTransactionIds === null
+                    || Object.isFrozen(entry.candidateTransactionIds)));
+
+        if (!deeplyFrozen) {
+
+            throw new PaymentValidationError(
+                "trusted observation result must be deeply immutable",
+                { paymentReference: intent.paymentReference }
+            );
+
+        }
+
+        if (observationResult.resultWindowComplete !== true
+            || observationResult.roomId !== intent.roomId
+            || !reservation
+            || !tonAddressIdentitiesEqual(
+                observationResult.walletAddress,
+                reservation.address
+            )
+            || intent.destinationWalletId !== reservation.walletId
+            || !tonAddressIdentitiesEqual(
+                intent.destinationWalletAddress,
+                reservation.address
+            )) {
+
+            throw new PaymentValidationError(
+                "observation is incomplete or unrelated to the intent room wallet",
+                { paymentReference: intent.paymentReference }
+            );
+
+        }
+
+        if (!window
+            || !Number.isSafeInteger(window.floorMs)
+            || !Number.isSafeInteger(window.ceilingMs)
+            || window.floorMs <= 0
+            || window.ceilingMs < window.floorMs
+            || window.floorMs > intent.createdAt
+            || !Number.isSafeInteger(window.limit)
+            || window.limit < 1
+            || !Number.isSafeInteger(window.rowsReturned)
+            || window.rowsReturned < 0
+            || window.rowsReturned >= window.limit
+            || observationResult.providerRequests !== 1
+            || observations.length !== transfers.length) {
+
+            throw new PaymentValidationError(
+                "observation window is not complete or internally consistent",
+                { paymentReference: intent.paymentReference }
+            );
+
+        }
+
+        const relatedEntries = observations.filter((entry) =>
+            entry.paymentReference === intent.paymentReference
+                || entry.transactionId === transactionId
+                || (Array.isArray(entry.candidatePaymentReferences)
+                    && entry.candidatePaymentReferences.includes(
+                        intent.paymentReference
+                    ))
+                || (Array.isArray(entry.candidateTransactionIds)
+                    && entry.candidateTransactionIds.includes(transactionId))
+        );
+
+        const matchingEntries = relatedEntries.filter((entry) =>
+            entry.status === "matched"
+                && entry.paymentReference === intent.paymentReference
+                && entry.transactionId === transactionId
+        );
+
+        const matchingTransfers = transfers.filter((transfer) =>
+            transfer.transactionId === transactionId
+        );
+
+        if (relatedEntries.length !== 1
+            || matchingEntries.length !== 1
+            || matchingTransfers.length !== 1) {
+
+            throw new PaymentValidationError(
+                "observation must contain exactly one unambiguous candidate for the payment",
+                { paymentReference: intent.paymentReference }
+            );
+
+        }
+
+        const transfer = matchingTransfers[0];
+        const entry = matchingEntries[0];
+        const providerIdentity = transfer.providerTransactionIdentity;
+
+        if (deriveIncomingTransactionId({
+            network: transfer.network,
+            providerId: providerIdentity.providerId,
+            accountId: providerIdentity.accountId,
+            transactionId: providerIdentity.transactionId
+        }) !== transactionId
+            || !tonAddressIdentitiesEqual(
+                providerIdentity.accountId,
+                reservation.address
+            )
+            || transfer.destinationWalletId !== reservation.walletId
+            || !tonAddressIdentitiesEqual(
+                transfer.destinationWalletAddress,
+                reservation.address
+            )
+            || !tonAddressIdentitiesEqual(
+                transfer.senderAddress,
+                intent.expectedSender
+            )
+            || normalizeNetwork(transfer.network) !== normalizeNetwork(intent.network)
+            || transfer.asset !== intent.asset
+            || transfer.amountAtomic !== intent.amountAtomic
+            || transfer.paymentReference !== intent.paymentReference
+            // ToncenterTransactionsMapper stores the decoded bare reference in
+            // `comment`; IncomingTransfer preserves that normalized value as
+            // `paymentComment`.
+            || transfer.paymentComment !== intent.paymentReference
+            || transfer.transactionTime < intent.createdAt
+            || transfer.transactionTime < window.floorMs
+            || transfer.transactionTime > window.ceilingMs
+            || transfer.transactionTime >= intent.expiresAt
+            || intent.isExpired(window.ceilingMs)
+            || entry.amountAtomic !== transfer.amountAtomic
+            || entry.transactionTime !== transfer.transactionTime
+            || !tonAddressIdentitiesEqual(
+                entry.senderAddress,
+                transfer.senderAddress
+            )) {
+
+            throw new PaymentValidationError(
+                "observed candidate does not satisfy the current payment intent",
+                { paymentReference: intent.paymentReference }
+            );
+
+        }
+
+        const intentForMatching = intent.state === PAYMENT_INTENT_STATE.SETTLED
+            ? { ...intent, state: PAYMENT_INTENT_STATE.PENDING, transactionId: null }
+            : intent;
+
+        const matchingIntents = this._intentStore.listForRoom(intent.roomId)
+            .filter((roomIntent) => matchIncomingTransferToIntent(
+                transfer,
+                roomIntent.paymentReference === intent.paymentReference
+                    ? intentForMatching
+                    : roomIntent
+            ).matched);
+
+        if (matchingIntents.length !== 1
+            || matchingIntents[0].paymentReference !== intent.paymentReference) {
+
+            throw new PaymentValidationError(
+                "observed transaction is ambiguous across the room payment intents",
+                { paymentReference: intent.paymentReference }
+            );
+
+        }
 
     }
 
@@ -568,11 +896,11 @@ export class RoomWalletPaymentService {
             now: this._now()
         });
 
-        this._intentStore.update(next);
+        const committed = this._intentStore.update(next);
 
         this.persistSnapshot();
 
-        return next;
+        return committed;
 
     }
 
@@ -592,11 +920,11 @@ export class RoomWalletPaymentService {
             now: this._now()
         });
 
-        this._intentStore.update(next);
+        const committed = this._intentStore.update(next);
 
         this.persistSnapshot();
 
-        return next;
+        return committed;
 
     }
 
@@ -628,11 +956,11 @@ export class RoomWalletPaymentService {
             now: effectiveNow
         });
 
-        this._intentStore.update(next);
+        const committed = this._intentStore.update(next);
 
         this.persistSnapshot();
 
-        return next;
+        return committed;
 
     }
 
@@ -902,6 +1230,187 @@ export class RoomWalletPaymentService {
         }
 
         return map;
+
+    }
+
+    _collectWalletReservationRecoveries() {
+
+        const rooms = new Map();
+
+        const walletOwners = new Map();
+
+        const addressOwners = new Map();
+
+        for (const intent of this._intentStore.list()) {
+
+            if (!intent.hasOpenObligation()) {
+
+                continue;
+
+            }
+
+            if (!isPaymentReference(intent.paymentReference)
+                || !Number.isSafeInteger(intent.amountAtomic)
+                || intent.amountAtomic <= 0) {
+
+                throw new PaymentValidationError(
+                    "open payment intent has invalid reference or amount metadata",
+                    { roomId: intent.roomId, paymentReference: intent.paymentReference }
+                );
+
+            }
+
+            const mapping = this._assetRegistry.requireMapping(
+                intent.network,
+                intent.asset
+            );
+
+            if (intent.amountAtomic % mapping.atomicUnitsPerUnit !== 0
+                || intent.roomDeadlineMs <= intent.createdAt
+                || intent.roomDeadlineMs > intent.createdAt + ROOM_LIFETIME_MS) {
+
+                throw new PaymentValidationError(
+                    "open payment intent has invalid amount or room-deadline metadata",
+                    { roomId: intent.roomId, paymentReference: intent.paymentReference }
+                );
+
+            }
+
+            let destinationIdentity;
+
+            try {
+
+                destinationIdentity = deriveTonAddressIdentity(
+                    intent.destinationWalletAddress
+                );
+
+                deriveTonAddressIdentity(intent.expectedSender);
+
+            } catch (error) {
+
+                throw new PaymentValidationError(
+                    "open payment intent has an invalid TON address",
+                    {
+                        roomId: intent.roomId,
+                        paymentReference: intent.paymentReference,
+                        cause: error?.message
+                    }
+                );
+
+            }
+
+            const wallet = this._walletPool.getWallet(intent.destinationWalletId);
+
+            if (!wallet
+                || intent.network !== this._walletPool.network
+                || wallet.network !== intent.network
+                || !tonAddressIdentitiesEqual(
+                    intent.destinationWalletAddress,
+                    wallet.address
+                )) {
+
+                throw new WalletAssignmentConflictError(
+                    "open payment intent wallet identity is missing or does not match the configured pool",
+                    {
+                        roomId: intent.roomId,
+                        paymentReference: intent.paymentReference,
+                        walletId: intent.destinationWalletId
+                    }
+                );
+
+            }
+
+            const previousOwner = walletOwners.get(intent.destinationWalletId);
+
+            const previousAddressOwner = addressOwners.get(destinationIdentity);
+
+            if ((previousOwner && previousOwner !== intent.roomId)
+                || (previousAddressOwner && previousAddressOwner !== intent.roomId)) {
+
+                throw new WalletAssignmentConflictError(
+                    "persisted open obligations assign one wallet to different rooms",
+                    {
+                        walletId: intent.destinationWalletId,
+                        roomId: intent.roomId,
+                        conflictingRoomId: previousOwner ?? previousAddressOwner
+                    }
+                );
+
+            }
+
+            walletOwners.set(intent.destinationWalletId, intent.roomId);
+
+            addressOwners.set(destinationIdentity, intent.roomId);
+
+            const existingReservation = this._walletPool.getReservationForRoom(
+                intent.roomId
+            );
+
+            if (existingReservation
+                && (existingReservation.walletId !== wallet.walletId
+                    || !tonAddressIdentitiesEqual(
+                        existingReservation.address,
+                        destinationIdentity
+                    ))) {
+
+                throw new WalletAssignmentConflictError(
+                    "persisted room reservation conflicts with its open payment intents",
+                    {
+                        roomId: intent.roomId,
+                        walletId: wallet.walletId,
+                        reservedWalletId: existingReservation.walletId
+                    }
+                );
+
+            }
+
+            if (wallet.reservedByRoomId
+                && wallet.reservedByRoomId !== intent.roomId) {
+
+                throw new WalletAssignmentConflictError(
+                    "open payment intent wallet is already reserved by another room",
+                    {
+                        walletId: wallet.walletId,
+                        roomId: intent.roomId,
+                        reservedByRoomId: wallet.reservedByRoomId
+                    }
+
+                );
+
+            }
+
+            const roomRecovery = rooms.get(intent.roomId);
+
+            if (roomRecovery
+                && (roomRecovery.walletId !== wallet.walletId
+                    || roomRecovery.addressIdentity !== destinationIdentity)) {
+
+                throw new WalletAssignmentConflictError(
+                    "open payment intents for one room identify different wallets",
+                    {
+                        roomId: intent.roomId,
+                        walletId: wallet.walletId,
+                        conflictingWalletId: roomRecovery.walletId
+                    }
+
+                );
+
+            }
+
+            if (!roomRecovery) {
+
+                rooms.set(intent.roomId, {
+                    roomId: intent.roomId,
+                    walletId: wallet.walletId,
+                    addressIdentity: destinationIdentity,
+                    network: intent.network
+                });
+
+            }
+
+        }
+
+        return [...rooms.values()];
 
     }
 
