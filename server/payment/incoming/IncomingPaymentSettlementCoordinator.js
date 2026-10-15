@@ -54,14 +54,12 @@
  *
  * What an observation proves
  * --------------------------
- * A Toncenter v3 `/transactions` row proves that the provider returned that
- * transaction for the queried account inside the requested window, with the
- * mapped message fields. The mapper records the provider's own "commitment"
- * vocabulary in `providerTransactionIdentity.confirmed`; the implementation
- * does NOT re-derive finality, confirmation depth or irreversibility from it and
- * this coordinator deliberately ignores that flag. Whether the provider's
- * returned transaction is final, irreversible, or safe to release funds against
- * is NOT established here.
+ * A Toncenter v3 `/transactions` row alone is never settlement evidence.
+ * Settlement additionally requires an exact observation-service result with
+ * fresh Testnet identity, inclusion and `finalized` evidence that passes the
+ * explicit policy. The mapper's `confirmed` flag is ignored. The current
+ * production observation service has no finality provider configured, so its
+ * observations remain ineligible for settlement.
  */
 
 import { PaymentValidationError } from "../PaymentErrors.js";
@@ -81,7 +79,10 @@ import {
     tonAddressIdentitiesEqual
 } from "./index.js";
 
-import { RoomPaymentObservationService } from "../toncenter/RoomPaymentObservationService.js";
+import {
+    RoomPaymentObservationService,
+    hasTrustedRoomPaymentSettlementEvidence
+} from "../toncenter/RoomPaymentObservationService.js";
 
 /** Whole-pass refusals: nothing at all was settled by this call. */
 export const INCOMING_SETTLEMENT_REFUSAL = Object.freeze({
@@ -110,6 +111,7 @@ export const INCOMING_SETTLEMENT_REFUSAL_REASON = Object.freeze({
     MATCH_VALIDATION_FAILED: "MATCH_VALIDATION_FAILED",
     TRANSACTION_OUTSIDE_WINDOW: "TRANSACTION_OUTSIDE_WINDOW",
     TRANSACTION_PREDATES_INTENT: "TRANSACTION_PREDATES_INTENT",
+    SETTLEMENT_EVIDENCE_UNAVAILABLE: "SETTLEMENT_EVIDENCE_UNAVAILABLE",
     TRANSITION_REJECTED: "TRANSITION_REJECTED"
 
 });
@@ -530,6 +532,23 @@ export class IncomingPaymentSettlementCoordinator {
             const transfer = observation.transfers.find(
                 (candidate) => candidate.transactionId === entry.transactionId
             ) ?? null;
+
+            // Independent final authorization check precedes candidate
+            // matching and every state transition. It is bound to the exact
+            // observation result and ignores transfer.confirmed entirely.
+            if (!hasTrustedRoomPaymentSettlementEvidence(
+                observation,
+                transfer,
+                this._nowProvider()
+            )) {
+                refused.push({
+                    paymentReference: authoritative.paymentReference,
+                    reason: INCOMING_SETTLEMENT_REFUSAL_REASON
+                        .SETTLEMENT_EVIDENCE_UNAVAILABLE,
+                    details: { policy: "ton-testnet-masterchain-finalized-v1" }
+                });
+                continue;
+            }
 
             const validation = this._validateCandidate({
                 intent: authoritative,

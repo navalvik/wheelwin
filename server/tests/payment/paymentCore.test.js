@@ -52,6 +52,7 @@ import {
     ToncenterIncomingProvider,
     ToncenterTransactionsClient
 } from "../../payment/toncenter/index.js";
+import { SyntheticTonSettlementEvidenceProvider } from "../helpers/syntheticTonSettlementEvidence.js";
 
 import {
     IncomingPaymentSettlementCoordinator
@@ -266,7 +267,11 @@ function buildHarness({ assets = configuredAssets(), clock = null } = {}) {
 
     });
 
-    const observationService = new RoomPaymentObservationService({ provider: new ToncenterIncomingProvider({ client }), nowProvider });
+    const observationService = new RoomPaymentObservationService({
+        provider: new ToncenterIncomingProvider({ client }),
+        settlementEvidenceProvider: new SyntheticTonSettlementEvidenceProvider({ nowProvider }),
+        nowProvider
+    });
     const service = new RoomWalletPaymentService({
         walletPool,
         intentStore,

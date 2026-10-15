@@ -31,7 +31,9 @@ import {
     TONCENTER_API_KEY_ENV_VAR,
     TONCENTER_DEFAULT_TIMEOUT_MS,
     TONCENTER_MAX_TRANSACTION_LIMIT,
+    TONCENTER_MASTERCHAIN_INFO_PATH,
     TONCENTER_TESTNET_BASE_URL,
+    TONCENTER_STREAMING_V2_SSE_PATH,
     TONCENTER_TRANSACTIONS_PATH
 } from "./ToncenterConstants.js";
 
@@ -131,6 +133,138 @@ export class ToncenterTransactionsClient {
     get timeoutMs() {
 
         return this._timeoutMs;
+
+    }
+
+    /**
+     * Read the current indexed masterchain head. The caller must validate its
+     * `global_id`; the client does not infer a network from the configured URL.
+     */
+    async getMasterchainInfo() {
+
+        const apiKey = this._apiKeyProvider();
+        if (typeof apiKey !== "string" || apiKey.trim() === "") {
+            throw new ToncenterApiKeyMissingError(TONCENTER_API_KEY_ENV_VAR);
+        }
+
+        return this._requestJson(
+            `${this._baseUrl.replace(/\/+$/, "")}${TONCENTER_MASTERCHAIN_INFO_PATH}`,
+            { method: "GET", headers: { "X-API-Key": apiKey.trim() } },
+            "masterchain identity"
+        );
+
+    }
+
+    /**
+     * Open one authenticated, read-only SSE subscription on Testnet.
+     * The returned response body remains owned by the caller and is closed by
+     * aborting `signal`; there are no retries or reconnects.
+     */
+    async openFinalizedTransactionsStream({ account, signal }) {
+
+        assertNonEmptyString(account, "account");
+        if (!signal || typeof signal.addEventListener !== "function") {
+            throw new ToncenterRequestError("stream signal is required");
+        }
+
+        const apiKey = this._apiKeyProvider();
+        if (typeof apiKey !== "string" || apiKey.trim() === "") {
+            throw new ToncenterApiKeyMissingError(TONCENTER_API_KEY_ENV_VAR);
+        }
+
+        const url = `${this._baseUrl.replace(/\/+$/, "")}${TONCENTER_STREAMING_V2_SSE_PATH}`;
+        const requestController = new AbortController();
+        const abortWithSession = () => requestController.abort();
+        if (signal.aborted) requestController.abort();
+        else signal.addEventListener("abort", abortWithSession, { once: true });
+        let timedOut = false;
+        const openTimer = setTimeout(() => {
+            timedOut = true;
+            requestController.abort();
+        }, this._timeoutMs);
+        let response;
+        try {
+            response = await this._fetch(url, {
+                method: "POST",
+                headers: {
+                    "X-API-Key": apiKey.trim(),
+                    "Content-Type": "application/json",
+                    Accept: "text/event-stream"
+                },
+                body: JSON.stringify({
+                    types: ["transactions"],
+                    addresses: [account],
+                    min_finality: "finalized",
+                    include_address_book: false
+                }),
+                signal: requestController.signal
+            });
+        } catch (error) {
+            throw new ToncenterRequestError(
+                "Toncenter streaming request failed before the SSE connection was established",
+                { failure: signal.aborted ? "aborted" : timedOut ? "timeout" : "network" }
+            );
+        } finally {
+            clearTimeout(openTimer);
+        }
+
+        if (response?.status !== 200) {
+            const status = response?.status;
+            if (status === 401 || status === 403) throw new ToncenterAuthenticationError(status);
+            if (status === 429) throw new ToncenterRateLimitError(status);
+            if (typeof status === "number" && status >= 500) throw new ToncenterServiceError(status);
+            throw new ToncenterRequestError(
+                `Toncenter rejected the streaming subscription (HTTP ${status})`,
+                { statusCode: status }
+            );
+        }
+
+        const contentType = response.headers?.get?.("content-type") ?? "";
+        if (!/^text\/event-stream(?:\s*;|$)/i.test(contentType)
+            || !response.body
+            || typeof response.body.getReader !== "function") {
+            try { await response.body?.cancel?.(); } catch {}
+            throw new ToncenterResponseError(
+                "Toncenter streaming response is not a readable SSE stream"
+            );
+        }
+        return response;
+
+    }
+
+    async _requestJson(url, init, description) {
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this._timeoutMs);
+        let response;
+        try {
+            response = await this._fetch(url, { ...init, signal: controller.signal });
+        } catch (error) {
+            throw new ToncenterRequestError(
+                `Toncenter ${description} request failed`,
+                { failure: controller.signal.aborted ? "timeout" : "network" }
+            );
+        } finally {
+            clearTimeout(timer);
+        }
+        if (response?.status !== 200) {
+            const status = response?.status;
+            if (status === 401 || status === 403) throw new ToncenterAuthenticationError(status);
+            if (status === 429) throw new ToncenterRateLimitError(status);
+            if (typeof status === "number" && status >= 500) throw new ToncenterServiceError(status);
+            throw new ToncenterRequestError(
+                `Toncenter rejected the ${description} request (HTTP ${status})`,
+                { statusCode: status }
+            );
+        }
+        try {
+            const body = await response.json();
+            if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("shape");
+            return body;
+        } catch (error) {
+            if (error instanceof ToncenterResponseError) throw error;
+            throw new ToncenterResponseError(`Toncenter ${description} response is malformed`);
+        }
 
     }
 

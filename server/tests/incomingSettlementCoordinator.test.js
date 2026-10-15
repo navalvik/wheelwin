@@ -52,6 +52,7 @@ import {
     ToncenterResponseError,
     ToncenterTransactionsClient
 } from "../payment/toncenter/index.js";
+import { SyntheticTonSettlementEvidenceProvider } from "./helpers/syntheticTonSettlementEvidence.js";
 
 const BASE_MS = 1_700_000_000_000;
 const CREATED_AT = BASE_MS + 1_000;
@@ -122,7 +123,7 @@ function defaultAssets(network) {
     ];
 }
 
-function buildHarness({ network = "testnet", limit = 50, responseStatus = 200 } = {}) {
+function buildHarness({ network = "testnet", limit = 50, responseStatus = 200, withFinalityEvidence = true, evidenceFactory = null } = {}) {
     const workspace = mkdtempSync(join(tmpdir(), "wheelwin-settlement-regression-"));
     const configDir = join(workspace, "config");
     const dataDir = join(workspace, "data");
@@ -152,6 +153,12 @@ function buildHarness({ network = "testnet", limit = 50, responseStatus = 200 } 
     const provider = new ToncenterIncomingProvider({ client });
     const observationService = new RoomPaymentObservationService({
         provider,
+        settlementEvidenceProvider: withFinalityEvidence
+            ? new SyntheticTonSettlementEvidenceProvider({
+                nowProvider: clock,
+                evidenceFactory
+            })
+            : null,
         nowProvider: clock,
         limit
     });
@@ -278,7 +285,7 @@ async function settle(harness, roomId = "room-regression", options = {}) {
 async function section(name, callback) {
     await callback();
     sectionCount += 1;
-    process.stdout.write(`[G${sectionCount}/13] PASS ${name}\n`);
+    process.stdout.write(`[G${sectionCount}/15] PASS ${name}\n`);
 }
 
 async function run() {
@@ -585,8 +592,100 @@ async function run() {
         });
     });
 
-    if (sectionCount !== 13) {
-        throw new Error(`Expected 13 groups; ran ${sectionCount}`);
+    // G14: A normalized provider flag cannot replace trusted finality evidence.
+    await section("provider confirmation flag alone cannot settle or book principal", async () => {
+        await usingHarness({ withFinalityEvidence: false }, async (h) => {
+            const intent = makeIntent(h);
+            const wallet = h.service.getWalletForRoom(intent.roomId);
+            h.setPayload(rowPayload(transactionFor(intent, wallet)));
+            const report = await settle(h);
+            equal(report.settled.length, 0, "confirmation flag does not authorize settlement");
+            equal(report.refused[0].reason,
+                INCOMING_SETTLEMENT_REFUSAL_REASON.SETTLEMENT_EVIDENCE_UNAVAILABLE,
+                "coordinator reports missing finality evidence");
+            equal(h.service.getPaymentIntent(intent.paymentReference).state, "PENDING",
+                "intent remains unsettled");
+            equal(h.ledger.store.list().filter((entry) =>
+                entry.kind === LEDGER_ENTRY_KIND.INCOMING_PRINCIPAL).length, 0,
+            "no principal is booked");
+            equal(h.ledger.getTotalSettledPrincipalAtomic(intent.roomId), 0,
+                "ledger total remains zero");
+        });
+    });
+
+    // G15: Malformed, contradictory and stale evidence are blocked before state or ledger writes.
+    await section("malformed, contradictory and stale evidence leave intent and ledger unchanged", async () => {
+        const invalidEvidence = [
+            (query) => ({
+                networkIdentity: undefined,
+                transactionInclusion: {
+                    transactionId: query.providerTransactionId,
+                    accountId: query.accountId,
+                    block: { workchain: 0, shard: "8000000000000000", seqno: 10 }
+                },
+                finality: { status: "finalized" }
+            }),
+            (query) => {
+                const block = { workchain: 0, shard: "8000000000000000", seqno: 10 };
+                const observedAtMs = NOW_MS;
+                return {
+                    networkIdentity: {
+                        network: "testnet", globalId: -3,
+                        source: "toncenter-masterchain-info", observedAtMs
+                    },
+                    transactionInclusion: {
+                        transactionId: query.providerTransactionId,
+                        accountId: query.accountId, block
+                    },
+                    finality: {
+                        status: "finalized", source: "toncenter-streaming-v2",
+                        transactionId: "different-transaction",
+                        accountId: query.accountId, block,
+                        masterchainSeqno: 11, observedAtMs
+                    }
+                };
+            },
+            (query) => {
+                const block = { workchain: 0, shard: "8000000000000000", seqno: 10 };
+                const observedAtMs = NOW_MS - 30_001;
+                return {
+                    networkIdentity: {
+                        network: "testnet", globalId: -3,
+                        source: "toncenter-masterchain-info", observedAtMs
+                    },
+                    transactionInclusion: {
+                        transactionId: query.providerTransactionId,
+                        accountId: query.accountId, block
+                    },
+                    finality: {
+                        status: "finalized", source: "toncenter-streaming-v2",
+                        transactionId: query.providerTransactionId,
+                        accountId: query.accountId, block,
+                        masterchainSeqno: 11, observedAtMs
+                    }
+                };
+            }
+        ];
+        for (const evidenceFactory of invalidEvidence) {
+            await usingHarness({ evidenceFactory }, async (h) => {
+                const intent = makeIntent(h);
+                const wallet = h.service.getWalletForRoom(intent.roomId);
+                h.setPayload(rowPayload(transactionFor(intent, wallet)));
+                const report = await settle(h);
+                equal(report.settled.length, 0, "invalid evidence cannot settle");
+                equal(report.refused[0].reason,
+                    INCOMING_SETTLEMENT_REFUSAL_REASON.SETTLEMENT_EVIDENCE_UNAVAILABLE,
+                    "invalid evidence is refused by coordinator");
+                equal(h.service.getPaymentIntent(intent.paymentReference).state, "PENDING",
+                    "invalid evidence leaves the intent pending");
+                equal(h.ledger.getTotalSettledPrincipalAtomic(intent.roomId), 0,
+                    "invalid evidence leaves ledger principal at zero");
+            });
+        }
+    });
+
+    if (sectionCount !== 15) {
+        throw new Error(`Expected 15 groups; ran ${sectionCount}`);
     }
     process.stdout.write(`PASS ${sectionCount} groups, ${assertionCount} assertions\n`);
 }

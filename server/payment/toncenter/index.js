@@ -30,6 +30,8 @@
 export {
     TONCENTER_TESTNET_BASE_URL,
     TONCENTER_TRANSACTIONS_PATH,
+    TONCENTER_MASTERCHAIN_INFO_PATH,
+    TONCENTER_STREAMING_V2_SSE_PATH,
     TONCENTER_API_KEY_ENV_VAR,
     TONCENTER_PROVIDER_ID,
     TONCENTER_NETWORK,
@@ -58,6 +60,8 @@ export {
     defaultApiKeyProvider
 } from "./ToncenterTransactionsClient.js";
 
+export { ToncenterFinalityEvidenceProvider } from "./ToncenterFinalityEvidenceProvider.js";
+
 export {
     mapToncenterTransactionsResponse,
     resolveAddress
@@ -72,5 +76,14 @@ export { ToncenterIncomingProvider } from "./ToncenterIncomingProvider.js";
 
 export {
     RoomPaymentObservationService,
-    isTrustedRoomPaymentObservationResult
+    isTrustedRoomPaymentObservationResult,
+    hasTrustedRoomPaymentSettlementEvidence
 } from "./RoomPaymentObservationService.js";
+
+export {
+    TON_TESTNET_GLOBAL_ID,
+    TON_SETTLEMENT_EVIDENCE_POLICY,
+    TonPaymentSettlementEvidenceProvider,
+    assessTonPaymentSettlementEvidence,
+    assertTonPaymentSettlementEvidence
+} from "../incoming/TonPaymentSettlementEvidence.js";

@@ -53,6 +53,7 @@ import {
 import {
     IncomingPaymentSettlementCoordinator
 } from "../payment/incoming/IncomingPaymentSettlementCoordinator.js";
+import { SyntheticTonSettlementEvidenceProvider } from "./helpers/syntheticTonSettlementEvidence.js";
 
 // ---------------------------------------------------------------------------
 // Minimal assertion + harness helpers
@@ -204,7 +205,11 @@ function buildHarness(options = {}) {
             })
         })
     });
-    const observationService = new RoomPaymentObservationService({ provider: new ToncenterIncomingProvider({ client }), nowProvider: clock });
+    const observationService = new RoomPaymentObservationService({
+        provider: new ToncenterIncomingProvider({ client }),
+        settlementEvidenceProvider: new SyntheticTonSettlementEvidenceProvider({ nowProvider: clock }),
+        nowProvider: clock
+    });
     const service = new RoomWalletPaymentService({
         walletPool,
         intentStore,

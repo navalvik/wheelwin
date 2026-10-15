@@ -14,11 +14,10 @@
  *     (configurable; default 8 requests/second);
  *   - HTTP 429 stops the call with `ToncenterRateLimitError` — never
  *     retried, never converted into a hidden polling loop;
- *   - results are observation-only. A match NEVER marks an intent paid or
- *     confirmed: no intent is read from or written to any store, and no
- *     payment intent is mutated. A transfer matching several intents, and
- *     several transfers matching one intent, are both reported as ambiguous
- *     and are never attributed by guessing.
+ *   - results are observation-only: this service never reads or writes an
+ *     intent store. Optional settlement evidence is separately validated and
+ *     bound to the exact immutable observation; without a configured evidence
+ *     provider, coordinator settlement remains blocked.
  *
  * Per-check flow: acquire a rate slot -> ONE bounded transaction query for
  * the room wallet -> Phase 2 normalization -> evaluate every payment intent
@@ -51,6 +50,11 @@ import { ToncenterIncomingProvider } from "./ToncenterIncomingProvider.js";
 
 import { PaymentConfigurationError, PaymentValidationError } from "../PaymentErrors.js";
 
+import {
+    TonPaymentSettlementEvidenceProvider,
+    assessTonPaymentSettlementEvidence
+} from "../incoming/TonPaymentSettlementEvidence.js";
+
 /**
  * Module-private registry of the EXACT immutable observation result objects
  * this module returned after a successful provider observation, keyed by the
@@ -67,12 +71,14 @@ import { PaymentConfigurationError, PaymentValidationError } from "../PaymentErr
  *     observation, so a result produced by a DIFFERENT
  *     `RoomPaymentObservationService` instance is never trusted by another one.
  *
- * Observation-only, always: an entry in this set proves ONLY that the
- * configured provider returned the mapped transaction for the queried account
- * inside the requested window. It establishes NOTHING about finality,
- * confirmation depth or irreversibility.
+ * Observation-only trust: this registry proves that the configured provider
+ * returned the mapped transaction for the queried account and window. It does
+ * not itself establish chain identity or finality; those are checked against
+ * separately fetched evidence and stored in a distinct private registry.
  */
 const trustedObservationResults = new WeakMap();
+const trustedSettlementEvidence = new WeakMap();
+const trustedSettlementWindows = new WeakMap();
 
 /**
  * Mark one immutable observation result as produced by `service`. Private to
@@ -96,6 +102,44 @@ function markTrustedObservationResult(service, result) {
 
     results.add(result);
 
+}
+
+function snapshotSettlementEvidence(evidence) {
+    const network = evidence.networkIdentity;
+    const inclusion = evidence.transactionInclusion;
+    const finality = evidence.finality;
+    const block = inclusion.block;
+    const finalizedBlock = finality.block;
+    return Object.freeze({
+        networkIdentity: Object.freeze({
+            network: network.network,
+            globalId: network.globalId,
+            source: network.source,
+            observedAtMs: network.observedAtMs
+        }),
+        transactionInclusion: Object.freeze({
+            transactionId: inclusion.transactionId,
+            accountId: inclusion.accountId,
+            block: Object.freeze({
+                workchain: block.workchain,
+                shard: block.shard,
+                seqno: block.seqno
+            })
+        }),
+        finality: Object.freeze({
+            status: finality.status,
+            source: finality.source,
+            transactionId: finality.transactionId,
+            accountId: finality.accountId,
+            block: Object.freeze({
+                workchain: finalizedBlock.workchain,
+                shard: finalizedBlock.shard,
+                seqno: finalizedBlock.seqno
+            }),
+            masterchainSeqno: finality.masterchainSeqno,
+            observedAtMs: finality.observedAtMs
+        })
+    });
 }
 
 /**
@@ -132,6 +176,29 @@ export function isTrustedRoomPaymentObservationResult(result, observationService
 
 }
 
+/**
+ * Read-only coordinator predicate. Evidence is trusted only when the exact
+ * observation service fetched it from its configured evidence provider and
+ * validated it; normalized transfer flags are never consulted.
+ */
+export function hasTrustedRoomPaymentSettlementEvidence(result, transfer, nowMs) {
+    if (result === null || typeof result !== "object"
+        || transfer === null || typeof transfer !== "object") {
+        return false;
+    }
+    const evidence = trustedSettlementEvidence.get(result)
+        ?.get(transfer.transactionId);
+    if (!evidence) return false;
+    const window = trustedSettlementWindows.get(result);
+    if (window && typeof window.provider.isObservationValid === "function"
+        && !window.provider.isObservationValid(window.session)) return false;
+    return assessTonPaymentSettlementEvidence(evidence, {
+        transactionId: transfer.providerTransactionIdentity?.transactionId,
+        accountId: transfer.providerTransactionIdentity?.accountId,
+        nowMs
+    }).authorized;
+}
+
 function assertNonEmptyString(value, field) {
 
     if (typeof value !== "string" || value.trim() === "") {
@@ -151,6 +218,7 @@ export class RoomPaymentObservationService {
      * @param {{
      *   provider: ToncenterIncomingProvider,
      *   incomingProvider?: ToncenterIncomingProvider,
+     *   settlementEvidenceProvider?: TonPaymentSettlementEvidenceProvider|null,
      *   rateLimiter?: ToncenterRateLimiter,
      *   requestsPerSecond?: number,
      *   limit?: number,
@@ -160,6 +228,7 @@ export class RoomPaymentObservationService {
     constructor({
         provider = null,
         incomingProvider = null,
+        settlementEvidenceProvider = null,
         rateLimiter = null,
         requestsPerSecond,
         limit = TONCENTER_DEFAULT_TRANSACTION_LIMIT,
@@ -183,6 +252,13 @@ export class RoomPaymentObservationService {
 
         }
 
+        if (settlementEvidenceProvider !== null
+            && !(settlementEvidenceProvider instanceof TonPaymentSettlementEvidenceProvider)) {
+            throw new PaymentConfigurationError(
+                "settlementEvidenceProvider must implement the trusted TON evidence capability"
+            );
+        }
+
         if (requestsPerSecond !== undefined && rateLimiter !== null) {
 
             throw new PaymentConfigurationError(
@@ -193,6 +269,11 @@ export class RoomPaymentObservationService {
         }
 
         this._provider = effectiveProvider;
+
+        // No production Toncenter implementation is configured in this
+        // milestone. Null therefore means observation is allowed but
+        // settlement authorization remains unavailable.
+        this._settlementEvidenceProvider = settlementEvidenceProvider;
 
         this._rateLimiter = rateLimiter ?? new ToncenterRateLimiter({
 
@@ -272,6 +353,23 @@ export class RoomPaymentObservationService {
 
     }
 
+    /** Open a live Testnet evidence window before a manually initiated transfer. */
+    async beginSettlementEvidenceWindow({ walletAddress } = {}) {
+        assertNonEmptyString(walletAddress, "walletAddress");
+        if (typeof this._settlementEvidenceProvider?.beginObservation !== "function") {
+            throw new PaymentConfigurationError("configured evidence provider does not support live observation windows");
+        }
+        return this._settlementEvidenceProvider.beginObservation({ accountId: walletAddress.trim() });
+    }
+
+    /** Close an explicitly opened evidence window; it is never reconnected. */
+    async endSettlementEvidenceWindow(session) {
+        if (typeof this._settlementEvidenceProvider?.endObservation !== "function") {
+            throw new PaymentConfigurationError("configured evidence provider does not support live observation windows");
+        }
+        return this._settlementEvidenceProvider.endObservation(session);
+    }
+
     /**
      * Observe incoming transactions for one room's assigned wallet and
      * evaluate them against that room's payment intents.
@@ -284,6 +382,7 @@ export class RoomPaymentObservationService {
      *   ceilingMs?: number,
      *   limit?: number,
      *   destinationWalletId?: string|null
+     *   observationSession?: object|null
      * }} request
      * @returns {Promise<Readonly<object>>} observation-only result
      */
@@ -294,7 +393,8 @@ export class RoomPaymentObservationService {
         floorMs,
         ceilingMs,
         limit = this._limit,
-        destinationWalletId = null
+        destinationWalletId = null,
+        observationSession = null
     }) {
 
         assertNonEmptyString(roomId, "roomId");
@@ -362,7 +462,8 @@ export class RoomPaymentObservationService {
             floorMs,
             ceilingMs: effectiveCeiling,
             limit,
-            destinationWalletId
+            destinationWalletId,
+            observationSession
 
         });
 
@@ -396,7 +497,40 @@ export class RoomPaymentObservationService {
         floorMs,
         ceilingMs,
         limit,
-        destinationWalletId
+        destinationWalletId,
+        observationSession = null
+    }) {
+
+        let session = observationSession;
+        let ownsSession = false;
+        if (this._settlementEvidenceProvider !== null
+            && typeof this._settlementEvidenceProvider.beginObservation === "function"
+            && session === null) {
+            session = await this._settlementEvidenceProvider.beginObservation({ accountId: walletAddress });
+            ownsSession = true;
+        }
+        try {
+            return await this._runCheckWithSession({
+                roomId, walletAddress, paymentIntents, floorMs, ceilingMs,
+                limit, destinationWalletId, observationSession: session
+            });
+        } finally {
+            if (ownsSession) {
+                await this._settlementEvidenceProvider.endObservation(session);
+            }
+        }
+
+    }
+
+    async _runCheckWithSession({
+        roomId,
+        walletAddress,
+        paymentIntents,
+        floorMs,
+        ceilingMs,
+        limit,
+        destinationWalletId,
+        observationSession = null
     }) {
 
         await this._rateLimiter.acquire();
@@ -413,6 +547,8 @@ export class RoomPaymentObservationService {
 
         const transfers = [];
 
+        const evidenceByTransactionId = new Map();
+
         const observations = [];
 
         /** paymentReference -> Set<transactionId> of transfers matching it. */
@@ -427,6 +563,35 @@ export class RoomPaymentObservationService {
             });
 
             transfers.push(transfer);
+
+            if (this._settlementEvidenceProvider !== null) {
+                let evidence = null;
+                try {
+                    evidence = await this._settlementEvidenceProvider
+                        .getSettlementEvidence({
+                            accountId: walletAddress,
+                            providerTransactionId:
+                                transfer.providerTransactionIdentity.transactionId,
+                            transactionTime: transfer.transactionTime,
+                            observationSession
+                        });
+                } catch {
+                    // Evidence provider errors fail closed for this transfer.
+                }
+                try {
+                    const snapshot = snapshotSettlementEvidence(evidence);
+                    const decision = assessTonPaymentSettlementEvidence(snapshot, {
+                        transactionId: transfer.providerTransactionIdentity.transactionId,
+                        accountId: transfer.providerTransactionIdentity.accountId,
+                        nowMs: now
+                    });
+                    if (decision.authorized) {
+                        evidenceByTransactionId.set(transfer.transactionId, snapshot);
+                    }
+                } catch {
+                    // Malformed and accessor-backed evidence is never retained.
+                }
+            }
 
             const entry = this._evaluateTransfer(transfer, paymentIntents);
 
@@ -482,6 +647,7 @@ export class RoomPaymentObservationService {
             disposition: PAYMENT_CONFIRMATION_DISPOSITION.OBSERVATION_ONLY,
             paymentConfirmation: false,
             canConfirmPayments: false,
+            settlementEvidenceAvailable: evidenceByTransactionId.size > 0,
             providerRequests: 1,
             resultWindowComplete: observation.resultWindowComplete === true,
             window: Object.freeze({
@@ -498,6 +664,14 @@ export class RoomPaymentObservationService {
         // it is registered in the module-private registry of THIS instance.
         // Nothing a caller supplies afterwards can enter that registry.
         markTrustedObservationResult(this, result);
+
+        trustedSettlementEvidence.set(result, evidenceByTransactionId);
+        if (observationSession !== null && this._settlementEvidenceProvider !== null) {
+            trustedSettlementWindows.set(result, {
+                provider: this._settlementEvidenceProvider,
+                session: observationSession
+            });
+        }
 
         return result;
 

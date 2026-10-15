@@ -45,6 +45,7 @@ import {
     ToncenterRateLimitError,
     ToncenterTransactionsClient
 } from "../../payment/toncenter/index.js";
+import { SyntheticTonSettlementEvidenceProvider } from "../helpers/syntheticTonSettlementEvidence.js";
 import {
     DESCRIPTOR_STAKE_RELATION,
     RoomPaymentSessionAdapter,
@@ -416,6 +417,7 @@ function createComponents(workspace, {
     });
     const observationService = new RoomPaymentObservationService({
         provider: new ToncenterIncomingProvider({ client }),
+        settlementEvidenceProvider: new SyntheticTonSettlementEvidenceProvider({ nowProvider: clock }),
         nowProvider: clock,
         limit
     });

@@ -25,6 +25,12 @@ export const TONCENTER_TESTNET_BASE_URL = "https://testnet.toncenter.com";
 /** Documented v3 transactions path. */
 export const TONCENTER_TRANSACTIONS_PATH = "/api/v3/transactions";
 
+/** Read-only v3 masterchain identity endpoint. */
+export const TONCENTER_MASTERCHAIN_INFO_PATH = "/api/v3/masterchainInfo";
+
+/** Testnet Streaming API v2 server-sent events endpoint. */
+export const TONCENTER_STREAMING_V2_SSE_PATH = "/api/streaming/v2/sse";
+
 /**
  * The single existing runtime environment variable holding the API key.
  * A second key variable must never be introduced.
