@@ -304,6 +304,49 @@ async function main() {
         console.log("  escalation: OK");
     }
 
+    // --- Policy registration: all referenced policies are defined ---
+
+    {
+        // initialize() registers Gameplay, Payment, Blockchain, Network,
+        // Storage. If any referenced symbol is undefined, this throws
+        // ReferenceError before returning the manager.
+        const manager = createManager();
+
+        assert.ok(manager.isEnabled());
+
+        for (const component of [
+            "gameplay",
+            "payment",
+            "blockchain",
+            "network",
+            "storage"
+        ]) {
+
+            const result = manager.decide({
+                component,
+                operation: "op",
+                error: new Error("temporary"),
+                attempt: 1
+            });
+
+            assert.ok(result);
+            assert.ok([
+                "RETRY_NOW",
+                "RETRY_LATER",
+                "FAIL",
+                "ESCALATE",
+                "SHUTDOWN",
+                "IGNORE"
+            ].includes(result.decision));
+        }
+
+        const status = manager.getSafeStatus();
+
+        assert.equal(status.enabled, true);
+
+        console.log("  policy registration: OK");
+    }
+
     // --- Manager integration ---
 
     {

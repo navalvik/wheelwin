@@ -26,6 +26,8 @@ import {
 import { GameplayPolicy } from "./policies/GameplayPolicy.js";
 import { NetworkPolicy } from "./policies/NetworkPolicy.js";
 import { StoragePolicy } from "./policies/StoragePolicy.js";
+import { PaymentPolicy } from "./policies/PaymentPolicy.js";
+import { BlockchainPolicy } from "./policies/BlockchainPolicy.js";
 
 export class FailurePolicyManager {
 
