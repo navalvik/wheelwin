@@ -244,6 +244,7 @@ export function validateEnvironment(collector, env) {
 
     validateIntegerField(
         collector,
+        ENVIRONMENT_SCHEMA.PAYMENT_COLLECTION_INTERVAL_MS,
         env.PAYMENT_COLLECTION_INTERVAL_MS
     );
 

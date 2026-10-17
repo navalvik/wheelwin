@@ -163,6 +163,14 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Metrics",
         suggestedFix: "Set SIMULATION_COLLECTION_INTERVAL_MS to an integer >= 50."
     }),
+    PAYMENT_COLLECTION_INTERVAL_MS: Object.freeze({
+        key: "PAYMENT_COLLECTION_INTERVAL_MS",
+        type: "integer",
+        required: false,
+        min: 50,
+        category: "Metrics",
+        suggestedFix: "Set PAYMENT_COLLECTION_INTERVAL_MS to an integer >= 50."
+    }),
     RECOVERY_COLLECTION_INTERVAL_MS: Object.freeze({
         key: "RECOVERY_COLLECTION_INTERVAL_MS",
         type: "integer",
