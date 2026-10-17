@@ -12,9 +12,16 @@ import {
     resolveGameplayRecoveryPage
 } from "./recoveryFlow.js";
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
 import { normalizeSessionSnapshot } from "./sessionSnapshotUtils.js";
 
 import { GAME_STATES } from "../GameState";
+
+const sourceDirectory = dirname(fileURLToPath(import.meta.url));
+const appSource = readFileSync(resolve(sourceDirectory, "../../App.jsx"), "utf8");
 
 function assert(condition, message) {
 
@@ -31,6 +38,16 @@ function assert(condition, message) {
 // ---------------------------------------------------------------------------
 
 {
+
+    assert(APP_PAGES.PAYMENT === 6, "Page4 payment maps to app page 6");
+    assert(APP_PAGES.GAMEPLAY === 7, "Page5 gameplay maps to app page 7");
+    assert(APP_PAGES.RESULT === 8, "Page6 result maps to app page 8");
+    assert(/case APP_PAGES\.PAYMENT:\s+return \(\s+<Page4Payment/s.test(appSource),
+        "App.jsx renders Page4Payment at the payment page constant");
+    assert(/case APP_PAGES\.GAMEPLAY:\s+return \(\s+<Page5Game/s.test(appSource),
+        "App.jsx renders Page5Game after Page4");
+    assert(/case APP_PAGES\.RESULT:\s+return \(\s+<Page6Result/s.test(appSource),
+        "App.jsx renders Page6Result after Page5");
 
     assert(isPreGamePage(APP_PAGES.PLAYER_SETUP), "page 3 is pre-game");
 
