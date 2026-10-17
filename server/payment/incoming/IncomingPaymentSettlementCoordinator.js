@@ -260,7 +260,8 @@ export class IncomingPaymentSettlementCoordinator {
      *   floorMs?: number,
      *   ceilingMs?: number,
      *   limit?: number,
-     *   now?: number
+     *   now?: number,
+     *   observationSession?: object|null
      * }} options
      * @returns {Promise<Readonly<object>>} report (never carries the observation result)
      */
@@ -269,7 +270,8 @@ export class IncomingPaymentSettlementCoordinator {
         floorMs = null,
         ceilingMs = null,
         limit = null,
-        now = null
+        now = null,
+        observationSession = null
     } = {}) {
 
         const room = assertNonEmptyString(roomId, "roomId");
@@ -345,7 +347,8 @@ export class IncomingPaymentSettlementCoordinator {
             floorMs,
             ceilingMs,
             limit,
-            now
+            now,
+            observationSession
         });
 
         // `_report` already returns an immutable report without the observation.
@@ -366,7 +369,8 @@ export class IncomingPaymentSettlementCoordinator {
         floorMs,
         ceilingMs,
         limit,
-        now
+        now,
+        observationSession
     }) {
 
         const earliestIntentAt = intents.reduce(
@@ -414,6 +418,7 @@ export class IncomingPaymentSettlementCoordinator {
             floorMs: observationFloor,
             ceilingMs: observationCeiling,
             destinationWalletId: reservation.walletId,
+            observationSession,
             ...(limit === null ? {} : { limit })
 
         });

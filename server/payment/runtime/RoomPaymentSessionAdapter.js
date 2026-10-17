@@ -30,6 +30,7 @@ import {
 } from "../incoming/index.js";
 import { IncomingPaymentSettlementCoordinator } from "../incoming/IncomingPaymentSettlementCoordinator.js";
 import { PAYMENT_INTENT_STATE } from "../PaymentIntentStatus.js";
+import { assessThreePlayerPaymentGate } from "./ThreePlayerPaymentGate.js";
 import {
     INCOMING_PRINCIPAL_CONFIRMATION_SOURCE,
     LEDGER_ENTRY_KIND,
@@ -55,7 +56,7 @@ const PAYMENT_KEYS = Object.freeze([
     "expectedSender",
     "amountAtomic"
 ]);
-const OBSERVATION_REQUEST_KEYS = Object.freeze(["roomId"]);
+const OBSERVATION_REQUEST_KEYS = Object.freeze(["roomId", "observationSession"]);
 
 export class RoomPaymentSessionValidationError extends Error {
 
@@ -615,13 +616,23 @@ export class RoomPaymentSessionAdapter {
 
     /**
      * Perform one explicit settlement check for an already prepared room.
-     * This accepts only `{ roomId }`; it accepts no caller-supplied transfer,
-     * observation result, confirmation, transaction ID, or trust flag. If
-     * every intent is durably SETTLED, the coordinator may instead return its
-     * distinct persisted-settlement recovery report without querying a provider.
+     * This accepts `{ roomId }` and an optional opaque observation session
+     * opened by the configured evidence provider. It accepts no caller-
+     * supplied transfer, observation result, confirmation, transaction ID, or
+     * trust flag. If every intent is durably SETTLED, the coordinator may
+     * instead return persisted recovery without querying a provider.
      */
     async observeRoomPayments(request) {
-        const input = exactDataRecord(request, OBSERVATION_REQUEST_KEYS, "observation request");
+        // `observationSession` is an opaque handle created by the configured
+        // evidence provider. It can only help the observation path establish
+        // its own evidence; it is never accepted as settlement authority.
+        const suppliedKeys = request && typeof request === "object"
+            ? Reflect.ownKeys(request)
+            : [];
+        const keys = suppliedKeys.includes("observationSession")
+            ? OBSERVATION_REQUEST_KEYS
+            : ["roomId"];
+        const input = exactDataRecord(request, keys, "observation request");
         const roomId = nonEmptyString(input.roomId, "roomId");
         const session = this.#sessions.get(roomId);
         if (!session) {
@@ -629,7 +640,12 @@ export class RoomPaymentSessionAdapter {
         }
 
         // Exactly one coordinator entry point call; no loop, retry, or polling.
-        const report = await this.#coordinator.settleRoomPayments({ roomId });
+        const report = await this.#coordinator.settleRoomPayments({
+            roomId,
+            ...(keys.includes("observationSession")
+                ? { observationSession: input.observationSession }
+                : {})
+        });
         if (!report || report.roomId !== roomId
             || !Array.isArray(report.settled)
             || !Array.isArray(report.alreadySettled)) {
@@ -752,6 +768,68 @@ export class RoomPaymentSessionAdapter {
         return Object.freeze({
             report,
             principalEntries: Object.freeze(principalEntries)
+        });
+    }
+
+    /**
+     * Read the durable, per-player settlement state used by gameplay start.
+     * The roster must come from the server's authoritative room record.
+     */
+    getGameStartGateStatus(roomId, roomPlayerIds) {
+        const session = this.#sessions.get(roomId);
+        if (!session) {
+            return Object.freeze({ eligible: false, reason: "payment_session_missing" });
+        }
+
+        let manifest;
+        try {
+            manifest = this.#manifestStore.get(roomId);
+        } catch {
+            return Object.freeze({ eligible: false, reason: "payment_requirements_unavailable" });
+        }
+        const persistedDescriptor = manifest?.descriptor;
+        const persistedSession = persistedDescriptor && {
+            roomId: persistedDescriptor.roomId,
+            roomCreatedAt: persistedDescriptor.roomCreatedAt,
+            network: persistedDescriptor.network,
+            asset: persistedDescriptor.asset,
+            payments: persistedDescriptor.requiredPlayers
+        };
+        if (!persistedSession
+            || manifest.roomId !== roomId
+            || persistedDescriptor.stakeLedgerRelation !== DESCRIPTOR_STAKE_RELATION
+            || !this.#sameSession(session, persistedSession)) {
+            return Object.freeze({ eligible: false, reason: "persisted_payment_requirements_missing_or_mismatched" });
+        }
+
+        let intents;
+        try {
+            intents = session.payments.map((payment) =>
+                this.#paymentService.getPaymentIntent(payment.paymentReference)
+            );
+        } catch {
+            return Object.freeze({ eligible: false, reason: "payment_state_unavailable" });
+        }
+
+        let principalEntries;
+        try {
+            principalEntries = this.#ledger.store.list().filter((entry) =>
+                entry.kind === LEDGER_ENTRY_KIND.INCOMING_PRINCIPAL
+                    && entry.roomId === roomId
+            );
+        } catch {
+            return Object.freeze({ eligible: false, reason: "payment_ledger_unavailable" });
+        }
+
+        return assessThreePlayerPaymentGate({
+            roomId,
+            roomPlayerIds,
+            network: session.network,
+            asset: session.asset,
+            requirements: session.payments,
+            intents,
+            principalEntries,
+            nowMs: this.#nowProvider()
         });
     }
 

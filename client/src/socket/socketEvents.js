@@ -14,7 +14,14 @@ export const OUTGOING_SOCKET_EVENTS = Object.freeze({
     PONG: "PONG",
     CLIENT_CONNECTED: "CLIENT_CONNECTED",
     CLIENT_DISCONNECTED: "CLIENT_DISCONNECTED",
-    SESSION_RECOVERY_REQUEST: "SESSION_RECOVERY_REQUEST"
+    SESSION_RECOVERY_REQUEST: "SESSION_RECOVERY_REQUEST",
+    // P6.7 — Page4 requests its own authoritative payment status after
+    // mounting so it never stays stale when the original
+    // ENTRY_PAYMENT_SESSION_UPDATED event was emitted before the page
+    // subscribed. The server resolves identity from the socket→player
+    // binding and re-derives the status from the authoritative payment
+    // runtime; the client payload is never trusted.
+    PAYMENT_STATUS_REQUEST: "PAYMENT_STATUS_REQUEST"
 });
 
 export const INCOMING_SOCKET_EVENTS = Object.freeze({
@@ -32,6 +39,9 @@ export const INCOMING_SOCKET_EVENTS = Object.freeze({
     SETUP_SESSION_SYNC: "SETUP_SESSION_SYNC",
     SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
     VERIFY_COMPLETED: "VERIFY_COMPLETED",
+    PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
+    // P6.7 — authoritative per-player entry-payment status (Page4).
+    ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
     // P6.7 — server-owned start gate (Page4 waits; Page5 only on OPEN_PAGE5).
     GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
     GAME_INITIALIZING: "GAME_INITIALIZING",

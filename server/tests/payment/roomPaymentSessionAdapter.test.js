@@ -60,7 +60,7 @@ const SYNTHETIC_API_KEY = "SYNTHETIC-TONCENTER-TEST-KEY-NOT-REAL";
 const TEST_DIR = fileURLToPath(new URL(".", import.meta.url));
 let assertions = 0;
 let sections = 0;
-const TOTAL_SECTIONS = 22;
+const TOTAL_SECTIONS = 23;
 const PROCESS_WORKER_EXIT_CODE = 87;
 
 function check(value, message) {
@@ -919,6 +919,54 @@ async function run() {
             equal(principalEntries(h.ledger, descriptor.roomId).length, 1,
                 "replay cannot double-book principal");
             equal(h.fetchCalls, 1, "settled replay performs no second provider request");
+        });
+    });
+
+    await section("three-player game-start status waits for each independent settled principal", async () => {
+        await withHarness({}, async (h) => {
+            const roomId = "room-three-player-gate";
+            const requiredPlayers = [1, 2, 3].map((number) => ({
+                roomId,
+                paymentReference: `WW-THREE-PLAYER-${number}`,
+                playerId: `three-player-${number}`,
+                expectedSender: syntheticAddress(`three-player-sender-${number}`),
+                amountAtomic: number * 1_000_000_000
+            }));
+            const descriptor = makeDescriptor({ roomId, requiredPlayers });
+            h.adapter.prepareRoom(descriptor);
+
+            const playerIds = requiredPlayers.map((payment) => payment.playerId);
+            equal(h.adapter.getGameStartGateStatus(roomId, playerIds).eligible, false,
+                "unpaid requirements fail closed before observation");
+
+            const readManifest = h.manifestStore.get.bind(h.manifestStore);
+            h.manifestStore.get = () => null;
+            equal(h.adapter.getGameStartGateStatus(roomId, playerIds).eligible, false,
+                "missing persisted requirements fail closed");
+            h.manifestStore.get = readManifest;
+
+            for (let index = 0; index < requiredPlayers.length; index += 1) {
+                const payment = requiredPlayers[index];
+                const intent = h.service.getPaymentIntent(payment.paymentReference);
+                h.setPayload(emptyPayload(transactionFor(
+                    intent,
+                    h.service.getWalletForRoom(roomId)
+                )));
+                await h.adapter.observeRoomPayments({ roomId });
+                const gateStatus = h.adapter.getGameStartGateStatus(roomId, playerIds);
+                equal(gateStatus.eligible,
+                    index === requiredPlayers.length - 1,
+                    `${index + 1} settled player payment${index === 0 ? "" : "s"}`
+                        + (index === requiredPlayers.length - 1
+                            ? " permits the complete gate"
+                            : " do not permit gameplay")
+                        + ` | status=${JSON.stringify(gateStatus)}`);
+            }
+
+            equal(principalEntries(h.ledger, roomId).length, 3,
+                "each player owns one matching persisted principal entry");
+            equal(h.adapter.getGameStartGateStatus(roomId, playerIds.slice(0, 2)).eligible, false,
+                "a roster missing a player cannot reuse the three payment records");
         });
     });
 

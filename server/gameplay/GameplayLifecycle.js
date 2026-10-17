@@ -332,8 +332,6 @@ export class GameplayLifecycle {
 
             // Re-check teardown readiness in case state changed during linger.
 
-            }
-
             this._teardown(gameId);
 
         }, lingerMs);

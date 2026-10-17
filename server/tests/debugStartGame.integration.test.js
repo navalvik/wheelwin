@@ -47,14 +47,18 @@ function connectClient(port) {
 }
 
 const harness = await createLobbyIntegrationHarness();
+const clients = [];
 
 try {
 
     const host = await connectClient(harness.port);
+    clients.push(host);
 
     const guestA = await connectClient(harness.port);
+    clients.push(guestA);
 
     const guestB = await connectClient(harness.port);
+    clients.push(guestB);
 
     host.emit("createRoom");
 
@@ -96,12 +100,6 @@ try {
 
     assert(pending, "DEBUG_START_GAME requires pending gameplay activation");
 
-    const openHost = waitFor(host, "OPEN_PAGE5", 5000);
-
-    const openA = waitFor(guestA, "OPEN_PAGE5", 5000);
-
-    const openB = waitFor(guestB, "OPEN_PAGE5", 5000);
-
     const busEvents = [];
 
     harness.eventBus.subscribe(EVENT_TYPES.GAME_START_AUTHORIZED, (e) => {
@@ -118,54 +116,46 @@ try {
 
     host.emit("DEBUG_START_GAME");
 
-    const [openPayloadHost, openPayloadA, openPayloadB] =
-        await Promise.all([openHost, openA, openB]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     assert(
-        openPayloadHost.roomId === created.roomId
-            && openPayloadA.roomId === created.roomId
-            && openPayloadB.roomId === created.roomId,
-        "OPEN_PAGE5 must reach every client with roomId"
+        !busEvents.includes(EVENT_TYPES.GAME_START_AUTHORIZED),
+        "DEBUG_START_GAME cannot bypass the payment gate"
     );
 
     assert(
-        busEvents.includes(EVENT_TYPES.GAME_START_AUTHORIZED),
-        "DEBUG_START_GAME must route through the game start gate"
+        !busEvents.includes(EVENT_TYPES.GAME_INITIALIZED),
+        "gameplay remains uninitialized while payment acceptance is disabled"
     );
 
     assert(
-        busEvents.includes(EVENT_TYPES.GAME_INITIALIZED),
-        "DEBUG_START_GAME must trigger GAME_INITIALIZED"
+        harness.bootstrapEngines.gameClockEngine.isRunning(pending) === false,
+        "GameClock remains stopped while payments are unavailable"
     );
-
-    assert(
-        harness.bootstrapEngines.gameClockEngine.isRunning(pending),
-        "GameClock must be running after DEBUG_START_GAME"
-    );
-
-    const simulation = harness.bootstrapEngines.physicsEngine
-        .getSimulation(pending);
-
-    assert(simulation, "physics simulation must exist after DEBUG_START_GAME");
 
     // Production guard: bridge rejects when not development.
     harness.roomLobbyBridge._isDevelopment = false;
 
-    const rejectedBefore = harness.roomLobbyBridge
-        ._startedRooms.has(created.roomId);
+    const paymentStageCount = busEvents.filter((type) =>
+        type === EVENT_TYPES.GAME_START_AUTHORIZED).length;
 
     guestA.emit("DEBUG_START_GAME");
 
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    assert(
-        rejectedBefore === true,
-        "toggling isDevelopment off must not clear completed state"
-    );
+    assert(busEvents.filter((type) =>
+        type === EVENT_TYPES.GAME_START_AUTHORIZED).length === paymentStageCount,
+    "the development-only command does not create a gameplay authorization");
 
     console.log("debugStartGame.integration.test.js: all assertions passed");
 
 } finally {
+
+    for (const client of clients) {
+
+        client.disconnect();
+
+    }
 
     await harness.shutdown();
 

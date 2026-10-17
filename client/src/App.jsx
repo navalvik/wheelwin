@@ -6,6 +6,7 @@ import RoomLobby from "./pages/RoomLobby";
 import Page2PlayerSetup from "./pages/Page2PlayerSetup";
 import PageMatrix from "./pages/PageMatrix";
 import Page3VerifyPlayers from "./pages/Page3VerifyPlayers";
+import Page4Payment from "./pages/Page4Payment";
 import Page5Game from "./pages/Page5Game";
 import Page6Result from "./pages/Page6Result";
 
@@ -216,7 +217,7 @@ function GameFlow() {
 
         switch (currentPage) {
 
-            case 1:
+            case APP_PAGES.WELCOME:
 
                 return (
 
@@ -228,7 +229,7 @@ function GameFlow() {
 
                 );
 
-            case 2:
+            case APP_PAGES.LOBBY:
 
                 return (
 
@@ -240,7 +241,7 @@ function GameFlow() {
 
                 );
 
-            case 3:
+            case APP_PAGES.PLAYER_SETUP:
 
                 return (
 
@@ -252,7 +253,7 @@ function GameFlow() {
 
                 );
 
-            case 4:
+            case APP_PAGES.MATRIX:
 
                 return (
 
@@ -264,7 +265,7 @@ function GameFlow() {
 
                 );
 
-            case 5:
+            case APP_PAGES.VERIFY:
 
                 return (
 
@@ -276,7 +277,15 @@ function GameFlow() {
 
                 );
 
-            case 6:
+            case APP_PAGES.PAYMENT:
+
+                return (
+
+                    <Page4Payment />
+
+                );
+
+            case APP_PAGES.GAMEPLAY:
 
                 return (
 
@@ -288,7 +297,7 @@ function GameFlow() {
 
                 );
 
-            case 7:
+            case APP_PAGES.RESULT:
 
                 return (
 

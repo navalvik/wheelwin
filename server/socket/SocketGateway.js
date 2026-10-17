@@ -815,6 +815,21 @@ export class SocketGateway {
 
         });
 
+        // P6.7 — Page4 requests its own authoritative payment status after
+        // mounting so it never stays stale when the original
+        // ENTRY_PAYMENT_SESSION_UPDATED event was emitted before the page
+        // subscribed. Identity is resolved server-side from the socket→player
+        // binding; the client payload is never trusted.
+        socket.on(LOBBY_CLIENT_EVENTS.PAYMENT_STATUS_REQUEST, (payload) => {
+
+            this._emitLobbyRequest(EVENT_TYPES.LOBBY_PAYMENT_STATUS_REQUEST, {
+                socketId: socket.id,
+                roomId: payload?.roomId ?? null,
+                playerId: payload?.playerId ?? null
+            });
+
+        });
+
         // R12.5G — observation-only. Never mutates gameplay / navigation.
         socket.on(LOBBY_CLIENT_EVENTS.PAGE6_CLIENT_DIAG, (payload) => {
 

@@ -14,7 +14,7 @@ import {
     wireGameplayBootstrap
 } from "./gameplayBootstrapHarness.js";
 
-export async function createLobbyIntegrationHarness() {
+export async function createLobbyIntegrationHarness({ paymentGate = undefined } = {}) {
 
     const logger = new LoggerService({ logLevel: "error" });
 
@@ -89,6 +89,7 @@ export async function createLobbyIntegrationHarness() {
         physicsEngine: bootstrapEngines.physicsEngine,
         gameClockEngine: bootstrapEngines.gameClockEngine,
         gameplayContextResolver,
+        paymentGate,
         roomConfig: { maxPlayers: 3 },
         devMode: false
     });

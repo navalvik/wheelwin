@@ -19,6 +19,11 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     VERIFY_NEXT_REQUEST: "VERIFY_NEXT_REQUEST",
     // R1.3D — development-only; SocketGateway rejects outside development.
     DEBUG_START_GAME: "DEBUG_START_GAME",
+    // P6.7 — Page4 requests its own authoritative payment status after
+    // mounting. The client payload (roomId/playerId) is never trusted: the
+    // server resolves identity from the socket→player binding and re-derives
+    // the status from the authoritative payment runtime.
+    PAYMENT_STATUS_REQUEST: "PAYMENT_STATUS_REQUEST",
     // P6.2 — Telegram Wallet / TON Connect reports (connection only).
     WALLET_CONNECT_STARTED: "WALLET_CONNECT_STARTED",
     WALLET_CONNECT_REPORT: "WALLET_CONNECT_REPORT",

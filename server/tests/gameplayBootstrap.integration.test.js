@@ -145,12 +145,12 @@ const gameId = games[0].gameId;
 
 assert(
     bootstrapEngines.gameStateEngine.getState(gameId) === null,
-    "GameState must not initialize before ENTRY_PAYMENT_COMPLETED"
+    "GameState must not initialize before authoritative authorization"
 );
 
 assert(
     bootstrapEngines.gameClockEngine.isRunning(gameId) === false,
-    "GameClock must not run before ENTRY_PAYMENT_COMPLETED"
+    "GameClock must not run before authoritative authorization"
 );
 
 const simulationBefore = bootstrapEngines.physicsEngine.getSimulation(gameId);
@@ -160,13 +160,14 @@ assert(simulationBefore, "physics simulation should exist after prep");
 assert(
     simulationBefore.runtime?.running !== true
         && simulationBefore.runtime?.isRunning !== true,
-    "physics must not be running before ENTRY_PAYMENT_COMPLETED"
+    "physics must not be running before authoritative authorization"
 );
 
-// R1.1 — activate gameplay after entry payment.
+// This test isolates the bootstrap consumer. The separate GameStartAuthorization
+// test verifies that payment prerequisites are required before this event.
 eventBus.emit({
     source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
-    type: EVENT_TYPES.ENTRY_PAYMENT_COMPLETED,
+    type: EVENT_TYPES.GAME_START_AUTHORIZED,
     payload: { roomId: room.roomId }
 });
 
@@ -179,7 +180,7 @@ assert(initializedIndex >= 0, "GAME_INITIALIZED should be emitted");
 
 assert(
     configIndex < initializedIndex,
-    "GAME_INITIALIZED must follow configuration and entry payment"
+    "GAME_INITIALIZED must follow configuration and authoritative authorization"
 );
 
 assert(
@@ -198,7 +199,7 @@ for (const playerId of playerIds) {
 
 assert(
     bootstrapEngines.gameClockEngine.isRunning(gameId),
-    "GameClock should be running after ENTRY_PAYMENT_COMPLETED"
+    "GameClock should be running after GAME_START_AUTHORIZED"
 );
 
 assert(

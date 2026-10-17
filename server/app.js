@@ -94,6 +94,17 @@ import { RecoveryCheckpointManager } from "./recovery/RecoveryCheckpointManager.
 import { RecoveryOrchestrator } from "./recovery/RecoveryOrchestrator.js";
 import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.js";
 
+// R?? — Room-wallet Testnet payment runtime: durable intents, room ledger,
+// wallet reservations, the three-player game-start payment barrier, and
+// durable refund obligations. Assembled once and bound to the real managers
+// below. App.js is the real entry point (package.json: node app.js).
+import {
+    buildPaymentRuntime,
+    resolveDefaultRoomWalletPaymentDataDir
+} from "./payment/runtime/PaymentRuntimeFactory.js";
+import { bindPaymentRuntimeToApplication } from "./payment/runtime/PaymentApplicationBinder.js";
+import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "./payment/PaymentLifecycleAvailability.js";
+
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
 import { RoomNetworkHandoffStore } from "./network/RoomNetworkHandoffStore.js";
@@ -220,6 +231,12 @@ class WheelWinApplication {
         this._developerAuthService = null;
 
         this._recoveryCheckpointManager = null;
+
+        this._paymentRuntime = null;
+
+        this._paymentRuntimeReady = false;
+
+        this._paymentApplicationBinding = null;
 
         this._lifecycleManager = null;
 
@@ -1170,6 +1187,91 @@ class WheelWinApplication {
 
         this._logger.startupLine("GameStartAuthorization");
 
+        // R?? — Room-wallet TON Testnet payment runtime: initialize the durable
+        // stores, enforce TON Testnet network identity (global ID -3),
+        // reconcile wallet reservations, recover outstanding refund
+        // obligations, then bind the server-authoritative three-player
+        // game-start payment barrier and the durable refund close-hook to the
+        // real managers. Wiring happens before SocketGateway accepts traffic,
+        // so no client can reach gameplay before the barrier is armed.
+        //
+        // Fail-closed: any initialization failure leaves financial operations
+        // unavailable, clears the payment gate (gameplay cannot authorize), and
+        // does NOT attach a broken refund lifecycle. The rest of the server
+        // keeps running observably, but no payment or game-start is possible.
+        try {
+
+            const paymentRuntime = buildPaymentRuntime({
+                logger: this._logger,
+                dataDir: resolveDefaultRoomWalletPaymentDataDir()
+            });
+
+            const recovery = paymentRuntime.initialize();
+
+            this._paymentRuntime = paymentRuntime;
+
+            this._paymentRuntimeReady = true;
+
+            this._paymentApplicationBinding = bindPaymentRuntimeToApplication(
+                paymentRuntime,
+                {
+                    roomManager: this._managers.roomManager,
+                    gameStartAuthorization: this._gameStartAuthorization,
+                    logger: this._logger
+                }
+            );
+
+            const refundRecovery = recovery?.refundRecovery ?? [];
+
+            this._logger.startupLine(
+                `RoomWalletPayment (TESTNET globalId=${paymentRuntime.globalId}`
+                    + ` | gate=enforced | refundExecution=disabled`
+                    + ` | liveAcceptance=${
+                        LIVE_PAYMENT_ACCEPTANCE_ENABLED ? "enabled" : "disabled"}`
+                    + ` | refundsPending=${
+                        paymentRuntime.refundStore.listPending().length}`
+                    + ` | recovered=${refundRecovery.length})`
+            );
+
+            for (const item of refundRecovery) {
+
+                this._logger.warn?.(
+                    "REFUND_RECOVERY_PENDING"
+                        + ` | obligationId=${item.obligationId}`
+                        + ` | roomNumber=${item.roomNumber}`
+                        + ` | state=${item.state}`
+                        + ` | outcome=${item.outcome}`
+                );
+
+            }
+
+        } catch (error) {
+
+            this._paymentRuntime = null;
+
+            this._paymentRuntimeReady = false;
+
+            this._paymentApplicationBinding = null;
+
+            // Guarantee a fail-closed gate even if a prior injection had one.
+            try {
+
+                this._gameStartAuthorization?.configurePaymentGate?.(null);
+
+            } catch {
+
+                // ignore — authorization already lacks a gate
+
+            }
+
+            this._logger.error(
+                "Room wallet payment runtime initialization failed; payment "
+                    + "operations and three-player game-start are disabled "
+                    + `(fail-closed) | reason=${error?.message ?? "unknown error"}`
+            );
+
+        }
+
         // R17.9T.6 — Authoritative gameplay recovery checkpoint writer.
         // Additive wiring only: constructs the single centralized
         // RecoveryCheckpointManager on top of the local
@@ -1347,6 +1449,7 @@ class WheelWinApplication {
             isDevelopment: this._productionConfig.isDevelopment,
             lifecycleManager: this._lifecycleManager,
             roomConfig: this._roomConfig,
+            paymentApplicationBinding: this._paymentApplicationBinding,
             metricsService: this._metricsService
         });
 
@@ -1367,6 +1470,12 @@ class WheelWinApplication {
                     ?.get(socketId)
                     ?.data?.telegramUserId ?? null
         );
+
+        try {
+            this._roomLobbyBridge.configurePaymentApplicationBinding(this._paymentApplicationBinding);
+        } catch {
+            this._roomLobbyBridge.configurePaymentApplicationBinding(null);
+        }
 
         this._managers.gameManager.configureGameplayBootstrap({
             roomManager: this._managers.roomManager,
@@ -2082,6 +2191,18 @@ class WheelWinApplication {
 
         });
 
+        // Persist wallet reservations / snapshots after every open room has
+        // been durably closed through the refund lifecycle above.
+        this._safeShutdownStep("paymentRuntime", () => {
+
+            if (this._paymentRuntime) {
+
+                this._paymentRuntime.shutdown();
+
+            }
+
+        });
+
         this._safeShutdownStep("operationalMetrics", () => {
 
             if (this._operationalMetrics) {
@@ -2553,6 +2674,7 @@ class WheelWinApplication {
 
         return {
             activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
+            paymentRuntimeReady: this._paymentRuntimeReady,
             activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
             activeSimulations:
                     this._engines?.physicsEngine?.getActiveSimulationCount?.()
@@ -2655,6 +2777,7 @@ class WheelWinApplication {
 
             return {
                 activeRooms: this._managers?.roomManager?.getRooms?.().length ?? 0,
+            paymentRuntimeReady: this._paymentRuntimeReady,
                 activeGames: this._managers?.gameManager?.getGames?.().length ?? 0,
                 activeSimulations:
                     this._engines?.physicsEngine?.getActiveSimulationCount?.()

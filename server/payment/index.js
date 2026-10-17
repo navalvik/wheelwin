@@ -70,6 +70,40 @@ export {
 } from "./RoomWalletPaymentService.js";
 
 export {
+    RefundObligation,
+    RefundObligationError,
+    REFUND_NETWORK,
+    REFUND_STATE,
+    REFUND_SCHEMA_VERSION,
+    createRefundObligationId,
+    refundIdempotencyKey
+} from "./refund/RefundObligation.js";
+
+export {
+    RefundObligationStore
+} from "./refund/RefundObligationStore.js";
+
+export {
+    RefundLifecycleCoordinator,
+    RefundLifecycleError,
+    TestnetRefundProvider,
+    TON_TESTNET_GLOBAL_ID
+} from "./refund/RefundLifecycleCoordinator.js";
+
+export {
+    TestnetOutgoingRefundProvider,
+    OutgoingRefundError,
+    OUTGOING_SUBMISSION_OUTCOME,
+    OUTGOING_SUBMISSION_REASON,
+    TON_TESTNET_GLOBAL_ID as OUTGOING_REFUND_TESTNET_GLOBAL_ID
+} from "./refund/TestnetOutgoingRefundProvider.js";
+
+export {
+    verifyOutgoingRefundFinality,
+    OUTGOING_FINALITY_REJECTION
+} from "./refund/OutgoingRefundFinality.js";
+
+export {
     PaymentError,
     PaymentConfigurationError,
     PaymentReferenceCollisionError,

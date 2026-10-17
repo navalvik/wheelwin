@@ -328,6 +328,35 @@ export class SessionHistoryArchiveManager {
 
         });
 
+        this._subscribe(EVENT_TYPES.VERIFY_COMPLETED, (envelope) => {
+
+            this._flag(envelope.payload?.roomId, "verifyCompleted", true);
+            this._pushTimeline(envelope.payload?.roomId, "VERIFY", "VERIFY completed");
+
+        });
+
+        this._subscribe(EVENT_TYPES.VERIFY_BARRIER_COMPLETED, (envelope) => {
+
+            const roomId = envelope.payload?.roomId;
+            const pending = this._ensurePending(roomId);
+
+            if (!pending) {
+
+                return;
+
+            }
+
+            pending.paymentStage = {
+                entered: true,
+                acceptanceEnabled: envelope.payload?.paymentAcceptanceEnabled === true,
+                sessionPrepared: envelope.payload?.paymentSessionPrepared === true,
+                status: envelope.payload?.paymentStatus ?? "UNKNOWN"
+            };
+
+            this._pushTimeline(roomId, "PAYMENT", "Payment stage entered");
+
+        });
+
         this._subscribe(EVENT_TYPES.SETUP_SESSION_EXPIRED, (envelope) => {
 
             const roomId = envelope.payload?.roomId;
@@ -790,6 +819,13 @@ export class SessionHistoryArchiveManager {
             paymentPreparation: null
         });
 
+        this._pending.get(roomId).paymentStage = {
+            entered: false,
+            acceptanceEnabled: null,
+            sessionPrepared: false,
+            status: "NOT_REACHED"
+        };
+
         this._pushTimeline(roomId, "ROOM", "Room created");
 
     }
@@ -1063,6 +1099,9 @@ export class SessionHistoryArchiveManager {
             setupSession: roomDetail?.setupSession ?? null,
             verify: Object.freeze({
                 completed: pending.flags.verifyCompleted === true
+            }),
+            payment: Object.freeze({
+                ...pending.paymentStage
             }),
             // Authoritative gameplay result is preserved even when settlement fails.
             gameResult: pending.gameResult ?? null,

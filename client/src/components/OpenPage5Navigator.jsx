@@ -7,6 +7,7 @@ import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
 import { webPage6Diag } from "../game/result/webPage6StateDiag";
 
 import { useRegisterEngineModule } from "../context/EngineBridgeContext";
+import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import socket from "../socket/socket";
 
@@ -26,6 +27,10 @@ export default function OpenPage5Navigator({
     const onSessionFinishedRef = useRef(onSessionFinished);
 
     const onArmNewGameplaySessionRef = useRef(onArmNewGameplaySession);
+
+    const { identity } = usePlayerIdentity();
+
+    const identityRef = useRef(identity);
 
     const openedPage6Ref = useRef(false);
 
@@ -47,6 +52,12 @@ export default function OpenPage5Navigator({
 
     }, [onArmNewGameplaySession]);
 
+    useEffect(() => {
+
+        identityRef.current = identity;
+
+    }, [identity]);
+
     useRegisterEngineModule("pageNavigation", () => {
 
         if (typeof onNavigateRef.current !== "function"
@@ -57,6 +68,19 @@ export default function OpenPage5Navigator({
         }
 
         return {
+            onPaymentStageReady: (payload) => {
+
+                const roomId = payload?.roomId;
+
+                if (!roomId || identityRef.current?.roomId !== roomId) {
+
+                    return;
+
+                }
+
+                onNavigateRef.current?.(APP_PAGES.PAYMENT);
+
+            },
             onOpenPage5: () => {
 
                 // New gameplay session may open Page6 again later.

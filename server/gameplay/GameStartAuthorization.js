@@ -29,6 +29,7 @@ export class GameStartAuthorization {
         gameClockEngine = null,
         gameplayContextResolver = null,
         recoveryEngine = null,
+        paymentGate = null,
         roomConfig = null,
         devMode = false
     }) {
@@ -53,7 +54,11 @@ export class GameStartAuthorization {
 
         this._recoveryEngine = recoveryEngine;
 
-        this._expectedPlayers = roomConfig?.maxPlayers ?? 3;
+        // No production payment runtime is currently wired. A missing gate
+        // therefore denies gameplay instead of treating the client as proof.
+        this._paymentGate = paymentGate;
+
+        this._expectedPlayers = 3;
 
         this._authorizationDurationMs = Number.isFinite(
             roomConfig?.gameStartAuthorizationDurationMs
@@ -87,6 +92,13 @@ export class GameStartAuthorization {
         );
 
         this._subscribe(
+            EVENT_TYPES.ROOM_PAYMENT_GATE_UPDATED,
+            (envelope) => {
+                this._evaluate(envelope.payload?.roomId);
+            }
+        );
+
+        this._subscribe(
             EVENT_TYPES.ROOM_DESTROYED,
             (envelope) => {
 
@@ -114,6 +126,37 @@ export class GameStartAuthorization {
         );
 
         this._initialized = true;
+
+    }
+
+    /**
+     * Wire (or clear) the authoritative three-player payment gate.
+     *
+     * Called by the application payment binder once the durable payment
+     * runtime is ready. The gate must expose
+     * `getGameStartGateStatus(roomId, playerIds)`; passing `null` clears it and
+     * makes every subsequent start attempt fail closed. This is the single,
+     * uniform injection point for the barrier that every gameplay-start entry
+     * point resolves through `_checkStartConditions`.
+     *
+     * @param {{ getGameStartGateStatus: Function }|null} paymentGate
+     * @returns {this}
+     */
+    configurePaymentGate(paymentGate) {
+
+        if (paymentGate !== null
+            && (typeof paymentGate !== "object"
+                || typeof paymentGate.getGameStartGateStatus !== "function")) {
+
+            throw new TypeError(
+                "paymentGate must expose getGameStartGateStatus() or be null"
+            );
+
+        }
+
+        this._paymentGate = paymentGate;
+
+        return this;
 
     }
 
@@ -194,6 +237,14 @@ export class GameStartAuthorization {
 
         if (!gate.ok) {
 
+            if (gate.waitForPayment === true) {
+
+                this._clearAuthorizationTimeout(roomId);
+
+                return;
+
+            }
+
             this._scheduleAuthorizationTimeout(roomId);
 
             return;
@@ -239,6 +290,14 @@ export class GameStartAuthorization {
             if (gate.ok) {
 
                 this._authorizeAndBootstrap(roomId, gate);
+
+                return;
+
+            }
+
+            // The room's authoritative SetupSession deadline owns payment
+            // expiry. Do not replace it with this shorter bootstrap timeout.
+            if (gate.waitForPayment === true) {
 
                 return;
 
@@ -297,12 +356,14 @@ export class GameStartAuthorization {
 
         }
 
-        if (Array.isArray(room.players)
-            && room.players.length !== this._expectedPlayers) {
+        if (room.maxPlayers !== this._expectedPlayers
+            || !Array.isArray(room.players)
+            || room.players.length !== this._expectedPlayers
+            || new Set(room.players).size !== this._expectedPlayers) {
 
             return {
                 ok: false,
-                reason: "expected_player_count",
+                reason: "expected_three_distinct_players",
                 gameId: null
             };
 
@@ -324,10 +385,35 @@ export class GameStartAuthorization {
 
         }
 
+        let paymentStatus;
+        try {
+            paymentStatus = this._paymentGate?.getGameStartGateStatus?.(
+                roomId,
+                [...room.players]
+            ) ?? null;
+        } catch {
+            paymentStatus = null;
+        }
+        if (paymentStatus?.eligible !== true
+            || paymentStatus.roomId !== roomId
+            || !Array.isArray(paymentStatus.playerIds)
+            || paymentStatus.playerIds.length !== this._expectedPlayers
+            || new Set(paymentStatus.playerIds).size !== this._expectedPlayers
+            || this._expectedPlayers !== room.players.length
+            || room.players.some((playerId) => !paymentStatus.playerIds.includes(playerId))) {
+            return {
+                ok: false,
+                reason: paymentStatus?.reason ?? "payment_gate_unavailable",
+                gameId,
+                waitForPayment: true
+            };
+        }
+
         return {
             ok: true,
             room,
-            gameId
+            gameId,
+            paymentStatus
         };
 
     }
@@ -361,6 +447,16 @@ export class GameStartAuthorization {
         this._clearAuthorizationTimeout(roomId);
 
         const { gameId } = gate;
+
+        const validation = this._validateBootstrap(roomId, gameId);
+
+        if (!validation.ok) {
+
+            this._fail(roomId, gameId, validation.reason);
+
+            return;
+
+        }
 
         const authorizedAt = Date.now();
 
@@ -400,16 +496,6 @@ export class GameStartAuthorization {
             `GAME_INITIALIZING | roomId=${roomId} | gameId=${gameId}`
         );
 
-        const validation = this._validateBootstrap(roomId, gameId);
-
-        if (!validation.ok) {
-
-            this._fail(roomId, gameId, validation.reason);
-
-            return;
-
-        }
-
         const openPage5At = Date.now();
 
         lifecycle.phase = GAME_START_PHASE.OPENED;
@@ -444,7 +530,15 @@ export class GameStartAuthorization {
 
         }
 
-        if (room.players.length !== this._expectedPlayers) {
+        if (room.status === ROOM_STATUS.DESTROYED) {
+
+            return { ok: false, reason: "room_cancelled" };
+
+        }
+
+        if (room.maxPlayers !== this._expectedPlayers
+            || room.players.length !== this._expectedPlayers
+            || new Set(room.players).size !== this._expectedPlayers) {
 
             return { ok: false, reason: "room_not_full" };
 
@@ -616,6 +710,17 @@ export class GameStartAuthorization {
         this._clearAuthorizationTimeout(roomId);
 
         this._lifecycleByRoom.delete(roomId);
+
+    }
+
+    _audit(roomId, record) {
+
+        this._logger.decisionTrace?.({
+            stage: "GAME_START_LIFECYCLE",
+            caller: "GameStartAuthorization",
+            roomId,
+            ...record
+        });
 
     }
 

@@ -152,6 +152,11 @@ export class EngineBridge {
                 session()?.onVerifyCompleted?.(payload);
 
             },
+            [INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY]: (payload) => {
+
+                modules.pageNavigation?.onPaymentStageReady?.(payload);
+
+            },
             [INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED]: (payload) => {
 
                 session()?.onGameStartAuthorized?.(payload);

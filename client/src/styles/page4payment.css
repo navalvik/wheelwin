@@ -1,0 +1,20 @@
+.page4Payment {
+    width: min(720px, calc(100% - 32px));
+    margin: 32px auto;
+    padding: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    color: #fff;
+    background: rgba(18, 22, 32, 0.94);
+    text-align: center;
+}
+
+.page4Payment h2 {
+    margin: 0 0 16px;
+    font-size: 1.2rem;
+}
+
+.page4Payment p {
+    margin: 0;
+    line-height: 1.5;
+}

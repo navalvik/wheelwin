@@ -130,6 +130,11 @@ export const EVENT_TYPES = Object.freeze({
     LOBBY_VERIFY_NEXT_REQUEST: "LOBBY_VERIFY_NEXT_REQUEST",
     LOBBY_DEBUG_START_GAME_REQUEST: "LOBBY_DEBUG_START_GAME_REQUEST",
 
+    // P6.7 — narrowly scoped authoritative payment-state re-delivery request
+    // from Page4 after it mounts. Identity is resolved server-side from the
+    // socket→player binding; the client payload is never trusted.
+    LOBBY_PAYMENT_STATUS_REQUEST: "LOBBY_PAYMENT_STATUS_REQUEST",
+
     LOBBY_SOCKET_DISCONNECTED: "LOBBY_SOCKET_DISCONNECTED",
     LOBBY_SOCKET_DELIVERY: "LOBBY_SOCKET_DELIVERY",
 
@@ -147,7 +152,9 @@ export const EVENT_TYPES = Object.freeze({
     // R17.8V.2P.Q — production safety audits.
 
     // P6.7 — authoritative gameplay start gate.
+    VERIFY_COMPLETED: "VERIFY_COMPLETED",
     VERIFY_BARRIER_COMPLETED: "VERIFY_BARRIER_COMPLETED",
+    ROOM_PAYMENT_GATE_UPDATED: "ROOM_PAYMENT_GATE_UPDATED",
     GAME_START_AUTHORIZED: "GAME_START_AUTHORIZED",
     GAME_INITIALIZING: "GAME_INITIALIZING",
     GAME_START_BOOTSTRAP_READY: "GAME_START_BOOTSTRAP_READY",

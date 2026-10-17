@@ -30,6 +30,8 @@ export class RoomManager {
 
         this._setupSessionLifecycle = null;
 
+        this._refundLifecycle = null;
+
         /** @type {{ isAcceptingNewWork: () => boolean } | null} R7.0B */
         this._lifecycleGate = null;
 
@@ -44,6 +46,21 @@ export class RoomManager {
     attachSetupSessionLifecycle(setupSessionLifecycle) {
 
         this._setupSessionLifecycle = setupSessionLifecycle;
+
+    }
+
+    /** Attach the durable financial close hook. It runs after DESTROYED is
+     * authoritative and before ROOM_DESTROYED listeners or room deletion. */
+    attachRefundLifecycle(refundLifecycle) {
+
+        if (refundLifecycle !== null
+            && typeof refundLifecycle.prepareClosedRoom !== "function") {
+
+            throw new TypeError("refundLifecycle must expose prepareClosedRoom()");
+
+        }
+
+        this._refundLifecycle = refundLifecycle;
 
     }
 
@@ -454,17 +471,21 @@ export class RoomManager {
 
         }
 
-        if (room.status === ROOM_STATUS.DESTROYED) {
+        const alreadyDestroyed = room.status === ROOM_STATUS.DESTROYED;
 
-            this._logger.error(
-                `Room destroy failed: already destroyed (${roomId})`
-            );
+        if (alreadyDestroyed && room._refundLifecyclePrepared === true) {
+
+            this._logger.error(`Room destroy failed: already destroyed (${roomId})`);
 
             return false;
 
         }
 
-        const forensics = consumeRoomDestroyContext(roomId) ?? {};
+        const forensics = room._destroyForensics
+            ?? consumeRoomDestroyContext(roomId)
+            ?? {};
+
+        room._destroyForensics = forensics;
 
         const stack = new Error("RoomManager.destroyRoom stack capture").stack
             ?? null;
@@ -508,12 +529,57 @@ export class RoomManager {
 
         this._logger.info(`Room Destroyed: ${roomId}`);
 
-        // Abort any residual Setup Session before ROOM_DESTROYED listeners run.
-        this._setupSessionLifecycle?.abortForRoom(roomId);
+        if (!alreadyDestroyed) {
+
+            // Abort any residual Setup Session before ROOM_DESTROYED listeners run.
+            this._setupSessionLifecycle?.abortForRoom(roomId);
+
+        }
+
+        // Financial obligations are durably prepared only after closure is
+        // authoritative, while the original room and room number still exist.
+        // On failure retain the destroyed room in memory so a later cleanup
+        // retry can safely finish preparation before discarding its context.
+        if (this._refundLifecycle && room._refundLifecyclePrepared !== true) {
+
+            try {
+
+                const result = this._refundLifecycle.prepareClosedRoom({
+                    roomId: room.roomId,
+                    roomNumber: room.roomNumber,
+                    status: room.status,
+                    closureReason: forensics.reason ?? "unspecified"
+                });
+
+                if (result && typeof result.then === "function") {
+
+                    throw new TypeError("prepareClosedRoom() must be synchronous");
+
+                }
+
+                room._refundLifecyclePrepared = true;
+
+            } catch (error) {
+
+                this._logger.error(
+                    `Room financial close preparation failed | roomId=${roomId}`,
+                    error
+                );
+
+                return false;
+
+            }
+
+        } else {
+
+            room._refundLifecyclePrepared = true;
+
+        }
 
         this._emit(EVENT_TYPES.ROOM_DESTROYED, {
             roomId: room.roomId,
             roomNumber: room.roomNumber,
+            closureReason: forensics.reason ?? "unspecified",
             status: room.status,
             maxPlayers: room.maxPlayers,
             playerCount: room.players.length
