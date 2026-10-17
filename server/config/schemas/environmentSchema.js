@@ -612,6 +612,120 @@ export const ENVIRONMENT_SCHEMA = Object.freeze({
         category: "Lifecycle",
         suggestedFix: "Set GAME_START_AUTHORIZATION_DURATION_MS to a positive integer."
     }),
+
+    // R7.0C — TON network and poll interval (optional; defaults applied by callers).
+    TON_NETWORK: Object.freeze({
+        key: "TON_NETWORK",
+        type: "string",
+        required: false,
+        category: "Server",
+        suggestedFix: "Set TON_NETWORK to testnet or mainnet."
+    }),
+    TON_POLL_INTERVAL_MS: Object.freeze({
+        key: "TON_POLL_INTERVAL_MS",
+        type: "integer",
+        required: false,
+        min: 50,
+        category: "Metrics",
+        suggestedFix: "Set TON_POLL_INTERVAL_MS to an integer >= 50."
+    }),
+
+    // R7.0C — Mainnet readiness debug flags (optional; do not enable mainnet by themselves).
+    TON_MAINNET_DRY_RUN_DEBUG: Object.freeze({
+        key: "TON_MAINNET_DRY_RUN_DEBUG",
+        type: "boolean",
+        required: false,
+        category: "Operations",
+        suggestedFix: "Set TON_MAINNET_DRY_RUN_DEBUG to true or false."
+    }),
+    TON_MAINNET_WALLET_IDENTITY_DEBUG: Object.freeze({
+        key: "TON_MAINNET_WALLET_IDENTITY_DEBUG",
+        type: "boolean",
+        required: false,
+        category: "Operations",
+        suggestedFix: "Set TON_MAINNET_WALLET_IDENTITY_DEBUG to true or false."
+    }),
+
+    // R7.0C — Session/deploy duration fields (optional; defaults applied in config/rooms.js).
+    PAYMENT_SESSION_DURATION_MS: Object.freeze({
+        key: "PAYMENT_SESSION_DURATION_MS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Recovery",
+        suggestedFix: "Set PAYMENT_SESSION_DURATION_MS to a positive integer."
+    }),
+    WALLET_CONNECTION_DURATION_MS: Object.freeze({
+        key: "WALLET_CONNECTION_DURATION_MS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Recovery",
+        suggestedFix: "Set WALLET_CONNECTION_DURATION_MS to a positive integer."
+    }),
+    GAME_CONTRACT_DEPLOY_TIMEOUT_MS: Object.freeze({
+        key: "GAME_CONTRACT_DEPLOY_TIMEOUT_MS",
+        type: "integer",
+        required: false,
+        min: 1,
+        category: "Recovery",
+        suggestedFix: "Set GAME_CONTRACT_DEPLOY_TIMEOUT_MS to a positive integer."
+    }),
+
+    // R7.0C — Room Wallet intake and residual sweep (optional).
+    ROOM_WALLET_PAYMENT_INTAKE_MODE: Object.freeze({
+        key: "ROOM_WALLET_PAYMENT_INTAKE_MODE",
+        type: "string",
+        required: false,
+        category: "Release",
+        suggestedFix: "Set ROOM_WALLET_PAYMENT_INTAKE_MODE to ROOM_WALLET when intake is used."
+    }),
+    ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: Object.freeze({
+        key: "ROOM_WALLET_RESIDUAL_SWEEP_ENABLED",
+        type: "boolean",
+        required: false,
+        category: "Operations",
+        suggestedFix: "Set ROOM_WALLET_RESIDUAL_SWEEP_ENABLED to true or false."
+    }),
+
+    // R7.0C — TON residue expected address and mnemonic (optional; mnemonic is redacted in errors).
+    TON_RESIDUES_EXPECTED_ADDRESS: Object.freeze({
+        key: "TON_RESIDUES_EXPECTED_ADDRESS",
+        type: "string",
+        required: false,
+        category: "Recovery",
+        suggestedFix: "Set TON_RESIDUES_EXPECTED_ADDRESS to a TON address."
+    }),
+    TON_RESIDUES_MNEMONIC: Object.freeze({
+        key: "TON_RESIDUES_MNEMONIC",
+        type: "string",
+        required: false,
+        category: "Recovery",
+        suggestedFix: "Set TON_RESIDUES_MNEMONIC to the recovery mnemonic."
+    }),
+
+    // R7.0C — Room wallet catalogs (optional; JSON strings, never committed).
+    ROOM_WALLETS_JSON: Object.freeze({
+        key: "ROOM_WALLETS_JSON",
+        type: "string",
+        required: false,
+        category: "Recovery",
+        suggestedFix: "Set ROOM_WALLETS_JSON to a valid 64-entry wallet catalog JSON string."
+    }),
+    ROOM_WALLETS_TESTNET_JSON: Object.freeze({
+        key: "ROOM_WALLETS_TESTNET_JSON",
+        type: "string",
+        required: false,
+        category: "Recovery",
+        suggestedFix: "Set ROOM_WALLETS_TESTNET_JSON to a valid 64-entry testnet wallet catalog JSON string."
+    }),
+    ROOM_WALLETS_MAINNET_JSON: Object.freeze({
+        key: "ROOM_WALLETS_MAINNET_JSON",
+        type: "string",
+        required: false,
+        category: "Recovery",
+        suggestedFix: "Set ROOM_WALLETS_MAINNET_JSON to a valid 64-entry mainnet wallet catalog JSON string."
+    }),
 });
 
 export const CONFIGURATION_CATEGORIES = Object.freeze([

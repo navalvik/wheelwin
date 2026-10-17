@@ -576,11 +576,13 @@ export function validateEnvironment(collector, env) {
 
     validateStringField(
         collector,
+        ENVIRONMENT_SCHEMA.TON_NETWORK,
         env.TON_NETWORK
     );
 
     validateIntegerField(
         collector,
+        ENVIRONMENT_SCHEMA.TON_POLL_INTERVAL_MS,
         env.TON_POLL_INTERVAL_MS
     );
 
@@ -636,11 +638,13 @@ export function validateEnvironment(collector, env) {
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.TON_MAINNET_DRY_RUN_DEBUG,
         env.TON_MAINNET_DRY_RUN_DEBUG
     );
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.TON_MAINNET_WALLET_IDENTITY_DEBUG,
         env.TON_MAINNET_WALLET_IDENTITY_DEBUG
     );
 
@@ -658,16 +662,19 @@ export function validateEnvironment(collector, env) {
 
     validateIntegerField(
         collector,
+        ENVIRONMENT_SCHEMA.PAYMENT_SESSION_DURATION_MS,
         env.PAYMENT_SESSION_DURATION_MS
     );
 
     validateIntegerField(
         collector,
+        ENVIRONMENT_SCHEMA.WALLET_CONNECTION_DURATION_MS,
         env.WALLET_CONNECTION_DURATION_MS
     );
 
     validateIntegerField(
         collector,
+        ENVIRONMENT_SCHEMA.GAME_CONTRACT_DEPLOY_TIMEOUT_MS,
         env.GAME_CONTRACT_DEPLOY_TIMEOUT_MS
     );
 
@@ -679,36 +686,43 @@ export function validateEnvironment(collector, env) {
 
     validateStringField(
         collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLET_PAYMENT_INTAKE_MODE,
         env.ROOM_WALLET_PAYMENT_INTAKE_MODE
     );
 
     validateBooleanField(
         collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLET_RESIDUAL_SWEEP_ENABLED,
         env.ROOM_WALLET_RESIDUAL_SWEEP_ENABLED
     );
 
     validateStringField(
         collector,
+        ENVIRONMENT_SCHEMA.TON_RESIDUES_EXPECTED_ADDRESS,
         env.TON_RESIDUES_EXPECTED_ADDRESS
     );
 
     validateStringField(
         collector,
+        ENVIRONMENT_SCHEMA.TON_RESIDUES_MNEMONIC,
         env.TON_RESIDUES_MNEMONIC
     );
 
     validateStringField(
         collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLETS_JSON,
         env.ROOM_WALLETS_JSON
     );
 
     validateStringField(
         collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLETS_TESTNET_JSON,
         env.ROOM_WALLETS_TESTNET_JSON
     );
 
     validateStringField(
         collector,
+        ENVIRONMENT_SCHEMA.ROOM_WALLETS_MAINNET_JSON,
         env.ROOM_WALLETS_MAINNET_JSON
     );
 

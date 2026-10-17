@@ -136,4 +136,188 @@ function paymentIssues(collector) {
     console.log("  non-integer PAYMENT_COLLECTION_INTERVAL_MS: OK");
 }
 
+// --- R7.0C regression: previously schema-less calls (missing schema argument) ---
+
+// Each of these variables was passed as the schema argument (raw env value),
+// so assertPresent read `schema.required` on undefined and threw TypeError.
+// They now have schema entries and are all optional (required: false).
+
+const newlySchemaVars = [
+    { name: "TON_NETWORK", type: "string", valid: "testnet", invalid: true },
+    { name: "TON_POLL_INTERVAL_MS", type: "integer", valid: "2000", min: 50, invalid: "not-an-integer" },
+    { name: "TON_MAINNET_DRY_RUN_DEBUG", type: "boolean", valid: "true", invalid: "notabool" },
+    { name: "TON_MAINNET_WALLET_IDENTITY_DEBUG", type: "boolean", valid: "true", invalid: "notabool" },
+    { name: "PAYMENT_SESSION_DURATION_MS", type: "integer", valid: "5000", min: 1, invalid: "not-an-integer" },
+    { name: "WALLET_CONNECTION_DURATION_MS", type: "integer", valid: "5000", min: 1, invalid: "not-an-integer" },
+    { name: "GAME_CONTRACT_DEPLOY_TIMEOUT_MS", type: "integer", valid: "120000", min: 1, invalid: "not-an-integer" },
+    { name: "ROOM_WALLET_PAYMENT_INTAKE_MODE", type: "string", valid: "ROOM_WALLET", invalid: true },
+    { name: "ROOM_WALLET_RESIDUAL_SWEEP_ENABLED", type: "boolean", valid: "false", invalid: "notabool" },
+    { name: "TON_RESIDUES_EXPECTED_ADDRESS", type: "string", valid: "EQdummy", invalid: true },
+    { name: "TON_RESIDUES_MNEMONIC", type: "string", valid: "dummy dummy dummy dummy dummy dummy dummy dummy dummy dummy dummy dummy", invalid: true },
+    { name: "ROOM_WALLETS_JSON", type: "string", valid: "[]", invalid: true },
+    { name: "ROOM_WALLETS_TESTNET_JSON", type: "string", valid: "[]", invalid: true },
+    { name: "ROOM_WALLETS_MAINNET_JSON", type: "string", valid: "[]", invalid: true }
+];
+
+const minimalEnv = {
+    PORT: "3001",
+    HOST: "0.0.0.0",
+    CLIENT_ORIGIN: "http://localhost:5173",
+    ROOM_MAX_PLAYERS: "3"
+};
+
+function collectRaw(extraEnv) {
+
+    const collector = new ConfigurationIssueCollector();
+
+    validateEnvironment(collector, {
+        ...minimalEnv,
+        ...extraEnv
+    });
+
+    return collector;
+}
+
+function issuesFor(collector, key) {
+
+    return collector._issues.filter((issue) => issue.key === key);
+}
+
+// --- minimal valid production environment: completes without TypeError ---
+
+{
+    const collector = collectRaw();
+
+    assert.equal(collector.size, 0, "minimal valid environment completes validation with no issues");
+
+    console.log("  minimal valid environment: OK");
+}
+
+// --- absent optional values: no crash, no issue ---
+
+for (const v of newlySchemaVars) {
+
+    (() => {
+
+        const collector = collectRaw();
+
+        const issues = issuesFor(collector, v.name);
+
+        assert.equal(
+            issues.length,
+            0,
+            `${v.name} absent must not add an issue (no TypeError)`
+        );
+
+        console.log(`  absent ${v.name}: OK`);
+    })();
+}
+
+// --- valid supplied values: no issue ---
+
+for (const v of newlySchemaVars) {
+
+    (() => {
+
+        const collector = collectRaw({ [v.name]: v.valid });
+
+        const issues = issuesFor(collector, v.name);
+
+        assert.equal(
+            issues.length,
+            0,
+            `${v.name}=${v.valid} must not add an issue`
+        );
+
+        console.log(`  valid ${v.name}=${v.valid}: OK`);
+    })();
+}
+
+// --- invalid types: issue collected ---
+
+for (const v of newlySchemaVars) {
+
+    (() => {
+
+        const collector = collectRaw({ [v.name]: v.invalid });
+
+        const issues = issuesFor(collector, v.name);
+
+        assert.equal(
+            issues.length,
+            1,
+            `${v.name}=${String(v.invalid)} invalid type must add an issue`
+        );
+
+        const reasonMap = { string: "Invalid string", integer: "Invalid integer", boolean: "Invalid boolean" };
+
+        assert.equal(
+            issues[0].reason,
+            reasonMap[v.type],
+            `${v.name} invalid type must report expected type`
+        );
+
+        console.log(`  invalid-type ${v.name}=${String(v.invalid)}: OK`);
+    })();
+}
+
+// --- integer numeric boundaries ---
+
+{
+    const belowMin = [
+        { name: "TON_POLL_INTERVAL_MS", value: "10", min: 50 },
+        { name: "PAYMENT_SESSION_DURATION_MS", value: "0", min: 1 },
+        { name: "WALLET_CONNECTION_DURATION_MS", value: "0", min: 1 },
+        { name: "GAME_CONTRACT_DEPLOY_TIMEOUT_MS", value: "0", min: 1 }
+    ];
+
+    for (const b of belowMin) {
+
+        (() => {
+
+            const collector = collectRaw({ [b.name]: b.value });
+
+            const issues = issuesFor(collector, b.name);
+
+            assert.equal(
+                issues.length,
+                1,
+                `${b.name}=${b.value} below min ${b.min} must add an issue`
+            );
+            assert.equal(
+                issues[0].reason,
+                `Value below minimum (${b.min})`,
+                `${b.name} below min must report boundary`
+            );
+
+            console.log(`  below-min ${b.name}=${b.value}: OK`);
+        })();
+    }
+
+    const atMin = [
+        { name: "TON_POLL_INTERVAL_MS", value: "50" },
+        { name: "PAYMENT_SESSION_DURATION_MS", value: "1" },
+        { name: "WALLET_CONNECTION_DURATION_MS", value: "1" },
+        { name: "GAME_CONTRACT_DEPLOY_TIMEOUT_MS", value: "1" }
+    ];
+
+    for (const b of atMin) {
+
+        (() => {
+
+            const collector = collectRaw({ [b.name]: b.value });
+
+            const issues = issuesFor(collector, b.name);
+
+            assert.equal(
+                issues.length,
+                0,
+                `${b.name}=${b.value} at min must not add an issue`
+            );
+
+            console.log(`  at-min ${b.name}=${b.value}: OK`);
+        })();
+    }
+}
+
 console.log("validateEnvironment.test.js: all assertions passed");
