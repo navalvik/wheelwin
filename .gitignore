@@ -43,3 +43,6 @@ server/scripts/room-wallet-provisioning/
 
 # Local Testnet Room Wallet runtime catalog (copied from offline secrets — never commit)
 server/config/room-wallets-testnet-ROOM_WALLETS_JSON.json
+
+# Final local forensic JSON enrichment — generated output and its storage directory
+/forensic-enrichment/
