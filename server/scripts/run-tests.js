@@ -22,10 +22,12 @@ function discoverTestFiles(directory) {
         }
     }
 
-    return discovered.sort((left, right) =>
-        relative(testsDir, left).split(sep).join("/")
-            .localeCompare(relative(testsDir, right).split(sep).join("/"))
-    );
+    return discovered.sort((left, right) => {
+        const leftPath = relative(testsDir, left).split(sep).join("/");
+        const rightPath = relative(testsDir, right).split(sep).join("/");
+
+        return leftPath < rightPath ? -1 : leftPath > rightPath ? 1 : 0;
+    });
 }
 
 const testFiles = discoverTestFiles(testsDir);
