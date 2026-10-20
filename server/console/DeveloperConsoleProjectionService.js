@@ -185,7 +185,7 @@ export class DeveloperConsoleProjectionService {
         if (!runtime) {
             return Object.freeze({
                 architecture: "room-wallet", status: "UNAVAILABLE", initialized: false,
-                network: null, capabilities: null,
+                network: "testnet", globalId: -3, capabilities: null,
                 wallets: Object.freeze({ total: null }),
                 intents: Object.freeze({ total: null }),
                 refunds: Object.freeze({ pending: null }),
@@ -194,8 +194,29 @@ export class DeveloperConsoleProjectionService {
         }
 
         let capabilities = null;
-        let pendingRefunds = null;
         try { capabilities = runtime.getCapabilities?.() ?? null; } catch { capabilities = null; }
+
+        // This console is attached to the Testnet runtime. Never label another
+        // network's runtime as Testnet or expose its payment counters here.
+        const runtimeNetwork = String(runtime.network ?? capabilities?.network ?? "")
+            .trim().toLowerCase();
+        const runtimeGlobalId = runtime.globalId ?? capabilities?.globalId ?? null;
+        if (runtimeNetwork !== "testnet" || runtimeGlobalId !== -3) {
+            return Object.freeze({
+                architecture: "room-wallet",
+                status: "NETWORK_MISMATCH",
+                initialized: false,
+                network: "testnet",
+                globalId: -3,
+                capabilities: null,
+                wallets: Object.freeze({ total: null }),
+                intents: Object.freeze({ total: null }),
+                refunds: Object.freeze({ pending: null }),
+                message: "Payment runtime network identity does not match this Testnet console"
+            });
+        }
+
+        let pendingRefunds = null;
         try { pendingRefunds = runtime.refundStore?.listPending?.()?.length ?? null; } catch { pendingRefunds = null; }
 
         const initialized = runtime.initialized === true;
