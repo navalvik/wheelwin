@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { DeveloperConsoleGateway } from "../console/DeveloperConsoleGateway.js";
-import { CONSOLE_CLIENT_EVENTS, CONSOLE_SERVER_EVENTS } from "../console/consoleProtocol.js";
+import { CONSOLE_CLIENT_EVENTS, CONSOLE_SERVER_EVENTS, CONSOLE_UPDATE_POLICY } from "../console/consoleProtocol.js";
 
 const namespaceHandlers = new Map();
 const namespace = {
@@ -48,6 +48,8 @@ const projectionService = {
     },
     buildGameDetail: () => null
 };
+
+assert.equal(CONSOLE_UPDATE_POLICY.FOCUS_HIGH_FREQUENCY_MS, 1000, "focused room/game projections refresh no faster than once per second");
 
 const gateway = new DeveloperConsoleGateway({
     logger: null,
