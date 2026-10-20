@@ -114,3 +114,35 @@ test("durable reserve preserves quote provenance and rejects wrong-network quote
         rmSync(f.directory, { recursive: true, force: true });
     }
 });
+
+
+test("reserve rejects quote totals that do not match and duplicate outgoing operation IDs", () => {
+    const f = fixture();
+    try {
+        assert.throws(() => f.store.create({
+            idempotencyKey: "room-1:bad-total",
+            reserve: {
+                ...f.reserve,
+                totalReserveAtomic: 24,
+                contributions: [
+                    { playerId: "a", amountAtomic: 8 },
+                    { playerId: "b", amountAtomic: 8 },
+                    { playerId: "c", amountAtomic: 8 }
+                ]
+            }
+        }), PlayerFundedFeeReserveStoreError);
+
+        assert.throws(() => f.store.create({
+            idempotencyKey: "room-1:duplicate-operation",
+            reserve: {
+                ...f.reserve,
+                feeQuotes: [
+                    ...f.reserve.feeQuotes,
+                    { ...f.reserve.feeQuotes[0], feeAtomic: 0 }
+                ]
+            }
+        }), PlayerFundedFeeReserveStoreError);
+    } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+    }
+});
