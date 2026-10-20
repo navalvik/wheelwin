@@ -2,6 +2,10 @@
  * Concrete TON Center Testnet fee estimator for already-prepared outgoing
  * wallet messages. This estimates only: it never signs or broadcasts.
  *
+ * The room-wallet reserve uses source_fees only. destination_fees describe
+ * recipient-side costs and must not be charged to the sender's reserve. They
+ * are validated but excluded from feeAtomic.
+ *
  * The caller must provide the serialized message body that corresponds to the
  * exact transfer being prepared. No generic/hard-coded fee is substituted.
  * The endpoint is fixed to TON Center Testnet and every request is bounded to
@@ -66,11 +70,9 @@ function sumFeeResponse(body) {
         }
         return next;
     }, 0);
-    const feeAtomic = sourceFeeAtomic + destinationFeeAtomic;
-    if (!Number.isSafeInteger(feeAtomic)) {
-        throw new ToncenterResponseError("Toncenter total fee estimate exceeds safe integer range");
-    }
-    return { feeAtomic, sourceFeeAtomic, destinationFeeAtomic };
+    // The reserve is intended to cover fees paid by the source room wallet.
+    // Recipient-side fees are exposed for diagnostics but are not source costs.
+    return { feeAtomic: sourceFeeAtomic, sourceFeeAtomic, destinationFeeAtomic };
 }
 
 export class ToncenterTestnetFeeEstimator {
