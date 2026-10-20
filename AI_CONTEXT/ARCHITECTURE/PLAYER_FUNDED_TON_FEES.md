@@ -57,3 +57,8 @@ Before this policy may authorize settlement, implement a server-only adapter tha
 - persists the verified evidence/proof reference before allowing the reserve store to mark an operation reconciled.
 
 Do not interpret a passing pure-policy test as proof of provider authenticity, chain finality, actual fee correctness, or safe live settlement. Keep live payment acceptance disabled until this trust boundary is implemented and tested end-to-end.
+
+
+## Durable reconciliation evidence
+
+A reserve may not transition to `RECONCILED` from aggregate numbers alone. The store must persist a complete per-operation record of transaction identity, destination, block reference, Testnet identity, observation time, and actual fee, and verify that these records match the reserved operation set and aggregate total. This is an audit-integrity check only; the store's structural validation does not authenticate the provider or prove finality. Only a trusted server-side chain verifier may supply evidence to the reconciliation path.
