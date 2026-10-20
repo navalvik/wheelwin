@@ -58,4 +58,28 @@ function createGateway(projectionService) {
     assert.match(gateway._logBuffer[0].message, /projection failure/);
 }
 
+
+{
+    const gateway = createGateway({
+        buildServerOverview() { throw new Error("server projection failure"); },
+        buildRoomsIndex() { throw new Error("rooms projection failure"); },
+        buildPlayersIndex() { throw new Error("players projection failure"); },
+        buildPaymentsOverview() { throw new Error("payments projection failure"); },
+        buildRecoveryOverview() { throw new Error("recovery projection failure"); },
+        buildSimulationOverview() { throw new Error("simulation projection failure"); },
+        buildMetricsOverview() { throw new Error("metrics projection failure"); }
+    });
+    const client = {
+        subscribed: false,
+        focus: { roomId: null, gameId: null },
+        socket: { id: "test-console", connected: true, data: {}, emit() {} }
+    };
+
+    assert.doesNotThrow(() => gateway._onSubscribe(client));
+    assert.equal(client.subscribed, true);
+    assert.ok(gateway._logBuffer.some((entry) =>
+        entry.message.includes("Console subscribed test-console")
+    ));
+}
+
 process.stdout.write("developerConsoleProjectionIsolation.test.js passed\n");
