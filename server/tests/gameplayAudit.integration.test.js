@@ -409,7 +409,7 @@ function activateAndFinishGame(stack, gameId, playerIds) {
     let guard = 0;
 
     while (
-        stack.gameStateEngine.getState(gameId) !== GAME_STATES.RESULT
+        !stack.winnerEngine.getResult(gameId)
         && guard < 2000
     ) {
 
@@ -419,7 +419,7 @@ function activateAndFinishGame(stack, gameId, playerIds) {
 
     }
 
-    assert(guard < 2000, "game should reach RESULT");
+    assert(guard < 2000, "game should resolve a winner");
 
 }
 
