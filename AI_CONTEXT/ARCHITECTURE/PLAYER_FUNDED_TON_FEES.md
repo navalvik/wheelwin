@@ -69,3 +69,16 @@ A reserve may not transition to `RECONCILED` from aggregate numbers alone. The s
 A server-side dependency boundary now exists at `server/payment/fees/PlayerFeeEvidenceBoundary.js`. It reconstructs quote and actual-fee records instead of trusting caller-supplied network/finality labels, and checks the outgoing source wallet, destination, amount, transaction ID, seqno, block reference, and finalized status returned by injected providers. Unit tests cover mismatched network, destination, amount, transaction ID, seqno-bound evidence, and verifier rejection.
 
 This is deliberately **not yet production evidence**: the estimator and finalized-transfer verifier are injected dependencies, and no concrete TONCenter fee-estimation implementation is connected. The adapter is not wired into the reserve store, ledger, payment intents, refund/payout lifecycle, sockets, or app startup. The quote's `TONCENTER_FEE_ESTIMATE` source label is assigned by the boundary only after a trusted estimator dependency is supplied; that label alone does not authenticate the provider. Live payment acceptance remains disabled.
+
+
+## Concrete TON Center fee-estimation adapter
+
+Added `server/payment/fees/ToncenterTestnetFeeEstimator.js`. It makes one authenticated `POST https://testnet.toncenter.com/api/v3/estimateFee` request for a prepared serialized message body, uses the existing `TON_API_KEY` variable, validates all returned fee components as non-negative integer nanotons, rejects malformed or stale/mismatched context, and does not retry on rate limits or network ambiguity. The fee total is calculated from the documented `source_fees` and `destination_fees` component objects; no hard-coded fallback is used.
+
+Added `ToncenterTestnetNetworkIdentityProvider.js`, which calls the existing read-only masterchain-info client and only returns Testnet identity when the provider reports `global_id: -3`. The estimator requires this independent identity provider before making the estimate request.
+
+Important remaining constraints:
+- The exact serialized body must come from the server's prepared transfer operation; this adapter does not build or sign a wallet message.
+- This code has not been run against the live Testnet API in this session. Mocked unit tests are authored but have not been executed in a Node runtime here.
+- The concrete estimator and identity provider are not wired into application startup, fee-reserve persistence, payout/refund execution, or payment acceptance.
+- Estimation is not proof of the actual eventual network fee. A separate concrete outgoing transaction verifier must establish source wallet, destination, exact value, transaction identity, seqno, actual charged fees and finality.
