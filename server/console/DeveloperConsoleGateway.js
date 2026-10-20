@@ -275,7 +275,7 @@ export class DeveloperConsoleGateway {
 
         client.focus = Object.freeze({ roomId, gameId });
 
-        this._pushFocus(client);
+        this._safePush(client, "_pushFocus");
 
     }
 
@@ -402,7 +402,7 @@ export class DeveloperConsoleGateway {
 
             this._roomsPushTimer = null;
 
-            this._forSubscribed((client) => this._pushRooms(client));
+            this._forSubscribed((client) => this._safePush(client, "_pushRooms"));
 
         }, CONSOLE_UPDATE_POLICY.ROOMS_DEBOUNCE_MS);
 
