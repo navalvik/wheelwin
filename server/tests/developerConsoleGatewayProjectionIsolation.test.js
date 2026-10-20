@@ -14,12 +14,16 @@ const io = { of(name) { assert.equal(name, "/console"); return namespace; } };
 const emitted = [];
 const socketHandlers = new Map();
 let socketEmitShouldThrowOnLog = false;
+let socketEmitShouldThrowOnConnected = false;
 const socket = {
     id: "testnet-console-test",
     connected: true,
     data: {},
     on(event, handler) { socketHandlers.set(event, handler); },
     emit(event, envelope) {
+        if (socketEmitShouldThrowOnConnected && event === CONSOLE_SERVER_EVENTS.CONNECTED) {
+            throw new Error("simulated connected acknowledgement failure");
+        }
         if (socketEmitShouldThrowOnLog && event === CONSOLE_SERVER_EVENTS.LOG) {
             throw new Error("simulated socket log emit failure");
         }
@@ -91,6 +95,13 @@ socketEmitShouldThrowOnLog = true;
 assert.doesNotThrow(() => {
     socketHandlers.get(CONSOLE_CLIENT_EVENTS.FOCUS)({ roomId: "stale-room-id" });
 }, "focus projection failure plus log emit failure must not escape or recurse");
+
+// The SUBSCRIBE guard also covers failures before any projection is emitted.
+socketEmitShouldThrowOnLog = false;
+socketEmitShouldThrowOnConnected = true;
+assert.doesNotThrow(() => {
+    socketHandlers.get(CONSOLE_CLIENT_EVENTS.SUBSCRIBE)();
+}, "CONNECTED acknowledgement failure must not escape the SUBSCRIBE handler");
 
 gateway.shutdown();
 console.log("developerConsoleGatewayProjectionIsolation.test.js: all passed");
