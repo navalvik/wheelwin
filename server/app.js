@@ -1569,6 +1569,7 @@ class WheelWinApplication {
             roomLobbyBridge: this._roomLobbyBridge,
             runtimeConfigurationService: this._runtimeConfigurationService,
             audioRegistryService: this._audioRegistryService,
+            paymentRuntime: this._paymentRuntime,
             startedAt: this._serverStartedAt
         });
 
