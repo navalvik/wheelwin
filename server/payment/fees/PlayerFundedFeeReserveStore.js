@@ -82,8 +82,23 @@ function validateRecord(record) {
                     operationId
                 });
             }
+            const estimateId = requiredText(quote.estimateId, "feeQuote.estimateId");
+            const destination = requiredText(quote.destination, "feeQuote.destination");
+            const purpose = requiredText(quote.purpose, "feeQuote.purpose");
+            if (quote.networkName !== "TESTNET" || quote.globalId !== -3
+                || quote.source !== "TONCENTER_FEE_ESTIMATE") {
+                throw new PlayerFundedFeeReserveStoreError(
+                    "fee quote must retain approved Testnet source identity", { operationId }
+                );
+            }
             return Object.freeze({
                 operationId,
+                estimateId,
+                destination,
+                purpose,
+                networkName: quote.networkName,
+                globalId: quote.globalId,
+                source: quote.source,
                 feeAtomic: quote.feeAtomic,
                 quotedAtMs: quote.quotedAtMs,
                 validForMs: quote.validForMs
