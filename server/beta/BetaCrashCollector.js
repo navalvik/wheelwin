@@ -153,7 +153,7 @@ export class BetaCrashCollector {
                         message: redactSensitiveText(fallbackMessage).slice(0, 1000),
                         stack: error instanceof Error ? redactSensitiveText(error.stack ?? "") : null
                     })
-                    + "\\n"
+                    + "\n"
                 );
 
             } catch {
