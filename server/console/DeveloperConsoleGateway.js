@@ -414,7 +414,14 @@ export class DeveloperConsoleGateway {
         for (const client of this._clients.values()) {
             if (client.subscribed && client.socket.connected) {
                 try { fn(client); } catch (error) {
-                    this._appendLog("error", `Console update failed | socketId=${client.socket.id} | error=${error?.message ?? "Unknown error"}`);
+                    // Do not rebroadcast this failure: if socket.emit itself is
+                    // throwing, broadcasting a log through _appendLog would
+                    // re-enter _forSubscribed and recurse indefinitely.
+                    this._appendLog(
+                        "error",
+                        `Console update failed | socketId=${client.socket.id} | error=${error?.message ?? "Unknown error"}`,
+                        { broadcast: false }
+                    );
                 }
             }
         }
@@ -535,7 +542,7 @@ export class DeveloperConsoleGateway {
 
     }
 
-    _appendLog(level, message) {
+    _appendLog(level, message, { broadcast = true } = {}) {
 
         const entry = Object.freeze({
             level,
@@ -554,11 +561,15 @@ export class DeveloperConsoleGateway {
 
         }
 
-        this._forSubscribed((client) => {
+        if (broadcast) {
 
-            this._emit(client.socket, CONSOLE_SERVER_EVENTS.LOG, entry);
+            this._forSubscribed((client) => {
 
-        });
+                this._emit(client.socket, CONSOLE_SERVER_EVENTS.LOG, entry);
+
+            });
+
+        }
 
     }
 
