@@ -96,3 +96,10 @@ TON Center v3 transaction rows expose transaction hash, source account, `out_msg
 ## Read-only outgoing transaction candidate mapper
 
 Added `server/payment/fees/ToncenterOutgoingTransferCandidateMapper.js` to match a provider transaction row against a server-created operation by transaction hash, source account, exactly one destination/value match, successful execution markers, source-paid `total_fees`, and block reference. The result is explicitly marked `authorization: NOT_AUTHORIZED`, `finalized: false`, and `walletSeqno: null`. It is a parsing/matching seam only, not a settlement verifier; the caller must still establish trusted wallet-seqno binding and independent finality evidence. Focused negative-case tests are authored but have not been executed in a Node runtime.
+
+
+## Read-only wallet seqno observation
+
+Added `server/payment/fees/ToncenterTestnetWalletSeqnoProvider.js`. It calls TON Center's documented Testnet `POST /api/v2/runGetMethod` with `method: "seqno"`, requires an independently verified Testnet identity (`global_id: -3`), uses the existing `TON_API_KEY`, validates the returned integer stack, and performs no retry, signing, or broadcast. Its result is explicitly `authorization: OBSERVATION_ONLY`.
+
+This closes only the read-only observation gap; it does **not** bind a seqno to a particular transfer. The next verifier must record the pre-send seqno in a durable operation, serialize all outgoing work for that wallet, and reconcile a timeout/ambiguous broadcast before retrying. Post-send seqno advancement alone is insufficient proof that the expected transaction executed, because another operation may have advanced the wallet. Finalized transaction identity, exact outgoing message, actual source-paid fees, and wallet-version-aware seqno binding remain required. Unit tests are authored for stack validation, Testnet gating, missing API key, malformed responses, and no-retry behavior; they have not yet been run in Node.js here.
