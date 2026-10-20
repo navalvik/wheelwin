@@ -84,13 +84,20 @@ test("reconciliation is durable and rejects actual fees beyond the reserve", () 
             idempotencyKey: "room-1:fee-reserve",
             reconciliation: {
                 settlementAllowed: true, reservedAtomic: 23, actualAtomic: 20,
-                surplusAtomic: 3, surplusDisposition: "REQUIRES_EXPLICIT_REFUND_OR_RECONCILIATION"
+                surplusAtomic: 3, surplusDisposition: "REQUIRES_EXPLICIT_REFUND_OR_RECONCILIATION",
+                actualFees: [
+                    { operationId: "winner", transactionId: "tx-winner", destination: "winner-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: NOW, feeAtomic: 9 },
+                    { operationId: "owner", transactionId: "tx-owner", destination: "owner-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: NOW, feeAtomic: 7 },
+                    { operationId: "refunds", transactionId: "tx-refund", destination: "payer-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: NOW, feeAtomic: 4 }
+                ]
             }
         });
         assert.equal(result.state, "RECONCILED");
         assert.equal(result.reconciliation.surplusAtomic, 3);
+        assert.equal(result.reconciliation.actualFees.length, 3);
         const recovered = new PlayerFundedFeeReserveStore({ filePath: f.filePath }).initialize();
         assert.equal(recovered[0].state, "RECONCILED");
+        assert.equal(recovered[0].reconciliation.actualFees[0].transactionId, "tx-winner");
     } finally {
         rmSync(f.directory, { recursive: true, force: true });
     }
@@ -140,6 +147,23 @@ test("reserve rejects quote totals that do not match and duplicate outgoing oper
                     ...f.reserve.feeQuotes,
                     { ...f.reserve.feeQuotes[0], feeAtomic: 0 }
                 ]
+            }
+        }), PlayerFundedFeeReserveStoreError);
+    } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+    }
+});
+
+
+test("reconciliation refuses aggregate totals without per-operation evidence", () => {
+    const f = fixture();
+    try {
+        f.store.create({ idempotencyKey: "room-1:fee-reserve", reserve: f.reserve });
+        assert.throws(() => f.store.reconcile({
+            idempotencyKey: "room-1:fee-reserve",
+            reconciliation: {
+                settlementAllowed: true, reservedAtomic: 23, actualAtomic: 20,
+                surplusAtomic: 3, surplusDisposition: "REQUIRES_EXPLICIT_REFUND_OR_RECONCILIATION"
             }
         }), PlayerFundedFeeReserveStoreError);
     } finally {
