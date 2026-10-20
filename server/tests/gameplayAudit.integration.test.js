@@ -374,6 +374,16 @@ function activateAndFinishGame(stack, gameId, playerIds) {
 
     stack.gameClockEngine.startClock(gameId);
 
+    // Put the running clock in the authoritative BRAKE phase so the production
+    // ResultActivation can start RESULT after physics emits PHYSICS_STOPPED.
+    const brakeStartedAt = Date.now();
+
+    stack.gameClockEngine.restorePhaseSchedule(gameId, {
+        phase: GAME_STATES.BRAKE,
+        phaseStartedAt: brakeStartedAt,
+        phaseEndsAt: brakeStartedAt + 50
+    });
+
     stack.physicsEngine.createSimulation(gameId);
 
     stack.physicsEngine.startSimulation(gameId);
