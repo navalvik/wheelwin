@@ -64,6 +64,36 @@ function validateRecord(record) {
     if (!Array.isArray(record.feeQuotes) || record.feeQuotes.length === 0) {
         throw new PlayerFundedFeeReserveStoreError("fee quote evidence is required");
     }
+
+    // The persisted reserve must equal the sum of its own operation quotes.
+    // Otherwise a malformed record could claim a larger/smaller player reserve
+    // than the outgoing operations it is supposed to fund.
+    const quoteOperationIds = new Set();
+    let quotedFeeTotalAtomic = 0;
+    for (const quote of record.feeQuotes) {
+        const operationId = requiredText(quote?.operationId, "feeQuote.operationId");
+        if (quoteOperationIds.has(operationId)) {
+            throw new PlayerFundedFeeReserveStoreError("duplicate outgoing fee quote operation", {
+                operationId
+            });
+        }
+        quoteOperationIds.add(operationId);
+        if (!Number.isSafeInteger(quote.feeAtomic) || quote.feeAtomic < 0) {
+            throw new PlayerFundedFeeReserveStoreError("fee quote amount must be a non-negative safe integer", {
+                operationId
+            });
+        }
+        quotedFeeTotalAtomic += quote.feeAtomic;
+        if (!Number.isSafeInteger(quotedFeeTotalAtomic)) {
+            throw new PlayerFundedFeeReserveStoreError("fee quote total exceeds safe integer range");
+        }
+    }
+    if (quotedFeeTotalAtomic !== record.totalReserveAtomic) {
+        throw new PlayerFundedFeeReserveStoreError(
+            "fee quote total does not equal the persisted player-funded reserve",
+            { quotedFeeTotalAtomic, totalReserveAtomic: record.totalReserveAtomic }
+        );
+    }
     return Object.freeze({
         schemaVersion: SCHEMA_VERSION,
         idempotencyKey,
