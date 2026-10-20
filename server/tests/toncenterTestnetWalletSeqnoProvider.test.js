@@ -7,6 +7,7 @@ import {
     ToncenterResponseError
 } from "../payment/toncenter/ToncenterErrors.js";
 
+const VALID_ADDRESS = "0:" + "0".repeat(64);
 const identity = { async getNetworkIdentity() { return { networkName: "TESTNET", globalId: -3 }; } };
 const response = (payload, status = 200) => ({
     status,
@@ -23,7 +24,7 @@ test("reads seqno from the documented runGetMethod stack without signing or broa
             return response({ ok: true, result: { exit_code: 0, stack: [["num", "0x2a"]] } });
         }
     });
-    const result = await provider.getWalletSeqno({ walletAddress: "0:test-wallet" });
+    const result = await provider.getWalletSeqno({ walletAddress: VALID_ADDRESS });
     assert.equal(result.seqno, 42);
     assert.equal(result.networkName, "TESTNET");
     assert.equal(result.globalId, -3);
@@ -32,7 +33,7 @@ test("reads seqno from the documented runGetMethod stack without signing or broa
     assert.equal(request.init.method, "POST");
     assert.equal(request.init.headers["X-API-Key"], "test-key");
     assert.deepEqual(JSON.parse(request.init.body), {
-        address: "0:test-wallet",
+        address: VALID_ADDRESS,
         method: "seqno",
         stack: []
     });
@@ -44,7 +45,7 @@ test("accepts a decimal seqno stack value", async () => {
         networkIdentityProvider: identity,
         fetchImpl: async () => response({ ok: true, result: { exit_code: 0, stack: [["num", "429"]] } })
     });
-    assert.equal((await provider.getWalletSeqno({ walletAddress: "wallet" })).seqno, 429);
+    assert.equal((await provider.getWalletSeqno({ walletAddress: VALID_ADDRESS })).seqno, 429);
 });
 
 test("fails closed before network access when Testnet identity is not confirmed", async () => {
@@ -54,7 +55,7 @@ test("fails closed before network access when Testnet identity is not confirmed"
         networkIdentityProvider: { async getNetworkIdentity() { return { networkName: "MAINNET", globalId: -239 }; } },
         fetchImpl: async () => { requests += 1; return response({}); }
     });
-    await assert.rejects(() => provider.getWalletSeqno({ walletAddress: "wallet" }), ToncenterRequestError);
+    await assert.rejects(() => provider.getWalletSeqno({ walletAddress: VALID_ADDRESS }), ToncenterRequestError);
     assert.equal(requests, 0);
 });
 
@@ -65,7 +66,7 @@ test("does not send an unauthenticated request when TON_API_KEY is absent", asyn
         networkIdentityProvider: identity,
         fetchImpl: async () => { requests += 1; return response({}); }
     });
-    await assert.rejects(() => provider.getWalletSeqno({ walletAddress: "wallet" }), ToncenterApiKeyMissingError);
+    await assert.rejects(() => provider.getWalletSeqno({ walletAddress: VALID_ADDRESS }), ToncenterApiKeyMissingError);
     assert.equal(requests, 0);
 });
 
@@ -82,7 +83,7 @@ test("rejects failed get-method executions and malformed seqno stack values", as
             networkIdentityProvider: identity,
             fetchImpl: async () => response(payload)
         });
-        await assert.rejects(() => provider.getWalletSeqno({ walletAddress: "wallet" }), ToncenterResponseError);
+        await assert.rejects(() => provider.getWalletSeqno({ walletAddress: VALID_ADDRESS }), ToncenterResponseError);
     }
 });
 
@@ -93,6 +94,17 @@ test("does not retry rate-limited requests", async () => {
         networkIdentityProvider: identity,
         fetchImpl: async () => { requests += 1; return response({}, 429); }
     });
-    await assert.rejects(() => provider.getWalletSeqno({ walletAddress: "wallet" }));
+    await assert.rejects(() => provider.getWalletSeqno({ walletAddress: VALID_ADDRESS }));
     assert.equal(requests, 1);
+});
+
+test("rejects an invalid wallet address before network access", async () => {
+    let requests = 0;
+    const provider = new ToncenterTestnetWalletSeqnoProvider({
+        apiKeyProvider: () => "test-key",
+        networkIdentityProvider: identity,
+        fetchImpl: async () => { requests += 1; return response({}); }
+    });
+    await assert.rejects(() => provider.getWalletSeqno({ walletAddress: "not-a-ton-address" }), ToncenterRequestError);
+    assert.equal(requests, 0);
 });
