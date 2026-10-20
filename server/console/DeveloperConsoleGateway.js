@@ -241,15 +241,17 @@ export class DeveloperConsoleGateway {
         );
 
         // Initial snapshot — one projection per message type.
-        this._pushServer(client);
-        this._pushRooms(client);
-        this._pushPlayers(client);
-        this._pushPayments(client);
-        this._pushRecovery(client);
-        this._pushSimulation(client);
-        this._pushMetrics(client);
-        this._pushFocus(client);
-        this._pushLogBuffer(client);
+        // Isolate every diagnostic projection. A single stale/failed console
+        // panel must not abort subscription or escape the Socket.IO callback.
+        this._safePush(client, "_pushServer");
+        this._safePush(client, "_pushRooms");
+        this._safePush(client, "_pushPlayers");
+        this._safePush(client, "_pushPayments");
+        this._safePush(client, "_pushRecovery");
+        this._safePush(client, "_pushSimulation");
+        this._safePush(client, "_pushMetrics");
+        this._safePush(client, "_pushFocus");
+        this._safePush(client, "_pushLogBuffer");
 
         this._appendLog("info", `Console subscribed ${client.socket.id}`);
 
@@ -281,13 +283,13 @@ export class DeveloperConsoleGateway {
 
         this._timers.push(setInterval(() => {
 
-            this._forSubscribed((client) => this._pushServer(client));
+            this._forSubscribed((client) => this._safePush(client, "_pushServer"));
 
         }, CONSOLE_UPDATE_POLICY.SERVER_MS));
 
         this._timers.push(setInterval(() => {
 
-            this._forSubscribed((client) => this._pushMetrics(client));
+            this._forSubscribed((client) => this._safePush(client, "_pushMetrics"));
 
         }, CONSOLE_UPDATE_POLICY.METRICS_MS));
 
@@ -295,11 +297,11 @@ export class DeveloperConsoleGateway {
 
             this._forSubscribed((client) => {
 
-                this._pushRooms(client);
-                this._pushPlayers(client);
-                this._pushPayments(client);
-                this._pushRecovery(client);
-                this._pushSimulation(client);
+                this._safePush(client, "_pushRooms");
+                this._safePush(client, "_pushPlayers");
+                this._safePush(client, "_pushPayments");
+                this._safePush(client, "_pushRecovery");
+                this._safePush(client, "_pushSimulation");
 
             });
 
@@ -307,7 +309,7 @@ export class DeveloperConsoleGateway {
 
         this._timers.push(setInterval(() => {
 
-            this._forSubscribed((client) => this._pushFocus(client));
+            this._forSubscribed((client) => this._safePush(client, "_pushFocus"));
 
         }, CONSOLE_UPDATE_POLICY.FOCUS_HIGH_FREQUENCY_MS));
 
@@ -447,6 +449,25 @@ export class DeveloperConsoleGateway {
             CONSOLE_SERVER_EVENTS.PLAYERS,
             this._projectionService.buildPlayersIndex()
         );
+
+    }
+
+    _safePush(client, methodName) {
+
+        const method = this[methodName];
+
+        if (typeof method !== "function") {
+            return;
+        }
+
+        try {
+            method.call(this, client);
+        } catch (error) {
+            this._appendLog(
+                "error",
+                `Console projection failed | projection=${methodName} | error=${error?.message ?? "Unknown error"}`
+            );
+        }
 
     }
 
