@@ -30,12 +30,40 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Verify runtime version
-        run: node --version
-      - name: Verify console gateway syntax
-        run: node --check server/console/DeveloperConsoleGateway.js
-      - name: Verify regression test syntax
-        run: node --check server/tests/developerConsoleProjectionIsolation.test.js
-      - name: Run focused console projection regression
-        working-directory: server
-        run: node tests/developerConsoleProjectionIsolation.test.js
+      - name: Capture focused regression diagnostics
+        id: regression
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "=== Node ==="
+            node --version
+            echo "=== Gateway syntax ==="
+            node --check server/console/DeveloperConsoleGateway.js
+            gateway_status=$?
+            echo "gateway_syntax_exit=$gateway_status"
+            echo "=== Test syntax ==="
+            node --check server/tests/developerConsoleProjectionIsolation.test.js
+            syntax_status=$?
+            echo "test_syntax_exit=$syntax_status"
+            echo "=== Focused test ==="
+            (cd server && node tests/developerConsoleProjectionIsolation.test.js)
+            test_status=$?
+            echo "test_exit=$test_status"
+            if [ "$gateway_status" -ne 0 ] || [ "$syntax_status" -ne 0 ] || [ "$test_status" -ne 0 ]; then
+              exit 1
+            fi
+          } 2>&1 | tee console-regression-diagnostics.txt
+          pipeline_status=${PIPESTATUS[0]}
+          echo "exit_code=$pipeline_status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-regression-diagnostics
+          path: console-regression-diagnostics.txt
+          if-no-files-found: error
+      - name: Fail if regression checks failed
+        if: steps.regression.outputs.exit_code != '0'
+        run: exit 1
