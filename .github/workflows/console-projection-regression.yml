@@ -37,18 +37,26 @@ jobs:
           set +e
           : > console-regression-diagnostics.txt
           node --version >> console-regression-diagnostics.txt 2>&1
+          (cd server && npm ci) >> console-regression-diagnostics.txt 2>&1
+          install_status=$?
           node --check server/console/DeveloperConsoleGateway.js >> console-regression-diagnostics.txt 2>&1
           gateway_status=$?
           node --check server/tests/developerConsoleProjectionIsolation.test.js >> console-regression-diagnostics.txt 2>&1
           syntax_status=$?
-          (cd server && node tests/developerConsoleProjectionIsolation.test.js) >> console-regression-diagnostics.txt 2>&1
-          test_status=$?
+          if [ "$install_status" -eq 0 ]; then
+            (cd server && node tests/developerConsoleProjectionIsolation.test.js) >> console-regression-diagnostics.txt 2>&1
+            test_status=$?
+          else
+            echo "focused test skipped because npm ci failed" >> console-regression-diagnostics.txt
+            test_status=99
+          fi
           {
+            echo "npm_ci_exit=$install_status"
             echo "gateway_syntax_exit=$gateway_status"
             echo "test_syntax_exit=$syntax_status"
             echo "focused_test_exit=$test_status"
           } >> console-regression-diagnostics.txt
-          if [ "$gateway_status" -eq 0 ] && [ "$syntax_status" -eq 0 ] && [ "$test_status" -eq 0 ]; then
+          if [ "$install_status" -eq 0 ] && [ "$gateway_status" -eq 0 ] && [ "$syntax_status" -eq 0 ] && [ "$test_status" -eq 0 ]; then
             echo "result=passed" >> console-regression-diagnostics.txt
             echo "failed=false" >> "$GITHUB_OUTPUT"
           else
