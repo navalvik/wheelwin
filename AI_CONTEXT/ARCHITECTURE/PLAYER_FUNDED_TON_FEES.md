@@ -62,3 +62,10 @@ Do not interpret a passing pure-policy test as proof of provider authenticity, c
 ## Durable reconciliation evidence
 
 A reserve may not transition to `RECONCILED` from aggregate numbers alone. The store must persist a complete per-operation record of transaction identity, destination, block reference, Testnet identity, observation time, and actual fee, and verify that these records match the reserved operation set and aggregate total. This is an audit-integrity check only; the store's structural validation does not authenticate the provider or prove finality. Only a trusted server-side chain verifier may supply evidence to the reconciliation path.
+
+
+## Implemented seam: `PlayerFeeEvidenceBoundary`
+
+A server-side dependency boundary now exists at `server/payment/fees/PlayerFeeEvidenceBoundary.js`. It reconstructs quote and actual-fee records instead of trusting caller-supplied network/finality labels, and checks the outgoing source wallet, destination, amount, transaction ID, seqno, block reference, and finalized status returned by injected providers. Unit tests cover mismatched network, destination, amount, transaction ID, seqno-bound evidence, and verifier rejection.
+
+This is deliberately **not yet production evidence**: the estimator and finalized-transfer verifier are injected dependencies, and no concrete TONCenter fee-estimation implementation is connected. The adapter is not wired into the reserve store, ledger, payment intents, refund/payout lifecycle, sockets, or app startup. The quote's `TONCENTER_FEE_ESTIMATE` source label is assigned by the boundary only after a trusted estimator dependency is supplied; that label alone does not authenticate the provider. Live payment acceptance remains disabled.
