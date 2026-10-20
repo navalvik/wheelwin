@@ -94,6 +94,85 @@ function validateRecord(record) {
             { quotedFeeTotalAtomic, totalReserveAtomic: record.totalReserveAtomic }
         );
     }
+
+    if (record.state !== "RESERVED" && record.state !== "RECONCILED") {
+        throw new PlayerFundedFeeReserveStoreError("fee reserve state is invalid");
+    }
+
+    let normalizedReconciliation = null;
+    if (record.state === "RESERVED") {
+        if (record.reconciliation !== null) {
+            throw new PlayerFundedFeeReserveStoreError(
+                "unreconciled fee reserve must not contain reconciliation evidence"
+            );
+        }
+    } else {
+        const reconciliation = record.reconciliation;
+        if (!reconciliation || typeof reconciliation !== "object" || Array.isArray(reconciliation)
+            || !Number.isSafeInteger(reconciliation.reservedAtomic)
+            || reconciliation.reservedAtomic !== record.totalReserveAtomic
+            || !Number.isSafeInteger(reconciliation.actualAtomic)
+            || reconciliation.actualAtomic < 0
+            || reconciliation.actualAtomic > record.totalReserveAtomic
+            || !Number.isSafeInteger(reconciliation.surplusAtomic)
+            || reconciliation.surplusAtomic !== record.totalReserveAtomic - reconciliation.actualAtomic
+            || !Number.isSafeInteger(reconciliation.reconciledAtMs)
+            || reconciliation.reconciledAtMs < 0
+            || !Array.isArray(reconciliation.actualFees)
+            || reconciliation.actualFees.length !== record.feeQuotes.length) {
+            throw new PlayerFundedFeeReserveStoreError(
+                "persisted reconciliation summary is invalid or incomplete"
+            );
+        }
+        requiredText(reconciliation.surplusDisposition, "reconciliation.surplusDisposition");
+        const expectedQuotes = new Map(record.feeQuotes.map((quote) => [quote.operationId, quote]));
+        const seenActualOperations = new Set();
+        let actualTotalAtomic = 0;
+        const actualFees = reconciliation.actualFees.map((actual) => {
+            const operationId = requiredText(actual?.operationId, "actualFee.operationId");
+            const quote = expectedQuotes.get(operationId);
+            if (!quote || seenActualOperations.has(operationId)) {
+                throw new PlayerFundedFeeReserveStoreError(
+                    "persisted reconciliation contains an unknown or duplicate operation", { operationId }
+                );
+            }
+            seenActualOperations.add(operationId);
+            const transactionId = requiredText(actual.transactionId, "actualFee.transactionId");
+            const destination = requiredText(actual.destination, "actualFee.destination");
+            const blockId = requiredText(actual.blockId, "actualFee.blockId");
+            if (destination !== quote.destination
+                || actual.networkName !== "TESTNET" || actual.globalId !== -3
+                || actual.finalized !== true
+                || !Number.isSafeInteger(actual.observedAtMs) || actual.observedAtMs < 0
+                || !Number.isSafeInteger(actual.feeAtomic) || actual.feeAtomic < 0) {
+                throw new PlayerFundedFeeReserveStoreError(
+                    "persisted reconciliation contains invalid per-operation evidence", { operationId }
+                );
+            }
+            actualTotalAtomic += actual.feeAtomic;
+            if (!Number.isSafeInteger(actualTotalAtomic)) {
+                throw new PlayerFundedFeeReserveStoreError("persisted actual-fee total exceeds safe integer range");
+            }
+            return Object.freeze({
+                operationId, transactionId, destination, blockId,
+                networkName: "TESTNET", globalId: -3, finalized: true,
+                observedAtMs: actual.observedAtMs, feeAtomic: actual.feeAtomic
+            });
+        });
+        if (actualTotalAtomic !== reconciliation.actualAtomic) {
+            throw new PlayerFundedFeeReserveStoreError(
+                "persisted per-operation fees do not equal reconciliation actualAtomic"
+            );
+        }
+        normalizedReconciliation = Object.freeze({
+            reservedAtomic: reconciliation.reservedAtomic,
+            actualAtomic: reconciliation.actualAtomic,
+            surplusAtomic: reconciliation.surplusAtomic,
+            actualFees: Object.freeze(actualFees),
+            reconciledAtMs: reconciliation.reconciledAtMs,
+            surplusDisposition: reconciliation.surplusDisposition.trim()
+        });
+    }
     return Object.freeze({
         schemaVersion: SCHEMA_VERSION,
         idempotencyKey,
@@ -134,8 +213,8 @@ function validateRecord(record) {
                 validForMs: quote.validForMs
             });
         })),
-        state: record.state === "RECONCILED" ? "RECONCILED" : "RESERVED",
-        reconciliation: record.reconciliation ? Object.freeze({ ...record.reconciliation }) : null
+        state: record.state,
+        reconciliation: normalizedReconciliation
     });
 }
 
