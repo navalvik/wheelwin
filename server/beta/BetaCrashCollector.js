@@ -199,7 +199,7 @@ export class BetaCrashCollector {
                             ? redactSensitiveText(reason.stack ?? "")
                             : null
                     })
-                    + "\\n"
+                    + "\n"
                 );
 
             } catch {
