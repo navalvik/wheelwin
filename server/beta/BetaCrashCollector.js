@@ -2,7 +2,7 @@
  * R8.0D — Crash / fatal collection with redaction.
  */
 
-import { createBetaCrashReport } from "./models/BetaCrashReport.js";
+import { createBetaCrashReport, redactSensitiveText } from "./models/BetaCrashReport.js";
 
 export class BetaCrashCollector {
 
