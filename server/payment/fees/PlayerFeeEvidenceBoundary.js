@@ -67,13 +67,14 @@ export class PlayerFeeEvidenceBoundary {
         this._idFactory = idFactory;
     }
 
-    async createQuote({ operationId, sourceWalletAddress, destination, amountAtomic, purpose, validForMs }) {
+    async createQuote({ operationId, sourceWalletAddress, destination, amountAtomic, purpose, body, validForMs }) {
         const request = Object.freeze({
             operationId: text(operationId, "operationId"),
             sourceWalletAddress: text(sourceWalletAddress, "sourceWalletAddress"),
             destination: text(destination, "destination"),
             amountAtomic: atomic(amountAtomic, "amountAtomic", { positive: true }),
             purpose: text(purpose, "purpose"),
+            body: text(body, "body"),
             networkName: PLAYER_FEE_EVIDENCE_NETWORK.networkName,
             globalId: PLAYER_FEE_EVIDENCE_NETWORK.globalId
         });
@@ -103,6 +104,7 @@ export class PlayerFeeEvidenceBoundary {
             destination: request.destination,
             amountAtomic: request.amountAtomic,
             purpose: request.purpose,
+            body: request.body,
             networkName: PLAYER_FEE_EVIDENCE_NETWORK.networkName,
             globalId: PLAYER_FEE_EVIDENCE_NETWORK.globalId,
             source: PLAYER_FEE_EVIDENCE_NETWORK.quoteSource,
