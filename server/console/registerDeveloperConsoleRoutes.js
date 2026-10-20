@@ -131,7 +131,24 @@ export function registerDeveloperConsoleRoutes(
 
     app.get("/console/payments", (req, res) => {
 
-        res.json(projectionService.buildPaymentsOverview());
+        if (typeof projectionService.buildPaymentsOverview !== "function") {
+            res.status(503).json({
+                architecture: "room-wallet",
+                status: "UNAVAILABLE",
+                error: "Payment diagnostics are unavailable in this server build"
+            });
+            return;
+        }
+
+        try {
+            res.json(projectionService.buildPaymentsOverview());
+        } catch (error) {
+            res.status(503).json({
+                architecture: "room-wallet",
+                status: "UNAVAILABLE",
+                error: "Payment overview unavailable"
+            });
+        }
 
     });
 
