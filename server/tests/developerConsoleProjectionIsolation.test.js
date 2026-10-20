@@ -40,6 +40,8 @@ function createGateway(projectionService) {
     assert.doesNotThrow(() => gateway._safePush(client, "_pushPayments"));
     assert.equal(gateway._lastEmission.type, CONSOLE_SERVER_EVENTS.PAYMENTS);
     assert.equal(gateway._lastEmission.payload.status, "UNAVAILABLE");
+    assert.equal("network" in gateway._lastEmission.payload, false);
+    assert.equal("globalId" in gateway._lastEmission.payload, false);
 }
 
 {
