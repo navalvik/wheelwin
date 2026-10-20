@@ -294,10 +294,6 @@ export class ConsoleStreamLayer {
             "players"
         );
 
-        this._bindProjection(
-            CONSOLE_SERVER_EVENTS.PAYMENTS,
-            "payments"
-        );
 
         this._bindProjection(
             CONSOLE_SERVER_EVENTS.RECOVERY,
