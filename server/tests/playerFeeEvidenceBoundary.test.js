@@ -11,6 +11,7 @@ const request = {
     destination: "winner-wallet",
     amountAtomic: 1_000_000_000,
     purpose: "WINNER_PAYOUT",
+    body: "te6ccgEBAQEAAgAAAA==",
     validForMs: 60_000
 };
 
