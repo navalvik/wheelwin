@@ -6,6 +6,8 @@ on:
       - "server/console/DeveloperConsoleGateway.js"
       - "server/console/consoleProtocol.js"
       - "server/tests/developerConsoleProjectionIsolation.test.js"
+      - "server/package.json"
+      - "server/package-lock.json"
       - ".github/workflows/console-projection-regression.yml"
   push:
     branches:
@@ -14,6 +16,8 @@ on:
       - "server/console/DeveloperConsoleGateway.js"
       - "server/console/consoleProtocol.js"
       - "server/tests/developerConsoleProjectionIsolation.test.js"
+      - "server/package.json"
+      - "server/package-lock.json"
       - ".github/workflows/console-projection-regression.yml"
 
 permissions:
@@ -22,56 +26,28 @@ permissions:
 jobs:
   focused-console-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Run focused checks and capture diagnostics
-        id: checks
-        shell: bash
-        run: |
-          set +e
-          : > console-regression-diagnostics.txt
-          node --version >> console-regression-diagnostics.txt 2>&1
-          (cd server && npm ci) >> console-regression-diagnostics.txt 2>&1
-          install_status=$?
-          node --check server/console/DeveloperConsoleGateway.js >> console-regression-diagnostics.txt 2>&1
-          gateway_status=$?
-          node --check server/tests/developerConsoleProjectionIsolation.test.js >> console-regression-diagnostics.txt 2>&1
-          syntax_status=$?
-          if [ "$install_status" -eq 0 ]; then
-            (cd server && node tests/developerConsoleProjectionIsolation.test.js) >> console-regression-diagnostics.txt 2>&1
-            test_status=$?
-          else
-            echo "focused test skipped because npm ci failed" >> console-regression-diagnostics.txt
-            test_status=99
-          fi
-          {
-            echo "npm_ci_exit=$install_status"
-            echo "gateway_syntax_exit=$gateway_status"
-            echo "test_syntax_exit=$syntax_status"
-            echo "focused_test_exit=$test_status"
-          } >> console-regression-diagnostics.txt
-          if [ "$install_status" -eq 0 ] && [ "$gateway_status" -eq 0 ] && [ "$syntax_status" -eq 0 ] && [ "$test_status" -eq 0 ]; then
-            echo "result=passed" >> console-regression-diagnostics.txt
-            echo "failed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "result=failed" >> console-regression-diagnostics.txt
-            echo "failed=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Upload regression diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: console-regression-diagnostics
-          path: console-regression-diagnostics.txt
-          if-no-files-found: error
-      - name: Set final status
-        if: steps.checks.outputs.failed == 'true'
-        run: |
-          cat console-regression-diagnostics.txt
-          exit 1
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: Check gateway syntax
+        run: node --check server/console/DeveloperConsoleGateway.js
+
+      - name: Check focused test syntax
+        run: node --check server/tests/developerConsoleProjectionIsolation.test.js
+
+      - name: Run focused console regression
+        run: node tests/developerConsoleProjectionIsolation.test.js
+        working-directory: server
