@@ -31,6 +31,7 @@ function makeBoundary({ estimateOverrides = {}, observedOverrides = {} } = {}) {
                     feeAtomic: 100,
                     quotedAtMs: 9_000,
                     estimateId: "provider-estimate-1",
+                    source: "TONCENTER_FEE_ESTIMATE",
                     ...estimateOverrides
                 };
             }
