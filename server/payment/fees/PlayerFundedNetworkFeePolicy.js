@@ -64,11 +64,24 @@ function validateQuotes(feeQuotes, nowMs) {
         if (!Number.isSafeInteger(quote.validForMs) || quote.validForMs <= 0) {
             fail(`feeQuotes[${index}].validForMs must be a positive safe integer`);
         }
+        if (quote.networkName !== "TESTNET" || quote.globalId !== -3
+            || quote.source !== "TONCENTER_FEE_ESTIMATE") {
+            fail("fee quote must identify the approved TON Testnet estimate source", { operationId });
+        }
+        const estimateId = nonEmptyString(quote.estimateId, `feeQuotes[${index}].estimateId`);
+        const destination = nonEmptyString(quote.destination, `feeQuotes[${index}].destination`);
+        const purpose = nonEmptyString(quote.purpose, `feeQuotes[${index}].purpose`);
         if (quote.quotedAtMs > nowMs || nowMs - quote.quotedAtMs > quote.validForMs) {
             fail("outgoing fee quote is stale or from the future", { operationId });
         }
         return Object.freeze({
             operationId,
+            estimateId,
+            destination,
+            purpose,
+            networkName: quote.networkName,
+            globalId: quote.globalId,
+            source: quote.source,
             feeAtomic: quote.feeAtomic,
             quotedAtMs: quote.quotedAtMs,
             validForMs: quote.validForMs
@@ -133,12 +146,26 @@ export function reconcilePlayerFundedFees({ reserve, actualFees }) {
             fail(`actualFees[${index}] must be an object`);
         }
         const operationId = nonEmptyString(actual.operationId, `actualFees[${index}].operationId`);
-        if (!expected.has(operationId) || seen.has(operationId)) {
+        const quote = expected.get(operationId);
+        if (!quote || seen.has(operationId)) {
             fail("actual fee operation is unquoted or duplicated", { operationId });
         }
         seen.add(operationId);
         safeNonNegativeInteger(actual.feeAtomic, `actualFees[${index}].feeAtomic`);
-        return Object.freeze({ operationId, feeAtomic: actual.feeAtomic });
+        const transactionId = nonEmptyString(actual.transactionId, `actualFees[${index}].transactionId`);
+        const destination = nonEmptyString(actual.destination, `actualFees[${index}].destination`);
+        const blockId = nonEmptyString(actual.blockId, `actualFees[${index}].blockId`);
+        safeNonNegativeInteger(actual.observedAtMs, `actualFees[${index}].observedAtMs`);
+        if (actual.networkName !== "TESTNET" || actual.globalId !== -3
+            || actual.finalized !== true || destination !== quote.destination) {
+            fail("actual fee lacks matching finalized Testnet evidence", { operationId, transactionId });
+        }
+        return Object.freeze({
+            operationId, transactionId, destination, blockId,
+            networkName: actual.networkName, globalId: actual.globalId,
+            finalized: true, observedAtMs: actual.observedAtMs,
+            feeAtomic: actual.feeAtomic
+        });
     });
 
     const actualTotalAtomic = normalizedActual.reduce((sum, item) => {
