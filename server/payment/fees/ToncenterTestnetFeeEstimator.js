@@ -6,8 +6,11 @@
  * recipient-side costs and must not be charged to the sender's reserve. They
  * are validated but excluded from feeAtomic.
  *
- * The caller must provide the serialized message body that corresponds to the
- * exact transfer being prepared. No generic/hard-coded fee is substituted.
+ * A required server-only preparedMessageVerifier must independently bind the
+ * serialized BOC to the claimed source, destination, amount, operation and
+ * purpose before this endpoint is called. This repository intentionally does
+ * not provide a production verifier yet, so the estimator cannot be used until
+ * a real verifier is supplied. No generic/hard-coded fee is substituted.
  * The endpoint is fixed to TON Center Testnet and every request is bounded to
  * one HTTP call (no retry/polling).
  */
@@ -82,6 +85,7 @@ export class ToncenterTestnetFeeEstimator {
             return typeof value === "string" ? value.trim() : "";
         },
         networkIdentityProvider,
+        preparedMessageVerifier,
         fetchImpl = globalThis.fetch,
         baseUrl = TONCENTER_TESTNET_BASE_URL,
         timeoutMs = TONCENTER_DEFAULT_TIMEOUT_MS,
@@ -90,8 +94,9 @@ export class ToncenterTestnetFeeEstimator {
     } = {}) {
         if (typeof apiKeyProvider !== "function" || typeof fetchImpl !== "function"
             || typeof networkIdentityProvider?.getNetworkIdentity !== "function"
+            || typeof preparedMessageVerifier?.verifyPreparedOutgoingMessage !== "function"
             || typeof now !== "function" || typeof idFactory !== "function") {
-            throw new ToncenterRequestError("fee estimator requires API-key, network identity, fetch, clock, and ID providers");
+            throw new ToncenterRequestError("fee estimator requires API-key, network identity, prepared-message verifier, fetch, clock, and ID providers");
         }
         if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
             throw new ToncenterRequestError("timeoutMs must be a positive safe integer");
@@ -101,6 +106,7 @@ export class ToncenterTestnetFeeEstimator {
         }
         this._apiKeyProvider = apiKeyProvider;
         this._networkIdentityProvider = networkIdentityProvider;
+        this._preparedMessageVerifier = preparedMessageVerifier;
         this._fetch = fetchImpl;
         this._timeoutMs = timeoutMs;
         this._now = now;
@@ -115,6 +121,25 @@ export class ToncenterTestnetFeeEstimator {
         const bocBody = nonEmpty(body, "body");
         if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) {
             throw new ToncenterRequestError("amountAtomic must be a positive safe integer");
+        }
+        // Do not estimate a BOC based on metadata alone. A trusted server-side
+        // verifier must independently decode/construct and bind the exact message.
+        const binding = await this._preparedMessageVerifier.verifyPreparedOutgoingMessage({
+            operationId,
+            sourceWalletAddress: address,
+            destination: normalizedDestination,
+            amountAtomic,
+            purpose,
+            body: bocBody
+        });
+        if (binding?.verified !== true
+            || binding.operationId !== operationId
+            || binding.sourceWalletAddress !== address
+            || binding.destination !== normalizedDestination
+            || binding.amountAtomic !== amountAtomic
+            || binding.purpose !== purpose
+            || binding.body !== bocBody) {
+            throw new ToncenterRequestError("fee estimate blocked: prepared message is not bound to the exact outgoing operation");
         }
         // The caller's configured endpoint alone is not proof of network
         // identity; verify the Testnet global ID from the server-side provider.
