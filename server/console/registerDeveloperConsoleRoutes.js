@@ -129,12 +129,6 @@ export function registerDeveloperConsoleRoutes(
 
     });
 
-    app.get("/console/payments", (req, res) => {
-
-        res.json(projectionService.buildPaymentsOverview());
-
-    });
-
     app.get("/console/recovery", (req, res) => {
 
         res.json(projectionService.buildRecoveryOverview());
