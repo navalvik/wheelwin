@@ -1,0 +1,35 @@
+name: Console Projection Regression
+
+on:
+  pull_request:
+    paths:
+      - "server/console/DeveloperConsoleGateway.js"
+      - "server/console/consoleProtocol.js"
+      - "server/tests/developerConsoleProjectionIsolation.test.js"
+      - ".github/workflows/console-projection-regression.yml"
+  push:
+    branches:
+      - "fix/console-legacy-payment-projection-guard"
+    paths:
+      - "server/console/DeveloperConsoleGateway.js"
+      - "server/console/consoleProtocol.js"
+      - "server/tests/developerConsoleProjectionIsolation.test.js"
+      - ".github/workflows/console-projection-regression.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused-console-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run focused console projection regression
+        working-directory: server
+        run: node tests/developerConsoleProjectionIsolation.test.js
