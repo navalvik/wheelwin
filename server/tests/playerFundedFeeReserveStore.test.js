@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -166,6 +166,54 @@ test("reconciliation refuses aggregate totals without per-operation evidence", (
                 surplusAtomic: 3, surplusDisposition: "REQUIRES_EXPLICIT_REFUND_OR_RECONCILIATION"
             }
         }), PlayerFundedFeeReserveStoreError);
+    } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+    }
+});
+
+
+test("recovery rejects corrupted reconciled evidence instead of downgrading it to RESERVED", () => {
+    const f = fixture();
+    try {
+        f.store.create({ idempotencyKey: "room-1:fee-reserve", reserve: f.reserve });
+        f.store.reconcile({
+            idempotencyKey: "room-1:fee-reserve",
+            reconciliation: {
+                settlementAllowed: true, reservedAtomic: 23, actualAtomic: 20,
+                surplusAtomic: 3, surplusDisposition: "REQUIRES_EXPLICIT_REFUND_OR_RECONCILIATION",
+                actualFees: [
+                    { operationId: "winner", transactionId: "tx-winner", destination: "winner-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: 1_000, feeAtomic: 9 },
+                    { operationId: "owner", transactionId: "tx-owner", destination: "owner-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: 1_000, feeAtomic: 7 },
+                    { operationId: "refunds", transactionId: "tx-refund", destination: "payer-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: 1_000, feeAtomic: 4 }
+                ]
+            }
+        });
+
+        const document = JSON.parse(readFileSync(f.filePath, "utf8"));
+        document.records[0].reconciliation.actualFees[0].feeAtomic = 1;
+        writeFileSync(f.filePath, JSON.stringify(document), "utf8");
+
+        assert.throws(
+            () => new PlayerFundedFeeReserveStore({ filePath: f.filePath }).initialize(),
+            PlayerFundedFeeReserveStoreError
+        );
+    } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+    }
+});
+
+test("recovery rejects unknown persisted reserve states", () => {
+    const f = fixture();
+    try {
+        f.store.create({ idempotencyKey: "room-1:fee-reserve", reserve: f.reserve });
+        const document = JSON.parse(readFileSync(f.filePath, "utf8"));
+        document.records[0].state = "MYSTERY_STATE";
+        writeFileSync(f.filePath, JSON.stringify(document), "utf8");
+
+        assert.throws(
+            () => new PlayerFundedFeeReserveStore({ filePath: f.filePath }).initialize(),
+            PlayerFundedFeeReserveStoreError
+        );
     } finally {
         rmSync(f.directory, { recursive: true, force: true });
     }
