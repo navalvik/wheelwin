@@ -13,12 +13,18 @@ const io = { of(name) { assert.equal(name, "/console"); return namespace; } };
 
 const emitted = [];
 const socketHandlers = new Map();
+let socketEmitShouldThrowOnLog = false;
 const socket = {
     id: "testnet-console-test",
     connected: true,
     data: {},
     on(event, handler) { socketHandlers.set(event, handler); },
-    emit(event, envelope) { emitted.push({ event, envelope }); },
+    emit(event, envelope) {
+        if (socketEmitShouldThrowOnLog && event === CONSOLE_SERVER_EVENTS.LOG) {
+            throw new Error("simulated socket log emit failure");
+        }
+        emitted.push({ event, envelope });
+    },
     disconnect() { this.connected = false; }
 };
 
@@ -68,9 +74,10 @@ assert.ok(
 
 // Direct client focus events must also isolate projection failures.
 focusProjectionShouldThrow = true;
+socketEmitShouldThrowOnLog = true;
 assert.doesNotThrow(() => {
     socketHandlers.get(CONSOLE_CLIENT_EVENTS.FOCUS)({ roomId: "stale-room-id" });
-}, "focus projection failure must not escape the Socket.IO event handler");
+}, "focus projection failure and subsequent log emit failure must not escape the Socket.IO event handler");
 assert.ok(
     emitted.some(({ event, envelope }) =>
         event === CONSOLE_SERVER_EVENTS.LOG
