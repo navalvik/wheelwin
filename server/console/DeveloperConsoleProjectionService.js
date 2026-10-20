@@ -53,6 +53,7 @@ export class DeveloperConsoleProjectionService {
         roomLobbyBridge = null,
         runtimeConfigurationService = null,
         audioRegistryService = null,
+        paymentRuntime = null,
         version = packageJson.version,
         startedAt = Date.now()
     }) {
@@ -81,6 +82,7 @@ export class DeveloperConsoleProjectionService {
         this._roomLobbyBridge = roomLobbyBridge;
         this._runtimeConfigurationService = runtimeConfigurationService;
         this._audioRegistryService = audioRegistryService;
+        this._paymentRuntime = paymentRuntime;
         this._version = version;
         this._startedAt = startedAt;
 
@@ -171,6 +173,46 @@ export class DeveloperConsoleProjectionService {
             gameStartAuthorization: this._gameStartAuthorization,
             gameStateEngine: this._gameStateEngine,
             resultSessionLifecycle: this._resultSessionLifecycle
+        });
+
+    }
+
+    /** Read-only summary for the server-controlled room-wallet payment runtime. */
+    buildPaymentsOverview() {
+
+        const runtime = this._paymentRuntime;
+
+        if (!runtime) {
+            return Object.freeze({
+                architecture: "room-wallet", status: "UNAVAILABLE", initialized: false,
+                network: null, capabilities: null,
+                wallets: Object.freeze({ total: null }),
+                intents: Object.freeze({ total: null }),
+                refunds: Object.freeze({ pending: null }),
+                message: "Room-wallet payment runtime is not attached to Developer Console"
+            });
+        }
+
+        let capabilities = null;
+        let pendingRefunds = null;
+        try { capabilities = runtime.getCapabilities?.() ?? null; } catch { capabilities = null; }
+        try { pendingRefunds = runtime.refundStore?.listPending?.()?.length ?? null; } catch { pendingRefunds = null; }
+
+        const initialized = runtime.initialized === true;
+        const walletCount = Number.isSafeInteger(runtime.walletPool?.size) ? runtime.walletPool.size : null;
+        const intentCount = Number.isSafeInteger(runtime.intentStore?.size) ? runtime.intentStore.size : null;
+
+        return Object.freeze({
+            architecture: "room-wallet", status: initialized ? "READY" : "NOT_INITIALIZED",
+            initialized,
+            network: runtime.network ?? capabilities?.network ?? null,
+            globalId: runtime.globalId ?? capabilities?.globalId ?? null,
+            roomLifetimeMs: runtime.roomLifetimeMs ?? capabilities?.roomLifetimeMs ?? null,
+            capabilities,
+            wallets: Object.freeze({ total: walletCount }),
+            intents: Object.freeze({ total: intentCount }),
+            refunds: Object.freeze({ pending: pendingRefunds }),
+            message: initialized ? null : "Room-wallet payment runtime has not completed initialization"
         });
 
     }
