@@ -8,8 +8,6 @@
 export const CONSOLE_GROUP_IDS = Object.freeze({
     SYSTEM: "SYSTEM",
     GAME_OPERATIONS: "GAME_OPERATIONS",
-    FINANCIAL: "FINANCIAL",
-    BLOCKCHAIN: "BLOCKCHAIN",
     DEPLOYMENT: "DEPLOYMENT",
     PLATFORM: "PLATFORM",
     CONFIGURATION: "CONFIGURATION"
@@ -26,16 +24,6 @@ export const CONSOLE_GROUPS = Object.freeze([
         id: CONSOLE_GROUP_IDS.GAME_OPERATIONS,
         label: "GAME OPERATIONS",
         defaultExpanded: true
-    }),
-    Object.freeze({
-        id: CONSOLE_GROUP_IDS.FINANCIAL,
-        label: "FINANCIAL",
-        defaultExpanded: true
-    }),
-    Object.freeze({
-        id: CONSOLE_GROUP_IDS.BLOCKCHAIN,
-        label: "BLOCKCHAIN",
-        defaultExpanded: false
     }),
     Object.freeze({
         id: CONSOLE_GROUP_IDS.DEPLOYMENT,
@@ -128,36 +116,6 @@ export const CONSOLE_SECTIONS = Object.freeze([
         id: "history",
         label: "History",
         group: CONSOLE_GROUP_IDS.GAME_OPERATIONS
-    }),
-
-    // FINANCIAL
-    Object.freeze({
-        id: "payments",
-        label: "Payments",
-        group: CONSOLE_GROUP_IDS.FINANCIAL
-    }),
-    Object.freeze({
-        id: "wallet-monitoring",
-        label: "Wallet Monitoring",
-        group: CONSOLE_GROUP_IDS.FINANCIAL,
-        administratorOnly: true
-    }),
-
-    // BLOCKCHAIN
-    Object.freeze({
-        id: "blockchain-status",
-        label: "Blockchain Status",
-        group: CONSOLE_GROUP_IDS.BLOCKCHAIN
-    }),
-    Object.freeze({
-        id: "ton-deployer-wallet",
-        label: "TON Deployer Wallet",
-        group: CONSOLE_GROUP_IDS.BLOCKCHAIN
-    }),
-    Object.freeze({
-        id: "tonconnect",
-        label: "TonConnect Diagnostics",
-        group: CONSOLE_GROUP_IDS.BLOCKCHAIN
     }),
 
     // DEPLOYMENT
