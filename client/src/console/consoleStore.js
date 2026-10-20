@@ -19,7 +19,6 @@ export const CONSOLE_STORE_INITIAL_STATE = Object.freeze({
     room: null,
     game: null,
     players: null,
-    payments: null,
     recovery: null,
     simulation: null,
     metrics: null,
