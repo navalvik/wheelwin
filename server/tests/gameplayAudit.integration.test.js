@@ -265,7 +265,6 @@ function buildAuditStack() {
         auditEngine,
         simulationLoop,
         winnerActivation,
-        paymentActivation,
         auditActivation,
         shutdown() {
 
