@@ -40,3 +40,20 @@ All TON network fees attributable to a WheelWin game must be economically funded
 - Do not let the client author the fee estimate, reserve, payer identity, stake, or destination.
 - Do not use room-wallet residuals, project funds, or the operator's share as an implicit fallback gas budget.
 - This document is an architecture constraint, not evidence that fee estimation, signing, payouts, refunds, or live payment acceptance have been implemented.
+
+
+## Mandatory trust boundary before integration
+
+The current pure policy validates the shape and consistency of quote/evidence objects; it does **not** authenticate that those objects came from TON Center or the blockchain. Values such as `source`, `globalId`, `finalized`, `transactionId`, and `blockId` are not trustworthy merely because a caller supplies them.
+
+Before this policy may authorize settlement, implement a server-only adapter that:
+
+- obtains fee estimates directly from an approved Testnet provider and constructs quote objects internally;
+- independently confirms the configured network identity is TON Testnet (global ID `-3`);
+- verifies each outgoing transaction against the persisted operation, expected source wallet, destination, amount/value, wallet seqno, and transaction identity;
+- derives the actual network fee from chain/provider transaction data rather than accepting a caller-supplied fee amount;
+- applies a documented finality rule and reconciles ambiguous broadcasts before any retry;
+- produces a verified evidence record that untrusted callers and client socket events cannot forge or submit as authoritative;
+- persists the verified evidence/proof reference before allowing the reserve store to mark an operation reconciled.
+
+Do not interpret a passing pure-policy test as proof of provider authenticity, chain finality, actual fee correctness, or safe live settlement. Keep live payment acceptance disabled until this trust boundary is implemented and tested end-to-end.
