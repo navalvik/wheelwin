@@ -271,7 +271,9 @@ export class DeveloperConsoleGateway {
 
         client.focus = Object.freeze({ roomId, gameId });
 
-        this._pushFocus(client);
+        // A malformed or stale focus projection must not escape a socket
+        // event handler and destabilize the server process.
+        this._safePush(client, "focus", () => this._pushFocus(client));
 
     }
 
