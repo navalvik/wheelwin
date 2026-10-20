@@ -6,6 +6,7 @@ import { CONSOLE_SERVER_EVENTS } from "../console/consoleProtocol.js";
 function createGateway(projectionService) {
     const gateway = Object.create(DeveloperConsoleGateway.prototype);
     gateway._projectionService = projectionService;
+    gateway._clients = new Map();
     gateway._logBuffer = [];
     gateway._appendLog = (level, message) => {
         gateway._logBuffer.push({ level, message });
