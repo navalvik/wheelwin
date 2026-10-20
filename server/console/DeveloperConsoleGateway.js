@@ -452,11 +452,46 @@ export class DeveloperConsoleGateway {
 
     _pushPayments(client) {
 
-        this._emit(
-            client.socket,
-            CONSOLE_SERVER_EVENTS.PAYMENTS,
-            this._projectionService.buildPaymentsOverview()
-        );
+        // Legacy production branches may not expose the room-wallet projection.
+        // Never let a stale console projection throw through a Socket.IO callback.
+        let overview;
+        try {
+            if (typeof this._projectionService?.buildPaymentsOverview === "function") {
+                overview = this._projectionService.buildPaymentsOverview();
+            } else {
+                overview = {
+                    architecture: "room-wallet",
+                    status: "UNAVAILABLE",
+                    initialized: false,
+                    network: "testnet",
+                    globalId: -3,
+                    capabilities: null,
+                    wallets: { total: null },
+                    intents: { total: null },
+                    refunds: { pending: null },
+                    message: "Payment diagnostics are unavailable in this server build"
+                };
+            }
+        } catch (error) {
+            overview = {
+                architecture: "room-wallet",
+                status: "UNAVAILABLE",
+                initialized: false,
+                network: "testnet",
+                globalId: -3,
+                capabilities: null,
+                wallets: { total: null },
+                intents: { total: null },
+                refunds: { pending: null },
+                message: "Payment diagnostics projection failed"
+            };
+            this._appendLog(
+                "error",
+                `Console payment projection unavailable | error=${error?.message ?? "Unknown error"}`
+            );
+        }
+
+        this._emit(client.socket, CONSOLE_SERVER_EVENTS.PAYMENTS, overview);
 
     }
 
