@@ -150,8 +150,8 @@ export class BetaCrashCollector {
                     + JSON.stringify(report ?? {
                         timestamp: Date.now(),
                         kind: "uncaughtException",
-                        message: fallbackMessage.slice(0, 1000),
-                        stack: error instanceof Error ? error.stack ?? null : null
+                        message: redactSensitiveText(fallbackMessage).slice(0, 1000),
+                        stack: error instanceof Error ? redactSensitiveText(error.stack ?? "") : null
                     })
                     + "\\n"
                 );
