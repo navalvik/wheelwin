@@ -33,6 +33,71 @@ function assert(condition, message) {
 
 }
 
+class TestPaymentTerminalAdapter {
+
+    constructor({ eventBus }) {
+        this._eventBus = eventBus;
+        this._payments = new Map();
+        this._handlers = [];
+        this._initialized = false;
+    }
+
+    initialize() {
+        if (this._initialized) {
+            return;
+        }
+
+        const winnerHandler = (envelope) => {
+            const gameId = envelope?.payload?.gameId;
+
+            if (!gameId || this._payments.has(gameId)) {
+                return;
+            }
+
+            // Test fixture for the payment-terminal event contract only.
+            // It does not send transfers or test production payment execution.
+            this._payments.set(gameId, Object.freeze({
+                gameId,
+                paymentStatus: "COMPLETED",
+                platformFee: 0
+            }));
+
+            this._eventBus.emit({
+                source: EVENT_SOURCES.APPLICATION,
+                type: EVENT_TYPES.PAYMENT_COMPLETED,
+                payload: {
+                    gameId,
+                    paymentStatus: "COMPLETED"
+                }
+            });
+        };
+
+        this._eventBus.subscribe(EVENT_TYPES.WINNER_DETERMINED, winnerHandler);
+        this._handlers.push({
+            event: EVENT_TYPES.WINNER_DETERMINED,
+            handler: winnerHandler
+        });
+        this._initialized = true;
+    }
+
+    getPayment(gameId) {
+        return this._payments.get(gameId) ?? null;
+    }
+
+    getPaymentStatus(gameId) {
+        return this.getPayment(gameId)?.paymentStatus ?? "PENDING";
+    }
+
+    shutdown() {
+        for (const subscription of this._handlers) {
+            this._eventBus.unsubscribe(subscription.event, subscription.handler);
+        }
+
+        this._handlers = [];
+        this._initialized = false;
+    }
+}
+
 function buildAuditStack() {
 
     const logger = new LoggerService({ logLevel: "error" });
@@ -118,14 +183,7 @@ function buildAuditStack() {
 
     inputAuthority.initialize();
 
-    const paymentEngine = new PaymentEngine({
-        logger,
-        eventBus,
-        winnerEngine,
-        configurationEngine,
-        gameCatalog: catalog,
-        telegramWalletAdapter: new TelegramWalletAdapter({ logger })
-    });
+    const paymentEngine = new TestPaymentTerminalAdapter({ eventBus });
 
     paymentEngine.initialize();
 
@@ -181,14 +239,6 @@ function buildAuditStack() {
 
     winnerActivation.initialize();
 
-    const paymentActivation = new PaymentActivation({
-        logger,
-        eventBus,
-        paymentEngine,
-        devMode: false
-    });
-
-    paymentActivation.initialize();
 
     const auditActivation = new AuditActivation({
         logger,
@@ -220,8 +270,6 @@ function buildAuditStack() {
         shutdown() {
 
             auditActivation.shutdown();
-
-            paymentActivation.shutdown();
 
             winnerActivation.shutdown();
 
