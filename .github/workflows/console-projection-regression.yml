@@ -20,7 +20,50 @@ permissions:
   contents: read
 
 jobs:
+  runner-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Record runner and repository access diagnostics
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "=== Runner ==="
+            uname -a
+            echo "=== Node and npm ==="
+            node --version
+            npm --version
+            echo "=== GitHub repository API ==="
+            curl -sS -o /tmp/repo.json -w "repository_api_http=%{http_code}\n" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$GH_REPOSITORY"
+            head -c 400 /tmp/repo.json
+            echo
+            echo "=== Current commit API ==="
+            curl -sS -o /tmp/commit.json -w "commit_api_http=%{http_code}\n" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$GH_REPOSITORY/commits/$GH_SHA"
+            head -c 400 /tmp/commit.json
+            echo
+          } 2>&1 | tee runner-diagnostics.txt
+          exit ${PIPESTATUS[0]}
+      - name: Upload runner diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-diagnostics
+          path: runner-diagnostics.txt
+          if-no-files-found: warn
+
   focused-console-regression:
+    needs: runner-diagnostics
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -30,40 +73,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Capture focused regression diagnostics
-        id: regression
-        shell: bash
-        run: |
-          set +e
-          {
-            echo "=== Node ==="
-            node --version
-            echo "=== Gateway syntax ==="
-            node --check server/console/DeveloperConsoleGateway.js
-            gateway_status=$?
-            echo "gateway_syntax_exit=$gateway_status"
-            echo "=== Test syntax ==="
-            node --check server/tests/developerConsoleProjectionIsolation.test.js
-            syntax_status=$?
-            echo "test_syntax_exit=$syntax_status"
-            echo "=== Focused test ==="
-            (cd server && node tests/developerConsoleProjectionIsolation.test.js)
-            test_status=$?
-            echo "test_exit=$test_status"
-            if [ "$gateway_status" -ne 0 ] || [ "$syntax_status" -ne 0 ] || [ "$test_status" -ne 0 ]; then
-              exit 1
-            fi
-          } 2>&1 | tee console-regression-diagnostics.txt
-          pipeline_status=${PIPESTATUS[0]}
-          echo "exit_code=$pipeline_status" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: console-regression-diagnostics
-          path: console-regression-diagnostics.txt
-          if-no-files-found: error
-      - name: Fail if regression checks failed
-        if: steps.regression.outputs.exit_code != '0'
-        run: exit 1
+      - name: Verify gateway syntax
+        run: node --check server/console/DeveloperConsoleGateway.js
+      - name: Verify regression test syntax
+        run: node --check server/tests/developerConsoleProjectionIsolation.test.js
+      - name: Run focused regression
+        working-directory: server
+        run: node tests/developerConsoleProjectionIsolation.test.js
