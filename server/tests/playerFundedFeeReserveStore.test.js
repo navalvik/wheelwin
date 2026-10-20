@@ -86,9 +86,9 @@ test("reconciliation is durable and rejects actual fees beyond the reserve", () 
                 settlementAllowed: true, reservedAtomic: 23, actualAtomic: 20,
                 surplusAtomic: 3, surplusDisposition: "REQUIRES_EXPLICIT_REFUND_OR_RECONCILIATION",
                 actualFees: [
-                    { operationId: "winner", transactionId: "tx-winner", destination: "winner-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: NOW, feeAtomic: 9 },
-                    { operationId: "owner", transactionId: "tx-owner", destination: "owner-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: NOW, feeAtomic: 7 },
-                    { operationId: "refunds", transactionId: "tx-refund", destination: "payer-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: NOW, feeAtomic: 4 }
+                    { operationId: "winner", transactionId: "tx-winner", destination: "winner-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: 1_000, feeAtomic: 9 },
+                    { operationId: "owner", transactionId: "tx-owner", destination: "owner-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: 1_000, feeAtomic: 7 },
+                    { operationId: "refunds", transactionId: "tx-refund", destination: "payer-address", blockId: "block-1", networkName: "TESTNET", globalId: -3, finalized: true, observedAtMs: 1_000, feeAtomic: 4 }
                 ]
             }
         });
