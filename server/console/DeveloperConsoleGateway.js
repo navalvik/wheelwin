@@ -240,17 +240,15 @@ export class DeveloperConsoleGateway {
             })
         );
 
-        // Initial snapshot — one projection per message type.
-        this._pushServer(client);
-        this._pushRooms(client);
-        this._pushPlayers(client);
-        this._pushPayments(client);
-        this._pushRecovery(client);
-        this._pushSimulation(client);
-        this._pushMetrics(client);
-        this._pushFocus(client);
-        this._pushLogBuffer(client);
-
+        // Isolate every initial projection: diagnostics must not terminate gameplay.
+        const initialSnapshots = [
+            ["server", () => this._pushServer(client)], ["rooms", () => this._pushRooms(client)],
+            ["players", () => this._pushPlayers(client)], ["payments", () => this._pushPayments(client)],
+            ["recovery", () => this._pushRecovery(client)], ["simulation", () => this._pushSimulation(client)],
+            ["metrics", () => this._pushMetrics(client)], ["focus", () => this._pushFocus(client)],
+            ["logs", () => this._pushLogBuffer(client)]
+        ];
+        for (const [label, push] of initialSnapshots) this._safePush(client, label, push);
         this._appendLog("info", `Console subscribed ${client.socket.id}`);
 
     }
@@ -407,17 +405,13 @@ export class DeveloperConsoleGateway {
     }
 
     _forSubscribed(fn) {
-
         for (const client of this._clients.values()) {
-
             if (client.subscribed && client.socket.connected) {
-
-                fn(client);
-
+                try { fn(client); } catch (error) {
+                    this._appendLog("error", `Console update failed | socketId=${client.socket.id} | error=${error?.message ?? "Unknown error"}`);
+                }
             }
-
         }
-
     }
 
     _pushServer(client) {
@@ -452,12 +446,17 @@ export class DeveloperConsoleGateway {
 
     _pushPayments(client) {
 
-        this._emit(
-            client.socket,
-            CONSOLE_SERVER_EVENTS.PAYMENTS,
-            this._projectionService.buildPaymentsOverview()
-        );
+        this._safePush(client, "payments", () => {
+            this._emit(client.socket, CONSOLE_SERVER_EVENTS.PAYMENTS,
+                this._projectionService.buildPaymentsOverview());
+        });
 
+    }
+
+    _safePush(client, label, push) {
+        try { push(); } catch (error) {
+            this._appendLog("error", `Console projection failed | section=${label} | error=${error?.message ?? "Unknown error"}`);
+        }
     }
 
     _pushRecovery(client) {
