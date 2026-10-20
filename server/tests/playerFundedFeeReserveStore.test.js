@@ -23,9 +23,9 @@ function fixture() {
             { playerId: "c", amountAtomic: 7 }
         ],
         feeQuotes: [
-            { operationId: "winner", feeAtomic: 10, quotedAtMs: 900, validForMs: 500 },
-            { operationId: "owner", feeAtomic: 8, quotedAtMs: 900, validForMs: 500 },
-            { operationId: "refunds", feeAtomic: 5, quotedAtMs: 900, validForMs: 500 }
+            { operationId: "winner", estimateId: "est-1", destination: "winner-address", purpose: "WINNER_PAYOUT", networkName: "TESTNET", globalId: -3, source: "TONCENTER_FEE_ESTIMATE", feeAtomic: 10, quotedAtMs: 900, validForMs: 500 },
+            { operationId: "owner", estimateId: "est-2", destination: "owner-address", purpose: "OPERATOR_PAYOUT", networkName: "TESTNET", globalId: -3, source: "TONCENTER_FEE_ESTIMATE", feeAtomic: 8, quotedAtMs: 900, validForMs: 500 },
+            { operationId: "refunds", estimateId: "est-3", destination: "payer-address", purpose: "PLAYER_REFUND", networkName: "TESTNET", globalId: -3, source: "TONCENTER_FEE_ESTIMATE", feeAtomic: 5, quotedAtMs: 900, validForMs: 500 }
         ]
     };
     return { directory, filePath, store, reserve, setNow(value) { now = value; } };
@@ -91,6 +91,25 @@ test("reconciliation is durable and rejects actual fees beyond the reserve", () 
         assert.equal(result.reconciliation.surplusAtomic, 3);
         const recovered = new PlayerFundedFeeReserveStore({ filePath: f.filePath }).initialize();
         assert.equal(recovered[0].state, "RECONCILED");
+    } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+    }
+});
+
+test("durable reserve preserves quote provenance and rejects wrong-network quote records", () => {
+    const f = fixture();
+    try {
+        const created = f.store.create({ idempotencyKey: "room-1:fee-reserve", reserve: f.reserve });
+        assert.equal(created.record.feeQuotes[0].estimateId, "est-1");
+        assert.equal(created.record.feeQuotes[0].globalId, -3);
+        assert.equal(created.record.feeQuotes[0].destination, "winner-address");
+        assert.throws(() => f.store.create({
+            idempotencyKey: "room-2:fee-reserve",
+            reserve: {
+                ...f.reserve,
+                feeQuotes: [{ ...f.reserve.feeQuotes[0], globalId: -239 }]
+            }
+        }), PlayerFundedFeeReserveStoreError);
     } finally {
         rmSync(f.directory, { recursive: true, force: true });
     }
