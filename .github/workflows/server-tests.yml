@@ -26,7 +26,7 @@ jobs:
   server-tests:
     name: Node server test suite
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,7 +38,23 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - name: Install locked server dependencies
         working-directory: server
-        run: npm ci
+        shell: bash
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund 2>&1 | tee ../server-npm-ci.log
       - name: Run complete server test suite
         working-directory: server
-        run: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee ../server-npm-test.log
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-test-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            server-npm-ci.log
+            server-npm-test.log
+          if-no-files-found: warn
+          retention-days: 7
