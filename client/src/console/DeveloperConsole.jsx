@@ -45,8 +45,6 @@ import AudioRegistryPanel from "./panels/AudioRegistryPanel";
 const SECTION_PANEL_RENDERERS = Object.freeze({
     "server-health": () => <ServerHealthPanel />,
     "system-info": () => <SystemInformationPanel />,
-    "blockchain-status": () => <BlockchainStatusPanel />,
-    "ton-deployer-wallet": () => <DeployerWalletPanel />,
     "closed-beta": () => <ClosedBetaPanel />,
     "launch-readiness": () => <LaunchReadinessPanel />,
     "general-availability": () => <GeneralAvailabilityPanel />,
@@ -55,7 +53,6 @@ const SECTION_PANEL_RENDERERS = Object.freeze({
     rooms: () => <RoomsExplorerPanel />,
     games: () => <GameDetailPanel />,
     players: () => <PlayersInspectorPanel />,
-    "wallet-monitoring": () => <WalletMonitoringPanel />,
     advertising: () => <AdvertisingPanel />,
     history: () => <HistoryPanel />,
     recovery: () => <RecoveryPanel />,
@@ -158,7 +155,7 @@ function DeveloperConsoleBody() {
 
         rememberSectionId(next);
 
-        if (next !== "rooms" && next !== "games" && next !== "tonconnect") {
+        if (next !== "rooms" && next !== "games") {
 
             setFocus({ roomId: null, gameId: null });
 
