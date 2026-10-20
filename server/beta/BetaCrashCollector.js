@@ -168,11 +168,44 @@ export class BetaCrashCollector {
 
         this._onRejection = (reason) => {
 
-            this.recordError(reason, {
-                source: "process",
-                kind: "unhandledRejection",
-                fatal: false
-            });
+            let report = null;
+
+            try {
+
+                report = this.recordError(reason, {
+                    source: "process",
+                    kind: "unhandledRejection",
+                    fatal: false
+                });
+
+            } catch {
+
+                // ignore secondary failures while recording
+            }
+
+            // Rejections are also kept only in memory otherwise; persist a
+            // redacted record so async failures preceding a crash are visible.
+            try {
+
+                process.stderr.write(
+                    "[WHEELWIN_UNHANDLED_REJECTION] "
+                    + JSON.stringify(report ?? {
+                        timestamp: Date.now(),
+                        kind: "unhandledRejection",
+                        message: redactSensitiveText(
+                            reason instanceof Error ? reason.message : String(reason)
+                        ).slice(0, 1000),
+                        stack: reason instanceof Error
+                            ? redactSensitiveText(reason.stack ?? "")
+                            : null
+                    })
+                    + "\\n"
+                );
+
+            } catch {
+
+                // Do not allow diagnostics to create a second failure.
+            }
 
         };
 
