@@ -13,6 +13,7 @@ import {
     TONCENTER_DEFAULT_TIMEOUT_MS,
     TONCENTER_TESTNET_BASE_URL
 } from "../toncenter/ToncenterConstants.js";
+import { tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
 import {
     ToncenterApiKeyMissingError,
     ToncenterAuthenticationError,
@@ -80,6 +81,9 @@ export class ToncenterTestnetWalletSeqnoProvider {
 
     async getWalletSeqno({ walletAddress }) {
         const address = nonEmptyString(walletAddress, "walletAddress");
+        if (tonAddressIdentityOrNull(address) === null) {
+            throw new ToncenterRequestError("walletAddress must be a valid TON address");
+        }
         const identity = await this._networkIdentityProvider.getNetworkIdentity();
         if (identity?.networkName !== "TESTNET" || identity?.globalId !== -3) {
             throw new ToncenterRequestError("wallet seqno observation requires verified TON Testnet identity");
