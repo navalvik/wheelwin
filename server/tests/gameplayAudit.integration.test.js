@@ -19,6 +19,7 @@ import { LoggerService } from "../services/LoggerService.js";
 import { RandomService } from "../services/RandomService.js";
 import { SimulationLoop } from "../simulation/SimulationLoop.js";
 import { WinnerActivation } from "../gameplay/WinnerActivation.js";
+import { BrakePhaseController } from "../gameplay/BrakePhaseController.js";
 import { AuditActivation } from "../gameplay/AuditActivation.js";
 import { GameplayLifecycle } from "../gameplay/GameplayLifecycle.js";
 import { buildClientRecoveryPayload } from "../socket/gameplayRecoveryProtocol.js";
@@ -240,6 +241,16 @@ function buildAuditStack() {
     winnerActivation.initialize();
 
 
+    const brakePhaseController = new BrakePhaseController({
+        logger,
+        eventBus,
+        physicsEngine,
+        gameClockEngine,
+        devMode: false
+    });
+
+    brakePhaseController.initialize();
+
     const auditActivation = new AuditActivation({
         logger,
         eventBus,
@@ -265,10 +276,13 @@ function buildAuditStack() {
         auditEngine,
         simulationLoop,
         winnerActivation,
+        brakePhaseController,
         auditActivation,
         shutdown() {
 
             auditActivation.shutdown();
+
+            brakePhaseController.shutdown();
 
             winnerActivation.shutdown();
 
@@ -353,10 +367,17 @@ function activateAndFinishGame(stack, gameId, playerIds) {
         reason: "test"
     });
 
-    // This focused integration fixture does not construct the production
-    // BrakePhaseController, so explicitly start the authoritative physics brake.
-    // A short deterministic duration keeps the audit lifecycle test fast.
-    stack.physicsEngine.beginBrake(gameId, { durationMs: 50 });
+    // Exercise the production BRAKE owner through its authoritative event
+    // contract. The short duration keeps this integration test deterministic.
+    stack.eventBus.emit({
+        source: EVENT_SOURCES.GAMEPLAY_PHASE_LIFECYCLE,
+        type: EVENT_TYPES.BRAKE_STARTED,
+        payload: {
+            gameId,
+            phase: GAME_STATES.BRAKE,
+            durationMs: 50
+        }
+    });
 
     let guard = 0;
 
