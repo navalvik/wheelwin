@@ -142,7 +142,11 @@ export class PlayerFundedFeeReserveStore {
         });
         const existing = this._byIdempotencyKey.get(key);
         if (existing) {
-            if (JSON.stringify(existing) !== JSON.stringify(candidate)) {
+            const sameBusinessRecord = existing.roomId === candidate.roomId
+                && existing.totalReserveAtomic === candidate.totalReserveAtomic
+                && JSON.stringify(existing.contributions) === JSON.stringify(candidate.contributions)
+                && JSON.stringify(existing.feeQuotes) === JSON.stringify(candidate.feeQuotes);
+            if (!sameBusinessRecord) {
                 throw new PlayerFundedFeeReserveStoreError("idempotency key conflicts with an existing fee reserve", {
                     idempotencyKey: key
                 });
