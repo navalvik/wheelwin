@@ -244,7 +244,6 @@ export class DeveloperConsoleGateway {
         this._pushServer(client);
         this._pushRooms(client);
         this._pushPlayers(client);
-        this._pushPayments(client);
         this._pushRecovery(client);
         this._pushSimulation(client);
         this._pushMetrics(client);
@@ -297,7 +296,6 @@ export class DeveloperConsoleGateway {
 
                 this._pushRooms(client);
                 this._pushPlayers(client);
-                this._pushPayments(client);
                 this._pushRecovery(client);
                 this._pushSimulation(client);
 
@@ -446,16 +444,6 @@ export class DeveloperConsoleGateway {
             client.socket,
             CONSOLE_SERVER_EVENTS.PLAYERS,
             this._projectionService.buildPlayersIndex()
-        );
-
-    }
-
-    _pushPayments(client) {
-
-        this._emit(
-            client.socket,
-            CONSOLE_SERVER_EVENTS.PAYMENTS,
-            this._projectionService.buildPaymentsOverview()
         );
 
     }
