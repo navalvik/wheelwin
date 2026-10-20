@@ -232,12 +232,64 @@ export class PlayerFundedFeeReserveStore {
             || reconciliation.surplusAtomic !== existing.totalReserveAtomic - reconciliation.actualAtomic) {
             throw new PlayerFundedFeeReserveStoreError("fee reconciliation is inconsistent or exceeds the reserve");
         }
+
+        // Persist transaction-level evidence, not only aggregate totals, so a
+        // restart/audit can identify which finalized outgoing operations were
+        // used to reconcile this reserve.
+        if (!Array.isArray(reconciliation.actualFees)
+            || reconciliation.actualFees.length !== existing.feeQuotes.length) {
+            throw new PlayerFundedFeeReserveStoreError(
+                "complete per-operation actual-fee evidence is required for reconciliation"
+            );
+        }
+        const expectedQuotes = new Map(existing.feeQuotes.map((quote) => [quote.operationId, quote]));
+        const seenOperations = new Set();
+        let evidenceTotalAtomic = 0;
+        const actualFees = reconciliation.actualFees.map((actual) => {
+            const operationId = requiredText(actual?.operationId, "actualFee.operationId");
+            const quote = expectedQuotes.get(operationId);
+            if (!quote || seenOperations.has(operationId)) {
+                throw new PlayerFundedFeeReserveStoreError(
+                    "actual-fee evidence contains an unknown or duplicate operation", { operationId }
+                );
+            }
+            seenOperations.add(operationId);
+            const transactionId = requiredText(actual.transactionId, "actualFee.transactionId");
+            const destination = requiredText(actual.destination, "actualFee.destination");
+            const blockId = requiredText(actual.blockId, "actualFee.blockId");
+            if (destination !== quote.destination
+                || actual.networkName !== "TESTNET" || actual.globalId !== -3
+                || actual.finalized !== true
+                || !Number.isSafeInteger(actual.observedAtMs) || actual.observedAtMs < 0
+                || !Number.isSafeInteger(actual.feeAtomic) || actual.feeAtomic < 0) {
+                throw new PlayerFundedFeeReserveStoreError(
+                    "actual-fee evidence is inconsistent with the reserved Testnet operation", { operationId }
+                );
+            }
+            evidenceTotalAtomic += actual.feeAtomic;
+            if (!Number.isSafeInteger(evidenceTotalAtomic)) {
+                throw new PlayerFundedFeeReserveStoreError("actual-fee evidence total exceeds safe integer range");
+            }
+            return Object.freeze({
+                operationId, transactionId, destination, blockId,
+                networkName: actual.networkName, globalId: actual.globalId,
+                finalized: true, observedAtMs: actual.observedAtMs,
+                feeAtomic: actual.feeAtomic
+            });
+        });
+        if (evidenceTotalAtomic !== reconciliation.actualAtomic) {
+            throw new PlayerFundedFeeReserveStoreError(
+                "per-operation actual fees do not equal the reconciliation total",
+                { evidenceTotalAtomic, actualAtomic: reconciliation.actualAtomic }
+            );
+        }
         if (existing.state === "RECONCILED") {
             const prior = existing.reconciliation;
             const same = prior.reservedAtomic === reconciliation.reservedAtomic
                 && prior.actualAtomic === reconciliation.actualAtomic
                 && prior.surplusAtomic === reconciliation.surplusAtomic
-                && prior.surplusDisposition === reconciliation.surplusDisposition;
+                && prior.surplusDisposition === reconciliation.surplusDisposition
+                && JSON.stringify(prior.actualFees) === JSON.stringify(actualFees);
             if (!same) {
                 throw new PlayerFundedFeeReserveStoreError("fee reserve already reconciled with conflicting actual-fee evidence", {
                     idempotencyKey: key
@@ -252,6 +304,7 @@ export class PlayerFundedFeeReserveStore {
                 reservedAtomic: reconciliation.reservedAtomic,
                 actualAtomic: reconciliation.actualAtomic,
                 surplusAtomic: reconciliation.surplusAtomic,
+                actualFees: Object.freeze(actualFees),
                 reconciledAtMs: this._now(),
                 surplusDisposition: requiredText(reconciliation.surplusDisposition, "surplusDisposition")
             })
