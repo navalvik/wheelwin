@@ -121,9 +121,11 @@ export class BetaCrashCollector {
 
         this._onUncaught = (error) => {
 
+            let report = null;
+
             try {
 
-                this.recordError(error, {
+                report = this.recordError(error, {
                     source: "process",
                     kind: "uncaughtException",
                     fatal: true
@@ -132,6 +134,31 @@ export class BetaCrashCollector {
             } catch {
 
                 // ignore secondary failures while recording
+            }
+
+            // The in-memory report disappears when this process exits.
+            // Write the already-redacted report synchronously so the platform
+            // log can preserve the exception that caused the process to exit.
+            try {
+
+                const fallbackMessage = error instanceof Error
+                    ? error.message
+                    : String(error);
+
+                process.stderr.write(
+                    "[WHEELWIN_FATAL_UNCAUGHT_EXCEPTION] "
+                    + JSON.stringify(report ?? {
+                        timestamp: Date.now(),
+                        kind: "uncaughtException",
+                        message: fallbackMessage.slice(0, 1000),
+                        stack: error instanceof Error ? error.stack ?? null : null
+                    })
+                    + "\\n"
+                );
+
+            } catch {
+
+                // Preserve fatal process semantics even if stderr is unavailable.
             }
 
             // Preserve fatal process semantics after observational capture.
