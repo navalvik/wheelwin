@@ -31,11 +31,16 @@ const feePayload = {
     ]
 };
 
-function makeEstimator({ payload = feePayload, status = 200, key = "test-key", network = { networkName: "TESTNET", globalId: -3 }, fetchImpl, now = () => 123_000 } = {}) {
+function makeEstimator({ payload = feePayload, status = 200, key = "test-key", network = { networkName: "TESTNET", globalId: -3 }, bindingOverrides = {}, fetchImpl, now = () => 123_000 } = {}) {
     const calls = [];
     const estimator = new ToncenterTestnetFeeEstimator({
         apiKeyProvider: () => key,
         networkIdentityProvider: { async getNetworkIdentity() { return network; } },
+        preparedMessageVerifier: {
+            async verifyPreparedOutgoingMessage(request) {
+                return { verified: true, ...request, ...bindingOverrides };
+            }
+        },
         fetchImpl: fetchImpl ?? (async (url, init) => {
             calls.push({ url, init });
             return response(status, payload);
@@ -66,6 +71,14 @@ test("uses fixed Testnet endpoint and reserves source-paid fees without charging
         body: input.body,
         ignore_chksig: false
     });
+});
+
+test("blocks fee estimation when the prepared BOC is not bound to the claimed transfer", async () => {
+    const { estimator, calls } = makeEstimator({
+        bindingOverrides: { destination: "attacker-wallet" }
+    });
+    await assert.rejects(() => estimator.estimateOutgoingFee(input), ToncenterRequestError);
+    assert.equal(calls.length, 0);
 });
 
 test("does not make an HTTP request when API key is absent", async () => {
