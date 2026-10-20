@@ -90,7 +90,8 @@ export class PlayerFeeEvidenceBoundary {
         if (quotedAtMs > nowMs || nowMs - quotedAtMs > validForMs) {
             throw new PlayerFeeEvidenceBoundaryError("fee estimator returned a stale or future quote");
         }
-        if (estimate.sourceWalletAddress !== request.sourceWalletAddress
+        if (estimate.source !== PLAYER_FEE_EVIDENCE_NETWORK.quoteSource
+            || estimate.sourceWalletAddress !== request.sourceWalletAddress
             || estimate.destination !== request.destination
             || estimate.amountAtomic !== request.amountAtomic
             || estimate.purpose !== request.purpose) {
