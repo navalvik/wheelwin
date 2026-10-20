@@ -30,6 +30,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Verify runtime version
+        run: node --version
+      - name: Verify console gateway syntax
+        run: node --check server/console/DeveloperConsoleGateway.js
+      - name: Verify regression test syntax
+        run: node --check server/tests/developerConsoleProjectionIsolation.test.js
       - name: Run focused console projection regression
         working-directory: server
         run: node tests/developerConsoleProjectionIsolation.test.js
