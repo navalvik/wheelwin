@@ -188,7 +188,9 @@ export class DeveloperConsoleGateway {
 
         socket.on(CONSOLE_CLIENT_EVENTS.SUBSCRIBE, (payload) => {
 
-            this._onSubscribe(client, payload);
+            // Guard the complete handler, including the CONNECTED acknowledgement.
+            // Projection guards alone do not cover failures before snapshots begin.
+            this._safePush(client, "subscribe", () => this._onSubscribe(client, payload));
 
         });
 
