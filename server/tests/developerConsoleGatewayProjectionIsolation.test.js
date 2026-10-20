@@ -74,17 +74,23 @@ assert.ok(
 
 // Direct client focus events must also isolate projection failures.
 focusProjectionShouldThrow = true;
-socketEmitShouldThrowOnLog = true;
 assert.doesNotThrow(() => {
     socketHandlers.get(CONSOLE_CLIENT_EVENTS.FOCUS)({ roomId: "stale-room-id" });
-}, "focus projection failure and subsequent log emit failure must not escape the Socket.IO event handler");
+}, "focus projection failure must not escape the Socket.IO event handler");
 assert.ok(
     emitted.some(({ event, envelope }) =>
         event === CONSOLE_SERVER_EVENTS.LOG
         && envelope.payload?.message?.includes("section=focus")
         && envelope.payload?.message?.includes("simulated focus projection failure")),
-    "focus projection failure is logged"
+    "focus projection failure is logged when log delivery works"
 );
+
+// If log delivery itself throws while reporting a projection failure, the
+// gateway must record the secondary failure locally without recursive rebroadcast.
+socketEmitShouldThrowOnLog = true;
+assert.doesNotThrow(() => {
+    socketHandlers.get(CONSOLE_CLIENT_EVENTS.FOCUS)({ roomId: "stale-room-id" });
+}, "focus projection failure plus log emit failure must not escape or recurse");
 
 gateway.shutdown();
 console.log("developerConsoleGatewayProjectionIsolation.test.js: all passed");
