@@ -144,7 +144,8 @@ export function useConsoleConnectionStatus() {
         connectionState: state.connectionState,
         connected: state.connected,
         subscribed: state.subscribed,
-        socketId: state.socketId
+        socketId: state.socketId,
+        lastEnvelopeAt: state.lastEnvelopeAt
     };
 
 }
