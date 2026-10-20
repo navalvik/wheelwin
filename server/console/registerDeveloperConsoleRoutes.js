@@ -130,9 +130,11 @@ export function registerDeveloperConsoleRoutes(
     });
 
     app.get("/console/payments", (req, res) => {
-
-        res.json(projectionService.buildPaymentsOverview());
-
+        try {
+            res.json(projectionService.buildPaymentsOverview());
+        } catch (error) {
+            res.status(503).json({ error: "Payment overview unavailable", message: error?.message ?? "Unknown error" });
+        }
     });
 
     app.get("/console/recovery", (req, res) => {
