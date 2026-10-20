@@ -22,6 +22,8 @@ const socket = {
     disconnect() { this.connected = false; }
 };
 
+let focusProjectionShouldThrow = false;
+
 const projectionService = {
     buildServerOverview: () => ({ ok: true }),
     buildRoomsIndex: () => ({ rooms: [] }),
@@ -30,7 +32,10 @@ const projectionService = {
     buildRecoveryOverview: () => ({ pending: 0 }),
     buildSimulationOverview: () => ({ active: 0 }),
     buildMetricsOverview: () => ({ ok: true }),
-    buildRoomDetail: () => null,
+    buildRoomDetail() {
+        if (focusProjectionShouldThrow) throw new Error("simulated focus projection failure");
+        return null;
+    },
     buildGameDetail: () => null
 };
 
@@ -59,6 +64,19 @@ assert.ok(
         && envelope.payload?.message?.includes("section=payments")
         && envelope.payload?.message?.includes("simulated payment projection failure")),
     "payment projection error is logged without aborting the subscription snapshot"
+);
+
+// Direct client focus events must also isolate projection failures.
+focusProjectionShouldThrow = true;
+assert.doesNotThrow(() => {
+    socketHandlers.get(CONSOLE_CLIENT_EVENTS.FOCUS)({ roomId: "stale-room-id" });
+}, "focus projection failure must not escape the Socket.IO event handler");
+assert.ok(
+    emitted.some(({ event, envelope }) =>
+        event === CONSOLE_SERVER_EVENTS.LOG
+        && envelope.payload?.message?.includes("section=focus")
+        && envelope.payload?.message?.includes("simulated focus projection failure")),
+    "focus projection failure is logged"
 );
 
 gateway.shutdown();
