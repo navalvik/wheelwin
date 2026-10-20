@@ -295,11 +295,13 @@ export class DeveloperConsoleGateway {
 
             this._forSubscribed((client) => {
 
-                this._pushRooms(client);
-                this._pushPlayers(client);
-                this._pushPayments(client);
-                this._pushRecovery(client);
-                this._pushSimulation(client);
+                // Keep every projection independent: one malformed diagnostic
+                // section must not suppress the other updates in this cycle.
+                this._safePush(client, "rooms", () => this._pushRooms(client));
+                this._safePush(client, "players", () => this._pushPlayers(client));
+                this._safePush(client, "payments", () => this._pushPayments(client));
+                this._safePush(client, "recovery", () => this._pushRecovery(client));
+                this._safePush(client, "simulation", () => this._pushSimulation(client));
 
             });
 
@@ -307,7 +309,9 @@ export class DeveloperConsoleGateway {
 
         this._timers.push(setInterval(() => {
 
-            this._forSubscribed((client) => this._pushFocus(client));
+            this._forSubscribed((client) =>
+                this._safePush(client, "focus", () => this._pushFocus(client))
+            );
 
         }, CONSOLE_UPDATE_POLICY.FOCUS_HIGH_FREQUENCY_MS));
 
