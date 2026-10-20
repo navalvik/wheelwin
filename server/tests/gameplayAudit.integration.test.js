@@ -20,6 +20,8 @@ import { RandomService } from "../services/RandomService.js";
 import { SimulationLoop } from "../simulation/SimulationLoop.js";
 import { WinnerActivation } from "../gameplay/WinnerActivation.js";
 import { BrakePhaseController } from "../gameplay/BrakePhaseController.js";
+import { ResultActivation } from "../gameplay/ResultActivation.js";
+import { GameplayPhaseLifecycle } from "../gameplay/GameplayPhaseLifecycle.js";
 import { AuditActivation } from "../gameplay/AuditActivation.js";
 import { GameplayLifecycle } from "../gameplay/GameplayLifecycle.js";
 import { buildClientRecoveryPayload } from "../socket/gameplayRecoveryProtocol.js";
@@ -251,6 +253,27 @@ function buildAuditStack() {
 
     brakePhaseController.initialize();
 
+    const resultActivation = new ResultActivation({
+        logger,
+        eventBus,
+        gameClockEngine,
+        winnerEngine,
+        devMode: false
+    });
+
+    resultActivation.initialize();
+
+    const gameplayPhaseLifecycle = new GameplayPhaseLifecycle({
+        logger,
+        eventBus,
+        gameStateEngine,
+        gameClockEngine,
+        winnerEngine,
+        devMode: false
+    });
+
+    gameplayPhaseLifecycle.initialize();
+
     const auditActivation = new AuditActivation({
         logger,
         eventBus,
@@ -277,10 +300,16 @@ function buildAuditStack() {
         simulationLoop,
         winnerActivation,
         brakePhaseController,
+        resultActivation,
+        gameplayPhaseLifecycle,
         auditActivation,
         shutdown() {
 
             auditActivation.shutdown();
+
+            gameplayPhaseLifecycle.shutdown();
+
+            resultActivation.shutdown();
 
             brakePhaseController.shutdown();
 
@@ -344,8 +373,6 @@ function activateAndFinishGame(stack, gameId, playerIds) {
     stack.gameClockEngine.createClock(gameId);
 
     stack.gameClockEngine.startClock(gameId);
-
-    stack.gameClockEngine.stopClock(gameId);
 
     stack.physicsEngine.createSimulation(gameId);
 
