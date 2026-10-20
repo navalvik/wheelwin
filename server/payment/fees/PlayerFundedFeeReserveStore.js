@@ -73,12 +73,22 @@ function validateRecord(record) {
         atomicUnit: "nanoton",
         totalReserveAtomic: record.totalReserveAtomic,
         contributions: Object.freeze(contributions),
-        feeQuotes: Object.freeze(record.feeQuotes.map((quote) => Object.freeze({
-            operationId: requiredText(quote?.operationId, "feeQuote.operationId"),
-            feeAtomic: quote.feeAtomic,
-            quotedAtMs: quote.quotedAtMs,
-            validForMs: quote.validForMs
-        }))),
+        feeQuotes: Object.freeze(record.feeQuotes.map((quote) => {
+            const operationId = requiredText(quote?.operationId, "feeQuote.operationId");
+            if (!Number.isSafeInteger(quote.feeAtomic) || quote.feeAtomic < 0
+                || !Number.isSafeInteger(quote.quotedAtMs) || quote.quotedAtMs < 0
+                || !Number.isSafeInteger(quote.validForMs) || quote.validForMs <= 0) {
+                throw new PlayerFundedFeeReserveStoreError("fee quote evidence contains invalid integer fields", {
+                    operationId
+                });
+            }
+            return Object.freeze({
+                operationId,
+                feeAtomic: quote.feeAtomic,
+                quotedAtMs: quote.quotedAtMs,
+                validForMs: quote.validForMs
+            });
+        })),
         state: record.state === "RECONCILED" ? "RECONCILED" : "RESERVED",
         reconciliation: record.reconciliation ? Object.freeze({ ...record.reconciliation }) : null
     });
@@ -176,6 +186,19 @@ export class PlayerFundedFeeReserveStore {
             || reconciliation.actualAtomic > existing.totalReserveAtomic
             || reconciliation.surplusAtomic !== existing.totalReserveAtomic - reconciliation.actualAtomic) {
             throw new PlayerFundedFeeReserveStoreError("fee reconciliation is inconsistent or exceeds the reserve");
+        }
+        if (existing.state === "RECONCILED") {
+            const prior = existing.reconciliation;
+            const same = prior.reservedAtomic === reconciliation.reservedAtomic
+                && prior.actualAtomic === reconciliation.actualAtomic
+                && prior.surplusAtomic === reconciliation.surplusAtomic
+                && prior.surplusDisposition === reconciliation.surplusDisposition;
+            if (!same) {
+                throw new PlayerFundedFeeReserveStoreError("fee reserve already reconciled with conflicting actual-fee evidence", {
+                    idempotencyKey: key
+                });
+            }
+            return existing;
         }
         const next = Object.freeze({
             ...existing,
