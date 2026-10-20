@@ -91,3 +91,8 @@ The estimator must not add recipient-side `destination_fees` to the source room-
 ## Outgoing verifier implementation boundary
 
 TON Center v3 transaction rows expose transaction hash, source account, `out_msgs`, `total_fees`, and `block_ref`, but the documented transaction schema does not expose the wallet contract's signed external-message `seqno` as a direct transaction field. The verifier must not confuse transaction logical time (`lt`) or block sequence with wallet `seqno`. A concrete verifier therefore still needs a trusted way to bind the prepared wallet operation and its expected seqno to the exact transaction (for example, validating the signed external-in message against the wallet version and operation record), plus independently obtained finalized inclusion evidence. Until that binding is implemented, no adapter may claim complete seqno verification or authorize reconciliation.
+
+
+## Read-only outgoing transaction candidate mapper
+
+Added `server/payment/fees/ToncenterOutgoingTransferCandidateMapper.js` to match a provider transaction row against a server-created operation by transaction hash, source account, exactly one destination/value match, successful execution markers, source-paid `total_fees`, and block reference. The result is explicitly marked `authorization: NOT_AUTHORIZED`, `finalized: false`, and `walletSeqno: null`. It is a parsing/matching seam only, not a settlement verifier; the caller must still establish trusted wallet-seqno binding and independent finality evidence. Focused negative-case tests are authored but have not been executed in a Node runtime.
