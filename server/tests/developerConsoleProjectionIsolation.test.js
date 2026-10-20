@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { DeveloperConsoleGateway } from "../console/DeveloperConsoleGateway.js";
 import { CONSOLE_SERVER_EVENTS } from "../console/consoleProtocol.js";
+import { registerDeveloperConsoleRoutes } from "../console/registerDeveloperConsoleRoutes.js";
 
 function createGateway(projectionService) {
     const gateway = Object.create(DeveloperConsoleGateway.prototype);
@@ -83,6 +84,57 @@ function createGateway(projectionService) {
     assert.ok(gateway._logBuffer.some((entry) =>
         entry.message.includes("Console subscribed test-console")
     ));
+}
+
+
+{
+    const routes = new Map();
+    const app = {
+        use() {},
+        get(path, handler) { routes.set(path, handler); },
+        put() {},
+        post() {}
+    };
+    registerDeveloperConsoleRoutes(app, {});
+    const handler = routes.get("/console/payments");
+    assert.equal(typeof handler, "function");
+
+    const response = {
+        statusCode: 200,
+        payload: null,
+        status(code) { this.statusCode = code; return this; },
+        json(payload) { this.payload = payload; return this; }
+    };
+
+    handler({}, response);
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.payload.status, "UNAVAILABLE");
+}
+
+{
+    const routes = new Map();
+    const app = {
+        use() {},
+        get(path, handler) { routes.set(path, handler); },
+        put() {},
+        post() {}
+    };
+    registerDeveloperConsoleRoutes(app, {
+        buildPaymentsOverview() {
+            throw new Error("payment overview failed");
+        }
+    });
+    const handler = routes.get("/console/payments");
+    const response = {
+        statusCode: 200,
+        payload: null,
+        status(code) { this.statusCode = code; return this; },
+        json(payload) { this.payload = payload; return this; }
+    };
+
+    handler({}, response);
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.payload.status, "UNAVAILABLE");
 }
 
 process.stdout.write("developerConsoleProjectionIsolation.test.js passed\n");
