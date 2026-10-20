@@ -73,7 +73,7 @@ This is deliberately **not yet production evidence**: the estimator and finalize
 
 ## Concrete TON Center fee-estimation adapter
 
-Added `server/payment/fees/ToncenterTestnetFeeEstimator.js`. It makes one authenticated `POST https://testnet.toncenter.com/api/v3/estimateFee` request for a prepared serialized message body, uses the existing `TON_API_KEY` variable, validates all returned fee components as non-negative integer nanotons, rejects malformed or stale/mismatched context, and does not retry on rate limits or network ambiguity. The fee total is calculated from the documented `source_fees` and `destination_fees` component objects; no hard-coded fallback is used.
+Added `server/payment/fees/ToncenterTestnetFeeEstimator.js`. It makes one authenticated `POST https://testnet.toncenter.com/api/v3/estimateFee` request for a prepared serialized message body, uses the existing `TON_API_KEY` variable, validates all returned fee components as non-negative integer nanotons, rejects malformed or stale/mismatched context, and does not retry on rate limits or network ambiguity. The estimator validates both documented `source_fees` and `destination_fees` objects, but the player-funded room-wallet reserve uses only `source_fees`. Recipient-side destination fees are exposed for diagnostics and are not added to the source wallet's reserve. No hard-coded fallback is used.
 
 Added `ToncenterTestnetNetworkIdentityProvider.js`, which calls the existing read-only masterchain-info client and only returns Testnet identity when the provider reports `global_id: -3`. The estimator requires this independent identity provider before making the estimate request.
 
@@ -82,3 +82,12 @@ Important remaining constraints:
 - This code has not been run against the live Testnet API in this session. Mocked unit tests are authored but have not been executed in a Node runtime here.
 - The concrete estimator and identity provider are not wired into application startup, fee-reserve persistence, payout/refund execution, or payment acceptance.
 - Estimation is not proof of the actual eventual network fee. A separate concrete outgoing transaction verifier must establish source wallet, destination, exact value, transaction identity, seqno, actual charged fees and finality.
+
+
+## Fee estimate accounting correction
+
+The estimator must not add recipient-side `destination_fees` to the source room-wallet reserve. Its `feeAtomic` is now exactly the validated `sourceFeeAtomic`; `destinationFeeAtomic` remains diagnostic metadata only. This distinction prevents the reserve from charging players for fees attributable to recipient accounts. The estimate is still only a quote: the final reserve policy must be checked against the exact outgoing message and the chain-observed transaction fee before settlement.
+
+## Outgoing verifier implementation boundary
+
+TON Center v3 transaction rows expose transaction hash, source account, `out_msgs`, `total_fees`, and `block_ref`, but the documented transaction schema does not expose the wallet contract's signed external-message `seqno` as a direct transaction field. The verifier must not confuse transaction logical time (`lt`) or block sequence with wallet `seqno`. A concrete verifier therefore still needs a trusted way to bind the prepared wallet operation and its expected seqno to the exact transaction (for example, validating the signed external-in message against the wallet version and operation record), plus independently obtained finalized inclusion evidence. Until that binding is implemented, no adapter may claim complete seqno verification or authorize reconciliation.
