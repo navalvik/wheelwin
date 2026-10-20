@@ -47,10 +47,10 @@ function makeEstimator({ payload = feePayload, status = 200, key = "test-key", n
     return { estimator, calls };
 }
 
-test("uses fixed Testnet estimate endpoint and sums validated source and destination fee components", async () => {
+test("uses fixed Testnet endpoint and reserves source-paid fees without charging destination fees", async () => {
     const { estimator, calls } = makeEstimator();
     const result = await estimator.estimateOutgoingFee(input);
-    assert.equal(result.feeAtomic, 36);
+    assert.equal(result.feeAtomic, 10);
     assert.equal(result.sourceFeeAtomic, 10);
     assert.equal(result.destinationFeeAtomic, 26);
     assert.equal(result.globalId, -3);
