@@ -106,6 +106,7 @@ test("payer-specific discovery retains zero settlement authority", async () => {
                 amount: "1500000000",
                 transaction_aborted: false,
                 transaction_hash: "a".repeat(64),
+                trace_id: "9".repeat(64),
                 transaction_lt: "123",
                 transaction_now: 1700000001,
                 decoded_forward_payload: { type: "text_comment", comment: "WW1:room1-seat1" }
@@ -136,6 +137,7 @@ test("payment-reference filtering never treats an indexer hint as settlement pro
                 amount: "1500000000",
                 transaction_aborted: false,
                 transaction_hash: "b".repeat(64),
+                trace_id: "9".repeat(64),
                 transaction_lt: "124",
                 transaction_now: 1700000002,
                 decoded_forward_payload
