@@ -185,6 +185,7 @@ export class WalletPoolRegistry {
 
     constructor({
         catalogPath = null,
+        catalogJson = null,
         network = DEFAULT_ROOM_WALLET_NETWORK,
         logger = null
     } = {}) {
@@ -192,6 +193,11 @@ export class WalletPoolRegistry {
         this._logger = logger;
 
         this._catalogPath = catalogPath ?? resolveDefaultRoomWalletCatalogPath();
+
+        // Railway supplies the private catalog as a variable, not a tracked file.
+        // Parse with the secret-stripping reviver; never log its contents.
+        this._catalogJson = catalogJson ?? process.env.ROOM_WALLETS_TESTNET_JSON
+            ?? process.env.ROOM_WALLETS_JSON ?? null;
 
         this._network = network;
 
@@ -261,31 +267,27 @@ export class WalletPoolRegistry {
 
     _loadCatalog() {
 
-        if (!existsSync(this._catalogPath)) {
-
-            throw new PaymentConfigurationError(
-                "room wallet catalog not found",
-                { catalogPath: this._catalogPath }
-            );
-
-        }
-
         let parsed;
 
-        try {
-
-            const raw = readFileSync(this._catalogPath, "utf8");
-
-            // Secrets are dropped during parsing — they never enter memory.
-            parsed = JSON.parse(raw, stripSecretsReviver);
-
-        } catch (error) {
-
-            throw new PaymentConfigurationError(
-                `failed to parse room wallet catalog: ${error?.message ?? error}`,
-                { catalogPath: this._catalogPath }
-            );
-
+        if (this._catalogJson !== null) {
+            try {
+                parsed = JSON.parse(this._catalogJson, stripSecretsReviver);
+            } catch {
+                throw new PaymentConfigurationError(
+                    "invalid room wallet catalog JSON in Railway environment"
+                );
+            }
+        } else {
+            if (!existsSync(this._catalogPath)) {
+                throw new PaymentConfigurationError(
+                    "room wallet catalog unavailable: set ROOM_WALLETS_TESTNET_JSON or ROOM_WALLETS_JSON"
+                );
+            }
+            try {
+                parsed = JSON.parse(readFileSync(this._catalogPath, "utf8"), stripSecretsReviver);
+            } catch {
+                throw new PaymentConfigurationError("invalid room wallet catalog file");
+            }
         }
 
         if (!Array.isArray(parsed) || parsed.length === 0) {
