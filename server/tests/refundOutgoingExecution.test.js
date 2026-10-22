@@ -814,7 +814,14 @@ async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
             signer: makePlannedSigner(mocks), broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
-            refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root })
+            refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root }),
+            signedTransferInspector: {
+                async inspect({ signedTransfer, expected }) {
+                    assert.equal(signedTransfer.amountAtomic, expected.amountAtomic);
+                    assert.equal(expected.amountAtomic, "990000000");
+                    return { verified: true }; // deterministic mock, NOT TON BOC decoding
+                }
+            }
         });
         assert.equal((await h.coordinator.submitRefund(obligation.obligationId, { provider })).outcome, "SUBMITTED");
         const result = await h.coordinator.finalizeRefund(obligation.obligationId, { provider });
@@ -859,7 +866,10 @@ async function testNetFeeRefundRejectsGrossAmountFinality() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
-            refundPlanStore: planStore
+            refundPlanStore: planStore,
+            signedTransferInspector: {
+                inspect: async () => ({ verified: true }) // simulated inspector
+            }
         });
         await h.coordinator.submitRefund(obligation.obligationId, { provider });
         const result = await h.coordinator.finalizeRefund(obligation.obligationId, { provider });
@@ -932,12 +942,53 @@ async function testPlannedRefundFailsClosedWithoutDedicatedSigner() {
     } finally { h.cleanup(); }
 }
 
+async function testSignedTransferInspectionIsMandatory() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
+        for (const inspector of [
+            null,
+            { inspect: async () => ({ verified: false }) },
+            { inspect: async () => { throw new Error("invalid signed BOC"); } }
+        ]) {
+            const mocks = makeMocks({});
+            const provider = new TestnetOutgoingRefundProvider({
+                globalId: -3, signer: makePlannedSigner(mocks),
+                broadcaster: mocks.broadcaster,
+                finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+                outgoingTransferProvider: mocks.outgoingTransferProvider,
+                refundPlanStore: planStore,
+                signedTransferInspector: inspector
+            });
+            assert.equal(provider.canExecute(), inspector !== null);
+            const result = await provider.signAndBroadcast({
+                obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
+            });
+            assert.equal(result.outcome, "FAILED");
+            assert.equal(mocks.calls.broadcast, 0, "unverified signed bytes cannot broadcast");
+        }
+    } finally { h.cleanup(); }
+}
+
 async function main() {
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
     await testPlannedRefundFailsClosedWithoutDedicatedSigner();
     await testConfiguredPlanStoreForbidsGrossFallback();
+    await testSignedTransferInspectionIsMandatory();
     await testRejections();
     await testAmbiguousNoBlindResubmit();
     await testSignerUnavailable();
