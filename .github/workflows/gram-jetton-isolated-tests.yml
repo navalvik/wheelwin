@@ -22,6 +22,12 @@ jobs:
         working-directory: server
         run: |
           node --test tests/verifiedGramTransferPolicy.test.js tests/verifiedGramIntentAdmission.test.js tests/gramJettonMasterConfig.test.js tests/gramJettonTransferCandidates.test.js tests/toncenterJettonTransfersClient.test.js
+      - name: Install server dependencies for SQLite storage regression
+        working-directory: server
+        run: npm ci --ignore-scripts=false --no-audit --no-fund
+      - name: SQLite GRAM transaction replay and restart regression
+        working-directory: server
+        run: node --test tests/payment/gramSqliteReplaySafety.test.js
       - name: Client GRAM transfer encoding and preflight tests
         working-directory: client
         run: |
