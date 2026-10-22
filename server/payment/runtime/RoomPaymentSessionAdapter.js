@@ -855,6 +855,7 @@ export class RoomPaymentSessionAdapter {
             return Object.freeze({
                 paymentReference: intent.paymentReference,
                 playerId: intent.playerId,
+                expectedSender: intent.expectedSender,
                 amountAtomic: intent.amountAtomic,
                 asset: intent.asset,
                 network: intent.network,
