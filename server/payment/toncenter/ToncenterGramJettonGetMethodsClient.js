@@ -33,6 +33,42 @@ function encodeOwnerSlice(address) {
     ]).toString("base64");
 }
 
+// Small getter stacks should never require large HTTP responses. Enforce the
+// cap while streaming, BEFORE JSON.parse allocates a potentially huge object.
+const MAX_RESPONSE_BYTES = 65536;
+
+async function readBoundedGetterJson(response, deadline) {
+    const contentLength = response.headers?.get?.("content-length");
+    if (contentLength != null && contentLength !== "") {
+        if (!/^(?:0|[1-9][0-9]*)$/.test(contentLength) ||
+            Number(contentLength) > MAX_RESPONSE_BYTES)
+            throw new Error("Toncenter GRAM getter response exceeds size limit");
+    }
+    if (response.body && typeof response.body.getReader === "function") {
+        const reader = response.body.getReader();
+        const pieces = [];
+        let total = 0;
+        try {
+            while (true) {
+                const item = await Promise.race([reader.read(), deadline]);
+                if (item.done) break;
+                if (!(item.value instanceof Uint8Array))
+                    throw new Error("Toncenter GRAM getter response stream is invalid");
+                total += item.value.byteLength;
+                if (total > MAX_RESPONSE_BYTES)
+                    throw new Error("Toncenter GRAM getter response exceeds size limit");
+                pieces.push(Buffer.from(item.value));
+            }
+            return JSON.parse(Buffer.concat(pieces, total).toString("utf8"));
+        } finally {
+            // Do not block timeout on a non-cooperative stream cancellation.
+            void reader.cancel().catch(() => {});
+        }
+    }
+    // For injectable offline test doubles without a Web ReadableStream.
+    return Promise.race([response.json(), deadline]);
+}
+
 export class ToncenterGramJettonGetMethodsClient {
     #fetch;
     #key;
@@ -80,7 +116,7 @@ export class ToncenterGramJettonGetMethodsClient {
             }
             // Keep the abort timer alive through the body read, not just the
             // fetch() headers. A stalled JSON body must not hang diagnostics.
-            envelope = await Promise.race([response.json(), deadline]);
+            envelope = await readBoundedGetterJson(response, deadline);
             if (controller.signal.aborted) {
                 throw new Error("Toncenter GRAM get-method timed out");
             }
