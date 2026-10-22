@@ -41,9 +41,9 @@ test("native payment builder refuses disabled, Mainnet, Jetton and mismatched wa
 });
 
 test("native payment expiry is never synthesized from local clocks", () => {
-    for (const value of [undefined, null, 0, 1.5, "DEADLINE_S"]) {
+    for (const value of [undefined, null, 0, 1.5, "1793000000"]) {
         assert.throws(() => buildNativeGramPaymentTransaction(payment, sender, value),
-            /expiry must be authoritative/);
+            /expiry must match the unexpired authoritative room deadline/);
     }
 });
 
