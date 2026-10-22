@@ -77,3 +77,36 @@ test("indexer records outside the authoritative payment window are rejected", ()
         ...bounded, startUtime: 1700000500
     }), /Invalid authoritative/);
 });
+
+test("strict decoded GRAM forward comment filters by authoritative reference only", () => {
+    const intent = { ...filter, expectedPaymentReference: "room1-seat2" };
+    const matching = {
+        ...record,
+        decoded_forward_payload: { type: "text_comment", comment: "WW1:room1-seat2" }
+    };
+    const found = mapGramJettonCandidates(discovery([matching]), intent);
+    assert.equal(found.candidates.length, 1);
+    assert.equal(found.candidates[0].referenceHintMatched, true);
+    assert.equal(found.candidates[0].paymentReference, null);
+    assert.equal(found.candidates[0].finalized, false);
+    assert.equal(found.candidates[0].verifiedForSettlement, false);
+
+    for (const value of [
+        undefined,
+        { type: "text_comment", comment: "WW1:other" },
+        { type: "text_comment", comment: "room1-seat2" },
+        { type: "binary", comment: "WW1:room1-seat2" },
+        { comment: "WW1:room1-seat2" },
+        "WW1:room1-seat2"
+    ]) {
+        assert.equal(mapGramJettonCandidates(discovery([
+            { ...record, decoded_forward_payload: value }
+        ]), intent).candidates.length, 0);
+    }
+});
+
+test("invalid authoritative GRAM payment references cannot be queried", () => {
+    assert.throws(() => mapGramJettonCandidates(discovery([record]), {
+        ...filter, expectedPaymentReference: "room/seat"
+    }), /Invalid authoritative/);
+});
