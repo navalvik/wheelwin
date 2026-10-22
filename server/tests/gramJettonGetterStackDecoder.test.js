@@ -79,7 +79,7 @@ test("decode four-item get_wallet_data stack, owner/master and exact balance", (
 test("reject truncated, malformed, swapped and dangerous TVM stack elements", () => {
     const wrong = [
         { ...masterResult(wallet), resultStack: [] },
-        { ...masterResult(wallet), resultStack: [{ type: "cell", value: addressBoc(wallet) }] },
+        { ...masterResult(wallet), resultStack: [{ type: "num", value: "1" }] },
         { ...masterResult(wallet), resultStack: [{ type: "slice", value: "malformed" }] },
         { ...masterResult(wallet), resultStack: [stackEntry(wallet), stackEntry(wallet)] },
         { ...masterResult(wallet), exitCode: 13 }
@@ -232,9 +232,12 @@ test("published Toncenter v3 CRC32C address BOC is decoded by exact wire format"
         "0:ad06ee0c2a86594f5bc00c50ae270f9f8b48d0b3b883f07e677eb0b1222bc538";
     const parsed = decodeMaster({
         method: "get_wallet_address", exitCode: 0,
-        resultStack: [{ type: "slice", value: publishedBoc }]
+        resultStack: [{ type: "cell", value: publishedBoc }]
     });
     assert.equal(parsed.walletAddress, expectedAccount);
+    assert.equal(decodeMaster({ method: "get_wallet_address", exitCode: 0,
+        resultStack: [{ type: "slice", value: publishedBoc }]
+    }).walletAddress, expectedAccount);
     assert.equal(parsed.paymentCreditAuthorized, false);
     const bytes = Buffer.from(publishedBoc, "base64");
     bytes[bytes.length - 1] ^= 1;
