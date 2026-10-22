@@ -113,7 +113,8 @@ export class TestnetOutgoingRefundProvider {
             && (!this._refundPlanStore ||
                 (typeof this._refundPlanStore.get === "function" &&
                     typeof this._signer?.signPlannedRefund === "function" &&
-                    typeof this._signedTransferInspector?.inspect === "function"))
+                    typeof this._signedTransferInspector?.inspect === "function" &&
+                    typeof this._signedTransferInspector?.verifyWalletV4Signature === "function"))
             && typeof this._broadcaster?.broadcast === "function"
             && typeof this._finality?.getSettlementEvidence === "function"
             && typeof this._observation?.getOutgoingTransfer === "function"
@@ -360,6 +361,19 @@ export class TestnetOutgoingRefundProvider {
                     idempotencyKey: authorized.idempotencyKey
                 } })) {
                     throw new OutgoingRefundError("actual signed TON message could not be independently verified");
+                }
+                // The decoded amount/address is insufficient: the Wallet V4
+                // Ed25519 signature must also be independently authenticated
+                // against the authorized room wallet. Fail closed on any
+                // missing, thrown, or non-boolean verifier result.
+                const signatureVerified = await this._signedTransferInspector.verifyWalletV4Signature({
+                    signedTransfer,
+                    sourceWalletAddress: authorized.sourceWalletAddress,
+                    networkName: authorized.networkName,
+                    globalId: authorized.globalId
+                });
+                if (signatureVerified !== true) {
+                    throw new OutgoingRefundError("Wallet V4 refund signature was not independently verified");
                 }
             }
         } catch {
