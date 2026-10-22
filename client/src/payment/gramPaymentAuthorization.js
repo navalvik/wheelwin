@@ -1,10 +1,6 @@
 /**
- * Fail-closed admission for a future Page4 TEP-74 payment action.
- *
- * Payment acceptance, the GRAM master and sender jetton wallet must originate
- * from an authoritative server response. A native TON destination is NOT the
- * sender's jetton wallet contract. This module does not derive/verify jetton
- * contracts on-chain and therefore never independently authorizes a transfer.
+ * Local preflight for native TON transfers displayed as GRAM in WheelWin.
+ * The room and payment request must come from authoritative server state.
  */
 const RAW = /^(-?(?:0|[1-9][0-9]{0,2})):([0-9a-fA-F]{64})$/;
 const FRIENDLY = /^[A-Za-z0-9_-]{48}$/;
@@ -41,36 +37,25 @@ export function tonAccountIdentityOrNull(value) {
     }
 }
 
-/**
- * A local preflight guard, not chain evidence. The server must first verify
- * the configured master and derive the sender's jetton wallet on Testnet.
- */
+/** Native TON Testnet room-wallet payment request (not a TEP-74 Jetton). */
 export function assessGramPaymentRequest(payment, connectedWalletAddress) {
     if (payment?.enabled !== true) return { ready: false, reason: "ACCEPTANCE_DISABLED" };
-    if (payment.network !== "testnet" || payment.asset !== "GRAM") {
+    if (payment.network !== "testnet" || payment.asset !== "TON")
         return { ready: false, reason: "UNSUPPORTED_ASSET_OR_NETWORK" };
-    }
-    if (payment.jettonWalletVerified !== true) {
-        return { ready: false, reason: "JETTON_WALLET_NOT_VERIFIED" };
-    }
-    const master = tonAccountIdentityOrNull(payment.jettonMaster);
-    const jettonWallet = tonAccountIdentityOrNull(payment.senderJettonWalletAddress);
     const recipient = tonAccountIdentityOrNull(payment.destination);
     const sender = tonAccountIdentityOrNull(payment.expectedSender);
     const connected = tonAccountIdentityOrNull(connectedWalletAddress);
-    if (!master || !jettonWallet || !recipient || !sender || !connected || sender !== connected) {
+    if (!recipient || !sender || !connected || sender !== connected || sender === recipient)
         return { ready: false, reason: "MISSING_OR_MISMATCHED_WALLET_IDENTITY" };
-    }
-    if (jettonWallet === recipient || master === jettonWallet) {
-        return { ready: false, reason: "INVALID_JETTON_WALLET" };
-    }
+    if (payment.jettonMaster != null || payment.senderJettonWalletAddress != null ||
+        payment.jettonWalletVerified != null)
+        return { ready: false, reason: "MIXED_JETTON_PAYMENT_PROTOCOL" };
     const amount = typeof payment.amountAtomic === "string"
         ? payment.amountAtomic
         : Number.isSafeInteger(payment.amountAtomic) ? String(payment.amountAtomic) : null;
     if (!amount || !/^[1-9][0-9]*$/.test(amount)
         || typeof payment.reference !== "string"
-        || !/^[A-Za-z0-9_-]{1,64}$/.test(payment.reference)) {
+        || !/^[A-Za-z0-9_-]{1,64}$/.test(payment.reference))
         return { ready: false, reason: "INVALID_PAYMENT_INTENT" };
-    }
     return { ready: true, reason: "PRECHECK_ONLY", amountAtomic: amount };
 }
