@@ -45,6 +45,7 @@ import {
     CurrencyMapping,
     LedgerStore,
     NANOTONS_PER_TON,
+    GRAM_DISPLAY_SYMBOL,
     RoomLedger
 } from "../ledger/index.js";
 import { RefundLifecycleCoordinator } from "../refund/RefundLifecycleCoordinator.js";
@@ -71,7 +72,7 @@ export const TON_TESTNET_GLOBAL_ID = -3;
 
 const CANONICAL_TON_ASSET = "TON";
 // Native TON is denominated GRAM in WheelWin; ledger and intent mapping must agree.
-const CANONICAL_TON_SYMBOL = "GRAM";
+const CANONICAL_TON_SYMBOL = GRAM_DISPLAY_SYMBOL;
 
 /**
  * Default durable storage directory for the isolated room-wallet payment
