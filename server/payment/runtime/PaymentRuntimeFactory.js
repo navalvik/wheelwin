@@ -208,6 +208,13 @@ export function buildPaymentRuntime(options = {}) {
     if (!["json", "sqlite"].includes(intentStorageBackend)) {
         throw new Error("Unknown payment intent storage backend");
     }
+    if (intentStorageBackend === "json"
+        && existsSync(join(networkDataDir, "payment-intents.sqlite"))) {
+        throw new Error(
+            "Cannot select JSON while a SQLite intent database exists; "
+            + "an audited, lossless migration is required"
+        );
+    }
     if (intentStorageBackend === "sqlite") {
         const legacyIntentDir = join(networkDataDir, "payment-intents");
         if (existsSync(legacyIntentDir)
