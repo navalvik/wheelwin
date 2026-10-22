@@ -85,7 +85,8 @@ export class RefundObligation {
         if (record.finalizedEvidence) {
             const allowedEvidenceFields = new Set([
                 "networkName", "globalId", "transactionId", "amountAtomic",
-                "destination", "finalized", "observedAtMs", "blockId"
+                "destination", "finalized", "observedAtMs", "blockId",
+                "originalPaidAmountAtomic", "reservedFeeAtomic"
             ]);
             if (Object.keys(record.finalizedEvidence).some((key) => !allowedEvidenceFields.has(key))) {
                 throw new RefundObligationError("finalized evidence contains unsupported fields");
@@ -102,7 +103,23 @@ export class RefundObligation {
                 || this.finalizedEvidence.networkName !== this.networkName
                 || this.finalizedEvidence.globalId !== this.globalId
                 || this.finalizedEvidence.transactionId !== this.outgoingTransactionId
-                || this.finalizedEvidence.amountAtomic !== this.amountAtomic
+                || !(
+                    // Legacy exact gross-principal refunds remain readable.
+                    (this.finalizedEvidence.originalPaidAmountAtomic === undefined
+                        && this.finalizedEvidence.reservedFeeAtomic === undefined
+                        && this.finalizedEvidence.amountAtomic === this.amountAtomic)
+                    // Planned native refund: original stake and NET transfer
+                    // are distinct, with an explicit payer-borne fee.
+                    || (this.denomination === "TON"
+                        && this.finalizedEvidence.originalPaidAmountAtomic === String(this.amountAtomic)
+                        && typeof this.finalizedEvidence.reservedFeeAtomic === "string"
+                        && /^[1-9][0-9]*$/.test(this.finalizedEvidence.reservedFeeAtomic)
+                        && Number.isSafeInteger(this.finalizedEvidence.amountAtomic)
+                        && this.finalizedEvidence.amountAtomic > 0
+                        && BigInt(this.finalizedEvidence.amountAtomic) +
+                            BigInt(this.finalizedEvidence.reservedFeeAtomic) ===
+                            BigInt(this.amountAtomic))
+                )
                 || this.finalizedEvidence.destination !== this.refundDestination
                 || this.finalizedEvidence.finalized !== true) {
                 throw new RefundObligationError("finalized evidence does not match the outgoing refund identity");
