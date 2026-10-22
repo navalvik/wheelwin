@@ -74,6 +74,7 @@ test("diagnostic refuses absent master, bad owner and absent key before network"
     for (const modified of [
         { ...env, GRAM_JETTON_MASTER_TESTNET: "" },
         { ...env, GRAM_TESTNET_DIAGNOSTIC_OWNER: "bad" },
+        { ...env, GRAM_TESTNET_DIAGNOSTIC_OWNER: master },
         { ...env, TON_API_KEY: "" }
     ]) {
         await assert.rejects(runGramTestnetGetterSmoke({ env: modified, client }));
