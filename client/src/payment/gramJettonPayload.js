@@ -86,12 +86,21 @@ export function buildGramJettonTransferBody({ amountAtomic, recipient, responseD
     const bits = [];
     writeUint(bits, 0x0f8a7ea5, 32);
     writeUint(bits, BigInt(queryId), 64);
+    // VarUInteger 16: 4-bit byte length followed by unsigned big-endian bytes.
+    // It is NOT LEB128. Incorrect encoding silently changes the jetton amount.
+    const amountBytes = [];
     let remaining = amount;
-    while (remaining >= 128n) { writeUint(bits, Number(remaining & 127n) | 128, 8); remaining >>= 7n; }
-    writeUint(bits, remaining, 8);
+    while (remaining > 0n) {
+        amountBytes.unshift(Number(remaining & 255n));
+        remaining >>= 8n;
+    }
+    if (amountBytes.length > 15) throw new Error("GRAM amount exceeds VarUInteger16 capacity");
+    writeUint(bits, amountBytes.length, 4);
+    for (const byte of amountBytes) writeUint(bits, byte, 8);
     bits.push(...addressBits(recipient), ...addressBits(responseDestination));
     writeUint(bits, 0, 1); // custom_payload absent
-    writeUint(bits, 1, 4); // forward_ton_amount = 1 nanotON
+    writeUint(bits, 1, 4); // forward_ton_amount VarUInteger16 length = 1 byte
+    writeUint(bits, 1, 8); // 1 nanotON
     writeUint(bits, 1, 1); // forward_payload in ref
     return serialize(cell(bits, [snakeComment(reference)]));
 }
