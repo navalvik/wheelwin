@@ -42,6 +42,8 @@ export function requireVerifiedGramTransfer(evidence, {
         || evidence.transactionId.trim() === "") {
         throw new Error("GRAM transfer does not match authoritative payment intent");
     }
+    // A confirmed token event is not a reusable credit: the transaction identity
+    // must be persisted atomically by the settlement ledger before crediting.
     return Object.freeze({
         transactionId: evidence.transactionId,
         asset: "GRAM",
