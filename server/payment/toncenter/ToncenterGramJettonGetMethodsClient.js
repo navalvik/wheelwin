@@ -3,8 +3,8 @@
  *
  * Toncenter v3 /runGetMethod exposes indexed contract state; it does NOT
  * independently authenticate state roots and grants NO payment authority.
- * The returned TVM stack is deliberately NOT decoded into trusted owner or
- * master identities until a separate, tested stack/BOC decoder exists.
+ * Getter stack decoding and address correlation are separate advisory-only
+ * modules; this transport does not authenticate chain state.
  */
 import { tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
 import { TONCENTER_TESTNET_BASE_URL } from "./ToncenterConstants.js";
@@ -58,25 +58,34 @@ export class ToncenterGramJettonGetMethodsClient {
         }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
-        let response;
+        let envelope;
         try {
-            response = await this.#fetch(TONCENTER_TESTNET_BASE_URL + "/api/v3/runGetMethod", {
+            const response = await this.#fetch(TONCENTER_TESTNET_BASE_URL + "/api/v3/runGetMethod", {
                 method: "POST",
                 headers: { "X-API-Key": key.trim(), "Content-Type": "application/json" },
                 body: JSON.stringify({ address: account, method, stack }),
                 signal: controller.signal
             });
-        } catch {
-            throw new Error("Toncenter GRAM get-method request failed or timed out");
+            if (response?.status !== 200) {
+                throw new Error(`Toncenter GRAM get-method HTTP ${response?.status}`);
+            }
+            // Keep the abort timer alive through the body read, not just the
+            // fetch() headers. A stalled JSON body must not hang diagnostics.
+            envelope = await response.json();
+            if (controller.signal.aborted) {
+                throw new Error("Toncenter GRAM get-method timed out");
+            }
+        } catch (error) {
+            // Do not echo raw provider errors: they can contain request
+            // metadata. Only preserve safe HTTP status messages.
+            if (controller.signal.aborted)
+                throw new Error("Toncenter GRAM get-method timed out");
+            if (error instanceof Error && /^Toncenter GRAM get-method HTTP (?:[0-9]{3}|undefined)$/.test(error.message))
+                throw error;
+            throw new Error("Toncenter GRAM get-method request or JSON body failed");
         } finally {
             clearTimeout(timer);
         }
-        if (response?.status !== 200) {
-            throw new Error(`Toncenter GRAM get-method HTTP ${response?.status}`);
-        }
-        let envelope;
-        try { envelope = await response.json(); }
-        catch { throw new Error("Toncenter GRAM getter JSON is malformed"); }
         // Toncenter v3 OpenAPI permits only num, cell and slice TVM entries.
         // Fail closed on unknown types and unexpected getter arity before
         // forwarding any indexed observations to the address decoder.
