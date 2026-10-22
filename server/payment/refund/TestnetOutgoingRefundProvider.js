@@ -249,19 +249,73 @@ export class TestnetOutgoingRefundProvider {
             });
         }
 
+        // A persisted fee plan changes the outgoing amount. Never allow the
+        // old full-principal signer to move funds for a planned refund.
+        const plan = this.getReservedNativeGramRefundPlan(authorized.obligationId);
+        if (plan && (plan.idempotencyKey !== authorized.idempotencyKey ||
+            plan.networkName !== authorized.networkName ||
+            plan.globalId !== authorized.globalId ||
+            plan.denomination !== authorized.denomination ||
+            !tonAddressIdentitiesEqual(plan.sourceWalletAddress, authorized.sourceWalletAddress) ||
+            !tonAddressIdentitiesEqual(plan.refundDestination, authorized.refundDestination) ||
+            plan.originalPaidAmountAtomic !== String(authorized.amountAtomic) ||
+            typeof plan.refundAmountAtomic !== "string" ||
+            !/^[1-9][0-9]*$/.test(plan.refundAmountAtomic) ||
+            typeof plan.reservedFeeAtomic !== "string" ||
+            !/^[1-9][0-9]*$/.test(plan.reservedFeeAtomic) ||
+            BigInt(plan.refundAmountAtomic) + BigInt(plan.reservedFeeAtomic) !==
+                BigInt(authorized.amountAtomic) ||
+            plan.sendRemainingBalance !== false)) {
+            throw new OutgoingRefundError("persisted refund fee plan conflicts with original payment identity");
+        }
+        if (plan && typeof this._signer.signPlannedRefund !== "function") {
+            return Object.freeze({
+                outcome: OUTGOING_SUBMISSION_OUTCOME.FAILED,
+                outgoingTransactionId: null,
+                reason: OUTGOING_SUBMISSION_REASON.SIGNER_UNAVAILABLE
+            });
+        }
         let signedTransfer;
         try {
-            signedTransfer = await this._signer.signTransfer({
-                networkName: authorized.networkName,
-                globalId: authorized.globalId,
-                from: authorized.sourceWalletAddress,
-                to: authorized.refundDestination,
-                amountAtomic: authorized.amountAtomic,
-                denomination: authorized.denomination,
-                idempotencyKey: authorized.idempotencyKey,
-                obligationId: authorized.obligationId,
-                now: nowMs
-            });
+            signedTransfer = plan
+                ? await this._signer.signPlannedRefund(Object.freeze({
+                    networkName: authorized.networkName,
+                    globalId: authorized.globalId,
+                    from: authorized.sourceWalletAddress,
+                    to: authorized.refundDestination,
+                    amountAtomic: plan.refundAmountAtomic,
+                    maxFeeAtomic: plan.reservedFeeAtomic,
+                    originalPaidAmountAtomic: plan.originalPaidAmountAtomic,
+                    sendRemainingBalance: false,
+                    denomination: authorized.denomination,
+                    idempotencyKey: authorized.idempotencyKey,
+                    obligationId: authorized.obligationId,
+                    now: nowMs
+                }))
+                : await this._signer.signTransfer({
+                    networkName: authorized.networkName,
+                    globalId: authorized.globalId,
+                    from: authorized.sourceWalletAddress,
+                    to: authorized.refundDestination,
+                    amountAtomic: authorized.amountAtomic,
+                    denomination: authorized.denomination,
+                    idempotencyKey: authorized.idempotencyKey,
+                    obligationId: authorized.obligationId,
+                    now: nowMs
+                });
+            // The secure signing adapter must echo the exact NET transfer
+            // identity before its signed payload can reach the broadcaster.
+            // This is an adapter contract check, not independent decoding of
+            // the signed TON BOC (that is still required before production).
+            if (plan && (signedTransfer?.amountAtomic !== plan.refundAmountAtomic ||
+                signedTransfer?.networkName !== authorized.networkName ||
+                signedTransfer?.globalId !== authorized.globalId ||
+                signedTransfer?.idempotencyKey !== authorized.idempotencyKey ||
+                signedTransfer?.sendRemainingBalance !== false ||
+                !tonAddressIdentitiesEqual(signedTransfer?.from, authorized.sourceWalletAddress) ||
+                !tonAddressIdentitiesEqual(signedTransfer?.to, authorized.refundDestination))) {
+                throw new OutgoingRefundError("signed refund descriptor does not match the durable net transfer plan");
+            }
         } catch {
             // A signing failure never reaches the network.
             return Object.freeze({
