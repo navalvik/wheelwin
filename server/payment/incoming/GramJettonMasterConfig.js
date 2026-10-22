@@ -1,10 +1,13 @@
 /**
- * Explicit GRAM Jetton Master identity.
+ * GRAM Jetton Master configuration for Testnet.
  *
- * Do not infer token identity from ticker, name, explorer URL or the native
- * TON message value. Testnet must have an explicitly configured master.
- * This module does not query any blockchain API and does not sign transfers.
+ * Token identity is an account identity, not a display ticker or a 48-character
+ * string. TON friendly addresses include a CRC16 checksum; a syntactically
+ * plausible string without a valid checksum must not authorize payment intake.
+ * No blockchain call or signing takes place here.
  */
+import { tonAddressIdentityOrNull } from "./TonAddressIdentity.js";
+
 export function requireGramJettonMaster({
     env = process.env,
     network = "testnet"
@@ -12,17 +15,16 @@ export function requireGramJettonMaster({
     if (network !== "testnet") {
         throw new Error("GRAM Jetton Master configuration is Testnet-only in this phase");
     }
-    const master = env.GRAM_JETTON_MASTER_TESTNET;
+
+    const master = env?.GRAM_JETTON_MASTER_TESTNET;
     if (typeof master !== "string" || master.trim() === "") {
         throw new Error("GRAM_JETTON_MASTER_TESTNET must be configured before GRAM payment verification");
     }
+
     const normalized = master.trim();
-    // Standard TON user-friendly addresses are 48 base64url characters.
-    // Raw workchain:hash form is also accepted for later canonical comparison.
-    const friendly = /^[A-Za-z0-9_-]{48}$/.test(normalized);
-    const raw = /^-?\d+:[a-fA-F0-9]{64}$/.test(normalized);
-    if (!friendly && !raw) {
-        throw new Error("GRAM_JETTON_MASTER_TESTNET is not a valid TON address representation");
+    if (tonAddressIdentityOrNull(normalized) === null) {
+        throw new Error("GRAM_JETTON_MASTER_TESTNET must contain a valid TON account address");
     }
+
     return normalized;
 }
