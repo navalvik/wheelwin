@@ -22,3 +22,15 @@ test("Testnet master cannot silently authorize Mainnet", () => {
         network: "mainnet"
     }), /Testnet-only/);
 });
+
+test("rejects malformed friendly master even when its length looks correct", () => {
+    assert.throws(() => requireGramJettonMaster({
+        env: { GRAM_JETTON_MASTER_TESTNET: "E".repeat(48) }
+    }), /valid TON account address/);
+});
+
+test("rejects unsupported workchains and malformed raw master addresses", () => {
+    assert.throws(() => requireGramJettonMaster({
+        env: { GRAM_JETTON_MASTER_TESTNET: "0:" + "g".repeat(64) }
+    }), /valid TON account address/);
+});
