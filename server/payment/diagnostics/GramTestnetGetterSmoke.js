@@ -16,6 +16,9 @@ export async function runGramTestnetGetterSmoke({
     const owner = tonAddressIdentityOrNull(env?.GRAM_TESTNET_DIAGNOSTIC_OWNER);
     const key = env?.TON_API_KEY;
     if (!owner) throw new Error("GRAM_TESTNET_DIAGNOSTIC_OWNER must be a valid public TON address");
+    if (owner === tonAddressIdentityOrNull(master)) {
+        throw new Error("Diagnostic owner cannot be the configured GRAM master");
+    }
     if (typeof key !== "string" || !key.trim()) throw new Error("TON_API_KEY is required for the read-only diagnostic");
     const api = client ?? new ToncenterGramJettonGetMethodsClient({
         apiKeyProvider: () => key
