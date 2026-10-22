@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { verifyPlannedNativeGramRefundFinality } from "../payment/refund/OutgoingRefundFinality.js";
+import { TestnetOutgoingRefundProvider } from "../payment/refund/TestnetOutgoingRefundProvider.js";
 
 const NOW = 1800000000000;
 const source = "0:" + "a".repeat(64);
@@ -68,4 +69,38 @@ test("gross-amount payout, wrong destination, wrong source or missing finality f
         { plan: { ...plan, refundAmountAtomic: "2495000000" } },
         { plan: { ...plan, sendRemainingBalance: true } }
     ]) assert.equal(check(overrides).verified, false);
+});
+
+test("Testnet provider observes immutable stored NET plan without broadcasting", async () => {
+    let reads = 0;
+    const provider = new TestnetOutgoingRefundProvider({
+        globalId: -3,
+        refundPlanStore: { get(id) {
+            assert.equal(id, obligation.obligationId);
+            return plan;
+        } },
+        finalityEvidenceProvider: { async getSettlementEvidence() {
+            reads++;
+            return evidence;
+        } },
+        outgoingTransferProvider: { async getOutgoingTransfer() {
+            reads++;
+            return outgoingTransfer;
+        } }
+    });
+    const result = await provider.observeAndVerifyPlannedNativeGramRefund({
+        obligation, sourceWalletAddress: source,
+        outgoingTransactionId: txId, nowMs: NOW
+    });
+    assert.equal(result.verified, true);
+    assert.equal(reads, 2);
+    assert.equal(provider.canExecute(), false,
+        "read-only finality never enables automatic refunds");
+    await assert.rejects(
+        new TestnetOutgoingRefundProvider({ globalId: -3 })
+            .observeAndVerifyPlannedNativeGramRefund({
+                obligation, sourceWalletAddress: source,
+                outgoingTransactionId: txId, nowMs: NOW
+            }), /plan store is unavailable/
+    );
 });
