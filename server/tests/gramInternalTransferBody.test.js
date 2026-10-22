@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decodeGramInternalTransferBody } from "../payment/toncenter/GramInternalTransferBody.js";
 import { inspectIndexedGramInternalTransfer } from "../payment/toncenter/GramJettonInternalTransferInspection.js";
+import { inspectIndexedGramRecipientExecution } from "../payment/toncenter/GramRecipientExecutionCheck.js";
 
 const owner = "0:" + "a".repeat(64);
 const response = "0:" + "b".repeat(64);
@@ -105,6 +106,9 @@ test("indexed sender-receiver edge and strict internal_transfer agree but NEVER 
             }, children: [{
                 tx_hash: receivingTx, transaction: {
                     account: receiverWallet,
+                    description: { type: "ord", aborted: false,
+                        compute_ph: { skipped: false, success: true },
+                        action: { success: true, valid: true, no_funds: false } },
                     in_msg: { hash: msgHash, source: sourceWallet,
                         destination: receiverWallet, message_content: { body: body() } }
                 }, children: []
@@ -120,6 +124,7 @@ test("indexed sender-receiver edge and strict internal_transfer agree but NEVER 
     assert.equal(result.indexedInternalTransferDecoded, true);
     assert.equal(result.paymentReferenceHintMatched, true);
     assert.equal(result.onChainMessageBodyAuthenticated, false);
+    assert.equal(result.indexedReceiverExecutionAppearsSuccessful, true);
     assert.equal(result.receiverExecutionVerified, false);
     assert.equal(result.jettonWalletMasterVerified, false);
     assert.equal(result.paymentCreditAuthorized, false);
@@ -135,4 +140,38 @@ test("indexed sender-receiver edge and strict internal_transfer agree but NEVER 
     trace.trace.children[0].transaction.in_msg.message_content.body =
         body({ opcode: 0x0f8a7ea5 });
     assert.equal(inspectIndexedGramInternalTransfer(args), null);
+});
+
+
+test("failed or incomplete recipient execution rejects otherwise matching TEP-74 internal transfer", () => {
+    const source = "0:" + "c".repeat(64);
+    const recipient = "0:" + "d".repeat(64);
+    const edgeHash = "3".repeat(64);
+    const base = {
+        account: recipient,
+        in_msg: { hash: edgeHash, source, destination: recipient },
+        description: { type: "ord", aborted: false,
+            compute_ph: { skipped: false, success: true },
+            action: { success: true, valid: true, no_funds: false } }
+    };
+    const check = tx => inspectIndexedGramRecipientExecution({
+        receiverTransaction: tx, recipientJettonWallet: recipient,
+        sourceJettonWallet: source, internalMessageHash: edgeHash
+    });
+    assert.equal(check(base).indexedReceiverExecutionAppearsSuccessful, true);
+    for (const description of [
+        { ...base.description, aborted: true },
+        { ...base.description, type: "tick_tock" },
+        { ...base.description, compute_ph: { skipped: true, success: true } },
+        { ...base.description, compute_ph: { skipped: false, success: false } },
+        { ...base.description, action: { success: false, valid: true } },
+        { ...base.description, action: { success: true, valid: false } },
+        { ...base.description, action: { success: true, valid: true, no_funds: true } },
+        { ...base.description, action: undefined },
+        { ...base.description, compute_ph: undefined }
+    ]) assert.equal(check({ ...base, description }), null);
+    assert.equal(check({ ...base, in_msg: { ...base.in_msg, bounced: true } }), null);
+    assert.equal(check({ ...base, in_msg: { ...base.in_msg, hash: "4".repeat(64) } }), null);
+    assert.equal(check({ ...base, in_msg: { ...base.in_msg, source: recipient } }), null);
+    assert.equal(check({ ...base, description: null }), null);
 });
