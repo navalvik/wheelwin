@@ -77,11 +77,20 @@ export class ToncenterGramJettonGetMethodsClient {
         let envelope;
         try { envelope = await response.json(); }
         catch { throw new Error("Toncenter GRAM getter JSON is malformed"); }
-        if (!envelope || envelope.exit_code !== 0
-            || !Array.isArray(envelope.stack) || envelope.stack.length > 16
-            || !envelope.stack.every(item => item && typeof item === "object"
-                && typeof item.type === "string" && typeof item.value === "string"
-                && item.value.length <= 12000)) {
+        // Toncenter v3 OpenAPI permits only num, cell and slice TVM entries.
+        // Fail closed on unknown types and unexpected getter arity before
+        // forwarding any indexed observations to the address decoder.
+        const expectedTypes = method === "get_wallet_address"
+            ? [["cell", "slice"]]
+            : [["num"], ["cell", "slice"], ["cell", "slice"], ["cell"]];
+        if (!envelope || Array.isArray(envelope) || envelope.exit_code !== 0
+            || !Array.isArray(envelope.stack)
+            || envelope.stack.length !== expectedTypes.length
+            || !envelope.stack.every((item, index) =>
+                item && typeof item === "object" && !Array.isArray(item)
+                && expectedTypes[index].includes(item.type)
+                && typeof item.value === "string"
+                && item.value.length > 0 && item.value.length <= 12000)) {
             throw new Error("Toncenter GRAM get-method result is invalid or unsuccessful");
         }
         return Object.freeze({
