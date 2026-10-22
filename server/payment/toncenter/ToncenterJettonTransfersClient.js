@@ -45,15 +45,15 @@ export class ToncenterJettonTransfersClient {
         apiKeyProvider = defaultApiKeyProvider,
         timeoutMs = 15000
     } = {}) {
-        if (typeof baseUrl !== "string"
-            || new URL(baseUrl).origin !== new URL(TONCENTER_TESTNET_BASE_URL).origin
-            || !baseUrl.endsWith(new URL(TONCENTER_TESTNET_BASE_URL).pathname.replace(/\/$/, ""))
+        // Fix the origin rather than accepting a caller-controlled URL.
+        // This avoids sending TON_API_KEY to an arbitrary path or hostname.
+        if (baseUrl !== TONCENTER_TESTNET_BASE_URL
             || typeof fetchImpl !== "function"
             || typeof apiKeyProvider !== "function"
             || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
             throw new ToncenterJettonTransferQueryError("Only authenticated Testnet Toncenter discovery is supported");
         }
-        this.#baseUrl = baseUrl.replace(/\/$/, "");
+        this.#baseUrl = TONCENTER_TESTNET_BASE_URL;
         this.#fetch = fetchImpl;
         this.#apiKeyProvider = apiKeyProvider;
         this.#timeoutMs = timeoutMs;
