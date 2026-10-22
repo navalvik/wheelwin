@@ -77,6 +77,11 @@ export function mapGramJettonCandidates(discovery, {
         // identity for a subsequent independent finalized-transaction check.
         const sourceJettonWallet = canonical(record.source_wallet);
         if (!sourceJettonWallet) continue;
+        // Toncenter trace_id links the surrounding message cascade, but an
+        // indexer-supplied ID is only a lookup key, NEVER proof of delivery.
+        const traceId = typeof record.trace_id === "string" && /^[a-fA-F0-9]{64}$/.test(record.trace_id)
+            ? record.trace_id.toLowerCase() : null;
+        if (!traceId) continue;
         const key = transactionKey(record);
         if (!key || seen.has(key)) continue;
         seen.add(key);
@@ -86,6 +91,7 @@ export function mapGramJettonCandidates(discovery, {
             transactionLt: record.transaction_lt,
             transactionUtime: record.transaction_now,
             sourceJettonWallet,
+            traceId,
             jettonMaster: master,
             sender,
             recipient,
