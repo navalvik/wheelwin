@@ -69,7 +69,7 @@ export function assessGramPaymentRequest(payment, connectedWalletAddress) {
         : Number.isSafeInteger(payment.amountAtomic) ? String(payment.amountAtomic) : null;
     if (!amount || !/^[1-9][0-9]*$/.test(amount)
         || typeof payment.reference !== "string"
-        || !/^[\x21-\x7e]{1,119}$/.test(payment.reference)) {
+        || !/^[A-Za-z0-9_-]{1,64}$/.test(payment.reference)) {
         return { ready: false, reason: "INVALID_PAYMENT_INTENT" };
     }
     return { ready: true, reason: "PRECHECK_ONLY", amountAtomic: amount };
