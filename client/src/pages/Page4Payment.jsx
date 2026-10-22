@@ -9,6 +9,7 @@ import {
 } from "../socket/socketEvents";
 
 import { formatGramUnits } from "../payment/gramAmount.js";
+import { tonAccountIdentityOrNull } from "../payment/gramPaymentAuthorization.js";
 
 import "../styles/page4payment.css";
 
@@ -61,7 +62,10 @@ export default function Page4Payment() {
                     network: payload.network,
                     destination: payload.destinationWalletAddress,
                     reference: payload.paymentReference,
-                    enabled: payload.paymentAcceptanceEnabled === true
+                    enabled: payload.paymentAcceptanceEnabled === true,
+                    jettonMaster: payload.jettonMaster,
+                    senderJettonWalletAddress: payload.senderJettonWalletAddress,
+                    jettonWalletVerified: payload.jettonWalletVerified === true
                 }
             });
         };
@@ -123,8 +127,12 @@ export default function Page4Payment() {
         && payment?.enabled === true
         && payment.network === "testnet"
         && payment.asset === "GRAM"
-        && typeof payment.destination === "string"
-        && payment.destination.trim() !== ""
+        // Do not display a seemingly payable destination until the server has
+        // explicitly verified the Testnet GRAM master and sender jetton wallet.
+        && payment.jettonWalletVerified === true
+        && Boolean(tonAccountIdentityOrNull(payment.jettonMaster))
+        && Boolean(tonAccountIdentityOrNull(payment.senderJettonWalletAddress))
+        && Boolean(tonAccountIdentityOrNull(payment.destination))
         && typeof payment.reference === "string"
         && payment.reference.trim() !== ""
         && typeof atomicAmount === "string"
@@ -152,7 +160,7 @@ export default function Page4Payment() {
                 )}
                 {identityReady && connected && !requestReady && (
                     <p>
-                        Waiting for the server-authoritative Testnet payment session.
+                        Waiting for the server-authoritative verified Testnet GRAM payment session.
                         Do not transfer funds until the verified destination, amount,
                         and payment request are displayed.
                     </p>
