@@ -274,3 +274,30 @@ test("non-streaming getter without JSON reader refuses unexpected body shape", a
     });
     await assert.rejects(client.getWalletData({ jettonWallet: wallet }), /JSON body failed/);
 });
+
+test("anonymous Testnet getter requires explicit opt-in and never sends an empty API key", async () => {
+    const requests = [];
+    const fetchImpl = async (_url, init) => {
+        requests.push({ time: Date.now(), headers: init.headers });
+        return { status: 200, json: async () => successful };
+    };
+    const unauthenticatedDefault = new ToncenterGramJettonGetMethodsClient({
+        apiKeyProvider: () => "", fetchImpl
+    });
+    await assert.rejects(
+        unauthenticatedDefault.getWalletAddress({ jettonMaster: master, ownerWallet: owner }),
+        /TON_API_KEY/
+    );
+    assert.equal(requests.length, 0);
+    const anonymous = new ToncenterGramJettonGetMethodsClient({
+        apiKeyProvider: () => "", fetchImpl, allowAnonymousRead: true
+    });
+    const first = await anonymous.getWalletAddress({ jettonMaster: master, ownerWallet: owner });
+    const second = await anonymous.getWalletAddress({ jettonMaster: master, ownerWallet: owner });
+    assert.equal(first.paymentCreditAuthorized, false);
+    assert.equal(second.paymentCreditAuthorized, false);
+    assert.equal(requests.length, 2);
+    assert.equal("X-API-Key" in requests[0].headers, false);
+    assert.equal("X-API-Key" in requests[1].headers, false);
+    assert.ok(requests[1].time - requests[0].time >= 1000);
+});
