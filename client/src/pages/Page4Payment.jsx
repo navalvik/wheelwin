@@ -130,6 +130,8 @@ export default function Page4Payment() {
         // Server uses native TON asset identity. WheelWin displays it as GRAM.
         && payment.asset === "TON"
         && Boolean(tonAccountIdentityOrNull(payment.destination))
+        && Boolean(tonAccountIdentityOrNull(payment.expectedSender))
+        && tonAccountIdentityOrNull(payment.destination) !== tonAccountIdentityOrNull(payment.expectedSender)
         && payment.legacyJettonFieldsPresent !== true
         && typeof payment.reference === "string"
         && payment.reference.trim() !== ""
