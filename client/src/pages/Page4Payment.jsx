@@ -112,6 +112,13 @@ export default function Page4Payment() {
     const payment = matchesIdentity ? state.payment : null;
     // Never present a transfer destination unless the server explicitly enables
     // intake and all authoritative payment fields are present.
+    // The current server payment-intent model uses safe integer atomic amounts;
+    // a future bigint-safe protocol may send decimal strings instead.
+    const atomicAmount = typeof payment?.amountAtomic === "string"
+        ? payment.amountAtomic
+        : Number.isSafeInteger(payment?.amountAtomic)
+            ? String(payment.amountAtomic)
+            : null;
     const requestReady = connected
         && payment?.enabled === true
         && payment.network === "testnet"
@@ -120,10 +127,10 @@ export default function Page4Payment() {
         && payment.destination.trim() !== ""
         && typeof payment.reference === "string"
         && payment.reference.trim() !== ""
-        && typeof payment.amountAtomic === "string"
-        && /^[1-9][0-9]*$/.test(payment.amountAtomic);
+        && typeof atomicAmount === "string"
+        && /^[1-9][0-9]*$/.test(atomicAmount);
     const displayAmount = requestReady
-        ? formatGramUnits(payment.amountAtomic)
+        ? formatGramUnits(atomicAmount)
         : null;
 
     return (
