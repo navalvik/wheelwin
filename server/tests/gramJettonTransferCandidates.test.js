@@ -15,6 +15,7 @@ const record = {
     amount,
     transaction_aborted: false,
     transaction_hash: "1".repeat(64),
+    trace_id: "9".repeat(64),
     transaction_lt: "12",
     transaction_now: 1700000001,
     decoded_forward_payload: { type: "text_comment", comment: "WW1:room1-seat2" }
@@ -45,6 +46,7 @@ test("wrong master, sender, recipient, amount and aborted transfers cannot becom
         { amount: "1.5" },
         { transaction_aborted: true },
         { transaction_hash: "bad" },
+        { trace_id: "bad" },
         { transaction_lt: "0" },
         { transaction_now: 0 }
     ]) {
