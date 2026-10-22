@@ -78,3 +78,27 @@ test("Mainnet registry never consumes the Testnet or generic Railway catalog", (
         rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("Wrong network or room number outside the 64-wallet pool fails closed", () => {
+    const previous = process.env.ROOM_WALLETS_TESTNET_JSON;
+    try {
+        const wrongNetwork = catalog();
+        wrongNetwork[2] = { ...wrongNetwork[2], network: "mainnet" };
+        process.env.ROOM_WALLETS_TESTNET_JSON = JSON.stringify(wrongNetwork);
+        assert.throws(
+            () => new WalletPoolRegistry({ network: "testnet" }).initialize(),
+            /network mismatch/
+        );
+
+        const wrongRoomNumber = catalog();
+        wrongRoomNumber[63] = { ...wrongRoomNumber[63], roomNumber: 65 };
+        process.env.ROOM_WALLETS_TESTNET_JSON = JSON.stringify(wrongRoomNumber);
+        assert.throws(
+            () => new WalletPoolRegistry({ network: "testnet" }).initialize(),
+            /room number exceeds pool size/
+        );
+    } finally {
+        if (previous === undefined) delete process.env.ROOM_WALLETS_TESTNET_JSON;
+        else process.env.ROOM_WALLETS_TESTNET_JSON = previous;
+    }
+});
