@@ -17,6 +17,8 @@ import {
     RefundObligation
 } from "../payment/refund/RefundObligation.js";
 import { RefundObligationStore } from "../payment/refund/RefundObligationStore.js";
+import { NativeGramRefundTransferPlanStore } from "../payment/refund/NativeGramRefundTransferPlanStore.js";
+import { buildNativeGramRefundTransferPlan } from "../payment/refund/NativeGramRefundTransferPlan.js";
 import {
     TestnetOutgoingRefundProvider,
     OUTGOING_SUBMISSION_OUTCOME,
@@ -769,8 +771,94 @@ async function testDurableUnknownBeforeBroadcastAndConcurrentDuplicateGuard() {
     }
 }
 
+async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        const sourceWalletAddress = TESTNET_ROOM_WALLET;
+        const plan = buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: String(obligation.amountAtomic),
+                maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        });
+        planStore.reserve(plan);
+        const mocks = makeMocks({});
+        mocks.outgoingTransferProvider.getOutgoingTransfer = async ({ sourceWalletAddress, transactionId }) => ({
+            transactionId, sourceAddress: sourceWalletAddress,
+            destinationAddress: TESTNET_PAYER,
+            amountAtomic: 990_000_000
+        });
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root })
+        });
+        assert.equal((await h.coordinator.submitRefund(obligation.obligationId, { provider })).outcome, "SUBMITTED");
+        const result = await h.coordinator.finalizeRefund(obligation.obligationId, { provider });
+        assert.equal(result.outcome, "COMPLETE");
+        const completed = h.store.get(obligation.obligationId);
+        assert.equal(completed.amountAtomic, 1_000_000_000);
+        assert.equal(completed.finalizedEvidence.amountAtomic, 990_000_000);
+        assert.equal(completed.finalizedEvidence.reservedFeeAtomic, "10000000");
+        assert.equal(completed.finalizedEvidence.originalPaidAmountAtomic, "1000000000");
+        const reopened = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        reopened.initialize();
+        assert.equal(reopened.get(obligation.obligationId).state, REFUND_STATE.COMPLETE);
+        await assert.rejects(
+            h.coordinator.finalizeRefund(obligation.obligationId, { provider }),
+            /not been submitted/
+        );
+    } finally {
+        h.cleanup();
+    }
+}
+
+async function testNetFeeRefundRejectsGrossAmountFinality() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
+        const mocks = makeMocks({});
+        // Mock returns gross 1 GRAM; the net plan requires 0.99.
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer,
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: planStore
+        });
+        await h.coordinator.submitRefund(obligation.obligationId, { provider });
+        const result = await h.coordinator.finalizeRefund(obligation.obligationId, { provider });
+        assert.equal(result.outcome, "NOT_FINALIZED");
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMITTED);
+    } finally { h.cleanup(); }
+}
+
 async function main() {
     await testValidSubmission();
+    await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
+    await testNetFeeRefundRejectsGrossAmountFinality();
     await testRejections();
     await testAmbiguousNoBlindResubmit();
     await testSignerUnavailable();
