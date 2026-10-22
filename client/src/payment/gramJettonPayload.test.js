@@ -47,3 +47,30 @@ test("invalid atomic amount and malformed recipient are rejected", () => {
 test("amounts exceeding VarUInteger16 capacity fail closed", () => {
     assert.throws(() => buildGramJettonTransferBody(request((1n << 120n).toString())), /exceeds VarUInteger16/);
 });
+
+test("BOC root descriptor and top-up bit preserve unaligned payload", () => {
+    const bytes = Buffer.from(buildGramJettonTransferBody(request("1")), "base64");
+    assert.equal(bytes[4], 1); // no index, no CRC, one-byte counters
+    assert.equal(bytes[6], 2); // root + comment cell
+    assert.equal(bytes[10], 0); // root cell index
+    const rootDescriptor = bytes[12];
+    assert.equal(rootDescriptor % 2, 1); // unaligned root
+    const rootByteLength = Math.ceil(rootDescriptor / 2);
+    const lastRootByte = bytes[13 + rootByteLength - 1];
+    assert.notEqual(lastRootByte, 0);
+    const bits = rootBits(bytes.toString("base64"));
+    assert.equal(bits.slice(-1), "1"); // ref branch selector (forward_payload in ref)
+});
+
+test("comment cell limit is enforced before BOC serialization", () => {
+    assert.doesNotThrow(() => buildGramJettonTransferBody({ ...request("1"), reference: "a".repeat(119) }));
+    assert.throws(
+        () => buildGramJettonTransferBody({ ...request("1"), reference: "a".repeat(120) }),
+        /invalid payment reference/
+    );
+});
+
+test("forward TON amount is encoded as VarUInteger16 one-byte value", () => {
+    const bits = rootBits(buildGramJettonTransferBody(request("1")));
+    assert.equal(bits.slice(-14), "0" + "0001" + "00000001" + "1");
+});
