@@ -9,12 +9,22 @@ import {
 } from "./GramJettonGetterStackDecoder.js";
 import { inspectGramJettonMasterWalletBinding } from "./GramJettonMasterWalletBinding.js";
 import { ToncenterGramJettonGetMethodsClient } from "./ToncenterGramJettonGetMethodsClient.js";
+import { requireGramJettonMaster } from "../incoming/GramJettonMasterConfig.js";
+import { tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
 
 export async function inspectTestnetGramJettonWallet({
-    client, jettonMaster, ownerWallet, observedJettonWallet
+    client, jettonMaster, ownerWallet, observedJettonWallet,
+    env = process.env, network = "testnet"
 } = {}) {
     if (!(client instanceof ToncenterGramJettonGetMethodsClient))
         throw new Error("A dedicated Testnet getter client is required");
+    // Pin the immutable GRAM master to authoritative Testnet configuration
+    // BEFORE any network call. Never accept an arbitrary caller-selected token.
+    const configuredMaster = requireGramJettonMaster({ env, network });
+    if (tonAddressIdentityOrNull(jettonMaster) === null ||
+        tonAddressIdentityOrNull(jettonMaster) !== tonAddressIdentityOrNull(configuredMaster)) {
+        throw new Error("GRAM master differs from the configured Testnet token identity");
+    }
     // Decode and check the Master first; don't query a possibly malicious
     // Jetton Wallet contract until its derived identity matches the candidate.
     const masterRaw = await client.getWalletAddress({ jettonMaster, ownerWallet });
