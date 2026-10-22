@@ -415,6 +415,12 @@ export function buildPaymentRuntime(options = {}) {
                 incomingObservationEnabled: true,
                 incomingFinalityVerificationEnabled: true,
                 settlementEnabled: true,
+                // Current observation and settlement apply ONLY to native TON.
+                // Never advertise GRAM support until an actual verified TEP-74
+                // event source, GRAM ledger and atomic deduplication are wired.
+                nativeTonIncomingObservationEnabled: true,
+                gramJettonIncomingVerificationEnabled: false,
+                gramJettonSettlementEnabled: false,
                 gameStartGateEnforced: true,
                 outgoingRefundTransfersEnabled: Boolean(outgoingRefundProvider && outgoingRefundProvider.canExecute?.()),
                 livePaymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
