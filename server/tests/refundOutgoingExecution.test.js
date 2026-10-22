@@ -793,7 +793,7 @@ function makePlannedSigner(mocks, overrides = {}) {
             assert.equal(descriptor.amountAtomic, "990000000",
                 "fee-funded signer receives only the NET amount");
             assert.equal(descriptor.maxFeeAtomic, "10000000");
-            return { ...descriptor, boc: Buffer.concat([Buffer.from("b5ee9c72", "hex"), Buffer.from("synthetic TON BOC test fixture")]).toString("base64"), ...overrides };
+            return { ...descriptor, boc: Buffer.from("b5ee9c72010101010002000000", "hex").toString("base64"), ...overrides };
         }
     };
 }
