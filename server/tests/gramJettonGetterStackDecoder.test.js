@@ -218,3 +218,28 @@ test("Wallet getter parses CRC32C owner/master slices but rejects corrupt CRC or
         ]
     }), /Invalid GRAM getter/);
 });
+
+/**
+ * Public Toncenter v3 runGetMethod response fixture from the official TON
+ * Get Methods guide. The guide uses it for an NFT get method: here we test
+ * ONLY the address-cell wire format, never claim it is a GRAM transaction.
+ * https://docs.ton.org/tvm/get-method
+ */
+test("published Toncenter v3 CRC32C address BOC is decoded by exact wire format", () => {
+    const publishedBoc =
+        "te6cckEBAQEAJAAAQ4AVoN3BhVDLKet4AYoVxOHz8WkaFncQfg/M79YWJEV4pxDg5fQi";
+    const expectedAccount =
+        "0:ad06ee0c2a86594f5bc00c50ae270f9f8b48d0b3b883f07e677eb0b1222bc538";
+    const parsed = decodeMaster({
+        method: "get_wallet_address", exitCode: 0,
+        resultStack: [{ type: "slice", value: publishedBoc }]
+    });
+    assert.equal(parsed.walletAddress, expectedAccount);
+    assert.equal(parsed.paymentCreditAuthorized, false);
+    const bytes = Buffer.from(publishedBoc, "base64");
+    bytes[bytes.length - 1] ^= 1;
+    assert.throws(() => decodeMaster({
+        method: "get_wallet_address", exitCode: 0,
+        resultStack: [{ type: "slice", value: bytes.toString("base64") }]
+    }), /Invalid GRAM getter/);
+});
