@@ -7,6 +7,16 @@ const owner = "0:" + "b".repeat(64);
 const wallet = "0:" + "c".repeat(64);
 const successful = { exit_code: 0, stack: [{ type: "cell", value: "te6ccgEBAQEAJAAAQ4AVoN3BhVDLKet4AYoVxOHz8WkaFncQfg/M79YWJEV4pxDg5fQi" }] };
 
+const successfulWalletData = {
+    exit_code: 0,
+    stack: [
+        { type: "num", value: "0x0" },
+        { type: "slice", value: successful.stack[0].value },
+        { type: "cell", value: successful.stack[0].value },
+        { type: "cell", value: successful.stack[0].value }
+    ]
+};
+
 test("Testnet get_wallet_address uses authenticated POST and encoded owner slice", async () => {
     const calls = [];
     const client = new ToncenterGramJettonGetMethodsClient({
@@ -48,7 +58,7 @@ test("get_wallet_data requests the wallet account with empty TVM arguments", asy
         apiKeyProvider: () => "mock",
         fetchImpl: async (url, init) => {
             request = JSON.parse(init.body);
-            return { status: 200, json: async () => successful };
+            return { status: 200, json: async () => successfulWalletData };
         }
     });
     const result = await client.getWalletData({ jettonWallet: wallet });
@@ -82,5 +92,34 @@ test("HTTP errors, failed TVM execution and malformed stack fail closed", async 
         });
         await assert.rejects(client.getWalletData({ jettonWallet: wallet }),
             /HTTP|invalid|unsuccessful/);
+    }
+});
+
+test("Toncenter v3 getter transport rejects wrong stack type or arity before decoding", async () => {
+    const malformed = [
+        { exit_code: 0, stack: [{ type: "tuple", value: "anything" }] },
+        { exit_code: 0, stack: [{ type: "num", value: "42" }] },
+        { exit_code: 0, stack: [{ type: "cell", value: "" }] },
+        { exit_code: 0, stack: [{ type: "cell", value: "abc" }, { type: "cell", value: "def" }] },
+        { exit_code: 0, stack: [{ type: "cell", value: "valid" }, null] },
+        { exit_code: 0, stack: successfulWalletData.stack.map((item, index) =>
+            index === 1 ? { type: "tuple", value: "fake" } : item) },
+        { exit_code: 0, stack: successfulWalletData.stack.slice(0, 3) },
+        { exit_code: 0, stack: successfulWalletData.stack.map((item, index) =>
+            index === 3 ? { type: "num", value: "0" } : item) }
+    ];
+    for (const response of malformed) {
+        const client = new ToncenterGramJettonGetMethodsClient({
+            apiKeyProvider: () => "mock",
+            fetchImpl: async () => ({ status: 200, json: async () => response })
+        });
+        await assert.rejects(
+            client.getWalletAddress({ jettonMaster: master, ownerWallet: owner }),
+            /invalid or unsuccessful/
+        );
+        await assert.rejects(
+            client.getWalletData({ jettonWallet: wallet }),
+            /invalid or unsuccessful/
+        );
     }
 });
