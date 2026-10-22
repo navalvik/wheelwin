@@ -10,25 +10,22 @@ const sender = address("1");
 const ready = {
     enabled: true,
     network: "testnet",
-    asset: "GRAM",
-    jettonWalletVerified: true,
-    jettonMaster: address("2"),
-    senderJettonWalletAddress: address("3"),
+    asset: "TON",
     destination: address("4"),
     expectedSender: sender,
     amountAtomic: "1500000000",
     reference: "pay-1"
 };
 
-test("a verified GRAM session with matching connected owner passes local preflight only", () => {
+test("native GRAM room wallet payment with matching connected owner passes local preflight only", () => {
     assert.deepEqual(assessGramPaymentRequest(ready, sender), {
         ready: true, reason: "PRECHECK_ONLY", amountAtomic: "1500000000"
     });
 });
 
-test("native TON, mainnet and disabled acceptance are all denied", () => {
+test("Jetton GRAM, mainnet and disabled acceptance are all denied", () => {
     for (const changes of [
-        { asset: "TON" },
+        { asset: "GRAM" },
         { network: "mainnet" },
         { enabled: false }
     ]) {
@@ -36,15 +33,17 @@ test("native TON, mainnet and disabled acceptance are all denied", () => {
     }
 });
 
-test("unauthorized payer and unverified jetton wallet cannot pass preflight", () => {
+test("unauthorized payer and stale Jetton protocol cannot pass native preflight", () => {
     assert.equal(assessGramPaymentRequest(ready, address("5")).ready, false);
     assert.equal(assessGramPaymentRequest(ready, null).ready, false);
-    assert.equal(assessGramPaymentRequest({ ...ready, jettonWalletVerified: false }, sender).ready, false);
-    assert.equal(assessGramPaymentRequest({ ...ready, senderJettonWalletAddress: "" }, sender).ready, false);
-    assert.equal(assessGramPaymentRequest({ ...ready, jettonMaster: "GRAM" }, sender).ready, false);
+    assert.equal(assessGramPaymentRequest({ ...ready, expectedSender: "" }, sender).ready, false);
+    assert.equal(assessGramPaymentRequest({ ...ready, destination: sender }, sender).ready, false);
+    assert.equal(assessGramPaymentRequest({ ...ready, jettonWalletVerified: true }, sender).ready, false);
+    assert.equal(assessGramPaymentRequest({ ...ready, senderJettonWalletAddress: address("3") }, sender).ready, false);
+    assert.equal(assessGramPaymentRequest({ ...ready, jettonMaster: address("2") }, sender).ready, false);
 });
 
-test("amount and comment must be strictly validated before building transfer BOC", () => {
+test("amount and comment must be strictly validated before preparing native transfer", () => {
     assert.equal(assessGramPaymentRequest({ ...ready, amountAtomic: "1.5" }, sender).ready, false);
     assert.equal(assessGramPaymentRequest({ ...ready, reference: "x".repeat(65) }, sender).ready, false);
     assert.equal(assessGramPaymentRequest({ ...ready, reference: "line\nbreak" }, sender).ready, false);
