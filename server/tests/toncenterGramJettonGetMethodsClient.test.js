@@ -123,3 +123,45 @@ test("Toncenter v3 getter transport rejects wrong stack type or arity before dec
         );
     }
 });
+
+test("get-method abort remains armed while Toncenter JSON body is stalled", async () => {
+    let wasAborted = false;
+    const client = new ToncenterGramJettonGetMethodsClient({
+        timeoutMs: 15,
+        apiKeyProvider: () => "private-test-key",
+        fetchImpl: async (_url, init) => ({
+            status: 200,
+            json: () => new Promise((_resolve, reject) => {
+                if (init.signal.aborted) {
+                    wasAborted = true;
+                    reject(new Error("aborted"));
+                    return;
+                }
+                init.signal.addEventListener("abort", () => {
+                    wasAborted = true;
+                    reject(new Error("aborted"));
+                }, { once: true });
+            })
+        })
+    });
+    await assert.rejects(client.getWalletAddress({
+        jettonMaster: master, ownerWallet: owner
+    }), /timed out/);
+    assert.equal(wasAborted, true);
+});
+
+test("Toncenter getter never leaks provider error messages or API key", async () => {
+    const key = "secret-key-must-not-appear";
+    const client = new ToncenterGramJettonGetMethodsClient({
+        apiKeyProvider: () => key,
+        fetchImpl: async () => ({
+            status: 200,
+            json: async () => { throw new Error("remote " + key); }
+        })
+    });
+    await assert.rejects(client.getWalletData({ jettonWallet: wallet }), error => {
+        assert.equal(error.message.includes(key), false);
+        assert.match(error.message, /JSON body failed/);
+        return true;
+    });
+});
