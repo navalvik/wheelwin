@@ -165,3 +165,33 @@ test("Toncenter getter never leaks provider error messages or API key", async ()
         return true;
     });
 });
+
+test("deadline settles even if injected HTTP fetch ignores AbortSignal forever", async () => {
+    let capturedSignal;
+    const client = new ToncenterGramJettonGetMethodsClient({
+        timeoutMs: 15,
+        apiKeyProvider: () => "mock",
+        fetchImpl: (_url, init) => {
+            capturedSignal = init.signal;
+            return new Promise(() => {}); // deliberately never settles on abort
+        }
+    });
+    await assert.rejects(client.getWalletAddress({
+        jettonMaster: master, ownerWallet: owner
+    }), /timed out/);
+    assert.equal(capturedSignal.aborted, true);
+});
+
+test("deadline settles even if JSON parsing ignores AbortSignal forever", async () => {
+    let capturedSignal;
+    const client = new ToncenterGramJettonGetMethodsClient({
+        timeoutMs: 15,
+        apiKeyProvider: () => "mock",
+        fetchImpl: async (_url, init) => {
+            capturedSignal = init.signal;
+            return { status: 200, json: () => new Promise(() => {}) };
+        }
+    });
+    await assert.rejects(client.getWalletData({ jettonWallet: wallet }), /timed out/);
+    assert.equal(capturedSignal.aborted, true);
+});
