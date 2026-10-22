@@ -330,6 +330,20 @@ export class WalletPoolRegistry {
                 network: entry.network ?? this._network
             });
 
+            if (wallet.network !== this._network) {
+                throw new PaymentConfigurationError(
+                    "room wallet catalog network mismatch",
+                    { walletId: wallet.walletId, network: wallet.network }
+                );
+            }
+
+            if (wallet.roomNumber > ROOM_WALLET_POOL_SIZE) {
+                throw new PaymentConfigurationError(
+                    "room wallet catalog room number exceeds pool size",
+                    { walletId: wallet.walletId, roomNumber: wallet.roomNumber }
+                );
+            }
+
             if (byId.has(wallet.walletId)) {
 
                 throw new PaymentConfigurationError(
