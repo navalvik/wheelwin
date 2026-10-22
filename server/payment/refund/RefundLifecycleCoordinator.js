@@ -41,7 +41,13 @@ export class RefundLifecycleCoordinator {
         if (principal.length > 3) throw new RefundLifecycleError("room has more than three confirmed principal records; manual reconciliation required", { roomId });
         if (principal.length === 0) return Object.freeze([]);
         if (intents.length !== 3) throw new RefundLifecycleError("refund evidence does not contain the three required payment intents", { roomId, intentCount: intents.length });
-        if (principal.length === 3) return Object.freeze([]);
+        // Three received stakes do not prove gameplay reached Page5. When
+        // Setup Session itself expires, every confirmed payer must receive a
+        // refund even if all three payments arrived before the timeout.
+        // Do not refund completed gameplay rooms on ordinary closure.
+        if (principal.length === 3 && closed.closureReason !== "setup_expired") {
+            return Object.freeze([]);
+        }
         const results = [];
         for (const entry of principal) {
             const reference = entry.metadata?.paymentReference;
