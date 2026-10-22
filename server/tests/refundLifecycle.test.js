@@ -52,7 +52,7 @@ function harness(confirmedCount) {
 
 function prepare(h, count) {
     const result = h.coordinator.prepareClosedRoom({ roomId: "room-x", roomNumber: 37, closureReason: "setup_expired", status: "DESTROYED" });
-    const expectedObligations = count === 3 ? 0 : count;
+    const expectedObligations = count;
     assert.equal(result.length, expectedObligations);
     assert.equal(h.store.size, expectedObligations);
     for (const record of h.store.list()) {
@@ -61,6 +61,19 @@ function prepare(h, count) {
         assert.equal(record.roomNumber, 37);
         assert.equal(record.refundDestination, TESTNET_PAYER);
     }
+}
+
+// A completed game is not a setup-expiry refund, even with three paid.
+{
+    const h = harness(3);
+    try {
+        const result = h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "game_completed", status: "DESTROYED"
+        });
+        assert.equal(result.length, 0);
+        assert.equal(h.store.size, 0);
+    } finally { rmSync(h.root, { recursive: true, force: true }); }
 }
 
 for (const confirmedCount of [1, 2, 0, 3]) {
