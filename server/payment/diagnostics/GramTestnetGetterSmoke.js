@@ -19,9 +19,11 @@ export async function runGramTestnetGetterSmoke({
     if (owner === tonAddressIdentityOrNull(master)) {
         throw new Error("Diagnostic owner cannot be the configured GRAM master");
     }
-    if (typeof key !== "string" || !key.trim()) throw new Error("TON_API_KEY is required for the read-only diagnostic");
+    // Toncenter Testnet v3 permits anonymous read-only calls at its public
+    // rate limit. API keys remain required for the default payment client.
     const api = client ?? new ToncenterGramJettonGetMethodsClient({
-        apiKeyProvider: () => key
+        apiKeyProvider: () => key,
+        allowAnonymousRead: true
     });
     if (!(api instanceof ToncenterGramJettonGetMethodsClient))
         throw new Error("Dedicated Testnet getter client required");
