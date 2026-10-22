@@ -72,6 +72,11 @@ export function mapGramJettonCandidates(discovery, {
         // reference; do not admit sender/amount-only collisions.
         const referenceHint = matchGramReferenceHint(record, expectedPaymentReference);
         if (!referenceHint.matched) continue;
+        // Finality is observed on a Jetton Wallet CONTRACT account, not on
+        // the owner wallet in destination/source. Keep the indexed contract
+        // identity for a subsequent independent finalized-transaction check.
+        const sourceJettonWallet = canonical(record.source_wallet);
+        if (!sourceJettonWallet) continue;
         const key = transactionKey(record);
         if (!key || seen.has(key)) continue;
         seen.add(key);
@@ -80,6 +85,7 @@ export function mapGramJettonCandidates(discovery, {
             transactionHash: record.transaction_hash.toLowerCase(),
             transactionLt: record.transaction_lt,
             transactionUtime: record.transaction_now,
+            sourceJettonWallet,
             jettonMaster: master,
             sender,
             recipient,
