@@ -15,7 +15,7 @@ function encodeOwnerSlice(address) {
     if (!raw) throw new Error("Invalid owner TON address");
     const [workchainText, hash] = raw.split(":");
     const wc = Number(workchainText);
-    const bits = [0, 1, 0]; // TL-B addr_std$10, anycast absent$0
+    const bits = [1, 0, 0]; // TL-B addr_std$10 followed by anycast absent$0
     const append = (n, length) => {
         const big = BigInt(n);
         for (let i = length - 1; i >= 0; i--) bits.push(Number((big >> BigInt(i)) & 1n));
