@@ -107,8 +107,8 @@ test("indexed sender-receiver edge and strict internal_transfer agree but NEVER 
                 tx_hash: receivingTx, transaction: {
                     account: receiverWallet,
                     description: { type: "ord", aborted: false,
-                        compute_ph: { skipped: false, success: true },
-                        action: { success: true, valid: true, no_funds: false } },
+                        compute_ph: { skipped: false, success: true, exit_code: 0 },
+                        action: { success: true, valid: true, no_funds: false, result_code: 0 } },
                     in_msg: { hash: msgHash, source: sourceWallet,
                         destination: receiverWallet, message_content: { body: body() } }
                 }, children: []
@@ -151,8 +151,8 @@ test("failed or incomplete recipient execution rejects otherwise matching TEP-74
         account: recipient,
         in_msg: { hash: edgeHash, source, destination: recipient },
         description: { type: "ord", aborted: false,
-            compute_ph: { skipped: false, success: true },
-            action: { success: true, valid: true, no_funds: false } }
+            compute_ph: { skipped: false, success: true, exit_code: 0 },
+            action: { success: true, valid: true, no_funds: false, result_code: 0 } }
     };
     const check = tx => inspectIndexedGramRecipientExecution({
         receiverTransaction: tx, recipientJettonWallet: recipient,
@@ -162,7 +162,11 @@ test("failed or incomplete recipient execution rejects otherwise matching TEP-74
     for (const description of [
         { ...base.description, aborted: true },
         { ...base.description, type: "tick_tock" },
-        { ...base.description, compute_ph: { skipped: true, success: true } },
+        { ...base.description, compute_ph: { skipped: true, success: true, exit_code: 0 } },
+        { ...base.description, compute_ph: { skipped: false, success: true, exit_code: 13 } },
+        { ...base.description, compute_ph: { skipped: false, success: true } },
+        { ...base.description, action: { ...base.description.action, result_code: 7 } },
+        { ...base.description, action: { success: true, valid: true } },
         { ...base.description, compute_ph: { skipped: false, success: false } },
         { ...base.description, action: { success: false, valid: true } },
         { ...base.description, action: { success: true, valid: false } },
