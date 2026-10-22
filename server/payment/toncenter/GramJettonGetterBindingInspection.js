@@ -29,8 +29,9 @@ export async function inspectTestnetGramJettonWallet({
     // Jetton Wallet contract until its derived identity matches the candidate.
     const masterRaw = await client.getWalletAddress({ jettonMaster, ownerWallet });
     const masterDecoded = decodeGramMasterWalletAddressStack(masterRaw);
+    const walletToCheck = observedJettonWallet ?? masterDecoded.walletAddress;
     const preliminary = inspectGramJettonMasterWalletBinding({
-        jettonMaster, ownerWallet, observedJettonWallet,
+        jettonMaster, ownerWallet, observedJettonWallet: walletToCheck,
         masterGetter: {
             ...masterRaw,
             ownerArgument: ownerWallet,
@@ -38,16 +39,16 @@ export async function inspectTestnetGramJettonWallet({
         },
         walletGetter: {
             method: "get_wallet_data", exitCode: 0,
-            contractAddress: observedJettonWallet,
+            contractAddress: walletToCheck,
             ownerAddress: ownerWallet,
             jettonMasterAddress: jettonMaster
         }
     });
     if (!preliminary) return null;
-    const walletRaw = await client.getWalletData({ jettonWallet: observedJettonWallet });
+    const walletRaw = await client.getWalletData({ jettonWallet: walletToCheck });
     const walletDecoded = decodeGramWalletDataStack(walletRaw);
     return inspectGramJettonMasterWalletBinding({
-        jettonMaster, ownerWallet, observedJettonWallet,
+        jettonMaster, ownerWallet, observedJettonWallet: walletToCheck,
         masterGetter: {
             ...masterRaw,
             ownerArgument: ownerWallet,
