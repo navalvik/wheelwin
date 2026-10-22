@@ -11,6 +11,7 @@
 import { tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
 import { TONCENTER_TESTNET_BASE_URL } from "./ToncenterConstants.js";
 import { defaultApiKeyProvider } from "./ToncenterTransactionsClient.js";
+import { mapGramJettonCandidates } from "./GramJettonTransferCandidates.js";
 
 export class ToncenterJettonTransferQueryError extends Error {
     constructor(message) {
@@ -118,6 +119,20 @@ export class ToncenterJettonTransfersClient {
             truncated: payload.jetton_transfers.length === limit,
             finalized: false,
             verifiedForSettlement: false
+        });
+    }
+
+    /**
+     * Discover records matching one authoritative payment requirement.
+     * Returns only UNVERIFIED candidates. No settlement or chain-proof claim.
+     */
+    async findIncomingCandidates({ expectedSender, expectedAmountAtomic, ...query } = {}) {
+        const records = await this.listIncoming(query);
+        return mapGramJettonCandidates(records, {
+            jettonMaster: query.jettonMaster,
+            roomWallet: query.roomWallet,
+            expectedSender,
+            expectedAmountAtomic
         });
     }
 }
