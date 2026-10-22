@@ -868,10 +868,53 @@ async function testNetFeeRefundRejectsGrossAmountFinality() {
     } finally { h.cleanup(); }
 }
 
+async function testPlannedRefundFailsClosedWithoutDedicatedSigner() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000",
+                maxFeeAtomic: "10000000", finalized: true,
+                estimateSource: "testnet-network-estimator"
+            }
+        }));
+        for (const signerModifier of [
+            mocks => mocks.signer,
+            mocks => makePlannedSigner(mocks, { amountAtomic: "1000000000" }),
+            mocks => makePlannedSigner(mocks, { globalId: -239 }),
+            mocks => makePlannedSigner(mocks, { sendRemainingBalance: true }),
+            mocks => makePlannedSigner(mocks, { to: TESTNET_ROOM_WALLET })
+        ]) {
+            const mocks = makeMocks({});
+            const provider = new TestnetOutgoingRefundProvider({
+                globalId: -3, signer: signerModifier(mocks),
+                broadcaster: mocks.broadcaster,
+                finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+                outgoingTransferProvider: mocks.outgoingTransferProvider,
+                refundPlanStore: planStore
+            });
+            const result = await provider.signAndBroadcast({
+                obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
+            });
+            assert.equal(result.outcome, "FAILED");
+            assert.equal(mocks.calls.broadcast, 0,
+                "no gross, wrong-chain or send-all signed transfer reaches broadcast");
+        }
+    } finally { h.cleanup(); }
+}
+
 async function main() {
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
+    await testPlannedRefundFailsClosedWithoutDedicatedSigner();
     await testRejections();
     await testAmbiguousNoBlindResubmit();
     await testSignerUnavailable();
