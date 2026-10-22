@@ -19,6 +19,7 @@ import {
 import { RefundObligationStore } from "../payment/refund/RefundObligationStore.js";
 import { NativeGramRefundTransferPlanStore } from "../payment/refund/NativeGramRefundTransferPlanStore.js";
 import { buildNativeGramRefundTransferPlan } from "../payment/refund/NativeGramRefundTransferPlan.js";
+import { signedRefundBocHashOrNull } from "../payment/refund/SignedNativeGramRefundEvidence.js";
 import {
     TestnetOutgoingRefundProvider,
     OUTGOING_SUBMISSION_OUTCOME,
@@ -771,6 +772,19 @@ async function testDurableUnknownBeforeBroadcastAndConcurrentDuplicateGuard() {
     }
 }
 
+function syntheticInspectedRefund(signedTransfer, expected) {
+    return {
+        verified: true, evidenceSource: "decoded-signed-ton-boc",
+        bocSha256: signedRefundBocHashOrNull(signedTransfer),
+        networkName: expected.networkName, globalId: expected.globalId,
+        idempotencyKey: expected.idempotencyKey, from: expected.from,
+        messages: [{
+            to: expected.to, amountAtomic: expected.amountAtomic,
+            sendMode: 3, sendRemainingBalance: false, bounce: true
+        }]
+    };
+}
+
 function makePlannedSigner(mocks, overrides = {}) {
     return {
         ...mocks.signer,
@@ -779,7 +793,7 @@ function makePlannedSigner(mocks, overrides = {}) {
             assert.equal(descriptor.amountAtomic, "990000000",
                 "fee-funded signer receives only the NET amount");
             assert.equal(descriptor.maxFeeAtomic, "10000000");
-            return { ...descriptor, payload: "synthetic-signed-transfer", ...overrides };
+            return { ...descriptor, boc: Buffer.from("synthetic signed TON test payload").toString("base64"), ...overrides };
         }
     };
 }
@@ -819,7 +833,7 @@ async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
                 async inspect({ signedTransfer, expected }) {
                     assert.equal(signedTransfer.amountAtomic, expected.amountAtomic);
                     assert.equal(expected.amountAtomic, "990000000");
-                    return { verified: true }; // deterministic mock, NOT TON BOC decoding
+                    return syntheticInspectedRefund(signedTransfer, expected); // mocked decoder, not TON BOC decoding
                 }
             }
         });
@@ -868,7 +882,8 @@ async function testNetFeeRefundRejectsGrossAmountFinality() {
             outgoingTransferProvider: mocks.outgoingTransferProvider,
             refundPlanStore: planStore,
             signedTransferInspector: {
-                inspect: async () => ({ verified: true }) // simulated inspector
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected) // mocked decoder
             }
         });
         await h.coordinator.submitRefund(obligation.obligationId, { provider });
