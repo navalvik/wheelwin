@@ -868,6 +868,28 @@ async function testNetFeeRefundRejectsGrossAmountFinality() {
     } finally { h.cleanup(); }
 }
 
+async function testConfiguredPlanStoreForbidsGrossFallback() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer,
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root })
+        });
+        const result = await provider.signAndBroadcast({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
+        });
+        assert.equal(result.outcome, "FAILED");
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0,
+            "missing persisted fee plan cannot fall back to gross signing");
+    } finally { h.cleanup(); }
+}
+
 async function testPlannedRefundFailsClosedWithoutDedicatedSigner() {
     const h = harness(1);
     try {
@@ -915,6 +937,7 @@ async function main() {
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
     await testPlannedRefundFailsClosedWithoutDedicatedSigner();
+    await testConfiguredPlanStoreForbidsGrossFallback();
     await testRejections();
     await testAmbiguousNoBlindResubmit();
     await testSignerUnavailable();
