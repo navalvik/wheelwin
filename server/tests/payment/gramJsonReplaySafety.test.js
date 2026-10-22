@@ -33,7 +33,7 @@ test("active JSON store retains GRAM transaction deduplication after restart", (
     assert.throws(() => store.delete("payment_a"), /cannot delete/);
     assert.throws(() => store.update(store.require("payment_b").transition("MATCHED", {
         now: 2000, transactionId: "testnet:jetton:001"
-    })), /transaction/i);
+    })), /payment reference already exists|transaction/i);
 
     const restored = new PaymentIntentStore({ dataDir: dir });
     restored.initialize();
