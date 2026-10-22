@@ -391,8 +391,12 @@ export class RoomPaymentSessionAdapter {
             if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) {
                 fail("amountAtomic must be a positive safe integer", { index, amountAtomic });
             }
-            if (amountAtomic % denomination.atomicUnitsPerUnit !== 0) {
-                fail("amountAtomic must be an exact multiple of the configured payment denomination", {
+            // WheelWin's second sector costs 1.5x the base stake.
+            // The authoritative denomination must support exact half-GRAM
+            // increments, without allowing arbitrary nanotons as a stake.
+            if (!Number.isSafeInteger(denomination.atomicUnitsPerUnit / 2)
+                || amountAtomic % (denomination.atomicUnitsPerUnit / 2) !== 0) {
+                fail("amountAtomic must be an exact half-unit multiple of the configured payment denomination", {
                     index,
                     amountAtomic,
                     atomicUnitsPerUnit: denomination.atomicUnitsPerUnit
