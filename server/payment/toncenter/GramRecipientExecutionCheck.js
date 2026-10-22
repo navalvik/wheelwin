@@ -31,7 +31,9 @@ export function inspectIndexedGramRecipientExecution({
         || description.aborted !== false
         || description.compute_ph?.skipped === true
         || description.compute_ph?.success !== true
+        || description.compute_ph?.exit_code !== 0
         || description.action?.success !== true
+        || description.action?.result_code !== 0
         || description.action?.valid !== true
         || description.action?.no_funds === true) return null;
 
