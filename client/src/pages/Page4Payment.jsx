@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
@@ -11,17 +11,9 @@ import {
 import "../styles/page4payment.css";
 
 /**
- * P6.7 — Authoritative Page4 payment-state recovery.
- *
- * Page4 does NOT infer payment state from socket connection status or from
- * any client assertion. It only renders what the server pushes through
- * ENTRY_PAYMENT_SESSION_UPDATED, and it re-requests that authoritative state
- * after it mounts so it never stays stale when the original event was emitted
- * while the page was not yet subscribed (e.g. a reconnect that landed the
- * player on Page4 after the payment status was already delivered).
- *
- * Payloads are filtered by room and player identity; listeners are cleaned up
- * on unmount and whenever the identity changes.
+ * Page4 displays server-authoritative payment state only.
+ * The payment action stays unavailable until the server exposes a verified
+ * room-wallet payment request. Never synthesize a destination or amount here.
  */
 const PAYMENT_STATUS_EVENT = INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED;
 const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
@@ -29,52 +21,99 @@ const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
 export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
     const { roomId, playerId } = identity ?? {};
-    const [status, setStatus] = useState("PAYMENT_UNAVAILABLE");
-
-    // Only request the authoritative payment state once per identity cycle.
-    // Resetting the flag when the identity changes lets a later identity
-    // readiness (identity becomes ready after the component initially mounts)
-    // re-issue the request without creating a request/response loop.
-    const requestedRef = useRef(null);
+    const [state, setState] = useState({
+        roomId: null,
+        playerId: null,
+        status: "WAITING_FOR_SESSION",
+        connected: socket.connected
+    });
 
     useEffect(() => {
         if (!roomId || !playerId) {
-
-            requestedRef.current = null;
-            return;
+            return undefined;
         }
 
-        function handlePaymentStatus(payload) {
-            if (payload?.roomId !== roomId
+        let active = true;
+
+        const requestStatus = () => {
+            if (!active || !socket.connected) return;
+            socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
+        };
+
+        const handlePaymentStatus = (payload) => {
+            if (!active
+                || payload?.roomId !== roomId
                 || payload?.playerId !== playerId
                 || typeof payload.status !== "string") {
                 return;
             }
-            setStatus(payload.status);
-        }
+            setState({
+                roomId,
+                playerId,
+                status: payload.status,
+                connected: socket.connected
+            });
+        };
+
+        const handleConnect = () => {
+            if (!active) return;
+            setState((current) => ({ ...current, connected: true }));
+            requestStatus();
+        };
+
+        const handleDisconnect = () => {
+            if (!active) return;
+            setState((current) => ({ ...current, connected: false }));
+        };
+
+        setState({
+            roomId,
+            playerId,
+            status: "WAITING_FOR_SERVER",
+            connected: socket.connected
+        });
 
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
-
-        // Re-request the authoritative payment state so a status event that
-        // was emitted before this page subscribed is re-delivered now.
-        if (requestedRef.current !== roomId) {
-            requestedRef.current = roomId;
-            socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
-        }
+        socket.on("connect", handleConnect);
+        socket.on("disconnect", handleDisconnect);
+        requestStatus();
 
         return () => {
+            active = false;
             socket.off(PAYMENT_STATUS_EVENT, handlePaymentStatus);
+            socket.off("connect", handleConnect);
+            socket.off("disconnect", handleDisconnect);
         };
     }, [roomId, playerId]);
+
+    const identityReady = Boolean(roomId && playerId);
+    const matchesIdentity = state.roomId === roomId && state.playerId === playerId;
+    const connected = identityReady && matchesIdentity ? state.connected : socket.connected;
+    const status = !identityReady
+        ? "WAITING_FOR_PLAYER_IDENTITY"
+        : !connected
+            ? "SERVER_DISCONNECTED"
+            : matchesIdentity
+                ? state.status
+                : "WAITING_FOR_SERVER";
 
     return (
         <GameLayout message="ENTRY PAYMENT" showNextButton={false}>
             <section className="page4Payment" aria-live="polite">
                 <h2>Payment status: {status}</h2>
-                <p>
-                    Payment acceptance is disabled while aborted-game refunds are unavailable.
-                    No wallet request or destination has been issued.
-                </p>
+                {!identityReady && (
+                    <p>Waiting for your room and player session to become available.</p>
+                )}
+                {identityReady && !connected && (
+                    <p>Connection to the game server was lost. Your payment status will be refreshed automatically after reconnection.</p>
+                )}
+                {identityReady && connected && (
+                    <p>
+                        Waiting for the server-authoritative Testnet payment session.
+                        Do not transfer funds until the verified destination, amount,
+                        and payment request are displayed.
+                    </p>
+                )}
             </section>
         </GameLayout>
     );
