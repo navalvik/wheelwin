@@ -37,7 +37,7 @@ test("invalid and top-up-only cells cannot decode into transfer data", () => {
         Buffer.from("b5ee9c7201010101000300000180", "hex")
     ), /INVALID_TOPUP/);
     assert.throws(() => decodeOrdinaryTonBocCells(
-        Buffer.from("b5ee9c72010101010003000001ff", "hex")
-    ), /INVALID_TOPUP/);
+        Buffer.from("b5ee9c7201010101000300000100", "hex")
+    ), /INVALID_TON_BOC/);
     assert.throws(() => decodeOrdinaryTonBocCells(Buffer.from([0])), /INVALID_TON_BOC/);
 });
