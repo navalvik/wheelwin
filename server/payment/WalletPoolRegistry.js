@@ -196,8 +196,13 @@ export class WalletPoolRegistry {
 
         // Railway supplies the private catalog as a variable, not a tracked file.
         // Parse with the secret-stripping reviver; never log its contents.
-        this._catalogJson = catalogJson ?? process.env.ROOM_WALLETS_TESTNET_JSON
-            ?? process.env.ROOM_WALLETS_JSON ?? null;
+        // Never use Testnet wallets for a Mainnet registry. The generic catalog
+        // remains a compatibility fallback for Testnet only.
+        this._catalogJson = catalogJson ?? (
+            network === "testnet"
+                ? (process.env.ROOM_WALLETS_TESTNET_JSON ?? process.env.ROOM_WALLETS_JSON)
+                : (network === "mainnet" ? process.env.ROOM_WALLETS_MAINNET_JSON : null)
+        ) ?? null;
 
         this._network = network;
 
