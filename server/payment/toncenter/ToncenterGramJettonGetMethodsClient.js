@@ -57,21 +57,30 @@ export class ToncenterGramJettonGetMethodsClient {
             throw new Error("TON_API_KEY required before GRAM getter network request");
         }
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
+        // AbortSignal alone does not guarantee injected fetch/json promises
+        // settle. Race the entire operation against a rejecting deadline.
+        let rejectDeadline;
+        const deadline = new Promise((_resolve, reject) => {
+            rejectDeadline = reject;
+        });
+        const timer = setTimeout(() => {
+            controller.abort();
+            rejectDeadline(new Error("Toncenter GRAM get-method timed out"));
+        }, this.#timeoutMs);
         let envelope;
         try {
-            const response = await this.#fetch(TONCENTER_TESTNET_BASE_URL + "/api/v3/runGetMethod", {
+            const response = await Promise.race([this.#fetch(TONCENTER_TESTNET_BASE_URL + "/api/v3/runGetMethod", {
                 method: "POST",
                 headers: { "X-API-Key": key.trim(), "Content-Type": "application/json" },
                 body: JSON.stringify({ address: account, method, stack }),
                 signal: controller.signal
-            });
+            }), deadline]);
             if (response?.status !== 200) {
                 throw new Error(`Toncenter GRAM get-method HTTP ${response?.status}`);
             }
             // Keep the abort timer alive through the body read, not just the
             // fetch() headers. A stalled JSON body must not hang diagnostics.
-            envelope = await response.json();
+            envelope = await Promise.race([response.json(), deadline]);
             if (controller.signal.aborted) {
                 throw new Error("Toncenter GRAM get-method timed out");
             }
