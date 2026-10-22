@@ -70,7 +70,8 @@ export const SUPPORTED_PAYMENT_NETWORK = DEFAULT_ROOM_WALLET_NETWORK;
 export const TON_TESTNET_GLOBAL_ID = -3;
 
 const CANONICAL_TON_ASSET = "TON";
-const CANONICAL_TON_SYMBOL = "TON";
+// Native TON is denominated GRAM in WheelWin; ledger and intent mapping must agree.
+const CANONICAL_TON_SYMBOL = "GRAM";
 
 /**
  * Default durable storage directory for the isolated room-wallet payment
