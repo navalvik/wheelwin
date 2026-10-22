@@ -82,10 +82,12 @@ test("payer-specific candidate discovery refuses invalid requirements before HTT
         fetchImpl: async () => { requests++; throw Error("must not query"); }
     });
     await assert.rejects(client.findIncomingCandidates({
-        ...query, expectedSender: "not-an-address", expectedAmountAtomic: "1500000000"
+        ...query, expectedSender: "not-an-address", expectedAmountAtomic: "1500000000",
+        expectedPaymentReference: "room1-seat1"
     }), /Invalid authoritative GRAM candidate filter/);
     await assert.rejects(client.findIncomingCandidates({
-        ...query, expectedSender: "0:" + "3".repeat(64), expectedAmountAtomic: "1.5"
+        ...query, expectedSender: "0:" + "3".repeat(64), expectedAmountAtomic: "1.5",
+        expectedPaymentReference: "room1-seat1"
     }), /Invalid authoritative GRAM candidate filter/);
     assert.equal(requests, 0);
 });
@@ -104,12 +106,14 @@ test("payer-specific discovery retains zero settlement authority", async () => {
                 transaction_aborted: false,
                 transaction_hash: "a".repeat(64),
                 transaction_lt: "123",
-                transaction_now: 1700000001
+                transaction_now: 1700000001,
+                decoded_forward_payload: { type: "text_comment", comment: "WW1:room1-seat1" }
             }] })
         })
     });
     const mapped = await client.findIncomingCandidates({
-        ...query, expectedSender: sender, expectedAmountAtomic: "1500000000"
+        ...query, expectedSender: sender, expectedAmountAtomic: "1500000000",
+        expectedPaymentReference: "room1-seat1"
     });
     assert.equal(mapped.candidates.length, 1);
     assert.equal(mapped.candidates[0].finalized, false);
@@ -152,4 +156,18 @@ test("payment-reference filtering never treats an indexer hint as settlement pro
         type: "text_comment", comment: "WW1:other"
     }).findIncomingCandidates(request);
     assert.equal(rejected.candidates.length, 0);
+});
+
+test("payer-specific lookup without reference cannot query the indexer", async () => {
+    let calls = 0;
+    const client = new ToncenterJettonTransfersClient({
+        apiKeyProvider: () => "test-key",
+        fetchImpl: async () => { calls++; throw Error("unexpected request"); }
+    });
+    await assert.rejects(client.findIncomingCandidates({
+        ...query,
+        expectedSender: "0:" + "3".repeat(64),
+        expectedAmountAtomic: "1500000000"
+    }), /Invalid authoritative/);
+    assert.equal(calls, 0);
 });
