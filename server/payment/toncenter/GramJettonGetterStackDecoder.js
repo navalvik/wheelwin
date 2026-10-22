@@ -8,6 +8,7 @@
  * without CRC/index/refs/exotic cells. All other forms fail closed.
  */
 import { tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
+import { inspectGramGetterCodeBoc } from "./GramGetterBocStructure.js";
 
 function invalid(reason) { throw new Error("Invalid GRAM getter TVM stack: " + reason); }
 
@@ -104,7 +105,7 @@ export function decodeGramWalletDataStack(result) {
         invalid("unexpected get_wallet_data result");
     // Require valid Jetton Wallet code cell instead of trusting an arbitrary
     // stack placeholder; the contract-code hash is NOT authenticated here.
-    oneCellBits(result.resultStack[3].value);
+    inspectGramGetterCodeBoc(result.resultStack[3].value);
     return Object.freeze({
         balanceAtomic: unsignedBalance(result.resultStack[0]),
         ownerAddress: addressFromSlice(result.resultStack[1]),
