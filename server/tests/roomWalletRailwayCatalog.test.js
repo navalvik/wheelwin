@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { WalletPoolRegistry } from "../payment/WalletPoolRegistry.js";
+import { WalletPoolRegistry, readRoomWalletCatalog } from "../payment/WalletPoolRegistry.js";
 
 function catalog() {
     return Array.from({ length: 64 }, (_, i) => ({
@@ -27,6 +27,7 @@ test("Railway Testnet variable supplies 64 wallets without a checked-in catalog"
         });
         pool.initialize();
         assert.equal(pool.listWallets().length, 64);
+        assert.equal(readRoomWalletCatalog().length, 64);
         assert.equal(pool.getAvailableCount(), 64);
         assert.equal(JSON.stringify(pool.listWallets()).includes("MUST_NOT_APPEAR"), false);
         pool.reserve({ roomId: "room-a", network: "testnet" });
