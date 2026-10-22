@@ -46,7 +46,7 @@ test("unauthorized payer and unverified jetton wallet cannot pass preflight", ()
 
 test("amount and comment must be strictly validated before building transfer BOC", () => {
     assert.equal(assessGramPaymentRequest({ ...ready, amountAtomic: "1.5" }, sender).ready, false);
-    assert.equal(assessGramPaymentRequest({ ...ready, reference: "x".repeat(120) }, sender).ready, false);
+    assert.equal(assessGramPaymentRequest({ ...ready, reference: "x".repeat(65) }, sender).ready, false);
     assert.equal(assessGramPaymentRequest({ ...ready, reference: "line\nbreak" }, sender).ready, false);
 });
 
