@@ -10,6 +10,7 @@ const filter = { jettonMaster: master, roomWallet, expectedSender: sender, expec
 const record = {
     jetton_master: master,
     source: sender,
+    source_wallet: "0:" + "d".repeat(64),
     destination: roomWallet,
     amount,
     transaction_aborted: false,
