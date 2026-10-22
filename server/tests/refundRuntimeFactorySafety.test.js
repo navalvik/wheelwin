@@ -52,3 +52,11 @@ test("production refund factory requires Testnet and a complete authorized bundl
     assert.equal(provider._signedTransferInspector, bundle.signedTransferInspector);
     assert.equal(provider.globalId, -3);
 });
+
+test("net-only Wallet V4 signer is sufficient; legacy gross signer is not required", () => {
+    const bundle = completeBundle();
+    delete bundle.signer.signTransfer;
+    const provider = build(bundle);
+    assert.ok(provider, "a dedicated net signer should be usable without the obsolete gross signer");
+    assert.equal(provider.canExecute(), true);
+});
