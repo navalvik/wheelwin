@@ -182,38 +182,67 @@ export class RefundLifecycleCoordinator {
                 { obligationId, state: current.state }
             );
         }
+
+        // Resolve and authorize locally BEFORE reserving the attempt. No
+        // external signing/broadcasting operation has happened at this point.
+        const sourceWalletAddress = outgoing.resolveSourceWallet
+            ? outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents })
+            : (() => { throw new RefundLifecycleError("provider cannot resolve the refund source wallet"); })();
+        if (typeof outgoing.authorizeSubmission !== "function") {
+            throw new RefundLifecycleError("provider cannot authorize the refund submission");
+        }
+        outgoing.authorizeSubmission({ obligation: current, sourceWalletAddress });
+
         const startedAtMs = this._now();
+        const attemptId = `${current.obligationId}:${startedAtMs}`;
+        // CRITICAL: persist SUBMISSION_UNKNOWN *before* the first await that
+        // can send funds. If the process crashes after broadcast, recovery
+        // sees UNKNOWN and must reconcile, never submit a second transfer.
+        const reservedAttempt = this._attempt(current, "SUBMISSION_UNKNOWN", {
+            startedAtMs, completedAtMs: null, attemptId
+        });
+        this._store.markSubmissionUnknown(obligationId, { attempt: reservedAttempt });
+
         let result;
         try {
-            const sourceWalletAddress = outgoing.resolveSourceWallet
-                ? outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents })
-                : (() => { throw new RefundLifecycleError("provider cannot resolve the refund source wallet"); })();
-            result = await outgoing.signAndBroadcast({ obligation: current, sourceWalletAddress, nowMs: startedAtMs });
+            result = await outgoing.signAndBroadcast({
+                obligation: current, sourceWalletAddress, nowMs: startedAtMs
+            });
         } catch (error) {
-            // Authorization/provider failures fail closed: record and stay PENDING.
             const code = typeof error?.code === "string" ? error.code : "OUTGOING_REFUND_ERROR";
-            const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: code, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: code });
-            return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: code });
+            this._logger?.warn?.(`Refund submission requires reconciliation | obligationId=${obligationId} | reason=${code}`);
+            return Object.freeze({
+                obligationId, outcome: "SUBMISSION_UNKNOWN",
+                outgoingTransactionId: null, reason: code
+            });
         }
 
-        if (result.outcome === "SUBMITTED") {
-            const attemptStart = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt: attemptStart });
-            const attemptDone = this._attempt(current, "SUBMITTED", { startedAtMs, completedAtMs: this._now(), outgoingTransactionId: result.outgoingTransactionId, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmitted(current.obligationId, { outgoingTransactionId: result.outgoingTransactionId, attempt: attemptDone });
-            this._logger?.info?.(`Refund submitted | obligationId=${current.obligationId} | network=${current.networkName}`);
-            return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMITTED", outgoingTransactionId: result.outgoingTransactionId, reason: null });
+        if (result?.outcome === "SUBMITTED" &&
+            typeof result.outgoingTransactionId === "string" &&
+            result.outgoingTransactionId.trim() !== "") {
+            const attemptDone = this._attempt(current, "SUBMITTED", {
+                startedAtMs, completedAtMs: this._now(),
+                outgoingTransactionId: result.outgoingTransactionId, attemptId
+            });
+            this._store.markSubmitted(obligationId, {
+                outgoingTransactionId: result.outgoingTransactionId, attempt: attemptDone
+            });
+            this._logger?.info?.(`Refund submitted | obligationId=${obligationId} | network=${current.networkName}`);
+            return Object.freeze({
+                obligationId, outcome: "SUBMITTED",
+                outgoingTransactionId: result.outgoingTransactionId, reason: null
+            });
         }
-        if (result.outcome === "UNKNOWN") {
-            const attempt = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt, lastError: result.reason ?? null });
-            this._logger?.warn?.(`Refund submission outcome unknown | obligationId=${current.obligationId} | reason=${result.reason}`);
-            return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMISSION_UNKNOWN", outgoingTransactionId: null, reason: result.reason });
-        }
-        const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
-        this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: result.reason ?? null });
-        return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: result.reason });
+
+        // A provider may say FAILED even when the network accepted a message
+        // before its response was lost. Stay UNKNOWN until on-chain proof.
+        const reason = typeof result?.reason === "string"
+            ? result.reason : "BROADCAST_OUTCOME_AMBIGUOUS";
+        this._logger?.warn?.(`Refund submission needs reconciliation | obligationId=${obligationId} | reason=${reason}`);
+        return Object.freeze({
+            obligationId, outcome: "SUBMISSION_UNKNOWN",
+            outgoingTransactionId: null, reason
+        });
     }
 
     /**
