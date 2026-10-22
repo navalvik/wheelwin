@@ -266,6 +266,32 @@ export class RefundLifecycleCoordinator {
             throw new RefundLifecycleError("refund has not been submitted and awaits a submission, not finalization", { obligationId, state: current.state });
         }
         const sourceWalletAddress = outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents });
+        const plan = outgoing.getReservedNativeGramRefundPlan?.(obligationId) ?? null;
+        if (plan) {
+            // Immutable NET amount must win over legacy gross amount verification.
+            // Never complete the legacy way if a planned fee-funded refund exists.
+            const proof = await outgoing.observeAndVerifyPlannedNativeGramRefund({
+                obligation: current, sourceWalletAddress,
+                outgoingTransactionId: current.outgoingTransactionId, nowMs: this._now()
+            });
+            if (!proof.verified) {
+                return Object.freeze({
+                    obligationId, outcome: "NOT_FINALIZED", reason: proof.reason
+                });
+            }
+            const attempt = this._attempt(current, "COMPLETE", {
+                startedAtMs: this._now(), completedAtMs: this._now(),
+                outgoingTransactionId: current.outgoingTransactionId,
+                attemptId: `${current.obligationId}:complete`
+            });
+            const completed = this._store.markPlannedComplete(obligationId, {
+                plan, verification: proof, attempt
+            });
+            return Object.freeze({
+                obligationId, outcome: "COMPLETE",
+                outgoingTransactionId: completed.outgoingTransactionId, reason: null
+            });
+        }
         const verification = await outgoing.observeAndVerifyFinality({
             obligation: current, sourceWalletAddress, outgoingTransactionId: current.outgoingTransactionId, nowMs: this._now()
         });
