@@ -27,6 +27,7 @@ test("exactly matching GRAM event is a candidate, NOT final payment evidence", (
     const mapped = mapGramJettonCandidates(discovery([record]), filter);
     assert.equal(mapped.candidates.length, 1);
     assert.equal(mapped.candidates[0].amountAtomic, amount);
+    assert.equal(mapped.candidates[0].sourceJettonWallet, "0:" + "d".repeat(64));
     assert.equal(mapped.candidates[0].finalized, false);
     assert.equal(mapped.candidates[0].verifiedForSettlement, false);
     assert.equal(mapped.candidates[0].paymentReference, null);
@@ -37,6 +38,8 @@ test("wrong master, sender, recipient, amount and aborted transfers cannot becom
     for (const mutation of [
         { jetton_master: roomWallet },
         { source: roomWallet },
+        { source_wallet: "not-a-wallet" },
+        { source_wallet: undefined },
         { destination: sender },
         { amount: "1" },
         { amount: "1.5" },
