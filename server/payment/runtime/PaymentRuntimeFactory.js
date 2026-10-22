@@ -56,6 +56,7 @@ import {
     ToncenterTransactionsClient
 } from "../toncenter/index.js";
 import { RoomPaymentSessionAdapter } from "./RoomPaymentSessionAdapter.js";
+import { ToncenterJettonTransfersClient } from "../toncenter/ToncenterJettonTransfersClient.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "../PaymentLifecycleAvailability.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -226,6 +227,13 @@ export function buildPaymentRuntime(options = {}) {
         apiKeyProvider: options.apiKeyProvider
     });
 
+    // Isolated read-only GRAM discovery: it has no settlement or gameplay
+    // authority and cannot claim finality from indexed transfer records.
+    const jettonTransferDiscovery = new ToncenterJettonTransfersClient({
+        fetchImpl,
+        apiKeyProvider: options.apiKeyProvider
+    });
+
     const evidenceProvider = settlementEvidenceProvider
         ?? new ToncenterFinalityEvidenceProvider({ client, nowProvider });
 
@@ -321,6 +329,7 @@ export function buildPaymentRuntime(options = {}) {
         assetRegistry,
         paymentService,
         observationService,
+        jettonTransferDiscovery,
         coordinator,
         ledger,
         ledgerStore,
@@ -419,6 +428,7 @@ export function buildPaymentRuntime(options = {}) {
                 // Never advertise GRAM support until an actual verified TEP-74
                 // event source, GRAM ledger and atomic deduplication are wired.
                 nativeTonIncomingObservationEnabled: true,
+                gramJettonReadOnlyDiscoveryConfigured: true,
                 gramJettonIncomingVerificationEnabled: false,
                 gramJettonSettlementEnabled: false,
                 gameStartGateEnforced: true,
