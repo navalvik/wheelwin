@@ -107,14 +107,12 @@ export class TestnetOutgoingRefundProvider {
      * @returns {boolean}
      */
     canExecute() {
-        return typeof this._signer?.signTransfer === "function"
-            // A configured native fee-plan store requires a dedicated NET
-            // signer and readable durable plan. Never report ready otherwise.
-            && (!this._refundPlanStore ||
-                (typeof this._refundPlanStore.get === "function" &&
-                    typeof this._signer?.signPlannedRefund === "function" &&
-                    typeof this._signedTransferInspector?.inspect === "function" &&
-                    typeof this._signedTransferInspector?.verifyWalletV4Signature === "function"))
+        return (this._refundPlanStore
+            ? (typeof this._refundPlanStore.get === "function" &&
+                typeof this._signer?.signPlannedRefund === "function" &&
+                typeof this._signedTransferInspector?.inspect === "function" &&
+                typeof this._signedTransferInspector?.verifyWalletV4Signature === "function")
+            : typeof this._signer?.signTransfer === "function")
             && typeof this._broadcaster?.broadcast === "function"
             && typeof this._finality?.getSettlementEvidence === "function"
             && typeof this._observation?.getOutgoingTransfer === "function"
