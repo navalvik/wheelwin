@@ -18,6 +18,12 @@ import "../styles/page4payment.css";
  * The payment action stays unavailable until the server exposes a verified
  * room-wallet payment request. Never synthesize a destination or amount here.
  */
+function payloadHasLegacyJettonFields(payment) {
+    return payment.jettonMaster != null ||
+        payment.senderJettonWalletAddress != null ||
+        payment.jettonWalletVerified != null;
+}
+
 const PAYMENT_STATUS_EVENT = INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED;
 const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
 
@@ -63,9 +69,7 @@ export default function Page4Payment() {
                     destination: payload.destinationWalletAddress,
                     reference: payload.paymentReference,
                     enabled: payload.paymentAcceptanceEnabled === true,
-                    jettonMaster: payload.jettonMaster,
-                    senderJettonWalletAddress: payload.senderJettonWalletAddress,
-                    jettonWalletVerified: payload.jettonWalletVerified === true
+                    expectedSender: payload.expectedSenderWalletAddress
                 }
             });
         };
@@ -126,13 +130,10 @@ export default function Page4Payment() {
     const requestReady = connected
         && payment?.enabled === true
         && payment.network === "testnet"
-        && payment.asset === "GRAM"
-        // Do not display a seemingly payable destination until the server has
-        // explicitly verified the Testnet GRAM master and sender jetton wallet.
-        && payment.jettonWalletVerified === true
-        && Boolean(tonAccountIdentityOrNull(payment.jettonMaster))
-        && Boolean(tonAccountIdentityOrNull(payment.senderJettonWalletAddress))
+        // Server uses native TON asset identity. WheelWin displays it as GRAM.
+        && payment.asset === "TON"
         && Boolean(tonAccountIdentityOrNull(payment.destination))
+        && !payloadHasLegacyJettonFields(payment)
         && typeof payment.reference === "string"
         && payment.reference.trim() !== ""
         && typeof atomicAmount === "string"
@@ -160,7 +161,7 @@ export default function Page4Payment() {
                 )}
                 {identityReady && connected && !requestReady && (
                     <p>
-                        Waiting for the server-authoritative verified Testnet GRAM payment session.
+                        Waiting for the server-authoritative native GRAM room-wallet payment session.
                         Do not transfer funds until the verified destination, amount,
                         and payment request are displayed.
                     </p>
