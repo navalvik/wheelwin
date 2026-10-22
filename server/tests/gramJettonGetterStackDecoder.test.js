@@ -246,3 +246,18 @@ test("published Toncenter v3 CRC32C address BOC is decoded by exact wire format"
         resultStack: [{ type: "slice", value: bytes.toString("base64") }]
     }), /Invalid GRAM getter/);
 });
+
+test("get_wallet_data accepts typed cell address results with same strict encoding", () => {
+    const source = walletResult(owner, master);
+    const stack = source.resultStack.map((entry, i) =>
+        i === 1 || i === 2 ? { ...entry, type: "cell" } : entry);
+    const decoded = decodeWallet({ ...source, resultStack: stack });
+    assert.equal(decoded.ownerAddress, owner);
+    assert.equal(decoded.jettonMasterAddress, master);
+    assert.equal(decoded.paymentCreditAuthorized, false);
+    assert.throws(() => decodeWallet({
+        ...source, resultStack: [
+            stack[0], { type: "num", value: "1" }, stack[2], stack[3]
+        ]
+    }), /Invalid GRAM getter/);
+});
