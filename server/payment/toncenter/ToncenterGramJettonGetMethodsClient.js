@@ -82,15 +82,18 @@ export class ToncenterGramJettonGetMethodsClient {
     #fetch;
     #key;
     #timeoutMs;
+    #allowAnonymousRead;
     constructor({ fetchImpl = globalThis.fetch, apiKeyProvider = defaultApiKeyProvider,
-        timeoutMs = 15000 } = {}) {
+        timeoutMs = 15000, allowAnonymousRead = false } = {}) {
         if (typeof fetchImpl !== "function" || typeof apiKeyProvider !== "function"
-            || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000) {
+            || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000
+            || typeof allowAnonymousRead !== "boolean") {
             throw new Error("Invalid Testnet getter client configuration");
         }
         this.#fetch = fetchImpl;
         this.#key = apiKeyProvider;
         this.#timeoutMs = timeoutMs;
+        this.#allowAnonymousRead = allowAnonymousRead;
     }
 
     async #call({ contractAddress, method, stack }) {
@@ -98,7 +101,7 @@ export class ToncenterGramJettonGetMethodsClient {
         if (!account || !["get_wallet_address", "get_wallet_data"].includes(method)
             || !Array.isArray(stack)) throw new Error("Invalid GRAM getter arguments");
         const key = this.#key();
-        if (typeof key !== "string" || !key.trim()) {
+        if ((typeof key !== "string" || !key.trim()) && !this.#allowAnonymousRead) {
             throw new Error("TON_API_KEY required before GRAM getter network request");
         }
         const controller = new AbortController();
@@ -116,7 +119,10 @@ export class ToncenterGramJettonGetMethodsClient {
         try {
             const response = await Promise.race([this.#fetch(TONCENTER_TESTNET_BASE_URL + "/api/v3/runGetMethod", {
                 method: "POST",
-                headers: { "X-API-Key": key.trim(), "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(typeof key === "string" && key.trim() ? { "X-API-Key": key.trim() } : {})
+                },
                 body: JSON.stringify({ address: account, method, stack }),
                 signal: controller.signal
             }), deadline]);
