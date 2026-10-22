@@ -4,7 +4,6 @@
  * Never prints API keys or full provider responses.
  */
 import { ToncenterGramJettonGetMethodsClient } from "../toncenter/ToncenterGramJettonGetMethodsClient.js";
-import { decodeGramMasterWalletAddressStack } from "../toncenter/GramJettonGetterStackDecoder.js";
 import { inspectTestnetGramJettonWallet } from "../toncenter/GramJettonGetterBindingInspection.js";
 import { requireGramJettonMaster } from "../incoming/GramJettonMasterConfig.js";
 import { tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
@@ -24,13 +23,11 @@ export async function runGramTestnetGetterSmoke({
     if (!(api instanceof ToncenterGramJettonGetMethodsClient))
         throw new Error("Dedicated Testnet getter client required");
 
-    // Derive from authoritative Master first. No Jetton Wallet address is
-    // accepted from external caller or configured as an arbitrary override.
-    const initial = await api.getWalletAddress({ jettonMaster: master, ownerWallet: owner });
-    const derived = decodeGramMasterWalletAddressStack(initial).walletAddress;
+    // Getter inspection obtains the derived wallet directly from the pinned
+    // Master and checks the receiver wallet. Exactly TWO read-only requests.
     const consistency = await inspectTestnetGramJettonWallet({
         client: api, jettonMaster: master, ownerWallet: owner,
-        observedJettonWallet: derived, env, network: "testnet"
+        env, network: "testnet"
     });
     if (!consistency || consistency.getterAddressesConsistent !== true ||
         consistency.paymentCreditAuthorized !== false) {
