@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildNativeGramRefundTransferPlan } from "../payment/refund/NativeGramRefundTransferPlan.js";
+import { TestnetOutgoingRefundProvider } from "../payment/refund/TestnetOutgoingRefundProvider.js";
 
 const source = "0:" + "a".repeat(64);
 const payer = "0:" + "b".repeat(64);
@@ -55,4 +56,33 @@ test("missing, stale and cross-wallet fee quotes never authorize a refund amount
         obligation: { ...obligation, denomination: "GRAM_JETTON" },
         sourceWalletAddress: source, feeQuote: quote
     }));
+});
+
+test("outgoing provider prepares a fee-bound plan only from its injected estimator", async () => {
+    let estimateCount = 0;
+    const provider = new TestnetOutgoingRefundProvider({
+        globalId: -3,
+        feeEstimator: {
+            async estimateRefundFee(request) {
+                estimateCount++;
+                assert.equal(request.obligationId, obligation.obligationId);
+                assert.equal(request.paidAmountAtomic, "2500000000");
+                assert.equal(request.globalId, -3);
+                return quote;
+            }
+        }
+    });
+    const plan = await provider.prepareNativeGramRefundTransferPlan({
+        obligation, sourceWalletAddress: source
+    });
+    assert.equal(estimateCount, 1);
+    assert.equal(plan.refundAmountAtomic, "2490000000");
+    assert.equal(provider.canExecute(), false, "read-only fee estimate never enables money movement");
+    await assert.rejects(
+        new TestnetOutgoingRefundProvider({ globalId: -3 })
+            .prepareNativeGramRefundTransferPlan({
+                obligation, sourceWalletAddress: source
+            }),
+        /fee estimator is unavailable/
+    );
 });
