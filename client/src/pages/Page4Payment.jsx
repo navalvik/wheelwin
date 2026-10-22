@@ -28,6 +28,7 @@ export default function Page4Payment() {
     const { roomId, playerId } = identity ?? {};
     const [submitting, setSubmitting] = useState(false);
     const [walletError, setWalletError] = useState(null);
+    const [submittedPaymentKey, setSubmittedPaymentKey] = useState(null);
     const [state, setState] = useState({
         roomId: null,
         playerId: null,
@@ -160,7 +161,10 @@ export default function Page4Payment() {
         tonAccountIdentityOrNull(walletAdapter?.account?.address) ===
             tonAccountIdentityOrNull(payment?.expectedSender) &&
         typeof walletAdapter?.sendTransaction === "function");
+    const paymentKey = `${roomId ?? ""}:${playerId ?? ""}:${payment?.reference ?? ""}`;
+    const alreadySubmitted = submittedPaymentKey === paymentKey;
     const canPay = requestReady && status === "AWAITING_PAYMENT" &&
+        !alreadySubmitted &&
         walletReady && !submitting && Number.isSafeInteger(payment?.expiresAt) &&
         payment.expiresAt > Date.now();
     const submitPayment = async () => {
@@ -172,6 +176,9 @@ export default function Page4Payment() {
                 payment, walletAdapter,
                 onSubmitted: () => socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId })
             });
+            // SDK resolution is not chain confirmation. Suppress accidental
+            // second sends for the same intent while the server reconciles.
+            setSubmittedPaymentKey(paymentKey);
         } catch {
             // Do not expose connector errors that may contain account metadata.
             setWalletError("Wallet did not submit the payment. Check your wallet and try again.");
@@ -199,7 +206,7 @@ export default function Page4Payment() {
                         <p>Room wallet: {payment.destination}</p>
                         <p>Payment reference: {payment.reference}</p>
                         <button type="button" disabled={!canPay} onClick={submitPayment}>
-                            {submitting ? "Waiting for wallet approval…" : "CONFIRM IN TELEGRAM WALLET"}
+                            {submitting ? "Waiting for wallet approval…" : alreadySubmitted ? "Waiting for server confirmation" : "CONFIRM IN TELEGRAM WALLET"}
                         </button>
                         {!walletReady && <p>Connect the matching TON Testnet wallet to enable payment.</p>}
                         {walletError && <p role="alert">{walletError}</p>}
