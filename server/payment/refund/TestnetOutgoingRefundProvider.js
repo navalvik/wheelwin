@@ -252,6 +252,15 @@ export class TestnetOutgoingRefundProvider {
         // A persisted fee plan changes the outgoing amount. Never allow the
         // old full-principal signer to move funds for a planned refund.
         const plan = this.getReservedNativeGramRefundPlan(authorized.obligationId);
+        // A configured plan store MUST NOT silently fall back to the gross
+        // legacy signer when a plan is missing or storage is incomplete.
+        if (this._refundPlanStore && !plan) {
+            return Object.freeze({
+                outcome: OUTGOING_SUBMISSION_OUTCOME.FAILED,
+                outgoingTransactionId: null,
+                reason: OUTGOING_SUBMISSION_REASON.SIGNER_UNAVAILABLE
+            });
+        }
         if (plan && (plan.idempotencyKey !== authorized.idempotencyKey ||
             plan.networkName !== authorized.networkName ||
             plan.globalId !== authorized.globalId ||
