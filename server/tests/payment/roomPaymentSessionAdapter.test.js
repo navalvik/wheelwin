@@ -629,12 +629,12 @@ async function run() {
                 "authoritative mapping keeps ten Gram equal to ten TON in nanotons");
             const descriptor = makeDescriptor({
                 roomId: "room-authoritative-denomination",
-                requiredPlayers: [1, 1.5, 15].map((grams) => ({
+                requiredPlayers: [1, 2.5, 25].map((grams) => ({
                     roomId: "room-authoritative-denomination",
                     paymentReference: `WW-DENOMINATION-${grams}`,
                     playerId: `denomination-player-${grams}`,
                     expectedSender: syntheticAddress(`denomination-sender-${grams}`),
-                    amountAtomic: grams === 1.5 ? 1_500_000_000 : mapping.toAtomicUnits(grams)
+                    amountAtomic: grams === 2.5 ? 2_500_000_000 : mapping.toAtomicUnits(grams)
                 }))
             });
             const authoritativeLookup = h.service.requireAssetDenomination.bind(h.service);
@@ -648,10 +648,10 @@ async function run() {
                 "adapter validates through the payment service public denomination API");
             equal(prepared.payments[0].amountAtomic, mapping.toAtomicUnits(1),
                 "one-Gram descriptor is accepted using the service mapping");
-            equal(prepared.payments[1].amountAtomic, 1_500_000_000,
-                "two-sector 1.5 GRAM native stake is accepted exactly");
-            equal(prepared.payments[2].amountAtomic, 15_000_000_000,
-                "two-sector 15 GRAM native stake is accepted exactly");
+            equal(prepared.payments[1].amountAtomic, 2_500_000_000,
+                "one plus 1.5 base GRAM sectors total 2.5 GRAM exactly");
+            equal(prepared.payments[2].amountAtomic, 25_000_000_000,
+                "ten plus fifteen GRAM sectors total 25 GRAM exactly");
         });
 
         await withHarness({ assetDefinitions: [
