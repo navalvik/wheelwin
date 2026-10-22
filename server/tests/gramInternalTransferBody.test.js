@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decodeGramInternalTransferBody } from "../payment/toncenter/GramInternalTransferBody.js";
+import { inspectIndexedGramInternalTransfer } from "../payment/toncenter/GramJettonInternalTransferInspection.js";
 
 const owner = "0:" + "a".repeat(64);
 const response = "0:" + "b".repeat(64);
@@ -84,4 +85,54 @@ test("decoder safely handles different VarUInteger16 amounts and query IDs", () 
         assert.equal(result.amountAtomic, amount);
         assert.equal(result.queryId, "18446744073709551615");
     }
+});
+
+test("indexed sender-receiver edge and strict internal_transfer agree but NEVER authorize GRAM credit", () => {
+    const sourceWallet = "0:" + "c".repeat(64);
+    const receiverWallet = "0:" + "d".repeat(64);
+    const txHash = "1".repeat(64), receivingTx = "2".repeat(64),
+        msgHash = "3".repeat(64), traceId = "4".repeat(64);
+    const candidate = {
+        sourceJettonWallet: sourceWallet, transactionHash: txHash,
+        traceId, amountAtomic: "1500000000"
+    };
+    const trace = {
+        trace_id: traceId, is_incomplete: false, trace_info: { pending_messages: 0 },
+        trace: {
+            tx_hash: txHash, transaction: {
+                account: sourceWallet,
+                out_msgs: [{ hash: msgHash, source: sourceWallet, destination: receiverWallet }]
+            }, children: [{
+                tx_hash: receivingTx, transaction: {
+                    account: receiverWallet,
+                    in_msg: { hash: msgHash, source: sourceWallet,
+                        destination: receiverWallet, message_content: { body: body() } }
+                }, children: []
+            }]
+        }
+    };
+    const args = {
+        indexedTrace: trace, candidate, recipientJettonWallet: receiverWallet,
+        expectedSender: owner, expectedAmountAtomic: "1500000000",
+        expectedPaymentReference: "room1-seat2"
+    };
+    const result = inspectIndexedGramInternalTransfer(args);
+    assert.equal(result.indexedInternalTransferDecoded, true);
+    assert.equal(result.paymentReferenceHintMatched, true);
+    assert.equal(result.onChainMessageBodyAuthenticated, false);
+    assert.equal(result.receiverExecutionVerified, false);
+    assert.equal(result.jettonWalletMasterVerified, false);
+    assert.equal(result.paymentCreditAuthorized, false);
+    assert.equal(inspectIndexedGramInternalTransfer({
+        ...args, expectedAmountAtomic: "1"
+    }), null);
+    assert.equal(inspectIndexedGramInternalTransfer({
+        ...args, expectedPaymentReference: "other"
+    }), null);
+    assert.equal(inspectIndexedGramInternalTransfer({
+        ...args, expectedSender: response
+    }), null);
+    trace.trace.children[0].transaction.in_msg.message_content.body =
+        body({ opcode: 0x0f8a7ea5 });
+    assert.equal(inspectIndexedGramInternalTransfer(args), null);
 });
