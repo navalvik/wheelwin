@@ -6,7 +6,7 @@ import {
 
 const source = "0:" + "a".repeat(64);
 const dest = "0:" + "b".repeat(64);
-const signedTransfer = { boc: Buffer.concat([Buffer.from("b5ee9c72", "hex"), Buffer.from("test-only TON BOC fixture")]).toString("base64") };
+const signedTransfer = { boc: Buffer.from("b5ee9c72010101010002000000", "hex").toString("base64") };
 const expected = {
     networkName: "TESTNET", globalId: -3,
     idempotencyKey: "TESTNET:payment-ref:incoming-tx",
@@ -27,7 +27,7 @@ const valid = {
 test("exact inspected signed bytes and one fee-funded refund message are required", () => {
     assert.equal(verifyInspectedNativeGramRefund({ signedTransfer, inspected: valid, expected }), true);
     assert.equal(verifyInspectedNativeGramRefund({
-        signedTransfer: { boc: Buffer.concat([Buffer.from("b5ee9c72", "hex"), Buffer.from("other TON BOC fixture")]).toString("base64") },
+        signedTransfer: { boc: Buffer.from("b5ee9c72010101010003000002a0", "hex").toString("base64") },
         inspected: valid, expected
     }), false);
 });
