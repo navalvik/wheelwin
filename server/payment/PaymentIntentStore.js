@@ -481,6 +481,16 @@ export class PaymentIntentStore {
 
         }
 
+        // Preserve an already persisted transfer identity permanently. A
+        // later update cannot replace or erase the original transaction.
+        if (persisted.transactionId !== null
+            && next.transactionId !== persisted.transactionId) {
+            throw new PaymentValidationError(
+                "persisted transactionId cannot be cleared or reassigned",
+                { paymentReference: next.paymentReference }
+            );
+        }
+
         if (next.transactionId !== null) {
 
             const creditedTo = this._transactionIndex.get(next.transactionId);
@@ -613,6 +623,15 @@ export class PaymentIntentStore {
 
             return false;
 
+        }
+
+        // A deleted credited intent would release its transactionId for reuse.
+        // Preserve the on-disk binding, including after a server restart.
+        if (existing.transactionId !== null) {
+            throw new PaymentValidationError(
+                "cannot delete a payment intent with an assigned transactionId",
+                { paymentReference }
+            );
         }
 
         const filePath = this._intentPath(paymentReference);
