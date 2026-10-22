@@ -29,6 +29,8 @@ export default function Page4Payment() {
     const [submitting, setSubmitting] = useState(false);
     const [walletError, setWalletError] = useState(null);
     const [submittedPaymentKey, setSubmittedPaymentKey] = useState(null);
+    const [walletAdapter, setWalletAdapter] = useState(null);
+    const [walletRevision, setWalletRevision] = useState(0);
     const [state, setState] = useState({
         roomId: null,
         playerId: null,
@@ -36,6 +38,35 @@ export default function Page4Payment() {
         connected: socket.connected,
         payment: null
     });
+
+    useEffect(() => {
+        // Browser bundle is pinned and loaded from index.html. Its connect
+        // control is mounted only on Page4; it never auto-signs or auto-pays.
+        const TonConnectUI = window.TON_CONNECT_UI?.TonConnectUI;
+        if (typeof TonConnectUI !== "function") return undefined;
+        let active = true;
+        let unsubscribe = null;
+        let ui;
+        try {
+            ui = new TonConnectUI({
+                manifestUrl: "https://wheelwin-nine.vercel.app/tonconnect-manifest.json",
+                buttonRootId: "wheelwin-ton-connect",
+                analytics: { mode: "off" }
+            });
+            unsubscribe = ui.onStatusChange(() => {
+                if (active) setWalletRevision(value => value + 1);
+            });
+            setWalletAdapter(ui);
+        } catch {
+            // Script or wallet bootstrap failure never enables payment.
+            return undefined;
+        }
+        return () => {
+            active = false;
+            unsubscribe?.();
+            setWalletAdapter(null);
+        };
+    }, []);
 
     useEffect(() => {
         if (!roomId || !playerId) {
@@ -156,7 +187,8 @@ export default function Page4Payment() {
         && /^[1-9][0-9]*$/.test(atomicAmount);
     // TonConnectUI is an explicitly initialized wallet adapter supplied by
     // application bootstrap. Never create an implicit wallet connection here.
-    const walletAdapter = typeof window !== "undefined" ? window.tonConnectUI : null;
+    // Subscription forces a fresh account check after TON Connect changes.
+    void walletRevision;
     const walletReady = Boolean(walletAdapter?.account?.chain === "-3" &&
         tonAccountIdentityOrNull(walletAdapter?.account?.address) ===
             tonAccountIdentityOrNull(payment?.expectedSender) &&
@@ -194,6 +226,7 @@ export default function Page4Payment() {
         <GameLayout message="ENTRY PAYMENT" showNextButton={false}>
             <section className="page4Payment" aria-live="polite">
                 <h2>Payment status: {status}</h2>
+                <div id="wheelwin-ton-connect" aria-label="Connect TON Testnet wallet" />
                 {!identityReady && (
                     <p>Waiting for your room and player session to become available.</p>
                 )}
