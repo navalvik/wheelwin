@@ -32,12 +32,17 @@ export function mapGramJettonCandidates(discovery, {
     jettonMaster,
     roomWallet,
     expectedSender,
-    expectedAmountAtomic
+    expectedAmountAtomic,
+    startUtime,
+    endUtime
 } = {}) {
     const master = canonical(jettonMaster);
     const recipient = canonical(roomWallet);
     const sender = canonical(expectedSender);
-    if (!master || !recipient || !sender || !positiveAtomicString(expectedAmountAtomic)) {
+    if (!master || !recipient || !sender || !positiveAtomicString(expectedAmountAtomic)
+        || (startUtime !== undefined && (!Number.isSafeInteger(startUtime) || startUtime < 0))
+        || (endUtime !== undefined && (!Number.isSafeInteger(endUtime) || endUtime < 0))
+        || (startUtime !== undefined && endUtime !== undefined && startUtime > endUtime)) {
         throw new Error("Invalid authoritative GRAM candidate filter");
     }
     if (!discovery || !Array.isArray(discovery.transfers)
@@ -56,7 +61,9 @@ export function mapGramJettonCandidates(discovery, {
             || !positiveAtomicString(record.amount)
             || record.amount !== expectedAmountAtomic
             || !Number.isSafeInteger(record.transaction_now)
-            || record.transaction_now <= 0) continue;
+            || record.transaction_now <= 0
+            || (startUtime !== undefined && record.transaction_now < startUtime)
+            || (endUtime !== undefined && record.transaction_now > endUtime)) continue;
         const key = transactionKey(record);
         if (!key || seen.has(key)) continue;
         seen.add(key);
