@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { makeNativeRefundV4Boc } from "./fixtures/nativeRefundV4BocFixture.js";
 import {
     signedRefundBocHashOrNull, verifyInspectedNativeGramRefund
 } from "../payment/refund/SignedNativeGramRefundEvidence.js";
 
 const source = "0:" + "a".repeat(64);
 const dest = "0:" + "b".repeat(64);
-const signedTransfer = { boc: Buffer.from("b5ee9c72010101010002000000", "hex").toString("base64") };
+const signedTransfer = { boc: makeNativeRefundV4Boc({ to: "b".repeat(64) }).toString("base64") };
 const expected = {
     networkName: "TESTNET", globalId: -3,
     idempotencyKey: "TESTNET:payment-ref:incoming-tx",
@@ -27,9 +28,26 @@ const valid = {
 test("exact inspected signed bytes and one fee-funded refund message are required", () => {
     assert.equal(verifyInspectedNativeGramRefund({ signedTransfer, inspected: valid, expected }), true);
     assert.equal(verifyInspectedNativeGramRefund({
-        signedTransfer: { boc: Buffer.from("b5ee9c72010101010003000002a0", "hex").toString("base64") },
+        signedTransfer: { boc: makeNativeRefundV4Boc({ to: "b".repeat(64), amount: 990000001n }).toString("base64") },
         inspected: valid, expected
     }), false);
+});
+
+test("real BOC payment fields defeat a forged inspector with matching hash", () => {
+    for (const changedBoc of [
+        makeNativeRefundV4Boc({ to: "b".repeat(64), amount: 1000000000n }),
+        makeNativeRefundV4Boc({ to: "a".repeat(64) }),
+        makeNativeRefundV4Boc({ to: "b".repeat(64), mode: 1 })
+    ]) {
+        const forgedTransfer = { boc: changedBoc.toString("base64") };
+        const forged = {
+            ...valid,
+            bocSha256: signedRefundBocHashOrNull(forgedTransfer)
+        };
+        assert.equal(verifyInspectedNativeGramRefund({
+            signedTransfer: forgedTransfer, inspected: forged, expected
+        }), false, "decoded TON fields must override claimed inspector metadata");
+    }
 });
 
 test("fail closed for boolean-only inspector, mismatched or unsigned transfer details", () => {
