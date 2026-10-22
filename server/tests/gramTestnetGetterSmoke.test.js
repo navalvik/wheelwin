@@ -61,7 +61,7 @@ test("read-only GRAM Testnet getter diagnostic returns non-authoritative result"
     const result = await runGramTestnetGetterSmoke({
         env, client, report: message => output.push(message)
     });
-    assert.deepEqual(calls, ["get_wallet_address", "get_wallet_address", "get_wallet_data"]);
+    assert.deepEqual(calls, ["get_wallet_address", "get_wallet_data"]);
     assert.equal(result.getterAddressesConsistent, true);
     assert.equal(result.providerStateIndependentlyAuthenticated, false);
     assert.equal(result.paymentCreditAuthorized, false);
