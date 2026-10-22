@@ -127,6 +127,14 @@ export class ToncenterJettonTransfersClient {
      * Returns only UNVERIFIED candidates. No settlement or chain-proof claim.
      */
     async findIncomingCandidates({ expectedSender, expectedAmountAtomic, ...query } = {}) {
+        // Invalid payer/amount must fail before making an external request.
+        mapGramJettonCandidates({ transfers: [], truncated: false, finalized: false,
+            verifiedForSettlement: false }, {
+            jettonMaster: query.jettonMaster,
+            roomWallet: query.roomWallet,
+            expectedSender,
+            expectedAmountAtomic
+        });
         const records = await this.listIncoming(query);
         return mapGramJettonCandidates(records, {
             jettonMaster: query.jettonMaster,
