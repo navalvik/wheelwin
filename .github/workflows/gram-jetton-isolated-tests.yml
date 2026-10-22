@@ -33,7 +33,7 @@ jobs:
         run: node --test tests/payment/gramSqliteReplaySafety.test.js tests/payment/paymentRuntimeStorageBackend.test.js tests/payment/stageJsonPaymentIntentsToSqlite.test.js
       - name: Durable refund submission and restart double-send regression
         working-directory: server
-        run: node tests/refundOutgoingExecution.test.js && node --test tests/signedNativeGramRefundEvidence.test.js && node --test tests/strictTonBocFraming.test.js && node --test tests/ordinaryTonBocCells.test.js && node --test tests/walletV4NativeRefundDecoder.test.js && node --test tests/walletV4NativeRefundDecoder.test.js && node tests/refundLifecycle.test.js && node --test tests/nativeGramCancelledRefundFeePolicy.test.js && node --test tests/nativeGramRefundTransferPlan.test.js && node --test tests/nativeGramRefundTransferPlanStore.test.js && node --test tests/nativeGramRefundFinality.test.js
+        run: node tests/refundOutgoingExecution.test.js && node --test tests/signedNativeGramRefundEvidence.test.js && node --test tests/strictTonBocFraming.test.js && node --test tests/ordinaryTonBocCells.test.js && node --test tests/walletV4NativeRefundDecoder.test.js && node --test tests/walletV4SignedPayloadSignature.test.js && node --test tests/walletV4NativeRefundDecoder.test.js && node tests/refundLifecycle.test.js && node --test tests/nativeGramCancelledRefundFeePolicy.test.js && node --test tests/nativeGramRefundTransferPlan.test.js && node --test tests/nativeGramRefundTransferPlanStore.test.js && node --test tests/nativeGramRefundFinality.test.js
       - name: Wallet V4 Ed25519 and production refund factory safety tests
         working-directory: server
         run: node --test tests/walletV4RefundEd25519.test.js tests/refundRuntimeFactorySafety.test.js
