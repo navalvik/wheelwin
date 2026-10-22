@@ -28,8 +28,8 @@ test("Testnet get_wallet_address uses authenticated POST and encoded owner slice
     assert.equal(payload.stack[0].type, "slice");
     const boc = Buffer.from(payload.stack[0].value, "base64");
     assert.equal(boc.subarray(0, 4).toString("hex"), "b5ee9c72");
-    assert.equal(boc[10], 0);
-    assert.equal(boc[11], 0x43); // 267 bits => floor 33 + ceil 34
+    assert.equal(boc[11], 0);
+    assert.equal(boc[12], 0x43); // 267 bits => floor 33 + ceil 34
     assert.equal(boc.subarray(13).length, 34);
     assert.equal(result.exitCode, 0);
     assert.equal(result.getterChainStateAuthenticated, false);
