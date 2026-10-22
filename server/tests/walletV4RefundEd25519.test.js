@@ -61,6 +61,17 @@ test("authentic Wallet V4 Ed25519 signature passes; mutated signature and wrong 
     assert.equal(verifyWalletV4RefundEd25519({
         ...signed, boc: corrupted.toString("base64")
     }), false);
+    // A valid signature must also commit to the referenced refund message.
+    // Flip a destination bit in the second BOC cell without changing framing.
+    const alteredMessage = Buffer.from(signed.boc, "base64");
+    const { cells } = decodeOrdinaryTonBocCells(alteredMessage);
+    assert.equal(cells.length, 2);
+    const firstCellBytes = 2 + Math.ceil(cells[0].bitLength / 8) + cells[0].refs.length;
+    const secondCellDataOffset = 11 + firstCellBytes + 2;
+    alteredMessage[secondCellDataOffset + 2] ^= 1;
+    assert.equal(verifyWalletV4RefundEd25519({
+        ...signed, boc: alteredMessage.toString("base64")
+    }), false, "signed refund must reject a mutated referenced message");
     const other = generateKeyPairSync("ed25519").publicKey;
     assert.equal(verifyWalletV4RefundEd25519({
         ...signed, publicKeyHex: other.export({ format: "der", type: "spki" }).subarray(-32).toString("hex")
