@@ -28,6 +28,7 @@
  */
 
 import { REFUND_NETWORK, RefundObligationError } from "./RefundObligation.js";
+import { buildNativeGramRefundTransferPlan } from "./NativeGramRefundTransferPlan.js";
 import {
     deriveTonAddressIdentity,
     tonAddressIdentityOrNull,
@@ -83,7 +84,7 @@ export class TestnetOutgoingRefundProvider {
      *   }
      * }} dependencies
      */
-    constructor({ globalId, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider } = {}) {
+    constructor({ globalId, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider, feeEstimator } = {}) {
         if (globalId !== TON_TESTNET_GLOBAL_ID) {
             throw new OutgoingRefundError("outgoing refund provider requires verified TON Testnet global ID -3");
         }
@@ -93,6 +94,7 @@ export class TestnetOutgoingRefundProvider {
         this._broadcaster = broadcaster ?? null;
         this._finality = finalityEvidenceProvider ?? null;
         this._observation = outgoingTransferProvider ?? null;
+        this._feeEstimator = feeEstimator ?? null;
     }
 
     /**
@@ -106,6 +108,30 @@ export class TestnetOutgoingRefundProvider {
             && typeof this._finality?.getSettlementEvidence === "function"
             && typeof this._observation?.getOutgoingTransfer === "function"
             && typeof this._observation?.findOutgoingTransfer === "function";
+    }
+
+    /**
+     * Read-only Testnet gas preparation. The estimate is provided by a
+     * dependency and matched to this exact obligation. Never sign or
+     * broadcast from a fee quote alone: the future execution path must
+     * persist its bound plan before the first network send.
+     */
+    async prepareNativeGramRefundTransferPlan({ obligation, sourceWalletAddress }) {
+        if (typeof this._feeEstimator?.estimateRefundFee !== "function") {
+            throw new OutgoingRefundError("verified Testnet refund fee estimator is unavailable");
+        }
+        const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
+        const quote = await this._feeEstimator.estimateRefundFee({
+            networkName: authorized.networkName,
+            globalId: authorized.globalId,
+            obligationId: authorized.obligationId,
+            sourceWalletAddress: authorized.sourceWalletAddress,
+            destinationAddress: authorized.refundDestination,
+            paidAmountAtomic: String(authorized.amountAtomic)
+        });
+        return buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress, feeQuote: quote
+        });
     }
 
     /** Public, non-secret identity check (no network access, no secrets). */
