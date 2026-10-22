@@ -27,8 +27,14 @@ function encodePlainComment(reference) {
 export function buildNativeGramPaymentTransaction(payment, connectedWalletAddress, validUntil) {
     const preflight = assessGramPaymentRequest(payment, connectedWalletAddress);
     if (!preflight.ready) throw new Error("Native GRAM payment request not authorized: " + preflight.reason);
-    if (!Number.isSafeInteger(validUntil) || validUntil <= 0)
-        throw new Error("Native GRAM payment expiry must be authoritative UNIX seconds");
+    // Deadline belongs to the room server and must never be extended by
+    // a client clock, reconnect, button retry, or the wallet SDK.
+    const deadlineMs = payment?.expiresAt;
+    if (!Number.isSafeInteger(deadlineMs) || deadlineMs <= 0 ||
+        !Number.isSafeInteger(validUntil) || validUntil <= 0 ||
+        validUntil !== Math.floor(deadlineMs / 1000) ||
+        deadlineMs <= Date.now())
+        throw new Error("Native GRAM payment expiry must match the unexpired authoritative room deadline");
     const recipient = tonAccountIdentityOrNull(payment.destination);
     if (!recipient) throw new Error("Invalid room wallet");
     return Object.freeze({
