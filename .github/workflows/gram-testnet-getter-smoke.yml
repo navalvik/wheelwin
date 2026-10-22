@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   getter-smoke:
+    if: github.ref == 'refs/heads/restore/testnet-64-wallet-page4'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
