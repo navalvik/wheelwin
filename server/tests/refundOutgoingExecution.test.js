@@ -20,6 +20,7 @@ import { RefundObligationStore } from "../payment/refund/RefundObligationStore.j
 import { NativeGramRefundTransferPlanStore } from "../payment/refund/NativeGramRefundTransferPlanStore.js";
 import { buildNativeGramRefundTransferPlan } from "../payment/refund/NativeGramRefundTransferPlan.js";
 import { signedRefundBocHashOrNull } from "../payment/refund/SignedNativeGramRefundEvidence.js";
+import { makeNativeRefundV4Boc } from "./fixtures/nativeRefundV4BocFixture.js";
 import {
     TestnetOutgoingRefundProvider,
     OUTGOING_SUBMISSION_OUTCOME,
@@ -793,7 +794,7 @@ function makePlannedSigner(mocks, overrides = {}) {
             assert.equal(descriptor.amountAtomic, "990000000",
                 "fee-funded signer receives only the NET amount");
             assert.equal(descriptor.maxFeeAtomic, "10000000");
-            return { ...descriptor, boc: Buffer.from("b5ee9c72010101010002000000", "hex").toString("base64"), ...overrides };
+            return { ...descriptor, boc: makeNativeRefundV4Boc().toString("base64"), ...overrides };
         }
     };
 }
