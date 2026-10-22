@@ -74,3 +74,45 @@ test("HTTP failures and misleading success envelopes cannot authorize payment", 
     });
     await assert.rejects(client.listIncoming(query), /HTTP 429/);
 });
+
+test("payer-specific candidate discovery refuses invalid requirements before HTTP", async () => {
+    let requests = 0;
+    const client = new ToncenterJettonTransfersClient({
+        apiKeyProvider: () => "test-key",
+        fetchImpl: async () => { requests++; throw Error("must not query"); }
+    });
+    await assert.rejects(client.findIncomingCandidates({
+        ...query, expectedSender: "not-an-address", expectedAmountAtomic: "1500000000"
+    }), /Invalid authoritative GRAM candidate filter/);
+    await assert.rejects(client.findIncomingCandidates({
+        ...query, expectedSender: "0:" + "3".repeat(64), expectedAmountAtomic: "1.5"
+    }), /Invalid authoritative GRAM candidate filter/);
+    assert.equal(requests, 0);
+});
+
+test("payer-specific discovery retains zero settlement authority", async () => {
+    const sender = "0:" + "3".repeat(64);
+    const client = new ToncenterJettonTransfersClient({
+        apiKeyProvider: () => "test-key",
+        fetchImpl: async () => ({
+            status: 200,
+            json: async () => ({ jetton_transfers: [{
+                jetton_master: master,
+                source: sender,
+                destination: room,
+                amount: "1500000000",
+                transaction_aborted: false,
+                transaction_hash: "a".repeat(64),
+                transaction_lt: "123",
+                transaction_now: 1700000001
+            }] })
+        })
+    });
+    const mapped = await client.findIncomingCandidates({
+        ...query, expectedSender: sender, expectedAmountAtomic: "1500000000"
+    });
+    assert.equal(mapped.candidates.length, 1);
+    assert.equal(mapped.candidates[0].finalized, false);
+    assert.equal(mapped.candidates[0].paymentReference, null);
+    assert.equal(mapped.verifiedForSettlement, false);
+});
