@@ -6,7 +6,7 @@ const master = "0:" + "a".repeat(64);
 const sender = "0:" + "b".repeat(64);
 const roomWallet = "0:" + "c".repeat(64);
 const amount = "1500000000";
-const filter = { jettonMaster: master, roomWallet, expectedSender: sender, expectedAmountAtomic: amount };
+const filter = { jettonMaster: master, roomWallet, expectedSender: sender, expectedAmountAtomic: amount, expectedPaymentReference: "room1-seat2" };
 const record = {
     jetton_master: master,
     source: sender,
@@ -15,7 +15,8 @@ const record = {
     transaction_aborted: false,
     transaction_hash: "1".repeat(64),
     transaction_lt: "12",
-    transaction_now: 1700000001
+    transaction_now: 1700000001,
+    decoded_forward_payload: { type: "text_comment", comment: "WW1:room1-seat2" }
 };
 function discovery(transfers, truncated = false) {
     return { transfers, truncated, finalized: false, verifiedForSettlement: false };
@@ -108,5 +109,11 @@ test("strict decoded GRAM forward comment filters by authoritative reference onl
 test("invalid authoritative GRAM payment references cannot be queried", () => {
     assert.throws(() => mapGramJettonCandidates(discovery([record]), {
         ...filter, expectedPaymentReference: "room/seat"
+    }), /Invalid authoritative/);
+});
+
+test("sender and exact amount alone cannot yield a GRAM candidate without payment reference", () => {
+    assert.throws(() => mapGramJettonCandidates(discovery([record]), {
+        ...filter, expectedPaymentReference: undefined
     }), /Invalid authoritative/);
 });
