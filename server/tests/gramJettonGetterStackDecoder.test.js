@@ -10,6 +10,7 @@ import { ToncenterGramJettonGetMethodsClient } from "../payment/toncenter/Toncen
 const master = "0:" + "a".repeat(64);
 const owner = "0:" + "b".repeat(64);
 const wallet = "0:" + "c".repeat(64);
+const pinnedTestnet = { GRAM_JETTON_MASTER_TESTNET: master };
 const foreignWallet = "0:" + "d".repeat(64);
 
 function bitsToBoc(bits) {
@@ -106,7 +107,8 @@ test("reject truncated, malformed, swapped and dangerous TVM stack elements", ()
 test("matched Testnet getter observations stay advisory and require two requests", async () => {
     const { c, calls } = client();
     const r = await inspectTestnetGramJettonWallet({
-        client: c, jettonMaster: master, ownerWallet: owner, observedJettonWallet: wallet
+        client: c, jettonMaster: master, ownerWallet: owner, observedJettonWallet: wallet,
+        env: pinnedTestnet
     });
     assert.equal(calls.length, 2);
     assert.deepEqual(calls.map(x => x.method), ["get_wallet_address", "get_wallet_data"]);
@@ -118,7 +120,8 @@ test("matched Testnet getter observations stay advisory and require two requests
 test("wrong master-derived wallet rejects BEFORE wallet getter request", async () => {
     const { c, calls } = client(foreignWallet);
     const r = await inspectTestnetGramJettonWallet({
-        client: c, jettonMaster: master, ownerWallet: owner, observedJettonWallet: wallet
+        client: c, jettonMaster: master, ownerWallet: owner, observedJettonWallet: wallet,
+        env: pinnedTestnet
     });
     assert.equal(r, null);
     assert.equal(calls.length, 1);
@@ -132,4 +135,25 @@ test("wrong wallet owner or master rejects despite valid matching master getter"
             observedJettonWallet: wallet
         }), null);
     }
+});
+
+test("missing or mismatched GRAM Testnet master is refused before any provider request", async () => {
+    const { c, calls } = client();
+    const base = {
+        client: c, jettonMaster: master,
+        ownerWallet: owner, observedJettonWallet: wallet
+    };
+    await assert.rejects(inspectTestnetGramJettonWallet({
+        ...base, env: {}
+    }), /must be configured/);
+    await assert.rejects(inspectTestnetGramJettonWallet({
+        ...base, env: { GRAM_JETTON_MASTER_TESTNET: foreignWallet }
+    }), /differs from/);
+    await assert.rejects(inspectTestnetGramJettonWallet({
+        ...base, env: pinnedTestnet, network: "mainnet"
+    }), /Testnet-only/);
+    await assert.rejects(inspectTestnetGramJettonWallet({
+        ...base, jettonMaster: foreignWallet, env: pinnedTestnet
+    }), /differs from/);
+    assert.equal(calls.length, 0);
 });
