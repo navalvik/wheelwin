@@ -835,7 +835,8 @@ async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
                     assert.equal(signedTransfer.amountAtomic, expected.amountAtomic);
                     assert.equal(expected.amountAtomic, "990000000");
                     return syntheticInspectedRefund(signedTransfer, expected); // mocked decoder, not TON BOC decoding
-                }
+                },
+                async verifyWalletV4Signature() { return true; } // synthetic test only
             }
         });
         assert.equal((await h.coordinator.submitRefund(obligation.obligationId, { provider })).outcome, "SUBMITTED");
@@ -884,7 +885,8 @@ async function testNetFeeRefundRejectsGrossAmountFinality() {
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
-                    syntheticInspectedRefund(signedTransfer, expected) // mocked decoder
+                    syntheticInspectedRefund(signedTransfer, expected), // mocked decoder
+                verifyWalletV4Signature: async () => true // synthetic test only
             }
         });
         await h.coordinator.submitRefund(obligation.obligationId, { provider });
@@ -976,8 +978,11 @@ async function testSignedTransferInspectionIsMandatory() {
         }));
         for (const inspector of [
             null,
-            { inspect: async () => ({ verified: false }) },
-            { inspect: async () => { throw new Error("invalid signed BOC"); } }
+            { inspect: async () => ({ verified: false }), verifyWalletV4Signature: async () => true },
+            { inspect: async () => { throw new Error("invalid signed BOC"); }, verifyWalletV4Signature: async () => true },
+            { inspect: async ({ signedTransfer, expected }) => syntheticInspectedRefund(signedTransfer, expected), verifyWalletV4Signature: async () => false },
+            { inspect: async ({ signedTransfer, expected }) => syntheticInspectedRefund(signedTransfer, expected), verifyWalletV4Signature: async () => { throw new Error("signature invalid"); } },
+            { inspect: async ({ signedTransfer, expected }) => syntheticInspectedRefund(signedTransfer, expected) }
         ]) {
             const mocks = makeMocks({});
             const provider = new TestnetOutgoingRefundProvider({
@@ -988,7 +993,7 @@ async function testSignedTransferInspectionIsMandatory() {
                 refundPlanStore: planStore,
                 signedTransferInspector: inspector
             });
-            assert.equal(provider.canExecute(), inspector !== null);
+            assert.equal(provider.canExecute(), Boolean(inspector?.verifyWalletV4Signature));
             const result = await provider.signAndBroadcast({
                 obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
             });
