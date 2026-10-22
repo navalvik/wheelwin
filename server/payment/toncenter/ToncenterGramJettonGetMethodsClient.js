@@ -83,6 +83,7 @@ export class ToncenterGramJettonGetMethodsClient {
     #key;
     #timeoutMs;
     #allowAnonymousRead;
+    #nextAnonymousRequestAt = 0;
     constructor({ fetchImpl = globalThis.fetch, apiKeyProvider = defaultApiKeyProvider,
         timeoutMs = 15000, allowAnonymousRead = false } = {}) {
         if (typeof fetchImpl !== "function" || typeof apiKeyProvider !== "function"
@@ -103,6 +104,14 @@ export class ToncenterGramJettonGetMethodsClient {
         const key = this.#key();
         if ((typeof key !== "string" || !key.trim()) && !this.#allowAnonymousRead) {
             throw new Error("TON_API_KEY required before GRAM getter network request");
+        }
+        if ((typeof key !== "string" || !key.trim()) && this.#allowAnonymousRead) {
+            // Public Toncenter v3 quota: at most one request per second.
+            // Reserve a slot synchronously, even when callers overlap.
+            const startAt = Math.max(Date.now(), this.#nextAnonymousRequestAt);
+            this.#nextAnonymousRequestAt = startAt + 1100;
+            const delay = startAt - Date.now();
+            if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
         }
         const controller = new AbortController();
         // AbortSignal alone does not guarantee injected fetch/json promises
