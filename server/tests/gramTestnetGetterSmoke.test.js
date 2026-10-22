@@ -69,13 +69,12 @@ test("read-only GRAM Testnet getter diagnostic returns non-authoritative result"
     assert.equal(output[0].includes(env.TON_API_KEY), false);
 });
 
-test("diagnostic refuses absent master, bad owner and absent key before network", async () => {
+test("diagnostic refuses absent master and bad owner before network", async () => {
     const { client, calls } = makeClient();
     for (const modified of [
         { ...env, GRAM_JETTON_MASTER_TESTNET: "" },
         { ...env, GRAM_TESTNET_DIAGNOSTIC_OWNER: "bad" },
-        { ...env, GRAM_TESTNET_DIAGNOSTIC_OWNER: master },
-        { ...env, TON_API_KEY: "" }
+        { ...env, GRAM_TESTNET_DIAGNOSTIC_OWNER: master }
     ]) {
         await assert.rejects(runGramTestnetGetterSmoke({ env: modified, client }));
     }
@@ -90,4 +89,15 @@ test("mismatched contract owner and provider errors fail closed", async () => {
         const { client } = makeClient(options);
         await assert.rejects(runGramTestnetGetterSmoke({ env, client }));
     }
+});
+
+test("read-only diagnostic allows absent Toncenter key without authorizing payments", async () => {
+    const { client, calls } = makeClient();
+    const result = await runGramTestnetGetterSmoke({
+        env: { ...env, TON_API_KEY: "" },
+        client
+    });
+    assert.equal(result.getterAddressesConsistent, true);
+    assert.equal(result.paymentCreditAuthorized, false);
+    assert.deepEqual(calls, ["get_wallet_address", "get_wallet_data"]);
 });
