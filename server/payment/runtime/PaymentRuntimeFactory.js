@@ -23,10 +23,12 @@
  */
 
 import { dirname, join } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { AssetDenominationRegistry } from "../AssetDenomination.js";
 import { PaymentIntentStore } from "../PaymentIntentStore.js";
+import { SqlitePaymentIntentStore } from "../SqlitePaymentIntentStore.js";
 import { isPaymentIntentStoreContract } from "../PaymentIntentStoreContract.js";
 import {
     DEFAULT_ROOM_WALLET_NETWORK,
@@ -169,7 +171,8 @@ export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finali
  *   logger?: object|null,
  *   fetchImpl?: Function,
  *   apiKeyProvider?: Function,
- *   settlementEvidenceProvider?: object|null
+ *   settlementEvidenceProvider?: object|null,
+ *   intentStorageBackend?: "json"|"sqlite"
  * }} [options]
  */
 export function buildPaymentRuntime(options = {}) {
@@ -182,7 +185,8 @@ export function buildPaymentRuntime(options = {}) {
         logger = null,
         fetchImpl = globalThis.fetch,
         settlementEvidenceProvider = null,
-        refundSubmitter = null
+        refundSubmitter = null,
+        intentStorageBackend = "json"
     } = options;
 
     // R — network identity is enforced before any store or provider exists.
@@ -199,11 +203,32 @@ export function buildPaymentRuntime(options = {}) {
         logger
     });
 
-    const intentStore = new PaymentIntentStore({
-        dataDir: networkDataDir,
-        logger,
-        nowProvider
-    });
+    // Production keeps JSON by default. SQLite is an explicit opt-in only
+    // for a fresh namespace: never silently conceal existing obligations.
+    if (!["json", "sqlite"].includes(intentStorageBackend)) {
+        throw new Error("Unknown payment intent storage backend");
+    }
+    if (intentStorageBackend === "sqlite") {
+        const legacyIntentDir = join(networkDataDir, "payment-intents");
+        if (existsSync(legacyIntentDir)
+            && readdirSync(legacyIntentDir).some(name => name.endsWith(".json"))) {
+            throw new Error(
+                "Cannot select SQLite while JSON payment intents exist; "
+                + "an audited, lossless migration is required"
+            );
+        }
+    }
+    const intentStore = intentStorageBackend === "sqlite"
+        ? new SqlitePaymentIntentStore({
+            databasePath: join(networkDataDir, "payment-intents.sqlite"),
+            logger,
+            nowProvider
+        })
+        : new PaymentIntentStore({
+            dataDir: networkDataDir,
+            logger,
+            nowProvider
+        });
 
     if (!isPaymentIntentStoreContract(intentStore)) {
 
@@ -341,6 +366,7 @@ export function buildPaymentRuntime(options = {}) {
         paymentGate,
 
         network: identity.network,
+        intentStorageBackend,
         globalId: identity.globalId,
         dataDir,
         networkDataDir,
@@ -421,6 +447,7 @@ export function buildPaymentRuntime(options = {}) {
                 networkName: REFUND_NETWORK.TESTNET,
                 globalId: identity.globalId,
                 roomLifetimeMs: ROOM_LIFETIME_MS,
+                intentStorageBackend,
                 incomingObservationEnabled: true,
                 incomingFinalityVerificationEnabled: true,
                 settlementEnabled: true,
