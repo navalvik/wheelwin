@@ -48,13 +48,13 @@ test("amounts exceeding VarUInteger16 capacity fail closed", () => {
     assert.throws(() => buildGramJettonTransferBody(request((1n << 120n).toString())), /exceeds VarUInteger16/);
 });
 
-test("BOC root descriptor and top-up bit preserve unaligned payload", () => {
+test("BOC root descriptor represents the byte-aligned TEP-74 transfer", () => {
     const bytes = Buffer.from(buildGramJettonTransferBody(request("1")), "base64");
     assert.equal(bytes[4], 1); // no index, no CRC, one-byte counters
     assert.equal(bytes[6], 2); // root + comment cell
     assert.equal(bytes[10], 0); // root cell index
     const rootDescriptor = bytes[12];
-    assert.equal(rootDescriptor % 2, 1); // unaligned root
+    assert.equal(rootDescriptor % 2, 0); // TEP-74 root has byte-aligned fields
     const rootByteLength = Math.ceil(rootDescriptor / 2);
     const lastRootByte = bytes[13 + rootByteLength - 1];
     assert.notEqual(lastRootByte, 0);
