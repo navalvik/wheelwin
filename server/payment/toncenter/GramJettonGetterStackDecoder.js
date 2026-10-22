@@ -49,8 +49,10 @@ function oneCellBits(base64) {
 }
 
 function addressFromSlice(stackEntry) {
-    if (!stackEntry || stackEntry.type !== "slice")
-        invalid("address must be a TVM slice");
+    // Toncenter v3 get-method examples serialize returned address values as
+    // either cell or slice; enforce the same exact 267-bit TL-B address shape.
+    if (!stackEntry || !["slice", "cell"].includes(stackEntry.type))
+        invalid("address must be a TVM cell or slice");
     const cell = oneCellBits(stackEntry.value);
     // addr_std$10 anycast:(Maybe Anycast)$0 workchain_id:int8
     // address:bits256. Exactly 267 bits; never accept extra payload.
