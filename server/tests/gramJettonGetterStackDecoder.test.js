@@ -132,7 +132,7 @@ test("wrong wallet owner or master rejects despite valid matching master getter"
         const { c } = client(wallet, o, m);
         assert.equal(await inspectTestnetGramJettonWallet({
             client: c, jettonMaster: master, ownerWallet: owner,
-            observedJettonWallet: wallet
+            observedJettonWallet: wallet, env: pinnedTestnet
         }), null);
     }
 });
