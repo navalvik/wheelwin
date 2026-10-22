@@ -67,7 +67,7 @@ export const SUPPORTED_PAYMENT_NETWORK = DEFAULT_ROOM_WALLET_NETWORK;
 export const TON_TESTNET_GLOBAL_ID = -3;
 
 const CANONICAL_TON_ASSET = "TON";
-const CANONICAL_TON_SYMBOL = "Gram";
+const CANONICAL_TON_SYMBOL = "TON";
 
 /**
  * Default durable storage directory for the isolated room-wallet payment
