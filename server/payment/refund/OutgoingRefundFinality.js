@@ -170,3 +170,74 @@ export function verifyOutgoingRefundFinality({
         sourceIdentity
     });
 }
+
+/**
+ * Read-only finality check for a fee-funded native GRAM refund. The original
+ * obligation records the gross paid principal; the immutable plan records the
+ * exact NET outgoing amount. Never mark the gross obligation COMPLETE with a
+ * net transfer until the durable obligation schema supports both identities.
+ *
+ * No signing, broadcasting, or store mutation.
+ */
+export function verifyPlannedNativeGramRefundFinality({
+    obligation, plan, sourceWalletAddress, outgoingTransactionId,
+    evidence, outgoingTransfer, nowMs
+}) {
+    const reject = reason => Object.freeze({ verified: false, reason });
+    if (!obligation || !plan || obligation.networkName !== "TESTNET" ||
+        obligation.globalId !== TON_TESTNET_GLOBAL_ID ||
+        obligation.denomination !== "TON" ||
+        plan.networkName !== "TESTNET" || plan.globalId !== TON_TESTNET_GLOBAL_ID ||
+        plan.denomination !== "TON" || plan.sendRemainingBalance !== false ||
+        plan.obligationId !== obligation.obligationId ||
+        plan.idempotencyKey !== obligation.idempotencyKey ||
+        !tonAddressIdentitiesEqual(plan.sourceWalletAddress, sourceWalletAddress) ||
+        !tonAddressIdentitiesEqual(plan.refundDestination, obligation.refundDestination) ||
+        plan.originalPaidAmountAtomic !== String(obligation.amountAtomic) ||
+        typeof plan.refundAmountAtomic !== "string" ||
+        typeof plan.reservedFeeAtomic !== "string" ||
+        !/^[1-9][0-9]*$/.test(plan.refundAmountAtomic) ||
+        !/^[1-9][0-9]*$/.test(plan.reservedFeeAtomic) ||
+        BigInt(plan.refundAmountAtomic) + BigInt(plan.reservedFeeAtomic) !==
+            BigInt(plan.originalPaidAmountAtomic)) {
+        return reject(OUTGOING_FINALITY_REJECTION.EVIDENCE_CONFLICTS_WITH_OBLIGATION);
+    }
+    // Use the same native-Testnet inclusion/finality validator as the gross
+    // transfer verifier. A broadcaster ACK is never sufficient.
+    if (obligation.finalizedEvidence ||
+        (obligation.outgoingTransactionId &&
+            obligation.outgoingTransactionId !== outgoingTransactionId) ||
+        typeof outgoingTransactionId !== "string" || !outgoingTransactionId.trim()) {
+        return reject(OUTGOING_FINALITY_REJECTION.EVIDENCE_CONFLICTS_WITH_OBLIGATION);
+    }
+    if (tonAddressIdentityOrNull(sourceWalletAddress) === null) {
+        return reject(OUTGOING_FINALITY_REJECTION.SENDER_MISMATCH);
+    }
+    const inclusion = assessTonPaymentSettlementEvidence(evidence ?? {}, {
+        transactionId: outgoingTransactionId, accountId: sourceWalletAddress, nowMs
+    });
+    if (!inclusion.authorized) return reject(inclusion.reason);
+    if (!isRecord(outgoingTransfer) ||
+        outgoingTransfer.transactionId !== outgoingTransactionId) {
+        return reject(OUTGOING_FINALITY_REJECTION.OUTGOING_TRANSFER_NOT_OBSERVED);
+    }
+    if (!tonAddressIdentitiesEqual(outgoingTransfer.sourceAddress, sourceWalletAddress)) {
+        return reject(OUTGOING_FINALITY_REJECTION.SENDER_MISMATCH);
+    }
+    if (!tonAddressIdentitiesEqual(outgoingTransfer.destinationAddress, plan.refundDestination)) {
+        return reject(OUTGOING_FINALITY_REJECTION.RECIPIENT_MISMATCH);
+    }
+    if (!Number.isSafeInteger(outgoingTransfer.amountAtomic) ||
+        BigInt(outgoingTransfer.amountAtomic) !== BigInt(plan.refundAmountAtomic)) {
+        return reject(OUTGOING_FINALITY_REJECTION.AMOUNT_MISMATCH);
+    }
+    return Object.freeze({
+        verified: true,
+        // Advisory proof only, deliberately NOT accepted by RefundObligation.markComplete.
+        obligationId: obligation.obligationId,
+        outgoingTransactionId,
+        originalPaidAmountAtomic: plan.originalPaidAmountAtomic,
+        refundAmountAtomic: plan.refundAmountAtomic,
+        reservedFeeAtomic: plan.reservedFeeAtomic
+    });
+}
