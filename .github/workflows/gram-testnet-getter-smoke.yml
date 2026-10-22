@@ -1,0 +1,24 @@
+name: Manual GRAM Testnet getter smoke (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  getter-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read-only GRAM Jetton Master / Wallet getter comparison
+        working-directory: server
+        env:
+          TON_API_KEY: ${{ secrets.TON_API_KEY }}
+          GRAM_JETTON_MASTER_TESTNET: ${{ secrets.GRAM_JETTON_MASTER_TESTNET }}
+          GRAM_TESTNET_DIAGNOSTIC_OWNER: ${{ secrets.GRAM_TESTNET_DIAGNOSTIC_OWNER }}
+        run: node payment/diagnostics/runGramTestnetGetterSmoke.js
