@@ -13,7 +13,9 @@ const request = (amountAtomic) => ({
 function rootBits(bocBase64) {
     const bytes = Buffer.from(bocBase64, "base64");
     assert.equal(bytes.subarray(0, 4).toString("hex"), "b5ee9c72");
-    const rootStart = 11;
+    // Standard BOC: 4 magic + flags + offset-size + cell count + roots
+    // + payload length + root index = 10 bytes before the first cell.
+    const rootStart = 10;
     const refs = bytes[rootStart];
     const descriptor = bytes[rootStart + 1];
     assert.equal(refs, 1);
@@ -52,11 +54,12 @@ test("BOC root descriptor represents the byte-aligned TEP-74 transfer", () => {
     const bytes = Buffer.from(buildGramJettonTransferBody(request("1")), "base64");
     assert.equal(bytes[4], 1); // no index, no CRC, one-byte counters
     assert.equal(bytes[6], 2); // root + comment cell
-    assert.equal(bytes[10], 0); // root cell index
-    const rootDescriptor = bytes[12];
+    assert.equal(bytes[9], 0); // root cell index
+    assert.equal(bytes[10], 1); // root cell has one reference
+    const rootDescriptor = bytes[11];
     assert.equal(rootDescriptor % 2, 0); // TEP-74 root has byte-aligned fields
     const rootByteLength = Math.ceil(rootDescriptor / 2);
-    const lastRootByte = bytes[13 + rootByteLength - 1];
+    const lastRootByte = bytes[12 + rootByteLength - 1];
     assert.notEqual(lastRootByte, 0);
     const bits = rootBits(bytes.toString("base64"));
     assert.equal(bits.slice(-1), "1"); // ref branch selector (forward_payload in ref)
