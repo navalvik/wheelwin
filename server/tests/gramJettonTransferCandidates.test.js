@@ -61,3 +61,19 @@ test("reject unsupported evidence envelopes and invalid authoritative filter", (
         ...filter, jettonMaster: "GRAM"
     }), /Invalid authoritative/);
 });
+
+test("indexer records outside the authoritative payment window are rejected", () => {
+    const bounded = {
+        ...filter,
+        startUtime: 1700000000,
+        endUtime: 1700000400
+    };
+    assert.equal(mapGramJettonCandidates(discovery([record]), bounded).candidates.length, 1);
+    assert.equal(mapGramJettonCandidates(discovery([
+        { ...record, transaction_now: 1699999999 },
+        { ...record, transaction_now: 1700000401 }
+    ]), bounded).candidates.length, 0);
+    assert.throws(() => mapGramJettonCandidates(discovery([record]), {
+        ...bounded, startUtime: 1700000500
+    }), /Invalid authoritative/);
+});
