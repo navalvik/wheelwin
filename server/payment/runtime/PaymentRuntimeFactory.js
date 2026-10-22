@@ -224,6 +224,22 @@ export function buildPaymentRuntime(options = {}) {
                 + "an audited, lossless migration is required"
             );
         }
+        // A room may have refund obligations, a ledger, or wallet reservations
+        // even when there are zero current payment intents. Never switch a
+        // populated historical namespace merely because its intent dir is empty.
+        const sqlitePath = join(networkDataDir, "payment-intents.sqlite");
+        if (!existsSync(sqlitePath) && existsSync(networkDataDir)) {
+            const financialArtifacts = readdirSync(networkDataDir, {
+                withFileTypes: true
+            }).filter(entry => entry.name !== "payment-intents"
+                || (entry.isDirectory() && readdirSync(join(networkDataDir, entry.name)).length > 0));
+            if (financialArtifacts.length > 0) {
+                throw new Error(
+                    "Cannot select SQLite in an existing payment data namespace "
+                    + "with financial artifacts; an audited migration is required"
+                );
+            }
+        }
     }
     const intentStore = intentStorageBackend === "sqlite"
         ? new SqlitePaymentIntentStore({
