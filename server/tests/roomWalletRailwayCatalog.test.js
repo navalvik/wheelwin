@@ -49,3 +49,30 @@ test("Malformed Railway Testnet catalog fails closed", () => {
         else process.env.ROOM_WALLETS_TESTNET_JSON = previous;
     }
 });
+
+test("Mainnet registry never consumes the Testnet or generic Railway catalog", () => {
+    const previousTestnet = process.env.ROOM_WALLETS_TESTNET_JSON;
+    const previousGeneric = process.env.ROOM_WALLETS_JSON;
+    const previousMainnet = process.env.ROOM_WALLETS_MAINNET_JSON;
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-mainnet-isolation-"));
+    try {
+        process.env.ROOM_WALLETS_TESTNET_JSON = JSON.stringify(catalog());
+        process.env.ROOM_WALLETS_JSON = JSON.stringify(catalog());
+        delete process.env.ROOM_WALLETS_MAINNET_JSON;
+        const pool = new WalletPoolRegistry({
+            network: "mainnet",
+            catalogPath: join(dir, "missing-mainnet-catalog.json")
+        });
+        assert.throws(() => pool.initialize(), /catalog unavailable/);
+    } finally {
+        for (const [key, value] of [
+            ["ROOM_WALLETS_TESTNET_JSON", previousTestnet],
+            ["ROOM_WALLETS_JSON", previousGeneric],
+            ["ROOM_WALLETS_MAINNET_JSON", previousMainnet]
+        ]) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
