@@ -275,9 +275,17 @@ async function testSignerUnavailable() {
             outgoingTransferProvider: mocks.outgoingTransferProvider
         });
         const res = await h.coordinator.submitRefund(obligation.obligationId, { provider });
-        assert.equal(res.outcome, "FAILED");
+        assert.equal(res.outcome, "SUBMISSION_UNKNOWN");
         const after = h.store.get(obligation.obligationId);
-        assert.equal(after.state, REFUND_STATE.PENDING);
+        assert.equal(after.state, REFUND_STATE.SUBMISSION_UNKNOWN,
+            "even signer failures after reservation require reconciliation");
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /not awaiting submission/,
+            "no second sign/broadcast attempt is allowed"
+        );
+        assert.equal(mocks.calls.sign, 1);
+        assert.equal(mocks.calls.broadcast, 0);
     } finally {
         h.cleanup();
     }
@@ -709,11 +717,64 @@ async function testRestartPreservesObligationsAndRecoveryWithoutDuplication() {
     }
 }
 
+async function testDurableUnknownBeforeBroadcastAndConcurrentDuplicateGuard() {
+    const h = harness(1);
+    let releaseSigner;
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        let startedResolve;
+        const started = new Promise(resolve => { startedResolve = resolve; });
+        const waitForRelease = new Promise(resolve => { releaseSigner = resolve; });
+        const signer = {
+            async signTransfer(descriptor) {
+                // A restarted process must already see UNKNOWN before it
+                // could possibly have signed or broadcast anything.
+                assert.equal(h.store.get(obligation.obligationId).state,
+                    REFUND_STATE.SUBMISSION_UNKNOWN);
+                const restarted = new RefundObligationStore({
+                    dataDir: join(h.root, "refunds")
+                });
+                restarted.initialize();
+                assert.equal(restarted.get(obligation.obligationId).state,
+                    REFUND_STATE.SUBMISSION_UNKNOWN);
+                startedResolve();
+                await waitForRelease;
+                return mocks.signer.signTransfer(descriptor);
+            }
+        };
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer,
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const first = h.coordinator.submitRefund(obligation.obligationId, { provider });
+        await started;
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /not awaiting submission/,
+            "concurrent attempt cannot pass the PENDING gate"
+        );
+        assert.equal(mocks.calls.broadcast, 0);
+        releaseSigner();
+        assert.equal((await first).outcome, "SUBMITTED");
+        assert.equal(mocks.calls.sign, 1);
+        assert.equal(mocks.calls.broadcast, 1,
+            "only one transfer may be broadcast");
+    } finally {
+        releaseSigner?.();
+        h.cleanup();
+    }
+}
+
 async function main() {
     await testValidSubmission();
     await testRejections();
     await testAmbiguousNoBlindResubmit();
     await testSignerUnavailable();
+    await testDurableUnknownBeforeBroadcastAndConcurrentDuplicateGuard();
     await testBroadcastFailureUnknown();
     await testFinalityMissing();
     await testConflictingEvidenceCannotComplete();
