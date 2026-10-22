@@ -94,7 +94,7 @@ test("reject truncated, malformed, swapped and dangerous TVM stack elements", ()
             { type: "num", value: "123.45" }, stackEntry(owner), stackEntry(master), codeEntry
         ] },
         { ...walletResult(), resultStack: [
-            { type: "num", value: "42" }, stackEntry(master), { type: "cell", value: addressBoc(master) }, codeEntry
+            { type: "num", value: "42" }, stackEntry(master), { type: "num", value: "1" }, codeEntry
         ] },
         { ...walletResult(), resultStack: [
             { type: "num", value: "42" }, stackEntry(owner), stackEntry(master),
