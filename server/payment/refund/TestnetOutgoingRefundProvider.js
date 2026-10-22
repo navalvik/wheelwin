@@ -84,7 +84,7 @@ export class TestnetOutgoingRefundProvider {
      *   }
      * }} dependencies
      */
-    constructor({ globalId, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider, feeEstimator } = {}) {
+    constructor({ globalId, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider, feeEstimator, refundPlanStore } = {}) {
         if (globalId !== TON_TESTNET_GLOBAL_ID) {
             throw new OutgoingRefundError("outgoing refund provider requires verified TON Testnet global ID -3");
         }
@@ -95,6 +95,7 @@ export class TestnetOutgoingRefundProvider {
         this._finality = finalityEvidenceProvider ?? null;
         this._observation = outgoingTransferProvider ?? null;
         this._feeEstimator = feeEstimator ?? null;
+        this._refundPlanStore = refundPlanStore ?? null;
     }
 
     /**
@@ -132,6 +133,21 @@ export class TestnetOutgoingRefundProvider {
         return buildNativeGramRefundTransferPlan({
             obligation, sourceWalletAddress, feeQuote: quote
         });
+    }
+
+    /**
+     * Persist an estimator-backed refund plan exactly once. A retry may only
+     * reuse identical terms. This does not unlock signer/broadcaster execution:
+     * the legacy full-principal refund path remains disabled in production.
+     */
+    async reserveNativeGramRefundTransferPlan({ obligation, sourceWalletAddress }) {
+        if (typeof this._refundPlanStore?.reserve !== "function") {
+            throw new OutgoingRefundError("durable native GRAM refund plan store is unavailable");
+        }
+        const plan = await this.prepareNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress
+        });
+        return this._refundPlanStore.reserve(plan);
     }
 
     /** Public, non-secret identity check (no network access, no secrets). */
