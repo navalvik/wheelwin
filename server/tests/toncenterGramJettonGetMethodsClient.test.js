@@ -195,3 +195,59 @@ test("deadline settles even if JSON parsing ignores AbortSignal forever", async 
     await assert.rejects(client.getWalletData({ jettonWallet: wallet }), /timed out/);
     assert.equal(capturedSignal.aborted, true);
 });
+
+test("streaming getter JSON is accepted within bounded response size", async () => {
+    const json = Buffer.from(JSON.stringify(successful));
+    const client = new ToncenterGramJettonGetMethodsClient({
+        apiKeyProvider: () => "mock",
+        fetchImpl: async () => ({
+            status: 200,
+            headers: { get: () => String(json.length) },
+            body: new ReadableStream({
+                start(controller) {
+                    controller.enqueue(json.subarray(0, 12));
+                    controller.enqueue(json.subarray(12));
+                    controller.close();
+                }
+            })
+        })
+    });
+    const result = await client.getWalletAddress({
+        jettonMaster: master, ownerWallet: owner
+    });
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.paymentCreditAuthorized, false);
+});
+
+test("oversized Toncenter declared content length is rejected before parsing", async () => {
+    let streamAccessed = false;
+    const client = new ToncenterGramJettonGetMethodsClient({
+        apiKeyProvider: () => "mock",
+        fetchImpl: async () => ({
+            status: 200,
+            headers: { get: () => "65537" },
+            get body() { streamAccessed = true; return null; }
+        })
+    });
+    await assert.rejects(client.getWalletAddress({
+        jettonMaster: master, ownerWallet: owner
+    }), /JSON body failed/);
+    assert.equal(streamAccessed, false);
+});
+
+test("oversized Toncenter streaming JSON is rejected while reading", async () => {
+    const client = new ToncenterGramJettonGetMethodsClient({
+        apiKeyProvider: () => "mock",
+        fetchImpl: async () => ({
+            status: 200,
+            headers: { get: () => null },
+            body: new ReadableStream({
+                start(controller) {
+                    controller.enqueue(Buffer.alloc(65537, 0x61));
+                    controller.close();
+                }
+            })
+        })
+    });
+    await assert.rejects(client.getWalletData({ jettonWallet: wallet }), /JSON body failed/);
+});
