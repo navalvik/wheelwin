@@ -38,3 +38,9 @@ jobs:
         working-directory: client
         run: |
           node --test src/payment/gramJettonPayload.test.js src/payment/gramPaymentAuthorization.test.js src/payment/nativeGramTransfer.test.js src/payment/nativeGramWalletSubmission.test.js src/payment/tonConnectUIAdapter.test.js
+      - name: Install client dependencies for React Page4 build
+        working-directory: client
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Compile complete Vite client with TON Connect bootstrap
+        working-directory: client
+        run: npm run build
