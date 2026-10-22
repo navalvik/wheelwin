@@ -251,3 +251,26 @@ test("oversized Toncenter streaming JSON is rejected while reading", async () =>
     });
     await assert.rejects(client.getWalletData({ jettonWallet: wallet }), /JSON body failed/);
 });
+
+test("non-streaming injected JSON exceeding response limit is rejected", async () => {
+    const client = new ToncenterGramJettonGetMethodsClient({
+        apiKeyProvider: () => "mock",
+        fetchImpl: async () => ({
+            status: 200,
+            json: async () => ({
+                ...successful, unrelatedPadding: "x".repeat(65536)
+            })
+        })
+    });
+    await assert.rejects(client.getWalletAddress({
+        jettonMaster: master, ownerWallet: owner
+    }), /JSON body failed/);
+});
+
+test("non-streaming getter without JSON reader refuses unexpected body shape", async () => {
+    const client = new ToncenterGramJettonGetMethodsClient({
+        apiKeyProvider: () => "mock",
+        fetchImpl: async () => ({ status: 200, body: null })
+    });
+    await assert.rejects(client.getWalletData({ jettonWallet: wallet }), /JSON body failed/);
+});
