@@ -6,6 +6,7 @@ import { dirname, join, relative } from "node:path";
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
 const srcDir = join(currentDir, "..", "src");
+const standaloneTestsDir = join(currentDir, "..", "tests");
 
 const registerHook = pathToFileURL(join(currentDir, "register.js")).href;
 
@@ -39,7 +40,10 @@ function collectTestFiles(directory) {
 
 }
 
-const testFiles = collectTestFiles(srcDir).sort();
+const testFiles = [
+    ...collectTestFiles(srcDir),
+    ...collectTestFiles(standaloneTestsDir)
+].sort();
 
 for (const filePath of testFiles) {
 
