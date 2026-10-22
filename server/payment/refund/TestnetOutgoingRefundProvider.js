@@ -36,7 +36,8 @@ import {
 } from "../incoming/TonAddressIdentity.js";
 import {
     OUTGOING_FINALITY_REJECTION,
-    verifyOutgoingRefundFinality
+    verifyOutgoingRefundFinality,
+    verifyPlannedNativeGramRefundFinality
 } from "./OutgoingRefundFinality.js";
 
 export const TON_TESTNET_GLOBAL_ID = -3;
@@ -348,6 +349,47 @@ export class TestnetOutgoingRefundProvider {
             evidence,
             outgoingTransfer,
             nowMs
+        });
+    }
+
+    /**
+     * Observe an outgoing NET refund against the durable immutable plan.
+     * Read-only: this cannot mark a legacy gross-principal obligation COMPLETE.
+     * Never take the plan amount from the caller or a broadcaster response.
+     */
+    async observeAndVerifyPlannedNativeGramRefund({
+        obligation, sourceWalletAddress, outgoingTransactionId, nowMs
+    }) {
+        if (typeof this._refundPlanStore?.get !== "function") {
+            throw new OutgoingRefundError("durable native GRAM refund plan store is unavailable");
+        }
+        const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
+        const plan = this._refundPlanStore.get(obligation.obligationId);
+        if (!plan) {
+            throw new OutgoingRefundError("native GRAM refund plan has not been reserved");
+        }
+        let evidence = null;
+        let outgoingTransfer = null;
+        try {
+            evidence = await this._finality?.getSettlementEvidence?.({
+                accountId: authorized.sourceAccountId,
+                providerTransactionId: outgoingTransactionId
+            }) ?? null;
+        } catch {
+            evidence = null;
+        }
+        try {
+            outgoingTransfer = await this._observation?.getOutgoingTransfer?.({
+                sourceWalletAddress: authorized.sourceAccountId,
+                transactionId: outgoingTransactionId
+            }) ?? null;
+        } catch {
+            outgoingTransfer = null;
+        }
+        return verifyPlannedNativeGramRefundFinality({
+            obligation, plan,
+            sourceWalletAddress: authorized.sourceWalletAddress,
+            outgoingTransactionId, evidence, outgoingTransfer, nowMs
         });
     }
 
