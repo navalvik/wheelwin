@@ -21,7 +21,7 @@ jobs:
       - name: Server GRAM policy, mapper, discovery and config tests
         working-directory: server
         run: |
-          node --test tests/verifiedGramTransferPolicy.test.js tests/gramJettonMasterConfig.test.js tests/gramJettonTransferCandidates.test.js tests/toncenterJettonTransfersClient.test.js
+          node --test tests/verifiedGramTransferPolicy.test.js tests/verifiedGramIntentAdmission.test.js tests/gramJettonMasterConfig.test.js tests/gramJettonTransferCandidates.test.js tests/toncenterJettonTransfersClient.test.js
       - name: Client GRAM transfer encoding and preflight tests
         working-directory: client
         run: |
