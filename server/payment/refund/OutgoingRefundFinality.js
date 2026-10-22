@@ -238,6 +238,8 @@ export function verifyPlannedNativeGramRefundFinality({
         outgoingTransactionId,
         originalPaidAmountAtomic: plan.originalPaidAmountAtomic,
         refundAmountAtomic: plan.refundAmountAtomic,
-        reservedFeeAtomic: plan.reservedFeeAtomic
+        reservedFeeAtomic: plan.reservedFeeAtomic,
+        observedAtMs: nowMs,
+        blockId: `0:${String(evidence.transactionInclusion.block.shard)}:${String(evidence.transactionInclusion.block.seqno)}`
     });
 }
