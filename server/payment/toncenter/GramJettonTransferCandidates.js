@@ -7,6 +7,8 @@
  * transaction claim must authorize subsequent settlement.
  */
 import { tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
+import { isPaymentReference } from "../incoming/PaymentReferenceCodec.js";
+import { matchGramReferenceHint } from "./GramJettonReferenceHints.js";
 
 function canonical(value) {
     return tonAddressIdentityOrNull(value);
@@ -33,6 +35,7 @@ export function mapGramJettonCandidates(discovery, {
     roomWallet,
     expectedSender,
     expectedAmountAtomic,
+    expectedPaymentReference,
     startUtime,
     endUtime
 } = {}) {
@@ -40,6 +43,7 @@ export function mapGramJettonCandidates(discovery, {
     const recipient = canonical(roomWallet);
     const sender = canonical(expectedSender);
     if (!master || !recipient || !sender || !positiveAtomicString(expectedAmountAtomic)
+        || (expectedPaymentReference !== undefined && !isPaymentReference(expectedPaymentReference))
         || (startUtime !== undefined && (!Number.isSafeInteger(startUtime) || startUtime < 0))
         || (endUtime !== undefined && (!Number.isSafeInteger(endUtime) || endUtime < 0))
         || (startUtime !== undefined && endUtime !== undefined && startUtime > endUtime)) {
@@ -64,6 +68,10 @@ export function mapGramJettonCandidates(discovery, {
             || record.transaction_now <= 0
             || (startUtime !== undefined && record.transaction_now < startUtime)
             || (endUtime !== undefined && record.transaction_now > endUtime)) continue;
+        const referenceHint = expectedPaymentReference === undefined
+            ? null
+            : matchGramReferenceHint(record, expectedPaymentReference);
+        if (referenceHint !== null && !referenceHint.matched) continue;
         const key = transactionKey(record);
         if (!key || seen.has(key)) continue;
         seen.add(key);
@@ -77,6 +85,7 @@ export function mapGramJettonCandidates(discovery, {
             recipient,
             amountAtomic: record.amount,
             paymentReference: null,
+            referenceHintMatched: referenceHint?.matched === true,
             finalized: false,
             verifiedForSettlement: false
         }));
