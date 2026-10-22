@@ -435,6 +435,15 @@ export class SqlitePaymentIntentStore {
                     });
                 }
             }
+            // A chain transaction binding is permanent once persisted. Never
+            // allow a later state update to clear or replace its identity.
+            if (existing.transactionId !== null
+                && next.transactionId !== existing.transactionId) {
+                throw new PaymentValidationError(
+                    "persisted transactionId cannot be cleared or reassigned",
+                    { paymentReference: next.paymentReference }
+                );
+            }
             if (existing.state !== next.state && !canTransition(existing.state, next.state)) {
                 throw new InvalidPaymentStateTransitionError(existing.state, next.state, {
                     paymentReference: next.paymentReference
@@ -473,9 +482,17 @@ export class SqlitePaymentIntentStore {
     delete(paymentReference) {
         this._assertInitialized();
         const deleteTransaction = this._db.transaction(() => {
-            const row = this._db.prepare("SELECT storage_version FROM payment_intent WHERE paymentReference = ?")
+            const row = this._db.prepare("SELECT storage_version, transactionId FROM payment_intent WHERE paymentReference = ?")
                 .get(paymentReference);
             if (!row) return false;
+            // Deleting a credited/matched row would free the UNIQUE transaction
+            // identity for a future payment. Retain it durably instead.
+            if (row.transactionId !== null) {
+                throw new PaymentValidationError(
+                    "cannot delete a payment intent with an assigned transactionId",
+                    { paymentReference }
+                );
+            }
             this._db.prepare(`INSERT INTO payment_intent_tombstone(paymentReference, storage_version)
                 VALUES (?, ?) ON CONFLICT(paymentReference) DO UPDATE SET
                 storage_version = MAX(storage_version, excluded.storage_version)`)
