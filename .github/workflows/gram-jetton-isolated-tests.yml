@@ -30,7 +30,7 @@ jobs:
         run: npm ci --ignore-scripts=false --no-audit --no-fund
       - name: SQLite GRAM replay and runtime backend isolation
         working-directory: server
-        run: node --test tests/payment/gramSqliteReplaySafety.test.js tests/payment/paymentRuntimeStorageBackend.test.js
+        run: node --test tests/payment/gramSqliteReplaySafety.test.js tests/payment/paymentRuntimeStorageBackend.test.js tests/payment/stageJsonPaymentIntentsToSqlite.test.js
       - name: Client GRAM transfer encoding and preflight tests
         working-directory: client
         run: |
