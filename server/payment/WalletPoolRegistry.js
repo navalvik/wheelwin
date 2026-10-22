@@ -871,13 +871,21 @@ export function readRoomWalletCatalog(catalogPath = null) {
 
     const path = catalogPath ?? resolveDefaultRoomWalletCatalogPath();
 
+    // Railway owns the private 64-wallet catalog; callers without an
+    // explicit path use that same source as the runtime registry.
+    const environmentJson = catalogPath === null
+        ? (process.env.ROOM_WALLETS_TESTNET_JSON ?? process.env.ROOM_WALLETS_JSON)
+        : null;
+    if (environmentJson != null) {
+        try {
+            return JSON.parse(environmentJson, stripSecretsReviver);
+        } catch {
+            throw new PaymentConfigurationError("invalid room wallet catalog JSON in environment");
+        }
+    }
+
     if (!existsSync(path)) {
-
-        throw new PaymentConfigurationError(
-            "room wallet catalog not found",
-            { catalogPath: path }
-        );
-
+        throw new PaymentConfigurationError("room wallet catalog not found", { catalogPath: path });
     }
 
     return JSON.parse(readFileSync(path, "utf8"), stripSecretsReviver);
