@@ -141,6 +141,17 @@ export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finali
 
     }
 
+    // Runtime must never expose the legacy full-principal refund signer.
+    // Net refunds require a durable fee plan and independent signed-BOC
+    // inspection before any transfer can reach the broadcaster.
+    if (typeof submitter.signer?.signPlannedRefund !== "function" ||
+        typeof submitter.feeEstimator?.estimateRefundFee !== "function" ||
+        typeof submitter.refundPlanStore?.get !== "function" ||
+        typeof submitter.refundPlanStore?.reserve !== "function" ||
+        typeof submitter.signedTransferInspector?.inspect !== "function") {
+        return null;
+    }
+
     let provider;
     try {
         provider = new TestnetOutgoingRefundProvider({
@@ -148,7 +159,10 @@ export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finali
             signer: submitter.signer ?? null,
             broadcaster: submitter.broadcaster ?? null,
             finalityEvidenceProvider: submitter.finalityEvidenceProvider ?? finalityEvidenceProvider ?? null,
-            outgoingTransferProvider: submitter.outgoingTransferProvider ?? null
+            outgoingTransferProvider: submitter.outgoingTransferProvider ?? null,
+            feeEstimator: submitter.feeEstimator,
+            refundPlanStore: submitter.refundPlanStore,
+            signedTransferInspector: submitter.signedTransferInspector
         });
     } catch {
         // A non-Testnet or malformed bundle fails closed to "disabled".
