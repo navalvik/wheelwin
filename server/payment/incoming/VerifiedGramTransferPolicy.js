@@ -6,6 +6,14 @@
  * the configured token master and matching owner/destination identities.
  * This function does not query the network or assert token-event finality.
  */
+import { tonAddressIdentityOrNull } from "./TonAddressIdentity.js";
+
+function equalTonAccounts(left, right) {
+    const a = tonAddressIdentityOrNull(left);
+    const b = tonAddressIdentityOrNull(right);
+    return a !== null && b !== null && a === b;
+}
+
 export function requireVerifiedGramTransfer(evidence, {
     expectedTokenMaster,
     expectedSender,
@@ -33,9 +41,12 @@ export function requireVerifiedGramTransfer(evidence, {
     if (!/^[1-9][0-9]*$/.test(expectedAmountAtomic)) {
         throw new Error("GRAM amount must be a positive integer atomic-unit string");
     }
-    if (evidence.tokenMaster !== expectedTokenMaster
-        || evidence.sender !== expectedSender
-        || evidence.recipient !== expectedRecipient
+    // TON indexers may render the SAME account as raw, bounceable or
+    // non-bounceable friendly addresses. Compare validated account identities,
+    // never display strings or unvalidated placeholders.
+    if (!equalTonAccounts(evidence.tokenMaster, expectedTokenMaster)
+        || !equalTonAccounts(evidence.sender, expectedSender)
+        || !equalTonAccounts(evidence.recipient, expectedRecipient)
         || evidence.amountAtomic !== expectedAmountAtomic
         || evidence.paymentReference !== expectedPaymentReference
         || typeof evidence.transactionId !== "string"
