@@ -85,7 +85,7 @@ export class TestnetOutgoingRefundProvider {
      *   }
      * }} dependencies
      */
-    constructor({ globalId, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider, feeEstimator, refundPlanStore } = {}) {
+    constructor({ globalId, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider, feeEstimator, refundPlanStore, signedTransferInspector } = {}) {
         if (globalId !== TON_TESTNET_GLOBAL_ID) {
             throw new OutgoingRefundError("outgoing refund provider requires verified TON Testnet global ID -3");
         }
@@ -97,6 +97,7 @@ export class TestnetOutgoingRefundProvider {
         this._observation = outgoingTransferProvider ?? null;
         this._feeEstimator = feeEstimator ?? null;
         this._refundPlanStore = refundPlanStore ?? null;
+        this._signedTransferInspector = signedTransferInspector ?? null;
     }
 
     /**
@@ -110,7 +111,8 @@ export class TestnetOutgoingRefundProvider {
             // signer and readable durable plan. Never report ready otherwise.
             && (!this._refundPlanStore ||
                 (typeof this._refundPlanStore.get === "function" &&
-                    typeof this._signer?.signPlannedRefund === "function"))
+                    typeof this._signer?.signPlannedRefund === "function" &&
+                    typeof this._signedTransferInspector?.inspect === "function"))
             && typeof this._broadcaster?.broadcast === "function"
             && typeof this._finality?.getSettlementEvidence === "function"
             && typeof this._observation?.getOutgoingTransfer === "function"
@@ -329,6 +331,30 @@ export class TestnetOutgoingRefundProvider {
                 !tonAddressIdentitiesEqual(signedTransfer?.from, authorized.sourceWalletAddress) ||
                 !tonAddressIdentitiesEqual(signedTransfer?.to, authorized.refundDestination))) {
                 throw new OutgoingRefundError("signed refund descriptor does not match the durable net transfer plan");
+            }
+            if (plan) {
+                // A self-reported descriptor is NOT enough to certify a TON
+                // signed external message. An independently injected inspector
+                // must decode the actual signed bytes and verify transfer
+                // destinations, amount, send mode, network binding and wallet.
+                if (typeof this._signedTransferInspector?.inspect !== "function") {
+                    throw new OutgoingRefundError("signed TON transfer inspector is unavailable");
+                }
+                const inspected = await this._signedTransferInspector.inspect({
+                    signedTransfer,
+                    expected: Object.freeze({
+                        networkName: authorized.networkName,
+                        globalId: authorized.globalId,
+                        from: authorized.sourceWalletAddress,
+                        to: authorized.refundDestination,
+                        amountAtomic: plan.refundAmountAtomic,
+                        idempotencyKey: authorized.idempotencyKey,
+                        sendRemainingBalance: false
+                    })
+                });
+                if (inspected?.verified !== true) {
+                    throw new OutgoingRefundError("actual signed TON message could not be independently verified");
+                }
             }
         } catch {
             // A signing failure never reaches the network.
