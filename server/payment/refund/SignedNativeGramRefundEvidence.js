@@ -12,7 +12,10 @@ export function signedRefundBocHashOrNull(signedTransfer) {
     if (typeof boc !== "string" || boc.length < 8 || boc.length > 131072 ||
         !/^[A-Za-z0-9+/]+={0,2}$/.test(boc)) return null;
     const bytes = Buffer.from(boc, "base64");
-    if (bytes.length < 4 || bytes.toString("base64") !== boc) return null;
+    // Standard TON Bag-of-Cells magic; arbitrary base64 is not a BOC.
+    // This is a framing check, NOT cell decoding or signature validation.
+    if (bytes.length < 8 || bytes.readUInt32BE(0) !== 0xb5ee9c72 ||
+        bytes.toString("base64") !== boc) return null;
     return createHash("sha256").update(bytes).digest("hex");
 }
 
