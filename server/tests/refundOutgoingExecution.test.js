@@ -771,6 +771,19 @@ async function testDurableUnknownBeforeBroadcastAndConcurrentDuplicateGuard() {
     }
 }
 
+function makePlannedSigner(mocks, overrides = {}) {
+    return {
+        ...mocks.signer,
+        async signPlannedRefund(descriptor) {
+            mocks.calls.sign++;
+            assert.equal(descriptor.amountAtomic, "990000000",
+                "fee-funded signer receives only the NET amount");
+            assert.equal(descriptor.maxFeeAtomic, "10000000");
+            return { ...descriptor, payload: "synthetic-signed-transfer", ...overrides };
+        }
+    };
+}
+
 async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
     const h = harness(1);
     try {
@@ -798,7 +811,7 @@ async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
         });
         const provider = new TestnetOutgoingRefundProvider({
             globalId: -3,
-            signer: mocks.signer, broadcaster: mocks.broadcaster,
+            signer: makePlannedSigner(mocks), broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
             refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root })
@@ -842,7 +855,7 @@ async function testNetFeeRefundRejectsGrossAmountFinality() {
         const mocks = makeMocks({});
         // Mock returns gross 1 GRAM; the net plan requires 0.99.
         const provider = new TestnetOutgoingRefundProvider({
-            globalId: -3, signer: mocks.signer,
+            globalId: -3, signer: makePlannedSigner(mocks),
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
