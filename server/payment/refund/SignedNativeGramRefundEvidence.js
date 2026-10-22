@@ -6,6 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
+import { isStructurallyValidTonBoc } from "./StrictTonBocFraming.js";
 
 export function signedRefundBocHashOrNull(signedTransfer) {
     const boc = signedTransfer?.boc;
@@ -14,7 +15,7 @@ export function signedRefundBocHashOrNull(signedTransfer) {
     const bytes = Buffer.from(boc, "base64");
     // Standard TON Bag-of-Cells magic; arbitrary base64 is not a BOC.
     // This is a framing check, NOT cell decoding or signature validation.
-    if (bytes.length < 8 || bytes.readUInt32BE(0) !== 0xb5ee9c72 ||
+    if (!isStructurallyValidTonBoc(bytes) ||
         bytes.toString("base64") !== boc) return null;
     return createHash("sha256").update(bytes).digest("hex");
 }
