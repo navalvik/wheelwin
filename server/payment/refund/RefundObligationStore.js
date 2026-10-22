@@ -223,6 +223,59 @@ export class RefundObligationStore {
         return this._commitTransition(next);
     }
 
+    /**
+     * Persist a fee-funded native TON refund only after the coordinator has
+     * obtained independent finality and a matching immutable fee plan.
+     * Gross amount remains the original stake; finalizedEvidence records NET.
+     */
+    markPlannedComplete(obligationId, { plan, verification, attempt = null } = {}) {
+        const current = this._requireExisting(attempt, obligationId);
+        if (current.state !== "SUBMITTED" && current.state !== "RECONCILIATION_REQUIRED") {
+            throw new RefundObligationError("planned refund is not awaiting completion");
+        }
+        if (!verification || verification.verified !== true ||
+            verification.obligationId !== current.obligationId ||
+            verification.outgoingTransactionId !== current.outgoingTransactionId ||
+            !current.outgoingTransactionId ||
+            !plan || plan.obligationId !== current.obligationId ||
+            plan.idempotencyKey !== current.idempotencyKey ||
+            plan.networkName !== current.networkName || plan.globalId !== current.globalId ||
+            plan.denomination !== current.denomination ||
+            plan.refundDestination !== current.refundDestination ||
+            plan.originalPaidAmountAtomic !== String(current.amountAtomic) ||
+            plan.refundAmountAtomic !== verification.refundAmountAtomic ||
+            plan.reservedFeeAtomic !== verification.reservedFeeAtomic ||
+            plan.sendRemainingBalance !== false ||
+            !/^[1-9][0-9]*$/.test(plan.refundAmountAtomic) ||
+            !/^[1-9][0-9]*$/.test(plan.reservedFeeAtomic) ||
+            BigInt(plan.refundAmountAtomic) + BigInt(plan.reservedFeeAtomic) !==
+                BigInt(current.amountAtomic) ||
+            BigInt(plan.refundAmountAtomic) > BigInt(Number.MAX_SAFE_INTEGER)) {
+            throw new RefundObligationError("planned refund evidence conflicts with immutable payment identity");
+        }
+        // This method is intentionally NOT an independent evidence validator.
+        // Only the coordinator may pass its independently verified result.
+        const finalizedEvidence = Object.freeze({
+            networkName: current.networkName,
+            globalId: current.globalId,
+            transactionId: current.outgoingTransactionId,
+            amountAtomic: Number(plan.refundAmountAtomic),
+            originalPaidAmountAtomic: plan.originalPaidAmountAtomic,
+            reservedFeeAtomic: plan.reservedFeeAtomic,
+            destination: current.refundDestination,
+            finalized: true,
+            observedAtMs: verification.observedAtMs,
+            blockId: verification.blockId
+        });
+        const next = RefundObligation.fromRecord({
+            ...current.toRecord(),
+            state: "COMPLETE",
+            attempts: attempt === null ? current.attempts : [...current.attempts, attempt],
+            finalizedEvidence
+        });
+        return this._commitTransition(next);
+    }
+
     /** Any non-terminal -> BLOCKED (safe terminal hold with a diagnostic code). */
     markBlocked(obligationId, { attempt = null, lastError = null } = {}) {
         const current = this._requireExisting(attempt, obligationId);
