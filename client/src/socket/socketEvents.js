@@ -40,6 +40,8 @@ export const INCOMING_SOCKET_EVENTS = Object.freeze({
     SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
     VERIFY_COMPLETED: "VERIFY_COMPLETED",
     PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
+    // Initial payment request is only a notification; Page4 re-reads status.
+    PAYMENT_REQUEST: "PAYMENT_REQUEST",
     // P6.7 — authoritative per-player entry-payment status (Page4).
     ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
     // P6.7 — server-owned start gate (Page4 waits; Page5 only on OPEN_PAGE5).
