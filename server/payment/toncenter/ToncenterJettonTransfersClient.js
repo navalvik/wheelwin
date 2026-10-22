@@ -126,7 +126,7 @@ export class ToncenterJettonTransfersClient {
      * Discover records matching one authoritative payment requirement.
      * Returns only UNVERIFIED candidates. No settlement or chain-proof claim.
      */
-    async findIncomingCandidates({ expectedSender, expectedAmountAtomic, ...query } = {}) {
+    async findIncomingCandidates({ expectedSender, expectedAmountAtomic, expectedPaymentReference, ...query } = {}) {
         // Invalid payer/amount must fail before making an external request.
         mapGramJettonCandidates({ transfers: [], truncated: false, finalized: false,
             verifiedForSettlement: false }, {
@@ -134,6 +134,7 @@ export class ToncenterJettonTransfersClient {
             roomWallet: query.roomWallet,
             expectedSender,
             expectedAmountAtomic,
+            expectedPaymentReference,
             startUtime: query.startUtime,
             endUtime: query.endUtime
         });
@@ -143,6 +144,7 @@ export class ToncenterJettonTransfersClient {
             roomWallet: query.roomWallet,
             expectedSender,
             expectedAmountAtomic,
+            expectedPaymentReference,
             startUtime: query.startUtime,
             endUtime: query.endUtime
         });
