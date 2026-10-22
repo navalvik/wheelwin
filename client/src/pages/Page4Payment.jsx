@@ -18,12 +18,6 @@ import "../styles/page4payment.css";
  * The payment action stays unavailable until the server exposes a verified
  * room-wallet payment request. Never synthesize a destination or amount here.
  */
-function payloadHasLegacyJettonFields(payment) {
-    return payment.jettonMaster != null ||
-        payment.senderJettonWalletAddress != null ||
-        payment.jettonWalletVerified != null;
-}
-
 const PAYMENT_STATUS_EVENT = INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED;
 const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
 
@@ -69,7 +63,10 @@ export default function Page4Payment() {
                     destination: payload.destinationWalletAddress,
                     reference: payload.paymentReference,
                     enabled: payload.paymentAcceptanceEnabled === true,
-                    expectedSender: payload.expectedSenderWalletAddress
+                    expectedSender: payload.expectedSenderWalletAddress,
+                    legacyJettonFieldsPresent: payload.jettonMaster != null ||
+                        payload.senderJettonWalletAddress != null ||
+                        payload.jettonWalletVerified != null
                 }
             });
         };
@@ -133,7 +130,7 @@ export default function Page4Payment() {
         // Server uses native TON asset identity. WheelWin displays it as GRAM.
         && payment.asset === "TON"
         && Boolean(tonAccountIdentityOrNull(payment.destination))
-        && !payloadHasLegacyJettonFields(payment)
+        && payment.legacyJettonFieldsPresent !== true
         && typeof payment.reference === "string"
         && payment.reference.trim() !== ""
         && typeof atomicAmount === "string"
