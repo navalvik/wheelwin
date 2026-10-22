@@ -8,6 +8,8 @@ import {
     OUTGOING_SOCKET_EVENTS
 } from "../socket/socketEvents";
 
+import { formatGramUnits } from "../payment/gramAmount.js";
+
 import "../styles/page4payment.css";
 
 /**
@@ -25,7 +27,8 @@ export default function Page4Payment() {
         roomId: null,
         playerId: null,
         status: "WAITING_FOR_SESSION",
-        connected: socket.connected
+        connected: socket.connected,
+        payment: null
     });
 
     useEffect(() => {
@@ -51,7 +54,15 @@ export default function Page4Payment() {
                 roomId,
                 playerId,
                 status: payload.status,
-                connected: socket.connected
+                connected: socket.connected,
+                payment: {
+                    amountAtomic: payload.amountAtomic,
+                    asset: payload.asset,
+                    network: payload.network,
+                    destination: payload.destinationWalletAddress,
+                    reference: payload.paymentReference,
+                    enabled: payload.paymentAcceptanceEnabled === true
+                }
             });
         };
 
@@ -70,7 +81,8 @@ export default function Page4Payment() {
             roomId,
             playerId,
             status: "WAITING_FOR_SERVER",
-            connected: socket.connected
+            connected: socket.connected,
+            payment: null
         });
 
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
@@ -97,6 +109,23 @@ export default function Page4Payment() {
                 ? state.status
                 : "WAITING_FOR_SERVER";
 
+    const payment = matchesIdentity ? state.payment : null;
+    // Never present a transfer destination unless the server explicitly enables
+    // intake and all authoritative payment fields are present.
+    const requestReady = connected
+        && payment?.enabled === true
+        && payment.network === "testnet"
+        && payment.asset === "GRAM"
+        && typeof payment.destination === "string"
+        && payment.destination.trim() !== ""
+        && typeof payment.reference === "string"
+        && payment.reference.trim() !== ""
+        && typeof payment.amountAtomic === "string"
+        && /^[1-9][0-9]*$/.test(payment.amountAtomic);
+    const displayAmount = requestReady
+        ? formatGramUnits(payment.amountAtomic)
+        : null;
+
     return (
         <GameLayout message="ENTRY PAYMENT" showNextButton={false}>
             <section className="page4Payment" aria-live="polite">
@@ -107,7 +136,14 @@ export default function Page4Payment() {
                 {identityReady && !connected && (
                     <p>Connection to the game server was lost. Your payment status will be refreshed automatically after reconnection.</p>
                 )}
-                {identityReady && connected && (
+                {requestReady && (
+                    <div className="page4Payment__request">
+                        <p>Amount: {displayAmount} GRAM</p>
+                        <p>Room wallet: {payment.destination}</p>
+                        <p>Payment reference: {payment.reference}</p>
+                    </div>
+                )}
+                {identityReady && connected && !requestReady && (
                     <p>
                         Waiting for the server-authoritative Testnet payment session.
                         Do not transfer funds until the verified destination, amount,
