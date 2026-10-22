@@ -101,6 +101,7 @@ test("payer-specific discovery retains zero settlement authority", async () => {
             json: async () => ({ jetton_transfers: [{
                 jetton_master: master,
                 source: sender,
+                source_wallet: "0:" + "4".repeat(64),
                 destination: room,
                 amount: "1500000000",
                 transaction_aborted: false,
@@ -130,6 +131,7 @@ test("payment-reference filtering never treats an indexer hint as settlement pro
             json: async () => ({ jetton_transfers: [{
                 jetton_master: master,
                 source: sender,
+                source_wallet: "0:" + "4".repeat(64),
                 destination: room,
                 amount: "1500000000",
                 transaction_aborted: false,
