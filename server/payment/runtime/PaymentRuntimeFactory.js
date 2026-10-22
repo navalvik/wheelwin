@@ -148,7 +148,8 @@ export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finali
         typeof submitter.feeEstimator?.estimateRefundFee !== "function" ||
         typeof submitter.refundPlanStore?.get !== "function" ||
         typeof submitter.refundPlanStore?.reserve !== "function" ||
-        typeof submitter.signedTransferInspector?.inspect !== "function") {
+        typeof submitter.signedTransferInspector?.inspect !== "function" ||
+        typeof submitter.signedTransferInspector?.verifyWalletV4Signature !== "function") {
         return null;
     }
 
