@@ -33,7 +33,7 @@ jobs:
         run: node --test tests/payment/gramSqliteReplaySafety.test.js tests/payment/paymentRuntimeStorageBackend.test.js tests/payment/stageJsonPaymentIntentsToSqlite.test.js
       - name: Durable refund submission and restart double-send regression
         working-directory: server
-        run: node tests/refundOutgoingExecution.test.js && node tests/refundLifecycle.test.js && node --test tests/nativeGramCancelledRefundFeePolicy.test.js && node --test tests/nativeGramRefundTransferPlan.test.js
+        run: node tests/refundOutgoingExecution.test.js && node tests/refundLifecycle.test.js && node --test tests/nativeGramCancelledRefundFeePolicy.test.js && node --test tests/nativeGramRefundTransferPlan.test.js && node --test tests/nativeGramRefundTransferPlanStore.test.js
       - name: Native Page4 authoritative status and reconnect regression
         working-directory: server
         run: node tests/payment/page4ReconnectPaymentRecovery.test.js
