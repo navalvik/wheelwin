@@ -157,3 +157,64 @@ test("missing or mismatched GRAM Testnet master is refused before any provider r
     }), /differs from/);
     assert.equal(calls.length, 0);
 });
+
+function addBocIndexAndCrc(encoded, { index = false, crc = false } = {}) {
+    const original = Buffer.from(encoded, "base64");
+    const b = Buffer.from(original);
+    b[4] |= (index ? 0x80 : 0) | (crc ? 0x40 : 0);
+    const front = index ? Buffer.concat([
+        b.subarray(0, 11), Buffer.from([b[9]]), b.subarray(11)
+    ]) : b;
+    if (!crc) return front.toString("base64");
+    let checksum = 0xffffffff;
+    for (const byte of front) {
+        checksum ^= byte;
+        for (let i = 0; i < 8; i++)
+            checksum = (checksum >>> 1) ^ ((checksum & 1) ? 0x82f63b78 : 0);
+    }
+    const trailer = Buffer.alloc(4);
+    trailer.writeUInt32LE((checksum ^ 0xffffffff) >>> 0);
+    return Buffer.concat([front, trailer]).toString("base64");
+}
+
+test("Master getter parses indexed and CRC32C address BOCs without loosening the 267-bit address check", () => {
+    for (const index of [false, true]) {
+        for (const crc of [false, true]) {
+            const encoded = addBocIndexAndCrc(addressBoc(wallet), { index, crc });
+            assert.equal(decodeMaster({
+                method: "get_wallet_address", exitCode: 0,
+                resultStack: [{ type: "slice", value: encoded }]
+            }).walletAddress, wallet);
+        }
+    }
+});
+test("Wallet getter parses CRC32C owner/master slices but rejects corrupt CRC or index", () => {
+    const slice = x => ({ type: "slice", value: addBocIndexAndCrc(
+        addressBoc(x), { index: true, crc: true }) });
+    const result = {
+        method: "get_wallet_data", exitCode: 0,
+        resultStack: [
+            { type: "num", value: "123" }, slice(owner), slice(master), codeEntry
+        ]
+    };
+    const decoded = decodeWallet(result);
+    assert.equal(decoded.ownerAddress, owner);
+    assert.equal(decoded.jettonMasterAddress, master);
+    assert.equal(decoded.paymentCreditAuthorized, false);
+    const corrupted = Buffer.from(result.resultStack[1].value, "base64");
+    corrupted[corrupted.length - 1] ^= 1;
+    assert.throws(() => decodeWallet({
+        ...result, resultStack: [
+            result.resultStack[0], { type: "slice", value: corrupted.toString("base64") },
+            ...result.resultStack.slice(2)
+        ]
+    }), /Invalid GRAM getter/);
+    const corruptIndex = Buffer.from(result.resultStack[1].value, "base64");
+    corruptIndex[11] ^= 1;
+    assert.throws(() => decodeWallet({
+        ...result, resultStack: [
+            result.resultStack[0], { type: "slice", value: corruptIndex.toString("base64") },
+            ...result.resultStack.slice(2)
+        ]
+    }), /Invalid GRAM getter/);
+});
