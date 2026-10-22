@@ -11,6 +11,7 @@ import {
 import { formatGramUnits } from "../payment/gramAmount.js";
 import { tonAccountIdentityOrNull } from "../payment/gramPaymentAuthorization.js";
 import { submitNativeGramToConnectedWallet } from "../payment/nativeGramWalletSubmission.js";
+import { getTonConnectUI } from "../payment/tonConnectUIAdapter.js";
 
 import "../styles/page4payment.css";
 
@@ -40,31 +41,21 @@ export default function Page4Payment() {
     });
 
     useEffect(() => {
-        // Browser bundle is pinned and loaded from index.html. Its connect
-        // control is mounted only on Page4; it never auto-signs or auto-pays.
-        const TonConnectUI = window.TON_CONNECT_UI?.TonConnectUI;
-        if (typeof TonConnectUI !== "function") return undefined;
-        let active = true;
-        let unsubscribe = null;
+        // Singleton survives Page4 remount and recovery; only this listener
+        // belongs to the component. Connecting never sends funds.
         let ui;
         try {
-            ui = new TonConnectUI({
-                manifestUrl: "https://wheelwin-nine.vercel.app/tonconnect-manifest.json",
-                buttonRootId: "wheelwin-ton-connect",
-                analytics: { mode: "off" }
-            });
-            unsubscribe = ui.onStatusChange(() => {
-                if (active) setWalletRevision(value => value + 1);
-            });
-            setWalletAdapter(ui);
+            ui = getTonConnectUI();
         } catch {
-            // Script or wallet bootstrap failure never enables payment.
             return undefined;
         }
+        if (!ui) return undefined;
+        const unsubscribe = ui.onStatusChange(() => {
+            setWalletRevision(value => value + 1);
+        });
+        setWalletAdapter(ui);
         return () => {
-            active = false;
             unsubscribe?.();
-            setWalletAdapter(null);
         };
     }, []);
 
@@ -226,7 +217,9 @@ export default function Page4Payment() {
         <GameLayout message="ENTRY PAYMENT" showNextButton={false}>
             <section className="page4Payment" aria-live="polite">
                 <h2>Payment status: {status}</h2>
-                <div id="wheelwin-ton-connect" aria-label="Connect TON Testnet wallet" />
+                <button type="button" disabled={!walletAdapter} onClick={() => walletAdapter?.openModal?.()}>
+                    {walletAdapter?.connected ? "Connected TON wallet" : "CONNECT TON WALLET"}
+                </button>
                 {!identityReady && (
                     <p>Waiting for your room and player session to become available.</p>
                 )}
