@@ -151,6 +151,11 @@ export class TestnetOutgoingRefundProvider {
         return this._refundPlanStore.reserve(plan);
     }
 
+    getReservedNativeGramRefundPlan(obligationId) {
+        if (typeof this._refundPlanStore?.get !== "function") return null;
+        return this._refundPlanStore.get(obligationId);
+    }
+
     /** Public, non-secret identity check (no network access, no secrets). */
     async verifyNetwork() {
         return Object.freeze({ networkName: this.networkName, globalId: this.globalId });
