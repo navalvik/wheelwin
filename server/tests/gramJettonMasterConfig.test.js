@@ -6,7 +6,7 @@ test("GRAM Jetton Master is mandatory, never inferred from token ticker", () => 
     assert.throws(() => requireGramJettonMaster({ env: {} }), /must be configured/);
     assert.throws(() => requireGramJettonMaster({
         env: { GRAM_JETTON_MASTER_TESTNET: "GRAM" }
-    }), /valid TON address/);
+    }), /valid TON account address/);
 });
 
 test("accepts configured master in TON raw address form", () => {
