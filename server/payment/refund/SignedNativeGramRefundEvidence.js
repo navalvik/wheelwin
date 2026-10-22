@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
 import { isStructurallyValidTonBoc } from "./StrictTonBocFraming.js";
+import { decodeWalletV4NativeRefundBody } from "./WalletV4NativeRefundDecoder.js";
 
 export function signedRefundBocHashOrNull(signedTransfer) {
     const boc = signedTransfer?.boc;
@@ -37,5 +38,20 @@ export function verifyInspectedNativeGramRefund({ signedTransfer, inspected, exp
         (message.sendMode & 128) !== 0 ||
         message?.sendRemainingBalance !== false ||
         message?.bounce !== true) return false;
-    return true;
+
+    // Independent TON cell parsing: metadata and inspector claims alone are
+    // insufficient. Only the actual signed V4 body BOC can establish amount,
+    // recipient and send-mode. This does NOT certify the Ed25519 signature.
+    try {
+        const parsed = decodeWalletV4NativeRefundBody(
+            Buffer.from(signedTransfer.boc, "base64")
+        );
+        return parsed.messageCount === 1 &&
+            parsed.amountAtomic === expected.amountAtomic &&
+            tonAddressIdentitiesEqual(parsed.to, expected.to) &&
+            parsed.sendMode === message.sendMode &&
+            parsed.bounce === true;
+    } catch {
+        return false;
+    }
 }
