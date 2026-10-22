@@ -34,6 +34,7 @@ function account(address) {
     const bytes = Uint8Array.from(atob(address.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
     if (bytes.length !== 36 || crc16(bytes.slice(0, 34)) !== ((bytes[34] << 8) | bytes[35])) throw new Error("invalid address checksum");
     const wc = bytes[1] > 127 ? bytes[1] - 256 : bytes[1];
+    if ((bytes[0] & 0x3f) !== 0x11) throw new Error("invalid address tag");
     return { wc, hash: bytes.slice(2, 34) };
 }
 function cell(bits, refs = []) {
@@ -50,7 +51,7 @@ function addressBits(address) {
     return bits;
 }
 function snakeComment(reference) {
-    if (typeof reference !== "string" || !/^[\x21-\x7e]{1,160}$/.test(reference)) throw new Error("invalid payment reference");
+    if (typeof reference !== "string" || !/^[\x21-\x7e]{1,119}$/.test(reference)) throw new Error("invalid payment reference");
     const bytes = textEncoder.encode("WW1:" + reference);
     const bits = [];
     writeUint(bits, 0, 32);
@@ -58,6 +59,7 @@ function snakeComment(reference) {
     return cell(bits);
 }
 function serialize(root) {
+    // BOC cells use a single top-up bit after all real bits, if unaligned.
     const cells = [];
     const visit = c => { if (cells.includes(c)) return; cells.push(c); c.refs.forEach(visit); };
     visit(root);
@@ -66,7 +68,7 @@ function serialize(root) {
         const length = Math.ceil(c.bits.length / 8);
         const data = Array(length).fill(0);
         c.bits.forEach((bit, i) => { if (bit) data[i >> 3] |= 1 << (7 - (i & 7)); });
-        if (c.bits.length % 8) data[Math.floor(c.bits.length / 8)] |= 1 << (7 - (c.bits.length % 8) - 1);
+        if (c.bits.length % 8) data[Math.floor(c.bits.length / 8)] |= 1 << (7 - (c.bits.length % 8));
         return [c.refs.length, Math.floor(c.bits.length / 8) + Math.ceil(c.bits.length / 8), ...data, ...c.refs.map(ref => cells.indexOf(ref))];
     });
     const size = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
