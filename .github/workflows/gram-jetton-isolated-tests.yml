@@ -28,9 +28,9 @@ jobs:
       - name: Install server dependencies for SQLite storage regression
         working-directory: server
         run: npm ci --ignore-scripts=false --no-audit --no-fund
-      - name: SQLite GRAM transaction replay and restart regression
+      - name: SQLite GRAM replay and runtime backend isolation
         working-directory: server
-        run: node --test tests/payment/gramSqliteReplaySafety.test.js
+        run: node --test tests/payment/gramSqliteReplaySafety.test.js tests/payment/paymentRuntimeStorageBackend.test.js
       - name: Client GRAM transfer encoding and preflight tests
         working-directory: client
         run: |
