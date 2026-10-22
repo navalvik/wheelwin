@@ -4903,6 +4903,9 @@ export class RoomLobbyBridge {
                 paymentReference: intent.paymentReference,
                 amountAtomic: intent.amountAtomic,
                 destinationWalletAddress: intent.destinationWalletAddress,
+                // Server-owned expected payer identity is required by native
+                // room-wallet Page4 preflight. Never use client claims here.
+                expectedSenderWalletAddress: intent.expectedSender,
                 expiresAt: intent.expiresAt ?? null,
                 network: intent.network,
                 asset: intent.asset
