@@ -133,14 +133,18 @@ export class ToncenterJettonTransfersClient {
             jettonMaster: query.jettonMaster,
             roomWallet: query.roomWallet,
             expectedSender,
-            expectedAmountAtomic
+            expectedAmountAtomic,
+            startUtime: query.startUtime,
+            endUtime: query.endUtime
         });
         const records = await this.listIncoming(query);
         return mapGramJettonCandidates(records, {
             jettonMaster: query.jettonMaster,
             roomWallet: query.roomWallet,
             expectedSender,
-            expectedAmountAtomic
+            expectedAmountAtomic,
+            startUtime: query.startUtime,
+            endUtime: query.endUtime
         });
     }
 }
