@@ -529,6 +529,8 @@ async function run() {
             ] });
             const prepared = h.adapter.prepareRoom(descriptor);
             equal(prepared.payments.length, 2, "one intent returned per required player");
+            equal(prepared.payments[0].expectedSender, descriptor.requiredPlayers[0].expectedSender,
+                "initial native GRAM payment request carries the authoritative payer address");
             equal(intentEntries(h.service, descriptor.roomId).length, 2, "two intents persisted");
             equal(h.service.getWalletForRoom(descriptor.roomId).network, "testnet", "room wallet reserved");
             const manifest = h.manifestStore.get(descriptor.roomId);
