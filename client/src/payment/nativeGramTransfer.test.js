@@ -2,17 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildNativeGramPaymentTransaction } from "./nativeGramTransfer.js";
 const sender = "0:" + "1".repeat(64);
+const DEADLINE_S = Math.floor(Date.now() / 1000) + 300;
 const destination = "0:" + "2".repeat(64);
 const payment = {
     enabled: true, network: "testnet", asset: "TON",
     destination, expectedSender: sender,
     amountAtomic: "1500000000", reference: "payment-ABC_123",
-    expiresAt: 1793000000000
+    expiresAt: DEADLINE_S * 1000
 };
 
 test("native GRAM creates ONE direct room-wallet message with payer-borne gas and WW1 comment", () => {
-    const tx = buildNativeGramPaymentTransaction(payment, sender, 1793000000);
-    assert.equal(tx.validUntil, 1793000000);
+    const tx = buildNativeGramPaymentTransaction(payment, sender, DEADLINE_S);
+    assert.equal(tx.validUntil, DEADLINE_S);
     assert.equal(tx.messages.length, 1);
     assert.deepEqual(Object.keys(tx.messages[0]), ["address", "amount", "payload"]);
     assert.equal(tx.messages[0].address, destination);
@@ -33,14 +34,14 @@ test("native payment builder refuses disabled, Mainnet, Jetton and mismatched wa
         { destination: sender }
     ]) {
         assert.throws(() => buildNativeGramPaymentTransaction(
-            { ...payment, ...changed }, sender, 1793000000
+            { ...payment, ...changed }, sender, DEADLINE_S
         ), /not authorized/);
     }
-    assert.throws(() => buildNativeGramPaymentTransaction(payment, destination, 1793000000), /not authorized/);
+    assert.throws(() => buildNativeGramPaymentTransaction(payment, destination, DEADLINE_S), /not authorized/);
 });
 
 test("native payment expiry is never synthesized from local clocks", () => {
-    for (const value of [undefined, null, 0, 1.5, "1793000000"]) {
+    for (const value of [undefined, null, 0, 1.5, "DEADLINE_S"]) {
         assert.throws(() => buildNativeGramPaymentTransaction(payment, sender, value),
             /expiry must be authoritative/);
     }
@@ -48,10 +49,10 @@ test("native payment expiry is never synthesized from local clocks", () => {
 
 test("native GRAM payment rejects tampered, missing, or expired room deadline", () => {
     assert.throws(() => buildNativeGramPaymentTransaction(
-        payment, sender, 1793003600
+        payment, sender, (DEADLINE_S + 3600)
     ), /expiry must match/);
     assert.throws(() => buildNativeGramPaymentTransaction(
-        { ...payment, expiresAt: null }, sender, 1793000000
+        { ...payment, expiresAt: null }, sender, DEADLINE_S
     ), /expiry must match/);
     assert.throws(() => buildNativeGramPaymentTransaction(
         { ...payment, expiresAt: 1000 }, sender, 1
