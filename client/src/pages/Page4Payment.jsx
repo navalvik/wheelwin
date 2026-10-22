@@ -10,6 +10,7 @@ import {
 
 import { formatGramUnits } from "../payment/gramAmount.js";
 import { tonAccountIdentityOrNull } from "../payment/gramPaymentAuthorization.js";
+import { submitNativeGramToConnectedWallet } from "../payment/nativeGramWalletSubmission.js";
 
 import "../styles/page4payment.css";
 
@@ -25,6 +26,8 @@ const INITIAL_PAYMENT_REQUEST = INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST;
 export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
     const { roomId, playerId } = identity ?? {};
+    const [submitting, setSubmitting] = useState(false);
+    const [walletError, setWalletError] = useState(null);
     const [state, setState] = useState({
         roomId: null,
         playerId: null,
@@ -150,6 +153,32 @@ export default function Page4Payment() {
         && payment.reference.trim() !== ""
         && typeof atomicAmount === "string"
         && /^[1-9][0-9]*$/.test(atomicAmount);
+    // TonConnectUI is an explicitly initialized wallet adapter supplied by
+    // application bootstrap. Never create an implicit wallet connection here.
+    const walletAdapter = typeof window !== "undefined" ? window.tonConnectUI : null;
+    const walletReady = Boolean(walletAdapter?.account?.chain === "-3" &&
+        tonAccountIdentityOrNull(walletAdapter?.account?.address) ===
+            tonAccountIdentityOrNull(payment?.expectedSender) &&
+        typeof walletAdapter?.sendTransaction === "function");
+    const canPay = requestReady && status === "AWAITING_PAYMENT" &&
+        walletReady && !submitting && Number.isSafeInteger(payment?.expiresAt) &&
+        payment.expiresAt > Date.now();
+    const submitPayment = async () => {
+        if (!canPay) return;
+        setSubmitting(true);
+        setWalletError(null);
+        try {
+            await submitNativeGramToConnectedWallet({
+                payment, walletAdapter,
+                onSubmitted: () => socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId })
+            });
+        } catch {
+            // Do not expose connector errors that may contain account metadata.
+            setWalletError("Wallet did not submit the payment. Check your wallet and try again.");
+        } finally {
+            setSubmitting(false);
+        }
+    };
     const displayAmount = requestReady
         ? formatGramUnits(atomicAmount)
         : null;
@@ -169,6 +198,11 @@ export default function Page4Payment() {
                         <p>Amount: {displayAmount} GRAM</p>
                         <p>Room wallet: {payment.destination}</p>
                         <p>Payment reference: {payment.reference}</p>
+                        <button type="button" disabled={!canPay} onClick={submitPayment}>
+                            {submitting ? "Waiting for wallet approval…" : "CONFIRM IN TELEGRAM WALLET"}
+                        </button>
+                        {!walletReady && <p>Connect the matching TON Testnet wallet to enable payment.</p>}
+                        {walletError && <p role="alert">{walletError}</p>}
                     </div>
                 )}
                 {identityReady && connected && !requestReady && (
