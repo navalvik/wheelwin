@@ -20,6 +20,7 @@ import "../styles/page4payment.css";
  */
 const PAYMENT_STATUS_EVENT = INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED;
 const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
+const INITIAL_PAYMENT_REQUEST = INCOMING_SOCKET_EVENTS.PAYMENT_REQUEST;
 
 export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
@@ -64,11 +65,21 @@ export default function Page4Payment() {
                     reference: payload.paymentReference,
                     enabled: payload.paymentAcceptanceEnabled === true,
                     expectedSender: payload.expectedSenderWalletAddress,
+                    expiresAt: payload.expiresAt,
                     legacyJettonFieldsPresent: payload.jettonMaster != null ||
                         payload.senderJettonWalletAddress != null ||
                         payload.jettonWalletVerified != null
                 }
             });
+        };
+
+        // Initial request is a notification only. Always re-read the current
+        // authoritative intent through the bound socket, never pay from a
+        // possibly stale event that arrived while Page4 was mounting.
+        const handleInitialPaymentRequest = (payload) => {
+            if (payload?.roomId === roomId && payload?.playerId === playerId) {
+                requestStatus();
+            }
         };
 
         const handleConnect = () => {
@@ -91,6 +102,7 @@ export default function Page4Payment() {
         });
 
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
+        socket.on(INITIAL_PAYMENT_REQUEST, handleInitialPaymentRequest);
         socket.on("connect", handleConnect);
         socket.on("disconnect", handleDisconnect);
         requestStatus();
@@ -98,6 +110,7 @@ export default function Page4Payment() {
         return () => {
             active = false;
             socket.off(PAYMENT_STATUS_EVENT, handlePaymentStatus);
+            socket.off(INITIAL_PAYMENT_REQUEST, handleInitialPaymentRequest);
             socket.off("connect", handleConnect);
             socket.off("disconnect", handleDisconnect);
         };
