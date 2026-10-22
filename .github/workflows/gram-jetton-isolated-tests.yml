@@ -34,4 +34,4 @@ jobs:
       - name: Client GRAM transfer encoding and preflight tests
         working-directory: client
         run: |
-          node --test src/payment/gramJettonPayload.test.js src/payment/gramPaymentAuthorization.test.js
+          node --test src/payment/gramJettonPayload.test.js src/payment/gramPaymentAuthorization.test.js src/payment/nativeGramTransfer.test.js
