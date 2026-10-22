@@ -14,9 +14,10 @@ function units(value, name) {
  * Reserve a fixed 95% prize; owner share is strictly subordinate to
  * outgoing transaction fees and the retained room-wallet balance.
  *
- * IMPORTANT: TON gas cannot be subtracted from a GRAM-denominated pool.
- * Call only with a single-asset accounting balance and same-asset charges;
- * the caller must separately fund and account for TON gas where applicable.
+ * For native GRAM (TON), both principal and gas are TON nanotons and a
+ * fee may be deducted only from the correct payer's refundable principal.
+ * For any Jetton or other non-native asset, TON gas is a DIFFERENT asset
+ * and must be funded and accounted for separately. Never mix units.
  */
 export function calculateRoomPayout({
     totalPoolUnits,
@@ -45,8 +46,10 @@ export function calculateRoomPayout({
 }
 
 /**
- * Cancelled before Page5: the refund sender's outgoing fee is borne by
- * the paying player, never by Owner Wallet.
+ * Cancelled before Page5: the refund sender's outgoing fee is economically
+ * borne by the paying player, never by Owner Wallet. The caller MUST obtain
+ * a trustworthy fee quote; this pure calculation does not estimate gas,
+ * sign a refund, broadcast, or authorize payment acceptance.
  */
 export function calculateCancelledRoomRefund({ paidUnits, refundTransferFeeUnits }) {
     const paid = units(paidUnits, "paidUnits");
