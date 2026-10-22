@@ -116,3 +116,40 @@ test("payer-specific discovery retains zero settlement authority", async () => {
     assert.equal(mapped.candidates[0].paymentReference, null);
     assert.equal(mapped.verifiedForSettlement, false);
 });
+
+test("payment-reference filtering never treats an indexer hint as settlement proof", async () => {
+    const sender = "0:" + "3".repeat(64);
+    const makeClient = decoded_forward_payload => new ToncenterJettonTransfersClient({
+        apiKeyProvider: () => "test-key",
+        fetchImpl: async () => ({
+            status: 200,
+            json: async () => ({ jetton_transfers: [{
+                jetton_master: master,
+                source: sender,
+                destination: room,
+                amount: "1500000000",
+                transaction_aborted: false,
+                transaction_hash: "b".repeat(64),
+                transaction_lt: "124",
+                transaction_now: 1700000002,
+                decoded_forward_payload
+            }] })
+        })
+    });
+    const request = {
+        ...query, expectedSender: sender, expectedAmountAtomic: "1500000000",
+        expectedPaymentReference: "room1-seat1"
+    };
+    const accepted = await makeClient({
+        type: "text_comment", comment: "WW1:room1-seat1"
+    }).findIncomingCandidates(request);
+    assert.equal(accepted.candidates.length, 1);
+    assert.equal(accepted.candidates[0].referenceHintMatched, true);
+    assert.equal(accepted.candidates[0].paymentReference, null);
+    assert.equal(accepted.verifiedForSettlement, false);
+
+    const rejected = await makeClient({
+        type: "text_comment", comment: "WW1:other"
+    }).findIncomingCandidates(request);
+    assert.equal(rejected.candidates.length, 0);
+});
