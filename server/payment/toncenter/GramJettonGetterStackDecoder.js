@@ -5,7 +5,7 @@
  * verify account state, derive wallet authenticity, settle or credit GRAM.
  *
  * Supported BOC: exact, canonical, ordinary single-root/single-cell encoding,
- * without CRC/index/refs/exotic cells. All other forms fail closed.
+ * with optional BOC index/CRC32C, but no refs/exotic cells. Other forms fail closed.
  */
 import { tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
 import { inspectGramGetterCodeBoc } from "./GramGetterBocStructure.js";
@@ -13,35 +13,38 @@ import { inspectGramGetterCodeBoc } from "./GramGetterBocStructure.js";
 function invalid(reason) { throw new Error("Invalid GRAM getter TVM stack: " + reason); }
 
 function oneCellBits(base64) {
-    if (typeof base64 !== "string" || base64.length > 2048 ||
-        !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) invalid("invalid BOC base64");
+    // Validate the complete BOC envelope, CRC, optional index, root and cell
+    // reachability before reading any bits as an address. No optimistic parse.
+    let structure;
+    try { structure = inspectGramGetterCodeBoc(base64); }
+    catch { invalid("invalid address BOC envelope or CRC32C"); }
+    if (structure.cellCount !== 1 || structure.referenceCount !== 0) {
+        invalid("address must be stored in one ordinary reference-free cell");
+    }
     const b = Buffer.from(base64, "base64");
-    if (b.toString("base64") !== base64 || b.length < 14 || b.length > 1024 ||
-        b.subarray(0, 4).toString("hex") !== "b5ee9c72") invalid("invalid BOC");
     const sizeBytes = b[4] & 7;
-    if (b[4] !== 1 || b[5] !== 1 || sizeBytes !== 1 ||
-        b[6] !== 1 || b[7] !== 1 || b[8] !== 0 || b[10] !== 0)
-        invalid("unsupported BOC header");
-    const size = b[9];
-    if (size + 11 !== b.length || size < 2) invalid("incorrect BOC size");
-    const descriptor = b[11], bitsDescriptor = b[12];
-    if (descriptor !== 0) invalid("BOC must have one ordinary cell without references");
+    const offsetBytes = b[5];
+    // Single-cell BOC: only the root index (0) and optional one-cell offset
+    // precede the cell; generic parser has already checked both.
+    let at = 6 + sizeBytes * 3 + offsetBytes + sizeBytes;
+    if (structure.hasIndex) at += offsetBytes;
+    if (b[at] !== 0) invalid("address cell must have no references");
+    const bitsDescriptor = b[at + 1];
     const byteLength = Math.ceil(bitsDescriptor / 2);
-    if (13 + byteLength !== b.length || byteLength === 0)
-        invalid("invalid cell bit descriptor");
-    const data = b.subarray(13);
+    const data = b.subarray(at + 2, at + 2 + byteLength);
+    if (data.length !== byteLength || byteLength === 0)
+        invalid("truncated address cell data");
     let bitLength = byteLength * 8;
     if (bitsDescriptor % 2) {
-        let trailing = data[byteLength - 1];
-        if (!trailing) invalid("missing BOC top-up");
+        let tail = data[data.length - 1];
         let paddingZeros = 0;
-        while ((trailing & 1) === 0) {
+        while ((tail & 1) === 0 && paddingZeros < 8) {
             paddingZeros++;
-            trailing >>= 1;
+            tail >>= 1;
         }
+        if (paddingZeros === 8) invalid("invalid BOC top-up");
         bitLength -= paddingZeros + 1;
-        if (bitLength % 8 === 0) invalid("non-canonical top-up");
-    } else if (bitsDescriptor !== 2 * byteLength) invalid("invalid cell length");
+    }
     return { data, bitLength };
 }
 
