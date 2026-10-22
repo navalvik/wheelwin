@@ -34,7 +34,7 @@ test("truncated, fake magic, extra bytes and invalid cells all fail closed", () 
         Buffer.from(EMPTY).fill(0, 0, 4),
         Buffer.from(EMPTY).fill(0xff, 4, 5),
         Buffer.from(EMPTY).fill(2, 6, 7),
-        Buffer.from(EMPTY).fill(2, 9, 10),
+        Buffer.from(EMPTY).fill(3, 9, 10),
         Buffer.from(EMPTY).fill(1, 10, 11),
         Buffer.from(EMPTY).fill(255, 11, 12),
         Buffer.from(EMPTY).fill(128, 12, 13)
