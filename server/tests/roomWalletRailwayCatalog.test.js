@@ -7,6 +7,7 @@ import { WalletPoolRegistry } from "../payment/WalletPoolRegistry.js";
 
 function catalog() {
     return Array.from({ length: 64 }, (_, i) => ({
+        walletId: `testnet-room-wallet-${i + 1}`,
         roomNumber: i + 1,
         address: `EQ-test-wallet-${i + 1}`,
         network: "testnet",
