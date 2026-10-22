@@ -11,7 +11,7 @@ function completeBundle() {
         outgoingTransferProvider: { getOutgoingTransfer: noop, findOutgoingTransfer: noop },
         feeEstimator: { estimateRefundFee: noop },
         refundPlanStore: { get: noop, reserve: noop },
-        signedTransferInspector: { inspect: noop }
+        signedTransferInspector: { inspect: noop, verifyWalletV4Signature: noop }
     };
 }
 function build(submitter, globalId = -3) {
@@ -30,6 +30,7 @@ test("production refund factory refuses each missing net-refund safety dependenc
         ["refundPlanStore", "get"],
         ["refundPlanStore", "reserve"],
         ["signedTransferInspector", "inspect"],
+        ["signedTransferInspector", "verifyWalletV4Signature"],
         ["signer", "signPlannedRefund"]
     ];
     for (const [component, method] of missing) {
