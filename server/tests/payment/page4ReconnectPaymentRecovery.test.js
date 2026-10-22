@@ -194,6 +194,7 @@ async function run() {
             equal(delivered[0].payload.asset, "TON", "payload carries TON");
             equal(delivered[0].payload.expiresAt, CREATED_AT + ROOM_LIFETIME_MS, "payload carries the immutable room deadline");
             equal(delivered[0].payload.destinationWalletAddress, binding.runtime.paymentService.getWalletForRoom(roomId).address, "payload carries the assigned wallet address");
+            equal(delivered[0].payload.expectedSenderWalletAddress, descriptor.requiredPlayers[0].expectedSender, "payer identity comes from the persisted authoritative intent");
             equal(delivered[0].payload.reason, null, "no failure reason for awaiting payment");
 
             equal(runtime.paymentService.listPaymentIntentsForRoom(roomId).length, 3, "no duplicate intents after status delivery");
