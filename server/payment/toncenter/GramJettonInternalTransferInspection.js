@@ -7,6 +7,7 @@
  */
 import { inspectGramJettonMessageLink } from "./GramJettonTraceMessageLink.js";
 import { decodeGramInternalTransferBody } from "./GramInternalTransferBody.js";
+import { inspectIndexedGramRecipientExecution } from "./GramRecipientExecutionCheck.js";
 import { tonAddressIdentitiesEqual, tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
 import { isPaymentReference } from "../incoming/PaymentReferenceCodec.js";
 
@@ -29,6 +30,7 @@ export function inspectIndexedGramInternalTransfer({
     const stack = [indexedTrace.trace];
     const visited = new Set();
     let body = null;
+    let receivingTransaction = null;
     while (stack.length) {
         const node = stack.pop();
         if (!node || visited.has(node)) return null;
@@ -39,10 +41,18 @@ export function inspectIndexedGramInternalTransfer({
             if (incoming?.hash !== link.messageHash
                 || !tonAddressIdentitiesEqual(incoming?.destination, recipientJettonWallet)) return null;
             body = incoming?.message_content?.body;
+            receivingTransaction = node.transaction;
         }
         for (const child of (node.children ?? [])) stack.push(child);
     }
     if (typeof body !== "string") return null;
+    const receiverExecution = inspectIndexedGramRecipientExecution({
+        receiverTransaction: receivingTransaction,
+        recipientJettonWallet,
+        sourceJettonWallet: candidate.sourceJettonWallet,
+        internalMessageHash: link.messageHash
+    });
+    if (!receiverExecution) return null;
     let decoded;
     try { decoded = decodeGramInternalTransferBody(body); }
     catch { return null; }
@@ -58,6 +68,7 @@ export function inspectIndexedGramInternalTransfer({
         paymentReferenceHintMatched: true,
         indexedInternalTransferDecoded: true,
         onChainMessageBodyAuthenticated: false,
+        indexedReceiverExecutionAppearsSuccessful: receiverExecution.indexedReceiverExecutionAppearsSuccessful,
         receiverExecutionVerified: false,
         jettonWalletMasterVerified: false,
         gramTransferVerified: false,
