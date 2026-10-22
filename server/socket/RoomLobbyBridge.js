@@ -5040,10 +5040,13 @@ export class RoomLobbyBridge {
                     playerId: payment.playerId,
                     paymentReference: payment.paymentReference,
                     destination: payment.destinationWalletAddress,
+                    destinationWalletAddress: payment.destinationWalletAddress,
+                    expectedSenderWalletAddress: payment.expectedSender,
                     amount: payment.amountAtomic,
                     amountAtomic: payment.amountAtomic,
                     asset: payment.asset,
                     network: payment.network,
+                    paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
                     expiresAt: payment.expiresAt ?? null
                 }
             );
