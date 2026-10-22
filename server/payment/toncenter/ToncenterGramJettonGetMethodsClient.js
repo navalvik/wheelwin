@@ -65,8 +65,17 @@ async function readBoundedGetterJson(response, deadline) {
             void reader.cancel().catch(() => {});
         }
     }
-    // For injectable offline test doubles without a Web ReadableStream.
-    return Promise.race([response.json(), deadline]);
+    // Non-streaming path exists for injected test doubles only. Such a path
+    // cannot limit memory BEFORE json() parses; bound its result immediately
+    // and refuse responses whose serialized representation is too large.
+    if (typeof response.json !== "function")
+        throw new Error("Toncenter GRAM getter response body is unavailable");
+    const envelope = await Promise.race([response.json(), deadline]);
+    const encoded = JSON.stringify(envelope);
+    if (typeof encoded !== "string" ||
+        Buffer.byteLength(encoded, "utf8") > MAX_RESPONSE_BYTES)
+        throw new Error("Toncenter GRAM getter response exceeds size limit");
+    return envelope;
 }
 
 export class ToncenterGramJettonGetMethodsClient {
