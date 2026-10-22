@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildPaymentRuntime } from "../../payment/runtime/PaymentRuntimeFactory.js";
@@ -74,4 +74,24 @@ test("unknown backend rejected instead of silent fallback", (t) => {
     assert.throws(() => buildPaymentRuntime({
         ...options, intentStorageBackend: "legacy"
     }), /Unknown payment intent storage backend/);
+});
+
+test("orphaned refund and wallet artifacts prevent selecting fresh SQLite over legacy state", (t) => {
+    const options = fixture(t);
+    const financialDir = join(options.dataDir, "testnet", "refunds");
+    mkdirSync(financialDir, { recursive: true });
+    writeFileSync(join(financialDir, "obligation.json"), '{"status":"PENDING"}');
+    assert.throws(() => buildPaymentRuntime({
+        ...options, intentStorageBackend: "sqlite"
+    }), /financial artifacts/);
+});
+
+test("SQLite cutover rejects any unknown financial file in existing namespace", (t) => {
+    const options = fixture(t);
+    const namespace = join(options.dataDir, "testnet");
+    mkdirSync(namespace, { recursive: true });
+    writeFileSync(join(namespace, "orphaned-ledger.json"), "{}");
+    assert.throws(() => buildPaymentRuntime({
+        ...options, intentStorageBackend: "sqlite"
+    }), /financial artifacts/);
 });
