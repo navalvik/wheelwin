@@ -40,6 +40,20 @@ test("truncated, fake magic, extra bytes and invalid cells all fail closed", () 
         Buffer.from(EMPTY).fill(128, 12, 13)
     ]) assert.equal(isStructurallyValidTonBoc(mutation), false);
 });
+test("indexed TON BOC and forward cell references obey serialization offsets", () => {
+    // Root cell 0 references cell 1; both contain zero data bits.
+    const referenced = Buffer.from("b5ee9c72010102010005000100010000", "hex");
+    assert.equal(isStructurallyValidTonBoc(referenced), true);
+    const indexPresent = Buffer.from("b5ee9c7281010101000200020000", "hex");
+    assert.equal(isStructurallyValidTonBoc(indexPresent), true);
+    const wrongIndex = Buffer.from(indexPresent);
+    wrongIndex[11] = 1; // cumulative offset must be 2
+    assert.equal(isStructurallyValidTonBoc(wrongIndex), false);
+    const backward = Buffer.from(referenced);
+    backward[13] = 0; // forward reference to cell 1 cannot point to root 0
+    assert.equal(isStructurallyValidTonBoc(backward), false);
+});
+
 test("non-Buffer data is not a verified serialized TON BOC", () => {
     assert.equal(isStructurallyValidTonBoc(null), false);
     assert.equal(isStructurallyValidTonBoc("b5ee9c72"), false);
