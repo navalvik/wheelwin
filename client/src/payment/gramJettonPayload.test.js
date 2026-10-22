@@ -63,9 +63,9 @@ test("BOC root descriptor represents the byte-aligned TEP-74 transfer", () => {
 });
 
 test("comment cell limit is enforced before BOC serialization", () => {
-    assert.doesNotThrow(() => buildGramJettonTransferBody({ ...request("1"), reference: "a".repeat(119) }));
+    assert.doesNotThrow(() => buildGramJettonTransferBody({ ...request("1"), reference: "a".repeat(64) }));
     assert.throws(
-        () => buildGramJettonTransferBody({ ...request("1"), reference: "a".repeat(120) }),
+        () => buildGramJettonTransferBody({ ...request("1"), reference: "a".repeat(65) }),
         /invalid payment reference/
     );
 });
