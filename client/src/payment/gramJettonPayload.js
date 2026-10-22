@@ -51,7 +51,7 @@ function addressBits(address) {
     return bits;
 }
 function snakeComment(reference) {
-    if (typeof reference !== "string" || !/^[\x21-\x7e]{1,119}$/.test(reference)) throw new Error("invalid payment reference");
+    if (typeof reference !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(reference)) throw new Error("invalid payment reference");
     const bytes = textEncoder.encode("WW1:" + reference);
     const bits = [];
     writeUint(bits, 0, 32);
