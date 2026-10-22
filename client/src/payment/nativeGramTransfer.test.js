@@ -6,7 +6,8 @@ const destination = "0:" + "2".repeat(64);
 const payment = {
     enabled: true, network: "testnet", asset: "TON",
     destination, expectedSender: sender,
-    amountAtomic: "1500000000", reference: "payment-ABC_123"
+    amountAtomic: "1500000000", reference: "payment-ABC_123",
+    expiresAt: 1793000000000
 };
 
 test("native GRAM creates ONE direct room-wallet message with payer-borne gas and WW1 comment", () => {
@@ -43,4 +44,16 @@ test("native payment expiry is never synthesized from local clocks", () => {
         assert.throws(() => buildNativeGramPaymentTransaction(payment, sender, value),
             /expiry must be authoritative/);
     }
+});
+
+test("native GRAM payment rejects tampered, missing, or expired room deadline", () => {
+    assert.throws(() => buildNativeGramPaymentTransaction(
+        payment, sender, 1793003600
+    ), /expiry must match/);
+    assert.throws(() => buildNativeGramPaymentTransaction(
+        { ...payment, expiresAt: null }, sender, 1793000000
+    ), /expiry must match/);
+    assert.throws(() => buildNativeGramPaymentTransaction(
+        { ...payment, expiresAt: 1000 }, sender, 1
+    ), /expiry must match/);
 });
