@@ -29,6 +29,7 @@
 
 import { REFUND_NETWORK, RefundObligationError } from "./RefundObligation.js";
 import { buildNativeGramRefundTransferPlan } from "./NativeGramRefundTransferPlan.js";
+import { verifyInspectedNativeGramRefund } from "./SignedNativeGramRefundEvidence.js";
 import {
     deriveTonAddressIdentity,
     tonAddressIdentityOrNull,
@@ -352,7 +353,12 @@ export class TestnetOutgoingRefundProvider {
                         sendRemainingBalance: false
                     })
                 });
-                if (inspected?.verified !== true) {
+                if (!verifyInspectedNativeGramRefund({ signedTransfer, inspected, expected: {
+                    networkName: authorized.networkName, globalId: authorized.globalId,
+                    from: authorized.sourceWalletAddress, to: authorized.refundDestination,
+                    amountAtomic: plan.refundAmountAtomic,
+                    idempotencyKey: authorized.idempotencyKey
+                } })) {
                     throw new OutgoingRefundError("actual signed TON message could not be independently verified");
                 }
             }
