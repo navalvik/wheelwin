@@ -32,7 +32,7 @@ test("Testnet get_wallet_address uses authenticated POST and encoded owner slice
     assert.equal(boc[11], 0);
     assert.equal(boc[12], 0x43); // 267 bits => floor 33 + ceil 34
     assert.equal(boc.subarray(13).length, 34);
-    assert.equal(boc[13] & 0xe0, 0x40); // addr_std$10, anycast absent$0
+    assert.equal(boc[13] & 0xe0, 0x80); // addr_std$10, anycast absent$0
     const decodedArgument = decodeGramMasterWalletAddressStack({
         method: "get_wallet_address", exitCode: 0,
         resultStack: [payload.stack[0]]
