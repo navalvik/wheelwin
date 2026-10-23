@@ -1289,7 +1289,10 @@ export class RoomWalletPaymentService {
                 intent.asset
             );
 
-            if (intent.amountAtomic % mapping.atomicUnitsPerUnit !== 0
+            // Fractional GRAM stakes (e.g. 1.5 and 2.5 GRAM) are valid
+            // positive integer nanoGRAM amounts; do not reject on restart.
+            if (!Number.isSafeInteger(intent.amountAtomic)
+                || intent.amountAtomic <= 0
                 || intent.roomDeadlineMs <= intent.createdAt
                 || intent.roomDeadlineMs > intent.createdAt + ROOM_LIFETIME_MS) {
 
