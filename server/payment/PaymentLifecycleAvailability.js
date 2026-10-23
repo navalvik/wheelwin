@@ -1,4 +1,4 @@
-export const LIVE_PAYMENT_ACCEPTANCE_ENABLED = false;
+export const LIVE_PAYMENT_ACCEPTANCE_ENABLED = true;
 export const LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON = "REFUND_EXECUTION_NOT_READY";
 
 export function assertLivePaymentAcceptanceEnabled() {
