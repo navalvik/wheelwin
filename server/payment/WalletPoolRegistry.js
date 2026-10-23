@@ -704,7 +704,12 @@ export class WalletPoolRegistry {
 
             if (!wallet) {
 
-                continue;
+                // An unknown previously reserved wallet may still hold funds.
+                // Never silently drop its reservation and recycle the pool.
+                throw new PaymentStorageError(
+                    "wallet pool snapshot references an unknown reserved wallet",
+                    { walletId: record.walletId }
+                );
 
             }
 
