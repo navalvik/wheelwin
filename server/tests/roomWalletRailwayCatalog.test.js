@@ -274,3 +274,24 @@ test("Snapshot cannot restore a reservation against a changed wallet address", (
             "wallet address mismatch must block recovery");
     } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("Conflicting room owners fail before any snapshot reservation is restored", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-conflicting-room-owners-"));
+    try {
+        const catalogJson = JSON.stringify(catalog());
+        const pool = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        pool.initialize();
+        pool.reserve({ roomId: "room-a", network: "testnet" });
+        pool.reserve({ roomId: "room-b", network: "testnet" });
+        const snapshotPath = pool.persistSnapshot(dir);
+        const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+        const second = snapshot.reservations.find(w => w.reservedByRoomId === "room-b");
+        second.reservedByRoomId = "room-a";
+        writeFileSync(snapshotPath, JSON.stringify(snapshot), "utf8");
+        const restarted = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        assert.throws(() => restarted.initialize({ snapshotDir: dir }),
+            /conflicting active reservations/);
+        assert.equal(restarted.getReservedCount(), 0,
+            "invalid snapshot must not partially restore wallet reservations");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+});
