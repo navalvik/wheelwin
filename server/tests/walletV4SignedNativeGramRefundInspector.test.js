@@ -28,7 +28,7 @@ function fixture({ validUntil = NOW + 100 } = {}) {
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const pubkey = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
     const payloadBits = bin(698983191, 32) + bin(validUntil, 32) +
-        bin(1, 32) + bin(0, 32) + bin(3, 8);
+        bin(1, 32) + bin(0, 8) + bin(3, 8);
     const messageBits = "0" + "1" + "1" + "0" +
         "00" + "10" + "0" + bin(0, 8) +
         bin(BigInt("0x" + "a".repeat(64)), 256) +
