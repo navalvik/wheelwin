@@ -1005,6 +1005,19 @@ function createIntent(harness, overrides = {}) {
     );
     check(harness.service.getWalletForRoom("room-failed-first") === null,
         "failed first payer intent must release its newly reserved wallet");
+    // Reload the durable wallet snapshot independently before retrying.
+    // The failed first intent must not leave a phantom reservation on disk.
+    const diskPool = new WalletPoolRegistry({
+        logger: harness.logger,
+        catalogPath: harness.env.catalogPath,
+        network: "testnet"
+    });
+    diskPool.initialize({ snapshotDir: harness.env.dataDir });
+    check(diskPool.getReservationForRoom("room-failed-first") === null,
+        "failed first payer must not leave a durable wallet reservation");
+    check(diskPool.getReservationForRoom("room-dup")?.walletId === previouslyReserved.walletId,
+        "rollback must preserve another room's durable wallet reservation");
+
     // A successful retry must be able to reserve a wallet again and create
     // its own payment intent without inheriting the rejected reference.
     const retriedFirst = createIntent(harness, {
