@@ -156,3 +156,36 @@ test("64 concurrent rooms receive unique wallets and the 65th is rejected", () =
     );
     assert.equal(pool.getReservedCount(), 64);
 });
+
+test("64 active wallet reservations survive restart and cannot be reassigned", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-wallet-restart-"));
+    try {
+        const catalogJson = JSON.stringify(catalog());
+        const before = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        before.initialize();
+        const original = new Map();
+        for (let i = 1; i <= 64; i++) {
+            const roomId = `room-${i}`;
+            const { wallet } = before.reserve({ roomId, network: "testnet" });
+            original.set(roomId, wallet.walletId);
+        }
+        before.persistSnapshot(dir);
+
+        const after = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        after.initialize({ snapshotDir: dir });
+        assert.equal(after.getReservedCount(), 64);
+        assert.equal(after.getAvailableCount(), 0);
+        for (const [roomId, walletId] of original) {
+            assert.equal(after.getReservationForRoom(roomId)?.walletId, walletId,
+                "restart must preserve exact room-to-wallet identity");
+        }
+        assert.throws(
+            () => after.reserve({ roomId: "room-65", network: "testnet" }),
+            /exhaust|available|wallet/i,
+            "restart must not recycle an active room wallet"
+        );
+        assert.equal(after.getReservedCount(), 64);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
