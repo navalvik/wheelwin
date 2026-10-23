@@ -207,6 +207,9 @@ export class TestnetOutgoingRefundProvider {
         if (typeof obligation.idempotencyKey !== "string" || obligation.idempotencyKey.trim() === "") {
             throw new OutgoingRefundError("refund obligation is missing its idempotency key");
         }
+        if (obligation.denomination !== "TON") {
+            throw new OutgoingRefundError("native GRAM refund requires TON-denominated atomic units");
+        }
         if (!Number.isSafeInteger(obligation.amountAtomic) || obligation.amountAtomic <= 0) {
             throw new OutgoingRefundError("refund obligation amount is not a positive safe integer");
         }
