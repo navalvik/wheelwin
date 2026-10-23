@@ -270,29 +270,27 @@ export class RefundLifecycleCoordinator {
         if (!plan) {
             return Object.freeze({ obligationId, outcome: "NOT_FINALIZED", reason: "REFUND_PLAN_MISSING" });
         }
-        {
-            const proof = await outgoing.observeAndVerifyPlannedNativeGramRefund({
-                obligation: current, sourceWalletAddress,
-                outgoingTransactionId: current.outgoingTransactionId, nowMs: this._now()
-            });
-            if (!proof.verified) {
-                return Object.freeze({
-                    obligationId, outcome: "NOT_FINALIZED", reason: proof.reason
-                });
-            }
-            const attempt = this._attempt(current, "COMPLETE", {
-                startedAtMs: this._now(), completedAtMs: this._now(),
-                outgoingTransactionId: current.outgoingTransactionId,
-                attemptId: `${current.obligationId}:complete`
-            });
-            const completed = this._store.markPlannedComplete(obligationId, {
-                plan, verification: proof, attempt
-            });
+        const proof = await outgoing.observeAndVerifyPlannedNativeGramRefund({
+            obligation: current, sourceWalletAddress,
+            outgoingTransactionId: current.outgoingTransactionId, nowMs: this._now()
+        });
+        if (!proof.verified) {
             return Object.freeze({
-                obligationId, outcome: "COMPLETE",
-                outgoingTransactionId: completed.outgoingTransactionId, reason: null
+                obligationId, outcome: "NOT_FINALIZED", reason: proof.reason
             });
         }
+        const attempt = this._attempt(current, "COMPLETE", {
+            startedAtMs: this._now(), completedAtMs: this._now(),
+            outgoingTransactionId: current.outgoingTransactionId,
+            attemptId: `${current.obligationId}:complete`
+        });
+        const completed = this._store.markPlannedComplete(obligationId, {
+            plan, verification: proof, attempt
+        });
+        return Object.freeze({
+            obligationId, outcome: "COMPLETE",
+            outgoingTransactionId: completed.outgoingTransactionId, reason: null
+        });
 
     }
 
