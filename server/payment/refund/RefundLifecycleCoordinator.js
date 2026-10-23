@@ -199,6 +199,16 @@ export class RefundLifecycleCoordinator {
         }
         outgoing.authorizeSubmission({ obligation: current, sourceWalletAddress });
 
+        // Native GRAM providers must durably reserve their fee-bound NET
+        // transfer plan before the submission is marked ambiguous. A fee
+        // estimator/store failure is a pre-submission error: no broadcast was
+        // attempted and the obligation must remain PENDING.
+        if (typeof outgoing.reserveNativeGramRefundTransferPlan === "function") {
+            await outgoing.reserveNativeGramRefundTransferPlan({
+                obligation: current, sourceWalletAddress
+            });
+        }
+
         const startedAtMs = this._now();
         const attemptId = `${current.obligationId}:${startedAtMs}`;
         // CRITICAL: persist SUBMISSION_UNKNOWN *before* the first await that
