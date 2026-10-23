@@ -255,3 +255,22 @@ test("Duplicate wallet identities in snapshot are rejected before recovery", () 
             /unknown or duplicate wallet identity/);
     } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("Snapshot cannot restore a reservation against a changed wallet address", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-wallet-identity-drift-"));
+    try {
+        const catalogJson = JSON.stringify(catalog());
+        const pool = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        pool.initialize();
+        pool.reserve({ roomId: "active-room", network: "testnet" });
+        const snapshotPath = pool.persistSnapshot(dir);
+        const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+        const reserved = snapshot.reservations.find(w => w.reservedByRoomId === "active-room");
+        reserved.address = "EQ-different-wallet";
+        writeFileSync(snapshotPath, JSON.stringify(snapshot), "utf8");
+        const restarted = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        assert.throws(() => restarted.initialize({ snapshotDir: dir }),
+            /wallet identity differs from catalog/,
+            "wallet address mismatch must block recovery");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+});
