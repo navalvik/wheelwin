@@ -717,6 +717,20 @@ export class WalletPoolRegistry {
             seenWalletIds.add(record.walletId);
         }
 
+        // Validate the entire reservation set before mutating the live pool.
+        // A conflicting owner must not leave half-restored reservations behind.
+        const seenRoomIds = new Set();
+        for (const record of parsed.reservations) {
+            const roomId = record.reservedByRoomId;
+            if (roomId === null || roomId === undefined) continue;
+            if (typeof roomId !== "string" || roomId.length === 0 ||
+                seenRoomIds.has(roomId)) {
+                throw new PaymentStorageError("wallet pool snapshot has conflicting active reservations",
+                    { roomId, walletId: record.walletId });
+            }
+            seenRoomIds.add(roomId);
+        }
+
         for (const record of parsed.reservations) {
 
             if (record.reservedByRoomId === null
