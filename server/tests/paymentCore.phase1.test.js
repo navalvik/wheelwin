@@ -1191,15 +1191,15 @@ function createIntent(harness, overrides = {}) {
         "a refused execution must not leave a reservation behind"
     );
 
-    // 7c. An amount that is not an exact integer multiple is rejected.
-    expectThrow(
-        () => createIntent(configured, {
-            paymentReference: "pay-fractional",
-            roomId: "room-f",
-            amountAtomic: 1_500_000_000
-        }),
-        "PaymentValidationError",
-        "non-multiple atomic amounts must be rejected (integer-only)"
+    // 7c. Fractional GRAM stakes are valid when expressed as exact nanoGRAM.
+    const fractional = createIntent(configured, {
+        paymentReference: "pay-fractional",
+        roomId: "room-f",
+        amountAtomic: 1_500_000_000
+    });
+    check(
+        fractional.amountAtomic === 1_500_000_000,
+        "1.5 GRAM must be accepted as an exact integer nanoGRAM amount"
     );
 
     expectThrow(
