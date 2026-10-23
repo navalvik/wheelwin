@@ -365,3 +365,16 @@ test("Setup, payment session, and immutable payment-intent deadline default to f
     assert.equal(config.resultSessionDurationMs, 300_000,
         "Page6 result session must remain unchanged");
 });
+
+test("Stale eight-minute setup or payment overrides fail closed before server startup", () => {
+    for (const key of ["SETUP_DURATION_MS", "PAYMENT_SESSION_DURATION_MS"]) {
+        assert.throws(
+            () => loadRoomConfig({ ROOM_MAX_PLAYERS: "3", [key]: "480000" }),
+            /must equal 300000/,
+            key + " must not override the immutable five-minute payment deadline"
+        );
+        const config = loadRoomConfig({ ROOM_MAX_PLAYERS: "3", [key]: "300000" });
+        assert.equal(config.setupDurationMs, 300_000);
+        assert.equal(config.paymentSessionDurationMs, 300_000);
+    }
+});
