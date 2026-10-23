@@ -945,6 +945,27 @@ async function testMissingPlanNeverFallsBackEvenWithBothSigners() {
     } finally { h.cleanup(); }
 }
 
+async function testPlannedSignerWithoutPlanStoreCannotFallBackToLegacyTransfer() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: makePlannedSigner(mocks),
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const result = await provider.signAndBroadcast({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
+        });
+        assert.equal(result.outcome, "FAILED");
+        assert.equal(mocks.calls.sign, 0, "no signer may run without a persisted fee plan");
+        assert.equal(mocks.calls.broadcast, 0, "no network transfer without a plan");
+    } finally { h.cleanup(); }
+}
+
 async function testPlannedRefundFailsClosedWithoutDedicatedSigner() {
     const h = harness(1);
     try {
@@ -1039,6 +1060,7 @@ async function main() {
     await testPlannedRefundFailsClosedWithoutDedicatedSigner();
     await testConfiguredPlanStoreForbidsGrossFallback();
     await testMissingPlanNeverFallsBackEvenWithBothSigners();
+    await testPlannedSignerWithoutPlanStoreCannotFallBackToLegacyTransfer();
     await testSignedTransferInspectionIsMandatory();
     await testRejections();
     await testAmbiguousNoBlindResubmit();
