@@ -637,7 +637,9 @@ async function testReconcileAmbiguousSubmissionToComplete() {
         assert.ok(after.finalizedEvidence, "COMPLETE carries validated finalized evidence");
         assert.equal(after.finalizedEvidence.transactionId, "observed-outgoing-tx", "evidence matches the observed transaction");
         assert.equal(after.finalizedEvidence.destination, TESTNET_PAYER, "evidence matches the refund destination");
-        assert.equal(after.finalizedEvidence.amountAtomic, 1_000_000_000, "evidence matches the refund amount");
+        assert.equal(after.finalizedEvidence.amountAtomic, 990_000_000, "evidence matches the net refund amount");
+        assert.equal(after.finalizedEvidence.reservedFeeAtomic, "10000000", "fee reservation is preserved");
+        assert.equal(after.finalizedEvidence.originalPaidAmountAtomic, "1000000000", "original payment is preserved");
         assert.equal(after.finalizedEvidence.networkName, "TESTNET", "evidence records TESTNET");
         assert.equal(after.finalizedEvidence.globalId, -3, "evidence records global ID -3");
     } finally {
