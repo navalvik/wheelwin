@@ -435,6 +435,9 @@ export function buildPaymentRuntime(options = {}) {
 
             }
 
+            // Load durable refunds before wallet reconciliation so a SETTLED
+            // payer's pending refund keeps the room wallet reserved on restart.
+            refundStore.initialize();
             paymentService.initialize();
 
             ledger.initialize();
