@@ -431,7 +431,7 @@ export class RoomPaymentSessionAdapter {
             });
         }
         if (now >= roomCreatedAt + ROOM_LIFETIME_MS) {
-            fail("room payment requirements cannot be prepared after the 480-second room deadline", {
+            fail("room payment requirements cannot be prepared after the 300-second room deadline", {
                 roomId,
                 now,
                 deadlineMs: roomCreatedAt + ROOM_LIFETIME_MS
@@ -562,7 +562,7 @@ export class RoomPaymentSessionAdapter {
         }
 
         // Service creation reserves/reuses exactly one room wallet and applies
-        // the immutable 480-second deadline. Ledger stakes represent required
+        // the immutable 300-second deadline. Ledger stakes represent required
         // obligations and do not claim that principal has arrived.
         for (const payment of payments) {
             if (!this.#paymentService.hasPaymentIntent(payment.paymentReference)) {
