@@ -4,10 +4,11 @@
  * This is the ONLY place the outgoing refund path may sign or broadcast, and it
  * holds NO signing material itself. Every capability is injected:
  *
- *   - `signer.signTransfer(descriptor)` — turns an authorized refund into a
- *     signed, ready-to-broadcast message. It never returns or logs secret
- *     material and it is the thin seam an operator can satisfy with a secure,
- *     out-of-process signer (HSM/KMS/remote wallet).
+ *   - `signer.signPlannedRefund(descriptor)` — signs the exact net amount from
+ *     a durable fee-reserved refund plan. The signed Wallet V4 message must be
+ *     independently decoded and its signature verified before broadcast.
+ *     Legacy `signTransfer` remains only for compatibility with isolated
+ *     historical tests; the production runtime factory refuses that path.
  *   - `broadcaster.broadcast({ sourceWalletAddress, signedTransfer })` — sends
  *     the already-signed message to the network and reports a submission
  *     OUTCOME, never a finality claim.
