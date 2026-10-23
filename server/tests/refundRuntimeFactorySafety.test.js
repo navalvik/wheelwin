@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildTestnetOutgoingRefundProvider } from "../payment/runtime/PaymentRuntimeFactory.js";
+import { WalletV4SignedNativeGramRefundInspector } from "../payment/refund/WalletV4SignedNativeGramRefundInspector.js";
 
 const noop = () => {};
 function completeBundle() {
@@ -59,4 +60,22 @@ test("net-only Wallet V4 signer is sufficient; legacy gross signer is not requir
     const provider = build(bundle);
     assert.ok(provider, "a dedicated net signer should be usable without the obsolete gross signer");
     assert.equal(provider.canExecute(), true);
+});
+
+test("actual Wallet V4R2 inspector implements both required production verification methods", () => {
+    const inspector = new WalletV4SignedNativeGramRefundInspector({
+        walletStateReader: {
+            // No real network is queried here; inspection remains fail-closed
+            // until authenticated on-chain wallet state is supplied.
+            async getVerifiedWalletState() { return null; }
+        }
+    });
+    assert.equal(typeof inspector.inspect, "function");
+    assert.equal(typeof inspector.verifyWalletV4Signature, "function");
+    const bundle = completeBundle();
+    bundle.signedTransferInspector = inspector;
+    const provider = build(bundle);
+    assert.ok(provider, "factory accepts the actual trusted-state inspector API");
+    assert.equal(provider.canExecute(), true,
+        "readiness checks dependency presence, NOT live payment permission");
 });
