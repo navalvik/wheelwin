@@ -333,11 +333,11 @@ export class RefundLifecycleCoordinator {
                     outgoingTransactionId: completed.outgoingTransactionId, reason: null
                 });
             }
-            const attempt = this._attempt(current, "SUBMITTED", { startedAtMs: this._now(), completedAtMs: this._now(), outgoingTransactionId: verification.finalizedEvidence.transactionId, attemptId: `${current.obligationId}:reconcile` });
-            this._store.markSubmitted(current.obligationId, { outgoingTransactionId: verification.finalizedEvidence.transactionId, attempt });
-            const completed = this._store.markComplete(current.obligationId, { finalizedEvidence: verification.finalizedEvidence });
-            this._logger?.info?.(`Ambiguous refund resolved and completed from observed finalized evidence | obligationId=${current.obligationId}`);
-            return Object.freeze({ obligationId: current.obligationId, outcome: "COMPLETE", outgoingTransactionId: completed.outgoingTransactionId, reason: null });
+            // No durable net-fee plan: never use legacy gross-principal
+            // evidence to complete an ambiguous refund.
+            return Object.freeze({
+                obligationId, outcome: "RECONCILIATION_REQUIRED", reason: "REFUND_PLAN_MISSING"
+            });
         }
         const attempt = this._attempt(current, "RECONCILIATION_REQUIRED", { startedAtMs: this._now(), completedAtMs: this._now(), errorCode: verification.reason, attemptId: `${current.obligationId}:reconcile` });
         this._store.markReconciliationRequired(current.obligationId, { attempt, lastError: verification.reason });
