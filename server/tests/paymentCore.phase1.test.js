@@ -1304,6 +1304,15 @@ function createIntent(harness, overrides = {}) {
         amountAtomic: 2_500_000_000
     });
 
+    createIntent(harness, {
+        paymentReference: "pay-persist-3",
+        roomId: "room-r",
+        playerId: "player-3",
+        expectedSender: syntheticSender("333"),
+        amountAtomic: 1_500_000_000
+    });
+    const rWalletBeforeRestart = harness.service.getWalletForRoom("room-r");
+
     // Phase 3D вЂ” settle only through the trusted observation boundary.
     const persistReport = await settleFromObservation(
         harness,
@@ -1393,8 +1402,8 @@ function createIntent(harness, overrides = {}) {
     );
 
     check(
-        restartedStore.size === 2,
-        `both payment intents must survive a restart, got ${restartedStore.size}`
+        restartedStore.size === 3,
+        `all three payment intents must survive a restart, got ${restartedStore.size}`
     );
     const restoredFractional = restartedService.getPaymentIntent("pay-persist-2");
     check(
@@ -1404,6 +1413,16 @@ function createIntent(harness, overrides = {}) {
     check(
         restoredFractional.destinationWalletId === qWalletBeforeRestart.walletId,
         "the fractional stake must retain its original room wallet after restart"
+    );
+
+    const restoredOnePointFive = restartedService.getPaymentIntent("pay-persist-3");
+    check(
+        restoredOnePointFive.amountAtomic === 1_500_000_000,
+        "the exact 1.5 GRAM nanoGRAM amount must survive a restart"
+    );
+    check(
+        restoredOnePointFive.destinationWalletId === rWalletBeforeRestart.walletId,
+        "the 1.5 GRAM stake must retain its original room wallet after restart"
     );
 
     // R7 must hold across restarts.
