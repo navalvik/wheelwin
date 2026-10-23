@@ -839,6 +839,7 @@ async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
                 async verifyWalletV4Signature() { return true; } // synthetic test only
             }
         });
+        assert.equal(provider.canExecute(), true, "durable net-fee refund is executable");
         assert.equal((await h.coordinator.submitRefund(obligation.obligationId, { provider })).outcome, "SUBMITTED");
         const result = await h.coordinator.finalizeRefund(obligation.obligationId, { provider });
         assert.equal(result.outcome, "COMPLETE");
