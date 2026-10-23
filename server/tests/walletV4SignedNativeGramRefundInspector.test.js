@@ -24,10 +24,10 @@ function coins(value) {
     const width = BigInt(value) === 0n ? 0 : Math.ceil(digits.length / 2);
     return bin(width, 4) + (width ? bin(value, width * 8) : "");
 }
-function fixture() {
+function fixture({ validUntil = NOW + 100 } = {}) {
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const pubkey = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
-    const payloadBits = bin(698983191, 32) + bin(NOW + 100, 32) +
+    const payloadBits = bin(698983191, 32) + bin(validUntil, 32) +
         bin(1, 32) + bin(0, 32) + bin(3, 8);
     const messageBits = "0" + "1" + "1" + "0" +
         "00" + "10" + "0" + bin(0, 8) +
@@ -135,4 +135,28 @@ test("mismatched signer, contract, seqno, network and amount fail closed", async
             signedTransfer: { boc }, expected: altered
         })).verified, false);
     }
+});
+
+test("expired Wallet V4R2 message is rejected by inspection and pre-broadcast check", async () => {
+    const { publicKey, boc } = fixture({ validUntil: NOW - 1 });
+    const result = await inspector(publicKey).inspect({
+        signedTransfer: { boc }, expected
+    });
+    assert.equal(result.verified, false);
+    assert.equal(await inspector(publicKey).verifyWalletV4Signature({
+        signedTransfer: { boc },
+        sourceWalletAddress: from, networkName: "TESTNET", globalId: -3
+    }), false);
+});
+
+test("unsupported Wallet V4 revision is rejected", async () => {
+    const { publicKey, boc } = fixture();
+    const result = await inspector(publicKey, { version: "V4R1" }).inspect({
+        signedTransfer: { boc }, expected
+    });
+    assert.equal(result.verified, false);
+    assert.equal(await inspector(publicKey, { version: "V4R1" }).verifyWalletV4Signature({
+        signedTransfer: { boc },
+        sourceWalletAddress: from, networkName: "TESTNET", globalId: -3
+    }), false);
 });

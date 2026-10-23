@@ -69,3 +69,22 @@ test("invalid or unrelated BOC cannot masquerade as a signed V4 refund", () => {
     ), /CELL_COUNT_UNSUPPORTED/);
     assert.throws(() => decodeWalletV4NativeRefundBody(Buffer.from("incorrect")));
 });
+
+test("reject a signed body carrying additional unauthorized outgoing transfers", () => {
+    // Root cell references two outgoing message cells: an extra transfer.
+    const msg = "0" + "1" + "1" + "0" +
+        "00" + "10" + "0" + b(0, 8) +
+        b(BigInt("0x" + payerHex), 256) + coins(990000000n) + "0" + coins(0) + coins(0) +
+        b(0, 64) + b(0, 32) + "0" + "0";
+    const msgCell = encodeCell(msg, []);
+    const wallet = "0".repeat(512) + b(698983191, 32) +
+        b(1800000100, 32) + b(1, 32) + b(0, 32) + b(3, 8);
+    const rootCell = encodeCell(wallet, [1, 2]);
+    const cells = Buffer.concat([rootCell, msgCell, msgCell]);
+    const header = Buffer.from([
+        0xb5, 0xee, 0x9c, 0x72,
+        1, 1, 3, 1, 0, cells.length, 0
+    ]);
+    const boc = Buffer.concat([header, cells]);
+    assert.throws(() => decodeWalletV4NativeRefundBody(boc), /CELL_COUNT_UNSUPPORTED/);
+});
