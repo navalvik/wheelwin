@@ -1485,6 +1485,29 @@ function createIntent(harness, overrides = {}) {
         "an unresolved obligation must still block release after a restart"
     );
 
+    check(
+        restartedService.countOpenObligations("room-r") === 1,
+        "the 1.5 GRAM PENDING intent must retain its obligation after restart"
+    );
+    expectThrow(
+        () => restartedService.releaseWalletForRoom("room-r"),
+        "WalletRecyclingBlockedError",
+        "the 1.5 GRAM pending payment must block premature wallet release"
+    );
+    const walletR = restartedService.getWalletForRoom("room-r");
+    check(
+        walletR !== null && walletR.walletId === rWalletBeforeRestart.walletId,
+        "the blocked 1.5 GRAM wallet reservation must remain unchanged"
+    );
+    expectThrow(
+        () => restartedService.reserveWalletForRoom({
+            roomId: "room-conflicting-fractional",
+            walletId: walletR.walletId
+        }),
+        "WalletAssignmentConflictError",
+        "a competing room must not claim the 1.5 GRAM payment wallet"
+    );
+
     const walletQ = restartedService.getWalletForRoom("room-q");
 
     check(
