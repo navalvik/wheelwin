@@ -343,6 +343,15 @@ async function run() {
             });
             equal(roomManager.destroyRoom(room.roomId), true, "expired room is destroyed");
             equal(runtime.refundStore.size, 3, "all three paid players receive durable refund obligations");
+            const reservedWallet = runtime.paymentService.getWalletForRoom(room.roomId);
+            check(Boolean(reservedWallet), "expired room retains its reserved wallet for pending refunds");
+            throws(
+                () => runtime.paymentService.releaseWalletForRoom(room.roomId),
+                /recycl|obligation|blocked|unresolved/i,
+                "expired room wallet cannot be released while refunds remain pending"
+            );
+            equal(runtime.paymentService.getWalletForRoom(room.roomId)?.walletId,
+                reservedWallet.walletId, "failed release preserves original wallet assignment");
             equal(runtime.refundStore.getClosedRoom(room.roomId).closureReason,
                 "setup_expired", "expiry reason persists");
             for (const obligation of runtime.refundStore.list()) {
