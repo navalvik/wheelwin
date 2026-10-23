@@ -295,3 +295,31 @@ test("Conflicting room owners fail before any snapshot reservation is restored",
             "invalid snapshot must not partially restore wallet reservations");
     } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("Reordered catalog preserves every active reservation by wallet identity", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-wallet-reordered-catalog-"));
+    try {
+        const originalCatalog = catalog();
+        const before = new WalletPoolRegistry({
+            catalogJson: JSON.stringify(originalCatalog), network: "testnet"
+        });
+        before.initialize();
+        const expected = new Map();
+        for (let i = 1; i <= 64; i++) {
+            const roomId = `reordered-room-${i}`;
+            expected.set(roomId, before.reserve({ roomId, network: "testnet" }).wallet.walletId);
+        }
+        before.persistSnapshot(dir);
+        const after = new WalletPoolRegistry({
+            catalogJson: JSON.stringify([...originalCatalog].reverse()), network: "testnet"
+        });
+        after.initialize({ snapshotDir: dir });
+        assert.equal(after.getReservedCount(), 64);
+        assert.equal(after.getAvailableCount(), 0);
+        for (const [roomId, walletId] of expected) {
+            assert.equal(after.getReservationForRoom(roomId)?.walletId, walletId);
+        }
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
