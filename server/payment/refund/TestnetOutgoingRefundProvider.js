@@ -523,12 +523,29 @@ export class TestnetOutgoingRefundProvider {
             return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.OUTGOING_TRANSFER_NOT_OBSERVED });
         }
         const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
+        const plan = this._refundPlanStore
+            ? this.getReservedNativeGramRefundPlan(authorized.obligationId)
+            : null;
+        // Never search by gross principal when the fee-funded plan is absent or invalid.
+        if (this._refundPlanStore && (!plan ||
+            plan.idempotencyKey !== authorized.idempotencyKey ||
+            plan.networkName !== authorized.networkName ||
+            plan.globalId !== authorized.globalId ||
+            !tonAddressIdentitiesEqual(plan.sourceWalletAddress, authorized.sourceWalletAddress) ||
+            !tonAddressIdentitiesEqual(plan.refundDestination, authorized.refundDestination) ||
+            plan.originalPaidAmountAtomic !== String(authorized.amountAtomic) ||
+            !/^[1-9][0-9]*$/.test(plan.refundAmountAtomic) ||
+            !/^[1-9][0-9]*$/.test(plan.reservedFeeAtomic) ||
+            BigInt(plan.refundAmountAtomic) + BigInt(plan.reservedFeeAtomic) !== BigInt(authorized.amountAtomic) ||
+            plan.sendRemainingBalance !== false)) {
+            return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.OUTGOING_TRANSFER_NOT_OBSERVED });
+        }
         let match = null;
         try {
             match = await this._observation.findOutgoingTransfer({
                 sourceWalletAddress: authorized.sourceAccountId,
                 destinationIdentity: deriveTonAddressIdentity(authorized.refundDestination),
-                amountAtomic: authorized.amountAtomic
+                amountAtomic: plan ? Number(plan.refundAmountAtomic) : authorized.amountAtomic
             });
         } catch {
             match = null;
@@ -539,7 +556,7 @@ export class TestnetOutgoingRefundProvider {
         if (match.ambiguous === true) {
             return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.UNRELATED_TRANSACTION });
         }
-        return this.observeAndVerifyFinality({
+        return (plan ? this.observeAndVerifyPlannedNativeGramRefund : this.observeAndVerifyFinality).call(this, {
             obligation,
             sourceWalletAddress,
             outgoingTransactionId: match.transactionId.trim(),
