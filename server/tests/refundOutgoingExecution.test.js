@@ -550,10 +550,23 @@ async function testReconcileAmbiguousSubmissionToComplete() {
     try {
         const [obligation] = prepareObligations(h, 1);
         const calls = { sign: 0, broadcast: 0, reconcile: 0 };
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
         const signer = {
-            signTransfer() {
+            signPlannedRefund(descriptor) {
                 calls.sign += 1;
-                return { type: "signed", payload: "payload" };
+                assert.equal(descriptor.amountAtomic, "990000000");
+                return { ...descriptor, boc: makeNativeRefundV4Boc().toString("base64") };
             }
         };
         const broadcaster = {
@@ -566,7 +579,7 @@ async function testReconcileAmbiguousSubmissionToComplete() {
             networkName: "TESTNET",
             globalId: -3,
             transactionId: "observed-outgoing-tx",
-            amountAtomic: 1_000_000_000,
+            amountAtomic: 990_000_000,
             destination: TESTNET_PAYER,
             finalized: true,
             observedAtMs: NOW,
@@ -583,7 +596,7 @@ async function testReconcileAmbiguousSubmissionToComplete() {
                     transactionId: "observed-outgoing-tx",
                     sourceAddress: TESTNET_ROOM_WALLET,
                     destinationAddress: TESTNET_PAYER,
-                    amountAtomic: 1_000_000_000
+                    amountAtomic: 990_000_000
                 };
             },
             async findOutgoingTransfer() {
@@ -596,7 +609,13 @@ async function testReconcileAmbiguousSubmissionToComplete() {
             signer,
             broadcaster,
             finalityEvidenceProvider,
-            outgoingTransferProvider
+            outgoingTransferProvider,
+            refundPlanStore: planStore,
+            signedTransferInspector: {
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected),
+                verifyWalletV4Signature: async () => true // synthetic test only
+            }
         });
         assert.equal(provider.canExecute(), true);
 
@@ -631,10 +650,23 @@ async function testReconcileAmbiguousHoldsWithoutMatch() {
     try {
         const [obligation] = prepareObligations(h, 1);
         const calls = { sign: 0, broadcast: 0, reconcile: 0 };
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
         const signer = {
-            signTransfer() {
+            signPlannedRefund(descriptor) {
                 calls.sign += 1;
-                return { type: "signed", payload: "payload" };
+                assert.equal(descriptor.amountAtomic, "990000000");
+                return { ...descriptor, boc: makeNativeRefundV4Boc().toString("base64") };
             }
         };
         const broadcaster = {
@@ -658,7 +690,13 @@ async function testReconcileAmbiguousHoldsWithoutMatch() {
             signer,
             broadcaster,
             finalityEvidenceProvider,
-            outgoingTransferProvider
+            outgoingTransferProvider,
+            refundPlanStore: planStore,
+            signedTransferInspector: {
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected),
+                verifyWalletV4Signature: async () => true // synthetic test only
+            }
         });
 
         await h.coordinator.submitRefund(obligation.obligationId, { provider });
