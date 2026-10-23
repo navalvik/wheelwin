@@ -60,10 +60,10 @@ export function verifyWalletV4SignedPayloadSignature(boc, trustedPublicKey) {
     try {
         const { root, cells } = decodeOrdinaryTonBocCells(boc);
         const body = cells[root];
-        if (body.bitLength !== 648 || body.refs.length !== 1) return false;
+        if (body.bitLength !== 624 || body.refs.length !== 1) return false;
         const signatureBits = body.bits.slice(0, SIGNATURE_BITS);
         const signedBits = body.bits.slice(SIGNATURE_BITS);
-        if (signedBits.length !== 136) return false;
+        if (signedBits.length !== 112) return false;
         const signature = Buffer.from(
             signatureBits.match(/.{8}/g).map(bit => parseInt(bit, 2))
         );
