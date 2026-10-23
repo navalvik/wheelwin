@@ -1300,6 +1300,41 @@ async function testSignedTransferInspectionIsMandatory() {
     } finally { h.cleanup(); }
 }
 
+async function testReconciliationNeverLooksUpGrossWithoutPlan() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const searches = [];
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: makePlannedSigner(mocks),
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: {
+                ...mocks.outgoingTransferProvider,
+                async findOutgoingTransfer(query) {
+                    searches.push(query);
+                    return null;
+                }
+            },
+            refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root }),
+            signedTransferInspector: {
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected),
+                verifyWalletV4Signature: async () => true // synthetic test only
+            }
+        });
+        const result = await provider.reconcileAmbiguousSubmission({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
+        });
+        assert.equal(result.verified, false);
+        assert.equal(searches.length, 0, "no gross-principal lookup without a persisted net-fee plan");
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally { h.cleanup(); }
+}
+
 async function main() {
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
@@ -1320,6 +1355,7 @@ async function main() {
     await testWrongTransactionIdentityCannotComplete();
     await testReconcileAmbiguousSubmissionToComplete();
     await testReconcileAmbiguousHoldsWithoutMatch();
+    await testReconciliationNeverLooksUpGrossWithoutPlan();
     await testRestartPreservesObligationsAndRecoveryWithoutDuplication();
     await testRuntimeCapabilitiesAndNoAcceptanceFlip();
     console.log("Refund outgoing execution tests passed (deterministic, mocked)");
