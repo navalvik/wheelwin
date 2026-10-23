@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { EventBus } from "../../events/EventBus.js";
 import { EVENT_TYPES } from "../../events/EventTypes.js";
 import { RoomManager } from "../../managers/RoomManager.js";
+import { registerRoomDestroyContext } from "../../recovery/RoomDestroyContextRegistry.js";
 import { ROOM_STATUS } from "../../models/RoomStatus.js";
 import { GameStartAuthorization } from "../../gameplay/GameStartAuthorization.js";
 import { PaymentIntent } from "../../payment/PaymentIntent.js";
@@ -30,7 +31,7 @@ const SYNTHETIC_API_KEY = "SYNTHETIC-TONCENTER-TEST-KEY-NOT-REAL";
 const TESTNET_PAYER = `0:${"a".repeat(64)}`;
 const TESTNET_WALLET = `0:${"b".repeat(64)}`;
 
-const TOTAL_SECTIONS = 10;
+const TOTAL_SECTIONS = 11;
 let assertions = 0;
 let sections = 0;
 
@@ -320,6 +321,36 @@ async function run() {
                 paymentRuntimeShutdown(runtime);
             } finally { t.cleanup(); }
         }
+    });
+
+    await section("setup expiry refunds all three confirmed payers even before gameplay begins", () => {
+        const t = makeTemp();
+        try {
+            const { runtime } = buildRuntime(t.root, t.catalogPath);
+            const logger = { info() {}, warn() {}, error() {}, decisionTrace() {} };
+            const eventBus = new EventBus({ logger, eventBusConfig: { logEvents: false, showDebugPanel: false } });
+            eventBus.initialize();
+            const roomManager = new RoomManager({ logger, eventBus, roomConfig: { maxPlayers: 3 } });
+            roomManager.initialize();
+            roomManager.attachSetupSessionLifecycle({ createForRoom: () => ({}), abortForRoom() {} });
+            bindPaymentRuntimeToApplication(runtime, { roomManager, logger });
+
+            const room = roomManager.createRoom();
+            seedRoomPayments(runtime, room.roomId, 3);
+            registerRoomDestroyContext(room.roomId, {
+                reason: "setup_expired",
+                caller: "SetupSessionLifecycle._onExpiry"
+            });
+            equal(roomManager.destroyRoom(room.roomId), true, "expired room is destroyed");
+            equal(runtime.refundStore.size, 3, "all three paid players receive durable refund obligations");
+            equal(runtime.refundStore.getClosedRoom(room.roomId).closureReason,
+                "setup_expired", "expiry reason persists");
+            for (const obligation of runtime.refundStore.list()) {
+                equal(obligation.state, REFUND_STATE.PENDING, "refund remains pending without authorized signer");
+            }
+            managerShutdown(roomManager, eventBus);
+            paymentRuntimeShutdown(runtime);
+        } finally { t.cleanup(); }
     });
 
     await section("a late confirmed payment for a closed room reconciles without reopening gameplay", () => {
