@@ -1301,7 +1301,7 @@ function createIntent(harness, overrides = {}) {
         roomId: "room-q",
         playerId: "player-2",
         expectedSender: syntheticSender("222"),
-        amountAtomic: 1_000_000_000
+        amountAtomic: 2_500_000_000
     });
 
     // Phase 3D вЂ” settle only through the trusted observation boundary.
