@@ -400,12 +400,30 @@ async function testFinalityMissing() {
     try {
         const [obligation] = prepareObligations(h, 1);
         const mocks = makeMocks({ missingEvidence: true, missingTransfer: true });
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
         const provider = new TestnetOutgoingRefundProvider({
             globalId: -3,
-            signer: mocks.signer,
+            signer: makePlannedSigner(mocks),
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
-            outgoingTransferProvider: mocks.outgoingTransferProvider
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: planStore,
+            signedTransferInspector: {
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected),
+                verifyWalletV4Signature: async () => true // synthetic test only
+            }
         });
         await h.coordinator.submitRefund(obligation.obligationId, { provider });
         const res = await h.coordinator.finalizeRefund(obligation.obligationId, { provider });
@@ -413,6 +431,9 @@ async function testFinalityMissing() {
         const after = h.store.get(obligation.obligationId);
         assert.equal(after.state, REFUND_STATE.SUBMITTED);
         assert.ok(!after.finalizedEvidence);
+        assert.equal(mocks.calls.sign, 1, "net-fee refund was signed only once");
+        assert.equal(mocks.calls.broadcast, 1, "net-fee refund was broadcast only once");
+        assert.equal(planStore.get(obligation.obligationId).refundAmountAtomic, "990000000");
     } finally {
         h.cleanup();
     }
