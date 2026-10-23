@@ -261,7 +261,7 @@ export class TestnetOutgoingRefundProvider {
         const plan = this.getReservedNativeGramRefundPlan(authorized.obligationId);
         // A configured plan store MUST NOT silently fall back to the gross
         // legacy signer when a plan is missing or storage is incomplete.
-        if (this._refundPlanStore && !plan) {
+        if ((this._refundPlanStore || typeof this._signer?.signPlannedRefund === "function") && !plan) {
             return Object.freeze({
                 outcome: OUTGOING_SUBMISSION_OUTCOME.FAILED,
                 outgoingTransactionId: null,
