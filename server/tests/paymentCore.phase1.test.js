@@ -1005,6 +1005,18 @@ function createIntent(harness, overrides = {}) {
     );
     check(harness.service.getWalletForRoom("room-failed-first") === null,
         "failed first payer intent must release its newly reserved wallet");
+    // A successful retry must be able to reserve a wallet again and create
+    // its own payment intent without inheriting the rejected reference.
+    const retriedFirst = createIntent(harness, {
+        paymentReference: "pay-first-retry",
+        roomId: "room-failed-first",
+        playerId: "player-first"
+    });
+    check(Boolean(retriedFirst.destinationWalletId),
+        "first payer can retry successfully after failed reservation rollback");
+    check(harness.service.getWalletForRoom("room-failed-first")?.walletId
+        === retriedFirst.destinationWalletId,
+        "successful retry holds exactly the wallet recorded by its intent");
     check(harness.service.getWalletForRoom("room-dup")?.walletId === previouslyReserved.walletId,
         "failed first payer intent must not affect another room's wallet");
 
