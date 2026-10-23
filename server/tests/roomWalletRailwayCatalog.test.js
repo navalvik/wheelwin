@@ -123,7 +123,7 @@ test("Unknown reserved wallet in durable snapshot blocks startup without silentl
         });
         assert.throws(
             () => restarted.initialize({ snapshotDir: dir }),
-            /unknown reserved wallet/,
+            /unknown or duplicate wallet identity/,
             "startup must fail closed instead of losing an unresolved reservation"
         );
         assert.equal(restarted.getReservedCount(), 0,
@@ -220,4 +220,38 @@ test("Unresolved refund blocks wallet recycling until obligations are cleared", 
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+
+test("Incomplete wallet snapshot cannot make an occupied wallet available", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-partial-wallet-snapshot-"));
+    try {
+        const catalogJson = JSON.stringify(catalog());
+        const pool = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        pool.initialize();
+        pool.reserve({ roomId: "unsettled-room", network: "testnet" });
+        const snapshotPath = pool.persistSnapshot(dir);
+        const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+        snapshot.reservations = snapshot.reservations.filter(w => w.reservedByRoomId === null);
+        writeFileSync(snapshotPath, JSON.stringify(snapshot), "utf8");
+        const restarted = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        assert.throws(() => restarted.initialize({ snapshotDir: dir }),
+            /catalog identity mismatch/,
+            "partial snapshot must not silently lose a live reservation");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("Duplicate wallet identities in snapshot are rejected before recovery", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-duplicate-wallet-snapshot-"));
+    try {
+        const catalogJson = JSON.stringify(catalog());
+        const pool = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        pool.initialize();
+        const snapshotPath = pool.persistSnapshot(dir);
+        const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+        snapshot.reservations[1].walletId = snapshot.reservations[0].walletId;
+        writeFileSync(snapshotPath, JSON.stringify(snapshot), "utf8");
+        const restarted = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        assert.throws(() => restarted.initialize({ snapshotDir: dir }),
+            /unknown or duplicate wallet identity/);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
 });
