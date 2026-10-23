@@ -635,6 +635,38 @@ async function testConcurrentBroadcastFailureAndRestartHold() {
     }
 }
 
+async function testAuthorizationRejectsNonNativeRefundDenomination() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: makePlannedSigner(mocks),
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => {
+                throw new Error("fee estimation must not be reached");
+            } },
+            refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root }),
+            signedTransferInspector: {
+                inspect: async () => { throw new Error("inspector must not be reached"); },
+                verifyWalletV4Signature: async () => true
+            }
+        });
+        assert.throws(() => provider.authorizeSubmission({
+            obligation: { ...obligation, denomination: "JETTON" },
+            sourceWalletAddress: TESTNET_ROOM_WALLET
+        }), /native GRAM refund requires TON-denominated atomic units/);
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -2111,6 +2143,7 @@ async function main() {
     await testRealProviderRejectsMainnetFeeQuote();
     await testBroadcastFailureNeverRetriesBlindly();
     await testConcurrentBroadcastFailureAndRestartHold();
+    await testAuthorizationRejectsNonNativeRefundDenomination();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
