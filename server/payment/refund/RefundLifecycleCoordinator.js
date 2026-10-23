@@ -220,6 +220,23 @@ export class RefundLifecycleCoordinator {
             );
         }
 
+        // The obligation may have been replaced while the fee quote was
+        // pending. Never sign against stale recipient, amount or payment data.
+        if (latest.idempotencyKey !== current.idempotencyKey ||
+            latest.paymentIntentId !== current.paymentIntentId ||
+            latest.incomingTransactionId !== current.incomingTransactionId ||
+            latest.networkName !== current.networkName ||
+            latest.globalId !== current.globalId ||
+            latest.denomination !== current.denomination ||
+            latest.amountAtomic !== current.amountAtomic ||
+            latest.refundDestination !== current.refundDestination ||
+            latest.payerAddress !== current.payerAddress) {
+            throw new RefundLifecycleError(
+                "refund obligation changed during fee-plan reservation; submission blocked",
+                { obligationId }
+            );
+        }
+
         const startedAtMs = this._now();
         const attemptId = `${current.obligationId}:${startedAtMs}`;
         // CRITICAL: persist SUBMISSION_UNKNOWN *before* the first await that
