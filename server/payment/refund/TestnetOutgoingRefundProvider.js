@@ -164,7 +164,14 @@ export class TestnetOutgoingRefundProvider {
                 existing.denomination !== authorized.denomination ||
                 !tonAddressIdentitiesEqual(existing.sourceWalletAddress, authorized.sourceWalletAddress) ||
                 !tonAddressIdentitiesEqual(existing.refundDestination, authorized.refundDestination) ||
-                existing.originalPaidAmountAtomic !== String(authorized.amountAtomic)) {
+                existing.originalPaidAmountAtomic !== String(authorized.amountAtomic) ||
+                typeof existing.refundAmountAtomic !== "string" ||
+                !/^[1-9][0-9]*$/.test(existing.refundAmountAtomic) ||
+                typeof existing.reservedFeeAtomic !== "string" ||
+                !/^[1-9][0-9]*$/.test(existing.reservedFeeAtomic) ||
+                BigInt(existing.refundAmountAtomic) + BigInt(existing.reservedFeeAtomic) !==
+                    BigInt(authorized.amountAtomic) ||
+                existing.sendRemainingBalance !== false) {
                 throw new OutgoingRefundError("persisted refund fee plan conflicts with original payment identity");
             }
             return this._refundPlanStore.reserve(existing);
