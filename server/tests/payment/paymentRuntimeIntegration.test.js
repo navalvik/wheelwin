@@ -336,6 +336,9 @@ async function run() {
             bindPaymentRuntimeToApplication(runtime, { roomManager, logger });
 
             const room = roomManager.createRoom();
+            // Seeded intents bypass prepareRoom(), so explicitly reserve the
+            // same room wallet that the real payment preparation would reserve.
+            runtime.paymentService.reserveWalletForRoom({ roomId: room.roomId, network: "testnet" });
             seedRoomPayments(runtime, room.roomId, 3);
             registerRoomDestroyContext(room.roomId, {
                 reason: "setup_expired",
