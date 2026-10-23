@@ -253,12 +253,9 @@ export class TestnetOutgoingRefundProvider {
             });
         }
 
-        // A persisted fee plan changes the outgoing amount. Never allow the
-        // old full-principal signer to move funds for a planned refund.
+        // Every outgoing refund requires an immutable net-fee plan.
         const plan = this.getReservedNativeGramRefundPlan(authorized.obligationId);
-        // A configured plan store MUST NOT silently fall back to the gross
-        // legacy signer when a plan is missing or storage is incomplete.
-        if ((this._refundPlanStore || typeof this._signer?.signPlannedRefund === "function") && !plan) {
+        if (!plan) {
             return Object.freeze({
                 outcome: OUTGOING_SUBMISSION_OUTCOME.FAILED,
                 outgoingTransactionId: null,
@@ -281,7 +278,7 @@ export class TestnetOutgoingRefundProvider {
             plan.sendRemainingBalance !== false)) {
             throw new OutgoingRefundError("persisted refund fee plan conflicts with original payment identity");
         }
-        if (plan && typeof this._signer.signPlannedRefund !== "function") {
+        if (typeof this._signer.signPlannedRefund !== "function") {
             return Object.freeze({
                 outcome: OUTGOING_SUBMISSION_OUTCOME.FAILED,
                 outgoingTransactionId: null,
@@ -506,11 +503,9 @@ export class TestnetOutgoingRefundProvider {
             return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.OUTGOING_TRANSFER_NOT_OBSERVED });
         }
         const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
-        const plan = this._refundPlanStore
-            ? this.getReservedNativeGramRefundPlan(authorized.obligationId)
-            : null;
+        const plan = this.getReservedNativeGramRefundPlan(authorized.obligationId);
         // Never search by gross principal when the fee-funded plan is absent or invalid.
-        if (this._refundPlanStore && (!plan ||
+        if (!plan ||
             plan.idempotencyKey !== authorized.idempotencyKey ||
             plan.networkName !== authorized.networkName ||
             plan.globalId !== authorized.globalId ||
@@ -520,7 +515,7 @@ export class TestnetOutgoingRefundProvider {
             !/^[1-9][0-9]*$/.test(plan.refundAmountAtomic) ||
             !/^[1-9][0-9]*$/.test(plan.reservedFeeAtomic) ||
             BigInt(plan.refundAmountAtomic) + BigInt(plan.reservedFeeAtomic) !== BigInt(authorized.amountAtomic) ||
-            plan.sendRemainingBalance !== false)) {
+            plan.sendRemainingBalance !== false) {
             return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.OUTGOING_TRANSFER_NOT_OBSERVED });
         }
         let match = null;
@@ -528,7 +523,7 @@ export class TestnetOutgoingRefundProvider {
             match = await this._observation.findOutgoingTransfer({
                 sourceWalletAddress: authorized.sourceAccountId,
                 destinationIdentity: deriveTonAddressIdentity(authorized.refundDestination),
-                amountAtomic: plan ? Number(plan.refundAmountAtomic) : authorized.amountAtomic
+                amountAtomic: Number(plan.refundAmountAtomic)
             });
         } catch {
             match = null;
@@ -539,7 +534,7 @@ export class TestnetOutgoingRefundProvider {
         if (match.ambiguous === true) {
             return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.UNRELATED_TRANSACTION });
         }
-        return (plan ? this.observeAndVerifyPlannedNativeGramRefund : this.observeAndVerifyFinality).call(this, {
+        return this.observeAndVerifyPlannedNativeGramRefund({
             obligation,
             sourceWalletAddress,
             outgoingTransactionId: match.transactionId.trim(),
