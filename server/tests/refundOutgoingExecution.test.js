@@ -1119,7 +1119,7 @@ async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
         assert.equal(mocks.calls.broadcast, 1, "completed refund must not be re-broadcast after restart");
         await assert.rejects(
             restartedCoordinator.submitRefund(obligation.obligationId, { provider }),
-            /only a PENDING refund|cannot submit|not pending|state/i,
+            /not awaiting submission; it must be reconciled, not resubmitted/,
             "completed refund cannot be submitted again after restart"
         );
         await assert.rejects(
