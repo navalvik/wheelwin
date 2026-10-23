@@ -26,10 +26,9 @@ function row(ref) {
 function fixture(t) {
     const dir = mkdtempSync(join(tmpdir(), "wheelwin-gram-sqlite-"));
     const path = join(dir, "payment.sqlite");
-    t.after(() => rmSync(dir, { recursive: true, force: true }));
     const store = new SqlitePaymentIntentStore({ databasePath: path });
     store.initialize();
-    t.after(() => store.close());
+    t.after(() => {\n        store.close();\n        rmSync(dir, { recursive: true, force: true });\n    });
     return { store, path };
 }
 
