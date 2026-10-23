@@ -389,20 +389,14 @@ export class RoomWalletPaymentService {
         // D2 — reject when the asset/denomination mapping is not configured.
         const mapping = this._assetRegistry.requireMapping(requestedNetwork, asset);
 
-        // Integer-only amount validation against the explicit mapping.
-        if (amountAtomic % mapping.atomicUnitsPerUnit !== 0) {
-
+        // Native GRAM amounts are exact positive integers in nanoGRAM.
+        // A two-sector stake can be 2.5 GRAM (2_500_000_000 nanoGRAM),
+        // so requiring whole-GRAM multiples would reject valid payments.
+        if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) {
             throw new PaymentValidationError(
-                "amountAtomic is not an exact multiple of the configured "
-                    + "atomic-unit denomination",
-                {
-                    amountAtomic,
-                    atomicUnitsPerUnit: mapping.atomicUnitsPerUnit,
-                    asset: mapping.asset,
-                    network: requestedNetwork
-                }
+                "amountAtomic must be a positive safe integer in atomic units",
+                { amountAtomic, asset: mapping.asset, network: requestedNetwork }
             );
-
         }
 
         const expiresAt = Math.min(
