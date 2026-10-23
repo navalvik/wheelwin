@@ -691,6 +691,23 @@ export class WalletPoolRegistry {
 
         }
 
+        // A partial or stale snapshot can silently omit a reserved wallet,
+        // causing it to be allocated again. Require a complete identity map.
+        if (parsed.network !== this._network ||
+            parsed.poolSize !== this._wallets.size ||
+            parsed.reservations.length !== this._wallets.size) {
+            throw new PaymentStorageError("wallet pool snapshot catalog identity mismatch");
+        }
+        const seenWalletIds = new Set();
+        for (const record of parsed.reservations) {
+            if (!record || typeof record.walletId !== "string" ||
+                seenWalletIds.has(record.walletId) ||
+                !this._wallets.has(record.walletId)) {
+                throw new PaymentStorageError("wallet pool snapshot contains unknown or duplicate wallet identity");
+            }
+            seenWalletIds.add(record.walletId);
+        }
+
         for (const record of parsed.reservations) {
 
             if (record.reservedByRoomId === null
