@@ -28,7 +28,10 @@ function fixture(t) {
     const path = join(dir, "payment.sqlite");
     const store = new SqlitePaymentIntentStore({ databasePath: path });
     store.initialize();
-    t.after(() => {\n        store.close();\n        rmSync(dir, { recursive: true, force: true });\n    });
+    t.after(() => {
+        store.close();
+        rmSync(dir, { recursive: true, force: true });
+    });
     return { store, path };
 }
 
