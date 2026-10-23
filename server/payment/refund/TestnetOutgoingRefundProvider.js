@@ -106,6 +106,8 @@ export class TestnetOutgoingRefundProvider {
      */
     canExecute() {
         return (typeof this._refundPlanStore?.get === "function" &&
+            typeof this._refundPlanStore?.reserve === "function" &&
+            typeof this._feeEstimator?.estimateRefundFee === "function" &&
             typeof this._signer?.signPlannedRefund === "function" &&
             typeof this._signedTransferInspector?.inspect === "function" &&
             typeof this._signedTransferInspector?.verifyWalletV4Signature === "function")
