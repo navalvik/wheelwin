@@ -908,6 +908,8 @@ async function testConfiguredPlanStoreForbidsGrossFallback() {
             outgoingTransferProvider: mocks.outgoingTransferProvider,
             refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root })
         });
+        assert.equal(provider.canExecute(), false,
+            "legacy signer cannot execute when a durable plan store is configured");
         const result = await provider.signAndBroadcast({
             obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
         });
