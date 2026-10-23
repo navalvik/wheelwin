@@ -7,8 +7,6 @@
  *   - `signer.signPlannedRefund(descriptor)` — signs the exact net amount from
  *     a durable fee-reserved refund plan. The signed Wallet V4 message must be
  *     independently decoded and its signature verified before broadcast.
- *     Legacy `signTransfer` remains only for compatibility with isolated
- *     historical tests; the production runtime factory refuses that path.
  *   - `broadcaster.broadcast({ sourceWalletAddress, signedTransfer })` — sends
  *     the already-signed message to the network and reports a submission
  *     OUTCOME, never a finality claim.
@@ -79,7 +77,7 @@ export class TestnetOutgoingRefundProvider {
     /**
      * @param {{
      *   globalId: number,
-     *   signer: { signTransfer: Function },
+     *   signer: { signPlannedRefund: Function },
      *   broadcaster: { broadcast: Function },
      *   finalityEvidenceProvider: { getSettlementEvidence: Function },
      *   outgoingTransferProvider: {
@@ -108,13 +106,10 @@ export class TestnetOutgoingRefundProvider {
      * @returns {boolean}
      */
     canExecute() {
-        return (this._refundPlanStore
-            ? (typeof this._refundPlanStore.get === "function" &&
-                typeof this._signer?.signPlannedRefund === "function" &&
-                typeof this._signedTransferInspector?.inspect === "function" &&
-                typeof this._signedTransferInspector?.verifyWalletV4Signature === "function")
-            : (typeof this._signer?.signPlannedRefund !== "function" &&
-                typeof this._signer?.signTransfer === "function"))
+        return (typeof this._refundPlanStore?.get === "function" &&
+            typeof this._signer?.signPlannedRefund === "function" &&
+            typeof this._signedTransferInspector?.inspect === "function" &&
+            typeof this._signedTransferInspector?.verifyWalletV4Signature === "function")
             && typeof this._broadcaster?.broadcast === "function"
             && typeof this._finality?.getSettlementEvidence === "function"
             && typeof this._observation?.getOutgoingTransfer === "function"
@@ -295,32 +290,20 @@ export class TestnetOutgoingRefundProvider {
         }
         let signedTransfer;
         try {
-            signedTransfer = plan
-                ? await this._signer.signPlannedRefund(Object.freeze({
-                    networkName: authorized.networkName,
-                    globalId: authorized.globalId,
-                    from: authorized.sourceWalletAddress,
-                    to: authorized.refundDestination,
-                    amountAtomic: plan.refundAmountAtomic,
-                    maxFeeAtomic: plan.reservedFeeAtomic,
-                    originalPaidAmountAtomic: plan.originalPaidAmountAtomic,
-                    sendRemainingBalance: false,
-                    denomination: authorized.denomination,
-                    idempotencyKey: authorized.idempotencyKey,
-                    obligationId: authorized.obligationId,
-                    now: nowMs
-                }))
-                : await this._signer.signTransfer({
-                    networkName: authorized.networkName,
-                    globalId: authorized.globalId,
-                    from: authorized.sourceWalletAddress,
-                    to: authorized.refundDestination,
-                    amountAtomic: authorized.amountAtomic,
-                    denomination: authorized.denomination,
-                    idempotencyKey: authorized.idempotencyKey,
-                    obligationId: authorized.obligationId,
-                    now: nowMs
-                });
+            signedTransfer = await this._signer.signPlannedRefund(Object.freeze({
+                networkName: authorized.networkName,
+                globalId: authorized.globalId,
+                from: authorized.sourceWalletAddress,
+                to: authorized.refundDestination,
+                amountAtomic: plan.refundAmountAtomic,
+                maxFeeAtomic: plan.reservedFeeAtomic,
+                originalPaidAmountAtomic: plan.originalPaidAmountAtomic,
+                sendRemainingBalance: false,
+                denomination: authorized.denomination,
+                idempotencyKey: authorized.idempotencyKey,
+                obligationId: authorized.obligationId,
+                now: nowMs
+            }));
             // The secure signing adapter must echo the exact NET transfer
             // identity before its signed payload can reach the broadcaster.
             // This is an adapter contract check, not independent decoding of
