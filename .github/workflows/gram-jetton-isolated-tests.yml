@@ -37,6 +37,9 @@ jobs:
       - name: Wallet V4 Ed25519 and production refund factory safety tests
         working-directory: server
         run: node --test tests/walletV4RefundEd25519.test.js tests/refundRuntimeFactorySafety.test.js
+      - name: 64-wallet Testnet catalog and snapshot recovery safety
+        working-directory: server
+        run: node --test tests/roomWalletRailwayCatalog.test.js
       - name: Native Page4 authoritative status and reconnect regression
         working-directory: server
         run: node tests/payment/page4ReconnectPaymentRecovery.test.js
