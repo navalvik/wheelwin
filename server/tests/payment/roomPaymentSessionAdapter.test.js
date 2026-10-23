@@ -631,7 +631,7 @@ async function run() {
                 roomId: "room-authoritative-denomination",
                 requiredPlayers: [1, 2.5, 25].map((grams) => ({
                     roomId: "room-authoritative-denomination",
-                    paymentReference: `WW-DENOMINATION-${grams}`,
+                    paymentReference: `WW-DENOMINATION-${String(grams).replace(".", "_")}`,
                     playerId: `denomination-player-${grams}`,
                     expectedSender: syntheticAddress(`denomination-sender-${grams}`),
                     amountAtomic: grams === 2.5 ? 2_500_000_000 : mapping.toAtomicUnits(grams)
