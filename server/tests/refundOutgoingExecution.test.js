@@ -1219,6 +1219,50 @@ async function testMissingPlanNeverFallsBackEvenWithBothSigners() {
     } finally { h.cleanup(); }
 }
 
+async function testRefundPlanFromAnotherObligationCannotBeSigned() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const validPlan = buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        });
+        // Simulate a corrupted or incorrectly indexed durable plan store.
+        // Even if every other identity matches, obligationId must be exact.
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: makePlannedSigner(mocks),
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: {
+                get: () => ({ ...validPlan, obligationId: "different-obligation" })
+            },
+            signedTransferInspector: {
+                inspect: async () => { throw new Error("must not inspect foreign plan"); },
+                verifyWalletV4Signature: async () => { throw new Error("must not verify foreign plan"); }
+            }
+        });
+        assert.equal(provider.canExecute(), true);
+        await assert.rejects(
+            provider.signAndBroadcast({
+                obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
+            }),
+            /persisted refund fee plan conflicts with original payment identity/
+        );
+        assert.equal(mocks.calls.sign, 0, "foreign plan must not reach signer");
+        assert.equal(mocks.calls.broadcast, 0, "foreign plan must not reach network");
+    } finally { h.cleanup(); }
+}
+
 async function testPlannedSignerWithoutPlanStoreCannotFallBackToLegacyTransfer() {
     const h = harness(1);
     try {
@@ -1561,6 +1605,7 @@ async function main() {
     await testPlannedRefundFailsClosedWithoutDedicatedSigner();
     await testConfiguredPlanStoreForbidsGrossFallback();
     await testMissingPlanNeverFallsBackEvenWithBothSigners();
+    await testRefundPlanFromAnotherObligationCannotBeSigned();
     await testPlannedSignerWithoutPlanStoreCannotFallBackToLegacyTransfer();
     await testSignedTransferInspectionIsMandatory();
     await testRejections();
