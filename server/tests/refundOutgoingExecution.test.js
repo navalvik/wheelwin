@@ -1264,7 +1264,8 @@ async function testRefundPlanFromAnotherObligationCannotBeSigned() {
             outgoingTransferProvider: mocks.outgoingTransferProvider,
             feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: {
-                get: () => ({ ...validPlan, obligationId: "different-obligation" })
+                get: () => ({ ...validPlan, obligationId: "different-obligation" }),
+                reserve: () => { throw new Error("must not reserve a foreign plan"); }
             },
             signedTransferInspector: {
                 inspect: async () => { throw new Error("must not inspect foreign plan"); },
