@@ -759,24 +759,33 @@ async function testDurableUnknownBeforeBroadcastAndConcurrentDuplicateGuard() {
     try {
         const [obligation] = prepareObligations(h, 1);
         const mocks = makeMocks({});
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
         let startedResolve;
         const started = new Promise(resolve => { startedResolve = resolve; });
         const waitForRelease = new Promise(resolve => { releaseSigner = resolve; });
+        const plannedSigner = makePlannedSigner(mocks);
         const signer = {
-            async signTransfer(descriptor) {
-                // A restarted process must already see UNKNOWN before it
-                // could possibly have signed or broadcast anything.
+            async signPlannedRefund(descriptor) {
                 assert.equal(h.store.get(obligation.obligationId).state,
                     REFUND_STATE.SUBMISSION_UNKNOWN);
-                const restarted = new RefundObligationStore({
-                    dataDir: join(h.root, "refunds")
-                });
+                const restarted = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
                 restarted.initialize();
                 assert.equal(restarted.get(obligation.obligationId).state,
                     REFUND_STATE.SUBMISSION_UNKNOWN);
                 startedResolve();
                 await waitForRelease;
-                return mocks.signer.signTransfer(descriptor);
+                return plannedSigner.signPlannedRefund(descriptor);
             }
         };
         const provider = new TestnetOutgoingRefundProvider({
@@ -784,7 +793,13 @@ async function testDurableUnknownBeforeBroadcastAndConcurrentDuplicateGuard() {
             signer,
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
-            outgoingTransferProvider: mocks.outgoingTransferProvider
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: planStore,
+            signedTransferInspector: {
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected),
+                verifyWalletV4Signature: async () => true // synthetic test only
+            }
         });
         const first = h.coordinator.submitRefund(obligation.obligationId, { provider });
         await started;
@@ -798,7 +813,7 @@ async function testDurableUnknownBeforeBroadcastAndConcurrentDuplicateGuard() {
         assert.equal((await first).outcome, "SUBMITTED");
         assert.equal(mocks.calls.sign, 1);
         assert.equal(mocks.calls.broadcast, 1,
-            "only one transfer may be broadcast");
+            "only one net-fee transfer may be broadcast");
     } finally {
         releaseSigner?.();
         h.cleanup();
