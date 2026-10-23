@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildTestnetOutgoingRefundProvider } from "../payment/runtime/PaymentRuntimeFactory.js";
 import { WalletV4SignedNativeGramRefundInspector } from "../payment/refund/WalletV4SignedNativeGramRefundInspector.js";
+import { TestnetOutgoingRefundProvider } from "../payment/refund/TestnetOutgoingRefundProvider.js";
 
 const noop = () => {};
 function completeBundle() {
@@ -92,4 +93,20 @@ test("actual Wallet V4R2 inspector implements both required production verificat
     assert.ok(provider, "factory accepts the actual trusted-state inspector API");
     assert.equal(provider.canExecute(), true,
         "readiness checks dependency presence, NOT live payment permission");
+});
+
+test("direct refund provider refuses missing fee estimation or durable plan reservation", () => {
+    for (const [component, method] of [
+        ["feeEstimator", "estimateRefundFee"],
+        ["refundPlanStore", "reserve"]
+    ]) {
+        const bundle = completeBundle();
+        delete bundle[component][method];
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            ...bundle
+        });
+        assert.equal(provider.canExecute(), false,
+            "direct provider must refuse missing " + component + "." + method);
+    }
 });
