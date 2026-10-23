@@ -990,6 +990,24 @@ function createIntent(harness, overrides = {}) {
         "a duplicate payment reference must be rejected"
     );
 
+    // A failed first intent must roll back only its newly allocated wallet.
+    // The reference already exists in another room, so intentStore.save()
+    // fails after the new room's wallet has been reserved.
+    const previouslyReserved = harness.service.getWalletForRoom("room-dup");
+    expectThrow(
+        () => createIntent(harness, {
+            paymentReference: "pay-dup-1",
+            roomId: "room-failed-first",
+            playerId: "player-first"
+        }),
+        "PaymentReferenceCollisionError",
+        "failed first payer intent must reject colliding reference"
+    );
+    check(harness.service.getWalletForRoom("room-failed-first") === null,
+        "failed first payer intent must release its newly reserved wallet");
+    check(harness.service.getWalletForRoom("room-dup")?.walletId === previouslyReserved.walletId,
+        "failed first payer intent must not affect another room's wallet");
+
     // A failed second/third player intent must not release the wallet
     // already assigned to this room and used by the first player.
     const second = createIntent(harness, {
