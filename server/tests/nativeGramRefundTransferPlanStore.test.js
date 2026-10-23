@@ -153,3 +153,32 @@ test("retry refuses durable refund plan indexed under a different obligation", a
     assert.equal(estimatorCalls, 0);
     assert.equal(reserveCalls, 0);
 });
+
+test("retry rejects altered net refund, reserved fee or send-all mode before reserve", async () => {
+    for (const mutation of [
+        { refundAmountAtomic: "2490000001" },
+        { reservedFeeAtomic: "10000001" },
+        { sendRemainingBalance: true },
+        { refundAmountAtomic: "0" },
+        { reservedFeeAtomic: "not-a-number" }
+    ]) {
+        let reserveCalls = 0;
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            feeEstimator: { estimateRefundFee: async () => {
+                throw new Error("retry must not re-estimate");
+            } },
+            refundPlanStore: {
+                get: () => ({ ...plan(), ...mutation }),
+                reserve: () => { reserveCalls += 1; }
+            }
+        });
+        await assert.rejects(
+            provider.reserveNativeGramRefundTransferPlan({
+                obligation, sourceWalletAddress: source
+            }),
+            /persisted refund fee plan conflicts with original payment identity/
+        );
+        assert.equal(reserveCalls, 0);
+    }
+});
