@@ -21,6 +21,40 @@ export class WalletV4SignedNativeGramRefundInspector {
         this._nowSeconds = nowSeconds;
     }
 
+    /**
+     * Mandatory pre-broadcast Wallet V4R2 signature re-verification.
+     * Only an independently attested Testnet wallet state can supply the key.
+     * Called separately from inspect() so a forged inspection verdict alone
+     * can never authorize broadcast.
+     */
+    async verifyWalletV4Signature({
+        signedTransfer, sourceWalletAddress, networkName, globalId
+    }) {
+        if (networkName !== "TESTNET" || globalId !== -3 ||
+            typeof signedTransfer?.boc !== "string") return false;
+        try {
+            const boc = Buffer.from(signedTransfer.boc, "base64");
+            if (!signedRefundBocHashOrNull(signedTransfer)) return false;
+            const parsed = decodeWalletV4NativeRefundBody(boc);
+            const state = await this._walletStateReader.getVerifiedWalletState({
+                networkName: "TESTNET", globalId: -3, sourceWalletAddress
+            });
+            if (state?.verifiedOnChain !== true ||
+                state.networkName !== "TESTNET" || state.globalId !== -3 ||
+                !tonAddressIdentitiesEqual(state.sourceWalletAddress, sourceWalletAddress) ||
+                state.version !== "V4R2" || state.codeHash !== V4R2_CODE_HASH ||
+                !Number.isSafeInteger(state.walletId) || state.walletId !== parsed.walletId ||
+                !Number.isSafeInteger(state.seqno) || state.seqno !== parsed.seqno ||
+                !Buffer.isBuffer(state.publicKey) || state.publicKey.length !== 32 ||
+                !verifyWalletV4SignedPayloadSignature(boc, state.publicKey)) return false;
+            const now = this._nowSeconds();
+            return Number.isSafeInteger(now) && parsed.validUntil > now &&
+                parsed.validUntil <= now + 600;
+        } catch {
+            return false;
+        }
+    }
+
     async inspect({ signedTransfer, expected }) {
         const reject = Object.freeze({ verified: false });
         if (expected?.networkName !== "TESTNET" || expected?.globalId !== -3 ||
