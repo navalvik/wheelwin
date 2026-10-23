@@ -356,6 +356,9 @@ export function buildPaymentRuntime(options = {}) {
         logger
     });
 
+    // Keep wallet recycling aware of durable refunds for SETTLED payers.
+    paymentService.attachRefundStore(refundStore);
+
     const refundLifecycle = new RefundLifecycleCoordinator({
         store: refundStore,
         intentStore,
