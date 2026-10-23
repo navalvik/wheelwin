@@ -1394,6 +1394,73 @@ async function testSubmittedRefundCannotFinalizeWithoutDurablePlan() {
     } finally { h.cleanup(); }
 }
 
+async function testAmbiguousRecoveryWithoutPlanCannotCompleteOrResubmit() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({ ambiguousBroadcast: true });
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
+        const signer = makePlannedSigner(mocks);
+        const signedTransferInspector = {
+            inspect: async ({ signedTransfer, expected }) =>
+                syntheticInspectedRefund(signedTransfer, expected),
+            verifyWalletV4Signature: async () => true // synthetic test only
+        };
+        const submitter = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: planStore, signedTransferInspector
+        });
+        await h.coordinator.submitRefund(obligation.obligationId, { provider: submitter });
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+
+        let grossFinalityChecks = 0;
+        let grossSearches = 0;
+        const recovered = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: {
+                async getSettlementEvidence(query) {
+                    grossFinalityChecks++;
+                    return mocks.finalityEvidenceProvider.getSettlementEvidence(query);
+                }
+            },
+            outgoingTransferProvider: {
+                ...mocks.outgoingTransferProvider,
+                async findOutgoingTransfer(query) {
+                    grossSearches++;
+                    return mocks.outgoingTransferProvider.findOutgoingTransfer(query);
+                }
+            },
+            refundPlanStore: new NativeGramRefundTransferPlanStore({
+                dataDir: join(h.root, "lost-ambiguous-plan-store")
+            }),
+            signedTransferInspector
+        });
+        const result = await h.coordinator.reconcileAmbiguousSubmission(
+            obligation.obligationId, { provider: recovered }
+        );
+        assert.equal(result.outcome, "RECONCILIATION_REQUIRED");
+        assert.equal(grossFinalityChecks, 0, "no legacy gross finality after plan loss");
+        assert.equal(grossSearches, 0, "no gross-principal transaction search after plan loss");
+        assert.equal(mocks.calls.sign, 1, "recovery cannot sign again");
+        assert.equal(mocks.calls.broadcast, 1, "recovery cannot broadcast again");
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.RECONCILIATION_REQUIRED);
+        assert.ok(!h.store.get(obligation.obligationId).finalizedEvidence);
+    } finally { h.cleanup(); }
+}
+
 async function main() {
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
@@ -1410,6 +1477,7 @@ async function main() {
     await testBroadcastFailureUnknown();
     await testFinalityMissing();
     await testSubmittedRefundCannotFinalizeWithoutDurablePlan();
+    await testAmbiguousRecoveryWithoutPlanCannotCompleteOrResubmit();
     await testConflictingEvidenceCannotComplete();
     await testNonFinalEvidenceCannotComplete();
     await testWrongTransactionIdentityCannotComplete();
