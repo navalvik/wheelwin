@@ -313,6 +313,48 @@ async function testChangedObligationDuringFeeReservationCannotBroadcast() {
     }
 }
 
+async function testFailedPlanWriteCanRetryWithoutDuplicateSubmission() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        let reserveCalls = 0;
+        let broadcasts = 0;
+        const provider = {
+            networkName: "TESTNET", globalId: -3,
+            canExecute: () => true,
+            resolveSourceWallet: () => TESTNET_ROOM_WALLET,
+            authorizeSubmission: () => ({}),
+            reserveNativeGramRefundTransferPlan: async () => {
+                reserveCalls += 1;
+                if (reserveCalls === 1) throw new Error("TRANSIENT_PLAN_WRITE_FAILURE");
+                return { replay: false };
+            },
+            signAndBroadcast: async () => {
+                broadcasts += 1;
+                assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+                return { outcome: "SUBMITTED", outgoingTransactionId: "retry-after-plan-write" };
+            }
+        };
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /TRANSIENT_PLAN_WRITE_FAILURE/
+        );
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+        assert.equal(broadcasts, 0);
+        const result = await h.coordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(result.outcome, "SUBMITTED");
+        assert.equal(reserveCalls, 2);
+        assert.equal(broadcasts, 1);
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /not awaiting submission/
+        );
+        assert.equal(broadcasts, 1);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -1776,6 +1818,7 @@ async function main() {
     await testDurablePlanPrecedesUnknownAndBroadcast();
     await testConcurrentFeePlanReservationsCannotBroadcastTwice();
     await testChangedObligationDuringFeeReservationCannotBroadcast();
+    await testFailedPlanWriteCanRetryWithoutDuplicateSubmission();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
