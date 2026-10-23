@@ -1035,6 +1035,26 @@ function createIntent(harness, overrides = {}) {
 
     // A failed second/third player intent must not release the wallet
     // already assigned to this room and used by the first player.
+    expectThrow(
+        () => createIntent(harness, {
+            paymentReference: "pay-dup-1",
+            roomId: "room-dup",
+            playerId: "player-2"
+        }),
+        "PaymentReferenceCollisionError",
+        "failed second payer must reject a reference already used by the first"
+    );
+    const diskPoolAfterSecondFailure = new WalletPoolRegistry({
+        logger: harness.logger,
+        catalogPath: harness.env.catalogPath,
+        network: "testnet"
+    });
+    diskPoolAfterSecondFailure.initialize({ snapshotDir: harness.env.dataDir });
+    check(
+        diskPoolAfterSecondFailure.getReservationForRoom("room-dup")?.walletId === wallet.walletId,
+        "failed second payer must preserve the first payer's durable wallet"
+    );
+
     const second = createIntent(harness, {
         paymentReference: "pay-dup-2",
         roomId: "room-dup",
