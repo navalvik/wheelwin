@@ -199,6 +199,40 @@ async function testFeePlanMustPersistBeforeSubmissionUnknown() {
     }
 }
 
+async function testDurablePlanPrecedesUnknownAndBroadcast() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const events = [];
+        const provider = {
+            networkName: "TESTNET", globalId: -3,
+            canExecute: () => true,
+            resolveSourceWallet: () => TESTNET_ROOM_WALLET,
+            authorizeSubmission: () => ({}),
+            reserveNativeGramRefundTransferPlan: async () => {
+                assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+                events.push("plan-persisted");
+                return { replay: false };
+            },
+            signAndBroadcast: async () => {
+                assert.deepEqual(events, ["plan-persisted"]);
+                assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+                events.push("broadcast");
+                return {
+                    outcome: "SUBMITTED",
+                    outgoingTransactionId: "mock-net-refund-tx"
+                };
+            }
+        };
+        const result = await h.coordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(result.outcome, "SUBMITTED");
+        assert.deepEqual(events, ["plan-persisted", "broadcast"]);
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMITTED);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -1659,6 +1693,7 @@ async function testVerifiedAmbiguousRefundWithoutPlanPersistsHoldAcrossRestart()
 
 async function main() {
     await testFeePlanMustPersistBeforeSubmissionUnknown();
+    await testDurablePlanPrecedesUnknownAndBroadcast();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
