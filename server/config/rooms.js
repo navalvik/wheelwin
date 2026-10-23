@@ -47,6 +47,13 @@ export function loadRoomConfig(env = process.env) {
 
     }
 
+    // Page2 through Page4 share one fixed five-minute budget. Reject stale
+    // deployment overrides rather than silently diverging from the immutable
+    // payment-intent deadline and allowing a room to outlive its payments.
+    if (setupDurationMs !== DEFAULT_SETUP_DURATION_MS) {
+        throw new Error("SETUP_DURATION_MS must equal 300000 for the five-minute room lifecycle");
+    }
+
     const resultSessionDurationMs = env.RESULT_SESSION_DURATION_MS === undefined
         ? DEFAULT_RESULT_SESSION_DURATION_MS
         : Number(env.RESULT_SESSION_DURATION_MS);
@@ -65,6 +72,10 @@ export function loadRoomConfig(env = process.env) {
 
         throw new Error("Invalid PAYMENT_SESSION_DURATION_MS environment variable");
 
+    }
+
+    if (paymentSessionDurationMs !== DEFAULT_PAYMENT_SESSION_DURATION_MS) {
+        throw new Error("PAYMENT_SESSION_DURATION_MS must equal 300000 for the five-minute room lifecycle");
     }
 
     const walletConnectionDurationMs = env.WALLET_CONNECTION_DURATION_MS === undefined
