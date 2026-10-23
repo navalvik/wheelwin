@@ -333,10 +333,18 @@ export class RefundLifecycleCoordinator {
                     outgoingTransactionId: completed.outgoingTransactionId, reason: null
                 });
             }
-            // No durable net-fee plan: never use legacy gross-principal
-            // evidence to complete an ambiguous refund.
+            // A verified response without its durable plan cannot be completed.
+            // Persist the hold so recovery cannot retry the ambiguous transfer.
+            const reason = "REFUND_PLAN_MISSING";
+            const attempt = this._attempt(current, "RECONCILIATION_REQUIRED", {
+                startedAtMs: this._now(), completedAtMs: this._now(),
+                errorCode: reason, attemptId: `${current.obligationId}:reconcile`
+            });
+            this._store.markReconciliationRequired(obligationId, {
+                attempt, lastError: reason
+            });
             return Object.freeze({
-                obligationId, outcome: "RECONCILIATION_REQUIRED", reason: "REFUND_PLAN_MISSING"
+                obligationId, outcome: "RECONCILIATION_REQUIRED", reason
             });
         }
         const attempt = this._attempt(current, "RECONCILIATION_REQUIRED", { startedAtMs: this._now(), completedAtMs: this._now(), errorCode: verification.reason, attemptId: `${current.obligationId}:reconcile` });
