@@ -990,6 +990,35 @@ function createIntent(harness, overrides = {}) {
         "a duplicate payment reference must be rejected"
     );
 
+    // A failed second/third player intent must not release the wallet
+    // already assigned to this room and used by the first player.
+    const second = createIntent(harness, {
+        paymentReference: "pay-dup-2",
+        roomId: "room-dup",
+        playerId: "player-2"
+    });
+    check(second.destinationWalletId === wallet.walletId,
+        "second payer must use the same reserved room wallet");
+    expectThrow(
+        () => createIntent(harness, {
+            paymentReference: "pay-dup-2",
+            roomId: "room-dup",
+            playerId: "player-3"
+        }),
+        "PaymentReferenceCollisionError",
+        "third payer's colliding reference must fail"
+    );
+    check(harness.service.getWalletForRoom("room-dup")?.walletId === wallet.walletId,
+        "failed third payer intent must preserve the first two payers' wallet");
+    expectThrow(
+        () => harness.service.reserveWalletForRoom({
+            roomId: "room-competing-after-failure",
+            walletId: wallet.walletId
+        }),
+        "WalletAssignmentConflictError",
+        "failed third payer intent must not expose wallet to another room"
+    );
+
     rmSync(harness.env.workspace, { recursive: true, force: true });
 
     console.log("[5/8] duplicate reservations: PASS");
