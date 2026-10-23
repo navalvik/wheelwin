@@ -26,7 +26,7 @@ import {
     OUTGOING_SUBMISSION_OUTCOME,
     TON_TESTNET_GLOBAL_ID
 } from "../payment/refund/TestnetOutgoingRefundProvider.js";
-import { buildPaymentRuntime } from "../payment/runtime/PaymentRuntimeFactory.js";
+import { buildPaymentRuntime, buildTestnetOutgoingRefundProvider } from "../payment/runtime/PaymentRuntimeFactory.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "../payment/PaymentLifecycleAvailability.js";
 
 const NOW = 1_800_000_000_000;
@@ -476,6 +476,48 @@ async function testRealProviderRejectsWrongFeeQuoteRecipient() {
     } finally {
         h.cleanup();
     }
+}
+
+async function testRuntimeRefundFactoryRejectsIncompleteExecutionBundle() {
+    const mocks = makeMocks({});
+    const complete = {
+        signer: { signPlannedRefund: async () => ({}) },
+        broadcaster: mocks.broadcaster,
+        finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+        outgoingTransferProvider: mocks.outgoingTransferProvider,
+        feeEstimator: { estimateRefundFee: async () => ({}) },
+        refundPlanStore: { get: () => null, reserve: () => ({}) },
+        signedTransferInspector: {
+            inspect: async () => ({}),
+            verifyWalletV4Signature: async () => true
+        }
+    };
+    assert.equal(buildTestnetOutgoingRefundProvider({
+        submitter: complete, globalId: -239,
+        finalityEvidenceProvider: mocks.finalityEvidenceProvider
+    }), null);
+    assert.equal(buildTestnetOutgoingRefundProvider({
+        submitter: null, globalId: -3,
+        finalityEvidenceProvider: mocks.finalityEvidenceProvider
+    }), null);
+    for (const [name, missing] of [
+        ["signer", { signer: null }],
+        ["fee estimator", { feeEstimator: null }],
+        ["plan store", { refundPlanStore: null }],
+        ["signed BOC inspector", { signedTransferInspector: null }],
+        ["broadcaster", { broadcaster: null }],
+        ["outgoing observation", { outgoingTransferProvider: null }],
+        ["finality", { finalityEvidenceProvider: null }]
+    ]) {
+        assert.equal(buildTestnetOutgoingRefundProvider({
+            submitter: { ...complete, ...missing },
+            globalId: -3, finalityEvidenceProvider: null
+        }), null, name + " must fail closed");
+    }
+    assert.equal(buildTestnetOutgoingRefundProvider({
+        submitter: complete, globalId: -3,
+        finalityEvidenceProvider: null
+    })?.canExecute(), true);
 }
 
 async function testValidSubmission() {
@@ -1950,6 +1992,7 @@ async function main() {
     await testRealProviderFeeEstimatorFailureNeverSigns();
     await testRealProviderRejectsInvalidFeeQuoteBeforeSigning();
     await testRealProviderRejectsWrongFeeQuoteRecipient();
+    await testRuntimeRefundFactoryRejectsIncompleteExecutionBundle();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
