@@ -20,7 +20,7 @@ export function makeNativeRefundV4Boc({
     extraCurrency = false, bounce = true, seqno = 1, body = ""
 } = {}) {
     const wallet = "0".repeat(512) + b(698983191, 32) +
-        b(1800000100, 32) + b(seqno, 32) + b(opcode, 32) + b(mode, 8);
+        b(1800000100, 32) + b(seqno, 32) + b(opcode, 8) + b(mode, 8);
     const message = "0" + "1" + (bounce ? "1" : "0") + "0" +
         "00" + "10" + "0" + b(0, 8) + b(BigInt("0x" + to), 256) +
         coins(amount) + (extraCurrency ? "1" : "0") + coins(0) + coins(0) +
