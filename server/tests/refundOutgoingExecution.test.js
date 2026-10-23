@@ -561,6 +561,40 @@ async function testRealProviderRejectsMainnetFeeQuote() {
     }
 }
 
+async function testBroadcastFailureNeverRetriesBlindly() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        let broadcasts = 0;
+        const provider = {
+            networkName: "TESTNET", globalId: -3,
+            canExecute: () => true,
+            resolveSourceWallet: () => TESTNET_ROOM_WALLET,
+            authorizeSubmission: () => ({}),
+            reserveNativeGramRefundTransferPlan: async () => ({ replay: false }),
+            signAndBroadcast: async () => {
+                broadcasts += 1;
+                throw new Error("NETWORK_RESPONSE_LOST");
+            }
+        };
+        const first = await h.coordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(first.outcome, "SUBMISSION_UNKNOWN");
+        assert.equal(broadcasts, 1);
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /not awaiting submission/
+        );
+        assert.equal(broadcasts, 1);
+        const restartedStore = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        restartedStore.initialize();
+        assert.equal(restartedStore.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+        assert.equal(broadcasts, 1);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -2035,6 +2069,7 @@ async function main() {
     await testRealProviderRejectsWrongFeeQuoteRecipient();
     await testRuntimeRefundFactoryRejectsIncompleteExecutionBundle();
     await testRealProviderRejectsMainnetFeeQuote();
+    await testBroadcastFailureNeverRetriesBlindly();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
