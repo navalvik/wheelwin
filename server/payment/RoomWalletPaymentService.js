@@ -289,7 +289,7 @@ export class RoomWalletPaymentService {
     // -------------------------------------------------------------------------
 
     /**
-     * The single, immutable room deadline: `roomCreatedAt + 480000` ms.
+     * The single, immutable room deadline: `roomCreatedAt + 300000` ms.
      *
      * @param {number} roomCreatedAt
      * @returns {{ roomCreatedAt: number, roomLifetimeMs: number, deadlineMs: number }}
@@ -301,7 +301,7 @@ export class RoomWalletPaymentService {
     }
 
     /**
-     * Absolute room pool lifetime. Fixed at exactly 480 seconds.
+     * Absolute room pool lifetime. Fixed at exactly 300 seconds.
      */
     get roomLifetimeMs() {
 
