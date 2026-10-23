@@ -41,6 +41,20 @@ test("production refund factory refuses each missing net-refund safety dependenc
     }
 });
 
+test("production refund factory refuses missing broadcast and chain-verification dependencies", () => {
+    const missing = [
+        ["broadcaster", "broadcast"],
+        ["finalityEvidenceProvider", "getSettlementEvidence"],
+        ["outgoingTransferProvider", "getOutgoingTransfer"],
+        ["outgoingTransferProvider", "findOutgoingTransfer"]
+    ];
+    for (const [component, method] of missing) {
+        const bundle = completeBundle();
+        delete bundle[component][method];
+        assert.equal(build(bundle), null, component + "." + method);
+    }
+});
+
 test("production refund factory requires Testnet and a complete authorized bundle", () => {
     assert.equal(build(null), null);
     assert.equal(build(completeBundle(), -239), null);
