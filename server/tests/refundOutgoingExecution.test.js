@@ -943,6 +943,18 @@ async function testRestartPreservesObligationsAndRecoveryWithoutDuplication() {
         });
         assert.equal(capableReport[0].outcome, "SUBMISSION_OUTCOME_UNKNOWN_HOLD", "capable recovery provider does not resubmit");
         assert.equal(restartStore.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN, "still SUBMISSION_UNKNOWN after capable recovery");
+        assert.equal(mocks.calls.sign, 1, "capable restart recovery must not sign again");
+        assert.equal(mocks.calls.broadcast, 1, "capable restart recovery must not broadcast again");
+
+        // Reopen the immutable fee plan independently after the same restart.
+        const restartedPlanStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        const restoredPlan = restartedPlanStore.get(obligation.obligationId);
+        assert.ok(restoredPlan, "fee-reserved refund plan survives restart");
+        assert.equal(restoredPlan.originalPaidAmountAtomic, "1000000000");
+        assert.equal(restoredPlan.refundAmountAtomic, "990000000");
+        assert.equal(restoredPlan.reservedFeeAtomic, "10000000");
+        assert.equal(restoredPlan.sendRemainingBalance, false);
+        assert.equal(mocks.calls.broadcast, 1, "reading durable plan cannot resend refund");
     } finally {
         h.cleanup();
     }
