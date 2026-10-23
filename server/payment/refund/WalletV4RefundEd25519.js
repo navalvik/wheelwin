@@ -44,7 +44,7 @@ export function verifyWalletV4RefundEd25519({ boc, publicKeyHex }) {
         decodeWalletV4NativeRefundBody(bytes);
         const { root, cells } = decodeOrdinaryTonBocCells(bytes);
         const signed = cells[root];
-        if (signed.bitLength !== 648 || signed.refs.length !== 1) return false;
+        if (signed.bitLength !== 624 || signed.refs.length !== 1) return false;
         const signature = packed(signed.bits.slice(0, 512));
         const unsigned = {
             ...signed,
