@@ -871,7 +871,7 @@ async function run() {
         });
     });
 
-    await section("480-second deadline and expired-intent behavior are preserved", async () => {
+    await section("300-second deadline and expired-intent behavior are preserved", async () => {
         let currentNow = NOW_MS;
         await withHarness({ clock: () => currentNow }, (h) => {
             const descriptor = makeDescriptor();
