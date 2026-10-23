@@ -506,9 +506,30 @@ async function testConflictingEvidenceCannotComplete() {
     try {
         const [obligation] = prepareObligations(h, 1);
         const mocks = makeMocks({});
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
+        const signer = makePlannedSigner(mocks);
+        const signedTransferInspector = {
+            inspect: async ({ signedTransfer, expected }) =>
+                syntheticInspectedRefund(signedTransfer, expected),
+            verifyWalletV4Signature: async () => true // synthetic test only
+        };
+
         const baseProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
-            signer: mocks.signer,
+            signer,
+            refundPlanStore: planStore,
+            signedTransferInspector,
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider
@@ -523,7 +544,7 @@ async function testConflictingEvidenceCannotComplete() {
                     transactionId: "outgoing-testnet-tx",
                     sourceAddress: TESTNET_ROOM_WALLET,
                     destinationAddress: `0:${"c".repeat(64)}`,
-                    amountAtomic: 1_000_000_000
+                    amountAtomic: 990_000_000
                 }
             },
             {
@@ -543,7 +564,9 @@ async function testConflictingEvidenceCannotComplete() {
             };
             const conflictingProvider = new TestnetOutgoingRefundProvider({
                 globalId: -3,
-                signer: mocks.signer,
+                signer,
+            refundPlanStore: planStore,
+            signedTransferInspector,
                 broadcaster: mocks.broadcaster,
                 finalityEvidenceProvider: mocks.finalityEvidenceProvider,
                 outgoingTransferProvider: conflictingTransferProvider
