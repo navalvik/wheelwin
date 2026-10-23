@@ -81,6 +81,36 @@ test("TON Wallet V4R2 inspector independently decodes and verifies a net refund"
     assert.equal(result.messages[0].to, to);
     assert.equal(result.messages[0].sendMode, 3);
 });
+test("pre-broadcast Wallet V4R2 signature method authenticates exact room wallet and rejects spoofed state", async () => {
+    const { publicKey, boc } = fixture();
+    const valid = inspector(publicKey);
+    const request = {
+        signedTransfer: { boc },
+        sourceWalletAddress: from, networkName: "TESTNET", globalId: -3
+    };
+    assert.equal(typeof valid.verifyWalletV4Signature, "function");
+    assert.equal(await valid.verifyWalletV4Signature(request), true);
+    assert.equal(await valid.verifyWalletV4Signature({
+        ...request, sourceWalletAddress: to
+    }), false);
+    assert.equal(await valid.verifyWalletV4Signature({
+        ...request, globalId: -239
+    }), false);
+    const forged = inspector(publicKey, { verifiedOnChain: false });
+    assert.equal(await forged.verifyWalletV4Signature(request), false);
+    const wrongKey = inspector(fixture().publicKey);
+    assert.equal(await wrongKey.verifyWalletV4Signature(request), false);
+    const wrongSeqno = inspector(publicKey, { seqno: 2 });
+    assert.equal(await wrongSeqno.verifyWalletV4Signature(request), false);
+    const wrongCode = inspector(publicKey, { codeHash: "f".repeat(64) });
+    assert.equal(await wrongCode.verifyWalletV4Signature(request), false);
+    const mutated = Buffer.from(boc, "base64");
+    mutated[13] ^= 1; // signed root signature
+    assert.equal(await valid.verifyWalletV4Signature({
+        ...request, signedTransfer: { boc: mutated.toString("base64") }
+    }), false);
+});
+
 test("mismatched signer, contract, seqno, network and amount fail closed", async () => {
     const { publicKey, boc } = fixture();
     const wrongPublicKey = fixture().publicKey;
