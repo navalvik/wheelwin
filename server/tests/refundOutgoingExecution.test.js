@@ -172,40 +172,54 @@ function makeMocks({ failBroadcast = false, ambiguousBroadcast = false, failSign
 async function testValidSubmission() {
     const h = harness(1);
     try {
-        const obligations = prepareObligations(h, 1);
-        const obligation = obligations[0];
+        const [obligation] = prepareObligations(h, 1);
         assert.equal(obligation.state, REFUND_STATE.PENDING);
-
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
         const mocks = makeMocks({});
+        mocks.outgoingTransferProvider.getOutgoingTransfer = async ({ sourceWalletAddress, transactionId }) => ({
+            transactionId, sourceAddress: sourceWalletAddress,
+            destinationAddress: TESTNET_PAYER, amountAtomic: 990_000_000
+        });
         const provider = new TestnetOutgoingRefundProvider({
             globalId: -3,
-            signer: mocks.signer,
+            signer: makePlannedSigner(mocks),
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
-            outgoingTransferProvider: mocks.outgoingTransferProvider
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: planStore,
+            signedTransferInspector: {
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected),
+                verifyWalletV4Signature: async () => true // synthetic test only
+            }
         });
         assert.equal(provider.canExecute(), true);
-
         const resSubmit = await h.coordinator.submitRefund(obligation.obligationId, { provider });
         assert.equal(resSubmit.outcome, "SUBMITTED");
         assert.equal(resSubmit.outgoingTransactionId, "outgoing-testnet-tx");
-
-        const afterSubmit = h.store.get(obligation.obligationId);
-        assert.equal(afterSubmit.state, REFUND_STATE.SUBMITTED);
-        assert.equal(afterSubmit.outgoingTransactionId, "outgoing-testnet-tx");
-
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMITTED);
         const resFinalize = await h.coordinator.finalizeRefund(obligation.obligationId, { provider });
         assert.equal(resFinalize.outcome, "COMPLETE");
-
-        const afterComplete = h.store.get(obligation.obligationId);
-        assert.equal(afterComplete.state, REFUND_STATE.COMPLETE);
-        assert.ok(afterComplete.finalizedEvidence);
-        assert.equal(afterComplete.finalizedEvidence.finalized, true);
-        assert.equal(afterComplete.finalizedEvidence.transactionId, "outgoing-testnet-tx");
-        assert.equal(afterComplete.finalizedEvidence.destination, TESTNET_PAYER);
-        assert.equal(afterComplete.finalizedEvidence.amountAtomic, 1_000_000_000);
-        assert.equal(afterComplete.finalizedEvidence.networkName, "TESTNET");
-        assert.equal(afterComplete.finalizedEvidence.globalId, -3);
+        const completed = h.store.get(obligation.obligationId);
+        assert.equal(completed.state, REFUND_STATE.COMPLETE);
+        assert.equal(completed.finalizedEvidence.finalized, true);
+        assert.equal(completed.finalizedEvidence.transactionId, "outgoing-testnet-tx");
+        assert.equal(completed.finalizedEvidence.destination, TESTNET_PAYER);
+        assert.equal(completed.finalizedEvidence.amountAtomic, 990_000_000);
+        assert.equal(completed.finalizedEvidence.reservedFeeAtomic, "10000000");
+        assert.equal(completed.finalizedEvidence.networkName, "TESTNET");
+        assert.equal(completed.finalizedEvidence.globalId, -3);
     } finally {
         h.cleanup();
     }
