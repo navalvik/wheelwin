@@ -36,7 +36,6 @@ import {
 } from "../incoming/TonAddressIdentity.js";
 import {
     OUTGOING_FINALITY_REJECTION,
-    verifyOutgoingRefundFinality,
     verifyPlannedNativeGramRefundFinality
 } from "./OutgoingRefundFinality.js";
 
@@ -413,41 +412,6 @@ export class TestnetOutgoingRefundProvider {
             outcome: OUTGOING_SUBMISSION_OUTCOME.UNKNOWN,
             outgoingTransactionId: null,
             reason: OUTGOING_SUBMISSION_REASON.BROADCAST_RESULT_INVALID
-        });
-    }
-
-    /**
-     * Independently observe and verify finality of a known outgoing transaction
-     * against the obligation. Returns the validated evidence or a rejection;
-     * never mutates and never fabricates.
-     */
-    async observeAndVerifyFinality({ obligation, sourceWalletAddress, outgoingTransactionId, nowMs }) {
-        const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
-        let evidence = null;
-        let outgoingTransfer = null;
-        try {
-            evidence = await this._finality.getSettlementEvidence({
-                accountId: authorized.sourceAccountId,
-                providerTransactionId: outgoingTransactionId
-            });
-        } catch {
-            evidence = null;
-        }
-        try {
-            outgoingTransfer = await this._observation.getOutgoingTransfer({
-                sourceWalletAddress: authorized.sourceAccountId,
-                transactionId: outgoingTransactionId
-            });
-        } catch {
-            outgoingTransfer = null;
-        }
-        return verifyOutgoingRefundFinality({
-            obligation,
-            sourceWalletAddress: authorized.sourceWalletAddress,
-            outgoingTransactionId,
-            evidence,
-            outgoingTransfer,
-            nowMs
         });
     }
 
