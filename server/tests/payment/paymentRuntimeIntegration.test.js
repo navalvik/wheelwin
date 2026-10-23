@@ -484,12 +484,15 @@ async function run() {
             roomManager.attachSetupSessionLifecycle({ createForRoom: () => ({}), abortForRoom() {} });
             bindPaymentRuntimeToApplication(first.runtime, { roomManager, logger });
             const room = roomManager.createRoom();
+            first.runtime.paymentService.reserveWalletForRoom({ roomId: room.roomId, network: "testnet" });
             seedRoomPayments(first.runtime, room.roomId, 3);
             registerRoomDestroyContext(room.roomId, {
                 reason: "setup_expired", caller: "SetupSessionLifecycle._onExpiry"
             });
             equal(roomManager.destroyRoom(room.roomId), true, "setup expiry destroys fully paid room");
             equal(first.runtime.refundStore.size, 3, "three obligations persisted before restart");
+            const reservedWalletId = first.runtime.paymentService.getWalletForRoom(room.roomId)?.walletId;
+            check(Boolean(reservedWalletId), "room wallet reservation exists before restart");
             const idsBefore = first.runtime.refundStore.list().map((o) => o.obligationId).sort();
             paymentRuntimeShutdown(first.runtime);
             managerShutdown(roomManager, eventBus);
@@ -503,6 +506,13 @@ async function run() {
             });
             const recovery = restart.initialize();
             equal(restart.refundStore.size, 3, "restart restores all three refund obligations");
+            equal(restart.paymentService.getWalletForRoom(room.roomId)?.walletId,
+                reservedWalletId, "restart retains the original reserved wallet");
+            throws(() => restart.paymentService.releaseWalletForRoom(room.roomId),
+                /recycl|obligation|blocked|unresolved/i,
+                "pending refunds prevent wallet release after restart");
+            equal(restart.paymentService.getWalletForRoom(room.roomId)?.walletId,
+                reservedWalletId, "blocked release does not change reservation");
             assert.deepEqual(restart.refundStore.list().map((o) => o.obligationId).sort(), idsBefore,
                 "restart preserves all original refund IDs");
             equal(recovery.refundRecovery.length, 3, "all three refunds require recovery");
