@@ -1105,6 +1105,23 @@ async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
         const reopened = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
         reopened.initialize();
         assert.equal(reopened.get(obligation.obligationId).state, REFUND_STATE.COMPLETE);
+        const restartedCoordinator = new RefundLifecycleCoordinator({
+            store: reopened,
+            intentStore: h.intentStore,
+            ledgerStore: h.ledgerStore,
+            nowProvider: () => NOW
+        });
+        const recovered = restartedCoordinator.recover({
+            providers: new Map([["TESTNET", provider]])
+        });
+        assert.equal(recovered.length, 0, "completed refund must never reenter recovery queue");
+        assert.equal(mocks.calls.sign, 1, "completed refund must not be re-signed after restart");
+        assert.equal(mocks.calls.broadcast, 1, "completed refund must not be re-broadcast after restart");
+        await assert.rejects(
+            restartedCoordinator.submitRefund(obligation.obligationId, { provider }),
+            /only a PENDING refund|cannot submit|not pending|state/i,
+            "completed refund cannot be submitted again after restart"
+        );
         await assert.rejects(
             h.coordinator.finalizeRefund(obligation.obligationId, { provider }),
             /not been submitted/
