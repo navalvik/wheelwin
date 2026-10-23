@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -100,5 +100,35 @@ test("Wrong network or room number outside the 64-wallet pool fails closed", () 
     } finally {
         if (previous === undefined) delete process.env.ROOM_WALLETS_TESTNET_JSON;
         else process.env.ROOM_WALLETS_TESTNET_JSON = previous;
+    }
+});
+
+test("Unknown reserved wallet in durable snapshot blocks startup without silently releasing it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-unknown-reservation-"));
+    try {
+        const pool = new WalletPoolRegistry({
+            catalogJson: JSON.stringify(catalog()), network: "testnet"
+        });
+        pool.initialize();
+        pool.reserve({ roomId: "room-with-unsettled-payment", network: "testnet" });
+        const snapshotPath = pool.persistSnapshot(dir);
+        const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+        const reserved = snapshot.reservations.find(w => w.reservedByRoomId !== null);
+        assert.ok(reserved, "fixture must contain a reserved wallet");
+        reserved.walletId = "unknown-wallet-id";
+        writeFileSync(snapshotPath, JSON.stringify(snapshot), "utf8");
+
+        const restarted = new WalletPoolRegistry({
+            catalogJson: JSON.stringify(catalog()), network: "testnet"
+        });
+        assert.throws(
+            () => restarted.initialize({ snapshotDir: dir }),
+            /unknown reserved wallet/,
+            "startup must fail closed instead of losing an unresolved reservation"
+        );
+        assert.equal(restarted.getReservedCount(), 0,
+            "failed startup must not create a valid-looking reservation");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
     }
 });
