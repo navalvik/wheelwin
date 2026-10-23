@@ -261,7 +261,7 @@ export class TestnetOutgoingRefundProvider {
                 reason: OUTGOING_SUBMISSION_REASON.SIGNER_UNAVAILABLE
             });
         }
-        if (plan && (plan.idempotencyKey !== authorized.idempotencyKey ||
+        if (plan.idempotencyKey !== authorized.idempotencyKey ||
             plan.networkName !== authorized.networkName ||
             plan.globalId !== authorized.globalId ||
             plan.denomination !== authorized.denomination ||
@@ -274,7 +274,7 @@ export class TestnetOutgoingRefundProvider {
             !/^[1-9][0-9]*$/.test(plan.reservedFeeAtomic) ||
             BigInt(plan.refundAmountAtomic) + BigInt(plan.reservedFeeAtomic) !==
                 BigInt(authorized.amountAtomic) ||
-            plan.sendRemainingBalance !== false)) {
+            plan.sendRemainingBalance !== false) {
             throw new OutgoingRefundError("persisted refund fee plan conflicts with original payment identity");
         }
         if (typeof this._signer.signPlannedRefund !== "function") {
@@ -304,16 +304,16 @@ export class TestnetOutgoingRefundProvider {
             // identity before its signed payload can reach the broadcaster.
             // This is an adapter contract check, not independent decoding of
             // the signed TON BOC (that is still required before production).
-            if (plan && (signedTransfer?.amountAtomic !== plan.refundAmountAtomic ||
+            if (signedTransfer?.amountAtomic !== plan.refundAmountAtomic ||
                 signedTransfer?.networkName !== authorized.networkName ||
                 signedTransfer?.globalId !== authorized.globalId ||
                 signedTransfer?.idempotencyKey !== authorized.idempotencyKey ||
                 signedTransfer?.sendRemainingBalance !== false ||
                 !tonAddressIdentitiesEqual(signedTransfer?.from, authorized.sourceWalletAddress) ||
-                !tonAddressIdentitiesEqual(signedTransfer?.to, authorized.refundDestination))) {
+                !tonAddressIdentitiesEqual(signedTransfer?.to, authorized.refundDestination)) {
                 throw new OutgoingRefundError("signed refund descriptor does not match the durable net transfer plan");
             }
-            if (plan) {
+            {
                 // A self-reported descriptor is NOT enough to certify a TON
                 // signed external message. An independently injected inspector
                 // must decode the actual signed bytes and verify transfer
