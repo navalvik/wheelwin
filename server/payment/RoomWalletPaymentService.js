@@ -478,6 +478,9 @@ export class RoomWalletPaymentService {
                     roomId,
                     unresolvedObligations: this._countOpenObligationsForRoom(roomId)
                 });
+                // Keep the durable wallet snapshot consistent with the
+                // in-memory rollback; a restart must not revive this lease.
+                this.persistSnapshot();
             }
 
             throw error;
