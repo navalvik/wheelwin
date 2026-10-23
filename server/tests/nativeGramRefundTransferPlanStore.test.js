@@ -83,3 +83,48 @@ test("provider only reserves estimate with exact identity and never enables exec
         rmSync(root, { recursive: true, force: true });
     }
 });
+
+test("refund retry preserves original net amount without re-estimating changed network fees", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ww-refund-fee-retry-"));
+    try {
+        let estimateCalls = 0;
+        const firstStore = new NativeGramRefundTransferPlanStore({ dataDir: root });
+        const firstProvider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            feeEstimator: { estimateRefundFee: async () => {
+                estimateCalls += 1;
+                return quote;
+            } },
+            refundPlanStore: firstStore
+        });
+        const initial = await firstProvider.reserveNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: source
+        });
+        assert.equal(initial.replay, false);
+        assert.equal(estimateCalls, 1);
+        const initialPlan = firstStore.get(obligation.obligationId);
+        assert.equal(initialPlan.refundAmountAtomic, "2490000000");
+        assert.equal(initialPlan.reservedFeeAtomic, "10000000");
+
+        // A restarted runtime has a different fee quote, but the already
+        // reserved transfer terms must remain immutable.
+        const reopenedStore = new NativeGramRefundTransferPlanStore({ dataDir: root });
+        const retryProvider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            feeEstimator: { estimateRefundFee: async () => {
+                estimateCalls += 1;
+                return { ...quote, maxFeeAtomic: "20000000" };
+            } },
+            refundPlanStore: reopenedStore
+        });
+        const retried = await retryProvider.reserveNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: source
+        });
+        assert.equal(retried.replay, true);
+        assert.equal(estimateCalls, 1, "retry must not consult network fee estimator");
+        assert.deepEqual(reopenedStore.get(obligation.obligationId), initialPlan);
+        assert.equal(retryProvider.canExecute(), false, "test has no signer or broadcaster");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
