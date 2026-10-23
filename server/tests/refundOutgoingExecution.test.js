@@ -233,6 +233,47 @@ async function testDurablePlanPrecedesUnknownAndBroadcast() {
     }
 }
 
+async function testConcurrentFeePlanReservationsCannotBroadcastTwice() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        let releaseFirst;
+        let firstReservationStarted;
+        const firstStarted = new Promise((resolve) => { firstReservationStarted = resolve; });
+        const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+        let reservations = 0;
+        let broadcasts = 0;
+        const provider = {
+            networkName: "TESTNET", globalId: -3,
+            canExecute: () => true,
+            resolveSourceWallet: () => TESTNET_ROOM_WALLET,
+            authorizeSubmission: () => ({}),
+            reserveNativeGramRefundTransferPlan: async () => {
+                reservations += 1;
+                if (reservations === 1) {
+                    firstReservationStarted();
+                    await firstGate;
+                }
+                return { replay: reservations > 1 };
+            },
+            signAndBroadcast: async () => {
+                broadcasts += 1;
+                return { outcome: "SUBMITTED", outgoingTransactionId: "concurrent-tx" };
+            }
+        };
+        const first = h.coordinator.submitRefund(obligation.obligationId, { provider });
+        await firstStarted;
+        const second = await h.coordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(second.outcome, "SUBMITTED");
+        releaseFirst();
+        await assert.rejects(first, /not awaiting submission/);
+        assert.equal(broadcasts, 1);
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMITTED);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -1694,6 +1735,7 @@ async function testVerifiedAmbiguousRefundWithoutPlanPersistsHoldAcrossRestart()
 async function main() {
     await testFeePlanMustPersistBeforeSubmissionUnknown();
     await testDurablePlanPrecedesUnknownAndBroadcast();
+    await testConcurrentFeePlanReservationsCannotBroadcastTwice();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
