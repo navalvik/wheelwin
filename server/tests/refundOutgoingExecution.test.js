@@ -197,6 +197,7 @@ async function testValidSubmission() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -279,6 +280,7 @@ async function testAmbiguousNoBlindResubmit() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -329,6 +331,7 @@ async function testSignerUnavailable() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -376,6 +379,7 @@ async function testBroadcastFailureUnknown() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -418,6 +422,7 @@ async function testFinalityMissing() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -528,6 +533,7 @@ async function testConflictingEvidenceCannotComplete() {
         const baseProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
             signer,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector,
             broadcaster: mocks.broadcaster,
@@ -565,6 +571,7 @@ async function testConflictingEvidenceCannotComplete() {
             const conflictingProvider = new TestnetOutgoingRefundProvider({
                 globalId: -3,
                 signer,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector,
                 broadcaster: mocks.broadcaster,
@@ -608,6 +615,7 @@ async function testNonFinalEvidenceCannotComplete() {
         const baseProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
             signer,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector,
             broadcaster: mocks.broadcaster,
@@ -625,6 +633,7 @@ async function testNonFinalEvidenceCannotComplete() {
         const nonFinalProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
             signer,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector,
             broadcaster: mocks.broadcaster,
@@ -667,6 +676,7 @@ async function testWrongTransactionIdentityCannotComplete() {
         const baseProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
             signer,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector,
             broadcaster: mocks.broadcaster,
@@ -684,6 +694,7 @@ async function testWrongTransactionIdentityCannotComplete() {
         const mismatchedProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
             signer,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector,
             broadcaster: mocks.broadcaster,
@@ -765,6 +776,7 @@ async function testReconcileAmbiguousSubmissionToComplete() {
             broadcaster,
             finalityEvidenceProvider,
             outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -848,6 +860,7 @@ async function testReconcileAmbiguousHoldsWithoutMatch() {
             broadcaster,
             finalityEvidenceProvider,
             outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -900,6 +913,7 @@ async function testRestartPreservesObligationsAndRecoveryWithoutDuplication() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -1001,6 +1015,7 @@ async function testDurableUnknownBeforeBroadcastAndConcurrentDuplicateGuard() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -1083,6 +1098,7 @@ async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
             signer: makePlannedSigner(mocks), broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root }),
             signedTransferInspector: {
                 async inspect({ signedTransfer, expected }) {
@@ -1154,6 +1170,7 @@ async function testNetFeeRefundRejectsGrossAmountFinality() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -1178,6 +1195,7 @@ async function testConfiguredPlanStoreForbidsGrossFallback() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root })
         });
         assert.equal(provider.canExecute(), false,
@@ -1203,6 +1221,7 @@ async function testMissingPlanNeverFallsBackEvenWithBothSigners() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root }),
             signedTransferInspector: {
                 async inspect() { throw new Error("must not inspect without a plan"); },
@@ -1243,6 +1262,7 @@ async function testRefundPlanFromAnotherObligationCannotBeSigned() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: {
                 get: () => ({ ...validPlan, obligationId: "different-obligation" })
             },
@@ -1316,6 +1336,7 @@ async function testPlannedRefundFailsClosedWithoutDedicatedSigner() {
                 broadcaster: mocks.broadcaster,
                 finalityEvidenceProvider: mocks.finalityEvidenceProvider,
                 outgoingTransferProvider: mocks.outgoingTransferProvider,
+                feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
                 refundPlanStore: planStore
             });
             const result = await provider.signAndBroadcast({
@@ -1360,6 +1381,7 @@ async function testSignedTransferInspectionIsMandatory() {
                 broadcaster: mocks.broadcaster,
                 finalityEvidenceProvider: mocks.finalityEvidenceProvider,
                 outgoingTransferProvider: mocks.outgoingTransferProvider,
+                feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
                 refundPlanStore: planStore,
                 signedTransferInspector: inspector
             });
@@ -1391,6 +1413,7 @@ async function testReconciliationNeverLooksUpGrossWithoutPlan() {
                     return null;
                 }
             },
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root }),
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -1435,6 +1458,7 @@ async function testSubmittedRefundCannotFinalizeWithoutDurablePlan() {
             globalId: -3, signer, broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore, signedTransferInspector
         });
         await h.coordinator.submitRefund(obligation.obligationId, { provider: submitter });
@@ -1452,6 +1476,7 @@ async function testSubmittedRefundCannotFinalizeWithoutDurablePlan() {
                 }
             },
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: new NativeGramRefundTransferPlanStore({
                 dataDir: join(h.root, "lost-plan-store")
             }),
@@ -1494,6 +1519,7 @@ async function testAmbiguousRecoveryWithoutPlanCannotCompleteOrResubmit() {
             globalId: -3, signer, broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore, signedTransferInspector
         });
         await h.coordinator.submitRefund(obligation.obligationId, { provider: submitter });
@@ -1516,6 +1542,7 @@ async function testAmbiguousRecoveryWithoutPlanCannotCompleteOrResubmit() {
                     return mocks.outgoingTransferProvider.findOutgoingTransfer(query);
                 }
             },
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: new NativeGramRefundTransferPlanStore({
                 dataDir: join(h.root, "lost-ambiguous-plan-store")
             }),
@@ -1561,6 +1588,7 @@ async function testVerifiedAmbiguousRefundWithoutPlanPersistsHoldAcrossRestart()
             globalId: -3, signer, broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: planStore, signedTransferInspector
         });
         await h.coordinator.submitRefund(obligation.obligationId, { provider: submitter });
