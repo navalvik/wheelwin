@@ -1,13 +1,13 @@
-// R18-S16 — Setup Timer 8 minutes (was R7.70C19 5 min). Isolated from Payment/Wallet/Result timers.
-const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
+// R18-S16 — Setup Timer 5 minutes. Isolated from Wallet/Result timers.
+const DEFAULT_SETUP_DURATION_MS = 5 * 60 * 1000;
 
 /** R6.5 — Page6 result linger before authoritative SESSION_FINISHED. */
 // R7.70C19A — restored from C7 TEMP 10 min → 5 min.
 const DEFAULT_RESULT_SESSION_DURATION_MS = 5 * 60 * 1000;
 
 /** P6.3 — Payment Session wall-clock before authoritative failure. */
-// R18-S16 — 8 minutes (was R7.70C19A 5 min). Isolated from Wallet/Result/Deploy timers.
-const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 * 60 * 1000;
+// R18-S16 — 5 minutes. Isolated from Wallet/Result/Deploy timers.
+const DEFAULT_PAYMENT_SESSION_DURATION_MS = 5 * 60 * 1000;
 
 /**
  * R7.24 — Wallet connection barrier after PAYMENT_STAGE_READY.
