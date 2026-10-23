@@ -957,6 +957,7 @@ async function testPlannedSignerWithoutPlanStoreCannotFallBackToLegacyTransfer()
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider
         });
+        assert.equal(provider.canExecute(), false, "planned signer requires durable plan storage");
         const result = await provider.signAndBroadcast({
             obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
         });
