@@ -595,6 +595,46 @@ async function testBroadcastFailureNeverRetriesBlindly() {
     }
 }
 
+async function testConcurrentBroadcastFailureAndRestartHold() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        let releaseBroadcast;
+        let broadcastStarted;
+        const started = new Promise(resolve => { broadcastStarted = resolve; });
+        const gate = new Promise(resolve => { releaseBroadcast = resolve; });
+        let broadcasts = 0;
+        const provider = {
+            networkName: "TESTNET", globalId: -3,
+            canExecute: () => true,
+            resolveSourceWallet: () => TESTNET_ROOM_WALLET,
+            authorizeSubmission: () => ({}),
+            reserveNativeGramRefundTransferPlan: async () => ({ replay: false }),
+            signAndBroadcast: async () => {
+                broadcasts += 1;
+                broadcastStarted();
+                await gate;
+                throw new Error("NETWORK_RESPONSE_LOST");
+            }
+        };
+        const inFlight = h.coordinator.submitRefund(obligation.obligationId, { provider });
+        await started;
+        const restartedStore = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        restartedStore.initialize();
+        assert.equal(restartedStore.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /not awaiting submission/
+        );
+        assert.equal(broadcasts, 1);
+        releaseBroadcast();
+        assert.equal((await inFlight).outcome, "SUBMISSION_UNKNOWN");
+        assert.equal(broadcasts, 1);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -2070,6 +2110,7 @@ async function main() {
     await testRuntimeRefundFactoryRejectsIncompleteExecutionBundle();
     await testRealProviderRejectsMainnetFeeQuote();
     await testBroadcastFailureNeverRetriesBlindly();
+    await testConcurrentBroadcastFailureAndRestartHold();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
