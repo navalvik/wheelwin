@@ -8,7 +8,7 @@
  * wallet address. A signed message MUST NOT be broadcast based on this alone.
  *
  * TON wallet v4 body: signature:512, wallet_id:32, valid_until:32,
- * seqno:32, opcode:32 (0 simple send), send_mode:8, message:^Cell.
+ * seqno:32, opcode:8 (0 simple send), send_mode:8, message:^Cell.
  */
 import { decodeOrdinaryTonBocCells } from "./OrdinaryTonBocCells.js";
 
@@ -49,14 +49,14 @@ export function decodeWalletV4NativeRefundBody(bytes) {
     const decoded = decodeOrdinaryTonBocCells(bytes);
     if (decoded.cells.length !== 2) throw Error("TON_REFUND_CELL_COUNT_UNSUPPORTED");
     const body = decoded.cells[decoded.root];
-    if (body.refs.length !== 1 || body.bitLength !== 648)
+    if (body.refs.length !== 1 || body.bitLength !== 624)
         throw Error("TON_WALLET_V4_BODY_UNSUPPORTED");
     const root = reader(body.bits);
     root.take(512); // Ed25519 signature is NOT verified by this decoder
     const walletId = Number(root.uint(32));
     const validUntil = Number(root.uint(32));
     const seqno = Number(root.uint(32));
-    const op = root.uint(32);
+    const op = root.uint(8);
     if (op !== 0n) throw Error("TON_WALLET_V4_OPERATION_UNSUPPORTED");
     const sendMode = Number(root.uint(8));
     if (sendMode !== 1 && sendMode !== 3)
