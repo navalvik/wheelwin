@@ -587,9 +587,29 @@ async function testNonFinalEvidenceCannotComplete() {
     try {
         const [obligation] = prepareObligations(h, 1);
         const mocks = makeMocks({});
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
+        const signer = makePlannedSigner(mocks);
+        const signedTransferInspector = {
+            inspect: async ({ signedTransfer, expected }) =>
+                syntheticInspectedRefund(signedTransfer, expected),
+            verifyWalletV4Signature: async () => true // synthetic test only
+        };
         const baseProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
-            signer: mocks.signer,
+            signer,
+            refundPlanStore: planStore,
+            signedTransferInspector,
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider
@@ -604,7 +624,9 @@ async function testNonFinalEvidenceCannotComplete() {
         };
         const nonFinalProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
-            signer: mocks.signer,
+            signer,
+            refundPlanStore: planStore,
+            signedTransferInspector,
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: nonFinalEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider
@@ -624,9 +646,29 @@ async function testWrongTransactionIdentityCannotComplete() {
     try {
         const [obligation] = prepareObligations(h, 1);
         const mocks = makeMocks({});
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
+        const signer = makePlannedSigner(mocks);
+        const signedTransferInspector = {
+            inspect: async ({ signedTransfer, expected }) =>
+                syntheticInspectedRefund(signedTransfer, expected),
+            verifyWalletV4Signature: async () => true // synthetic test only
+        };
         const baseProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
-            signer: mocks.signer,
+            signer,
+            refundPlanStore: planStore,
+            signedTransferInspector,
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider
@@ -641,7 +683,9 @@ async function testWrongTransactionIdentityCannotComplete() {
         };
         const mismatchedProvider = new TestnetOutgoingRefundProvider({
             globalId: -3,
-            signer: mocks.signer,
+            signer,
+            refundPlanStore: planStore,
+            signedTransferInspector,
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mismatchedEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider
