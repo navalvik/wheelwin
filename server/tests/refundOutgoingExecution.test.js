@@ -169,6 +169,36 @@ function makeMocks({ failBroadcast = false, ambiguousBroadcast = false, failSign
     return { signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider, calls };
 }
 
+async function testFeePlanMustPersistBeforeSubmissionUnknown() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        let broadcastCalls = 0;
+        const provider = {
+            networkName: "TESTNET", globalId: -3,
+            canExecute: () => true,
+            resolveSourceWallet: () => TESTNET_ROOM_WALLET,
+            authorizeSubmission: () => ({}),
+            reserveNativeGramRefundTransferPlan: async () => {
+                throw new Error("DURABLE_PLAN_WRITE_FAILED");
+            },
+            signAndBroadcast: async () => {
+                broadcastCalls += 1;
+                throw new Error("must never broadcast");
+            }
+        };
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /DURABLE_PLAN_WRITE_FAILED/
+        );
+        assert.equal(broadcastCalls, 0);
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+        assert.equal(h.store.get(obligation.obligationId).attempts.length, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -1628,6 +1658,7 @@ async function testVerifiedAmbiguousRefundWithoutPlanPersistsHoldAcrossRestart()
 }
 
 async function main() {
+    await testFeePlanMustPersistBeforeSubmissionUnknown();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
