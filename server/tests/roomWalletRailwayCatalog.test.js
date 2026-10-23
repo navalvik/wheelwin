@@ -323,3 +323,27 @@ test("Reordered catalog preserves every active reservation by wallet identity", 
         rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("Payment runtime refuses startup when the durable wallet pool snapshot is truncated", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-runtime-corrupt-pool-"));
+    const previous = process.env.ROOM_WALLETS_TESTNET_JSON;
+    try {
+        process.env.ROOM_WALLETS_TESTNET_JSON = JSON.stringify(catalog());
+        const runtime = buildPaymentRuntime({ dataDir: dir, network: "testnet" });
+        runtime.initialize();
+        runtime.walletPool.reserve({ roomId: "unsettled-room", network: "testnet" });
+        const snapshotPath = runtime.walletPool.persistSnapshot(join(dir, "testnet", "payment-core"));
+        runtime.shutdown();
+        const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+        snapshot.reservations = snapshot.reservations.filter(w => w.reservedByRoomId === null);
+        writeFileSync(snapshotPath, JSON.stringify(snapshot), "utf8");
+        const restarted = buildPaymentRuntime({ dataDir: dir, network: "testnet" });
+        assert.throws(() => restarted.initialize(), /catalog identity mismatch/,
+            "server runtime must not accept truncated wallet reservation state");
+        assert.equal(restarted.initialized, false);
+    } finally {
+        if (previous === undefined) delete process.env.ROOM_WALLETS_TESTNET_JSON;
+        else process.env.ROOM_WALLETS_TESTNET_JSON = previous;
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
