@@ -40,6 +40,9 @@ jobs:
       - name: Five-minute payment core deadline regression
         working-directory: server
         run: node tests/paymentCore.phase1.test.js && node tests/payment/paymentCore.test.js
+      - name: Partial-payment expiry and durable refund recovery integration
+        working-directory: server
+        run: node tests/payment/paymentRuntimeIntegration.test.js && node tests/payment/roomPaymentSessionAdapter.test.js
       - name: 64-wallet Testnet catalog and snapshot recovery safety
         working-directory: server
         run: node --test tests/roomWalletRailwayCatalog.test.js
