@@ -267,9 +267,10 @@ export class RefundLifecycleCoordinator {
         }
         const sourceWalletAddress = outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents });
         const plan = outgoing.getReservedNativeGramRefundPlan?.(obligationId) ?? null;
-        if (plan) {
-            // Immutable NET amount must win over legacy gross amount verification.
-            // Never complete the legacy way if a planned fee-funded refund exists.
+        if (!plan) {
+            return Object.freeze({ obligationId, outcome: "NOT_FINALIZED", reason: "REFUND_PLAN_MISSING" });
+        }
+        {
             const proof = await outgoing.observeAndVerifyPlannedNativeGramRefund({
                 obligation: current, sourceWalletAddress,
                 outgoingTransactionId: current.outgoingTransactionId, nowMs: this._now()
@@ -292,17 +293,7 @@ export class RefundLifecycleCoordinator {
                 outgoingTransactionId: completed.outgoingTransactionId, reason: null
             });
         }
-        const verification = await outgoing.observeAndVerifyFinality({
-            obligation: current, sourceWalletAddress, outgoingTransactionId: current.outgoingTransactionId, nowMs: this._now()
-        });
-        if (!verification.verified) {
-            this._logger?.warn?.(`Refund finality not verified | obligationId=${current.obligationId} | reason=${verification.reason}`);
-            return Object.freeze({ obligationId: current.obligationId, outcome: "NOT_FINALIZED", reason: verification.reason });
-        }
-        const attempt = this._attempt(current, "COMPLETE", { startedAtMs: this._now(), completedAtMs: this._now(), outgoingTransactionId: current.outgoingTransactionId, attemptId: `${current.obligationId}:complete` });
-        const completed = this._store.markComplete(current.obligationId, { finalizedEvidence: verification.finalizedEvidence, attempt });
-        this._logger?.info?.(`Refund completed from validated finalized evidence | obligationId=${current.obligationId} | network=${current.networkName}`);
-        return Object.freeze({ obligationId: current.obligationId, outcome: "COMPLETE", outgoingTransactionId: completed.outgoingTransactionId, reason: null });
+
     }
 
     /**
