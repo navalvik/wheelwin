@@ -132,3 +132,27 @@ test("Unknown reserved wallet in durable snapshot blocks startup without silentl
         rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("64 concurrent rooms receive unique wallets and the 65th is rejected", () => {
+    const pool = new WalletPoolRegistry({
+        catalogJson: JSON.stringify(catalog()), network: "testnet"
+    });
+    pool.initialize();
+    const assigned = new Set();
+    for (let i = 0; i < 64; i++) {
+        const roomId = `concurrent-room-${i + 1}`;
+        const { wallet } = pool.reserve({ roomId, network: "testnet" });
+        assert.equal(wallet.reservedByRoomId, roomId);
+        assert.equal(assigned.has(wallet.walletId), false, "room wallet reused across active rooms");
+        assigned.add(wallet.walletId);
+    }
+    assert.equal(assigned.size, 64);
+    assert.equal(pool.getReservedCount(), 64);
+    assert.equal(pool.getAvailableCount(), 0);
+    assert.throws(
+        () => pool.reserve({ roomId: "concurrent-room-65", network: "testnet" }),
+        /exhaust|available|wallet/i,
+        "a 65th room must not share an active wallet"
+    );
+    assert.equal(pool.getReservedCount(), 64);
+});
