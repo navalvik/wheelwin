@@ -1062,6 +1062,22 @@ function createIntent(harness, overrides = {}) {
         "failed third payer intent must not expose wallet to another room"
     );
 
+    const diskPoolAfterThirdFailure = new WalletPoolRegistry({
+        logger: harness.logger,
+        catalogPath: harness.env.catalogPath,
+        network: "testnet"
+    });
+    diskPoolAfterThirdFailure.initialize({ snapshotDir: harness.env.dataDir });
+    check(
+        diskPoolAfterThirdFailure.getReservationForRoom("room-dup")?.walletId === wallet.walletId,
+        "failed third payer must preserve the room wallet in the durable snapshot"
+    );
+    check(
+        diskPoolAfterThirdFailure.getReservationForRoom("room-failed-first")?.walletId
+            === retriedFirst.destinationWalletId,
+        "a failed third payer must not alter another room's recovered reservation"
+    );
+
     rmSync(harness.env.workspace, { recursive: true, force: true });
 
     console.log("[5/8] duplicate reservations: PASS");
