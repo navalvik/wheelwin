@@ -358,15 +358,38 @@ async function testBroadcastFailureUnknown() {
     try {
         const [obligation] = prepareObligations(h, 1);
         const mocks = makeMocks({ failBroadcast: true });
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        planStore.reserve(buildNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
+            feeQuote: {
+                networkName: "TESTNET", globalId: -3,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }
+        }));
         const provider = new TestnetOutgoingRefundProvider({
             globalId: -3,
-            signer: mocks.signer,
+            signer: makePlannedSigner(mocks),
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
-            outgoingTransferProvider: mocks.outgoingTransferProvider
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: planStore,
+            signedTransferInspector: {
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected),
+                verifyWalletV4Signature: async () => true // synthetic test only
+            }
         });
         const res = await h.coordinator.submitRefund(obligation.obligationId, { provider });
         assert.equal(res.outcome, "SUBMISSION_UNKNOWN");
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+        assert.equal(mocks.calls.sign, 1);
+        assert.equal(mocks.calls.broadcast, 1);
+        await assert.rejects(h.coordinator.submitRefund(obligation.obligationId, { provider }), /not awaiting submission/);
+        assert.equal(mocks.calls.broadcast, 1, "failed broadcast must not be retried blindly");
     } finally {
         h.cleanup();
     }
