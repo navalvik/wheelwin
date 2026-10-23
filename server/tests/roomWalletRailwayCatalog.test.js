@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { WalletPoolRegistry, readRoomWalletCatalog } from "../payment/WalletPoolRegistry.js";
+import { buildPaymentRuntime } from "../payment/runtime/PaymentRuntimeFactory.js";
 
 function catalog() {
     return Array.from({ length: 64 }, (_, i) => ({
