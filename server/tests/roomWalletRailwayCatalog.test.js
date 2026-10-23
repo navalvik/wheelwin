@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { WalletPoolRegistry, readRoomWalletCatalog } from "../payment/WalletPoolRegistry.js";
 import { buildPaymentRuntime } from "../payment/runtime/PaymentRuntimeFactory.js";
+import { ROOM_LIFETIME_MS } from "../payment/RoomPaymentConstants.js";
+import { createRoomDeadline } from "../payment/RoomDeadline.js";
+import { loadRoomConfig } from "../config/rooms.js";
 
 function catalog() {
     return Array.from({ length: 64 }, (_, i) => ({
@@ -347,4 +350,18 @@ test("Payment runtime refuses startup when the durable wallet pool snapshot is t
         else process.env.ROOM_WALLETS_TESTNET_JSON = previous;
         rmSync(dir, { recursive: true, force: true });
     }
+});
+
+test("Setup, payment session, and immutable payment-intent deadline default to five minutes", () => {
+    const config = loadRoomConfig({ ROOM_MAX_PLAYERS: "3" });
+    assert.equal(config.setupDurationMs, 300_000);
+    assert.equal(config.paymentSessionDurationMs, 300_000);
+    assert.equal(ROOM_LIFETIME_MS, 300_000);
+    const createdAt = 1_700_000_000_000;
+    const deadline = createRoomDeadline(createdAt);
+    assert.equal(deadline.deadlineMs, createdAt + 300_000);
+    assert.equal(deadline.isReached(createdAt + 299_999), false);
+    assert.equal(deadline.isReached(createdAt + 300_000), true);
+    assert.equal(config.resultSessionDurationMs, 300_000,
+        "Page6 result session must remain unchanged");
 });
