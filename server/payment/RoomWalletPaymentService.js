@@ -146,6 +146,8 @@ export class RoomWalletPaymentService {
 
         this._intentStore = intentStore;
 
+        this._refundStore = null;
+
         this._assetRegistry = assetRegistry;
 
         this._observationService = observationService;
@@ -1177,6 +1179,13 @@ export class RoomWalletPaymentService {
     // Internals
     // -------------------------------------------------------------------------
 
+    attachRefundStore(refundStore) {
+        if (!refundStore || typeof refundStore.list !== "function") {
+            throw new PaymentConfigurationError("refundStore must expose list()");
+        }
+        this._refundStore = refundStore;
+    }
+
     _countOpenObligationsForRoom(roomId) {
 
         let count = 0;
@@ -1189,6 +1198,17 @@ export class RoomWalletPaymentService {
 
             }
 
+        }
+
+        // SETTLED payment intents are not open obligations, but a room
+        // destroyed before gameplay can still owe those players refunds.
+        // Never recycle its wallet while any refund is not COMPLETE.
+        if (this._refundStore) {
+            for (const obligation of this._refundStore.list()) {
+                if (obligation.roomId === roomId && obligation.state !== "COMPLETE") {
+                    count += 1;
+                }
+            }
         }
 
         return count;
