@@ -361,17 +361,8 @@ async function testValidSubmission() {
         const [obligation] = prepareObligations(h, 1);
         assert.equal(obligation.state, REFUND_STATE.PENDING);
         const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
-        planStore.reserve(buildNativeGramRefundTransferPlan({
-            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET,
-            feeQuote: {
-                networkName: "TESTNET", globalId: -3,
-                obligationId: obligation.obligationId,
-                sourceWalletAddress: TESTNET_ROOM_WALLET,
-                destinationAddress: obligation.refundDestination,
-                paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
-                finalized: true, estimateSource: "testnet-network-estimator"
-            }
-        }));
+        assert.equal(planStore.get(obligation.obligationId), null);
+        let feeEstimateCalls = 0;
         const mocks = makeMocks({});
         mocks.outgoingTransferProvider.getOutgoingTransfer = async ({ sourceWalletAddress, transactionId }) => ({
             transactionId, sourceAddress: sourceWalletAddress,
@@ -383,7 +374,18 @@ async function testValidSubmission() {
             broadcaster: mocks.broadcaster,
             finalityEvidenceProvider: mocks.finalityEvidenceProvider,
             outgoingTransferProvider: mocks.outgoingTransferProvider,
-            feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
+            feeEstimator: { estimateRefundFee: async () => {
+                feeEstimateCalls += 1;
+                assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+                return {
+                    networkName: "TESTNET", globalId: -3,
+                    obligationId: obligation.obligationId,
+                    sourceWalletAddress: TESTNET_ROOM_WALLET,
+                    destinationAddress: obligation.refundDestination,
+                    paidAmountAtomic: "1000000000", maxFeeAtomic: "10000000",
+                    finalized: true, estimateSource: "testnet-network-estimator"
+                };
+            } },
             refundPlanStore: planStore,
             signedTransferInspector: {
                 inspect: async ({ signedTransfer, expected }) =>
@@ -394,6 +396,9 @@ async function testValidSubmission() {
         assert.equal(provider.canExecute(), true);
         const resSubmit = await h.coordinator.submitRefund(obligation.obligationId, { provider });
         assert.equal(resSubmit.outcome, "SUBMITTED");
+        assert.equal(feeEstimateCalls, 1);
+        assert.equal(planStore.get(obligation.obligationId).refundAmountAtomic, "990000000");
+        assert.equal(planStore.get(obligation.obligationId).reservedFeeAtomic, "10000000");
         assert.equal(resSubmit.outgoingTransactionId, "outgoing-testnet-tx");
         assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMITTED);
         const resFinalize = await h.coordinator.finalizeRefund(obligation.obligationId, { provider });
