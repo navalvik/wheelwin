@@ -355,6 +355,46 @@ async function testFailedPlanWriteCanRetryWithoutDuplicateSubmission() {
     }
 }
 
+async function testRealProviderFeeEstimatorFailureNeverSigns() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        const mocks = makeMocks({});
+        let estimates = 0;
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: makePlannedSigner(mocks),
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => {
+                estimates += 1;
+                throw new Error("TESTNET_FEE_ESTIMATOR_UNAVAILABLE");
+            } },
+            refundPlanStore: planStore,
+            signedTransferInspector: {
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected),
+                verifyWalletV4Signature: async () => true
+            }
+        });
+        assert.equal(provider.canExecute(), true);
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /TESTNET_FEE_ESTIMATOR_UNAVAILABLE/
+        );
+        assert.equal(estimates, 1);
+        assert.equal(planStore.get(obligation.obligationId), null);
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+        assert.equal(h.store.get(obligation.obligationId).attempts.length, 0);
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -1824,6 +1864,7 @@ async function main() {
     await testConcurrentFeePlanReservationsCannotBroadcastTwice();
     await testChangedObligationDuringFeeReservationCannotBroadcast();
     await testFailedPlanWriteCanRetryWithoutDuplicateSubmission();
+    await testRealProviderFeeEstimatorFailureNeverSigns();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
