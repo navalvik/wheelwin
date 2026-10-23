@@ -1396,6 +1396,15 @@ function createIntent(harness, overrides = {}) {
         restartedStore.size === 2,
         `both payment intents must survive a restart, got ${restartedStore.size}`
     );
+    const restoredFractional = restartedService.getPaymentIntent("pay-persist-2");
+    check(
+        restoredFractional.amountAtomic === 2_500_000_000,
+        "the exact 2.5 GRAM nanoGRAM amount must survive a restart"
+    );
+    check(
+        restoredFractional.destinationWalletId === qWalletBeforeRestart.walletId,
+        "the fractional stake must retain its original room wallet after restart"
+    );
 
     // R7 must hold across restarts.
     expectThrow(
