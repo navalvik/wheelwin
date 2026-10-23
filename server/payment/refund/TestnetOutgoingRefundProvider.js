@@ -150,6 +150,13 @@ export class TestnetOutgoingRefundProvider {
         if (typeof this._refundPlanStore?.reserve !== "function") {
             throw new OutgoingRefundError("durable native GRAM refund plan store is unavailable");
         }
+        // Reuse the original durable terms on retry. Re-estimating network fees
+        // could change the net amount after a previous attempt became ambiguous.
+        const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
+        const existing = this.getReservedNativeGramRefundPlan(authorized.obligationId);
+        if (existing) {
+            return this._refundPlanStore.reserve(existing);
+        }
         const plan = await this.prepareNativeGramRefundTransferPlan({
             obligation, sourceWalletAddress
         });
