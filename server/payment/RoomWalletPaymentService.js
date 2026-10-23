@@ -471,11 +471,14 @@ export class RoomWalletPaymentService {
 
         } catch (error) {
 
-            // Never leave an orphan reservation on a failed intent creation.
-            this._walletPool.release({
-                roomId,
-                unresolvedObligations: this._countOpenObligationsForRoom(roomId)
-            });
+            // A failed intent must never release a reservation that belonged
+            // to the room before this call. Only undo a newly acquired wallet.
+            if (!existingReservation) {
+                this._walletPool.release({
+                    roomId,
+                    unresolvedObligations: this._countOpenObligationsForRoom(roomId)
+                });
+            }
 
             throw error;
 
