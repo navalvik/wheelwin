@@ -1508,6 +1508,19 @@ function createIntent(harness, overrides = {}) {
         "a competing room must not claim the 1.5 GRAM payment wallet"
     );
 
+    expectThrow(
+        () => restartedService.reserveWalletForRoom({
+            roomId: "room-conflicting-two-point-five",
+            walletId: qWalletBeforeRestart.walletId
+        }),
+        "WalletAssignmentConflictError",
+        "a competing room must not claim the pending 2.5 GRAM wallet"
+    );
+    check(
+        restartedService.getPaymentIntent("pay-persist-2").amountAtomic === 2_500_000_000,
+        "a rejected wallet takeover must not change the 2.5 GRAM obligation"
+    );
+
     const walletQ = restartedService.getWalletForRoom("room-q");
 
     check(
