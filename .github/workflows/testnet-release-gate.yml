@@ -1,0 +1,116 @@
+name: Testnet release gate (no live transfers)
+
+on:
+  push:
+    branches:
+      - restore/testnet-64-wallet-page4
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testnet-release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  refund-safety:
+    name: "1 / Native GRAM refund safety"
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - working-directory: server
+        run: npm ci --ignore-scripts=false --no-audit --no-fund
+      - working-directory: server
+        run: |
+          node tests/refundOutgoingExecution.test.js
+          node --test tests/nativeGramRefundTransferPlan.test.js tests/nativeGramRefundTransferPlanStore.test.js tests/nativeGramRefundFinality.test.js tests/nativeGramCancelledRefundFeePolicy.test.js tests/refundRuntimeFactorySafety.test.js tests/walletV4RefundEd25519.test.js tests/walletV4SignedNativeGramRefundInspector.test.js
+
+  restart-recovery:
+    name: "2 / Refund recovery and no double-send"
+    needs: refund-safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - working-directory: server
+        run: npm ci --ignore-scripts=false --no-audit --no-fund
+      - working-directory: server
+        run: |
+          node tests/refundLifecycle.test.js
+          node --test tests/payment/gramJsonReplaySafety.test.js tests/payment/gramSqliteReplaySafety.test.js tests/payment/paymentRuntimeStorageBackend.test.js
+
+  three-player-lifecycle:
+    name: "3 / Three-player payment and room expiry"
+    needs: restart-recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - working-directory: server
+        run: npm ci --ignore-scripts=false --no-audit --no-fund
+      - working-directory: server
+        run: |
+          node tests/paymentCore.phase1.test.js
+          node tests/payment/paymentCore.test.js
+          node tests/payment/paymentRuntimeIntegration.test.js
+          node tests/payment/roomPaymentSessionAdapter.test.js
+          node tests/payment/page4ReconnectPaymentRecovery.test.js
+
+  wallet-concurrency:
+    name: "4 / 64-wallet reservation and recovery"
+    needs: three-player-lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - working-directory: server
+        run: npm ci --ignore-scripts=false --no-audit --no-fund
+      - working-directory: server
+        run: node --test tests/roomWalletRailwayCatalog.test.js
+
+  final-review:
+    name: "5 / Build and pre-merge safety gate"
+    needs: wallet-concurrency
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Assert live payments remain disabled until real refund integration
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const availability = readFileSync('server/payment/PaymentLifecycleAvailability.js', 'utf8');
+          assert.match(availability, /LIVE_PAYMENT_ACCEPTANCE_ENABLED\s*=\s*false\s*;/);
+          const factory = readFileSync('server/payment/runtime/PaymentRuntimeFactory.js', 'utf8');
+          assert.match(factory, /refundSubmitter\s*=\s*null/);
+          console.log('Safety gate: live acceptance disabled and refund submitter opt-in');
+          NODE
+      - working-directory: client
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - working-directory: client
+        run: |
+          node --test src/payment/nativeGramTransfer.test.js src/payment/nativeGramWalletSubmission.test.js src/payment/tonConnectUIAdapter.test.js
+          npm run build
+      - name: Release-gate scope
+        run: |
+          echo "All five automated checks passed."
+          echo "This does NOT authorize real Testnet transfers or merging to main."
+          echo "Live signer integration, three-device testing and owner approval remain mandatory."
