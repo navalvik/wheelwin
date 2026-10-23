@@ -1243,6 +1243,13 @@ export class RoomWalletPaymentService {
 
         }
 
+        if (this._refundStore) {
+            for (const obligation of this._refundStore.list()) {
+                if (obligation.state === "COMPLETE") continue;
+                map.set(obligation.roomId, (map.get(obligation.roomId) ?? 0) + 1);
+            }
+        }
+
         return map;
 
     }
