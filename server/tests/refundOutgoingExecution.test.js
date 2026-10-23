@@ -520,6 +520,47 @@ async function testRuntimeRefundFactoryRejectsIncompleteExecutionBundle() {
     })?.canExecute(), true);
 }
 
+async function testRealProviderRejectsMainnetFeeQuote() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const planStore = new NativeGramRefundTransferPlanStore({ dataDir: h.root });
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: makePlannedSigner(mocks),
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            feeEstimator: { estimateRefundFee: async () => ({
+                networkName: "MAINNET", globalId: -239,
+                obligationId: obligation.obligationId,
+                sourceWalletAddress: TESTNET_ROOM_WALLET,
+                destinationAddress: obligation.refundDestination,
+                paidAmountAtomic: "1000000000",
+                maxFeeAtomic: "10000000",
+                finalized: true, estimateSource: "testnet-network-estimator"
+            }) },
+            refundPlanStore: planStore,
+            signedTransferInspector: {
+                inspect: async ({ signedTransfer, expected }) =>
+                    syntheticInspectedRefund(signedTransfer, expected),
+                verifyWalletV4Signature: async () => true
+            }
+        });
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /REFUND_FEE_QUOTE_IDENTITY_MISMATCH/
+        );
+        assert.equal(planStore.get(obligation.obligationId), null);
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -1993,6 +2034,7 @@ async function main() {
     await testRealProviderRejectsInvalidFeeQuoteBeforeSigning();
     await testRealProviderRejectsWrongFeeQuoteRecipient();
     await testRuntimeRefundFactoryRejectsIncompleteExecutionBundle();
+    await testRealProviderRejectsMainnetFeeQuote();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
