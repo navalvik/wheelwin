@@ -322,6 +322,26 @@ export class RefundLifecycleCoordinator {
         const sourceWalletAddress = outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents });
         const verification = await outgoing.reconcileAmbiguousSubmission({ obligation: current, sourceWalletAddress, nowMs: this._now() });
         if (verification.verified) {
+            const plan = outgoing.getReservedNativeGramRefundPlan?.(obligationId) ?? null;
+            if (plan) {
+                const txId = verification.outgoingTransactionId;
+                const attempt = this._attempt(current, "SUBMITTED", {
+                    startedAtMs: this._now(), completedAtMs: this._now(),
+                    outgoingTransactionId: txId, attemptId: `${current.obligationId}:reconcile`
+                });
+                this._store.markSubmitted(obligationId, { outgoingTransactionId: txId, attempt });
+                const completionAttempt = this._attempt(current, "COMPLETE", {
+                    startedAtMs: this._now(), completedAtMs: this._now(),
+                    outgoingTransactionId: txId, attemptId: `${current.obligationId}:complete`
+                });
+                const completed = this._store.markPlannedComplete(obligationId, {
+                    plan, verification, attempt: completionAttempt
+                });
+                return Object.freeze({
+                    obligationId, outcome: "COMPLETE",
+                    outgoingTransactionId: completed.outgoingTransactionId, reason: null
+                });
+            }
             const attempt = this._attempt(current, "SUBMITTED", { startedAtMs: this._now(), completedAtMs: this._now(), outgoingTransactionId: verification.finalizedEvidence.transactionId, attemptId: `${current.obligationId}:reconcile` });
             this._store.markSubmitted(current.obligationId, { outgoingTransactionId: verification.finalizedEvidence.transactionId, attempt });
             const completed = this._store.markComplete(current.obligationId, { finalizedEvidence: verification.finalizedEvidence });
