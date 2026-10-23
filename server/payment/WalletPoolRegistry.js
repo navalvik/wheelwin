@@ -705,6 +705,15 @@ export class WalletPoolRegistry {
                 !this._wallets.has(record.walletId)) {
                 throw new PaymentStorageError("wallet pool snapshot contains unknown or duplicate wallet identity");
             }
+            const canonical = this._wallets.get(record.walletId);
+            // The catalog is authoritative for wallet identity. A stale
+            // snapshot must never rebind a reservation to a different address.
+            if (record.address !== canonical.address ||
+                record.roomNumber !== canonical.roomNumber ||
+                record.network !== canonical.network) {
+                throw new PaymentStorageError("wallet pool snapshot wallet identity differs from catalog",
+                    { walletId: record.walletId });
+            }
             seenWalletIds.add(record.walletId);
         }
 
