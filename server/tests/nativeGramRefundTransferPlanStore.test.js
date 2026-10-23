@@ -128,3 +128,28 @@ test("refund retry preserves original net amount without re-estimating changed n
         rmSync(root, { recursive: true, force: true });
     }
 });
+
+test("retry refuses durable refund plan indexed under a different obligation", async () => {
+    let estimatorCalls = 0;
+    let reserveCalls = 0;
+    const foreignPlan = { ...plan(), obligationId: "another-refund" };
+    const provider = new TestnetOutgoingRefundProvider({
+        globalId: -3,
+        feeEstimator: { estimateRefundFee: async () => {
+            estimatorCalls += 1;
+            return quote;
+        } },
+        refundPlanStore: {
+            get: () => foreignPlan,
+            reserve: () => { reserveCalls += 1; }
+        }
+    });
+    await assert.rejects(
+        provider.reserveNativeGramRefundTransferPlan({
+            obligation, sourceWalletAddress: source
+        }),
+        /persisted refund fee plan conflicts with original payment identity/
+    );
+    assert.equal(estimatorCalls, 0);
+    assert.equal(reserveCalls, 0);
+});
