@@ -155,6 +155,18 @@ export class TestnetOutgoingRefundProvider {
         const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
         const existing = this.getReservedNativeGramRefundPlan(authorized.obligationId);
         if (existing) {
+            // A durable plan must still belong to the current obligation.
+            // Never replay a plan selected by an incorrect store index.
+            if (existing.obligationId !== authorized.obligationId ||
+                existing.idempotencyKey !== authorized.idempotencyKey ||
+                existing.networkName !== authorized.networkName ||
+                existing.globalId !== authorized.globalId ||
+                existing.denomination !== authorized.denomination ||
+                !tonAddressIdentitiesEqual(existing.sourceWalletAddress, authorized.sourceWalletAddress) ||
+                !tonAddressIdentitiesEqual(existing.refundDestination, authorized.refundDestination) ||
+                existing.originalPaidAmountAtomic !== String(authorized.amountAtomic)) {
+                throw new OutgoingRefundError("persisted refund fee plan conflicts with original payment identity");
+            }
             return this._refundPlanStore.reserve(existing);
         }
         const plan = await this.prepareNativeGramRefundTransferPlan({
