@@ -1320,6 +1320,20 @@ function createIntent(harness, overrides = {}) {
         "floating-point amounts must be rejected"
     );
 
+    expectThrow(
+        () => createIntent(configured, {
+            paymentReference: "pay-unsafe-atomic",
+            roomId: "room-unsafe",
+            amountAtomic: Number.MAX_SAFE_INTEGER + 1
+        }),
+        "PaymentValidationError",
+        "unsafe nanoGRAM integers must never create a payment intent"
+    );
+    check(
+        configured.service.getWalletForRoom("room-unsafe") === null,
+        "unsafe nanoGRAM amount must not reserve a room wallet"
+    );
+
     rmSync(configured.env.workspace, { recursive: true, force: true });
     rmSync(unconfigured.env.workspace, { recursive: true, force: true });
 
