@@ -1425,6 +1425,20 @@ function createIntent(harness, overrides = {}) {
         "the 1.5 GRAM stake must retain its original room wallet after restart"
     );
 
+    for (const [label, intent] of [
+        ["2.5 GRAM", restoredFractional],
+        ["1.5 GRAM", restoredOnePointFive]
+    ]) {
+        check(
+            intent.roomDeadlineMs === ROOM_CREATED_AT + 300_000,
+            `${label} retains the original five-minute room deadline after restart`
+        );
+        check(
+            intent.expiresAt <= ROOM_CREATED_AT + 300_000,
+            `${label} payment expiry cannot extend the room deadline after restart`
+        );
+    }
+
     // R7 must hold across restarts.
     expectThrow(
         () => restartedService.matchTransaction(
