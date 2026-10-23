@@ -1008,6 +1008,7 @@ async function testSignedTransferInspectionIsMandatory() {
             { inspect: async () => ({ verified: false }), verifyWalletV4Signature: async () => true },
             { inspect: async () => { throw new Error("invalid signed BOC"); }, verifyWalletV4Signature: async () => true },
             { inspect: async ({ signedTransfer, expected }) => syntheticInspectedRefund(signedTransfer, expected), verifyWalletV4Signature: async () => false },
+            { inspect: async ({ signedTransfer, expected }) => syntheticInspectedRefund(signedTransfer, expected), verifyWalletV4Signature: async () => "true" },
             { inspect: async ({ signedTransfer, expected }) => syntheticInspectedRefund(signedTransfer, expected), verifyWalletV4Signature: async () => { throw new Error("signature invalid"); } },
             { inspect: async ({ signedTransfer, expected }) => syntheticInspectedRefund(signedTransfer, expected) }
         ]) {
