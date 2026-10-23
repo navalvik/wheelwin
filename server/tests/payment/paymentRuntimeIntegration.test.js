@@ -513,6 +513,14 @@ async function run() {
                 "pending refunds prevent wallet release after restart");
             equal(restart.paymentService.getWalletForRoom(room.roomId)?.walletId,
                 reservedWalletId, "blocked release does not change reservation");
+            throws(() => restart.paymentService.reserveWalletForRoom({
+                roomId: "another-room-after-restart",
+                walletId: reservedWalletId,
+                network: "testnet"
+            }), /already reserved|conflict|wallet/i,
+            "another room cannot claim the refund-held wallet after restart");
+            equal(restart.paymentService.getWalletForRoom(room.roomId)?.walletId,
+                reservedWalletId, "failed competing reservation preserves original owner");
             assert.deepEqual(restart.refundStore.list().map((o) => o.obligationId).sort(), idsBefore,
                 "restart preserves all original refund IDs");
             equal(recovery.refundRecovery.length, 3, "all three refunds require recovery");
