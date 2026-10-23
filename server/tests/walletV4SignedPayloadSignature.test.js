@@ -11,23 +11,23 @@ function signedWalletBody() {
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const trustedPublicKey = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
     // V4 signed slice: wallet_id(32) | valid_until(32) |
-    // seqno(32) | opcode(32) | send_mode(8) = 136 bits = 17 bytes.
-    const payload = Buffer.alloc(17);
+    // seqno(32) | opcode(8) | send_mode(8) = 112 bits = 14 bytes.
+    const payload = Buffer.alloc(14);
     payload.writeUInt32BE(698983191, 0);
     payload.writeUInt32BE(1800000100, 4);
     payload.writeUInt32BE(1, 8);
-    payload.writeUInt32BE(0, 12);
-    payload[16] = 3;
+    payload[12] = 0;
+    payload[13] = 3;
     // Empty child cell: TON ordinary level-0 cell repr is [0,0].
     const childHash = sha256(Buffer.from([0, 0]));
     // Unsigned root references child 1. TON hash repr includes child depth.
     const payloadHash = sha256(Buffer.concat([
-        Buffer.from([1, 34]), payload, Buffer.from([0, 0]), childHash
+        Buffer.from([1, 28]), payload, Buffer.from([0, 0]), childHash
     ]));
     const signature = sign(null, payloadHash, privateKey);
     assert.equal(signature.length, 64);
     const rootCell = Buffer.concat([
-        Buffer.from([1, 162]), signature, payload, Buffer.from([1])
+        Buffer.from([1, 156]), signature, payload, Buffer.from([1])
     ]);
     const child = Buffer.from([0, 0]);
     const cellData = Buffer.concat([rootCell, child]);
