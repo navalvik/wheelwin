@@ -261,7 +261,8 @@ export class TestnetOutgoingRefundProvider {
                 reason: OUTGOING_SUBMISSION_REASON.SIGNER_UNAVAILABLE
             });
         }
-        if (plan.idempotencyKey !== authorized.idempotencyKey ||
+        if (plan.obligationId !== authorized.obligationId ||
+            plan.idempotencyKey !== authorized.idempotencyKey ||
             plan.networkName !== authorized.networkName ||
             plan.globalId !== authorized.globalId ||
             plan.denomination !== authorized.denomination ||
