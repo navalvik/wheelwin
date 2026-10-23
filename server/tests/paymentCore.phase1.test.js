@@ -1449,6 +1449,19 @@ function createIntent(harness, overrides = {}) {
         "a transaction credited before a restart must not be reusable after it"
     );
 
+    expectThrow(
+        () => restartedService.matchTransaction(
+            "pay-persist-3",
+            persistReport.settled[0].transactionId
+        ),
+        "TransactionAlreadyCreditedError",
+        "a transaction already credited to a settled payer must not be reused for a 1.5 GRAM intent after restart"
+    );
+    check(
+        restartedService.getPaymentIntent("pay-persist-3").state === "PENDING",
+        "rejected transaction reuse must leave the 1.5 GRAM intent pending"
+    );
+
     // R8 must hold across restarts: room-p is settled (its wallet is released),
     // room-q is still PENDING and must still block recycling its wallet.
     check(
