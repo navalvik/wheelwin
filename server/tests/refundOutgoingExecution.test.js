@@ -274,6 +274,45 @@ async function testConcurrentFeePlanReservationsCannotBroadcastTwice() {
     }
 }
 
+async function testChangedObligationDuringFeeReservationCannotBroadcast() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const originalGet = h.store.get.bind(h.store);
+        let exposeChanged = false;
+        h.store.get = (id) => {
+            const stored = originalGet(id);
+            return exposeChanged && id === obligation.obligationId
+                ? { ...stored, refundDestination: TESTNET_ROOM_WALLET }
+                : stored;
+        };
+        let broadcasts = 0;
+        const provider = {
+            networkName: "TESTNET", globalId: -3,
+            canExecute: () => true,
+            resolveSourceWallet: () => TESTNET_ROOM_WALLET,
+            authorizeSubmission: () => ({}),
+            reserveNativeGramRefundTransferPlan: async () => {
+                exposeChanged = true;
+                return { replay: false };
+            },
+            signAndBroadcast: async () => {
+                broadcasts += 1;
+                throw new Error("must not broadcast changed obligation");
+            }
+        };
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /obligation changed during fee-plan reservation/
+        );
+        assert.equal(broadcasts, 0);
+        assert.equal(originalGet(obligation.obligationId).state, REFUND_STATE.PENDING);
+        assert.equal(originalGet(obligation.obligationId).attempts.length, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function testValidSubmission() {
     const h = harness(1);
     try {
@@ -1736,6 +1775,7 @@ async function main() {
     await testFeePlanMustPersistBeforeSubmissionUnknown();
     await testDurablePlanPrecedesUnknownAndBroadcast();
     await testConcurrentFeePlanReservationsCannotBroadcastTwice();
+    await testChangedObligationDuringFeeReservationCannotBroadcast();
     await testValidSubmission();
     await testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality();
     await testNetFeeRefundRejectsGrossAmountFinality();
