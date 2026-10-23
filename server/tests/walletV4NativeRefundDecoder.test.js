@@ -23,7 +23,7 @@ function encodeCell(bits, refs) {
 function makeBoc({ amount = 990_000_000n, to = payerHex, mode = 3, opcode = 0,
     extraCurrency = false, bounce = true, seqno = 1, body = "" } = {}) {
     const wallet = "0".repeat(512) + b(698983191, 32) +
-        b(1800000100, 32) + b(seqno, 32) + b(opcode, 32) + b(mode, 8);
+        b(1800000100, 32) + b(seqno, 32) + b(opcode, 8) + b(mode, 8);
     const message = "0" + "1" + (bounce ? "1" : "0") + "0" +
         "00" + "10" + "0" + b(0, 8) + b(BigInt("0x" + to), 256) +
         coins(amount) + (extraCurrency ? "1" : "0") + coins(0) + coins(0) +
@@ -78,7 +78,7 @@ test("reject a signed body carrying additional unauthorized outgoing transfers",
         b(0, 64) + b(0, 32) + "0" + "0";
     const msgCell = encodeCell(msg, []);
     const wallet = "0".repeat(512) + b(698983191, 32) +
-        b(1800000100, 32) + b(1, 32) + b(0, 32) + b(3, 8);
+        b(1800000100, 32) + b(1, 32) + b(0, 8) + b(3, 8);
     const rootCell = encodeCell(wallet, [1, 2]);
     const cells = Buffer.concat([rootCell, msgCell, msgCell]);
     const header = Buffer.from([
