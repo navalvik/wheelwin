@@ -991,7 +991,8 @@ async function testPlannedRefundFailsClosedWithoutDedicatedSigner() {
             mocks => makePlannedSigner(mocks, { amountAtomic: "1000000000" }),
             mocks => makePlannedSigner(mocks, { globalId: -239 }),
             mocks => makePlannedSigner(mocks, { sendRemainingBalance: true }),
-            mocks => makePlannedSigner(mocks, { to: TESTNET_ROOM_WALLET })
+            mocks => makePlannedSigner(mocks, { to: TESTNET_ROOM_WALLET }),
+            mocks => makePlannedSigner(mocks, { idempotencyKey: "wrong-refund-key" })
         ]) {
             const mocks = makeMocks({});
             const provider = new TestnetOutgoingRefundProvider({
