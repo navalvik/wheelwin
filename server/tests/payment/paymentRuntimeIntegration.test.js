@@ -31,7 +31,7 @@ const SYNTHETIC_API_KEY = "SYNTHETIC-TONCENTER-TEST-KEY-NOT-REAL";
 const TESTNET_PAYER = `0:${"a".repeat(64)}`;
 const TESTNET_WALLET = `0:${"b".repeat(64)}`;
 
-const TOTAL_SECTIONS = 11;
+const TOTAL_SECTIONS = 12;
 let assertions = 0;
 let sections = 0;
 
@@ -456,6 +456,55 @@ async function run() {
             equal(replay.length, 2, "repeated close returns both existing obligations");
             equal(restartInit.refundStore.size, 2, "repeated close creates no duplicate obligation");
             paymentRuntimeShutdown(restartInit);
+        } finally { t.cleanup(); }
+    });
+
+    await section("three-payer setup expiry survives restart and repeated close without duplicate refunds", () => {
+        const t = makeTemp();
+        try {
+            const dataDir = join(t.root, "payment-data");
+            const first = buildRuntime(t.root, t.catalogPath, { paymentDataDirName: "payment-data" });
+            const logger = { info() {}, warn() {}, error() {}, decisionTrace() {} };
+            const eventBus = new EventBus({ logger, eventBusConfig: { logEvents: false, showDebugPanel: false } });
+            eventBus.initialize();
+            const roomManager = new RoomManager({ logger, eventBus, roomConfig: { maxPlayers: 3 } });
+            roomManager.initialize();
+            roomManager.attachSetupSessionLifecycle({ createForRoom: () => ({}), abortForRoom() {} });
+            bindPaymentRuntimeToApplication(first.runtime, { roomManager, logger });
+            const room = roomManager.createRoom();
+            seedRoomPayments(first.runtime, room.roomId, 3);
+            registerRoomDestroyContext(room.roomId, {
+                reason: "setup_expired", caller: "SetupSessionLifecycle._onExpiry"
+            });
+            equal(roomManager.destroyRoom(room.roomId), true, "setup expiry destroys fully paid room");
+            equal(first.runtime.refundStore.size, 3, "three obligations persisted before restart");
+            const idsBefore = first.runtime.refundStore.list().map((o) => o.obligationId).sort();
+            paymentRuntimeShutdown(first.runtime);
+            managerShutdown(roomManager, eventBus);
+
+            const restart = buildPaymentRuntime({
+                dataDir, network: "testnet", walletCatalogPath: t.catalogPath,
+                nowProvider: () => NOW_MS, logger: null,
+                fetchImpl: async () => ({ status: 200, json: async () => ({ transactions: [], address_book: {} }) }),
+                apiKeyProvider: () => SYNTHETIC_API_KEY,
+                settlementEvidenceProvider: new SyntheticTonSettlementEvidenceProvider({ nowProvider: () => NOW_MS })
+            });
+            const recovery = restart.initialize();
+            equal(restart.refundStore.size, 3, "restart restores all three refund obligations");
+            assert.deepEqual(restart.refundStore.list().map((o) => o.obligationId).sort(), idsBefore,
+                "restart preserves all original refund IDs");
+            equal(recovery.refundRecovery.length, 3, "all three refunds require recovery");
+            equal(restart.refundStore.getClosedRoom(room.roomId).closureReason,
+                "setup_expired", "original expiry reason persists");
+            const replay = restart.refundLifecycle.prepareClosedRoom({
+                roomId: room.roomId, roomNumber: room.roomNumber,
+                closureReason: "setup_expired", status: "DESTROYED"
+            });
+            equal(replay.length, 3, "replayed close returns existing obligations");
+            equal(restart.refundStore.size, 3, "replayed close cannot create duplicates");
+            check(restart.refundStore.list().every((o) => o.state === REFUND_STATE.PENDING),
+                "no refunds sent without authorized signer");
+            paymentRuntimeShutdown(restart);
         } finally { t.cleanup(); }
     });
 
