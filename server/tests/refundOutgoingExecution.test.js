@@ -918,6 +918,33 @@ async function testConfiguredPlanStoreForbidsGrossFallback() {
     } finally { h.cleanup(); }
 }
 
+async function testMissingPlanNeverFallsBackEvenWithBothSigners() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: makePlannedSigner(mocks),
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            refundPlanStore: new NativeGramRefundTransferPlanStore({ dataDir: h.root }),
+            signedTransferInspector: {
+                async inspect() { throw new Error("must not inspect without a plan"); },
+                async verifyWalletV4Signature() { throw new Error("must not verify without a plan"); }
+            }
+        });
+        assert.equal(provider.canExecute(), true, "both signer APIs are present");
+        const result = await provider.signAndBroadcast({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
+        });
+        assert.equal(result.outcome, "FAILED");
+        assert.equal(mocks.calls.sign, 0, "neither signer may run without a reserved fee plan");
+        assert.equal(mocks.calls.broadcast, 0, "missing plan must never reach the network");
+    } finally { h.cleanup(); }
+}
+
 async function testPlannedRefundFailsClosedWithoutDedicatedSigner() {
     const h = harness(1);
     try {
@@ -1009,6 +1036,7 @@ async function main() {
     await testNetFeeRefundRejectsGrossAmountFinality();
     await testPlannedRefundFailsClosedWithoutDedicatedSigner();
     await testConfiguredPlanStoreForbidsGrossFallback();
+    await testMissingPlanNeverFallsBackEvenWithBothSigners();
     await testSignedTransferInspectionIsMandatory();
     await testRejections();
     await testAmbiguousNoBlindResubmit();
