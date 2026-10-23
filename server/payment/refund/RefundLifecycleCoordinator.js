@@ -209,6 +209,17 @@ export class RefundLifecycleCoordinator {
             });
         }
 
+        // Fee-plan reservation may await network estimation or durable I/O.
+        // Another submission can claim this obligation during that await.
+        // Re-read the authoritative store before reserving the send attempt.
+        const latest = this._store.get(obligationId);
+        if (!latest || latest.state !== REFUND_STATE.PENDING) {
+            throw new RefundLifecycleError(
+                "refund is not awaiting submission; it must be reconciled, not resubmitted",
+                { obligationId, state: latest?.state ?? "MISSING" }
+            );
+        }
+
         const startedAtMs = this._now();
         const attemptId = `${current.obligationId}:${startedAtMs}`;
         // CRITICAL: persist SUBMISSION_UNKNOWN *before* the first await that
