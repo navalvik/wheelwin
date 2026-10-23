@@ -112,7 +112,8 @@ export class TestnetOutgoingRefundProvider {
                 typeof this._signer?.signPlannedRefund === "function" &&
                 typeof this._signedTransferInspector?.inspect === "function" &&
                 typeof this._signedTransferInspector?.verifyWalletV4Signature === "function")
-            : typeof this._signer?.signTransfer === "function")
+            : (typeof this._signer?.signPlannedRefund !== "function" &&
+                typeof this._signer?.signTransfer === "function"))
             && typeof this._broadcaster?.broadcast === "function"
             && typeof this._finality?.getSettlementEvidence === "function"
             && typeof this._observation?.getOutgoingTransfer === "function"
