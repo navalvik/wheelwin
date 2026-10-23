@@ -189,3 +189,35 @@ test("64 active wallet reservations survive restart and cannot be reassigned", (
         rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("Unresolved refund blocks wallet recycling until obligations are cleared", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wheelwin-wallet-refund-hold-"));
+    try {
+        const catalogJson = JSON.stringify(catalog());
+        const pool = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        pool.initialize();
+        const { wallet } = pool.reserve({ roomId: "expired-room", network: "testnet" });
+        assert.throws(
+            () => pool.release({ roomId: "expired-room", unresolvedObligations: 1 }),
+            /recycl|obligation|blocked|unresolved/i,
+            "pending refund must prevent wallet reuse"
+        );
+        assert.equal(pool.getReservationForRoom("expired-room")?.walletId, wallet.walletId);
+        pool.persistSnapshot(dir);
+
+        const restarted = new WalletPoolRegistry({ catalogJson, network: "testnet" });
+        restarted.initialize({ snapshotDir: dir });
+        assert.equal(restarted.getReservationForRoom("expired-room")?.walletId, wallet.walletId);
+        assert.throws(
+            () => restarted.reserve({ roomId: "new-room", walletId: wallet.walletId, network: "testnet" }),
+            /already reserved|conflict|wallet/i,
+            "wallet with pending refund must stay unavailable after restart"
+        );
+        const released = restarted.release({ roomId: "expired-room", unresolvedObligations: 0 });
+        assert.equal(released.released, true);
+        const reassigned = restarted.reserve({ roomId: "new-room", walletId: wallet.walletId, network: "testnet" });
+        assert.equal(reassigned.wallet.walletId, wallet.walletId);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
