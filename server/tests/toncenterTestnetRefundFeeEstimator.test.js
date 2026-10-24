@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { WalletContractV4 } from "@ton/ton";
 import {
     ToncenterTestnetRefundFeeEstimator
 } from "../payment/refund/ToncenterTestnetRefundFeeEstimator.js";
 
 const TESTNET_BASE = "https://testnet.toncenter.com";
-const TEST_WALLET = "0:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const TEST_WALLET_CONTRACT = WalletContractV4.create({ workchain: 0, publicKey: Buffer.alloc(32, 7) });
+const TEST_WALLET = TEST_WALLET_CONTRACT.address.toRawString();
+const TEST_WALLET_CODE_BOC = TEST_WALLET_CONTRACT.init.code.toBoc().toString("base64");
+const TEST_WALLET_DATA_BOC = TEST_WALLET_CONTRACT.init.data.toBoc().toString("base64");
+const TEST_TX_HASH = Buffer.alloc(32, 1).toString("base64");
 
 function makeInput(overrides = {}) {
     return {
@@ -19,9 +24,6 @@ function makeInput(overrides = {}) {
     };
 }
 
-/** Synthetic minimal valid WalletV4R2 data cell BOC (base64). */
-const SYNTHETIC_V4R2_DATA_BOC =
-    "te6cckEBAQEAKwAAUQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAsWGhWQ==";
 
 /**
  * Comprehensive mock fetch for Toncenter Testnet refund fee estimator.
@@ -58,20 +60,21 @@ function makeFetchMock(overrides = {}) {
                 return {
                     status: 200,
                     ok: true,
-                    json: async () => cached
+                    json: async () => ({ ok: true, result: cached })
                 };
             }
             // Default fallback: active wallet with valid V4R2 code
             return {
                 status: 200,
                 ok: true,
-                json: async () => ({
+                json: async () => ({ ok: true, result: {
                     state: "active",
                     sync_utime: Math.floor(Date.now() / 1000) - 10,
                     balance: "5000000",
-                    code: "feb5ff6820e2ff0d9483e7e0d62c817d846789fb4ae580c878866d959dabd5c0",
-                    data: SYNTHETIC_V4R2_DATA_BOC
-                })
+                    code: TEST_WALLET_CODE_BOC,
+                    data: TEST_WALLET_DATA_BOC,
+                    last_transaction_id: { lt: "12345", hash: TEST_TX_HASH }
+                } })
             };
         }
 
@@ -263,7 +266,7 @@ test("9. Correct construction of unsigned simulation-only WalletV4R2 request", a
         timeoutMs: 10000
     });
     // Register a fee response that allows convergence
-    fetchMock.registerEstimateFee("0:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", {
+    fetchMock.registerEstimateFee(TEST_WALLET, {
         "@type": "query.fees",
         source_fees: {
             "@type": "fees",
@@ -292,7 +295,7 @@ test("10. Correct use of the 8-bit WalletV4 opcode (sendMode=1)", async () => {
         timeoutMs: 10000
     });
     // Register a fee response that allows convergence
-    fetchMock.registerEstimateFee("0:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", {
+    fetchMock.registerEstimateFee(TEST_WALLET, {
         "@type": "query.fees",
         source_fees: {
             "@type": "fees",
@@ -358,20 +361,22 @@ test("12. Rejection of network timeouts", async () => {
 test("13. Rejection of changed wallet state during estimation", async () => {
     const fetchMock = makeFetchMock();
     // First wallet call returns normal state
-    fetchMock.registerWalletState("0:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", {
+    fetchMock.registerWalletState(TEST_WALLET, {
         state: "active",
         sync_utime: Math.floor(Date.now() / 1000) - 10,
         balance: "10000",
-        code: "feb5ff6820e2ff0d9483e7e0d62c817d846789fb4ae580c878866d959dabd5c0",
-        data: SYNTHETIC_V4R2_DATA_BOC
+        code: TEST_WALLET_CODE_BOC,
+        data: TEST_WALLET_DATA_BOC,
+        last_transaction_id: { lt: "12345", hash: TEST_TX_HASH }
     });
     // Second wallet call returns changed state (simulating state change between reads)
-    fetchMock.registerWalletState("0:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", {
+    fetchMock.registerWalletState(TEST_WALLET, {
         state: "active",
         sync_utime: 0,
         balance: "10000",
-        code: "feb5ff6820e2ff0d9483e7e0d62c817d846789fb4ae580c878866d959dabd5c0",
-        data: SYNTHETIC_V4R2_DATA_BOC
+        code: TEST_WALLET_CODE_BOC,
+        data: TEST_WALLET_DATA_BOC,
+        last_transaction_id: { lt: "12345", hash: TEST_TX_HASH }
     });
     const estimator = new ToncenterTestnetRefundFeeEstimator({
         networkName: "TESTNET", globalId: -3,
@@ -391,7 +396,7 @@ test("13. Rejection of changed wallet state during estimation", async () => {
 
 test("14. Correct fee-breakdown calculations present in response", async () => {
     const fetchMock = makeFetchMock();
-    fetchMock.registerEstimateFee("0:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", {
+    fetchMock.registerEstimateFee(TEST_WALLET, {
         "@type": "query.fees",
         source_fees: {
             "@type": "fees",
@@ -418,7 +423,7 @@ test("14. Correct fee-breakdown calculations present in response", async () => {
 
 test("15. Mandatory failure-closed behavior of estimateRefundFee() - method always throws", async () => {
     const fetchMock = makeFetchMock();
-    fetchMock.registerEstimateFee("0:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", {
+    fetchMock.registerEstimateFee(TEST_WALLET, {
         "@type": "query.fees",
         source_fees: {
             "@type": "fees",
