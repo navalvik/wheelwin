@@ -7,12 +7,11 @@ import {
     renameSync,
     writeFileSync
 } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 import archiver from "archiver";
 
-import { RECORD_STORAGE_CATEGORY } from "../persistence/TonFinancialRecordTypes.js";
 import { safeFilenameSegment } from "./forensicArchiveNaming.js";
 
 /**
@@ -142,15 +141,6 @@ export class ForensicArchiveCollector {
 
         }
 
-        for (const file of this._discoverTonFinancialFiles({ roomId, gameId })) {
-
-            pushEntry(
-                file.absolutePath,
-                join("ton-financial", file.relativePath)
-            );
-
-        }
-
         return entries;
 
     }
@@ -197,89 +187,6 @@ export class ForensicArchiveCollector {
                 filename,
                 absolutePath: join(this._diagnosticLogsDir, filename)
             }));
-
-    }
-
-    _discoverTonFinancialFiles({ roomId, gameId }) {
-
-        if (!this._financialPersistence || !existsSync(this._tonFinancialDataDir)) {
-
-            return [];
-
-        }
-
-        const records = new Map();
-
-        const ingest = (envelope) => {
-
-            if (!envelope?.recordType || !envelope?.recordId) {
-
-                return;
-
-            }
-
-            const key = `${envelope.recordType}:${envelope.recordId}`;
-
-            records.set(key, envelope);
-
-        };
-
-        for (const record of this._financialPersistence.findByGame(gameId) ?? []) {
-
-            ingest(record);
-
-        }
-
-        for (const record of this._financialPersistence.findByRoom(roomId) ?? []) {
-
-            ingest(record);
-
-        }
-
-        const files = [];
-
-        for (const record of records.values()) {
-
-            const absolutePath = this._resolveTonFinancialRecordPath(
-                record.recordType,
-                record.recordId
-            );
-
-            if (!absolutePath || !existsSync(absolutePath)) {
-
-                continue;
-
-            }
-
-            files.push({
-                absolutePath,
-                relativePath: relative(this._tonFinancialDataDir, absolutePath)
-                    .split("\\")
-                    .join("/")
-            });
-
-        }
-
-        return files;
-
-    }
-
-    _resolveTonFinancialRecordPath(recordType, recordId) {
-
-        const category = RECORD_STORAGE_CATEGORY[recordType];
-
-        if (!category) {
-
-            return null;
-
-        }
-
-        return join(
-            this._tonFinancialDataDir,
-            category,
-            recordType,
-            `${recordId}.json`
-        );
 
     }
 
