@@ -1608,6 +1608,9 @@ class WheelWinApplication {
             sessionHistoryArchive: this._sessionHistoryArchive
         });
         this._roomLobbyBridge.configureForensicArchiveService(this._forensicArchiveService);
+        void this._forensicArchiveService.resumePendingUploads().catch((error) => {
+            this._logger?.error?.(`FORENSIC_ARCHIVE_RESUME_FAILED | error=${error?.message ?? error}`);
+        });
         this._logger.info(
             `R2_FORENSIC_ARCHIVE_ENABLED | configured=${forensicUploader.isConfigured()} | bucket=${forensicConfig.bucket ? "set" : "unset"} | blocking=false`
         );
