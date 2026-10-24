@@ -44,6 +44,9 @@ import { TimerService } from "./services/TimerService.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
+import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
+import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
+import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -1586,6 +1589,28 @@ class WheelWinApplication {
         this._sessionHistoryArchive.rebuildIndexFromDisk();
 
         this._logger.startupLine("SessionHistoryArchiveManager");
+
+        // Best-effort R2 archival: never blocks room closure or gameplay.
+        const forensicConfig = resolveForensicArchiveConfig();
+        const forensicUploader = new R2ForensicArchiveUploader({
+            logger: this._logger,
+            bucket: forensicConfig.bucket,
+            prefix: forensicConfig.prefix,
+            endpoint: forensicConfig.endpoint,
+            accountId: forensicConfig.accountId,
+            accessKeyId: forensicConfig.accessKeyId,
+            secretAccessKey: forensicConfig.secretAccessKey
+        });
+        this._forensicArchiveService = new ForensicArchiveService({
+            logger: this._logger,
+            config: { ...forensicConfig, required: false },
+            uploader: forensicUploader,
+            sessionHistoryArchive: this._sessionHistoryArchive
+        });
+        this._roomLobbyBridge.configureForensicArchiveService(this._forensicArchiveService);
+        this._logger.info(
+            `R2_FORENSIC_ARCHIVE_ENABLED | configured=${forensicUploader.isConfigured()} | bucket=${forensicConfig.bucket ? "set" : "unset"} | blocking=false`
+        );
 
         // R6.1 / R7.0C — Secure Developer Access from immutable runtime config.
         this._developerAuthService = new DeveloperAuthService({
