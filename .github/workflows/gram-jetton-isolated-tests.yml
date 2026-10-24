@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - restore/testnet-64-wallet-page4
+      - work/refund-fee-estimator-offline
   workflow_dispatch:
 
 permissions:
