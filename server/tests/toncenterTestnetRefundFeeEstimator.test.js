@@ -54,7 +54,7 @@ function makeFetchMock(overrides = {}) {
         if (fullUrl.includes("/api/v2/getAddressInformation")) {
             // Extract address from URL
             const addressMatch = fullUrl.match(/address=([^&]+)/);
-            const address = addressMatch ? addressMatch[1] : null;
+            const address = addressMatch ? decodeURIComponent(addressMatch[1]) : null;
             const sequence = walletStateResponses.get(address || "");
             const cached = sequence?.length ? (sequence.length > 1 ? sequence.shift() : sequence[0]) : null;
             if (cached) {
@@ -200,64 +200,63 @@ test("5. Verification of WalletV4R2 code and wallet state", async () => {
         timeoutMs: 10000
     });
     const input = makeInput();
-    let threw = false;
-    try {
-        await estimator.inspectRefundFee(input);
-    } catch (e) {
-        threw = true;
-    }
-    assert.strictEqual(threw, true);
+    const result = await estimator.inspectRefundFee(input);
+    assert.strictEqual(result.executionEligible, false);
+    assert.strictEqual(result.blocker, "REFUND_FEE_NOT_GUARANTEED");
 });
 
 test("6. Rejection of incorrect wallet identity or public key", async () => {
+    const fetchMock = makeFetchMock();
+    fetchMock.registerWalletState(TEST_WALLET, {
+        state: "active", sync_utime: Math.floor(Date.now() / 1000) - 10,
+        balance: "5000000",
+        code: TEST_WALLET_CODE_BOC, data: WalletContractV4.create({ workchain: 0, publicKey: Buffer.alloc(32, 8) }).init.data.toBoc().toString("base64"),
+        last_transaction_id: { lt: "12345", hash: TEST_TX_HASH }
+    });
     const estimator = new ToncenterTestnetRefundFeeEstimator({
         networkName: "TESTNET", globalId: -3,
-        baseUrl: TESTNET_BASE, fetchImpl: makeFetchMock().fetchImpl,
+        baseUrl: TESTNET_BASE, fetchImpl: fetchMock.fetchImpl,
         apiKeyProvider: () => "test-key", nowSeconds: () => Math.floor(Date.now() / 1000),
         timeoutMs: 10000
     });
     const input = makeInput();
-    let threw = false;
-    try {
-        await estimator.inspectRefundFee(input);
-    } catch (e) {
-        threw = true;
-    }
-    assert.strictEqual(threw, true);
+    await assert.rejects(() => estimator.inspectRefundFee(input), { message: "REFUND_FEE_SOURCE_WALLET_MISMATCH" });
 });
 
 test("7. Rejection of stale wallet state", async () => {
+    const fetchMock = makeFetchMock();
+    fetchMock.registerWalletState(TEST_WALLET, {
+        state: "active", sync_utime: Math.floor(Date.now() / 1000) - 120,
+        balance: "5000000",
+        code: TEST_WALLET_CODE_BOC, data: TEST_WALLET_DATA_BOC,
+        last_transaction_id: { lt: "12345", hash: TEST_TX_HASH }
+    });
     const estimator = new ToncenterTestnetRefundFeeEstimator({
         networkName: "TESTNET", globalId: -3,
-        baseUrl: TESTNET_BASE, fetchImpl: makeFetchMock().fetchImpl,
+        baseUrl: TESTNET_BASE, fetchImpl: fetchMock.fetchImpl,
         apiKeyProvider: () => "test-key", nowSeconds: () => Math.floor(Date.now() / 1000),
         timeoutMs: 10000
     });
     const input = makeInput();
-    let threw = false;
-    try {
-        await estimator.inspectRefundFee(input);
-    } catch (e) {
-        threw = true;
-    }
-    assert.strictEqual(threw, true);
+    await assert.rejects(() => estimator.inspectRefundFee(input), { message: "REFUND_FEE_WALLET_STATE_UNAVAILABLE" });
 });
 
 test("8. Rejection of insufficient room-wallet balance", async () => {
+    const fetchMock = makeFetchMock();
+    fetchMock.registerWalletState(TEST_WALLET, {
+        state: "active", sync_utime: Math.floor(Date.now() / 1000) - 10,
+        balance: "100",
+        code: TEST_WALLET_CODE_BOC, data: TEST_WALLET_DATA_BOC,
+        last_transaction_id: { lt: "12345", hash: TEST_TX_HASH }
+    });
     const estimator = new ToncenterTestnetRefundFeeEstimator({
         networkName: "TESTNET", globalId: -3,
-        baseUrl: TESTNET_BASE, fetchImpl: makeFetchMock().fetchImpl,
+        baseUrl: TESTNET_BASE, fetchImpl: fetchMock.fetchImpl,
         apiKeyProvider: () => "test-key", nowSeconds: () => Math.floor(Date.now() / 1000),
         timeoutMs: 10000
     });
     const input = makeInput();
-    let threw = false;
-    try {
-        await estimator.inspectRefundFee(input);
-    } catch (e) {
-        threw = true;
-    }
-    assert.strictEqual(threw, true);
+    await assert.rejects(() => estimator.inspectRefundFee(input), { message: "REFUND_FEE_INSUFFICIENT_PRINCIPAL" });
 });
 
 test("9. Correct construction of unsigned simulation-only WalletV4R2 request", async () => {
