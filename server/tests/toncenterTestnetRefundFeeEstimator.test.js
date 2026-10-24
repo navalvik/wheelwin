@@ -341,20 +341,17 @@ test("15. Mandatory failure-closed behavior of estimateRefundFee() - method alwa
     assert.ok(threw, "estimateRefundFee should always throw");
 });
 
-test("16. Rejection of MAINNET address mismatch with TESTNET estimator", () => {
+test("16. Rejection of MAINNET address mismatch with TESTNET estimator", async () => {
     const estimator = new ToncenterTestnetRefundFeeEstimator({
         networkName: "TESTNET", globalId: -3,
         baseUrl: TESTNET_BASE, fetchImpl: async () => ({ ok: true, result: {} }),
         apiKeyProvider: () => "test-key", nowSeconds: () => Math.floor(Date.now() / 1000),
         timeoutMs: 10000
     });
-    let threw = false;
-    try {
-        estimator.inspectRefundFee(makeInput({ sourceWalletAddress: "EQx...mainnet" }));
-    } catch (e) {
-        threw = true;
-    }
-    assert.ok(threw || true);
+    await assert.rejects(
+        estimator.inspectRefundFee(makeInput({ sourceWalletAddress: "EQx...mainnet" })),
+        /REFUND_FEE_INVALID_ADDRESS/
+    );
 });
 
 test("17. Rejection of self-transfer (source equals destination)", async () => {
