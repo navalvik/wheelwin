@@ -1,5 +1,6 @@
 import {
     existsSync,
+    readdirSync,
     mkdirSync,
     readFileSync,
     renameSync
@@ -97,6 +98,49 @@ export class ForensicArchiveService {
 
         }
 
+    }
+
+    /**
+     * Resume staged ZIPs after a process restart without touching game timers.
+     * Only already-created archives are retried; missing ZIPs are reported.
+     */
+    async resumePendingUploads() {
+        if (!this._config.enabled || !this._uploader?.isConfigured?.()) {
+            return { resumed: 0, failed: 0 };
+        }
+        if (!existsSync(this._config.stagingDir)) {
+            return { resumed: 0, failed: 0 };
+        }
+        let resumed = 0;
+        let failed = 0;
+        for (const entry of readdirSync(this._config.stagingDir, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const statusPath = join(this._config.stagingDir, entry.name, "status.json");
+            const status = readStatus(statusPath);
+            if (!status || status.state === "uploaded" || status.phase === "collect") continue;
+            if (!["pending_upload", "failed"].includes(status.state)) continue;
+            const zipPath = join(this._config.stagingDir, entry.name, status.archiveFilename ?? "");
+            if (!status.archiveFilename || !existsSync(zipPath)) {
+                failed += 1;
+                this._logError(`FORENSIC_ARCHIVE_RESUME_MISSING_ZIP | roomId=${status.roomId}`);
+                continue;
+            }
+            try {
+                const upload = await this._uploader.uploadFile(zipPath, status.archiveFilename);
+                writeStagingStatus(statusPath, {
+                    ...status,
+                    state: "uploaded",
+                    objectName: upload.objectName,
+                    generation: upload.generation,
+                    uploadedAt: Date.now()
+                });
+                resumed += 1;
+            } catch (error) {
+                failed += 1;
+                this._logError(`FORENSIC_ARCHIVE_RESUME_FAILED | roomId=${status.roomId} | error=${error.message}`);
+            }
+        }
+        return { resumed, failed };
     }
 
     async _ensureArchivedAndUploadedInner({
