@@ -55,7 +55,8 @@ function makeFetchMock(overrides = {}) {
             // Extract address from URL
             const addressMatch = fullUrl.match(/address=([^&]+)/);
             const address = addressMatch ? addressMatch[1] : null;
-            const cached = walletStateResponses.get(address || "");
+            const sequence = walletStateResponses.get(address || "");
+            const cached = sequence?.length ? (sequence.length > 1 ? sequence.shift() : sequence[0]) : null;
             if (cached) {
                 return {
                     status: 200,
@@ -121,7 +122,9 @@ function makeFetchMock(overrides = {}) {
     const fetchMock = {
         fetchImpl,
         registerWalletState: function(address, response) {
-            walletStateResponses.set(address, response);
+            const sequence = walletStateResponses.get(address) ?? [];
+            sequence.push(response);
+            walletStateResponses.set(address, sequence);
         },
         registerEstimateFee: function(sourceAddress, response) {
             estimateFeeResponses.set(sourceAddress, response);
@@ -364,7 +367,7 @@ test("13. Rejection of changed wallet state during estimation", async () => {
     fetchMock.registerWalletState(TEST_WALLET, {
         state: "active",
         sync_utime: Math.floor(Date.now() / 1000) - 10,
-        balance: "10000",
+        balance: "5000000",
         code: TEST_WALLET_CODE_BOC,
         data: TEST_WALLET_DATA_BOC,
         last_transaction_id: { lt: "12345", hash: TEST_TX_HASH }
@@ -372,11 +375,11 @@ test("13. Rejection of changed wallet state during estimation", async () => {
     // Second wallet call returns changed state (simulating state change between reads)
     fetchMock.registerWalletState(TEST_WALLET, {
         state: "active",
-        sync_utime: 0,
+        sync_utime: Math.floor(Date.now() / 1000) - 10,
         balance: "10000",
         code: TEST_WALLET_CODE_BOC,
         data: TEST_WALLET_DATA_BOC,
-        last_transaction_id: { lt: "12345", hash: TEST_TX_HASH }
+        last_transaction_id: { lt: "12346", hash: TEST_TX_HASH }
     });
     const estimator = new ToncenterTestnetRefundFeeEstimator({
         networkName: "TESTNET", globalId: -3,
@@ -385,13 +388,9 @@ test("13. Rejection of changed wallet state during estimation", async () => {
         timeoutMs: 10000
     });
     const input = makeInput();
-    let threw = false;
-    try {
-        await estimator.inspectRefundFee(input);
-    } catch (e) {
-        threw = true;
-    }
-    assert.ok(threw);
+    await assert.rejects(() => estimator.inspectRefundFee(input), {
+        message: "REFUND_FEE_WALLET_STATE_CHANGED"
+    });
 });
 
 test("14. Correct fee-breakdown calculations present in response", async () => {
