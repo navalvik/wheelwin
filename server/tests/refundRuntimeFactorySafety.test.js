@@ -12,7 +12,7 @@ function completeBundle() {
         finalityEvidenceProvider: { getSettlementEvidence: noop },
         outgoingTransferProvider: { getOutgoingTransfer: noop, findOutgoingTransfer: noop },
         feeEstimator: { estimateRefundFee: noop },
-        refundPlanStore: { get: noop, reserve: noop },
+        refundPlanStore: { get: noop, reserve: noop, reserveSignedMessage: noop, getSignedMessage: noop },
         signedTransferInspector: { inspect: noop, verifyWalletV4Signature: noop }
     };
 }
@@ -31,6 +31,8 @@ test("production refund factory refuses each missing net-refund safety dependenc
         ["feeEstimator", "estimateRefundFee"],
         ["refundPlanStore", "get"],
         ["refundPlanStore", "reserve"],
+        ["refundPlanStore", "reserveSignedMessage"],
+        ["refundPlanStore", "getSignedMessage"],
         ["signedTransferInspector", "inspect"],
         ["signedTransferInspector", "verifyWalletV4Signature"],
         ["signer", "signPlannedRefund"]

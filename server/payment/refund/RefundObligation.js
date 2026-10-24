@@ -86,7 +86,7 @@ export class RefundObligation {
             const allowedEvidenceFields = new Set([
                 "networkName", "globalId", "transactionId", "amountAtomic",
                 "destination", "finalized", "observedAtMs", "blockId",
-                "originalPaidAmountAtomic", "reservedFeeAtomic"
+                "originalPaidAmountAtomic", "reservedFeeAtomic", "actualFeeAtomic", "signedBodyHash"
             ]);
             if (Object.keys(record.finalizedEvidence).some((key) => !allowedEvidenceFields.has(key))) {
                 throw new RefundObligationError("finalized evidence contains unsupported fields");
@@ -99,6 +99,10 @@ export class RefundObligation {
         }
         this.lastError = record.lastError ?? null;
         if (this.finalizedEvidence) {
+            if ((this.finalizedEvidence.actualFeeAtomic !== undefined || this.finalizedEvidence.signedBodyHash !== undefined) &&
+                (this.finalizedEvidence.actualFeeAtomic !== this.finalizedEvidence.reservedFeeAtomic ||
+                    !/^[a-f0-9]{64}$/.test(this.finalizedEvidence.signedBodyHash)))
+                throw new RefundObligationError("finalized actual fee or signed message identity is invalid");
             if (this.state !== REFUND_STATE.COMPLETE
                 || this.finalizedEvidence.networkName !== this.networkName
                 || this.finalizedEvidence.globalId !== this.globalId

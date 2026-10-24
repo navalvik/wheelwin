@@ -138,10 +138,10 @@ export class RefundLifecycleCoordinator {
         return Object.freeze(report);
     }
 
-    _resolveOutgoingProvider(provider) {
+    _resolveOutgoingProvider(provider, requireExecution = true) {
         const resolved = provider ?? this._outgoingProvider;
         if (!resolved) throw new RefundLifecycleError("no outgoing refund provider is configured");
-        if (resolved.canExecute?.() !== true) throw new RefundLifecycleError("outgoing refund provider has no authorized Testnet signer");
+        if (requireExecution && resolved.canExecute?.() !== true) throw new RefundLifecycleError("outgoing refund provider has no authorized Testnet signer");
         return resolved;
     }
 
@@ -245,15 +245,15 @@ export class RefundLifecycleCoordinator {
         const reservedAttempt = this._attempt(current, "SUBMISSION_UNKNOWN", {
             startedAtMs, completedAtMs: null, attemptId
         });
-        this._store.markSubmissionUnknown(obligationId, { attempt: reservedAttempt });
+        this._store.markSubmissionUnknown(obligationId, { attempt: reservedAttempt, sourceWalletAddress });
 
         let result;
         try {
             result = await outgoing.signAndBroadcast({
                 obligation: current, sourceWalletAddress, nowMs: startedAtMs
             });
-        } catch (error) {
-            const code = typeof error?.code === "string" ? error.code : "OUTGOING_REFUND_ERROR";
+        } catch {
+            const code = "OUTGOING_REFUND_ERROR";
             this._logger?.warn?.(`Refund submission requires reconciliation | obligationId=${obligationId} | reason=${code}`);
             return Object.freeze({
                 obligationId, outcome: "SUBMISSION_UNKNOWN",
@@ -280,8 +280,11 @@ export class RefundLifecycleCoordinator {
 
         // A provider may say FAILED even when the network accepted a message
         // before its response was lost. Stay UNKNOWN until on-chain proof.
-        const reason = typeof result?.reason === "string"
-            ? result.reason : "BROADCAST_OUTCOME_AMBIGUOUS";
+        // Adapter error strings/codes may contain credentials. Only these
+        // fixed public diagnostics may leave the signing boundary.
+        const safeReasons = new Set(["SIGNER_UNAVAILABLE", "SIGNING_FAILED", "BROADCAST_UNAVAILABLE",
+            "BROADCAST_REJECTED", "BROADCAST_OUTCOME_AMBIGUOUS", "BROADCAST_RESULT_INVALID"]);
+        const reason = safeReasons.has(result?.reason) ? result.reason : "BROADCAST_OUTCOME_AMBIGUOUS";
         this._logger?.warn?.(`Refund submission needs reconciliation | obligationId=${obligationId} | reason=${reason}`);
         return Object.freeze({
             obligationId, outcome: "SUBMISSION_UNKNOWN",
@@ -296,7 +299,7 @@ export class RefundLifecycleCoordinator {
      * SUBMITTED — it can never shortcut to COMPLETE.
      */
     async finalizeRefund(obligationId, { provider = null } = {}) {
-        const outgoing = this._resolveOutgoingProvider(provider);
+        const outgoing = this._resolveOutgoingProvider(provider, false);
         const current = this._store.get(obligationId);
         if (!current) throw new RefundLifecycleError("refund obligation does not exist", { obligationId });
         this._assertProviderMatches(outgoing, current);
@@ -339,7 +342,7 @@ export class RefundLifecycleCoordinator {
      * otherwise it is held for manual reconciliation.
      */
     async reconcileAmbiguousSubmission(obligationId, { provider = null } = {}) {
-        const outgoing = this._resolveOutgoingProvider(provider);
+        const outgoing = this._resolveOutgoingProvider(provider, false);
         const current = this._store.get(obligationId);
         if (!current) throw new RefundLifecycleError("refund obligation does not exist", { obligationId });
         this._assertProviderMatches(outgoing, current);

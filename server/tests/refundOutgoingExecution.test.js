@@ -21,6 +21,7 @@ import { NativeGramRefundTransferPlanStore } from "../payment/refund/NativeGramR
 import { buildNativeGramRefundTransferPlan } from "../payment/refund/NativeGramRefundTransferPlan.js";
 import { signedRefundBocHashOrNull } from "../payment/refund/SignedNativeGramRefundEvidence.js";
 import { makeNativeRefundV4Boc } from "./fixtures/nativeRefundV4BocFixture.js";
+import { walletV4SignedBodyHash } from "../payment/refund/WalletV4SignedPayloadSignature.js";
 import {
     TestnetOutgoingRefundProvider,
     OUTGOING_SUBMISSION_OUTCOME,
@@ -486,7 +487,7 @@ async function testRuntimeRefundFactoryRejectsIncompleteExecutionBundle() {
         finalityEvidenceProvider: mocks.finalityEvidenceProvider,
         outgoingTransferProvider: mocks.outgoingTransferProvider,
         feeEstimator: { estimateRefundFee: async () => ({}) },
-        refundPlanStore: { get: () => null, reserve: () => ({}) },
+        refundPlanStore: { get: () => null, reserve: () => ({}), reserveSignedMessage() {}, getSignedMessage() {} },
         signedTransferInspector: {
             inspect: async () => ({}),
             verifyWalletV4Signature: async () => true
@@ -678,7 +679,7 @@ async function testValidSubmission() {
         const mocks = makeMocks({});
         mocks.outgoingTransferProvider.getOutgoingTransfer = async ({ sourceWalletAddress, transactionId }) => ({
             transactionId, sourceAddress: sourceWalletAddress,
-            destinationAddress: TESTNET_PAYER, amountAtomic: 990_000_000
+            destinationAddress: TESTNET_PAYER, amountAtomic: 990_000_000, actualFeeAtomic: "10000000", signedBodyHash: walletV4SignedBodyHash(makeNativeRefundV4Boc()), success: true, bounced: false
         });
         const provider = new TestnetOutgoingRefundProvider({
             globalId: -3,
@@ -1053,7 +1054,7 @@ async function testConflictingEvidenceCannotComplete() {
                     transactionId: "outgoing-testnet-tx",
                     sourceAddress: TESTNET_ROOM_WALLET,
                     destinationAddress: `0:${"c".repeat(64)}`,
-                    amountAtomic: 990_000_000
+                    amountAtomic: 990_000_000, actualFeeAtomic: "10000000", signedBodyHash: walletV4SignedBodyHash(makeNativeRefundV4Boc()), success: true, bounced: false
                 }
             },
             {
@@ -1265,7 +1266,7 @@ async function testReconcileAmbiguousSubmissionToComplete() {
                     transactionId: "observed-outgoing-tx",
                     sourceAddress: TESTNET_ROOM_WALLET,
                     destinationAddress: TESTNET_PAYER,
-                    amountAtomic: 990_000_000
+                    amountAtomic: 990_000_000, actualFeeAtomic: "10000000", signedBodyHash: walletV4SignedBodyHash(makeNativeRefundV4Boc()), success: true, bounced: false
                 };
             },
             async findOutgoingTransfer() {
@@ -1594,7 +1595,7 @@ async function testNetFeeRefundCompletesOnlyWithDurablePlanAndFinality() {
         mocks.outgoingTransferProvider.getOutgoingTransfer = async ({ sourceWalletAddress, transactionId }) => ({
             transactionId, sourceAddress: sourceWalletAddress,
             destinationAddress: TESTNET_PAYER,
-            amountAtomic: 990_000_000
+            amountAtomic: 990_000_000, actualFeeAtomic: "10000000", signedBodyHash: walletV4SignedBodyHash(makeNativeRefundV4Boc()), success: true, bounced: false
         });
         const provider = new TestnetOutgoingRefundProvider({
             globalId: -3,
@@ -1768,6 +1769,8 @@ async function testRefundPlanFromAnotherObligationCannotBeSigned() {
             feeEstimator: { estimateRefundFee: async () => { throw new Error("synthetic fee estimation not configured"); } },
             refundPlanStore: {
                 get: () => ({ ...validPlan, obligationId: "different-obligation" }),
+                getSignedMessage: () => null,
+                reserveSignedMessage: () => { throw new Error("must not reserve a foreign message"); },
                 reserve: () => { throw new Error("must not reserve a foreign plan"); }
             },
             signedTransferInspector: {

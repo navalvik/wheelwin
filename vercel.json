@@ -1,4 +1,7 @@
 {
+  "git": {
+    "deploymentEnabled": { "codex/issue-17-testnet-refund-safety": false }
+  },
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]

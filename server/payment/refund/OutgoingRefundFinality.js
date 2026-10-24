@@ -180,7 +180,7 @@ export function verifyOutgoingRefundFinality({
  * No signing, broadcasting, or store mutation.
  */
 export function verifyPlannedNativeGramRefundFinality({
-    obligation, plan, sourceWalletAddress, outgoingTransactionId,
+    obligation, plan, signedMessage, sourceWalletAddress, outgoingTransactionId,
     evidence, outgoingTransfer, nowMs
 }) {
     const reject = reason => Object.freeze({ verified: false, reason });
@@ -231,6 +231,24 @@ export function verifyPlannedNativeGramRefundFinality({
         BigInt(outgoingTransfer.amountAtomic) !== BigInt(plan.refundAmountAtomic)) {
         return reject(OUTGOING_FINALITY_REJECTION.AMOUNT_MISMATCH);
     }
+    // Match the actual inbound signed body of the source transaction, not
+    // just a historical transfer with the same recipient and amount.
+    if (!signedMessage || signedMessage.obligationId !== obligation.obligationId ||
+        signedMessage.idempotencyKey !== obligation.idempotencyKey ||
+        !tonAddressIdentitiesEqual(signedMessage.sourceWalletAddress, sourceWalletAddress) ||
+        !/^[a-f0-9]{64}$/.test(signedMessage.signedBodyHash) ||
+        outgoingTransfer.signedBodyHash !== signedMessage.signedBodyHash)
+        return reject("REFUND_SIGNED_MESSAGE_MISMATCH");
+    // These fields must be derived by independent transaction observation.
+    // A bound upper estimate alone cannot demonstrate that the player bore
+    // exactly the actual fee. Overruns AND unused reserves require a hold.
+    if (outgoingTransfer.success !== true || outgoingTransfer.bounced !== false)
+        return reject("REFUND_EXECUTION_NOT_SUCCESSFUL");
+    const actualFee = outgoingTransfer.actualFeeAtomic;
+    if (typeof actualFee !== "string" || !/^[1-9][0-9]*$/.test(actualFee))
+        return reject("REFUND_ACTUAL_FEE_UNVERIFIED");
+    if (BigInt(actualFee) > BigInt(plan.reservedFeeAtomic)) return reject("REFUND_FEE_OVERRUN");
+    if (actualFee !== plan.reservedFeeAtomic) return reject("REFUND_UNUSED_FEE_RESERVE");
     return Object.freeze({
         verified: true,
         // Advisory proof only, deliberately NOT accepted by RefundObligation.markComplete.
@@ -239,6 +257,8 @@ export function verifyPlannedNativeGramRefundFinality({
         originalPaidAmountAtomic: plan.originalPaidAmountAtomic,
         refundAmountAtomic: plan.refundAmountAtomic,
         reservedFeeAtomic: plan.reservedFeeAtomic,
+        actualFeeAtomic: actualFee,
+        signedBodyHash: signedMessage.signedBodyHash,
         observedAtMs: nowMs,
         blockId: `0:${String(evidence.transactionInclusion.block.shard)}:${String(evidence.transactionInclusion.block.seqno)}`
     });

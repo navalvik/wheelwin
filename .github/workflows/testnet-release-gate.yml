@@ -1,6 +1,9 @@
 name: Testnet release gate (no live transfers)
 
 on:
+  pull_request:
+    branches:
+      - restore/testnet-64-wallet-page4
   push:
     branches:
       - restore/testnet-64-wallet-page4
@@ -28,6 +31,7 @@ jobs:
       - working-directory: server
         run: |
           node tests/refundOutgoingExecution.test.js
+          node --test tests/refundIssue17.integration.test.js tests/toncenterTestnetRefundFeeEstimator.test.js tests/walletV4NativeRefundDecoder.test.js tests/signedNativeGramRefundEvidence.test.js
           node --test tests/nativeGramRefundTransferPlan.test.js tests/nativeGramRefundTransferPlanStore.test.js tests/nativeGramRefundFinality.test.js tests/nativeGramCancelledRefundFeePolicy.test.js tests/refundRuntimeFactorySafety.test.js tests/walletV4RefundEd25519.test.js tests/walletV4SignedNativeGramRefundInspector.test.js
 
   restart-recovery:

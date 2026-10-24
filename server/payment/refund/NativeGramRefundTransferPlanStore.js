@@ -10,6 +10,8 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { tonAddressIdentityOrNull, tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
+import { walletV4SignedBodyHash } from "./WalletV4SignedPayloadSignature.js";
+import { decodeWalletV4NativeRefundBody } from "./WalletV4NativeRefundDecoder.js";
 
 const ATOMIC = /^(0|[1-9][0-9]*)$/;
 const EXPECTED = Object.freeze([
@@ -99,8 +101,61 @@ export class NativeGramRefundTransferPlanStore {
         } finally {
             try { unlinkSync(temp); } catch {}
         }
-        // Directory fsync best effort; never authorize signing based on this
-        // store alone. The executor must verify recovery and quote provenance.
+        if (process.platform !== "win32") {
+            const directory = openSync(this.directory, "r");
+            try { fsyncSync(directory); } finally { closeSync(directory); }
+        }
+        // Windows directory durability must be validated before any live use.
+        // This reservation never turns an advisory quote into fee assurance.
         return Object.freeze({ replay: false, plan });
+    }
+
+    getSignedMessage(obligationId) {
+        const path = this.pathFor(obligationId) + ".signed";
+        if (!existsSync(path)) return null;
+        const record = JSON.parse(readFileSync(path, "utf8"));
+        const plan = this.get(obligationId);
+        const keys = ["obligationId", "idempotencyKey", "sourceWalletAddress", "signedBodyHash", "seqno", "walletId", "validUntil"];
+        if (!plan || Object.keys(record).length !== keys.length || keys.some(key => !(key in record)) ||
+            record.obligationId !== obligationId || record.idempotencyKey !== plan.idempotencyKey ||
+            record.sourceWalletAddress !== plan.sourceWalletAddress ||
+            !/^[a-f0-9]{64}$/.test(record.signedBodyHash) ||
+            ![record.seqno, record.walletId, record.validUntil].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 0xffffffff))
+            throw Error("REFUND_SIGNED_MESSAGE_INVALID");
+        return Object.freeze(record);
+    }
+
+    /** Called only after independent decoding AND signature verification.
+     * Publish once before broadcast. A replay is a hold, never permission to
+     * broadcast again. Store public identity only, not a spendable signed BOC.
+     */
+    reserveSignedMessage(obligationId, boc) {
+        const plan = this.get(obligationId);
+        if (!plan) throw Error("REFUND_PLAN_MISSING");
+        const bytes = Buffer.from(boc, "base64");
+        const parsed = decodeWalletV4NativeRefundBody(bytes);
+        if (parsed.amountAtomic !== plan.refundAmountAtomic || !tonAddressIdentitiesEqual(parsed.to, plan.refundDestination))
+            throw Error("REFUND_SIGNED_MESSAGE_PLAN_MISMATCH");
+        const record = Object.freeze({
+            obligationId, idempotencyKey: plan.idempotencyKey,
+            sourceWalletAddress: plan.sourceWalletAddress,
+            signedBodyHash: walletV4SignedBodyHash(bytes), seqno: parsed.seqno,
+            walletId: parsed.walletId, validUntil: parsed.validUntil
+        });
+        const path = this.pathFor(obligationId) + ".signed";
+        const temp = path + "." + createHash("sha256").update(process.pid + ":" + Math.random()).digest("hex") + ".tmp";
+        const fd = openSync(temp, "wx", 0o600);
+        try { writeSync(fd, JSON.stringify(record) + "\n"); fsyncSync(fd); }
+        finally { closeSync(fd); }
+        try { linkSync(temp, path); }
+        catch (error) {
+            if (error?.code !== "EEXIST") throw error;
+            throw Error("REFUND_SIGNED_MESSAGE_ALREADY_RESERVED");
+        } finally { unlinkSync(temp); }
+        if (process.platform !== "win32") {
+            const directory = openSync(this.directory, "r");
+            try { fsyncSync(directory); } finally { closeSync(directory); }
+        }
+        return record;
     }
 }
