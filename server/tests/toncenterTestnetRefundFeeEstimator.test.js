@@ -44,7 +44,7 @@ function makeFetchMock(overrides = {}) {
         if (fullUrl.includes("/api/v3/masterchainInfo")) {
             return {
                 status: 200,
-                json: async () => ({ ok: true, result: masterchainInfo })
+                json: async () => masterchainInfo
             };
         }
 
@@ -84,7 +84,7 @@ function makeFetchMock(overrides = {}) {
                 return {
                     status: 200,
                     ok: true,
-                    json: async () => cached
+                    json: async () => ({ ok: true, result: cached })
                 };
             }
             // Default fee response that allows convergence
@@ -92,6 +92,8 @@ function makeFetchMock(overrides = {}) {
                 status: 200,
                 ok: true,
                 json: async () => ({
+                    ok: true,
+                    result: {
                     "@type": "query.fees",
                     source_fees: {
                         "@type": "fees",
@@ -99,6 +101,7 @@ function makeFetchMock(overrides = {}) {
                         storage_fee: "50",
                         gas_fee: "30",
                         fwd_fee: "20"
+                    }
                     }
                 })
             };
@@ -271,12 +274,7 @@ test("9. Correct construction of unsigned simulation-only WalletV4R2 request", a
         }
     });
     const input = makeInput();
-    let result;
-    try {
-        result = await estimator.inspectRefundFee(input);
-    } catch (e) {
-        // Expected: may not converge in mock, but body construction is validated by the estimator
-    }
+    const result = await estimator.inspectRefundFee(input);
     // Direct assertions – no if (result) guard; test must verify the intended code path
     assert.strictEqual(result.denomination, "TON");
     assert.ok(typeof result.simulationBodyHash === "string" && result.simulationBodyHash.length > 0);
@@ -305,12 +303,7 @@ test("10. Correct use of the 8-bit WalletV4 opcode (sendMode=1)", async () => {
         }
     });
     const input = makeInput();
-    let result;
-    try {
-        result = await estimator.inspectRefundFee(input);
-    } catch (e) {
-        // convergence may fail in mock, but opcode validation is internal
-    }
+    const result = await estimator.inspectRefundFee(input);
     // Direct assertion – no if (result) guard
     assert.strictEqual(result.sendMode, 1);
 });
@@ -415,12 +408,7 @@ test("14. Correct fee-breakdown calculations present in response", async () => {
         timeoutMs: 10000
     });
     const input = makeInput();
-    let result;
-    try {
-        result = await estimator.inspectRefundFee(input);
-    } catch (e) {
-        // may not converge, but fee breakdown should be inspectable
-    }
+    const result = await estimator.inspectRefundFee(input);
     // Direct assertions – no if (result && result.sourceFees) guard
     assert.strictEqual(result.sourceFees.in_fwd_fee, "150");
     assert.strictEqual(result.sourceFees.storage_fee, "100");
