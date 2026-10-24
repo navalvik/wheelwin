@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1108.0",
-    "@ton/core": "^0.63.1",
+    "@ton/core": "0.63.1",
     "better-sqlite3": "13.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -26,7 +26,7 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
-    "@ton/ton": "^16.3.0",
+    "@ton/ton": "16.3.0",
     "nodemon": "^3.1.4",
     "socket.io-client": "^4.8.3"
   }
