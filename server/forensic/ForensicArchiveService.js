@@ -33,20 +33,16 @@ export class ForensicArchiveService {
         config = null,
         collector = null,
         uploader = null,
-        sessionHistoryArchive = null,
-        financialPersistence = null
+        sessionHistoryArchive = null
     }) {
 
         this._logger = logger;
         this._config = config ?? resolveForensicArchiveConfig();
         this._sessionHistoryArchive = sessionHistoryArchive;
-        this._financialPersistence = financialPersistence;
         this._collector = collector ?? new ForensicArchiveCollector({
             sessionHistoryDir: this._config.sessionHistoryDir,
             diagnosticLogsDir: this._config.diagnosticLogsDir,
-            tonFinancialDataDir: this._config.tonFinancialDataDir,
-            sessionHistoryArchive,
-            financialPersistence
+            sessionHistoryArchive
         });
         this._uploader = uploader;
         this._inFlight = new Map();
