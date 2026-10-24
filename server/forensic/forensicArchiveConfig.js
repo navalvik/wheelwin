@@ -1,8 +1,4 @@
 import { join } from "node:path";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const SERVER_ROOT_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
  * R13.9H — Forensic archive + Cloudflare R2 configuration (environment only).
@@ -51,12 +47,6 @@ export function resolveForensicArchiveConfig(env = process.env) {
             || join(process.cwd(), "logs", "games")
     ).trim();
 
-    const tonFinancialDataDir = String(
-        env.TON_FINANCIAL_DATA_DIR
-            || env.WHEELWIN_FINANCIAL_DATA_DIR
-            || join(SERVER_ROOT_DIR, "..", "data", "ton-financial")
-    ).trim();
-
     const prefix = String(
         env.R2_FORENSIC_PREFIX
             || env.GCS_FORENSIC_PREFIX
@@ -76,7 +66,6 @@ export function resolveForensicArchiveConfig(env = process.env) {
         stagingDir,
         sessionHistoryDir,
         diagnosticLogsDir,
-        tonFinancialDataDir,
         accountId,
         accessKeyId,
         secretAccessKey,
