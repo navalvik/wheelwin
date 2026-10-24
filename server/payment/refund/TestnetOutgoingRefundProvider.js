@@ -107,6 +107,8 @@ export class TestnetOutgoingRefundProvider {
     canExecute() {
         return (typeof this._refundPlanStore?.get === "function" &&
             typeof this._refundPlanStore?.reserve === "function" &&
+            typeof this._refundPlanStore?.reserveSignedMessage === "function" &&
+            typeof this._refundPlanStore?.getSignedMessage === "function" &&
             typeof this._feeEstimator?.estimateRefundFee === "function" &&
             typeof this._signer?.signPlannedRefund === "function" &&
             typeof this._signedTransferInspector?.inspect === "function" &&
@@ -253,6 +255,11 @@ export class TestnetOutgoingRefundProvider {
             throw new OutgoingRefundError("settled payment intent is unavailable; cannot resolve the refund source wallet");
         }
         if (!intent || intent.paymentReference !== obligation.paymentIntentId
+            || intent.state !== "SETTLED" || intent.network !== "testnet"
+            || intent.roomId !== obligation.roomId || intent.playerId !== obligation.playerId
+            || intent.transactionId !== obligation.incomingTransactionId
+            || intent.amountAtomic !== obligation.amountAtomic || intent.asset !== obligation.denomination
+            || !tonAddressIdentitiesEqual(intent.expectedSender, obligation.refundDestination)
             || tonAddressIdentityOrNull(intent.destinationWalletAddress) === null) {
             throw new OutgoingRefundError("durable payment intent does not identify a valid source wallet");
         }
@@ -332,6 +339,13 @@ export class TestnetOutgoingRefundProvider {
                 obligationId: authorized.obligationId,
                 now: nowMs
             }));
+            // Snapshot scalar fields before any verifier await. Neither a
+            // signer-held reference nor arbitrary extra fields (credentials)
+            // may change or accompany the bytes reaching the broadcaster.
+            signedTransfer = Object.freeze(Object.fromEntries([
+                "networkName", "globalId", "from", "to", "amountAtomic",
+                "idempotencyKey", "obligationId", "sendRemainingBalance", "boc"
+            ].map(key => [key, signedTransfer?.[key]])));
             // The secure signing adapter must echo the exact NET transfer
             // identity before its signed payload can reach the broadcaster.
             // This is an adapter contract check, not independent decoding of
@@ -387,6 +401,9 @@ export class TestnetOutgoingRefundProvider {
                     throw new OutgoingRefundError("Wallet V4 refund signature was not independently verified");
                 }
             }
+            // Persist the independently verified request identity BEFORE the
+            // network can see it. An existing receipt is never a resend grant.
+            this._refundPlanStore.reserveSignedMessage(authorized.obligationId, signedTransfer.boc);
         } catch {
             // A signing failure never reaches the network.
             return Object.freeze({
@@ -433,11 +450,7 @@ export class TestnetOutgoingRefundProvider {
             return Object.freeze({
                 outcome: OUTGOING_SUBMISSION_OUTCOME.UNKNOWN,
                 outgoingTransactionId: null,
-                reason: result?.reason === undefined
-                    ? OUTGOING_SUBMISSION_REASON.BROADCAST_OUTCOME_AMBIGUOUS
-                    : (typeof result.reason === "string" && /secret|mnemonic|private.?key|api.?key/i.test(result.reason)
-                        ? OUTGOING_SUBMISSION_REASON.BROADCAST_OUTCOME_AMBIGUOUS
-                        : result.reason)
+                reason: OUTGOING_SUBMISSION_REASON.BROADCAST_OUTCOME_AMBIGUOUS
             });
         }
         return Object.freeze({
@@ -483,6 +496,7 @@ export class TestnetOutgoingRefundProvider {
         }
         return verifyPlannedNativeGramRefundFinality({
             obligation, plan,
+            signedMessage: this._refundPlanStore.getSignedMessage?.(obligation.obligationId) ?? null,
             sourceWalletAddress: authorized.sourceWalletAddress,
             outgoingTransactionId, evidence, outgoingTransfer, nowMs
         });
@@ -495,7 +509,7 @@ export class TestnetOutgoingRefundProvider {
      * observes what may already be on chain.
      */
     async reconcileAmbiguousSubmission({ obligation, sourceWalletAddress, nowMs }) {
-        if (!this.canExecute()) {
+        if (typeof this._observation?.findOutgoingTransfer !== "function") {
             return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.OUTGOING_TRANSFER_NOT_OBSERVED });
         }
         const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
@@ -515,11 +529,15 @@ export class TestnetOutgoingRefundProvider {
             return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.OUTGOING_TRANSFER_NOT_OBSERVED });
         }
         let match = null;
+        const signedMessage = this._refundPlanStore.getSignedMessage?.(obligation.obligationId);
+        if (!signedMessage) return Object.freeze({ verified: false, reason: "REFUND_SIGNED_MESSAGE_MISSING" });
         try {
             match = await this._observation.findOutgoingTransfer({
                 sourceWalletAddress: authorized.sourceAccountId,
                 destinationIdentity: deriveTonAddressIdentity(authorized.refundDestination),
-                amountAtomic: Number(plan.refundAmountAtomic)
+                amountAtomic: Number(plan.refundAmountAtomic),
+                signedBodyHash: signedMessage.signedBodyHash,
+                seqno: signedMessage.seqno
             });
         } catch {
             match = null;

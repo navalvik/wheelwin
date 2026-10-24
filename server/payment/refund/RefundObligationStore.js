@@ -1,20 +1,36 @@
-import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { RefundObligation, RefundObligationError } from "./RefundObligation.js";
+import { deriveTonAddressIdentity } from "../incoming/TonAddressIdentity.js";
+
+function flushFile(path, record) {
+    const fd = openSync(path, "wx", 0o600);
+    try { writeFileSync(fd, `${JSON.stringify(record)}\n`, "utf8"); fsyncSync(fd); }
+    finally { closeSync(fd); }
+}
+
+function flushDirectory(path) {
+    // Windows does not expose directory fsync. Process-crash recovery is
+    // supported there; power-loss durability requires filesystem validation.
+    if (process.platform === "win32") return;
+    const fd = openSync(path, "r");
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+}
 
 function writeAtomic(path, record) {
     mkdirSync(dirname(path), { recursive: true });
-    const temp = `${path}.tmp`;
-    writeFileSync(temp, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    const temp = `${path}.${randomBytes(8).toString("hex")}.tmp`;
+    flushFile(temp, record);
     renameSync(temp, path);
+    flushDirectory(dirname(path));
 }
 
 function writeExclusive(path, record) {
     mkdirSync(dirname(path), { recursive: true });
     const temp = `${path}.${randomBytes(8).toString("hex")}.tmp`;
-    writeFileSync(temp, `${JSON.stringify(record, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
-    try { linkSync(temp, path); }
+    flushFile(temp, record);
+    try { linkSync(temp, path); flushDirectory(dirname(path)); }
     finally { try { unlinkSync(temp); } catch {} }
 }
 
@@ -108,10 +124,24 @@ export class RefundObligationStore {
      * state machine, and the single outgoing-transaction-identity rule. Both
      * `update()` and the guarded transition methods persist through here.
      */
-    _commitTransition(next) {
+    _commitTransition(next, expected = null, sourceWalletAddress = null) {
+        // Cross-process compare-and-swap. Never steal a lock left by a crash:
+        // it requires operator reconciliation, not a timeout-based resend.
+        const lock = join(this._dataDir, "refund-transition.lock");
+        mkdirSync(lock);
+        try {
+            flushDirectory(this._dataDir);
+            return this._commitLocked(next, expected, sourceWalletAddress);
+        } finally { rmdirSync(lock); flushDirectory(this._dataDir); }
+    }
+
+    _commitLocked(next, expected, sourceWalletAddress) {
         this._assertInitialized();
-        const current = this._byId.get(next.obligationId);
+        const current = this.get(next.obligationId);
         if (!current) throw new RefundObligationError("refund obligation does not exist");
+        if (expected && JSON.stringify(current.toRecord()) !== JSON.stringify(expected.toRecord())) {
+            throw new RefundObligationError("refund changed in another worker; reconciliation required");
+        }
         const immutableFields = [
             "idempotencyKey", "networkName", "globalId", "roomNumber", "roomId", "playerId",
             "paymentIntentId", "incomingTransactionId", "amountAtomic", "denomination",
@@ -137,6 +167,24 @@ export class RefundObligationStore {
         if (next.state === "SUBMITTED" && !next.outgoingTransactionId) {
             throw new RefundObligationError("submitted refund requires an outgoing transaction identity");
         }
+        if (sourceWalletAddress !== null) {
+            if (current.state !== "PENDING" || next.state !== "SUBMISSION_UNKNOWN")
+                throw new RefundObligationError("wallet claim requires a new submission");
+            const source = deriveTonAddressIdentity(sourceWalletAddress);
+            const claims = join(this._dataDir, "refund-wallet-claims");
+            mkdirSync(claims, { recursive: true });
+            const path = join(claims, createHash("sha256").update(source).digest("hex") + ".json");
+            if (existsSync(path)) {
+                const claim = JSON.parse(readFileSync(path, "utf8"));
+                if (claim.source !== source || this.get(claim.obligationId)?.state !== "COMPLETE")
+                    throw new RefundObligationError("room wallet has an unresolved refund submission");
+                unlinkSync(path);
+            }
+            // Persist the wallet hold first. A crash before UNKNOWN is written
+            // still blocks this wallet; another refund cannot reuse its seqno.
+            writeExclusive(path, { source, obligationId: next.obligationId });
+            flushDirectory(this._dataDir);
+        }
         writeAtomic(join(this._recordsDir, `${next.obligationId}.json`), next.toRecord());
         this._byId.set(next.obligationId, next);
         return next;
@@ -150,11 +198,11 @@ export class RefundObligationStore {
             attempts: [...current.attempts, attempt],
             lastError: lastError ?? current.lastError
         });
-        return this._commitTransition(next);
+        return this._commitTransition(next, current);
     }
 
     /** PENDING -> SUBMISSION_UNKNOWN: an authorized submission was attempted. */
-    markSubmissionUnknown(obligationId, { attempt, lastError = null } = {}) {
+    markSubmissionUnknown(obligationId, { attempt, lastError = null, sourceWalletAddress = null } = {}) {
         const current = this._requireExisting(attempt, obligationId);
         if (current.state !== "PENDING") {
             throw new RefundObligationError("only a PENDING refund obligation can begin submission");
@@ -165,7 +213,7 @@ export class RefundObligationStore {
             attempts: [...current.attempts, attempt],
             lastError
             });
-        return this._commitTransition(next);
+        return this._commitTransition(next, current, sourceWalletAddress);
     }
 
     /** SUBMISSION_UNKNOWN -> SUBMITTED: the outgoing transaction is known. */
@@ -184,7 +232,7 @@ export class RefundObligationStore {
             attempts: [...current.attempts, attempt],
             lastError
         });
-        return this._commitTransition(next);
+        return this._commitTransition(next, current);
     }
 
     /** SUBMITTED/SUBMISSION_UNKNOWN -> RECONCILIATION_REQUIRED: manual resolution. */
@@ -196,7 +244,7 @@ export class RefundObligationStore {
             attempts: attempt === null ? current.attempts : [...current.attempts, attempt],
             lastError
         });
-        return this._commitTransition(next);
+        return this._commitTransition(next, current);
     }
 
     /**
@@ -220,7 +268,7 @@ export class RefundObligationStore {
             attempts: attempt === null ? current.attempts : [...current.attempts, attempt],
             finalizedEvidence
         });
-        return this._commitTransition(next);
+        return this._commitTransition(next, current);
     }
 
     /**
@@ -245,6 +293,8 @@ export class RefundObligationStore {
             plan.originalPaidAmountAtomic !== String(current.amountAtomic) ||
             plan.refundAmountAtomic !== verification.refundAmountAtomic ||
             plan.reservedFeeAtomic !== verification.reservedFeeAtomic ||
+            verification.actualFeeAtomic !== plan.reservedFeeAtomic ||
+            !/^[a-f0-9]{64}$/.test(verification.signedBodyHash) ||
             plan.sendRemainingBalance !== false ||
             !/^[1-9][0-9]*$/.test(plan.refundAmountAtomic) ||
             !/^[1-9][0-9]*$/.test(plan.reservedFeeAtomic) ||
@@ -262,6 +312,8 @@ export class RefundObligationStore {
             amountAtomic: Number(plan.refundAmountAtomic),
             originalPaidAmountAtomic: plan.originalPaidAmountAtomic,
             reservedFeeAtomic: plan.reservedFeeAtomic,
+            actualFeeAtomic: verification.actualFeeAtomic,
+            signedBodyHash: verification.signedBodyHash,
             destination: current.refundDestination,
             finalized: true,
             observedAtMs: verification.observedAtMs,
@@ -273,7 +325,7 @@ export class RefundObligationStore {
             attempts: attempt === null ? current.attempts : [...current.attempts, attempt],
             finalizedEvidence
         });
-        return this._commitTransition(next);
+        return this._commitTransition(next, current);
     }
 
     /** Any non-terminal -> BLOCKED (safe terminal hold with a diagnostic code). */
@@ -285,11 +337,11 @@ export class RefundObligationStore {
             attempts: attempt === null ? current.attempts : [...current.attempts, attempt],
             lastError
         });
-        return this._commitTransition(next);
+        return this._commitTransition(next, current);
     }
 
     _requireExisting(attempt, obligationId) {
-        const current = this._byId.get(obligationId);
+        const current = this.get(obligationId);
         if (!current) throw new RefundObligationError("refund obligation does not exist");
         if (attempt !== undefined && attempt !== null && !this._isValidAttempt(attempt)) {
             throw new RefundObligationError("refund attempt is not well-formed");
@@ -305,9 +357,21 @@ export class RefundObligationStore {
         ]);
         return Object.keys(attempt).every((key) => allowedAttemptFields.has(key));
     }
-    get(obligationId) { this._assertInitialized(); return this._byId.get(obligationId) ?? null; }
+    get(obligationId) {
+        this._assertInitialized();
+        // IDs come from durable obligations, but reject path traversal even
+        // for an incorrectly wired caller or corrupted wallet claim.
+        if (typeof obligationId !== "string" || !/^[A-Za-z0-9_-]+$/.test(obligationId))
+            throw new RefundObligationError("invalid refund obligation identifier");
+        const path = join(this._recordsDir, `${obligationId}.json`);
+        if (!existsSync(path)) return null;
+        const record = RefundObligation.fromRecord(JSON.parse(readFileSync(path, "utf8")));
+        if (record.obligationId !== obligationId) throw new RefundObligationError("refund identity mismatch");
+        this._index(record);
+        return record;
+    }
     findByIdempotencyKey(key) { this._assertInitialized(); const id = this._byIdempotency.get(key); return id ? this._byId.get(id) : null; }
-    list() { this._assertInitialized(); return [...this._byId.values()].sort((a, b) => a.createdAtMs - b.createdAtMs || a.obligationId.localeCompare(b.obligationId)); }
+    list() { this._assertInitialized(); return readdirSync(this._recordsDir).filter(name => name.endsWith(".json")).map(name => this.get(name.slice(0, -5))).sort((a, b) => a.createdAtMs - b.createdAtMs || a.obligationId.localeCompare(b.obligationId)); }
     listPending() { return this.list().filter((record) => record.state !== "COMPLETE"); }
     recordClosedRoom({ roomId, roomNumber, closureReason, closedAtMs, networkName = "TESTNET", globalId = -3 }) {
         this._assertInitialized();

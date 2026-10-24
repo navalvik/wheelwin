@@ -36,12 +36,17 @@ const evidence = {
 };
 const outgoingTransfer = {
     transactionId: txId, sourceAddress: source,
-    destinationAddress: payer, amountAtomic: 2_490_000_000
+    destinationAddress: payer, amountAtomic: 2_490_000_000,
+    actualFeeAtomic: "10000000", signedBodyHash: "a".repeat(64), success: true, bounced: false
+};
+const signedMessage = {
+    obligationId: obligation.obligationId, idempotencyKey: obligation.idempotencyKey,
+    sourceWalletAddress: source, signedBodyHash: outgoingTransfer.signedBodyHash
 };
 const check = (overrides = {}) =>
     verifyPlannedNativeGramRefundFinality({
         obligation, plan, sourceWalletAddress: source,
-        outgoingTransactionId: txId, evidence, outgoingTransfer, nowMs: NOW,
+        outgoingTransactionId: txId, evidence, outgoingTransfer, signedMessage, nowMs: NOW,
         ...overrides
     });
 
@@ -75,7 +80,7 @@ test("Testnet provider observes immutable stored NET plan without broadcasting",
     let reads = 0;
     const provider = new TestnetOutgoingRefundProvider({
         globalId: -3,
-        refundPlanStore: { get(id) {
+        refundPlanStore: { getSignedMessage() { return signedMessage; }, get(id) {
             assert.equal(id, obligation.obligationId);
             return plan;
         } },
@@ -103,4 +108,21 @@ test("Testnet provider observes immutable stored NET plan without broadcasting",
                 outgoingTransactionId: txId, nowMs: NOW
             }), /plan store is unavailable/
     );
+});
+
+test("actual fee, successful execution and exact signed body are required", () => {
+    for (const [mutation, reason] of [
+        [{ actualFeeAtomic: "10000001" }, "REFUND_FEE_OVERRUN"],
+        [{ actualFeeAtomic: "9999999" }, "REFUND_UNUSED_FEE_RESERVE"],
+        [{ actualFeeAtomic: undefined }, "REFUND_ACTUAL_FEE_UNVERIFIED"],
+        [{ actualFeeAtomic: 10000000 }, "REFUND_ACTUAL_FEE_UNVERIFIED"],
+        [{ signedBodyHash: "b".repeat(64) }, "REFUND_SIGNED_MESSAGE_MISMATCH"],
+        [{ success: false }, "REFUND_EXECUTION_NOT_SUCCESSFUL"],
+        [{ bounced: true }, "REFUND_EXECUTION_NOT_SUCCESSFUL"]
+    ]) {
+        const result = check({ outgoingTransfer: { ...outgoingTransfer, ...mutation } });
+        assert.equal(result.verified, false);
+        assert.equal(result.reason, reason);
+    }
+    assert.equal(check({ signedMessage: null }).reason, "REFUND_SIGNED_MESSAGE_MISMATCH");
 });

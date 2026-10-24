@@ -15,6 +15,14 @@ import { decodeOrdinaryTonBocCells } from "./OrdinaryTonBocCells.js";
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 const SIGNATURE_BITS = 512;
 
+/** Stable on-chain body identity, independent of BOC serialization flags. */
+export function walletV4SignedBodyHash(boc) {
+    const { root, cells } = decodeOrdinaryTonBocCells(boc);
+    if (cells[root].bitLength !== 624 || cells[root].refs.length !== 1)
+        throw Error("TON_WALLET_V4_BODY_UNSUPPORTED");
+    return cellInfo(root, cells, new Map()).hash.toString("hex");
+}
+
 function encodedBits(bits) {
     if (!/^[01]*$/.test(bits) || bits.length > 1023) throw Error("INVALID_TON_CELL_BITS");
     const topUp = bits.length % 8 === 0 ? bits
