@@ -23,16 +23,12 @@ export class ForensicArchiveCollector {
     constructor({
         sessionHistoryDir,
         diagnosticLogsDir,
-        tonFinancialDataDir,
-        sessionHistoryArchive = null,
-        financialPersistence = null
+        sessionHistoryArchive = null
     }) {
 
         this._sessionHistoryDir = sessionHistoryDir;
         this._diagnosticLogsDir = diagnosticLogsDir;
-        this._tonFinancialDataDir = tonFinancialDataDir;
         this._sessionHistoryArchive = sessionHistoryArchive;
-        this._financialPersistence = financialPersistence;
 
     }
 
