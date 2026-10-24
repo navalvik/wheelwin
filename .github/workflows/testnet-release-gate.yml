@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - restore/testnet-64-wallet-page4
+      - work/refund-fee-estimator-offline
   workflow_dispatch:
 
 permissions:
@@ -29,6 +30,7 @@ jobs:
         run: |
           node tests/refundOutgoingExecution.test.js
           node --test tests/nativeGramRefundTransferPlan.test.js tests/nativeGramRefundTransferPlanStore.test.js tests/nativeGramRefundFinality.test.js tests/nativeGramCancelledRefundFeePolicy.test.js tests/refundRuntimeFactorySafety.test.js tests/walletV4RefundEd25519.test.js tests/walletV4SignedNativeGramRefundInspector.test.js
+          node --test tests/toncenterTestnetRefundFeeEstimator.test.js
 
   restart-recovery:
     name: "2 / Refund recovery and no double-send"
