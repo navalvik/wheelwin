@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ForensicArchiveService } from "../forensic/ForensicArchiveService.js";
@@ -59,6 +59,54 @@ test("disabled archive does not touch R2", async () => {
         f.service._config = { ...f.service._config, enabled: false };
         const result = await f.service.ensureArchivedAndUploaded({ roomId: "roomC" });
         assert.equal(result.skipped, true);
+        assert.equal(f.uploads.length, 0);
+    } finally { f.cleanup(); }
+});
+
+test("restart resumes a staged ZIP and records uploaded state", async () => {
+    const f = fixture();
+    try {
+        const roomDir = join(f.service._config.stagingDir, "roomRestart");
+        mkdirSync(roomDir, { recursive: true });
+        const archiveFilename = "roomRestart.zip";
+        writeFileSync(join(roomDir, archiveFilename), "zip-fixture");
+        writeFileSync(join(roomDir, "status.json"), JSON.stringify({
+            state: "pending_upload", roomId: "roomRestart", archiveFilename
+        }));
+        const result = await f.service.resumePendingUploads();
+        assert.deepEqual(result, { resumed: 1, failed: 0 });
+        assert.equal(f.uploads.length, 1);
+        const status = JSON.parse(readFileSync(join(roomDir, "status.json"), "utf8"));
+        assert.equal(status.state, "uploaded");
+        const again = await f.service.resumePendingUploads();
+        assert.deepEqual(again, { resumed: 0, failed: 0 });
+    } finally { f.cleanup(); }
+});
+
+test("restart recovery handles R2 failure without throwing", async () => {
+    const f = fixture({ failUpload: true });
+    try {
+        const roomDir = join(f.service._config.stagingDir, "roomFailure");
+        mkdirSync(roomDir, { recursive: true });
+        writeFileSync(join(roomDir, "archive.zip"), "zip-fixture");
+        writeFileSync(join(roomDir, "status.json"), JSON.stringify({
+            state: "failed", phase: "upload", roomId: "roomFailure", archiveFilename: "archive.zip"
+        }));
+        const result = await f.service.resumePendingUploads();
+        assert.deepEqual(result, { resumed: 0, failed: 1 });
+    } finally { f.cleanup(); }
+});
+
+test("restart recovery handles missing staged ZIP without throwing", async () => {
+    const f = fixture();
+    try {
+        const roomDir = join(f.service._config.stagingDir, "roomMissing");
+        mkdirSync(roomDir, { recursive: true });
+        writeFileSync(join(roomDir, "status.json"), JSON.stringify({
+            state: "pending_upload", roomId: "roomMissing", archiveFilename: "missing.zip"
+        }));
+        const result = await f.service.resumePendingUploads();
+        assert.deepEqual(result, { resumed: 0, failed: 1 });
         assert.equal(f.uploads.length, 0);
     } finally { f.cleanup(); }
 });
