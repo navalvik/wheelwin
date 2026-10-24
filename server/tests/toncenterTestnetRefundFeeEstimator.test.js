@@ -18,7 +18,7 @@ function makeInput(overrides = {}) {
         globalId: -3,
         obligationId: "test-obligation-001",
         paidAmountAtomic: "1000000",
-        sourceWalletAddress: TEST_WALLET,
+        sourceWalletAddress: TEST_WALLET_CONTRACT.address.toString({ testOnly: true }),
         destinationAddress: "0:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         ...overrides
     };
