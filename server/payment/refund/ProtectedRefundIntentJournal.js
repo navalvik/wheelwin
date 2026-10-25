@@ -224,7 +224,9 @@ export class ProtectedRefundIntentJournal {
         this._assertOwner(item, ownerToken);
         assert(item.state === "PLANNED", "REFUND_ALREADY_SIGNED");
         assert(isHash(signedHash) && Number.isSafeInteger(seqno) && seqno >= 0
-            && Number.isSafeInteger(validUntil) && validUntil > 0,
+            && Number.isSafeInteger(validUntil)
+            && validUntil > Math.floor(Date.now() / 1000)
+            && validUntil <= Math.floor(Date.now() / 1000) + 300,
             "REFUND_SIGNED_IDENTITY_INVALID");
         const next = seal({ ...item, state: "SIGNED_HELD",
             ownerToken, signedHash: signedHash.toLowerCase(), seqno, validUntil,
