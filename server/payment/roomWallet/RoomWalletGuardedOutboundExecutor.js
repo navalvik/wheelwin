@@ -172,6 +172,7 @@ export class RoomWalletGuardedOutboundExecutor {
                 recipientWallet: p.destinationWallet,
                 amountNano: p.transferNano,
                 recipientGasChargeNano: p.gasChargeNano,
+                sourceRetainedFloorNano: p.sourceRetainedFloorNano ?? null,
                 role: p.role
             });
             prepared = parsePrepared(proposed, p, this._nowSeconds());
