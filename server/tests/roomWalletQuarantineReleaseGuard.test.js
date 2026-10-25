@@ -432,3 +432,137 @@ test("late transaction arriving after history read but before release keeps wall
     assert.equal(f.repo.isRoomNumberQuarantined(1), true);
     assert.equal(f.db.loadRecoveryDataRecord(f.hold.recordId).status, "ACTIVE");
 });
+
+
+test("previously confirmed legacy sweep lacking protected two-source intent still blocks wallet reuse", async t => {
+    const f = fixture(t);
+    f.setSweeps([{
+        recordId: "rwsweep_historic",
+        payload: {
+            roomNumber: 1,
+            gameId: "prior_game",
+            status: "CONFIRMED",
+            sourceAddress: ROOM,
+            destinationAddress: "0:" + "f".repeat(64),
+            amountNano: "490000000",
+            retainedFloorNano: "10000000",
+            sweepGasNano: "6000000",
+            safetyMarginNano: "4000000",
+            txHash: "c".repeat(64)
+        }
+    }]);
+    await assert.rejects(
+        f.guard().tryRelease({ recordId: f.hold.recordId }),
+        e => e.code === "QUARANTINE_RELEASE_RESIDUAL_SWEEP_UNVERIFIED"
+    );
+    assert.equal(f.repo.isRoomNumberQuarantined(1), true);
+});
+
+test("fully confirmed historical sweep no longer strands next game's cleaned wallet", async t => {
+    const f = fixture(t);
+    const id = "rwout_" + "d".repeat(64);
+    const txHash = "c".repeat(64);
+    const destination = "0:" + "f".repeat(64);
+    const sweepId = "rwsweep_past";
+    f.setSweeps([{
+        recordId: sweepId,
+        payload: {
+            roomNumber: 1,
+            gameId: "past_game",
+            status: "CONFIRMED",
+            sourceAddress: ROOM,
+            destinationAddress: destination,
+            amountNano: "490000000",
+            retainedFloorNano: "10000000",
+            sweepGasNano: "6000000",
+            safetyMarginNano: "4000000",
+            txHash
+        }
+    }]);
+    f.db.createRecoveryDataRecord({
+        recoveryRecordId: id,
+        kind: "ROOM_WALLET_OUTBOUND_INTENT",
+        role: "SWEEP",
+        network: "testnet",
+        feePaymentMode: "SOURCE_PAYS_GAS",
+        authorizationId: sweepId,
+        roomNumber: 1,
+        roomWallet: ROOM,
+        gameId: "past_game",
+        destinationWallet: destination,
+        status: "SETTLED",
+        state: "CHAIN_CONFIRMED",
+        transferNano: "490000000",
+        gasChargeNano: "6000000",
+        sourceRetainedFloorNano: "10000000",
+        chainReceipt: {
+            walletTxHash: txHash,
+            walletTxLt: "33",
+            outboundMessageHash: "e".repeat(64),
+            confirmedObservedSeqno: 43
+        }
+    }, {
+        recoveryRecordId: id,
+        status: "SETTLED",
+        gameId: "past_game",
+        roomId: "old_room",
+        tonNetwork: "testnet"
+    });
+    const result = await f.guard().tryRelease({ recordId: f.hold.recordId });
+    assert.equal(result.changed, true);
+    assert.equal(f.repo.isRoomNumberQuarantined(1), false);
+});
+
+test("same-game residual sweep must also occur in double-source scanned history", async t => {
+    const f = fixture(t);
+    const id = "rwout_" + "d".repeat(64);
+    const txHash = "c".repeat(64);
+    const destination = "0:" + "f".repeat(64);
+    const sweepId = "rwsweep_thisgame";
+    f.setSweeps([{
+        recordId: sweepId,
+        payload: {
+            roomNumber: 1,
+            gameId: f.session.gameId,
+            status: "CONFIRMED",
+            sourceAddress: ROOM,
+            destinationAddress: destination,
+            amountNano: "490000000",
+            retainedFloorNano: "10000000",
+            sweepGasNano: "6000000",
+            safetyMarginNano: "4000000",
+            txHash
+        }
+    }]);
+    f.db.createRecoveryDataRecord({
+        recoveryRecordId: id,
+        kind: "ROOM_WALLET_OUTBOUND_INTENT",
+        role: "SWEEP",
+        status: "SETTLED",
+        state: "CHAIN_CONFIRMED",
+        authorizationId: sweepId,
+        feePaymentMode: "SOURCE_PAYS_GAS",
+        roomNumber: 1, roomWallet: ROOM,
+        gameId: f.session.gameId,
+        destinationWallet: destination,
+        transferNano: "490000000",
+        gasChargeNano: "6000000",
+        sourceRetainedFloorNano: "10000000",
+        chainReceipt: {
+            walletTxHash: txHash, walletTxLt: "33",
+            outboundMessageHash: "e".repeat(64),
+            confirmedObservedSeqno: 43
+        }
+    }, {
+        recoveryRecordId: id,
+        status: "SETTLED",
+        gameId: f.session.gameId,
+        roomId: f.session.roomId,
+        tonNetwork: "testnet"
+    });
+    await assert.rejects(
+        f.guard().tryRelease({ recordId: f.hold.recordId }),
+        e => e.code === "QUARANTINE_RELEASE_SWEEP_TX_NOT_IN_HISTORY"
+    );
+    assert.equal(f.repo.isRoomNumberQuarantined(1), true);
+});
