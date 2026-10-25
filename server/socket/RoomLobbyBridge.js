@@ -4768,6 +4768,13 @@ export class RoomLobbyBridge {
             archivedSetup
         );
 
+        // Create payment intents before Page4 receives its first authoritative
+        // snapshot; otherwise all three seats see PAYMENT_UNAVAILABLE even
+        // when real intake is enabled.
+        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+            this._preparePaymentSessionIfEnabled(roomId, room);
+        }
+
         this._deliverToRoom(
             roomId,
             LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
@@ -4794,10 +4801,7 @@ export class RoomLobbyBridge {
         // Payment rooms do not invoke GameStartAuthorization before Page4 has
         // settled all THREE real payments. Doing so rejects the not-yet-paid
         // room before any participant can pay.
-        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
-            this._preparePaymentSessionIfEnabled(roomId, room);
-            return;
-        }
+        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
 
         // Historical disabled-acceptance behavior remains fail-closed.
         this._eventBus.emit({
