@@ -772,6 +772,9 @@ export class RoomWalletSettlementAdapter {
      */
     async refundPayments({
         roomNumber,
+        roomId = null,
+        gameId = null,
+        paymentSessionId = null,
         refunds = [],
         refundPlan = null,
         cutoffUtime = null,
@@ -782,7 +785,8 @@ export class RoomWalletSettlementAdapter {
         // refund obligation authorizes the new path.
         if (this._guardedPayoutCoordinator) {
             return this._guardedPayoutCoordinator.refundPayments({
-                roomNumber, refunds, refundPlan
+                roomNumber, roomId, gameId, paymentSessionId,
+                refunds, refundPlan
             });
         }
         const normalizedRoomNumber = resolveRoomNumber({ roomNumber });
