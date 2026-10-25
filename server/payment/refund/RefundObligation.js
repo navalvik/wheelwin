@@ -57,6 +57,24 @@ export class RefundObligation {
         this.incomingTransactionId = text(record.incomingTransactionId, "incomingTransactionId");
         if (!Number.isSafeInteger(record.amountAtomic) || record.amountAtomic <= 0) throw new RefundObligationError("amountAtomic must be a positive safe integer");
         this.amountAtomic = record.amountAtomic;
+        // Gross obligation is immutable. For player-pays-gas refunds the
+        // actually transmitted amount is smaller by an independently quoted,
+        // persisted gas charge. Older obligations default to full gross.
+        this.transferAmountAtomic = record.transferAmountAtomic ?? null;
+        this.gasChargeAtomic = record.gasChargeAtomic ?? null;
+        if ((this.transferAmountAtomic === null) !== (this.gasChargeAtomic === null)) {
+            throw new RefundObligationError("refund net amount and charged gas must be persisted together");
+        }
+        if (this.transferAmountAtomic !== null) {
+            if (!Number.isSafeInteger(this.transferAmountAtomic) || this.transferAmountAtomic <= 0
+                || !Number.isSafeInteger(this.gasChargeAtomic) || this.gasChargeAtomic <= 0
+                || this.transferAmountAtomic + this.gasChargeAtomic !== this.amountAtomic) {
+                throw new RefundObligationError("refund amount plus player-paid gas must equal gross principal");
+            }
+            if (record.state === REFUND_STATE.PENDING) {
+                throw new RefundObligationError("pending refund cannot already carry a signed transfer plan");
+            }
+        }
         this.denomination = text(record.denomination, "denomination");
         this.payerAddress = text(record.payerAddress, "payerAddress");
         this.refundDestination = text(record.refundDestination, "refundDestination");
@@ -102,7 +120,7 @@ export class RefundObligation {
                 || this.finalizedEvidence.networkName !== this.networkName
                 || this.finalizedEvidence.globalId !== this.globalId
                 || this.finalizedEvidence.transactionId !== this.outgoingTransactionId
-                || this.finalizedEvidence.amountAtomic !== this.amountAtomic
+                || this.finalizedEvidence.amountAtomic !== (this.transferAmountAtomic ?? this.amountAtomic)
                 || this.finalizedEvidence.destination !== this.refundDestination
                 || this.finalizedEvidence.finalized !== true) {
                 throw new RefundObligationError("finalized evidence does not match the outgoing refund identity");
@@ -126,6 +144,8 @@ export class RefundObligation {
             paymentIntentId: this.paymentIntentId,
             incomingTransactionId: this.incomingTransactionId,
             amountAtomic: this.amountAtomic,
+            transferAmountAtomic: this.transferAmountAtomic,
+            gasChargeAtomic: this.gasChargeAtomic,
             denomination: this.denomination,
             payerAddress: this.payerAddress,
             refundDestination: this.refundDestination,
