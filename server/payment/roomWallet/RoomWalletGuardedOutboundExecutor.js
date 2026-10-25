@@ -19,7 +19,7 @@
  * WARNING: this is not a live release toggle and MUST NOT be enabled while
  * legacy adapters may broadcast outside the durable wallet gate.
  */
-import { Cell, loadMessage } from "@ton/core";
+import { Cell, loadMessage, loadMessageRelaxed, SendMode } from "@ton/core";
 import { verifyOutgoingPaymentFromBothProviders } from "./RoomWalletDualSourceOutgoingReceipt.js";
 
 export class RoomWalletOutboundExecutionError extends Error {
@@ -74,6 +74,26 @@ function parsePrepared(prepared, intent, nowSeconds) {
             || signedUntil !== prepared.validUntil
             || signedSeqno !== prepared.seqno) {
             fail("OUTBOUND_BOC_SEQNO_OR_EXPIRY_MISMATCH");
+        }
+
+        // V4 extended action type 0 = sendMsg. The real signed body must
+        // contain EXACTLY one internal message to the frozen beneficiary,
+        // with the frozen nanogram transfer amount; never trust a caller
+        // that only supplies matching recipient/amount metadata.
+        if (body.loadUint(8) !== 0 || body.remainingRefs !== 1
+            || body.remainingBits !== 8) {
+            fail("OUTBOUND_BOC_ACTION_NOT_SINGLE_SEND");
+        }
+        const sendMode = body.loadUint(8);
+        if (sendMode !== SendMode.PAY_GAS_SEPARATELY) {
+            fail("OUTBOUND_BOC_SEND_MODE_INVALID");
+        }
+        const outCell = body.loadRef();
+        const output = loadMessageRelaxed(outCell.beginParse());
+        if (output.info?.type !== "internal"
+            || output.info.dest?.toRawString().toLowerCase() !== intent.destinationWallet
+            || output.info.value?.coins !== BigInt(intent.transferNano)) {
+            fail("OUTBOUND_BOC_RECIPIENT_OR_AMOUNT_MISMATCH");
         }
     } catch (err) {
         if (err instanceof RoomWalletOutboundExecutionError) throw err;
