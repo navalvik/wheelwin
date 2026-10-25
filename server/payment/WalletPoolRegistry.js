@@ -445,7 +445,7 @@ export class WalletPoolRegistry {
      */
     getAvailableCount() {
 
-        return this._wallets.size - this._roomToWallet.size;
+        return [...this._wallets.values()].filter(wallet => wallet.isAvailable() && !this._isQuarantined(wallet)).length;
 
     }
 
@@ -454,7 +454,7 @@ export class WalletPoolRegistry {
      */
     listAvailableWallets() {
 
-        return this.listWallets().filter((wallet) => wallet.reservedByRoomId === null);
+        return this.listWallets().filter((wallet) => wallet.reservedByRoomId === null && !this._isQuarantined(wallet));
 
     }
 
