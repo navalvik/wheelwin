@@ -261,7 +261,14 @@ export class WalletPoolRegistry {
 
     _loadCatalog() {
 
-        if (!existsSync(this._catalogPath)) {
+        // Railway keeps the 64-wallet Testnet catalog in Variables, not in
+        // Git. Prefer the existing local catalog for compatibility; otherwise
+        // read the variable directly without writing wallet secrets to disk.
+        const hasCatalogFile = existsSync(this._catalogPath);
+        const configuredCatalog = process.env.ROOM_WALLETS_TESTNET_JSON
+            || process.env.ROOM_WALLETS_JSON;
+
+        if (!hasCatalogFile && !configuredCatalog) {
 
             throw new PaymentConfigurationError(
                 "room wallet catalog not found",
@@ -274,7 +281,9 @@ export class WalletPoolRegistry {
 
         try {
 
-            const raw = readFileSync(this._catalogPath, "utf8");
+            const raw = hasCatalogFile
+                ? readFileSync(this._catalogPath, "utf8")
+                : configuredCatalog;
 
             // Secrets are dropped during parsing — they never enter memory.
             parsed = JSON.parse(raw, stripSecretsReviver);
