@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { Address, beginCell, external, internal, storeMessage, storeMessageRelaxed, SendMode } from "@ton/core";
 import { PaymentIntent } from "../payment/PaymentIntent.js";
 import { SqlitePaymentIntentStore } from "../payment/SqlitePaymentIntentStore.js";
 import { RefundObligationStore } from "../payment/refund/RefundObligationStore.js";
@@ -17,6 +18,33 @@ const NOW = 1_790_000_000_000;
 const H = "e".repeat(64);
 const VALID_UNTIL = Math.floor(Date.now() / 1000) + 120;
 const THIS = fileURLToPath(import.meta.url);
+
+function fakeWalletV4Boc({
+    fromWallet = ROOT, toWallet = OLGA, amount = 999999877,
+    seqno = 4, validUntil = VALID_UNTIL, sendMode = SendMode.PAY_GAS_SEPARATELY,
+    action = 0, walletId = 698983191, secondMessage = false, payload = null
+} = {}) {
+    const message = internal({
+        to: Address.parse(toWallet), value: BigInt(amount), bounce: true,
+        ...(payload ? { body: payload } : {})
+    });
+    const builder = beginCell()
+        .storeBuffer(Buffer.alloc(64, 7)) // fixture signature: NOT cryptographically valid
+        .storeUint(walletId, 32).storeUint(validUntil, 32)
+        .storeUint(seqno, 32).storeUint(action, 8)
+        .storeUint(sendMode, 8)
+        .storeRef(beginCell().store(storeMessageRelaxed(message)).endCell());
+    if (secondMessage) {
+        builder.storeUint(sendMode, 8).storeRef(
+            beginCell().store(storeMessageRelaxed(message)).endCell());
+    }
+    const root = beginCell().store(storeMessage(external({
+        to: Address.parse(fromWallet), body: builder.endCell()
+    }))).endCell();
+    return Object.freeze({ bocBase64: root.toBoc().toString("base64"),
+        signedHash: root.hash().toString("hex") });
+}
+
 
 function harness(t) {
     const dir = mkdtempSync(join(tmpdir(), "wheelwin-protected-refund-"));
@@ -98,33 +126,36 @@ test("live SQLite settled evidence and durable closed-room debt produce one immu
         { code: "REFUND_FEE_PROVENANCE_REQUIRED" });
 });
 
-test("signed identity is frozen and unknown after crash, with no automatic retry or unlock", t => {
+test("prepared V4 BOC is frozen and ambiguous after restart, never retried", t => {
     const h = harness(t), id = h.seed({});
     const { intentId } = h.journal.plan({ obligationId: id, feeAtomic: 123, feeQuoteHash: H });
     const lock = h.journal.claimWallet(intentId);
     assert.equal(lock.fromWallet, ROOT);
-    assert.throws(() => h.journal.claimWallet(intentId),
-        { code: "WALLET_ALREADY_LOCKED" });
-    assert.throws(() => h.journal.holdSignedIdentity({
-        intentId, ownerToken: "forged", signedHash: H, seqno: 4, validUntil: VALID_UNTIL
+    assert.throws(() => h.journal.claimWallet(intentId), { code: "WALLET_ALREADY_LOCKED" });
+    const prepared = fakeWalletV4Boc();
+    assert.throws(() => h.journal.holdPreparedBoc({
+        intentId, ownerToken: "forged", bocBase64: prepared.bocBase64
     }), { code: "REFUND_LOCK_OWNER_MISMATCH" });
     assert.throws(() => h.journal.holdSignedIdentity({
+        intentId, ownerToken: lock.ownerToken, signedHash: prepared.signedHash
+    }), { code: "REFUND_UNVERIFIED_SIGNED_IDENTITY_DISABLED" });
+    assert.throws(() => h.journal.holdPreparedBoc({
         intentId, ownerToken: lock.ownerToken,
-        signedHash: H, seqno: 4, validUntil: Math.floor(Date.now() / 1000) - 1
-    }), { code: "REFUND_SIGNED_IDENTITY_INVALID" });
-    assert.throws(() => h.journal.holdSignedIdentity({
+        bocBase64: fakeWalletV4Boc({validUntil: Math.floor(Date.now()/1000)-1}).bocBase64
+    }), { code: "BOC_V4_EXPIRY_INVALID" });
+    assert.throws(() => h.journal.holdPreparedBoc({
         intentId, ownerToken: lock.ownerToken,
-        signedHash: H, seqno: 4, validUntil: Math.floor(Date.now() / 1000) + 301
-    }), { code: "REFUND_SIGNED_IDENTITY_INVALID" });
-    const signed = h.journal.holdSignedIdentity({
-        intentId, ownerToken: lock.ownerToken,
-        signedHash: H, seqno: 4, validUntil: VALID_UNTIL
+        bocBase64: fakeWalletV4Boc({validUntil: Math.floor(Date.now()/1000)+301}).bocBase64
+    }), { code: "BOC_V4_EXPIRY_INVALID" });
+    const signed = h.journal.holdPreparedBoc({
+        intentId, ownerToken: lock.ownerToken, bocBase64: prepared.bocBase64
     });
     assert.equal(signed.state, "SIGNED_HELD");
-    assert.equal(signed.signedHash, H);
-    assert.throws(() => h.journal.holdSignedIdentity({
-        intentId, ownerToken: lock.ownerToken, signedHash: "a".repeat(64),
-        seqno: 5, validUntil: VALID_UNTIL + 30
+    assert.equal(signed.signedHash, prepared.signedHash);
+    assert.equal(signed.seqno, 4);
+    assert.throws(() => h.journal.holdPreparedBoc({
+        intentId, ownerToken: lock.ownerToken,
+        bocBase64: fakeWalletV4Boc({seqno:5}).bocBase64
     }), { code: "REFUND_ALREADY_SIGNED" });
     const unknown = h.journal.markUnknown({ intentId, ownerToken: lock.ownerToken });
     assert.equal(unknown.state, "CONFIRMATION_UNKNOWN");
@@ -201,10 +232,39 @@ test("a refund blocked after wallet claim cannot receive a signed-intent hold", 
     });
     const owner = h.journal.claimWallet(intentId);
     h.refundStore().markBlocked(obligationId, { lastError: "SOURCE_RECONCILIATION_PENDING" });
-    assert.throws(() => h.journal.holdSignedIdentity({
+    assert.throws(() => h.journal.holdPreparedBoc({
         intentId, ownerToken: owner.ownerToken,
-        signedHash: H, seqno: 7, validUntil: VALID_UNTIL
+        bocBase64: fakeWalletV4Boc({ amount: 998611722, seqno: 7 }).bocBase64
     }), { code: "REFUND_DEBT_NOT_PENDING" });
     assert.equal(h.journal.load(intentId).state, "PLANNED");
     assert.throws(() => h.journal.claimWallet(intentId), { code: "REFUND_DEBT_NOT_PENDING" });
+});
+
+test("wrong wallet, recipient, amount, mode, action and extra outputs fail closed", t => {
+    const h = harness(t), id = h.seed({});
+    const { intentId } = h.journal.plan({ obligationId: id, feeAtomic: 123, feeQuoteHash: H });
+    const lock = h.journal.claimWallet(intentId);
+    const malformed = [
+        fakeWalletV4Boc({fromWallet: OLGA}),
+        fakeWalletV4Boc({toWallet: LENA}),
+        fakeWalletV4Boc({amount: 999999876}),
+        fakeWalletV4Boc({sendMode: 128}),
+        fakeWalletV4Boc({walletId: 123}),
+        fakeWalletV4Boc({action: 1}),
+        fakeWalletV4Boc({secondMessage: true}),
+        fakeWalletV4Boc({payload: beginCell().storeUint(1, 8).endCell()})
+    ];
+    for (const invalid of malformed) {
+        assert.throws(() => h.journal.holdPreparedBoc({
+            intentId, ownerToken: lock.ownerToken, bocBase64: invalid.bocBase64
+        }), { name: "ProtectedRefundBocError" });
+        assert.equal(h.journal.load(intentId).state, "PLANNED");
+    }
+    assert.throws(() => h.journal.holdPreparedBoc({
+        intentId, ownerToken: lock.ownerToken, bocBase64: "not-a-boc"
+    }), { code: "BOC_PREPARED_INPUT_INVALID" });
+    const approved = fakeWalletV4Boc();
+    assert.equal(h.journal.holdPreparedBoc({
+        intentId, ownerToken: lock.ownerToken, bocBase64: approved.bocBase64
+    }).signedHash, approved.signedHash);
 });
