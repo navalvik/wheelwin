@@ -35,7 +35,7 @@ import { ToncenterIncomingProvider } from "../../payment/toncenter/ToncenterInco
 import { ToncenterTransactionsClient } from "../../payment/toncenter/ToncenterTransactionsClient.js";
 
 const NOW = 1_700_000_000_000;
-const ROOM_LIFETIME_MS = 480_000;
+const ROOM_LIFETIME_MS = 300_000;
 
 function crc16Xmodem(bytes) {
     let crc = 0;
