@@ -218,10 +218,34 @@ export class RoomWalletQuarantineReleaseGuard {
                 .update(JSON.stringify(sessions[0].payload.request.payoutPlan))
                 .digest("hex");
             for (const role of ["WINNER", "OWNER"]) {
+                const payoutEntry =
+                    sessions[0].payload.request.payoutPlan[role.toLowerCase()];
+                const intendedRecipient = role === "WINNER"
+                    ? sessions[0].payload.winnerWallet
+                    : sessions[0].payload.ownerWallet;
+                guard(payoutEntry
+                    && /^\d+$/.test(String(payoutEntry.recipientTransferAmountNano))
+                    && /^\d+$/.test(String(payoutEntry.recipientGasChargeNano))
+                    && /^\d+$/.test(String(payoutEntry.grossPayoutNano))
+                    && raw(payoutEntry.destination) === raw(intendedRecipient)
+                    && BigInt(payoutEntry.recipientTransferAmountNano)
+                        + BigInt(payoutEntry.recipientGasChargeNano)
+                        === BigInt(payoutEntry.grossPayoutNano)
+                    && (role !== "OWNER"
+                        || String(sessions[0].payload.request.payoutPlan.owner.ownerRetainedNano)
+                            === "10000000"),
+                    "QUARANTINE_RELEASE_FROZEN_PAYOUT_INVALID");
                 const matches = receipts.filter(x =>
                     x.payload.role === role
                     && x.payload.gameId === marker.gameId
                     && raw(x.payload.roomWallet) === raw(marker.roomWallet)
+                    && raw(x.payload.destinationWallet) === raw(intendedRecipient)
+                    && x.payload.transferNano ===
+                        String(payoutEntry.recipientTransferAmountNano)
+                    && x.payload.gasChargeNano ===
+                        String(payoutEntry.recipientGasChargeNano)
+                    && x.payload.grossNano ===
+                        String(payoutEntry.grossPayoutNano)
                     && x.payload.frozenGasPlanHash === payoutPlanHash
                     && x.payload.authorizationId ===
                         sessions[0].payload.settlementSessionId + ":" + role);
@@ -248,6 +272,25 @@ export class RoomWalletQuarantineReleaseGuard {
             : session.participants.length;
         guard(acceptedInbound.length === maxExpected,
             "QUARANTINE_RELEASE_UNTRACKED_INCOMING");
+        if (isSettlement) {
+            // Exactly the three confirmed Page4 contributions must explain
+            // all inbound transfers to a successful Page5 room.
+            const seenPayers = new Set();
+            for (const participant of session.participants) {
+                const payer = raw(participant.wallet ?? participant.walletAddress);
+                const amount = participant.requiredAmountNano
+                    ?? (Number.isFinite(Number(participant.requiredGram))
+                        ? String(Math.round(Number(participant.requiredGram) * 1e9))
+                        : null);
+                guard(payer && amount != null && !seenPayers.has(payer),
+                    "QUARANTINE_RELEASE_PARTICIPANT_INVALID");
+                seenPayers.add(payer);
+                guard(acceptedInbound.filter(tx =>
+                    raw(tx.in_msg?.source) === payer
+                    && String(tx.in_msg?.value) === String(amount)).length === 1,
+                    "QUARANTINE_RELEASE_THREE_PLAYER_DEPOSITS_UNVERIFIED");
+            }
+        }
 
         const historyHash = createHash("sha256")
             .update(chain.transactions.map(txIdentity).join("|")).digest("hex");
