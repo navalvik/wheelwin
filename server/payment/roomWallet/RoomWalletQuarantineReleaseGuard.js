@@ -106,8 +106,7 @@ export class RoomWalletQuarantineReleaseGuard {
         const paymentRecords = records.filter(x =>
             x.recordType === TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION);
         guard(paymentRecords.length === 1
-            && paymentRecords[0].recordId === marker.paymentSessionId
-                || (isSettlement && paymentRecords.length === 1),
+            && (isSettlement || paymentRecords[0].recordId === marker.paymentSessionId),
             "QUARANTINE_RELEASE_PAYMENT_IDENTITY_UNVERIFIED");
         const session = paymentRecords[0].payload;
         guard(session?.network === "testnet"
@@ -152,7 +151,8 @@ export class RoomWalletQuarantineReleaseGuard {
             && chain.historyComplete === true
             && chain.awaitingSecondProvider === 0
             && Array.isArray(chain.transactions)
-            && chain.transactions.length > 0
+            && /^\d+$/.test(String(chain.accountTip?.lt ?? ""))
+            && /^[0-9a-f]{64}$/.test(String(chain.accountTip?.hash ?? ""))
             && raw(chain.rawAddress) === raw(marker.roomWallet),
             "QUARANTINE_RELEASE_CHAIN_HISTORY_UNPROVEN");
         const head = await this._head({
@@ -160,13 +160,10 @@ export class RoomWalletQuarantineReleaseGuard {
             requestBudget: this._budget,
             fetchImpl: this._fetch
         });
-        const newest = chain.transactions[0];
         guard(head?.providersAgree === true
             && raw(head.roomWallet) === raw(marker.roomWallet)
-            && head.headLt === String(newest.lt ?? newest.transaction_id?.lt)
-            && head.headHash === normalizeTonTransactionHash(
-                newest.hash ?? newest.transaction_id?.hash
-            ), "QUARANTINE_RELEASE_INDEXER_HEAD_NOT_FRESH");
+            && head.headLt === chain.accountTip.lt
+            && head.headHash === chain.accountTip.hash, "QUARANTINE_RELEASE_INDEXER_HEAD_NOT_FRESH");
 
         const receipts = records.filter(x =>
             x.recordType === TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA
