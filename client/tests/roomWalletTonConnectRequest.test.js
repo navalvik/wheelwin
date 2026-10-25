@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Cell } from "@ton/core";
 import { Buffer } from "buffer";
-import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../../src/payment/buildRoomWalletTonConnectRequest.js";
+import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../src/payment/buildRoomWalletTonConnectRequest.js";
 
 const FROM = "0:" + "a".repeat(64);
 const TO = "0:" + "b".repeat(64);
