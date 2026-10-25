@@ -38,6 +38,9 @@ import {
     LEDGER_ENTRY_KIND
 } from "../payment/ledger/index.js";
 import { createHash } from "node:crypto";
+import { deriveTonAddressIdentity } from "../payment/incoming/TonAddressIdentity.js";
+import { deriveTestnetRoomPaymentRequirements } from "../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
+
 import {
     LOBBY_ERROR_CODES,
     LOBBY_ERROR_MESSAGES,
@@ -3838,6 +3841,28 @@ export class RoomLobbyBridge {
 
         const { playerId, roomId } = context;
 
+        // Page3 provides the payer address separately from the Page2 game
+        // profile. Keep it private to the authoritative player identity.
+        // Do not overwrite stake/sectors or accept changes after verification.
+        if (rawProfile && typeof rawProfile === "object"
+            && Object.keys(rawProfile).length === 1
+            && typeof rawProfile.wallet === "string") {
+            const room = this._roomManager.getRoom(roomId);
+            if (!room || !room.players?.includes(playerId)
+                || this._profilesRevealedByRoom.has(roomId)) {
+                this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+                return;
+            }
+            try {
+                const payer = deriveTonAddressIdentity(rawProfile.wallet.trim());
+                if (payer.workchain !== 0) throw new Error("invalid workchain");
+                this._playerManager.updateIdentity(playerId, { wallet: payer.identity });
+            } catch {
+                this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+            }
+            return;
+        }
+
         const profile = this._normalizePlayerProfile(rawProfile);
 
         if (!profile) {
@@ -4984,31 +5009,17 @@ export class RoomLobbyBridge {
             return;
         }
 
-        const paymentRequests = [];
-        for (const playerId of room.players) {
-            const runtime = this._playerManager.getRuntime?.(playerId);
-            const paymentConfig = runtime?.payment ?? runtime?.paymentRequest ?? null;
-            if (!paymentConfig || typeof paymentConfig !== "object") {
-                return;
-            }
-            if (typeof paymentConfig.expectedSender !== "string" || paymentConfig.expectedSender.trim() === "") {
-                return;
-            }
-            if (typeof paymentConfig.amountAtomic !== "number" || !Number.isSafeInteger(paymentConfig.amountAtomic) || paymentConfig.amountAtomic <= 0) {
-                return;
-            }
-            if (typeof paymentConfig.paymentReference !== "string" || paymentConfig.paymentReference.trim() === "") {
-                return;
-            }
-            paymentRequests.push({
-                playerId,
-                paymentReference: paymentConfig.paymentReference.trim(),
-                expectedSender: paymentConfig.expectedSender.trim(),
-                amountAtomic: paymentConfig.amountAtomic
-            });
-        }
-
-        if (paymentRequests.length !== 3) {
+        // Derive all three payment requirements from the server-side Page2
+        // stake/sector selection and Page3 payer wallet, not an unattached
+        // PlayerRuntime.paymentRequest field (which never existed).
+        const paymentRequests = deriveTestnetRoomPaymentRequirements(
+            roomId, room.players,
+            playerId => this._playerManager.getIdentity(playerId)
+        );
+        if (!paymentRequests) {
+            this._logger?.warn?.(
+                `Payment session awaits three valid wallet addresses and matching stakes | roomId=${roomId}`
+            );
             return;
         }
 
