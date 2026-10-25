@@ -247,3 +247,12 @@ test("guarded sweep event watcher cannot mark a transfer confirmed by tx hash al
     assert.equal(r.code, "GUARDED_SWEEP_CHAIN_PROOF_REQUIRED");
     assert.equal(f.sweeps.findById(sweep.recordId).payload.status, "PENDING");
 });
+
+
+test("repeated settlement event cannot sweep the same game's later balance twice", t => {
+    const f = fixture(t);
+    const first = f.createSweep();
+    f.sweeps.markConfirmed(first.recordId, { txHash: "a".repeat(64) });
+    assert.throws(() => f.createSweep(), e => e.name === "DuplicateRecordError");
+    assert.equal(f.sweeps.listActive().length, 1);
+});
