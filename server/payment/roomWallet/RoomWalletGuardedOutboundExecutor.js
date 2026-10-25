@@ -157,28 +157,43 @@ export class RoomWalletGuardedOutboundExecutor {
         // Atomic lock across ALL signers using same durable volume; no expiry.
         const lease = this._gate.acquire({ intentId });
         const p = record.payload;
-        // The injected signer is PREPARE-ONLY. Any callback that also
-        // broadcasts violates this interface and must never be configured.
-        const proposed = await this._signer.prepareSignedTransfer({
-            roomNumber: p.roomNumber,
-            roomWallet: p.roomWallet,
-            recipientWallet: p.destinationWallet,
-            amountNano: p.transferNano,
-            recipientGasChargeNano: p.gasChargeNano,
-            role: p.role
-        });
-        const prepared = parsePrepared(proposed, p, this._nowSeconds());
-        this._gate.assertOwnership(lease);
+        // The injected signer is PREPARE-ONLY and never broadcasts. A
+        // deterministic preparation failure can unlock just this task's
+        // exclusive lease, ONLY while persistence proves no message was
+        // signed/held. After SIGNED_HELD every failure stays quarantined.
+        let prepared;
+        try {
+            const proposed = await this._signer.prepareSignedTransfer({
+                roomNumber: p.roomNumber,
+                roomWallet: p.roomWallet,
+                recipientWallet: p.destinationWallet,
+                amountNano: p.transferNano,
+                recipientGasChargeNano: p.gasChargeNano,
+                role: p.role
+            });
+            prepared = parsePrepared(proposed, p, this._nowSeconds());
+            this._gate.assertOwnership(lease);
 
-        // No signed intent persistence -> NO broadcast. A crash after this
-        // call leaves the exact signed hash/seqno durably held.
-        this._journal.holdSignedMessage({
-            intentId,
-            seqno: prepared.seqno,
-            signedExternalMessageHash: prepared.externalHash,
-            validUntil: prepared.validUntil
-        });
-        this._gate.assertOwnership(lease);
+            // No signed intent persistence -> NO broadcast. A crash after
+            // holdSignedMessage() preserves exactly the signed hash/seqno.
+            this._journal.holdSignedMessage({
+                intentId,
+                seqno: prepared.seqno,
+                signedExternalMessageHash: prepared.externalHash,
+                validUntil: prepared.validUntil
+            });
+            this._gate.assertOwnership(lease);
+        } catch (error) {
+            // Recovery during a later process MUST NOT use this shortcut:
+            // only the current live owner has the random ownerToken.
+            const persisted = this._journal.load(intentId);
+            if (persisted.status === "ACTIVE"
+                && persisted.payload?.state === "PLANNED"
+                && persisted.payload?.signedExternalMessageHash == null) {
+                this._gate.releaseUnattempted(lease);
+            }
+            throw error;
+        }
 
         let rpcOutcome = "RPC_ACKNOWLEDGED";
         try {
