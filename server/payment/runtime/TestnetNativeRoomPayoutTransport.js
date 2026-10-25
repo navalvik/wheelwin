@@ -97,7 +97,9 @@ export class TestnetNativeRoomPayoutTransport {
             &&record.winnerAddress===canonical(winner.address)
             &&record.ownerAddress===canonical(owner.address)
             &&record.winnerAmountAtomic===winner.netAtomic
-            &&record.ownerAmountAtomic===owner.netAtomic,
+            &&record.ownerAmountAtomic===owner.netAtomic
+            &&Number.isSafeInteger(record.timestamp)
+            &&record.timestamp>0,
             "PAYOUT_JOURNAL_IDENTITY_MISMATCH");
         if(typeof this._outgoingObserver?.findOutgoingTransfer!=="function")
             return Object.freeze({status:"OUTGOING_OBSERVATION_UNAVAILABLE",payoutId});
@@ -105,11 +107,13 @@ export class TestnetNativeRoomPayoutTransport {
         const [win,out]=await Promise.all([
             this._outgoingObserver.findOutgoingTransfer({
                 sourceWalletAddress:wallet.address,
-                destinationIdentity:winner.address,amountAtomic:winner.netAtomic
+                destinationIdentity:winner.address,amountAtomic:winner.netAtomic,
+                minCreatedAtMs:record.timestamp
             }),
             this._outgoingObserver.findOutgoingTransfer({
                 sourceWalletAddress:wallet.address,
-                destinationIdentity:owner.address,amountAtomic:owner.netAtomic
+                destinationIdentity:owner.address,amountAtomic:owner.netAtomic,
+                minCreatedAtMs:record.timestamp
             })
         ]);
         if(win?.ambiguous||out?.ambiguous)
