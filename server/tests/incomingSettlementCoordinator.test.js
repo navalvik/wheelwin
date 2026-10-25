@@ -587,7 +587,7 @@ async function run() {
             check(!/from\s+["'][^"']*(?:server\/app|EventBus|gameplay|Page4|socket)[^"']*["']/i.test(coordinatorSource), "coordinator has no production runtime imports");
             check(!/from\s+["'][^"']*(?:server\/app|EventBus|gameplay|Page4|socket)[^"']*["']/i.test(serviceSource), "payment service has no production runtime imports");
             check(!/from\s+["'][^"']*(?:server\/app|EventBus|gameplay|Page4|socket)[^"']*["']/i.test(readFileSync(fileURLToPath(import.meta.url), "utf8")), "regression suite does not wire production runtime modules");
-            equal(ROOM_LIFETIME_MS, 480_000, "immutable room lifetime remains eight minutes");
+            equal(ROOM_LIFETIME_MS, 300_000, "immutable room lifetime remains five minutes");
             check(h.client.baseUrl.includes("toncenter.com"), "client metadata is configured but its fetch path is injected mock");
         });
     });
