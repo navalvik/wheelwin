@@ -34,3 +34,12 @@ Scope: **offline integration only; no live payment / refund / payout release**
 7. Conduct an authorized three-real-player Testnet end-to-end session only when all monetary gates and provider quotas for 50 simultaneous rooms pass.
 
 **Keep `LIVE_PAYMENT_ACCEPTANCE_ENABLED = false`. No Railway, Vercel production or Mainnet deployment, and no funds moved in this work.**
+
+## Additional offline V4 BOC and two-provider proof stage
+
+- New `server/payment/refund/ProtectedRefundV4Boc.js` parses a complete TON Wallet V4 serialized external message. Its actual bytes must contain exactly one internal native GRAM transfer to the frozen beneficiary and net amount, with the workchain-0 source wallet, standard V4 wallet ID, one send action, recipient-payable gas accounting and a short expiration.
+- `ProtectedRefundIntentJournal.holdSignedIdentity()` now deliberately throws `REFUND_UNVERIFIED_SIGNED_IDENTITY_DISABLED`. The only way to freeze a prepared payment is `holdPreparedBoc()`, which derives the message hash, seqno and expiry from the parsed BOC rather than trusting caller-supplied values.
+- **A syntactically valid BOC does NOT prove a genuine Ed25519 signature.** Tests use fabricated signature bytes. Cryptographic verification against the deployed wallet public key, authoritative seqno/balance and the complete single-writer executor are MANDATORY before a real broadcast. Nothing in this stage enables broadcast.
+- New `server/payment/refund/ProtectedRefundChainProof.js` compares the held external hash against two independently supplied indexer transaction lists, exact LT, source transaction hash, native amount, recipient and outgoing message hash. This is **advisory read-only**; its result explicitly cannot mark a refund complete, clear a hold, reuse wallet #1 or authorize another broadcast. Caller-supplied provider arrays are NOT a trusted live data acquisition boundary.
+- Fresh focused tests: 11 passed, 0 failed. Includes forged identity rejection, invalid BOC action / sender / beneficiary / amount / extra output / payload, empty second provider, contradictory provider data and restart hold preservation.
+- Historical incoming/payout accounting conflicts remain unresolved; no live transfer or blockchain finality proof occurred.
