@@ -72,6 +72,10 @@ export function createRoomWalletService({
         tonService,
         walletResolver,
         logger,
+        // Default OFF until ALL refund/winner/owner/residual-sweep routes use
+        // the durable signer. Once enabled, legacy direct sends hard-fail.
+        guardedOutboundOnly:
+            String(env?.ROOM_WALLET_GUARDED_OUTBOUND_ONLY ?? "").trim().toLowerCase() === "true",
         ...(gasReserveNano === undefined ? {} : { gasReserveNano })
     });
     const settlementAdapter = new RoomWalletSettlementAdapter({
