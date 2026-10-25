@@ -293,6 +293,26 @@ export class RoomWalletOutboundIntentJournal {
         );
     }
 
+    /**
+     * Active signed or broadcast-uncertain operations, restored from the
+     * authoritative durable recovery store. This is NOT an authorization
+     * list: the read-only confirmation worker may only verify past sends.
+     */
+    listUnresolvedSignedIntents() {
+        return Object.freeze(
+            this._persistence.listActiveRecoveryDataRecords()
+                .filter(record =>
+                    record.status === "ACTIVE"
+                    && record.payload?.kind === KIND
+                    && record.payload?.network === "testnet"
+                    && HELD.has(record.payload?.state)
+                    && typeof record.payload?.signedExternalMessageHash === "string"
+                    && Number.isSafeInteger(record.payload?.seqno)
+                )
+                .sort((a, b) => a.recordId.localeCompare(b.recordId))
+        );
+    }
+
     hasUnresolvedSignedAttempt(walletAddress) {
         return this.listPendingForWallet(walletAddress)
             .some(r => HELD.has(r.payload.state));
