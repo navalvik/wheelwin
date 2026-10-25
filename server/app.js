@@ -144,6 +144,8 @@ import { RecoveryCheckpointManager } from "./recovery/RecoveryCheckpointManager.
 import { RecoveryOrchestrator } from "./recovery/RecoveryOrchestrator.js";
 import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
+import { RoomWalletRefundRecoveryRepository } from "./payment/roomWallet/RoomWalletRefundRecoveryRepository.js";
+import { RoomWalletRefundDestructionGuard } from "./payment/roomWallet/RoomWalletRefundDestructionGuard.js";
 import { TON_FINANCIAL_RECORD_TYPES } from "./persistence/TonFinancialRecordTypes.js";
 import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
 import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
@@ -341,6 +343,7 @@ class WheelWinApplication {
         this._sessionWalletStore = null;
 
         this._financialPersistence = null;
+        this._roomWalletRefundRecoveryRepository = null;
 
         this._depositSessionCoordinator = null;
 
@@ -1201,6 +1204,20 @@ class WheelWinApplication {
 
         const persistenceSummary = this._financialPersistence.initialize();
 
+        // Crash-safe native Room Wallet protection: restore persisted wallet
+        // quarantines before sockets or restored rooms can claim a number.
+        // Mainnet and non-Room-Wallet paths remain completely unchanged.
+        if (this._tonConfig?.network === "testnet"
+            && isRoomWalletOnlyFinancialPath({ env: process.env })) {
+            this._roomWalletRefundRecoveryRepository = new RoomWalletRefundRecoveryRepository({
+                financialPersistence: this._financialPersistence
+            });
+            this._managers.roomManager.attachRoomWalletAllocationGuard(
+                this._roomWalletRefundRecoveryRepository
+            );
+            this._logger.info("Room Wallet durable allocation quarantine attached");
+        }
+
         this._logger.startupLine("TonFinancialPersistence");
 
         this._logger.info(
@@ -1650,6 +1667,21 @@ class WheelWinApplication {
         this._logger.startupLine("DepositMonitor");
 
         this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
+
+        if (this._roomWalletRefundRecoveryRepository) {
+            // The guard must be installed before startup recovery begins to
+            // restore expired rooms, and before client connections are accepted.
+            this._managers.roomManager.attachRoomWalletDestructionGuard(
+                new RoomWalletRefundDestructionGuard({
+                    repository: this._roomWalletRefundRecoveryRepository,
+                    paymentSessionManager: this._paymentSessionManager,
+                    setupSessionLifecycle: this._setupSessionLifecycle,
+                    roomWalletRegistry: this._roomWalletRegistry,
+                    financialPersistence: this._financialPersistence
+                })
+            );
+            this._logger.info("Room Wallet pre-Page5 destruction quarantine attached");
+        }
 
         this._roomWalletLedgerRegistry = new RoomWalletLedgerRegistry();
 
