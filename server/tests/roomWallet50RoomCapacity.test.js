@@ -178,13 +178,18 @@ test("missing in-memory payment session falls back to the persisted payment reco
     assert.equal(repo.isRoomNumberQuarantined(1), true);
 });
 
-test("Page5-owned room avoids pre-game refund quarantine", (t) => {
+test("Page5-owned room is blocked until winner and owner transfers reconcile", (t) => {
     const { repo, persistence } = storage(t)();
     const m = newRoomManager({ guard: repo });
     const room = m.createRoom();
     m.attachRoomWalletDestructionGuard(new RoomWalletRefundDestructionGuard({
         repository: repo,
-        paymentSessionManager: { getSession: () => ({ roomId: room.roomId }) },
+        paymentSessionManager: { getSession: () => ({
+            roomId: room.roomId,
+            gameId: "game_result_page5",
+            network: "testnet",
+            roomWalletAddress: wallet
+        }) },
         setupSessionLifecycle: { isGameplayOwnershipReleased: () => true },
         financialPersistence: persistence,
         roomWalletRegistry: new RoomWalletRegistry({
@@ -192,8 +197,11 @@ test("Page5-owned room avoids pre-game refund quarantine", (t) => {
         })
     }));
     assert.equal(m.destroyRoom(room.roomId), true);
-    assert.equal(repo.isRoomNumberQuarantined(1), false);
-    assert.equal(m.createRoom().roomNumber, 1);
+    // Post-Page5 can NEVER create a pre-Page5 refund obligation.
+    assert.equal(repo.listOpenQuarantines().length, 0);
+    assert.equal(repo.listOpenSettlementQuarantines().length, 1);
+    assert.equal(repo.isRoomNumberQuarantined(1), true);
+    assert.equal(m.createRoom().roomNumber, 2);
 });
 
 test("filesystem failure blocks room destruction and retains wallet allocation", (t) => {
@@ -214,4 +222,57 @@ test("filesystem failure blocks room destruction and retains wallet allocation",
     assert.equal(m.createRoom().roomNumber, 2);
     assert.equal(repo.isRoomNumberQuarantined(1), false);
     persistence.shutdown({ checkpoint: false });
+});
+
+
+test("unproven Page5 payout identity retains the active room and its wallet", (t) => {
+    const { repo, persistence } = storage(t)();
+    const m = newRoomManager({ guard: repo });
+    const room = m.createRoom();
+    m.attachRoomWalletDestructionGuard(new RoomWalletRefundDestructionGuard({
+        repository: repo,
+        paymentSessionManager: { getSession: () => null },
+        setupSessionLifecycle: { isGameplayOwnershipReleased: () => true },
+        financialPersistence: persistence,
+        roomWalletRegistry: new RoomWalletRegistry({
+            entries: [{ roomNumber: 1, address: wallet }]
+        })
+    }));
+    assert.equal(m.destroyRoom(room.roomId), false);
+    assert.equal(m.getRoom(room.roomId)?.roomNumber, 1);
+    assert.equal(m.createRoom().roomNumber, 2);
+});
+
+test("post-Page5 settlement quarantine persists after Railway-style restart", (t) => {
+    const open = storage(t);
+    const first = open();
+    const marker = first.repo.beginSettlementQuarantine({
+        network: "testnet", roomId: "room_page5", roomNumber: 1,
+        gameId: "game_completed_but_payout_pending", roomWallet: wallet
+    });
+    assert.equal(marker.created, true);
+    assert.equal(first.repo.isRoomNumberQuarantined(1), true);
+    assert.equal(first.repo.beginSettlementQuarantine({
+        network: "testnet", roomId: "room_page5", roomNumber: 1,
+        gameId: "game_completed_but_payout_pending", roomWallet: wallet
+    }).created, false);
+    first.persistence.shutdown({ checkpoint: false });
+
+    const recovered = open();
+    assert.equal(recovered.repo.listOpenQuarantines().length, 0);
+    assert.equal(recovered.repo.listOpenSettlementQuarantines().length, 1);
+    assert.equal(recovered.repo.isRoomNumberQuarantined(1), true);
+    const manager = newRoomManager({ guard: recovered.repo });
+    assert.equal(manager.createRoom().roomNumber, 2);
+});
+
+test("post-Page5 settlement marker is never interpreted as a refund worker task", (t) => {
+    const { repo } = storage(t)();
+    repo.beginSettlementQuarantine({
+        network: "testnet", roomId: "afterPage5", roomNumber: 1,
+        gameId: "game_terminal", roomWallet: wallet
+    });
+    assert.equal(repo.listOpenQuarantines().length, 0);
+    assert.equal(repo.listOpenSettlementQuarantines().length, 1);
+    assert.equal(repo.listAllocationBlocks().length, 1);
 });
