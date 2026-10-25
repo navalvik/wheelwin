@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { Address } from "@ton/core";
 import { normalizeTonTransactionHash } from "./RoomWalletDualSourceEvidence.js";
 import { validatePersistedPayoutPlan } from "./RoomWalletSettlementAdapter.js";
+import { ROOM_WALLET_POLICY, buildResidualSweep } from "./RoomWalletFinancialPolicy.js";
 
 const KIND = "ROOM_WALLET_OUTBOUND_INTENT";
 const HELD = new Set(["SIGNED_HELD", "CONFIRMATION_UNKNOWN"]);
@@ -189,6 +190,153 @@ export class RoomWalletOutboundIntentJournal {
             roomId: session.roomId, gameId, tonNetwork: "testnet"
         });
         return Object.freeze({ created: true, intentId, state: STATES.PLANNED });
+    }
+
+    /**
+     * Prepare (NEVER send) an operational SOURCE_PAYS_GAS sweep.
+     * A balance or a generic SETTLEMENT_CONFIRMED event alone cannot
+     * authorize this: require its durable, game-bound sweep record and TWO
+     * independently chain-confirmed WINNER / OWNER payment intentions.
+     *
+     * Old sweep records without a gameId are intentionally not adopted.
+     * Residual sweeps remain disabled until their worker is migrated to the
+     * same guarded signer and its independent confirmation pipeline.
+     */
+    createResidualSweepPlan({ sweepRecordId } = {}) {
+        ensure(typeof sweepRecordId === "string"
+            && /^rwsweep_[0-9a-f-]{36}$/i.test(sweepRecordId),
+            "OUTBOUND_SWEEP_RECORD_ID_REQUIRED");
+        ensure(typeof this._persistence.loadResidualSweepRecord === "function"
+            && typeof this._persistence.loadSettlementRecord === "function"
+            && typeof this._roomWalletRegistry?.get === "function",
+            "OUTBOUND_SWEEP_AUTHORITIES_UNAVAILABLE");
+        const record = this._persistence.loadResidualSweepRecord(sweepRecordId);
+        const p = record?.payload;
+        ensure(record?.tonNetwork === "testnet" && p?.id === sweepRecordId
+            && p.status === "PENDING"
+            && typeof p.gameId === "string" && p.gameId.length > 0
+            && Number.isInteger(p.roomNumber)
+            && p.roomNumber >= 1 && p.roomNumber <= 64,
+            "OUTBOUND_SWEEP_FROZEN_GAME_ID_REQUIRED");
+        const wallet = raw(p.sourceAddress);
+        const destination = raw(p.destinationAddress);
+        ensure(wallet !== destination
+            && raw(this._roomWalletRegistry.get(p.roomNumber)?.address) === wallet,
+            "OUTBOUND_SWEEP_WALLET_IDENTITY_CONFLICT");
+        // Do not change the historical 0.50 threshold, 0.49 destination
+        // transfer or 0.01 residual envelope (0.006 gas + 0.004 safety).
+        ensure(String(p.amountNano) === String(ROOM_WALLET_POLICY.residualSweepNano)
+            && String(p.sweepGasNano) === String(ROOM_WALLET_POLICY.residualSweepGasNano)
+            && String(p.retainedFloorNano) === String(ROOM_WALLET_POLICY.residualRetainedFloorNano)
+            && String(p.safetyMarginNano) === String(ROOM_WALLET_POLICY.residualSafetyMarginNano),
+            "OUTBOUND_SWEEP_POLICY_MISMATCH");
+        const eligibility = buildResidualSweep({
+            balanceNano: BigInt(p.observedBalanceNano)
+        });
+        ensure(eligibility.eligible === true
+            && BigInt(p.observedBalanceNano) >= ROOM_WALLET_POLICY.residualTriggerNano,
+            "OUTBOUND_SWEEP_BALANCE_BELOW_THRESHOLD");
+
+        const settlement = this._persistence.loadSettlementRecord(p.gameId)?.payload;
+        ensure(settlement?.network === "testnet"
+            && settlement.gameId === p.gameId
+            && settlement.status === "SETTLEMENT_COMPLETED"
+            && settlement.request?.roomNumber === p.roomNumber
+            && typeof settlement.roomId === "string"
+            && settlement.roomId.length > 0
+            && settlement.request?.payoutPlan?.mode === "RECIPIENT_PAYS_GAS",
+            "OUTBOUND_SWEEP_SETTLEMENT_NOT_FINAL");
+        const entries = this._persistence.listActiveRecoveryDataRecords();
+        const payouts = entries.filter(item =>
+            item.payload?.kind === KIND && item.status === "SETTLED"
+            && item.payload.state === "CHAIN_CONFIRMED"
+            && item.payload.gameId === p.gameId
+            && item.payload.roomId === settlement.roomId
+            && item.payload.roomNumber === p.roomNumber
+            && item.payload.roomWallet === wallet
+            && item.payload.chainReceipt?.walletTxHash);
+        for (const role of ["WINNER", "OWNER"]) {
+            ensure(payouts.filter(item => item.payload.role === role).length === 1,
+                "OUTBOUND_SWEEP_WINNER_OR_OWNER_UNPAID");
+        }
+        ensure(!entries.some(item =>
+            item.payload?.kind === "ROOM_WALLET_REFUND_OBLIGATION"
+            && item.payload.roomId === settlement.roomId
+            && item.status === "ACTIVE"),
+            "OUTBOUND_SWEEP_REFUND_DEBT_PRESENT");
+        ensure(!entries.some(item =>
+            item.payload?.kind === KIND && item.status === "ACTIVE"
+            && item.payload.roomWallet === wallet
+            && item.payload.role !== "SWEEP"),
+            "OUTBOUND_SWEEP_WALLET_PAYMENT_PENDING");
+
+        const policySnapshot = {
+            sweepRecordId, gameId: p.gameId, roomNumber: p.roomNumber,
+            sourceAddress: wallet, destinationAddress: destination,
+            amountNano: String(p.amountNano),
+            observedBalanceNano: String(p.observedBalanceNano),
+            sweepGasNano: String(p.sweepGasNano),
+            retainedFloorNano: String(p.retainedFloorNano),
+            safetyMarginNano: String(p.safetyMarginNano)
+        };
+        const frozenGasPlanHash = createHash("sha256")
+            .update(JSON.stringify(policySnapshot)).digest("hex");
+        const intentId = deterministicId([
+            "testnet", String(p.roomNumber), settlement.roomId,
+            p.gameId, "SWEEP", sweepRecordId
+        ]);
+        const intent = {
+            recoveryRecordId: intentId,
+            kind: KIND,
+            status: "ACTIVE",
+            state: STATES.PLANNED,
+            network: "testnet",
+            role: "SWEEP",
+            feePaymentMode: "SOURCE_PAYS_GAS",
+            roomNumber: p.roomNumber,
+            roomId: settlement.roomId,
+            gameId: p.gameId,
+            paymentSessionId: null,
+            roomWallet: wallet,
+            destinationWallet: destination,
+            grossNano: (BigInt(p.amountNano) + BigInt(p.sweepGasNano)).toString(),
+            gasChargeNano: String(p.sweepGasNano),
+            sourceRetainedFloorNano: String(p.retainedFloorNano),
+            transferNano: String(p.amountNano),
+            frozenGasPlanHash,
+            authorizationId: sweepRecordId,
+            seqno: null,
+            signedExternalMessageHash: null,
+            signedValidUntil: null,
+            chainReceipt: null,
+            broadcastingEnabled: false
+        };
+        const prior = this._tryLoad(intentId);
+        if (prior) {
+            ensure(prior.payload.kind === KIND
+                && prior.payload.role === "SWEEP",
+                "OUTBOUND_SWEEP_INTENT_KIND_CONFLICT");
+            for (const field of [
+                "network", "role", "feePaymentMode", "roomNumber", "roomId",
+                "gameId", "roomWallet", "destinationWallet", "grossNano",
+                "gasChargeNano", "sourceRetainedFloorNano", "transferNano",
+                "frozenGasPlanHash", "authorizationId"
+            ]) ensure(prior.payload[field] === intent[field],
+                "OUTBOUND_SWEEP_INTENT_PLAN_CONFLICT");
+            return Object.freeze({
+                created: false, intentId, state: prior.payload.state
+            });
+        }
+        this._persistence.createRecoveryDataRecord(intent, {
+            recoveryRecordId: intentId,
+            roomId: settlement.roomId,
+            gameId: p.gameId,
+            status: "ACTIVE",
+            tonNetwork: "testnet"
+        });
+        return Object.freeze({
+            created: true, intentId, state: STATES.PLANNED
+        });
     }
 
     /**
