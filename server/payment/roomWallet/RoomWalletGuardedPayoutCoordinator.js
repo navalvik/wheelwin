@@ -24,7 +24,8 @@ function sameWallet(a, b) {
 }
 
 export class RoomWalletGuardedPayoutCoordinator {
-    constructor({ journal, executor, financialPersistence = null, refundRecoveryRepository = null } = {}) {
+    constructor({ journal, executor, financialPersistence = null, refundRecoveryRepository = null,
+        residualSweepRepository = null } = {}) {
         if (typeof journal?.createSettlementPlan !== "function"
             || typeof journal?.createRefundPlan !== "function"
             || typeof journal?.load !== "function"
@@ -35,6 +36,7 @@ export class RoomWalletGuardedPayoutCoordinator {
         this._executor = executor;
         this._financialPersistence = financialPersistence;
         this._refundRepository = refundRecoveryRepository;
+        this._residualSweepRepository = residualSweepRepository;
     }
 
     async settleContract(request = {}) {
@@ -235,6 +237,65 @@ export class RoomWalletGuardedPayoutCoordinator {
             ok: true, code: "GUARDED_REFUNDS_CHAIN_CONFIRMED",
             roomNumber, results: Object.freeze(results)
         });
+    }
+
+    /**
+     * SOURCE_PAYS_GAS operational sweep, authorized only by the original
+     * durable rwsweep record, a completed settlement and both confirmed
+     * beneficiary intents. Never uses the historical direct sendTransfer().
+     */
+    async sweepResidual({ sweepRecordId } = {}) {
+        if (typeof this._journal.createResidualSweepPlan !== "function"
+            || typeof this._residualSweepRepository?.findById !== "function") {
+            return this._block("GUARDED_SWEEP_AUTHORITY_UNAVAILABLE");
+        }
+        let plan;
+        try {
+            plan = this._journal.createResidualSweepPlan({ sweepRecordId });
+        } catch (error) {
+            return this._block("GUARDED_SWEEP_PROOF_NOT_AUTHORIZED", error);
+        }
+        try {
+            const state = await this._ensureConfirmed(plan.intentId);
+            const saved = this._journal.load(plan.intentId);
+            if (!state.confirmed) {
+                // Once a signed attempt is UNKNOWN, the old residual worker
+                // cannot auto-retry it. Only the two-provider outgoing worker
+                // may later finalize the persisted intent.
+                if (saved.payload.state !== "PLANNED") {
+                    const existing = this._residualSweepRepository.findById(sweepRecordId);
+                    if (existing?.payload?.status === "PENDING") {
+                        this._residualSweepRepository.markAwaitingTransactionHash(
+                            sweepRecordId, { seqno: saved.payload.seqno }
+                        );
+                    }
+                }
+                return Object.freeze({
+                    ok: false, retryable: true,
+                    code: "GUARDED_SWEEP_CONFIRMATION_PENDING",
+                    sweepRecordId, intentId: plan.intentId,
+                    broadcastingPermitted: false
+                });
+            }
+            const proof = this._confirmed(plan.intentId);
+            const record = this._residualSweepRepository.findById(sweepRecordId);
+            if (record?.payload?.status === "CONFIRMED") {
+                return Object.freeze({
+                    ok: true, code: "GUARDED_SWEEP_CHAIN_CONFIRMED",
+                    sweepRecordId, intentId: plan.intentId,
+                    txHash: proof.txHash, repeated: true
+                });
+            }
+            this._residualSweepRepository.markConfirmed(sweepRecordId, {
+                txHash: proof.txHash
+            });
+            return Object.freeze({
+                ok: true, code: "GUARDED_SWEEP_CHAIN_CONFIRMED",
+                sweepRecordId, intentId: plan.intentId, txHash: proof.txHash
+            });
+        } catch (error) {
+            return this._block("GUARDED_SWEEP_EXECUTION_PENDING", error, true);
+        }
     }
 
     async _ensureConfirmed(intentId) {
