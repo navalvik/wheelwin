@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {ActiveRoomObservationBudget, ACTIVE_ROOM_OBSERVATION_INTERVAL_MS} from "../../payment/runtime/ActiveRoomObservationBudget.js";
+import {
+    ActiveRoomObservationBudget,
+    ACTIVE_ROOM_OBSERVATION_INTERVAL_MS,
+    ACTIVE_ROOM_MAX_OBSERVATIONS_PER_SECOND
+} from "../../payment/runtime/ActiveRoomObservationBudget.js";
 
-test("three player requests in one room result in exactly one chain check per interval",()=>{
+test("three player requests in one room result in exactly one check per interval",()=>{
     const b=new ActiveRoomObservationBudget();
     assert.equal(b.claim("gameA",100_000),true);
     assert.equal(b.claim("gameA",100_000),false);
@@ -11,24 +15,41 @@ test("three player requests in one room result in exactly one chain check per in
     assert.equal(b.claim("gameA",112_000),true);
     assert.equal(ACTIVE_ROOM_OBSERVATION_INTERVAL_MS,12_000);
 });
-test("50 simultaneous active rooms cost <= 50 provider observations in 12s",()=>{
-    const b=new ActiveRoomObservationBudget();
-    let count=0;
-    for(let tick=0;tick<12_000;tick+=4000){
+test("50 simultaneous rooms never exceed six provider observations in one second",()=>{
+    const budget=new ActiveRoomObservationBudget();
+    const covered=new Set();
+    const rateBySecond=new Map();
+    for(let second=0;second<40 && covered.size<50;second++){
+        let accepted=0;
         for(let room=0;room<50;room++){
             for(let player=0;player<3;player++){
-                if(b.claim("room"+room,100_000+tick))count++;
+                if(budget.claim("room"+room,100_000+second*1000)){
+                    covered.add(room);
+                    accepted++;
+                }
             }
         }
+        rateBySecond.set(second,accepted);
     }
-    assert.equal(count,50);
-    for(let room=0;room<50;room++)assert.equal(b.claim("room"+room,112_000),true);
+    assert.equal(covered.size,50);
+    assert.equal(ACTIVE_ROOM_MAX_OBSERVATIONS_PER_SECOND,6);
+    assert.ok([...rateBySecond.values()].every(v=>v<=6));
+    assert.equal(rateBySecond.get(0),6);
 });
-test("closing room forgets old budget and never blocks a new room",()=>{
-    const b=new ActiveRoomObservationBudget();
+test("denied burst does not consume a room cadence",()=>{
+    const budget=new ActiveRoomObservationBudget({maxPerSecond:1});
+    assert.equal(budget.claim("first",100_000),true);
+    assert.equal(budget.claim("second",100_000),false);
+    assert.equal(budget.claim("second",101_000),true);
+    assert.equal(budget.claim("second",101_001),false);
+    assert.equal(budget.claim("second",113_000),true);
+});
+test("closing a room releases only its cadence, never the per-second provider budget",()=>{
+    const b=new ActiveRoomObservationBudget({maxPerSecond:2});
     b.claim("old",100_000);
     b.forget("old");
-    assert.equal(b.claim("old",101_000),true);
+    assert.equal(b.claim("old",100_000),true);
+    assert.equal(b.claim("new",100_000),false);
     assert.equal(b.claim("new",101_000),true);
     assert.equal(b.claim("",101_000),false);
 });
