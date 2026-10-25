@@ -10,6 +10,7 @@ import { PaymentIntent } from "../payment/PaymentIntent.js";
 import { SqlitePaymentIntentStore } from "../payment/SqlitePaymentIntentStore.js";
 import { RefundObligationStore } from "../payment/refund/RefundObligationStore.js";
 import { ProtectedRefundIntentJournal } from "../payment/refund/ProtectedRefundIntentJournal.js";
+import { assessProtectedRefundReceipt } from "../payment/refund/ProtectedRefundChainProof.js";
 
 const ROOT = "0:" + "a".repeat(64);
 const OLGA = "0:" + "b".repeat(64);
@@ -267,4 +268,71 @@ test("wrong wallet, recipient, amount, mode, action and extra outputs fail close
     assert.equal(h.journal.holdPreparedBoc({
         intentId, ownerToken: lock.ownerToken, bocBase64: approved.bocBase64
     }).signedHash, approved.signedHash);
+});
+
+test("two independent outgoing receipts are only advisory until final seqno proof", t => {
+    const h = harness(t), id = h.seed({});
+    const { intentId } = h.journal.plan({ obligationId: id, feeAtomic: 123, feeQuoteHash: H });
+    const lock = h.journal.claimWallet(intentId);
+    const signed = fakeWalletV4Boc();
+    h.journal.holdPreparedBoc({
+        intentId, ownerToken: lock.ownerToken, bocBase64: signed.bocBase64
+    });
+    const one = {
+        account: { address: ROOT }, lt: "105271924000001",
+        hash: "f".repeat(64), success: true, utime: 1792892552,
+        in_msg: { hash: signed.signedHash },
+        out_msgs: [{ destination: OLGA, value: 999999877, hash: "d".repeat(64) }]
+    };
+    const other = {
+        account: ROOT.toUpperCase(), lt: "105271924000001",
+        hash: Buffer.from(one.hash, "hex").toString("base64"),
+        success: true, now: 1792892552,
+        in_msg: { hash: Buffer.from(signed.signedHash,"hex").toString("base64") },
+        out_msgs: [{
+            destination: OLGA.toUpperCase(), value: "999999877",
+            hash: Buffer.from("d".repeat(64), "hex").toString("base64")
+        }]
+    };
+    const observed = assessProtectedRefundReceipt({
+        journal: h.journal, intentId, tonapiTransactions: [one],
+        toncenterTransactions: [other]
+    });
+    assert.equal(observed.status, "RECEIPT_OBSERVED_PENDING_SEQNO_FINALITY");
+    assert.equal(observed.receipt.signedExternalMessageHash, signed.signedHash);
+    assert.equal(observed.receipt.roomWalletTxLt, "105271924000001");
+    assert.equal(observed.refundCompleteAuthorized, false);
+    assert.equal(observed.walletReleaseAuthorized, false);
+    assert.equal(observed.broadcastAuthorized, false);
+    assert.equal(h.journal.load(intentId).state, "SIGNED_HELD");
+
+    const lagged = assessProtectedRefundReceipt({
+        journal: h.journal, intentId, tonapiTransactions: [one], toncenterTransactions: []
+    });
+    assert.equal(lagged.status, "CONFIRMATION_UNKNOWN");
+    assert.equal(lagged.walletReleaseAuthorized, false);
+
+    assert.throws(() => assessProtectedRefundReceipt({
+        journal: h.journal, intentId, tonapiTransactions: [one],
+        toncenterTransactions: [{ ...other, out_msgs: [
+            { ...other.out_msgs[0], value: "999999876" }
+        ] }]
+    }), { code: "OUTGOING_MESSAGES_DISAGREE" });
+
+    const changedSender = assessProtectedRefundReceipt({
+        journal: h.journal, intentId,
+        tonapiTransactions: [{ ...one, in_msg: { hash: "c".repeat(64) } }],
+        toncenterTransactions: [other]
+    });
+    assert.equal(changedSender.status, "CONFIRMATION_UNKNOWN");
+    assert.equal(h.journal.load(intentId).state, "SIGNED_HELD");
+});
+
+test("unprepared refund plan never produces outgoing proof", t => {
+    const h = harness(t), id = h.seed({});
+    const { intentId } = h.journal.plan({ obligationId: id, feeAtomic: 123, feeQuoteHash: H });
+    assert.throws(() => assessProtectedRefundReceipt({
+        journal: h.journal, intentId, tonapiTransactions: [],
+        toncenterTransactions: []
+    }), { code: "REFUND_RECEIPT_NOT_SIGNED_HELD" });
 });
