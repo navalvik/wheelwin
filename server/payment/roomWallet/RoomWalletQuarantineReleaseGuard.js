@@ -131,7 +131,45 @@ export class RoomWalletQuarantineReleaseGuard {
         // remain manual-review items until ledger migration.
         const sweeps = this._sweep.listActive().filter(x =>
             Number(x.payload?.roomNumber) === marker.roomNumber);
-        guard(sweeps.length === 0, "QUARANTINE_RELEASE_RESIDUAL_SWEEP_PENDING");
+        const verifiedSweepReceipts = [];
+        for (const sweep of sweeps) {
+            const p = sweep.payload;
+            // An older confirmed sweep must not permanently strand a
+            // reusable wallet. But an unconfirmed, legacy or ambiguous sweep
+            // can NEVER be ignored merely because its record is terminal.
+            guard(p?.status === "CONFIRMED" && p?.gameId
+                && raw(p.sourceAddress) === raw(marker.roomWallet)
+                && String(p.amountNano) === "490000000"
+                && String(p.retainedFloorNano) === "10000000"
+                && String(p.sweepGasNano) === "6000000"
+                && String(p.safetyMarginNano) === "4000000"
+                && normalizeTonTransactionHash(p.txHash) != null,
+                "QUARANTINE_RELEASE_RESIDUAL_SWEEP_PENDING");
+            const matches = this._db.listActiveRecoveryDataRecords().filter(item =>
+                item.payload?.kind === "ROOM_WALLET_OUTBOUND_INTENT"
+                && item.payload?.role === "SWEEP"
+                && item.payload?.authorizationId === sweep.recordId
+                && item.payload?.feePaymentMode === "SOURCE_PAYS_GAS"
+                && item.payload?.gameId === p.gameId
+                && item.payload?.roomNumber === marker.roomNumber
+                && raw(item.payload?.roomWallet) === raw(marker.roomWallet)
+                && raw(item.payload?.destinationWallet) === raw(p.destinationAddress)
+                && String(item.payload?.transferNano) === String(p.amountNano)
+                && String(item.payload?.gasChargeNano) === String(p.sweepGasNano)
+                && String(item.payload?.sourceRetainedFloorNano) ===
+                    String(p.retainedFloorNano)
+                && this._confirmed(item)
+                && normalizeTonTransactionHash(item.payload.chainReceipt.walletTxHash)
+                    === normalizeTonTransactionHash(p.txHash));
+            guard(matches.length === 1,
+                "QUARANTINE_RELEASE_RESIDUAL_SWEEP_UNVERIFIED");
+            verifiedSweepReceipts.push({
+                gameId: p.gameId,
+                recordId: matches[0].recordId,
+                txHash: normalizeTonTransactionHash(p.txHash),
+                txLt: String(matches[0].payload.chainReceipt.walletTxLt)
+            });
+        }
 
         // Also block unrelated pending funds transfers from the SAME wallet,
         // even if they refer to another game on that numbered wallet.
@@ -165,6 +203,16 @@ export class RoomWalletQuarantineReleaseGuard {
             && raw(head.roomWallet) === raw(marker.roomWallet)
             && head.headLt === chain.accountTip.lt
             && head.headHash === chain.accountTip.hash, "QUARANTINE_RELEASE_INDEXER_HEAD_NOT_FRESH");
+
+        // Sweeps for this very game must be present in the complete,
+        // independently cross-checked on-chain history. Older game sweeps
+        // have their own already-finalized two-source journal receipts.
+        for (const sweep of verifiedSweepReceipts) {
+            if (sweep.gameId !== marker.gameId) continue;
+            guard(chain.transactions.some(tx =>
+                txIdentity(tx) === sweep.txLt + ":" + sweep.txHash),
+                "QUARANTINE_RELEASE_SWEEP_TX_NOT_IN_HISTORY");
+        }
 
         const receipts = records.filter(x =>
             x.recordType === TON_FINANCIAL_RECORD_TYPES.RECOVERY_DATA
