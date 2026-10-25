@@ -409,3 +409,26 @@ test("post-Page5 wallet remains quarantined until BOTH authoritative payouts fin
     assert.equal(repo.isRoomNumberQuarantined(1), false);
     assert.equal(db.loadRecoveryDataRecord(marker.recordId).payload.chainClosure.settledIntents.length, 2);
 });
+
+
+test("late transaction arriving after history read but before release keeps wallet held", async t => {
+    const f = fixture(t);
+    let checks = 0;
+    const reader = async () => {
+        checks++;
+        return {
+            roomWallet: ROOM,
+            headLt: checks === 1 ? "42" : "43",
+            headHash: checks === 1 ? HEAD : "a".repeat(64),
+            providersAgree: true
+        };
+    };
+    await assert.rejects(
+        f.guard(f, { accountTipReader: reader })
+            .tryRelease({ recordId: f.hold.recordId }),
+        err => err.code === "QUARANTINE_RELEASE_HEAD_CHANGED_DURING_RECONCILIATION"
+    );
+    assert.equal(checks, 2);
+    assert.equal(f.repo.isRoomNumberQuarantined(1), true);
+    assert.equal(f.db.loadRecoveryDataRecord(f.hold.recordId).status, "ACTIVE");
+});
