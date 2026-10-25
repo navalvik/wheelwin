@@ -227,3 +227,59 @@ test("stale account-state tip cannot release quarantine", async () => {
         error => error.code === "WALLET_HEAD_PROVIDERS_DISAGREE"
     );
 });
+
+
+test("duplicate identical LT from TonAPI never credits one deposit twice", () => {
+    const repeated = wireIncoming(PEOPLE[0], "tonapi");
+    assert.throws(() => reconcileDualSourceTransactions({
+        tonapiTransactions: [repeated, { ...repeated }],
+        toncenterTransactions: [wireIncoming(PEOPLE[0], "toncenter")],
+        expectedRoomWalletRaw: ROOM
+    }), error => error.code === "DUPLICATE_LT_ON_PROVIDER");
+});
+
+test("duplicate identical LT from TON Center v3 is not silently accepted", () => {
+    const repeated = wireIncoming(PEOPLE[0], "toncenter");
+    assert.throws(() => reconcileDualSourceTransactions({
+        tonapiTransactions: [wireIncoming(PEOPLE[0], "tonapi")],
+        toncenterTransactions: [repeated, { ...repeated }],
+        expectedRoomWalletRaw: ROOM
+    }), error => error.code === "DUPLICATE_LT_ON_PROVIDER");
+});
+
+test("positive incoming payment with missing sender cannot turn into zero liabilities", () => {
+    const source = wireIncoming(PEOPLE[1], "tonapi");
+    const malformed = {
+        ...source,
+        in_msg: { ...source.in_msg, source: null }
+    };
+    assert.throws(() => reconcileDualSourceTransactions({
+        tonapiTransactions: [malformed],
+        toncenterTransactions: [wireIncoming(PEOPLE[1], "toncenter")],
+        expectedRoomWalletRaw: ROOM
+    }), error => error.code === "MALFORMED_ROOM_WALLET_INCOMING_EVIDENCE");
+});
+
+test("positive incoming with unknown value fails closed even if both APIs omit it", () => {
+    const first = wireIncoming(PEOPLE[2], "tonapi");
+    const second = wireIncoming(PEOPLE[2], "toncenter");
+    first.in_msg.value = null;
+    second.in_msg.value = null;
+    assert.throws(() => reconcileDualSourceTransactions({
+        tonapiTransactions: [first],
+        toncenterTransactions: [second],
+        expectedRoomWalletRaw: ROOM
+    }), error => error.code === "MALFORMED_ROOM_WALLET_INCOMING_EVIDENCE");
+});
+
+test("external zero-value wallet signing message is ignored, not treated as a player deposit", () => {
+    const outside = wireIncoming(PEOPLE[0], "tonapi");
+    outside.in_msg = { source: null, destination: ROOM, value: "0" };
+    const result = reconcileDualSourceTransactions({
+        tonapiTransactions: [outside],
+        toncenterTransactions: [],
+        expectedRoomWalletRaw: ROOM
+    });
+    assert.equal(result.transactions.length, 0);
+    assert.equal(result.awaitingSecondProvider, 0);
+});
