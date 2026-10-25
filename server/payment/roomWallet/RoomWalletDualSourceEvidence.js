@@ -171,7 +171,8 @@ export async function fetchDualSourceRoomWalletTransactions({
     expectedRoomWalletRaw,
     fetchImpl = globalThis.fetch,
     timeoutMs = 10_000,
-    limit = 50
+    limit = 50,
+    requestBudget = null
 }) {
     if (typeof fetchImpl !== "function" || typeof address !== "string"
         || !normalizeRawTonAddress(expectedRoomWalletRaw)
@@ -180,11 +181,17 @@ export async function fetchDualSourceRoomWalletTransactions({
         throw new RoomWalletEvidenceUnavailable("EVIDENCE_REQUEST_INVALID");
     }
     const wallet = encodeURIComponent(address);
-    const urls = [
-        `${TESTNET_TONAPI}/v2/blockchain/accounts/${wallet}/transactions?limit=${limit}`,
-        `${TESTNET_TONCENTER_V3}/transactions?account=${wallet}&limit=${limit}`
+    const requests = [
+        ["tonapi", `${TESTNET_TONAPI}/v2/blockchain/accounts/${wallet}/transactions?limit=${limit}`],
+        ["toncenter-v3", `${TESTNET_TONCENTER_V3}/transactions?account=${wallet}&limit=${limit}`]
     ];
-    const [first, second] = await Promise.all(urls.map(url => readJson(fetchImpl, url, timeoutMs)));
+    if (requestBudget !== null && typeof requestBudget?.schedule !== "function") {
+        throw new RoomWalletEvidenceUnavailable("EVIDENCE_BUDGET_INVALID");
+    }
+    const [first, second] = await Promise.all(requests.map(([provider, url]) => {
+        const read = () => readJson(fetchImpl, url, timeoutMs);
+        return requestBudget ? requestBudget.schedule(provider, read) : read();
+    }));
     if (!Array.isArray(first?.transactions) || !Array.isArray(second?.transactions)) {
         throw new RoomWalletEvidenceUnavailable("EVIDENCE_RESPONSE_INVALID");
     }
