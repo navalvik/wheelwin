@@ -100,6 +100,14 @@ export class TestnetWinnerPayoutCoordinator {
         // Idempotent ledger plan prevents repeated result events making a
         // second submission. Existing plans require separate reconciliation.
         if (payout.replay) {
+            // A repeated result can ONLY observe the previous payout.
+            // Its ledger identity remains the same and no send is retried.
+            if (typeof this._submitter?.reconcile === "function") {
+                return this._submitter.reconcile({
+                    roomId,payoutId,roomWalletAddress:roomWallet.address,
+                    winnerWallet,ownerWallet,plan:payout.plan
+                });
+            }
             return Object.freeze({status:"ALREADY_PLANNED_NEEDS_RECONCILIATION",payoutId,roomId});
         }
         if (!this._submitter?.submit) {
