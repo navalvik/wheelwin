@@ -84,6 +84,8 @@ import { ResultActivation } from "./gameplay/ResultActivation.js";
 import { TestnetWinnerPayoutCoordinator } from "./payment/runtime/TestnetWinnerPayoutCoordinator.js";
 import { TestnetNativeRoomPayoutTransport } from "./payment/runtime/TestnetNativeRoomPayoutTransport.js";
 import { TestnetNativeTonService } from "./payment/roomWallet/TestnetNativeTonService.js";
+import { ToncenterTransactionsClient } from "./payment/toncenter/ToncenterTransactionsClient.js";
+import { ToncenterTestnetOutgoingTransferProvider } from "./payment/refund/ToncenterTestnetOutgoingTransferProvider.js";
 import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
@@ -1245,7 +1247,10 @@ class WheelWinApplication {
                     walletResolver: createRoomWalletRuntimeResolver({env:process.env}),
                     tonService: new TestnetNativeTonService(),
                     dataDir: paymentRuntime.networkDataDir,
-                    logger: this._logger
+                    logger: this._logger,
+                    outgoingObserver: new ToncenterTestnetOutgoingTransferProvider({
+                        client: new ToncenterTransactionsClient()
+                    })
                 });
             }
             this._winnerPayoutCoordinator = new TestnetWinnerPayoutCoordinator({
