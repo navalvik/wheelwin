@@ -70,6 +70,16 @@ Status: **DRAFT / NOT DEPLOYABLE**. Scope: native GRAM transfers through 64 serv
 - Latest verified offline focused selection: **200 / 200 passed**, 0 failed, across 19 specified test files; `node --check app.js` passed. Prior 328-test suite is a distinct earlier run and was not repeated here. No blockchain RPC, no real GRAM transfer, and no working Testnet deployment occurred.
 - Historical **oj7v** remains subject to manual verification: its confirmed Olga refund predates protected signed-intent persistence. Strict automated quarantine closure must not invent that missing proof, and Lena/Bob remain unpaid.
 
+### Read-only live Testnet provider schema validation — 25 October 2026
+
+- Performed **read-only, unauthenticated** requests from an isolated Vercel sandbox to TonAPI v2 and TON Center v3 for public Room Wallet #1. Both independent account state APIs returned identical latest chain head **LT `105271924000001` / transaction hash `decf4284978c28153475f4ac94668f77e233bed93d6aaf32f3ed9e737514565c`**, the previously confirmed Olga refund. The fresh account head contained **no later room-wallet transactions**. This is only a snapshot at validation time, not a promise about future payments.
+- Live outgoing proof: `fetchOutgoingConfirmationHistory` and `verifyOutgoingPaymentFromBothProviders` successfully matched Olga's source-wallet outgoing transfer by exact **LT + source transaction hash + destination + 998611722 nanoGRAM**, returning `CHAIN_CONFIRMED`. A positive receipt is never authorization to retransmit.
+- Live incoming matcher: `fetchDualSourceRoomWalletTransactions`, with an explicit canonical expected room-wallet address, agreed on all three original 1-GRAM deposits, including on-chain LT/hash: Olga `105264227000003`, Lena `105264234000003`, Bob `105264240000003`. The account has additional older deposits from the **same participant wallets**, demonstrating why game/session and incoming-hash boundaries are mandatory.
+- The two APIs use different wire formats (TonAPI `hash` hex / address objects and numeric LT; TON Center v3 `hash` base64 / raw uppercase account and string LT). These real provider differences are now captured in the **offline** `server/tests/roomWalletLiveProviderSchema20261025.test.js` (6 tests).
+- A further live deep-pagination request could not be completed; **do not claim live deep pagination or an actual wallet-release transaction was verified**. Pagination, startup/restart and release remain offline-tested.
+- Latest selected **20-suite** offline regression: **206 / 206 passed**, 0 failures, and `node --check app.js` passed. These 206 tests overlap earlier reported selections and must not be added to previous totals.
+- **No real GRAM transfer, deployment, Railway change, Mainnet change or merge.** Olga historical refund already on-chain; Lena and Bob remain unpaid as of this read-only head observation.
+
 ## Rollout restrictions
 
 Keep PR #21 **DRAFT**. Do not merge to `main`, redeploy Testnet, restart Telegram payments, or touch Mainnet until the remaining recovery, wallet-release and settlement execution paths are completed and verified. The historical successful-game branch stays untouched.
