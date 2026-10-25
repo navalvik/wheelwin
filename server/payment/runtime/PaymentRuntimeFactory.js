@@ -181,7 +181,8 @@ export function buildPaymentRuntime(options = {}) {
         logger = null,
         fetchImpl = globalThis.fetch,
         settlementEvidenceProvider = null,
-        refundSubmitter = null
+        refundSubmitter = null,
+        refundSubmitterFactory = null
     } = options;
 
     // R — network identity is enforced before any store or provider exists.
@@ -238,8 +239,24 @@ export function buildPaymentRuntime(options = {}) {
     // Outgoing refund signer is NEVER constructed or read here. It is only
     // assembled when the caller injects an authorized, out-of-process Testnet
     // signing bundle; otherwise it is null and outgoing refunds stay disabled.
+    // Real native signing is supplied only when the entrypoint explicitly
+    // opts in. The factory is never called on the disabled acceptance path.
+    // Runtime constructs neither secrets nor a signer on its own.
+    if (refundSubmitter !== null && refundSubmitterFactory !== null) {
+        throw new Error("REFUND_SIGNER_CONFIGURATION_CONFLICT");
+    }
+    if (refundSubmitterFactory !== null
+        && typeof refundSubmitterFactory !== "function") {
+        throw new TypeError("refundSubmitterFactory must be a function");
+    }
+    const nativeRefundSubmitter = refundSubmitterFactory === null
+        ? refundSubmitter
+        : refundSubmitterFactory(Object.freeze({
+            walletPool,networkDataDir,network:identity.network,
+            globalId:identity.globalId
+        }));
     const outgoingRefundProvider = buildTestnetOutgoingRefundProvider({
-        submitter: refundSubmitter,
+        submitter: nativeRefundSubmitter,
         globalId: identity.globalId,
         finalityEvidenceProvider: evidenceProvider
     });
