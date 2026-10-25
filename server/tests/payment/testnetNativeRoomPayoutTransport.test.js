@@ -199,7 +199,8 @@ test("restarted payout can reconcile two masterchain-indexed credits without ano
                     destinationIdentity===WINNER?"winner-credit":"owner-credit",
                 destinationAddress:destinationIdentity,amountAtomic,
                 sourceMcBlockSeqno:101,recipientMcBlockSeqno:102,
-                latestIndexedMcBlockSeqno:110,globalId:-3};
+                latestIndexedMcBlockSeqno:110,globalId:-3,
+                sourceFinality:"finalized",recipientFinality:"finalized"};
         }
     }});
     const plan=payout({winner:{feeAtomic:2_000_000},owner:{feeAtomic:2_000_000}});
