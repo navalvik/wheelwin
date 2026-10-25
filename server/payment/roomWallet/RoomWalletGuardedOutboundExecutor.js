@@ -20,7 +20,7 @@
  * legacy adapters may broadcast outside the durable wallet gate.
  */
 import { Cell, loadMessage, loadMessageRelaxed, SendMode } from "@ton/core";
-import { verifyOutgoingPaymentFromBothProviders } from "./RoomWalletDualSourceOutgoingReceipt.js";
+import { RoomWalletOutboundChainFinalizer } from "./RoomWalletOutboundChainFinalizer.js";
 
 export class RoomWalletOutboundExecutionError extends Error {
     constructor(code) {
@@ -137,6 +137,9 @@ export class RoomWalletGuardedOutboundExecutor {
         this._signer = signer;
         this._broadcaster = broadcaster;
         this._chain = chain;
+        this._finalizer = new RoomWalletOutboundChainFinalizer({
+            intentJournal, walletGate, chain
+        });
         this._enabled = enabled === true;
         this._nowSeconds = nowSeconds;
     }
@@ -221,39 +224,8 @@ export class RoomWalletGuardedOutboundExecutor {
      * NO automatic signed BOC replay, even if both providers are unavailable.
      */
     async reconcile({ intentId, tonapiTransactions, toncenterTransactions } = {}) {
-        const record = this._journal.load(intentId);
-        const p = record.payload;
-        if (record.status === "SETTLED" && p.state === "CHAIN_CONFIRMED") {
-            return Object.freeze({ state: "CHAIN_CONFIRMED", changed: false });
-        }
-        if (!["SIGNED_HELD", "CONFIRMATION_UNKNOWN"].includes(p.state)) {
-            fail("OUTBOUND_RECONCILIATION_NOT_SIGNED");
-        }
-        const evidence = verifyOutgoingPaymentFromBothProviders({
-            tonapiTransactions,
-            toncenterTransactions,
-            roomWallet: p.roomWallet,
-            recipientWallet: p.destinationWallet,
-            valueNano: p.transferNano,
-            signedExternalMessageHash: p.signedExternalMessageHash
-        });
-        if (evidence.state !== "CHAIN_CONFIRMED") {
-            return Object.freeze({
-                state: "CONFIRMATION_UNKNOWN",
-                changed: false,
-                broadcastAuthorized: false
-            });
-        }
-        const observedSeqno = await this._chain.getSeqno(p.roomWallet);
-        const result = this._journal.confirmWithChainProof({
-            intentId, evidence, observedSeqno
-        });
-        this._gate.releaseConfirmed({ intentId });
-        return Object.freeze({
-            state: "CHAIN_CONFIRMED",
-            changed: result.changed,
-            txHash: result.transactionHash,
-            broadcastAuthorized: false
+        return this._finalizer.reconcile({
+            intentId, tonapiTransactions, toncenterTransactions
         });
     }
 }
