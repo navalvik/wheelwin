@@ -3849,7 +3849,7 @@ export class RoomLobbyBridge {
             && typeof rawProfile.wallet === "string") {
             const room = this._roomManager.getRoom(roomId);
             if (!room || !room.players?.includes(playerId)
-                || this._profilesRevealedByRoom.has(roomId)) {
+                || this._continueToVerifyByRoom.has(roomId)) {
                 this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
                 return;
             }
