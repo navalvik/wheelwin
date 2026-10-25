@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { resolve, join } from "node:path";
 import { Address } from "@ton/core";
+import { inspectProtectedRefundV4Boc } from "./ProtectedRefundV4Boc.js";
 
 export class ProtectedRefundIntentError extends Error {
     constructor(code) {
@@ -216,26 +217,35 @@ export class ProtectedRefundIntentJournal {
     }
 
     /**
-     * Stores the identity of a separately validated V4 signed message.
-     * No broadcast is possible here. Future executor MUST validate actual BOC.
+     * Persist only a parsed, structurally valid Wallet V4 external BOC.
+     * THIS DOES NOT authenticate its Ed25519 signature and CANNOT broadcast.
+     * Real signing authority and chain seqno checks require a later guarded
+     * executor and cannot be bypassed with arbitrary user-provided hashes.
      */
-    holdSignedIdentity({ intentId, ownerToken, signedHash, seqno, validUntil } = {}) {
+    holdPreparedBoc({ intentId, ownerToken, bocBase64 } = {}) {
         const item = this.load(intentId);
         this._assertOwner(item, ownerToken);
-        // Debt can become blocked/complete after the initial lock was claimed.
-        // Preserve that lock, but never freeze a new would-be signed transfer.
-        this._source(item.obligationId);
         assert(item.state === "PLANNED", "REFUND_ALREADY_SIGNED");
-        assert(isHash(signedHash) && Number.isSafeInteger(seqno) && seqno >= 0
-            && Number.isSafeInteger(validUntil)
-            && validUntil > Math.floor(Date.now() / 1000)
-            && validUntil <= Math.floor(Date.now() / 1000) + 300,
-            "REFUND_SIGNED_IDENTITY_INVALID");
+        this._source(item.obligationId);
+        const result = inspectProtectedRefundV4Boc({
+            bocBase64, fromWallet: item.fromWallet,
+            toWallet: item.toWallet, netAtomic: item.netAtomic
+        });
+        assert(result.broadcastAuthorized === false
+            && result.signatureAuthenticated === false,
+            "REFUND_PREPARATION_MUST_BE_OFFLINE");
         const next = seal({ ...item, state: "SIGNED_HELD",
-            ownerToken, signedHash: signedHash.toLowerCase(), seqno, validUntil,
+            ownerToken, signedHash: result.signedHash,
+            seqno: result.seqno, validUntil: result.validUntil,
             checksum: undefined });
         durableReplace(join(this._records, intentId + ".json"), next, this._records);
         return this.load(intentId);
+    }
+
+    // Retained as an explicit rejection for callers of the old API.
+    // A supplied hash/amount/seqno is not evidence of any signed TON message.
+    holdSignedIdentity() {
+        throw new ProtectedRefundIntentError("REFUND_UNVERIFIED_SIGNED_IDENTITY_DISABLED");
     }
 
     /** Even an RPC timeout must NEVER turn an unknown send into a retry. */
