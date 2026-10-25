@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { Address } from "@ton/core";
 import { keyPairFromSeed } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 
@@ -1267,3 +1268,117 @@ test("PAYMENT_CLOSING D: three payments inside the window complete the session",
     assert.equal(manager.isAcceptingPayments("PcD1"), false);
 });
 
+
+
+test("Testnet HTTP 542: independently matching TonAPI and TonCenter v3 evidence credits all 3", async (t) => {
+    const roomWallet = friendlyAddress("dual-http-542-wallet");
+    const players = threePlayers("dual542");
+    const destRaw = Address.parse(roomWallet).toRawString();
+    const now = Math.floor(Date.now() / 1000);
+    const rows = players.map((player, index) => ({
+        lt: String(106000000000000 + index),
+        hash: createHash("sha256").update("dual-542-" + index).digest("hex"),
+        from: Address.parse(player.wallet).toRawString(),
+        to: destRaw,
+        utime: now
+    }));
+    let readCount = 0;
+    let primaryFailures = 0;
+    const dualSourceFetch = async (url, request) => {
+        assert.equal(request.method, "GET");
+        readCount++;
+        return {
+            ok: true,
+            status: 200,
+            async json() {
+                if (url.includes("tonapi.io")) return {
+                    transactions: rows.map((row) => ({
+                        utime: row.utime,
+                        lt: Number(row.lt),
+                        hash: row.hash,
+                        success: true,
+                        in_msg: {
+                            source: { address: row.from },
+                            destination: { address: row.to },
+                            value: 1000000000
+                        },
+                        out_msgs: []
+                    }))
+                };
+                return {
+                    transactions: rows.map((row) => ({
+                        now: row.utime,
+                        lt: row.lt,
+                        hash: Buffer.from(row.hash, "hex").toString("base64"),
+                        in_msg: {
+                            source: row.from.toUpperCase(),
+                            destination: row.to.toUpperCase(),
+                            value: "1000000000"
+                        },
+                        out_msgs: []
+                    }))
+                };
+            }
+        };
+    };
+    const { observer, manager } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "Dual542", roomNumber: 1, gameId: "game-dual542", players }],
+        transport: {
+            async getTransactions() {
+                primaryFailures++;
+                const failure = new Error("TonCenter HTTP 542");
+                failure.status = 542;
+                throw failure;
+            }
+        },
+        observerOptions: {
+            env: { ROOM_WALLET_DUAL_SOURCE_ENABLED: "true" },
+            dualSourceFetch,
+            retryMaxAttempts: 1
+        }
+    });
+
+    const result = await observer.poll();
+    assert.equal(result.polled, 1);
+    assert.equal(result.processed, 3);
+    assert.equal(primaryFailures, 1);
+    assert.equal(readCount, 2);
+    const session = manager.getSession("Dual542");
+    assert.equal(session.status, PAYMENT_SESSION_STATUS.FULLY_PAID);
+    assert.equal(session.confirmedCount(), 3);
+});
+
+test("Testnet HTTP 542: one provider failing does NOT credit a player", async (t) => {
+    const roomWallet = friendlyAddress("dual-provider-error-wallet");
+    const players = threePlayers("dualerr");
+    let requests = 0;
+    const { observer, manager } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "DualErr", roomNumber: 1, gameId: "game-dual-error", players }],
+        transport: {
+            async getTransactions() {
+                const failure = new Error("TonCenter HTTP 542");
+                failure.status = 542;
+                throw failure;
+            }
+        },
+        observerOptions: {
+            env: { ROOM_WALLET_DUAL_SOURCE_ENABLED: "true" },
+            dualSourceFetch: async (url) => {
+                requests++;
+                return url.includes("tonapi.io")
+                    ? { ok: true, json: async () => ({ transactions: [] }) }
+                    : { ok: false, status: 503, json: async () => ({}) };
+            },
+            retryMaxAttempts: 1
+        }
+    });
+
+    const result = await observer.poll();
+    assert.equal(result.processed, 0);
+    assert.equal(requests, 2);
+    assert.equal(manager.getSession("DualErr").confirmedCount(), 0);
+});
