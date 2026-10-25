@@ -30,7 +30,7 @@ const SYNTHETIC_API_KEY = "SYNTHETIC-TONCENTER-TEST-KEY-NOT-REAL";
 const TESTNET_PAYER = `0:${"a".repeat(64)}`;
 const TESTNET_WALLET = `0:${"b".repeat(64)}`;
 
-const TOTAL_SECTIONS = 12;
+const TOTAL_SECTIONS = 13;
 let assertions = 0;
 let sections = 0;
 
@@ -449,6 +449,40 @@ async function run() {
                 "fully settled prize wallet can finally be recycled on restart");
             paymentRuntimeShutdown(completed.runtime);
         } finally {t.cleanup();}
+    });
+
+    await section("50 simultaneous paid rooms retain 50 distinct wallets after restart without using wallet #1", () => {
+        const t=makeTemp();
+        const prior=process.env.ROOM_WALLET_QUARANTINED_NUMBERS;
+        process.env.ROOM_WALLET_QUARANTINED_NUMBERS="1";
+        try {
+            const first=buildRuntime(t.root,t.catalogPath);
+            const rooms=Array.from({length:50},(_,i)=>`room-concurrent-${i}`);
+            const walletIds=[];
+            for(const roomId of rooms){
+                seedRoomPayments(first.runtime,roomId,3,`payment_${roomId}`);
+                const wallet=first.runtime.walletPool.getReservationForRoom(roomId);
+                check(wallet?.roomNumber!==1,`quarantined wallet #1 never serves ${roomId}`);
+                walletIds.push(wallet.walletId);
+            }
+            equal(new Set(walletIds).size,50,
+                "all fifty simultaneously paid rooms have a different source wallet");
+            equal(first.runtime.walletPool.listAvailableWallets().length,13,
+                "exactly thirteen of the eligible sixty-three room wallets remain free");
+            paymentRuntimeShutdown(first.runtime);
+            const restarted=buildRuntime(t.root,t.catalogPath);
+            for(let i=0;i<rooms.length;i++){
+                equal(restarted.runtime.walletPool.getReservationForRoom(rooms[i])?.walletId,
+                    walletIds[i],`recovery preserves exclusive wallet assignment for room ${i}`);
+            }
+            equal(restarted.runtime.walletPool.listAvailableWallets().length,13,
+                "fifty funded rooms never free their wallets prematurely at restart");
+            paymentRuntimeShutdown(restarted.runtime);
+        } finally {
+            if(prior===undefined)delete process.env.ROOM_WALLET_QUARANTINED_NUMBERS;
+            else process.env.ROOM_WALLET_QUARANTINED_NUMBERS=prior;
+            t.cleanup();
+        }
     });
 
     await section("restart reconstructs refund obligations without duplication", () => {
