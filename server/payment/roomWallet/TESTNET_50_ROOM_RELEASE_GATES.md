@@ -89,6 +89,15 @@ Status: **DRAFT / NOT DEPLOYABLE**. Scope: native GRAM transfers through 64 serv
 - Latest selected **22-file** offline financial suite: **231 / 231 passed**, 0 failures, and `node --check app.js` passed. This count overlaps earlier suites and MUST NOT be added to prior totals.
 - Live deep-pagination still not established; current validation is based on previously observed genuine Testnet provider wire shapes plus offline regression fixtures. No real GRAM transfer or deployment.
 
+### Verified LIVE deep Testnet pagination — 25 October 2026
+
+- Real read-only backscan of Room Wallet #1 for the historical `oj7v` session start `1792892394000` ms UTC, with 15-second margin: **3 pages from TonAPI + 3 pages from TON Center v3**, 2 transactions per page, **6 wire transactions per provider**.
+- The provider cursors were independently verified: TonAPI uses exclusive `before_lt=<oldest>`; TON Center v3 uses inclusive `end_lt=<oldest-1>`. Both returned HTTP 200 after pacing (1.9 seconds per provider) and bounded HTTP 429 retry. Initial unpaced read correctly failed closed with 429.
+- Reconciliation: **3 matched 1-GRAM incoming payments**, exact LTs Olga `105264227000003`, Lena `105264234000003`, Bob `105264240000003`; **zero unmatched transactions** in the scoped session window; matching latest wallet head LT `105271924000001` and hash `decf4284978c28153475f4ac94668f77e233bed93d6aaf32f3ed9e737514565c` (historical Olga refund).
+- A real-format blocker was found and fixed in commits `8f019905` and `7a810259`: TON Center v3 external-in Wallet V4 messages have `source:null, value:null, import_fee:"0"`, unlike TonAPI's numeric zero. Only this strictly identifiable external format is excluded from paid-player receipts. Ambiguous null-value incoming transfers still fail closed. The focused offline suite passed **33/33** after this correction.
+- `historyComplete=true` **does not authorize wallet release** (`walletReleaseAuthorized=false`). Refund debts for Lena and Bob remain outstanding. No GRAM was signed/transferred, no Mainnet call or deployment was performed.
+- The operational checklist targeting `main` was committed separately at `main:server/docs/TESTNET_CONTROLLED_MAIN_SESSION_2026-10-25.md`. `main` does NOT contain this protected scanner, has live payment acceptance disabled, default 8-minute setup/payment windows and 64-room ceiling, and its Railway backend remains parked. **Do not enable live deposits or start a three-player payment session there until explicit release gates are satisfied.**
+
 ## Rollout restrictions
 
 Keep PR #21 **DRAFT**. Do not merge to `main`, redeploy Testnet, restart Telegram payments, or touch Mainnet until the remaining recovery, wallet-release and settlement execution paths are completed and verified. The historical successful-game branch stays untouched.
