@@ -151,7 +151,9 @@ export class TestnetOutgoingRefundProvider {
             sourceIdentity,
             sourceAccountId: sourceIdentity,
             refundDestination: obligation.refundDestination,
-            amountAtomic: obligation.amountAtomic,
+            amountAtomic: obligation.transferAmountAtomic ?? obligation.amountAtomic,
+            grossAmountAtomic: obligation.amountAtomic,
+            gasChargeAtomic: obligation.gasChargeAtomic ?? 0,
             denomination: obligation.denomination
         });
     }
