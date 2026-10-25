@@ -272,6 +272,71 @@ export class RoomWalletRefundRecoveryRepository {
         });
     }
 
+    /**
+     * Persist closure ONLY after RoomWalletQuarantineReleaseGuard has
+     * independently verified fresh double-source history and all immutable
+     * liabilities. Never call from room destruction, timeout or API response.
+     * A failed write leaves the in-memory allocation block intact.
+     */
+    closeWithChainEvidence({ recordId, evidence } = {}) {
+        assert(typeof recordId === "string" && recordId.length > 0
+            && evidence?.kind === "DOUBLE_SOURCE_ROOM_WALLET_CLOSURE_V1"
+            && evidence?.complete === true
+            && typeof evidence?.historyHash === "string"
+            && /^[0-9a-f]{64}$/.test(evidence.historyHash)
+            && typeof evidence?.headHash === "string"
+            && /^[0-9a-f]{64}$/.test(evidence.headHash)
+            && typeof evidence?.headLt === "string"
+            && /^\d+$/.test(evidence.headLt)
+            && Number.isSafeInteger(evidence.verifiedAtMs),
+            "QUARANTINE_CLOSURE_PROOF_REQUIRED");
+        const existing = this._getById(recordId);
+        assert(existing && [KIND_QUARANTINE, KIND_SETTLEMENT_QUARANTINE]
+            .includes(existing.payload?.kind),
+            "QUARANTINE_CLOSURE_RECORD_INVALID");
+        const p = existing.payload;
+        const number = normalizeRoomNumber(p.roomNumber);
+        assert(evidence.network === "testnet"
+            && evidence.roomNumber === number
+            && evidence.roomId === p.roomId
+            && evidence.gameId === p.gameId
+            && rawAddress(evidence.roomWallet) === rawAddress(p.roomWallet),
+            "QUARANTINE_CLOSURE_IDENTITY_MISMATCH");
+
+        if (existing.status === "SETTLED"
+            && p.state === "CHAIN_RECONCILED_CLOSED") {
+            return Object.freeze({ changed: false, recordId, roomNumber: number });
+        }
+        assert(existing.status === "ACTIVE"
+            && ["RECONCILIATION_REQUIRED", "SETTLEMENT_CHAIN_RECONCILIATION_REQUIRED"]
+                .includes(p.state),
+            "QUARANTINE_CLOSURE_STATE_INVALID");
+
+        this._persistence.updateRecoveryDataRecord(recordId, {
+            ...p,
+            status: "SETTLED",
+            state: "CHAIN_RECONCILED_CLOSED",
+            reconciliationComplete: true,
+            chainClosure: Object.freeze({
+                headHash: evidence.headHash,
+                headLt: evidence.headLt,
+                historyHash: evidence.historyHash,
+                verifiedAtMs: evidence.verifiedAtMs,
+                settledIntents: Object.freeze([...evidence.settledIntents])
+            })
+        }, { status: "SETTLED" });
+
+        // Distinct quarantine markers may share one wallet number. Never
+        // unblock a number while ANY other durable marker still holds it.
+        const otherHolds = this.listAllocationBlocks()
+            .some(x => normalizeRoomNumber(x.payload.roomNumber) === number);
+        if (!otherHolds) this._quarantinedRoomNumbers.delete(number);
+        return Object.freeze({
+            changed: true, recordId, roomNumber: number,
+            unblocked: !otherHolds
+        });
+    }
+
     listOpenQuarantines() {
         return Object.freeze(
             this._persistence.listActiveRecoveryDataRecords()
