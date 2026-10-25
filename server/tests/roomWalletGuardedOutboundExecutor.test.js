@@ -269,7 +269,7 @@ test("prepared BOC external hash mismatch fails without broadcasting", async t =
     await assert.rejects(out.executor.execute({ intentId: f.intentId }),
         e => e.code === "OUTBOUND_SIGNED_HASH_MISMATCH");
     assert.equal(out.read().broadcasts, 0);
-    assert.equal(f.first.gate.isLocked(ROOM), true);
+    assert.equal(f.first.gate.isLocked(ROOM), false);
     assert.equal(f.first.journal.load(f.intentId).payload.state, "PLANNED");
 });
 
@@ -332,7 +332,7 @@ test("wrong recipient embedded in signed BOC is rejected even when metadata matc
     await assert.rejects(out.executor.execute({ intentId: f.intentId }),
         e => e.code === "OUTBOUND_BOC_RECIPIENT_OR_AMOUNT_MISMATCH");
     assert.equal(out.read().broadcasts, 0);
-    assert.equal(f.first.gate.isLocked(ROOM), true);
+    assert.equal(f.first.gate.isLocked(ROOM), false);
 });
 
 test("wrong nanogram value embedded in signed BOC fails before broadcast", async t => {
@@ -343,4 +343,56 @@ test("wrong nanogram value embedded in signed BOC fails before broadcast", async
     await assert.rejects(out.executor.execute({ intentId: f.intentId }),
         e => e.code === "OUTBOUND_BOC_RECIPIENT_OR_AMOUNT_MISMATCH");
     assert.equal(out.read().broadcasts, 0);
+});
+
+
+test("temporary getSeqno failure BEFORE signing releases only the current owner lock", async t => {
+    const f = fx(t);
+    const brokenSigner = new RoomWalletGuardedOutboundExecutor({
+        intentJournal: f.first.journal,
+        walletGate: f.first.gate,
+        signer: { async prepareSignedTransfer() {
+            throw new Error("TonCenter getSeqno temporarily unavailable");
+        }},
+        broadcaster: { async broadcastSignedBoc() {
+            throw new Error("BROADCAST_MUST_NOT_BE_CALLED");
+        }},
+        chain: { async getSeqno() { return 42; }},
+        nowSeconds: () => NOW,
+        enabled: true
+    });
+    await assert.rejects(brokenSigner.execute({ intentId: f.intentId }),
+        /TonCenter getSeqno temporarily unavailable/);
+    assert.equal(f.first.journal.load(f.intentId).payload.state, "PLANNED");
+    assert.equal(f.first.gate.isLocked(ROOM), false);
+
+    // Same plan can now safely prepare/sign, still only one eventual send.
+    const recovered = makeExecutor(f.first);
+    const state = await recovered.executor.execute({ intentId: f.intentId });
+    assert.equal(state.state, "CONFIRMATION_UNKNOWN");
+    assert.equal(recovered.read().broadcasts, 1);
+});
+
+test("an owned signed-intent lock cannot use the unattempted release shortcut", t => {
+    const f = fx(t);
+    const token = f.first.gate.acquire({ intentId: f.intentId });
+    f.first.journal.holdSignedMessage({
+        intentId: f.intentId, seqno: 42,
+        signedExternalMessageHash: "b".repeat(64),
+        validUntil: NOW + 60
+    });
+    assert.throws(() => f.first.gate.releaseUnattempted(token),
+        e => e.code === "SIGNER_GATE_UNATTEMPTED_PROOF_FAILED");
+    assert.equal(f.first.gate.isLocked(ROOM), true);
+});
+
+test("a separate signer cannot release an unattempted lock without ownerToken", t => {
+    const f = fx(t);
+    const token = f.first.gate.acquire({ intentId: f.intentId });
+    assert.throws(() => f.first.gate.releaseUnattempted({
+        intentId: f.intentId, ownerToken: "stolen-token"
+    }), e => e.code === "SIGNER_GATE_OWNERSHIP_LOST");
+    assert.equal(f.first.gate.isLocked(ROOM), true);
+    assert.equal(f.first.gate.releaseUnattempted(token).released, true);
+    assert.equal(f.first.gate.isLocked(ROOM), false);
 });
