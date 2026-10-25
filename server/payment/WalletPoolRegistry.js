@@ -723,6 +723,11 @@ export class WalletPoolRegistry {
 
         for (const wallet of this._wallets.values()) {
 
+            // Exclude the old oj7v wallet when the active Testnet environment
+            // explicitly quarantines its room number. Never recycle an
+            // unresolved historical wallet into a new paid game.
+            if (this._isQuarantined(wallet)) continue;
+
             if (wallet.isAvailable() && wallet.network === effectiveNetwork) {
 
                 return wallet;
@@ -733,6 +738,12 @@ export class WalletPoolRegistry {
 
         return null;
 
+    }
+
+    _isQuarantined(wallet) {
+        const values = String(process.env.ROOM_WALLET_QUARANTINED_NUMBERS ?? "")
+            .split(",").map(value => value.trim()).filter(Boolean);
+        return values.includes(String(wallet.roomNumber));
     }
 
     _selectRequestedWallet(walletId, network, roomId) {
@@ -746,6 +757,13 @@ export class WalletPoolRegistry {
                 { walletId, roomId }
             );
 
+        }
+
+        if (this._isQuarantined(wallet)) {
+            throw new WalletAssignmentConflictError(
+                "wallet quarantined due to unresolved historical funds",
+                { walletId, roomId }
+            );
         }
 
         if (network !== null && wallet.network !== network) {
