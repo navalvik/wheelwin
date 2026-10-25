@@ -41,7 +41,18 @@ export class RefundLifecycleCoordinator {
         if (principal.length > 3) throw new RefundLifecycleError("room has more than three confirmed principal records; manual reconciliation required", { roomId });
         if (principal.length === 0) return Object.freeze([]);
         if (intents.length !== 3) throw new RefundLifecycleError("refund evidence does not contain the three required payment intents", { roomId, intentCount: intents.length });
-        if (principal.length === 3) return Object.freeze([]);
+        // Result-session cleanup is not an aborted pre-Page5 game. Payments
+        // from a completed game belong to its payout flow, not refunds.
+        const completedGameClosures = new Set([
+            "session_ended", "result_session_expired",
+            "result_session_finished"
+        ]);
+        if (completedGameClosures.has(closed.closureReason)) {
+            return Object.freeze([]);
+        }
+        // A room destroyed before Page5 must refund ALL confirmed payers,
+        // including 3/3 paid if game start failed before Page5. The previous
+        // principal.length===3 shortcut silently abandoned their money.
         const results = [];
         for (const entry of principal) {
             const reference = entry.metadata?.paymentReference;
