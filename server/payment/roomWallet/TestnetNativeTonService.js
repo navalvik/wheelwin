@@ -19,8 +19,24 @@ export class TestnetNativeTonService {
         return BigInt(await this._client.getBalance(Address.parse(address)));
     }
     async estimateExternalMessageFee(address,{body,initCode=null,initData=null,ignoreSignature=true}={}) {
-        return this._client.estimateExternalMessageFee(Address.parse(address),{
+        const result = await this._client.estimateExternalMessageFee(Address.parse(address),{
             body,initCode,initData,ignoreSignature
+        });
+        const source = result?.source_fees;
+        if (!source) throw new Error("TESTNET_FEE_QUOTE_MISSING");
+        const fee = name => {
+            const value = source[name];
+            if (!Number.isSafeInteger(value) || value < 0)
+                throw new Error("TESTNET_FEE_QUOTE_INVALID");
+            return BigInt(value);
+        };
+        const inFwdFeeNano=fee("in_fwd_fee");
+        const storageFeeNano=fee("storage_fee");
+        const gasFeeNano=fee("gas_fee");
+        const fwdFeeNano=fee("fwd_fee");
+        return Object.freeze({
+            inFwdFeeNano,storageFeeNano,gasFeeNano,fwdFeeNano,
+            totalFeeNano:inFwdFeeNano+storageFeeNano+gasFeeNano+fwdFeeNano
         });
     }
     async broadcastTransaction(base64Boc) {
