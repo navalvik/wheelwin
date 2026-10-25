@@ -234,3 +234,178 @@ test("one extra unrecognized player deposit blocks release even without recorded
         e => e.code === "QUARANTINE_RELEASE_UNTRACKED_INCOMING"
     );
 });
+
+
+test("repeated teardown callback cannot re-quarantine an already chain-closed wallet", async t => {
+    const f = fixture(t);
+    await f.guard().tryRelease({ recordId: f.hold.recordId });
+    const again = f.repo.beginQuarantine({
+        roomId: f.session.roomId, gameId: f.session.gameId,
+        paymentSessionId: f.session.paymentSessionId,
+        roomNumber: 1, roomWallet: ROOM
+    });
+    assert.equal(again.created, false);
+    assert.equal(f.repo.isRoomNumberQuarantined(1), false);
+});
+
+test("closing one marker does not release another open marker with the same room number", async t => {
+    const f = fixture(t);
+    f.repo.beginSettlementQuarantine({
+        roomId: "other_room", gameId: "other_game",
+        roomNumber: 1, roomWallet: ROOM
+    });
+    const closed = await f.guard().tryRelease({ recordId: f.hold.recordId });
+    assert.equal(closed.changed, true);
+    assert.equal(closed.unblocked, false);
+    assert.equal(f.repo.isRoomNumberQuarantined(1), true);
+    assert.equal(f.repo.listOpenSettlementQuarantines().length, 1);
+});
+
+test("post-Page5 wallet remains quarantined until BOTH authoritative payouts finalize", async t => {
+    const folder = mkdtempSync(join(tmpdir(), "ww-successful-game-quarantine-"));
+    const db = new TonFinancialPersistence({ dataDir: folder });
+    db.initialize();
+    t.after(() => {
+        db.shutdown({ checkpoint: false });
+        rmSync(folder, { force: true, recursive: true });
+    });
+    const repo = new RoomWalletRefundRecoveryRepository({ financialPersistence: db });
+    const winnerWallet = PEOPLE[1][1], ownerWallet = PEOPLE[0][1];
+    const feeEvidence = {
+        inFwdFeeNano: "101068", storageFeeNano: "2",
+        gasFeeNano: "220534", fwdFeeNano: "66667", totalNano: "388271"
+    };
+    const plan = {
+        mode: "RECIPIENT_PAYS_GAS",
+        gasPolicyVersion: 1,
+        feeSource: "estimateExternalMessageFee",
+        marginBps: "2000", marginFloorNano: "1000000",
+        winner: {
+            role: "WINNER", destination: winnerWallet,
+            grossPayoutNano: "2850000000",
+            recipientGasChargeNano: "1388271",
+            recipientTransferAmountNano: "2848611729",
+            feeEvidence
+        },
+        owner: {
+            role: "OWNER", destination: ownerWallet,
+            ownerGrossNano: "150000000",
+            ownerRetainedNano: "10000000",
+            ownerShareAfterRetentionNano: "140000000",
+            grossPayoutNano: "140000000",
+            recipientGasChargeNano: "1388271",
+            recipientTransferAmountNano: "138611729",
+            feeEvidence
+        }
+    };
+    const payment = {
+        roomId: "page5_room", gameId: "page5_game",
+        paymentSessionId: "page5_pay", roomNumber: 1,
+        network: "testnet", roomWalletAddress: ROOM,
+        createdAt: START, paymentDeadline: DEADLINE,
+        participants: PEOPLE.map(([playerId, wallet]) => ({
+            playerId, wallet, requiredAmountNano: "1000000000"
+        }))
+    };
+    db.createPaymentSession(payment, {
+        paymentSessionId: payment.paymentSessionId,
+        gameId: payment.gameId,
+        roomId: payment.roomId, tonNetwork: "testnet"
+    });
+    const settlement = {
+        settlementSessionId: "page5_settlement",
+        gameId: payment.gameId, roomId: payment.roomId,
+        status: "SETTLEMENT_COMPLETED",
+        network: "testnet",
+        winnerWallet, ownerWallet,
+        prizeAmount: 2.85, organizerAmount: 0.15,
+        request: {
+            roomId: payment.roomId, roomNumber: 1,
+            gameId: payment.gameId,
+            winnerWallet, ownerWallet, payoutPlan: plan
+        }
+    };
+    db.createSettlementRecord(settlement, {
+        roomId: payment.roomId, gameId: payment.gameId,
+        tonNetwork: "testnet", status: "SETTLEMENT_COMPLETED"
+    });
+    const marker = repo.beginSettlementQuarantine({
+        roomId: payment.roomId, gameId: payment.gameId,
+        roomNumber: 1, roomWallet: ROOM
+    });
+    const journal = new RoomWalletOutboundIntentJournal({
+        financialPersistence: db,
+        roomWalletRegistry: { get: num => num === 1 ? { address: ROOM } : null }
+    });
+    const chain = {
+        source: "tonapi+toncenter-v3", rawAddress: ROOM,
+        historyComplete: true, awaitingSecondProvider: 0,
+        accountTip: { lt: "205", hash: "e".repeat(64) },
+        transactions: [
+            { success: true, lt: "205", hash: "e".repeat(64),
+              utime: Math.floor((DEADLINE + 45_000) / 1000),
+              in_msg: { destination: ROOM, source: null, value: "0" } },
+            { success: true, lt: "204", hash: "d".repeat(64),
+              utime: Math.floor((DEADLINE + 20_000) / 1000),
+              in_msg: { destination: ROOM, source: null, value: "0" } },
+            ...PEOPLE.slice().reverse().map(([playerId, wallet], i) => ({
+                success: true, lt: String(203 - i),
+                hash: String(i + 1).repeat(64),
+                utime: Math.floor((START + 50_000 - i * 3_000) / 1000),
+                in_msg: { destination: ROOM, source: wallet, value: "1000000000" }
+            }))
+        ]
+    };
+    const closer = new RoomWalletQuarantineReleaseGuard({
+        repository: repo,
+        financialPersistence: db,
+        residualSweepRepository: { listActive: () => [] },
+        historyScanner: async () => chain,
+        accountTipReader: async () => ({
+            roomWallet: ROOM, headLt: "205",
+            headHash: "e".repeat(64), providersAgree: true
+        }),
+        isRoomActive: () => false,
+        now: () => NOW + 20 * 60 * 1000
+    });
+
+    await assert.rejects(
+        closer.tryRelease({ recordId: marker.recordId }),
+        e => e.code === "QUARANTINE_RELEASE_SETTLEMENT_OUTBOUND_UNPAID"
+    );
+    function confirm(role, seqno) {
+        const intent = journal.createSettlementPlan({
+            gameId: payment.gameId, role
+        });
+        const payload = journal.load(intent.intentId).payload;
+        journal.holdSignedMessage({
+            intentId: intent.intentId,
+            seqno, signedExternalMessageHash: String(seqno % 10).repeat(64),
+            validUntil: Math.floor(DEADLINE / 1000) + 100
+        });
+        journal.confirmWithChainProof({
+            intentId: intent.intentId, observedSeqno: seqno + 1,
+            evidence: {
+                confirmed: true, state: "CHAIN_CONFIRMED",
+                receipt: {
+                    account: ROOM, recipient: payload.destinationWallet,
+                    valueNano: payload.transferNano,
+                    signedExternalMessageHash: String(seqno % 10).repeat(64),
+                    roomWalletTxHash: String((seqno + 1) % 10).repeat(64),
+                    roomWalletTxLt: String(200 + seqno),
+                    outboundMessageHash: "f".repeat(64)
+                }
+            }
+        });
+    }
+    confirm("WINNER", 41);
+    await assert.rejects(
+        closer.tryRelease({ recordId: marker.recordId }),
+        e => e.code === "QUARANTINE_RELEASE_SETTLEMENT_OUTBOUND_UNPAID"
+    );
+    confirm("OWNER", 42);
+    const closed = await closer.tryRelease({ recordId: marker.recordId });
+    assert.equal(closed.unblocked, true);
+    assert.equal(repo.isRoomNumberQuarantined(1), false);
+    assert.equal(db.loadRecoveryDataRecord(marker.recordId).payload.chainClosure.settledIntents.length, 2);
+});
