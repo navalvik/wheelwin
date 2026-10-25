@@ -306,7 +306,7 @@ async function run() {
                 seedRoomPayments(runtime, room.roomId, confirmed);
 
                 equal(roomManager.destroyRoom(room.roomId), true, "room is destroyed");
-                const expected = confirmed === 3 ? 0 : confirmed;
+                const expected = confirmed;
                 equal(runtime.refundStore.size, expected,
                     `${confirmed} confirmed payment(s) -> ${expected} refund obligation(s)`);
                 for (const obligation of runtime.refundStore.list()) {
