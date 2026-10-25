@@ -222,6 +222,9 @@ export class ProtectedRefundIntentJournal {
     holdSignedIdentity({ intentId, ownerToken, signedHash, seqno, validUntil } = {}) {
         const item = this.load(intentId);
         this._assertOwner(item, ownerToken);
+        // Debt can become blocked/complete after the initial lock was claimed.
+        // Preserve that lock, but never freeze a new would-be signed transfer.
+        this._source(item.obligationId);
         assert(item.state === "PLANNED", "REFUND_ALREADY_SIGNED");
         assert(isHash(signedHash) && Number.isSafeInteger(seqno) && seqno >= 0
             && Number.isSafeInteger(validUntil)
