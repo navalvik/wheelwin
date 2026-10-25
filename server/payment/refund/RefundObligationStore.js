@@ -131,6 +131,15 @@ export class RefundObligationStore {
         if (next.state !== current.state && !allowed[current.state]?.includes(next.state)) {
             throw new RefundObligationError(`invalid refund state transition: ${current.state} -> ${next.state}`);
         }
+        if (current.transferAmountAtomic !== null &&
+            (next.transferAmountAtomic !== current.transferAmountAtomic
+                || next.gasChargeAtomic !== current.gasChargeAtomic)) {
+            throw new RefundObligationError("persisted refund transfer plan is immutable");
+        }
+        if (current.transferAmountAtomic === null && next.transferAmountAtomic !== null
+            && !(current.state === "PENDING" && next.state === "SUBMISSION_UNKNOWN")) {
+            throw new RefundObligationError("refund transfer plan must be fixed before first submission");
+        }
         if (current.outgoingTransactionId && next.outgoingTransactionId !== current.outgoingTransactionId) {
             throw new RefundObligationError("outgoing transaction identity cannot be replaced");
         }
@@ -154,7 +163,8 @@ export class RefundObligationStore {
     }
 
     /** PENDING -> SUBMISSION_UNKNOWN: an authorized submission was attempted. */
-    markSubmissionUnknown(obligationId, { attempt, lastError = null } = {}) {
+    markSubmissionUnknown(obligationId, { attempt, lastError = null,
+        transferAmountAtomic = null, gasChargeAtomic = null } = {}) {
         const current = this._requireExisting(attempt, obligationId);
         if (current.state !== "PENDING") {
             throw new RefundObligationError("only a PENDING refund obligation can begin submission");
@@ -162,6 +172,8 @@ export class RefundObligationStore {
         const next = RefundObligation.fromRecord({
             ...current.toRecord(),
             state: "SUBMISSION_UNKNOWN",
+            transferAmountAtomic: transferAmountAtomic ?? current.transferAmountAtomic,
+            gasChargeAtomic: gasChargeAtomic ?? current.gasChargeAtomic,
             attempts: [...current.attempts, attempt],
             lastError
             });
