@@ -256,3 +256,28 @@ test("repeated settlement event cannot sweep the same game's later balance twice
     assert.throws(() => f.createSweep(), e => e.name === "DuplicateRecordError");
     assert.equal(f.sweeps.listActive().length, 1);
 });
+
+
+test("stale settlement event cannot sweep funds of newer game in recycled room wallet", t => {
+    const f = fixture(t);
+    const settle = f.db.loadSettlementRecord(GAME);
+    f.db.createPaymentSession({
+        roomId: "room_new",
+        roomNumber: 1,
+        gameId: "game_new_players",
+        paymentSessionId: "pay_new",
+        network: "testnet",
+        roomWalletAddress: ROOM,
+        createdAt: Number(settle.createdAt) + 1000
+    }, {
+        paymentSessionId: "pay_new",
+        roomId: "room_new",
+        gameId: "game_new_players",
+        tonNetwork: "testnet",
+        createdAt: Number(settle.createdAt) + 1000
+    });
+    const sweep = f.createSweep({ gameId: GAME });
+    assert.throws(() => f.journal.createResidualSweepPlan({
+        sweepRecordId: sweep.recordId
+    }), e => e.code === "OUTBOUND_SWEEP_WALLET_ALREADY_REASSIGNED");
+});
