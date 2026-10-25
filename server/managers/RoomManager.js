@@ -905,11 +905,11 @@ export class RoomManager {
 
         if (Number.isFinite(configured) && configured > 0) {
 
-            return configured;
+            return Math.min(50, Math.floor(configured));
 
         }
 
-        return 64;
+        return 50;
 
     }
 
