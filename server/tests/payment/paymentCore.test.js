@@ -11,7 +11,7 @@
  *   1. Normal flow (wallet reservation, intent creation, credit, settle)
  *   2. Duplicate transactions (R7 вЂ” one tx id credited to at most one intent)
  *   3. Duplicate / conflicting wallet reservations (R3 / R8)
- *   4. Expiration + the immutable 480000 ms room deadline (R1)
+ *   4. Expiration + the immutable 300000 ms room deadline (R1)
  *   5. Restart-safe durable persistence (R4)
  *   6. Execution gate (no blockchain transfer can run in Phase 1)
  *   7. Asset / denomination mapping must be explicit (fail closed)
@@ -466,7 +466,7 @@ async function settleFromObservation(harness, intent, overrides = {}) {
     );
     check(
         intent.roomDeadlineMs === ROOM_CREATED_AT + ROOM_LIFETIME_MS,
-        "payment intent deadline must equal roomCreatedAt + 480000"
+        "payment intent deadline must equal roomCreatedAt + 300000"
     );
     check(intent.state === "PENDING", "new payment intent must start PENDING");
 
@@ -740,7 +740,7 @@ async function settleFromObservation(harness, intent, overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Group 4 вЂ” expiration + immutable 480000 ms room deadline (R1)
+// Group 4 вЂ” expiration + immutable 300000 ms room deadline (R1)
 // ---------------------------------------------------------------------------
 
 {
@@ -751,17 +751,17 @@ async function settleFromObservation(harness, intent, overrides = {}) {
 
     harness.service.initialize();
 
-    // The room deadline is exactly roomCreatedAt + 480000 ms.
+    // The room deadline is exactly roomCreatedAt + 300000 ms.
     const deadline = harness.service.getRoomDeadline(ROOM_CREATED_AT);
 
     check(
-        deadline.deadlineMs === ROOM_CREATED_AT + 480_000,
-        "room deadline must be exactly roomCreatedAt + 480000"
+        deadline.deadlineMs === ROOM_CREATED_AT + 300_000,
+        "room deadline must be exactly roomCreatedAt + 300000"
     );
 
     check(
-        harness.service.roomLifetimeMs === 480_000,
-        "room lifetime must remain exactly 480000 ms"
+        harness.service.roomLifetimeMs === 300_000,
+        "room lifetime must remain exactly 300000 ms"
     );
 
     createIntent(harness, {
@@ -776,7 +776,7 @@ async function settleFromObservation(harness, intent, overrides = {}) {
     expectThrow(
         () => harness.service.expirePaymentIntent(
             "pay-exp-1",
-            ROOM_CREATED_AT + 480_000 - 1
+            ROOM_CREATED_AT + 300_000 - 1
         ),
         "PaymentValidationError",
         "expiring before the deadline must be rejected"
@@ -801,7 +801,7 @@ async function settleFromObservation(harness, intent, overrides = {}) {
     // Expiring at exactly the deadline is allowed and is terminal.
     const expired = harness.service.expirePaymentIntent(
         "pay-exp-1",
-        ROOM_CREATED_AT + 480_000
+        ROOM_CREATED_AT + 300_000
     );
 
     check(expired.state === "EXPIRED", "intent must be EXPIRED at its deadline");
@@ -828,7 +828,7 @@ async function settleFromObservation(harness, intent, overrides = {}) {
 
     rmSync(harness.env.workspace, { recursive: true, force: true });
 
-    console.log("[4/6] expiration + 480s deadline: PASS");
+    console.log("[4/6] expiration + 300s deadline: PASS");
 
 }
 
