@@ -116,6 +116,37 @@ export class RoomWalletSingleWriterGate {
     }
 
     /**
+     * Safe pre-broadcast unwind: only the same live owner of the exclusive
+     * lock may release it, and only while the durable intent is still PLANNED
+     * with absolutely no persisted signed hash/seqno.
+     *
+     * Never callable from restart recovery: the ownerToken must be passed
+     * by the actual task which failed BEFORE holdSignedMessage(). No stale
+     * expiry and no recovery-time lock stealing.
+     */
+    releaseUnattempted({ intentId, ownerToken } = {}) {
+        ensure(typeof ownerToken === "string" && ownerToken.length > 0,
+            "SIGNER_GATE_OWNERSHIP_LOST");
+        const intent = this._journal.load(intentId);
+        const p = intent.payload;
+        ensure(intent.status === "ACTIVE"
+            && p.state === "PLANNED"
+            && p.signedExternalMessageHash == null
+            && p.seqno == null,
+            "SIGNER_GATE_UNATTEMPTED_PROOF_FAILED");
+        this.assertOwnership({ intentId, ownerToken });
+        const dir = join(this._directory, lockName(p.roomWallet));
+        try {
+            unlinkSync(join(dir, "owner.json"));
+            rmdirSync(dir);
+            syncDirectory(this._directory);
+        } catch {
+            throw new RoomWalletSignerGateError("SIGNER_GATE_CLEANUP_INCOMPLETE");
+        }
+        return Object.freeze({ released: true, intentId, beforeBroadcast: true });
+    }
+
+    /**
      * The ONLY release path: intent was finalized with an on-chain transaction
      * proven by two independent providers and an authoritative seqno advance.
      * Recovery after a crash may call it with no token, but ONLY for the same
