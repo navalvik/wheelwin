@@ -78,6 +78,10 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     const [waitingForVerify, setWaitingForVerify] = useState(false);
 
+    const [payerWalletAddress, setPayerWalletAddress] = useState("");
+
+    const payerWalletValid = /^(?:0:[0-9a-fA-F]{64}|[A-Za-z0-9_-]{48})$/.test(payerWalletAddress.trim());
+
     const [waitingForContinue, setWaitingForContinue] = useState(false);
 
     const playersReady = hasAuthoritativePlayers(authoritative.players);
@@ -269,11 +273,17 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     function handleConfirmVerify() {
 
-        if (waitingForVerify || verifyCompleted) {
+        if (waitingForVerify || verifyCompleted || !payerWalletValid) {
 
             return;
 
         }
+
+        // Same authoritative socket: send wallet identity before VERIFY.
+        // No amount, room wallet, payment reference or confirmation is supplied.
+        socket.emit("updatePlayerProfile", {
+            wallet: payerWalletAddress.trim()
+        });
 
         setWaitingForVerify(true);
 
@@ -295,7 +305,7 @@ return (
             nextEnabled={
                 verifyCompleted
                     ? false
-                    : !waitingForVerify
+                    : !waitingForVerify && payerWalletValid
             }
 
             onNext={handleNext}
@@ -305,6 +315,24 @@ return (
             <div className="page3">
 
                 <div className="verifyPanel">
+
+                    <div className="verifyWalletInput">
+                        <label htmlFor="page3-testnet-wallet">TESTNET WALLET ADDRESS (EQ/UQ/0Q)</label>
+                        <input
+                            id="page3-testnet-wallet"
+                            type="text"
+                            inputMode="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={payerWalletAddress}
+                            onChange={(event) => setPayerWalletAddress(event.target.value)}
+                            disabled={waitingForVerify || verifyCompleted}
+                            maxLength={66}
+                            aria-invalid={payerWalletAddress.length > 0 && !payerWalletValid}
+                            placeholder="0Q... or UQ..."
+                        />
+                        {!payerWalletValid && <p>Enter your own Testnet wallet address before VERIFY.</p>}
+                    </div>
 
                     <div className="verifyPlayers">
 
