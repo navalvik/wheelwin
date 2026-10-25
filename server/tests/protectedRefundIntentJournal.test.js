@@ -155,7 +155,7 @@ test("tampered disk plan rejects read and replay rather than resetting it", t =>
     const intentId = h.journal.plan({ obligationId: id, feeAtomic: 1, feeQuoteHash: H }).intentId;
     const path = join(h.journalDir, "refund-intents", intentId + ".json");
     const raw = JSON.parse(readFileSync(path,"utf8"));
-    raw.netAtomic = 999999999;
+    raw.netAtomic = 999999998;
     writeFileSync(path, JSON.stringify(raw));
     assert.throws(() => h.journal.load(intentId), { code: "REFUND_JOURNAL_CORRUPT" });
 });
