@@ -14,7 +14,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
     mkdirSync, writeFileSync, readFileSync, unlinkSync, rmdirSync,
-    openSync, fsyncSync, closeSync, realpathSync, statSync
+    openSync, fsyncSync, closeSync, realpathSync, statSync, readdirSync
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { Address } from "@ton/core";
@@ -192,6 +192,52 @@ export class RoomWalletSingleWriterGate {
             // A filesystem problem must never look like an available wallet.
             return true;
         }
+    }
+
+    /**
+     * Recovery of the extremely narrow crash window AFTER journal finality
+     * was persisted but BEFORE the filesystem signer lock was removed.
+     *
+     * In-flight, uncertain, missing and corrupt records remain LOCKED. This
+     * is never a TTL/restart-based lock release.
+     */
+    recoverConfirmedLocks({ maxLocks = 256 } = {}) {
+        ensure(Number.isInteger(maxLocks) && maxLocks >= 1 && maxLocks <= 256,
+            "SIGNER_GATE_RECOVERY_LIMIT_INVALID");
+        const entries = readdirSync(this._directory, { withFileTypes: true })
+            .filter(entry => entry.isDirectory());
+        ensure(entries.length <= maxLocks, "SIGNER_GATE_RECOVERY_LIMIT_EXCEEDED");
+        let released = 0;
+        let stillHeld = 0;
+        let failed = 0;
+        for (const entry of entries) {
+            try {
+                const dir = join(this._directory, entry.name);
+                const metadata = JSON.parse(readFileSync(join(dir, "owner.json"), "utf8"));
+                ensure(metadata?.kind === "ROOM_WALLET_EXCLUSIVE_SIGNER"
+                    && /^[0-9a-f]{64}$/.test(entry.name)
+                    && typeof metadata?.roomWallet === "string"
+                    && typeof metadata?.intentId === "string"
+                    && entry.name === lockName(metadata.roomWallet),
+                    "SIGNER_GATE_RECOVERY_METADATA_INVALID");
+                const record = this._journal.load(metadata.intentId);
+                if (record.status === "SETTLED"
+                    && record.payload?.state === "CHAIN_CONFIRMED"
+                    && record.payload?.roomWallet === rawAddress(metadata.roomWallet)
+                    && record.payload?.chainReceipt?.walletTxHash) {
+                    this.releaseConfirmed({ intentId: metadata.intentId });
+                    released++;
+                } else {
+                    stillHeld++;
+                }
+            } catch {
+                // Never remove or ignore an unreadable/corrupted lock.
+                failed++;
+            }
+        }
+        return Object.freeze({
+            inspected: entries.length, released, stillHeld, failed
+        });
     }
 
     _readByAddress(address) {
