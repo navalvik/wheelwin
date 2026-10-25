@@ -88,6 +88,7 @@ import { RoomWalletAdapter } from "./payment/roomWallet/RoomWalletAdapter.js";
 import { createTestnetNativeRefundCapabilities } from "./payment/roomWallet/TestnetNativeRefundCapabilities.js";
 import { ToncenterTransactionsClient } from "./payment/toncenter/ToncenterTransactionsClient.js";
 import { ToncenterTestnetOutgoingTransferProvider } from "./payment/refund/ToncenterTestnetOutgoingTransferProvider.js";
+import { TonapiTestnetPayoutVerifier } from "./payment/refund/TonapiTestnetPayoutVerifier.js";
 import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
@@ -1278,6 +1279,8 @@ class WheelWinApplication {
                     adapter: nativeRoomWalletAdapter,
                     dataDir: paymentRuntime.networkDataDir,
                     logger: this._logger,
+                    ledger: paymentRuntime.ledger,
+                    independentVerifier: new TonapiTestnetPayoutVerifier(),
                     outgoingObserver: new ToncenterTestnetOutgoingTransferProvider({
                         client: new ToncenterTransactionsClient()
                     })
