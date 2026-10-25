@@ -213,7 +213,7 @@ export class RoomWalletOutboundIntentJournal {
         const record = this._persistence.loadResidualSweepRecord(sweepRecordId);
         const p = record?.payload;
         ensure(record?.tonNetwork === "testnet" && p?.id === sweepRecordId
-            && p.status === "PENDING"
+            && ["PENDING", "PROCESSING", "AWAITING_TRANSACTION_HASH"].includes(p.status)
             && typeof p.gameId === "string" && p.gameId.length > 0
             && Number.isInteger(p.roomNumber)
             && p.roomNumber >= 1 && p.roomNumber <= 64,
