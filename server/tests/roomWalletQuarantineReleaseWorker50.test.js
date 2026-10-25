@@ -130,13 +130,13 @@ test("shutdown stops future scans and never forces wallet reallocation", async (
     assert.equal(f.calls.length, 0);
 });
 
-test("invalid construction cannot accidentally disable the shared scan mutex", () => {
+test("invalid construction cannot accidentally disable the shared scan mutex", async () => {
     assert.throws(() => new RoomWalletQuarantineReleaseWorker({
         repository: { listAllocationBlocks() { return []; } },
         releaseGuard: { async tryRelease() {} }
     }), /dependencies invalid/);
-    assert.throws(
-        () => new RoomWalletReconciliationMutex().runExclusive(65, async () => {}),
+    await assert.rejects(
+        new RoomWalletReconciliationMutex().runExclusive(65, async () => {}),
         /Invalid Room Wallet/
     );
 });
