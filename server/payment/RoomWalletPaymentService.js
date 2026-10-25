@@ -93,6 +93,7 @@ export class RoomWalletPaymentService {
         nowProvider = Date.now,
         paymentWindowMs = ROOM_LIFETIME_MS,
         persistSnapshots = true,
+        financialObligationCountProvider = null,
         observationService
     } = {}) {
 
@@ -159,6 +160,12 @@ export class RoomWalletPaymentService {
         this._paymentWindowMs = paymentWindowMs;
 
         this._persistSnapshots = persistSnapshots === true;
+
+        if (financialObligationCountProvider !== null
+            && typeof financialObligationCountProvider !== "function") {
+            throw new PaymentConfigurationError("financial hold provider must be a function");
+        }
+        this._financialObligationCountProvider = financialObligationCountProvider;
 
         this._initialized = false;
 
@@ -1197,8 +1204,16 @@ export class RoomWalletPaymentService {
 
         }
 
-        return count;
+        return count + this._financialHoldForRoom(roomId);
 
+    }
+
+    _financialHoldForRoom(roomId) {
+        const count = this._financialObligationCountProvider?.(roomId) ?? 0;
+        if (!Number.isSafeInteger(count) || count < 0) {
+            throw new PaymentConfigurationError("room financial hold count is invalid");
+        }
+        return count;
     }
 
     /**
@@ -1229,6 +1244,12 @@ export class RoomWalletPaymentService {
 
         }
 
+        // Completed incoming intents do not release a wallet that still
+        // contains unpaid prize principal or a nonfinalized player refund.
+        for (const roomId of new Set(this._intentStore.list().map(intent => intent.roomId))) {
+            const financial = this._financialHoldForRoom(roomId);
+            if (financial > 0) map.set(roomId, (map.get(roomId) ?? 0) + financial);
+        }
         return map;
 
     }
@@ -1243,7 +1264,9 @@ export class RoomWalletPaymentService {
 
         for (const intent of this._intentStore.list()) {
 
-            if (!intent.hasOpenObligation()) {
+            if (!intent.hasOpenObligation()
+                && !(intent.state === "SETTLED"
+                    && this._financialHoldForRoom(intent.roomId) > 0)) {
 
                 continue;
 
@@ -1267,7 +1290,8 @@ export class RoomWalletPaymentService {
 
             if (intent.amountAtomic % mapping.atomicUnitsPerUnit !== 0
                 || intent.roomDeadlineMs <= intent.createdAt
-                || intent.roomDeadlineMs > intent.createdAt + ROOM_LIFETIME_MS) {
+                || (intent.hasOpenObligation()
+                    && intent.roomDeadlineMs > intent.createdAt + ROOM_LIFETIME_MS)) {
 
                 throw new PaymentValidationError(
                     "open payment intent has invalid amount or room-deadline metadata",
