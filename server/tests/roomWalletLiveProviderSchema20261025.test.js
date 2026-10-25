@@ -304,3 +304,59 @@ test("different reported TON Center account is rejected even if all payment fiel
         expectedRoomWalletRaw: ROOM
     }), error => error.code === "EVIDENCE_ACCOUNT_MISMATCH");
 });
+
+
+test("real TonCenter v3 external-in source:null and value:null is not a paid deposit", () => {
+    // The provider's actual wallet-v4 external inbound shape has import_fee
+    // but no internal created_lt/fwd_fee. TonAPI represents the same action
+    // with source absent and numeric zero value.
+    const toncenterExternal = {
+        account: ROOM.toUpperCase(),
+        lt: "105271924000001",
+        hash: to64(OLGA_REFUND.hash),
+        now: 1792895626,
+        in_msg: {
+            hash: to64("d".repeat(64)),
+            source: null, destination: ROOM.toUpperCase(), value: null,
+            created_lt: null, created_at: null,
+            import_fee: "0", fwd_fee: null
+        },
+        out_msgs: [{
+            destination: PEOPLE[0].from.toUpperCase(),
+            hash: to64(OLGA_REFUND.messageHash),
+            value: OLGA_REFUND.valueNano
+        }]
+    };
+    const tonapiExternal = {
+        account: { address: ROOM },
+        lt: 105271924000001,
+        hash: OLGA_REFUND.hash,
+        utime: 1792895626,
+        success: true,
+        in_msg: {
+            msg_type: "ext_in_msg",
+            destination: ROOM, value: 0,
+            hash: "d".repeat(64)
+        },
+        out_msgs: []
+    };
+    const verified = reconcileDualSourceTransactions({
+        tonapiTransactions: [tonapiExternal],
+        toncenterTransactions: [toncenterExternal],
+        expectedRoomWalletRaw: ROOM
+    });
+    assert.equal(verified.transactions.length, 0);
+    assert.equal(verified.awaitingSecondProvider, 0);
+});
+
+test("null amount and null sender without external-only metadata remain untrusted", () => {
+    const malformed = wireIncoming(PEOPLE[1], "toncenter");
+    malformed.in_msg.source = null;
+    malformed.in_msg.value = null;
+    malformed.in_msg.import_fee = null;
+    assert.throws(() => reconcileDualSourceTransactions({
+        tonapiTransactions: [],
+        toncenterTransactions: [malformed],
+        expectedRoomWalletRaw: ROOM
+    }), error => error.code === "MALFORMED_ROOM_WALLET_INCOMING_EVIDENCE");
+});
