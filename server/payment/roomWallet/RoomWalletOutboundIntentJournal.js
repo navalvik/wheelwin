@@ -15,7 +15,6 @@ import { Address } from "@ton/core";
 import { normalizeTonTransactionHash } from "./RoomWalletDualSourceEvidence.js";
 import { validatePersistedPayoutPlan } from "./RoomWalletSettlementAdapter.js";
 import { ROOM_WALLET_POLICY, buildResidualSweep } from "./RoomWalletFinancialPolicy.js";
-import { normalizeTonTransactionHash } from "./RoomWalletDualSourceEvidence.js";
 
 const KIND = "ROOM_WALLET_OUTBOUND_INTENT";
 const HELD = new Set(["SIGNED_HELD", "CONFIRMATION_UNKNOWN"]);
