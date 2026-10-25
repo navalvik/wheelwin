@@ -13,6 +13,7 @@
 import { createHash } from "node:crypto";
 import { Address } from "@ton/core";
 import { normalizeTonTransactionHash } from "./RoomWalletDualSourceEvidence.js";
+import { validatePersistedPayoutPlan } from "./RoomWalletSettlementAdapter.js";
 
 const KIND = "ROOM_WALLET_OUTBOUND_INTENT";
 const HELD = new Set(["SIGNED_HELD", "CONFIRMATION_UNKNOWN"]);
@@ -60,12 +61,21 @@ function externalHash(value) {
     return hash;
 }
 
+function toAuthoritativeGramNano(value) {
+    ensure(typeof value === "string" || typeof value === "number", "OUTBOUND_SETTLEMENT_GROSS_UNAVAILABLE");
+    const text = String(value);
+    const m = /^(0|[1-9][0-9]*)(?:\.([0-9]{1,9}))?$/.exec(text);
+    ensure(m != null, "OUTBOUND_SETTLEMENT_GRAM_FORMAT_INVALID");
+    return BigInt(m[1]) * 1_000_000_000n
+        + BigInt((m[2] ?? "").padEnd(9, "0"));
+}
+
 function deterministicId(values) {
     return "rwout_" + createHash("sha256").update(values.join("|")).digest("hex");
 }
 
 export class RoomWalletOutboundIntentJournal {
-    constructor({ financialPersistence } = {}) {
+    constructor({ financialPersistence, roomWalletRegistry = null } = {}) {
         if (typeof financialPersistence?.loadRecoveryDataRecord !== "function"
             || typeof financialPersistence?.createRecoveryDataRecord !== "function"
             || typeof financialPersistence?.updateRecoveryDataRecord !== "function"
@@ -73,6 +83,112 @@ export class RoomWalletOutboundIntentJournal {
             throw new TypeError("Financial recovery persistence required");
         }
         this._persistence = financialPersistence;
+        this._roomWalletRegistry = roomWalletRegistry;
+    }
+
+    /**
+     * Settlement intents derive amounts/destinations EXCLUSIVELY from a frozen
+     * payout plan persisted by ContractSettlementManager BEFORE broadcasts.
+     * This method NEVER authorizes a transfer or creates an outbound message.
+     */
+    createSettlementPlan({ gameId, role } = {}) {
+        ensure(typeof gameId === "string" && gameId.length > 0,
+            "OUTBOUND_SETTLEMENT_GAME_ID_REQUIRED");
+        ensure(role === "WINNER" || role === "OWNER", "OUTBOUND_SETTLEMENT_ROLE_INVALID");
+        ensure(typeof this._persistence.loadSettlementRecord === "function"
+            && typeof this._roomWalletRegistry?.get === "function",
+            "OUTBOUND_SETTLEMENT_SOURCE_NOT_CONFIGURED");
+
+        const record = this._persistence.loadSettlementRecord(gameId);
+        const session = record?.payload;
+        const request = session?.request;
+        const plan = request?.payoutPlan;
+        ensure(session?.network === "testnet" && session.gameId === gameId
+            && request?.gameId === gameId && request?.roomId === session.roomId
+            && Number.isInteger(request?.roomNumber)
+            && plan && plan.mode === "RECIPIENT_PAYS_GAS",
+            "OUTBOUND_SETTLEMENT_FROZEN_PLAN_REQUIRED");
+
+        const walletCatalogEntry = this._roomWalletRegistry.get(request.roomNumber);
+        ensure(walletCatalogEntry?.address, "OUTBOUND_SETTLEMENT_ROOM_WALLET_MISSING");
+        const wallet = raw(walletCatalogEntry.address);
+        const winnerWallet = raw(session.winnerWallet);
+        const ownerWallet = raw(session.ownerWallet);
+        ensure(raw(request.winnerWallet) === winnerWallet
+            && raw(request.ownerWallet) === ownerWallet,
+            "OUTBOUND_SETTLEMENT_DESTINATION_CONFLICT");
+
+        const winnerGross = toAuthoritativeGramNano(session.prizeAmount);
+        const ownerGross = toAuthoritativeGramNano(session.organizerAmount);
+        const retained = BigInt(String(plan.owner?.ownerRetainedNano ?? "-1"));
+        ensure(winnerGross > 0n && ownerGross > retained && retained === 10_000_000n,
+            "OUTBOUND_SETTLEMENT_RETENTION_INVALID");
+        const validation = validatePersistedPayoutPlan(plan, {
+            winnerAmountNano: winnerGross,
+            ownerGrossNano: ownerGross,
+            ownerPayoutNano: ownerGross - retained,
+            ownerRetainedNano: retained,
+            winnerWallet,
+            ownerWallet
+        });
+        ensure(validation.ok === true, "OUTBOUND_SETTLEMENT_FROZEN_PLAN_INVALID");
+
+        const entry = role === "WINNER" ? validation.plan.winner : validation.plan.owner;
+        const destination = role === "WINNER" ? winnerWallet : ownerWallet;
+        const gas = entry.recipientGasChargeNano.toString();
+        const gross = entry.grossPayoutNano.toString();
+        const amount = entry.recipientTransferAmountNano.toString();
+        ensure(BigInt(amount) + BigInt(gas) === BigInt(gross),
+            "OUTBOUND_SETTLEMENT_GAS_MISMATCH");
+
+        const frozenHash = createHash("sha256")
+            .update(JSON.stringify(plan)).digest("hex");
+        const authorizationId = String(session.settlementSessionId ?? "") + ":" + role;
+        ensure(authorizationId.length > role.length + 1,
+            "OUTBOUND_SETTLEMENT_SESSION_ID_REQUIRED");
+        const intentId = deterministicId([
+            "testnet", String(request.roomNumber), session.roomId, gameId,
+            role, authorizationId
+        ]);
+        const intent = {
+            recoveryRecordId: intentId,
+            kind: KIND,
+            status: "ACTIVE",
+            state: STATES.PLANNED,
+            network: "testnet",
+            role,
+            roomNumber: request.roomNumber,
+            roomId: session.roomId,
+            gameId,
+            paymentSessionId: null,
+            roomWallet: wallet,
+            destinationWallet: destination,
+            grossNano: gross,
+            gasChargeNano: gas,
+            transferNano: amount,
+            frozenGasPlanHash: frozenHash,
+            authorizationId,
+            seqno: null,
+            signedExternalMessageHash: null,
+            signedValidUntil: null,
+            chainReceipt: null,
+            broadcastingEnabled: false
+        };
+        const prior = this._tryLoad(intentId);
+        if (prior) {
+            ensure(prior.payload.kind === KIND, "OUTBOUND_INTENT_KIND_CONFLICT");
+            for (const field of [
+                "network", "role", "roomNumber", "roomId", "gameId", "paymentSessionId",
+                "roomWallet", "destinationWallet", "grossNano", "gasChargeNano",
+                "transferNano", "frozenGasPlanHash", "authorizationId"
+            ]) ensure(prior.payload[field] === intent[field], "OUTBOUND_INTENT_PLAN_CONFLICT");
+            return Object.freeze({ created: false, intentId, state: prior.payload.state });
+        }
+        this._persistence.createRecoveryDataRecord(intent, {
+            recoveryRecordId: intentId, status: "ACTIVE",
+            roomId: session.roomId, gameId, tonNetwork: "testnet"
+        });
+        return Object.freeze({ created: true, intentId, state: STATES.PLANNED });
     }
 
     /**
