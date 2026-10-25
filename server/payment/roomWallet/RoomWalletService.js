@@ -18,6 +18,7 @@ import { RoomWalletOutboundIntentJournal } from "./RoomWalletOutboundIntentJourn
 import { RoomWalletSingleWriterGate } from "./RoomWalletSingleWriterGate.js";
 import { RoomWalletGuardedOutboundExecutor } from "./RoomWalletGuardedOutboundExecutor.js";
 import { RoomWalletGuardedPayoutCoordinator } from "./RoomWalletGuardedPayoutCoordinator.js";
+import { RoomWalletRefundRecoveryRepository } from "./RoomWalletRefundRecoveryRepository.js";
 import {
     createRoomWalletRuntimeResolver,
     createRoomWalletRegistryFromEnv
@@ -119,7 +120,11 @@ export function createRoomWalletService({
             enabled: true
         });
         guardedPayoutCoordinator = new RoomWalletGuardedPayoutCoordinator({
-            journal, executor
+            journal, executor,
+            financialPersistence,
+            refundRecoveryRepository: new RoomWalletRefundRecoveryRepository({
+                financialPersistence
+            })
         });
     }
     const settlementAdapter = new RoomWalletSettlementAdapter({
