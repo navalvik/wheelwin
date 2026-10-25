@@ -39,6 +39,7 @@ function fixture(overrides = {}) {
     };
     const adapter = new RoomWalletAdapter({
         tonService,
+        guardedOutboundOnly: overrides.guardedOutboundOnly === true,
         walletResolver: async () => ({
             address: contract.address.toString({ bounceable: true, urlSafe: true }),
             workchain: 0, roomNumber: 1,
@@ -155,4 +156,26 @@ test("signed real V4 payload and persisted intent work together without live RPC
     assert.equal(repeat.broadcasted, false);
     assert.equal(broadcastInvocations, 1);
     assert.equal(journal.load(intentId).payload.seqno, 42);
+});
+
+
+test("guarded-only mode blocks legacy direct sender but still permits sign-only", async () => {
+    const f = fixture({ guardedOutboundOnly: true });
+    await assert.rejects(f.adapter.sendTransfer({
+        roomNumber: 1,
+        destination: OLGA,
+        amountNano: 998611722n
+    }), /ROOM_WALLET_LEGACY_DIRECT_BROADCAST_DISABLED/);
+    assert.equal(f.calls().broadcastCalls, 0);
+    const signed = await f.adapter.prepareSignedTransfer(args);
+    assert.equal(signed.recipientWallet, OLGA);
+    assert.equal(signed.amountNano, "998611722");
+    assert.equal(f.calls().broadcastCalls, 0);
+});
+
+test("guarded-only mode never changes Mainnet paths implicitly", async () => {
+    // No global flag is installed: the legacy setting is explicitly injected
+    // into an adapter instance, not read opportunistically from process.env.
+    const f = fixture();
+    assert.equal(f.adapter._guardedOutboundOnly, false);
 });
