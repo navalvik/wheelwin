@@ -353,7 +353,8 @@ export class TestnetOutgoingRefundProvider {
             match = await this._observation.findOutgoingTransfer({
                 sourceWalletAddress: authorized.sourceAccountId,
                 destinationIdentity: deriveTonAddressIdentity(authorized.refundDestination),
-                amountAtomic: authorized.amountAtomic
+                amountAtomic: authorized.amountAtomic,
+                minCreatedAtMs: obligation.createdAtMs
             });
         } catch {
             match = null;
