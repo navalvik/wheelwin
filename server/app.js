@@ -90,6 +90,7 @@ import { ToncenterTransactionsClient } from "./payment/toncenter/ToncenterTransa
 import { ToncenterTestnetOutgoingTransferProvider } from "./payment/refund/ToncenterTestnetOutgoingTransferProvider.js";
 import { TonapiTestnetPayoutVerifier } from "./payment/refund/TonapiTestnetPayoutVerifier.js";
 import { TestnetPendingPayoutReconciler } from "./payment/runtime/TestnetPendingPayoutReconciler.js";
+import { TestnetPendingRefundReconciler } from "./payment/runtime/TestnetPendingRefundReconciler.js";
 import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
@@ -1275,16 +1276,26 @@ class WheelWinApplication {
                 if (String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
                     throw new Error("TESTNET_PAYOUT_NETWORK_MISMATCH");
                 }
+                const finalizedHistory = new ToncenterTestnetOutgoingTransferProvider({
+                    client: new ToncenterTransactionsClient()
+                });
+                const independentCredit = new TonapiTestnetPayoutVerifier();
                 nativePayoutTransport = new TestnetNativeRoomPayoutTransport({
                     walletPool: paymentRuntime.walletPool,
                     adapter: nativeRoomWalletAdapter,
                     dataDir: paymentRuntime.networkDataDir,
                     logger: this._logger,
                     ledger: paymentRuntime.ledger,
-                    independentVerifier: new TonapiTestnetPayoutVerifier(),
-                    outgoingObserver: new ToncenterTestnetOutgoingTransferProvider({
-                        client: new ToncenterTransactionsClient()
-                    })
+                    independentVerifier: independentCredit,
+                    outgoingObserver: finalizedHistory
+                });
+                this._pendingRefundRecovery = new TestnetPendingRefundReconciler({
+                    refundStore: paymentRuntime.refundStore,
+                    intentStore: paymentRuntime.intentStore,
+                    toncenterObserver: finalizedHistory,
+                    independentVerifier: independentCredit,
+                    maxPerPass:2,
+                    logger:this._logger
                 });
                 // Server-owned, bounded read-only recovery. Survives game
                 // room destruction because it reads the persisted ledger.
@@ -1294,13 +1305,17 @@ class WheelWinApplication {
                     ledger:paymentRuntime.ledger,
                     walletPool:paymentRuntime.walletPool,
                     transport:nativePayoutTransport,
-                    maxPerPass:5,
+                    maxPerPass:2,
                     logger:this._logger
                 });
                 const reconcileOnce=() => {
-                    void this._pendingPayoutRecovery.runPass().catch(() =>
-                        this._logger.warn("Testnet finality pass pending independent evidence")
-                    );
+                    // Pure verification and journal settlement. Neither pass
+                    // has access to a wallet signer or broadcasting API.
+                    void this._pendingPayoutRecovery.runPass()
+                        .then(() => this._pendingRefundRecovery.runPass())
+                        .catch(() => this._logger.warn(
+                            "Testnet finality pass pending independent evidence"
+                        ));
                 };
                 reconcileOnce();
                 this._payoutRecoveryTimer=setInterval(reconcileOnce,60_000);
