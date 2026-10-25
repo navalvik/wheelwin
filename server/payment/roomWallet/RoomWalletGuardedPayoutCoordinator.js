@@ -24,7 +24,7 @@ function sameWallet(a, b) {
 }
 
 export class RoomWalletGuardedPayoutCoordinator {
-    constructor({ journal, executor } = {}) {
+    constructor({ journal, executor, financialPersistence = null, refundRecoveryRepository = null } = {}) {
         if (typeof journal?.createSettlementPlan !== "function"
             || typeof journal?.createRefundPlan !== "function"
             || typeof journal?.load !== "function"
@@ -33,6 +33,8 @@ export class RoomWalletGuardedPayoutCoordinator {
         }
         this._journal = journal;
         this._executor = executor;
+        this._financialPersistence = financialPersistence;
+        this._refundRepository = refundRecoveryRepository;
     }
 
     async settleContract(request = {}) {
@@ -90,56 +92,98 @@ export class RoomWalletGuardedPayoutCoordinator {
         }
     }
 
-    async refundPayments({ roomNumber, refunds, refundPlan } = {}) {
+    async refundPayments({
+        roomNumber, roomId, gameId, paymentSessionId,
+        refunds, refundPlan
+    } = {}) {
         const targets = Array.isArray(refunds) ? refunds : [];
         const entries = refundPlan?.entries;
-        // Historical callers without chain-backed refund IDs must not use
-        // this guarded path for payment creation, even when the plan totals
-        // look correct. There is no safe wallet+amount-only fallback.
         if (refundPlan?.mode !== "RECIPIENT_PAYS_GAS"
             || !Array.isArray(entries)
             || targets.length === 0
-            || targets.length !== entries.length
-            || !Number.isInteger(Number(roomNumber))) {
+            || targets.length > entries.length
+            || !Number.isInteger(Number(roomNumber))
+            || typeof roomId !== "string" || !roomId
+            || typeof gameId !== "string" || !gameId
+            || typeof paymentSessionId !== "string" || !paymentSessionId
+            || typeof this._financialPersistence?.loadPaymentSession !== "function"
+            || typeof this._refundRepository?.listRefundObligations !== "function") {
             return this._block("GUARDED_REFUND_FROZEN_PLAN_AND_EVIDENCE_REQUIRED");
         }
 
         let intents;
         try {
-            // One canonical hash for the entire frozen plan. Individual
-            // refund caller metadata cannot silently substitute a fee plan.
+            // A historical room number can be reused in later games.
+            // Bind the entire refund plan to a specific persisted session,
+            // rather than inferring a debt from a recurring player wallet.
+            const persistedSession = this._financialPersistence
+                .loadPaymentSession(paymentSessionId)?.payload;
+            if (persistedSession?.network !== "testnet"
+                || persistedSession.roomId !== roomId
+                || persistedSession.gameId !== gameId
+                || persistedSession.paymentSessionId !== paymentSessionId
+                || Number(persistedSession.roomNumber) !== Number(roomNumber)
+                || !persistedSession.roomWalletAddress
+                || JSON.stringify(persistedSession.recoveryMetadata?.refundPlan)
+                    !== JSON.stringify(refundPlan)) {
+                throw new Error("GUARDED_REFUND_PERSISTED_PLAN_MISMATCH");
+            }
+
+            const receipts = this._refundRepository
+                .listRefundObligations({ roomId });
             const frozenGasPlanHash = createHash("sha256")
                 .update(JSON.stringify(refundPlan)).digest("hex");
-            intents = targets.map((target) => {
-                const candidates = entries.filter(entry =>
+
+            // Authorization for the entire requested batch must be prepared
+            // before the first wallet signature. Each obligation was created
+            // from independently confirmed on-chain incoming receipts.
+            intents = targets.map(target => {
+                const plans = entries.filter(entry =>
                     entry.playerId === target?.playerId
                     && sameWallet(entry.wallet, target?.wallet)
                 );
-                if (candidates.length !== 1) {
+                if (plans.length !== 1) {
                     throw new Error("GUARDED_REFUND_DUPLICATE_OR_MISSING_PLAYER");
                 }
-                const plan = candidates[0];
-                const obligationId = target?.refundObligationId;
-                if (typeof obligationId !== "string"
-                    || !/^rwrefund_[0-9a-f]{64}$/.test(obligationId)
-                    || !sameWallet(target.wallet, plan.wallet)
-                    || target.playerId !== plan.playerId
-                    || String(plan.grossRefundNano) !== String(target.amountNano)
+                const plan = plans[0];
+                if (String(plan.grossRefundNano) !== String(target.amountNano)
                     || !/^[1-9]\d*$/.test(String(plan.recipientTransferAmountNano))
-                    || !/^[1-9]\d*$/.test(String(plan.recipientGasChargeNano))
-                ) {
-                    throw new Error("GUARDED_REFUND_PLAYER_PROOF_MISMATCH");
+                    || !/^[1-9]\d*$/.test(String(plan.recipientGasChargeNano))) {
+                    throw new Error("GUARDED_REFUND_AMOUNT_OR_GAS_MISMATCH");
                 }
+                const proofs = receipts.filter(item => {
+                    const proof = item.payload;
+                    return item.status === "ACTIVE"
+                        && proof?.kind === "ROOM_WALLET_REFUND_OBLIGATION"
+                        && proof.network === "testnet"
+                        && proof.executionAllowed === true
+                        && proof.state === "REFUND_RECONCILIATION_REQUIRED"
+                        && proof.roomId === roomId && proof.gameId === gameId
+                        && proof.paymentSessionId === paymentSessionId
+                        && Number(proof.roomNumber) === Number(roomNumber)
+                        && proof.playerId === target.playerId
+                        && sameWallet(proof.recipientWallet, target.wallet)
+                        && sameWallet(proof.fromRoomWallet, persistedSession.roomWalletAddress)
+                        && String(proof.grossRefundNano) === String(plan.grossRefundNano);
+                });
+                if (proofs.length !== 1) {
+                    throw new Error("GUARDED_REFUND_CHAIN_OBLIGATION_NOT_UNIQUE");
+                }
+                const obligationId = proofs[0].recordId;
                 const intent = this._journal.createRefundPlan({
                     obligationId,
                     netRefundNano: String(plan.recipientTransferAmountNano),
                     recipientGasChargeNano: String(plan.recipientGasChargeNano),
                     frozenGasPlanHash
                 });
-                const persisted = this._journal.load(intent.intentId)?.payload;
-                if (persisted?.roomNumber !== Number(roomNumber)
-                    || !sameWallet(persisted.destinationWallet, target.wallet)) {
-                    throw new Error("GUARDED_REFUND_ROOM_IDENTITY_MISMATCH");
+                const saved = this._journal.load(intent.intentId)?.payload;
+                if (saved?.roomNumber !== Number(roomNumber)
+                    || saved?.roomId !== roomId
+                    || saved?.gameId !== gameId
+                    || saved?.paymentSessionId !== paymentSessionId
+                    || !sameWallet(saved.roomWallet, persistedSession.roomWalletAddress)
+                    || !sameWallet(saved.destinationWallet, target.wallet)) {
+                    throw new Error("GUARDED_REFUND_INTENT_IDENTITY_MISMATCH");
                 }
                 return Object.freeze({
                     intentId: intent.intentId,
@@ -151,16 +195,15 @@ export class RoomWalletGuardedPayoutCoordinator {
                 throw new Error("GUARDED_REFUND_DUPLICATE_INTENT");
             }
         } catch (error) {
-            return this._block("GUARDED_REFUND_PROOF_NOT_AUTHORIZED", error);
+            return this._block("GUARDED_REFUND_PROOF_NOT_AUTHORIZED", error, true);
         }
 
         const results = [];
-        // Within a Room Wallet the guarded executor's physical lease and
-        // journal hold enforce serial sends. Never dispatch in Promise.all().
-        for (const target of intents) {
+        // Never run multiple transfers from the same wallet concurrently.
+        for (const item of intents) {
             let outcome;
             try {
-                outcome = await this._ensureConfirmed(target.intentId);
+                outcome = await this._ensureConfirmed(item.intentId);
             } catch (error) {
                 return Object.freeze({
                     ok: false, retryable: true,
@@ -169,11 +212,16 @@ export class RoomWalletGuardedPayoutCoordinator {
                     detail: error?.code ?? error?.message ?? "unknown"
                 });
             }
+            const proven = outcome.confirmed
+                ? this._confirmed(item.intentId)
+                : null;
             results.push(Object.freeze({
-                playerId: target.playerId,
-                wallet: target.wallet,
-                intentId: target.intentId,
-                confirmed: outcome.confirmed
+                ok: outcome.confirmed,
+                playerId: item.playerId,
+                wallet: item.wallet,
+                intentId: item.intentId,
+                confirmed: outcome.confirmed,
+                txHash: proven?.txHash ?? null
             }));
             if (!outcome.confirmed) {
                 return Object.freeze({
