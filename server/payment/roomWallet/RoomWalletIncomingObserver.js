@@ -335,6 +335,10 @@ export class RoomWalletIncomingObserver {
         this._pollInFlight = false;
         this._scanOffset = 0;
         this._idleLogged = false;
+        // Failures are shared across the observer, not counted per wallet.
+        // Avoid spending all 5 minutes repeatedly contacting HTTP 542.
+        this._primaryFailureStreak = 0;
+        this._primaryCircuitUntil = 0;
 
         const traffic = resolveRoomWalletObserverTrafficConfig(env);
 
@@ -1275,6 +1279,25 @@ export class RoomWalletIncomingObserver {
         let retries = 0;
         let lastError = null;
 
+        if (this._dualSourceEnabled
+            && this._network === "testnet"
+            && this._now() < this._primaryCircuitUntil) {
+            // A known broken primary must not stall all 50 payment rooms.
+            // A missing fallback response is PENDING, never no payment.
+            const evidence = await this._readDualSourceEvidence(
+                address, new Error("primary http 542 circuit temporarily open")
+            );
+            return Object.freeze({
+                ok: evidence !== null,
+                transactions: evidence ?? [],
+                http429,
+                retries,
+                error: evidence === null
+                    ? new Error("primary_circuit_open_and_dual_source_unavailable")
+                    : null
+            });
+        }
+
         for (let attempt = 1; attempt <= this._retryMaxAttempts; attempt += 1) {
             if (this._stopped) {
                 return Object.freeze({
@@ -1300,6 +1323,8 @@ export class RoomWalletIncomingObserver {
 
             try {
                 const transactions = await this._fetchTransactionsOnce(address);
+                this._primaryFailureStreak = 0;
+                this._primaryCircuitUntil = 0;
                 return Object.freeze({
                     ok: true,
                     transactions,
@@ -1316,6 +1341,19 @@ export class RoomWalletIncomingObserver {
                     && isInfrastructureFailure(error);
 
                 if (!canRetry) {
+                    if (this._dualSourceEnabled && this._network === "testnet"
+                        && isInfrastructureFailure(error)) {
+                        this._primaryFailureStreak++;
+                        if (this._primaryFailureStreak >= 2) {
+                            this._primaryCircuitUntil = this._now() + 30_000;
+                            this._log(
+                                "warn",
+                                "Room Wallet primary RPC circuit opened"
+                                    + ` | nextProbeMs=30000`
+                                    + ` | consecutiveFailures=${this._primaryFailureStreak}`
+                            );
+                        }
+                    }
                     const independentlyConfirmed = await this._readDualSourceEvidence(address, error);
                     if (independentlyConfirmed !== null) {
                         return Object.freeze({
