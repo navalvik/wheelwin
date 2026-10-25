@@ -15,6 +15,7 @@ import { Address } from "@ton/core";
 import { normalizeRoomNumber } from "./RoomWalletRegistry.js";
 
 const KIND_QUARANTINE = "ROOM_WALLET_REFUND_QUARANTINE";
+const KIND_SETTLEMENT_QUARANTINE = "ROOM_WALLET_SETTLEMENT_QUARANTINE";
 const KIND_OBLIGATION = "ROOM_WALLET_REFUND_OBLIGATION";
 const PREFIX = "rwrefund_guard_";
 
@@ -99,7 +100,7 @@ export class RoomWalletRefundRecoveryRepository {
         // One O(1) safety lookup per room-number allocation; no full-disk
         // scan for each of the 50 simultaneous rooms.
         this._quarantinedRoomNumbers = new Set();
-        for (const record of this.listOpenQuarantines()) {
+        for (const record of this.listAllocationBlocks()) {
             this._quarantinedRoomNumbers.add(normalizeRoomNumber(record.payload.roomNumber));
         }
     }
@@ -153,6 +154,50 @@ export class RoomWalletRefundRecoveryRepository {
         });
         this._quarantinedRoomNumbers.add(number);
         return Object.freeze({ created: true, recordId, record: existing });
+    }
+
+    /**
+     * Page5 already started: do not treat it as a refund case. Instead
+     * quarantine the wallet for winner and owner settlement reconciliation.
+     * This marker is created even if settlement payouts have not been planned
+     * yet, because the server must not give its wallet to another room.
+     */
+    beginSettlementQuarantine({
+        network = "testnet", roomId, roomNumber, gameId, roomWallet
+    } = {}) {
+        assert(network === "testnet", "WRONG_NETWORK");
+        const number = normalizeRoomNumber(roomNumber);
+        const address = rawAddress(roomWallet);
+        assert(address && typeof roomId === "string" && roomId.length > 0
+            && typeof gameId === "string" && gameId.length > 0,
+            "INVALID_SETTLEMENT_QUARANTINE_IDENTITY");
+        const recordId = key([network, String(number), roomId, gameId, "POST_PAGE5"]);
+        const payload = {
+            recoveryRecordId: recordId,
+            kind: KIND_SETTLEMENT_QUARANTINE,
+            status: "ACTIVE",
+            network, roomId, roomNumber: number, gameId,
+            roomWallet: address,
+            state: "SETTLEMENT_CHAIN_RECONCILIATION_REQUIRED",
+            reconciliationComplete: false
+        };
+        const existing = this._getById(recordId);
+        if (existing) {
+            assert(existing.payload.kind === KIND_SETTLEMENT_QUARANTINE,
+                "RECORD_ID_CONFLICT");
+            for (const field of [
+                "network", "roomId", "roomNumber", "gameId", "roomWallet"
+            ]) assert(existing.payload[field] === payload[field],
+                "SETTLEMENT_QUARANTINE_IDENTITY_CONFLICT");
+            this._quarantinedRoomNumbers.add(number);
+            return Object.freeze({ created: false, recordId, record: existing });
+        }
+        const stored = this._persistence.createRecoveryDataRecord(payload, {
+            recoveryRecordId: recordId,
+            status: "ACTIVE", roomId, gameId, tonNetwork: network
+        });
+        this._quarantinedRoomNumbers.add(number);
+        return Object.freeze({ created: true, recordId, record: stored });
     }
 
     /**
@@ -233,6 +278,22 @@ export class RoomWalletRefundRecoveryRepository {
                 .filter(x => x.payload?.kind === KIND_QUARANTINE && x.status === "ACTIVE"
                     && x.payload?.state === "RECONCILIATION_REQUIRED")
         );
+    }
+
+    listOpenSettlementQuarantines() {
+        return Object.freeze(
+            this._persistence.listActiveRecoveryDataRecords()
+                .filter(x => x.payload?.kind === KIND_SETTLEMENT_QUARANTINE
+                    && x.status === "ACTIVE"
+                    && x.payload?.state === "SETTLEMENT_CHAIN_RECONCILIATION_REQUIRED")
+        );
+    }
+
+    listAllocationBlocks() {
+        return Object.freeze([
+            ...this.listOpenQuarantines(),
+            ...this.listOpenSettlementQuarantines()
+        ]);
     }
 
     isRoomNumberQuarantined(roomNumber) {
