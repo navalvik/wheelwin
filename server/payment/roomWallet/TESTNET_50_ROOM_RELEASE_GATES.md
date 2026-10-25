@@ -62,6 +62,14 @@ Status: **DRAFT / NOT DEPLOYABLE**. Scope: native GRAM transfers through 64 serv
 - Old `setupExpiryRoomWalletRefund.test.js` did not complete within an isolated 22-second window; not a passing result.
 - No live 50-room end-to-end Testnet stress test, actual on-chain 3-player refund/settlement cycle, live TON API account-head response/schema validation, or actual chain-proof-backed wallet release has yet passed. The strict release worker is coded and offline-tested but disabled. Test counts reflect mocks and persisted test fixtures, not real transfers.
 
+### Restart-to-reuse continuation — 25 October 2026
+
+- Added `server/tests/roomWalletThreePlayerRestartReuse.integration.test.js`: all three players have independent on-chain-backed 1 GRAM obligations; a partially refunded room stays quarantined through restart; after remaining immutable refund intentions are chain-confirmed, room wallet #1 can be reallocated after durable closure and another restart. Second scenario verifies the 50-room ceiling with 14 blocked wallets, and recovery of available room capacity after one verified release.
+- Strengthened the existing post-Page5 release regression to restart the persistent financial store **between WINNER and OWNER confirmations**, and again after wallet closure. The winner's receipt survives, but the wallet stays blocked until both beneficiary payments are chain-confirmed.
+- Fixed `RoomWalletResidualSweepWorker._processRoomLocked`: a repeated settlement event with an in-flight protected sweep (including an ambiguous legacy hash) now goes to the guarded, idempotent coordinator. It never triggers the old hash-only watcher. Added 2 regressions.
+- Latest verified offline focused selection: **200 / 200 passed**, 0 failed, across 19 specified test files; `node --check app.js` passed. Prior 328-test suite is a distinct earlier run and was not repeated here. No blockchain RPC, no real GRAM transfer, and no working Testnet deployment occurred.
+- Historical **oj7v** remains subject to manual verification: its confirmed Olga refund predates protected signed-intent persistence. Strict automated quarantine closure must not invent that missing proof, and Lena/Bob remain unpaid.
+
 ## Rollout restrictions
 
 Keep PR #21 **DRAFT**. Do not merge to `main`, redeploy Testnet, restart Telegram payments, or touch Mainnet until the remaining recovery, wallet-release and settlement execution paths are completed and verified. The historical successful-game branch stays untouched.
