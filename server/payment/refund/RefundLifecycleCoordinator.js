@@ -201,7 +201,9 @@ export class RefundLifecycleCoordinator {
                 ? outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents })
                 : (() => { throw new RefundLifecycleError("provider cannot resolve the refund source wallet"); })();
 
-            if (typeof outgoing.prepareRefundTransfer === "function") {
+            if (typeof outgoing.prepareRefundTransfer === "function"
+                && (typeof outgoing.canPrepareRefundTransfer !== "function"
+                    || outgoing.canPrepareRefundTransfer() === true)) {
                 // Quote the exact Testnet transfer before signing. Persist both
                 // the net amount and an in-flight state BEFORE any broadcast.
                 // Crash/restart after this write can never blindly resubmit.
