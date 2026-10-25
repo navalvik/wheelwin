@@ -4,7 +4,7 @@
  * prevents restart/concurrent replay from ever sending the same payout again.
  * No escrow/game contract, Jetton, Mainnet or blockchain finality claim.
  */
-import {mkdirSync,openSync,writeSync,fsyncSync,closeSync} from "node:fs";
+import {mkdirSync,openSync,writeSync,fsyncSync,closeSync,readFileSync} from "node:fs";
 import {join} from "node:path";
 import {RoomWalletAdapter} from "../roomWallet/RoomWalletAdapter.js";
 import {buildRecipientGasCharge,ROOM_WALLET_POLICY} from "../roomWallet/RoomWalletFinancialPolicy.js";
@@ -28,10 +28,12 @@ function logEvent(path,record,exclusive) {
 }
 
 export class TestnetNativeRoomPayoutTransport {
-    constructor({walletPool,walletResolver,tonService,dataDir,logger=null,adapter=null}={}) {
+    constructor({walletPool,walletResolver,tonService,dataDir,logger=null,adapter=null,
+        outgoingObserver=null}={}) {
         assert(walletPool && typeof dataDir==="string" && dataDir,"PAYOUT_RUNTIME_UNAVAILABLE");
         assert(adapter || (walletResolver && tonService),"PAYOUT_WALLET_ADAPTER_MISSING");
         this._pool=walletPool;
+        this._outgoingObserver=outgoingObserver;
         this._adapter=adapter ?? new RoomWalletAdapter({
             walletResolver,tonService,logger,gasReserveNano:RETAINED_NANO
         });
@@ -69,6 +71,60 @@ export class TestnetNativeRoomPayoutTransport {
         return Object.freeze({
             winner:Object.freeze({feeAtomic:await quote(winnerWallet,winnerGross),quotedAtMs:Date.now()}),
             owner:Object.freeze({feeAtomic:await quote(ownerWallet,ownerGross),quotedAtMs:Date.now()})
+        });
+    }
+    async reconcile({roomId,payoutId,roomWalletAddress,winnerWallet,ownerWallet,plan}) {
+        assert(typeof payoutId==="string"&&SAFE_PAYOUT_ID.test(payoutId),
+            "PAYOUT_IDENTIFIER_INVALID");
+        const wallet=this._reservation(roomId,roomWalletAddress);
+        const winner=plan?.transfers?.find(x=>x.recipientRole==="WINNER");
+        const owner=plan?.transfers?.find(x=>x.recipientRole==="OWNER");
+        assert(plan?.roomId===roomId&&plan.payoutId===payoutId
+            &&winner?.netAtomic>0&&owner?.netAtomic>0
+            &&canonical(winner.address)===canonical(winnerWallet)
+            &&canonical(owner.address)===canonical(ownerWallet),
+            "PAYOUT_RECONCILIATION_PLAN_INVALID");
+        const claimPath=join(this._dir,payoutId+".jsonl");
+        let record;
+        try {
+            const line=readFileSync(claimPath,"utf8").split("\n")[0];
+            record=JSON.parse(line);
+        } catch {
+            return Object.freeze({status:"NO_BROADCAST_ATTEMPT_RECORDED",payoutId});
+        }
+        assert(record?.payoutId===payoutId&&record.roomId===roomId
+            &&record.roomNumber===wallet.roomNumber
+            &&record.winnerAddress===canonical(winner.address)
+            &&record.ownerAddress===canonical(owner.address)
+            &&record.winnerAmountAtomic===winner.netAtomic
+            &&record.ownerAmountAtomic===owner.netAtomic,
+            "PAYOUT_JOURNAL_IDENTITY_MISMATCH");
+        if(typeof this._outgoingObserver?.findOutgoingTransfer!=="function")
+            return Object.freeze({status:"OUTGOING_OBSERVATION_UNAVAILABLE",payoutId});
+        // Read-only. Reconnect/restart cannot cause a new outgoing transfer.
+        const [win,out]=await Promise.all([
+            this._outgoingObserver.findOutgoingTransfer({
+                sourceWalletAddress:wallet.address,
+                destinationIdentity:winner.address,amountAtomic:winner.netAtomic
+            }),
+            this._outgoingObserver.findOutgoingTransfer({
+                sourceWalletAddress:wallet.address,
+                destinationIdentity:owner.address,amountAtomic:owner.netAtomic
+            })
+        ]);
+        if(win?.ambiguous||out?.ambiguous)
+            return Object.freeze({status:"AMBIGUOUS_OUTGOING_TRANSFERS",payoutId});
+        if(!win||!out||!win.transactionId||!out.transactionId
+            ||win.transactionId===out.transactionId)
+            return Object.freeze({status:"PAYOUT_OUTGOING_CONFIRMATION_PENDING",payoutId,
+                winnerObserved:Boolean(win?.transactionId),
+                ownerObserved:Boolean(out?.transactionId)});
+        // Transaction-history matches are NOT proof that destination-wallet
+        // credits are final. Keep the ledger unpaid until independent proof.
+        return Object.freeze({
+            status:"BOTH_OUTGOING_MATCHES_FOUND_UNFINALIZED",payoutId,
+            winnerTransactionId:win.transactionId,
+            ownerTransactionId:out.transactionId
         });
     }
     async submit({roomId,payoutId,roomWalletAddress,winnerWallet,ownerWallet,plan}) {
