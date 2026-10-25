@@ -79,6 +79,24 @@ export function createRoomWalletService({
         if (String(env?.TON_NETWORK ?? "").trim().toLowerCase() !== "testnet") {
             throw new Error("GUARDED_OUTBOUND_TESTNET_ONLY");
         }
+        const sweepsEnabled = ["true", "1"].includes(
+            String(env?.ROOM_WALLET_RESIDUAL_SWEEP_ENABLED ?? "")
+                .trim().toLowerCase()
+        );
+        if (sweepsEnabled) {
+            // Residual sweeps still call legacy sendTransfer and have not
+            // been moved to the durable signed-intent journal. Operating
+            // both routes would defeat per-wallet seqno protection.
+            throw new Error("GUARDED_OUTBOUND_RESIDUAL_SWEEP_NOT_MIGRATED");
+        }
+        if (String(env?.ROOM_WALLET_OUTGOING_CONFIRMATION_ENABLED ?? "")
+                .trim().toLowerCase() !== "true"
+            || String(env?.ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED ?? "")
+                .trim().toLowerCase() !== "true") {
+            // No live outgoing sends without restart-safe independent
+            // confirmation and expired-payment debt recovery workers.
+            throw new Error("GUARDED_OUTBOUND_REQUIRES_RECOVERY_WORKERS");
+        }
         if (!financialPersistence
             || typeof signerLockDirectory !== "string"
             || signerLockDirectory.trim().length === 0
