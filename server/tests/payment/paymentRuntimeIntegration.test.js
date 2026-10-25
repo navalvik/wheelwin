@@ -711,7 +711,9 @@ function seedRoomPayments(runtime, roomId, confirmed, prefix = "payment_seed", {
         });
         runtime.intentStore.save(intent);
         if (index < confirmed) {
-            settleSeed(runtime, roomId, index, `incoming_${index}`, prefix, intent);
+            const txId = prefix === "payment_seed"
+                ? `incoming_${index}` : `incoming_${prefix}_${index}`;
+            settleSeed(runtime, roomId, index, txId, prefix, intent);
         } else if (!keepUnconfirmedPending) {
             runtime.intentStore.update(intent.transition(PAYMENT_INTENT_STATE.FAILED, { now: NOW_MS }));
         }
