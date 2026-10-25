@@ -15,6 +15,7 @@ const OLGA = "0:" + "b".repeat(64);
 const LENA = "0:" + "c".repeat(64);
 const NOW = 1_790_000_000_000;
 const H = "e".repeat(64);
+const VALID_UNTIL = Math.floor(Date.now() / 1000) + 120;
 const THIS = fileURLToPath(import.meta.url);
 
 function harness(t) {
@@ -104,17 +105,25 @@ test("signed identity is frozen and unknown after crash, with no automatic retry
     assert.throws(() => h.journal.claimWallet(intentId),
         { code: "WALLET_ALREADY_LOCKED" });
     assert.throws(() => h.journal.holdSignedIdentity({
-        intentId, ownerToken: "forged", signedHash: H, seqno: 4, validUntil: 1790000100
+        intentId, ownerToken: "forged", signedHash: H, seqno: 4, validUntil: VALID_UNTIL
     }), { code: "REFUND_LOCK_OWNER_MISMATCH" });
+    assert.throws(() => h.journal.holdSignedIdentity({
+        intentId, ownerToken: lock.ownerToken,
+        signedHash: H, seqno: 4, validUntil: Math.floor(Date.now() / 1000) - 1
+    }), { code: "REFUND_SIGNED_IDENTITY_INVALID" });
+    assert.throws(() => h.journal.holdSignedIdentity({
+        intentId, ownerToken: lock.ownerToken,
+        signedHash: H, seqno: 4, validUntil: Math.floor(Date.now() / 1000) + 301
+    }), { code: "REFUND_SIGNED_IDENTITY_INVALID" });
     const signed = h.journal.holdSignedIdentity({
         intentId, ownerToken: lock.ownerToken,
-        signedHash: H, seqno: 4, validUntil: 1790000100
+        signedHash: H, seqno: 4, validUntil: VALID_UNTIL
     });
     assert.equal(signed.state, "SIGNED_HELD");
     assert.equal(signed.signedHash, H);
     assert.throws(() => h.journal.holdSignedIdentity({
         intentId, ownerToken: lock.ownerToken, signedHash: "a".repeat(64),
-        seqno: 5, validUntil: 1790000200
+        seqno: 5, validUntil: VALID_UNTIL + 30
     }), { code: "REFUND_ALREADY_SIGNED" });
     const unknown = h.journal.markUnknown({ intentId, ownerToken: lock.ownerToken });
     assert.equal(unknown.state, "CONFIRMATION_UNKNOWN");
