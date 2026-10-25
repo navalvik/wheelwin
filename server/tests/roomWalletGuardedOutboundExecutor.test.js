@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Address, beginCell, external, storeMessage } from "@ton/core";
+import { Address, beginCell, external, internal, storeMessage, storeMessageRelaxed, SendMode } from "@ton/core";
 
 import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
 import { RoomWalletOutboundIntentJournal } from "../payment/roomWallet/RoomWalletOutboundIntentJournal.js";
@@ -18,14 +18,19 @@ const GAS = "1388278";
 const NOW = 1792900000;
 const b64 = hash => Buffer.from(hash, "hex").toString("base64");
 
-function fakeSignedV4({ p, seqno = 42, validUntil = NOW + 100 }) {
+function fakeSignedV4({ p, seqno = 42, validUntil = NOW + 100,
+    signedDestination = p.destinationWallet, signedValue = p.transferNano }) {
     // Offline structural TON V4 message. No real signature or private key.
     const payload = beginCell()
         .storeBuffer(Buffer.alloc(64, 7))
         .storeUint(698983191, 32)
         .storeUint(validUntil, 32)
         .storeUint(seqno, 32)
-        .storeUint(0, 8)
+        .storeUint(0, 8) // Wallet V4 action sendMsg
+        .storeUint(SendMode.PAY_GAS_SEPARATELY, 8)
+        .storeRef(beginCell().store(storeMessageRelaxed(internal({
+            to: Address.parse(signedDestination), value: BigInt(signedValue), bounce: true
+        }))).endCell())
         .endCell();
     const message = external({ to: Address.parse(p.roomWallet), body: payload });
     const root = beginCell().store(storeMessage(message)).endCell();
@@ -317,4 +322,25 @@ test("fifty distinct Room Wallet locks can coexist on a shared volume", t => {
         assert.equal(gate.isLocked(addr), true);
     }
     assert.equal(ids.size, 50);
+});
+
+test("wrong recipient embedded in signed BOC is rejected even when metadata matches", async t => {
+    const f = fx(t);
+    const p = f.first.journal.load(f.intentId).payload;
+    const malicious = fakeSignedV4({ p, signedDestination: LENA });
+    const out = makeExecutor(f.first, { prepareOverride: malicious });
+    await assert.rejects(out.executor.execute({ intentId: f.intentId }),
+        e => e.code === "OUTBOUND_BOC_RECIPIENT_OR_AMOUNT_MISMATCH");
+    assert.equal(out.read().broadcasts, 0);
+    assert.equal(f.first.gate.isLocked(ROOM), true);
+});
+
+test("wrong nanogram value embedded in signed BOC fails before broadcast", async t => {
+    const f = fx(t);
+    const p = f.first.journal.load(f.intentId).payload;
+    const malicious = fakeSignedV4({ p, signedValue: "1998611722" });
+    const out = makeExecutor(f.first, { prepareOverride: malicious });
+    await assert.rejects(out.executor.execute({ intentId: f.intentId }),
+        e => e.code === "OUTBOUND_BOC_RECIPIENT_OR_AMOUNT_MISMATCH");
+    assert.equal(out.read().broadcasts, 0);
 });
