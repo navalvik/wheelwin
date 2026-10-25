@@ -283,3 +283,24 @@ test("external zero-value wallet signing message is ignored, not treated as a pl
     assert.equal(result.transactions.length, 0);
     assert.equal(result.awaitingSecondProvider, 0);
 });
+
+
+test("different reported TonAPI account is rejected despite matching destination", () => {
+    const tx = wireIncoming(PEOPLE[0], "tonapi");
+    tx.account = { address: PEOPLE[0].from };
+    assert.throws(() => reconcileDualSourceTransactions({
+        tonapiTransactions: [tx],
+        toncenterTransactions: [wireIncoming(PEOPLE[0], "toncenter")],
+        expectedRoomWalletRaw: ROOM
+    }), error => error.code === "EVIDENCE_ACCOUNT_MISMATCH");
+});
+
+test("different reported TON Center account is rejected even if all payment fields match", () => {
+    const tx = wireIncoming(PEOPLE[1], "toncenter");
+    tx.account = PEOPLE[1].from.toUpperCase();
+    assert.throws(() => reconcileDualSourceTransactions({
+        tonapiTransactions: [wireIncoming(PEOPLE[1], "tonapi")],
+        toncenterTransactions: [tx],
+        expectedRoomWalletRaw: ROOM
+    }), error => error.code === "EVIDENCE_ACCOUNT_MISMATCH");
+});
