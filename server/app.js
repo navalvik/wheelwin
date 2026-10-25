@@ -1813,17 +1813,14 @@ class WheelWinApplication {
         this._logger.startupLine("RoomWalletResidualSweepWorker");
 
         // Controlled financial closure: NEVER release on room destruction or
-        // timer alone. Strictly opt-in for Testnet after all outbound routes
-        // have adopted the durable signer, and legacy sweeps are disabled.
+        // timer alone. Strictly opt-in for Testnet; confirmed guarded SWEEP
+        // receipts must have the same two-source signed proof as all payouts.
+        // Any historical or ambiguous sweep lacking that proof remains held.
         if (process.env.ROOM_WALLET_QUARANTINE_RELEASE_ENABLED === "true") {
             if (this._tonConfig?.network !== "testnet"
                 || process.env.ROOM_WALLET_GUARDED_OUTBOUND_ONLY !== "true"
                 || process.env.ROOM_WALLET_OUTGOING_CONFIRMATION_ENABLED !== "true"
-                || process.env.ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED !== "true"
-                || ["true", "1"].includes(
-                    String(process.env.ROOM_WALLET_RESIDUAL_SWEEP_ENABLED ?? "")
-                        .trim().toLowerCase()
-                )) {
+                || process.env.ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED !== "true") {
                 throw new Error("ROOM_WALLET_QUARANTINE_RELEASE_UNSAFE_CONFIGURATION");
             }
             const releaseGuard = new RoomWalletQuarantineReleaseGuard({
