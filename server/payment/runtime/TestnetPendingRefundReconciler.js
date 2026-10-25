@@ -9,7 +9,7 @@
  * unrecognized source wallet, multiple matching transfers or provider outage
  * leaves the obligation untouched for a later pass.
  */
-import {tonAddressIdentitiesEqual} from "../incoming/TonAddressIdentity.js";
+import {tonAddressIdentitiesEqual,tonAddressIdentityOrNull} from "../incoming/TonAddressIdentity.js";
 
 const ELIGIBLE=new Set(["SUBMISSION_UNKNOWN","SUBMITTED","RECONCILIATION_REQUIRED"]);
 export class TestnetPendingRefundReconciler {
@@ -56,9 +56,7 @@ export class TestnetPendingRefundReconciler {
                     const intent=intents.find(x=>x.paymentReference===obligation.paymentIntentId);
                     if(!intent||intent.transactionId!==obligation.incomingTransactionId
                         ||!tonAddressIdentitiesEqual(intent.expectedSender,obligation.refundDestination)
-                        ||!tonAddressIdentitiesEqual(intent.destinationWalletAddress,
-                            intent.destinationWalletAddress)
-                        ||typeof intent.destinationWalletAddress!=="string"){
+                        ||tonAddressIdentityOrNull(intent.destinationWalletAddress)===null){
                         status="REFUND_SOURCE_UNVERIFIED";
                     }else{
                         const source=intent.destinationWalletAddress;
