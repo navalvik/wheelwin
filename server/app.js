@@ -82,6 +82,9 @@ import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
 import { ResultActivation } from "./gameplay/ResultActivation.js";
 import { TestnetWinnerPayoutCoordinator } from "./payment/runtime/TestnetWinnerPayoutCoordinator.js";
+import { TestnetNativeRoomPayoutTransport } from "./payment/runtime/TestnetNativeRoomPayoutTransport.js";
+import { TestnetNativeTonService } from "./payment/roomWallet/TestnetNativeTonService.js";
+import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
@@ -1225,12 +1228,34 @@ class WheelWinApplication {
             // RESULT lifecycle. It plans an exact 3-player payout; until a
             // real outgoing executor and current fee quotes are connected it
             // explicitly reports WAITING, never claims funds were sent.
+            // Live entry acceptance MUST NOT be enabled without both a
+            // working refund executor and the native V4 winner/owner sender.
+            // When acceptance is disabled (the current Testnet release),
+            // wallet signing material is neither resolved nor loaded.
+            let nativePayoutTransport = null;
+            if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+                if (paymentRuntime.outgoingRefundProvider?.canExecute?.() !== true) {
+                    throw new Error("TESTNET_REFUND_EXECUTOR_NOT_READY");
+                }
+                if (String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
+                    throw new Error("TESTNET_PAYOUT_NETWORK_MISMATCH");
+                }
+                nativePayoutTransport = new TestnetNativeRoomPayoutTransport({
+                    walletPool: paymentRuntime.walletPool,
+                    walletResolver: createRoomWalletRuntimeResolver({env:process.env}),
+                    tonService: new TestnetNativeTonService(),
+                    dataDir: paymentRuntime.networkDataDir,
+                    logger: this._logger
+                });
+            }
             this._winnerPayoutCoordinator = new TestnetWinnerPayoutCoordinator({
                 paymentRuntime,
                 roomManager: this._managers.roomManager,
                 playerManager: this._managers.playerManager,
                 contextResolver: this._gameplayContextResolver,
-                winnerEngine: this._engines.winnerEngine
+                winnerEngine: this._engines.winnerEngine,
+                feeQuotesProvider: nativePayoutTransport,
+                payoutSubmitter: nativePayoutTransport
             });
             this._eventBus.subscribe(
                 EVENT_TYPES.GAME_RESULT_READY,
