@@ -762,9 +762,9 @@ const OWNER = { recipientId: "owner-collector", address: "EQOWNER_____________" 
 
     check(
         JSON.stringify(plan.toJSON()).includes("reserveAtomic") === false
-            && JSON.stringify(plan.toJSON()).includes("safetyMargin") === false
+            && plan.toJSON().safetyMarginAtomic === 0
             && JSON.stringify(plan.toJSON()).includes("reservePercent") === false,
-        "a serialized payout plan must not mention any reserve or safety margin"
+        "legacy payout plans must serialize an explicit zero safety margin"
     );
 
     // Determinism.
