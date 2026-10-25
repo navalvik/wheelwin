@@ -281,3 +281,64 @@ test("stale settlement event cannot sweep funds of newer game in recycled room w
         sweepRecordId: sweep.recordId
     }), e => e.code === "OUTBOUND_SWEEP_WALLET_ALREADY_REASSIGNED");
 });
+
+
+test("repeated guarded settlement trigger routes AWAITING sweep through proof coordinator", async t => {
+    const f = fixture(t);
+    const sweep = f.createSweep();
+    f.sweeps.markAwaitingTransactionHash(sweep.recordId, { seqno: 42 });
+    let guardedCalls = 0, legacyWatches = 0, directSends = 0;
+    const worker = new RoomWalletResidualSweepWorker({
+        repository: f.sweeps,
+        env: { ROOM_WALLET_GUARDED_OUTBOUND_ONLY: "true" },
+        roomWalletAdapter: {
+            async sendTransfer() { directSends++; throw new Error("UNSAFE"); }
+        },
+        guardedPayoutCoordinator: {
+            async sweepResidual({ sweepRecordId }) {
+                guardedCalls++;
+                assert.equal(sweepRecordId, sweep.recordId);
+                return { ok: false, code: "GUARDED_SWEEP_CONFIRMATION_PENDING" };
+            }
+        }
+    });
+    worker._watchExisting = () => { legacyWatches++; };
+    const result = await worker._processRoomLocked(1, {
+        trigger: "SETTLEMENT_CONFIRMED", gameId: GAME
+    });
+    assert.equal(result.code, "GUARDED_SWEEP_CONFIRMATION_PENDING");
+    assert.equal(guardedCalls, 1);
+    assert.equal(legacyWatches, 0);
+    assert.equal(directSends, 0);
+    assert.equal(f.sweeps.findById(sweep.recordId).payload.status,
+        "AWAITING_TRANSACTION_HASH");
+});
+
+test("repeated guarded sweep with legacy tx hash never starts a hash-only watcher", async t => {
+    const f = fixture(t);
+    const sweep = f.createSweep();
+    f.sweeps.markSent(sweep.recordId, {
+        txHash: "f".repeat(64), seqno: 42
+    });
+    let guardedCalls = 0, watched = 0;
+    const worker = new RoomWalletResidualSweepWorker({
+        repository: f.sweeps,
+        env: { ROOM_WALLET_GUARDED_OUTBOUND_ONLY: "true" },
+        guardedPayoutCoordinator: {
+            async sweepResidual({ sweepRecordId }) {
+                guardedCalls++;
+                assert.equal(sweepRecordId, sweep.recordId);
+                return { ok: false, code: "GUARDED_SWEEP_PROOF_NOT_AUTHORIZED" };
+            }
+        }
+    });
+    worker._watchExisting = () => { watched++; };
+    const result = await worker._processRoomLocked(1, {
+        trigger: "SETTLEMENT_CONFIRMED", gameId: GAME
+    });
+    assert.equal(result.code, "GUARDED_SWEEP_PROOF_NOT_AUTHORIZED");
+    assert.equal(guardedCalls, 1);
+    assert.equal(watched, 0);
+    assert.equal(f.sweeps.findById(sweep.recordId).payload.txHash,
+        "f".repeat(64));
+});
