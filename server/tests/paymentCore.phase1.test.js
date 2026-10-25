@@ -441,8 +441,8 @@ function createIntent(harness, overrides = {}) {
     );
 
     check(
-        registry.getAvailableCount() === ROOM_WALLET_POOL_SIZE,
-        "all 64 wallets must start available"
+        registry.getAvailableCount() === ROOM_WALLET_POOL_SIZE - 1,
+        "the 64-wallet catalog excludes unresolved Testnet wallet 1 from new reservations"
     );
 
     // Wallet secrets must never be surfaced by the registry.
@@ -526,7 +526,7 @@ function createIntent(harness, overrides = {}) {
 
     check(
         registry.getAvailableCount() === ROOM_WALLET_POOL_SIZE,
-        "all wallets must be available again after release"
+        "all 63 permitted wallets become available after release"
     );
 
     // The released wallet can now be recycled.
@@ -543,7 +543,7 @@ function createIntent(harness, overrides = {}) {
     registry.release({ roomId: "room-2" });
 
     // Exhaustion.
-    for (let index = 0; index < ROOM_WALLET_POOL_SIZE; index += 1) {
+    for (let index = 0; index < ROOM_WALLET_POOL_SIZE - 1; index += 1) {
 
         registry.reserve({ roomId: `room-x-${index}` });
 
@@ -552,7 +552,7 @@ function createIntent(harness, overrides = {}) {
     const exhausted = expectThrow(
         () => registry.reserve({ roomId: "room-overflow" }),
         "WalletPoolExhaustedError",
-        "reservation must fail once all 64 wallets are reserved"
+        "reservation must fail once all 63 eligible wallets are reserved"
     );
 
     check(
