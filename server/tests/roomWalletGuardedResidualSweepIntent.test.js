@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { TonFinancialPersistence } from "../persistence/TonFinancialPersistence.js";
 import { RoomWalletOutboundIntentJournal } from "../payment/roomWallet/RoomWalletOutboundIntentJournal.js";
 import { RoomWalletResidualSweepRepository } from "../payment/roomWallet/RoomWalletResidualSweepRepository.js";
+import { RoomWalletGuardedPayoutCoordinator } from "../payment/roomWallet/RoomWalletGuardedPayoutCoordinator.js";
+import { RoomWalletResidualSweepWorker } from "../payment/roomWallet/RoomWalletResidualSweepWorker.js";
 
 const ROOM = "0:c6423c1a3f43921316bd31f66287ad437b94d0b9421340f622619c9fa80173a6";
 const RESIDUES = "0:d012345678901234567890123456789012345678901234567890123456789012";
@@ -141,4 +143,104 @@ test("durable sweep plan is preserved across financial store restart", t => {
     const reread = f.journal.load(first.intentId);
     assert.equal(reread.payload.authorizationId, s.recordId);
     assert.equal(reread.payload.gameId, GAME);
+});
+
+
+test("guarded residual transfer is sent once, remains unknown, then chain proof finalizes", async t => {
+    const f = fixture(t);
+    const sweep = f.createSweep();
+    let executed = 0;
+    const coordinator = new RoomWalletGuardedPayoutCoordinator({
+        journal: f.journal,
+        residualSweepRepository: f.sweeps,
+        executor: {
+            async execute({ intentId }) {
+                const state = f.journal.load(intentId);
+                if (state.payload.state !== "PLANNED") {
+                    return { state: "CONFIRMATION_UNKNOWN", broadcasted: false };
+                }
+                executed++;
+                f.journal.holdSignedMessage({
+                    intentId, seqno: 41,
+                    signedExternalMessageHash: "e".repeat(64),
+                    validUntil: 1792902000
+                });
+                f.journal.markConfirmationUnknown(intentId);
+                return { state: "CONFIRMATION_UNKNOWN", broadcasted: true };
+            }
+        }
+    });
+    const first = await coordinator.sweepResidual({ sweepRecordId: sweep.recordId });
+    assert.equal(first.code, "GUARDED_SWEEP_CONFIRMATION_PENDING");
+    assert.equal(executed, 1);
+    assert.equal(f.sweeps.findById(sweep.recordId).payload.status, "AWAITING_TRANSACTION_HASH");
+    const second = await coordinator.sweepResidual({ sweepRecordId: sweep.recordId });
+    assert.equal(second.code, "GUARDED_SWEEP_CONFIRMATION_PENDING");
+    assert.equal(executed, 1);
+    const intent = f.journal.createResidualSweepPlan({ sweepRecordId: sweep.recordId });
+    f.journal.confirmWithChainProof({
+        intentId: intent.intentId,
+        observedSeqno: 42,
+        evidence: {
+            confirmed: true, state: "CHAIN_CONFIRMED",
+            receipt: {
+                account: ROOM, recipient: RESIDUES, valueNano: "490000000",
+                signedExternalMessageHash: "e".repeat(64),
+                roomWalletTxHash: "f".repeat(64),
+                roomWalletTxLt: "19000001",
+                outboundMessageHash: "a".repeat(64)
+            }
+        }
+    });
+    const last = await coordinator.sweepResidual({ sweepRecordId: sweep.recordId });
+    assert.equal(last.ok, true);
+    assert.equal(last.txHash, "f".repeat(64));
+    assert.equal(f.sweeps.findById(sweep.recordId).payload.status, "CONFIRMED");
+    assert.equal(executed, 1);
+});
+
+test("unknown prior legacy processing without a journal is never treated as a fresh sweep", t => {
+    const f = fixture(t);
+    const sweep = f.createSweep();
+    f.sweeps.markProcessing(sweep.recordId);
+    assert.throws(() => f.journal.createResidualSweepPlan({
+        sweepRecordId: sweep.recordId
+    }), e => e.code === "OUTBOUND_SWEEP_UNKNOWN_LEGACY_ATTEMPT");
+});
+
+test("guarded sweep worker cannot fall through into legacy direct sendTransfer", async t => {
+    const f = fixture(t);
+    const sweep = f.createSweep();
+    let directSends = 0;
+    let guardedCalls = 0;
+    const worker = new RoomWalletResidualSweepWorker({
+        repository: f.sweeps,
+        env: { ROOM_WALLET_GUARDED_OUTBOUND_ONLY: "true" },
+        roomWalletAdapter: {
+            async sendTransfer() { directSends++; throw new Error("UNSAFE"); }
+        },
+        guardedPayoutCoordinator: {
+            async sweepResidual({ sweepRecordId }) {
+                guardedCalls++;
+                assert.equal(sweepRecordId, sweep.recordId);
+                return { ok: false, code: "GUARDED_SWEEP_CONFIRMATION_PENDING" };
+            }
+        }
+    });
+    const r = await worker._submitExisting(sweep.recordId);
+    assert.equal(r.code, "GUARDED_SWEEP_CONFIRMATION_PENDING");
+    assert.equal(guardedCalls, 1);
+    assert.equal(directSends, 0);
+});
+
+test("guarded sweep event watcher cannot mark a transfer confirmed by tx hash alone", async t => {
+    const f = fixture(t);
+    const sweep = f.createSweep();
+    const worker = new RoomWalletResidualSweepWorker({
+        repository: f.sweeps,
+        env: { ROOM_WALLET_GUARDED_OUTBOUND_ONLY: "true" }
+    });
+    const r = await worker.confirmByTransactionHash("f".repeat(64));
+    assert.equal(r.code, "GUARDED_SWEEP_CHAIN_PROOF_REQUIRED");
+    assert.equal(f.sweeps.findById(sweep.recordId).payload.status, "PENDING");
 });
