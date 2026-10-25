@@ -97,16 +97,21 @@ export function reconcileDualSourceTransactions({
         for (const tx of transactions) {
             const parsed = normalizeEntry(tx);
             const inbound = tx?.in_msg ?? tx?.inMessage;
-            if (inbound && normalizeRawTonAddress(inbound.destination) === expected) {
-                // A malformed positive (or unknown-value) incoming transfer
-                // targeting the Room Wallet cannot be treated as ZERO funds.
-                // External wallet-signing messages normally have zero value
-                // and no source address; those are not payer deposits.
+            if (inbound) {
+                // A nonzero message on the queried Room Wallet's history is
+                // potentially a payer deposit, even if a faulty indexer
+                // omitted its destination field. Never turn corrupt receipts
+                // from BOTH providers into an apparent zero-deposit session.
+                const destination = normalizeRawTonAddress(inbound.destination);
+                const source = normalizeRawTonAddress(inbound.source);
                 const parsedValue = nanoString(inbound.value);
                 const nonZeroOrUnknown = inbound.value !== "0"
                     && inbound.value !== 0
                     && inbound.value !== 0n;
-                if (nonZeroOrUnknown && (!parsed || parsedValue === null)) {
+                const possiblyIncoming = destination === expected
+                    || (destination === null && source !== null);
+                if (nonZeroOrUnknown && possiblyIncoming
+                    && (!parsed || parsedValue === null)) {
                     throw new RoomWalletEvidenceUnavailable(
                         "MALFORMED_ROOM_WALLET_INCOMING_EVIDENCE"
                     );
