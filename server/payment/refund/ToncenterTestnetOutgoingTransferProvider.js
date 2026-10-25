@@ -120,7 +120,68 @@ export class ToncenterTestnetOutgoingTransferProvider {
             messageHash:message.hash,
             sourceWalletAddress,
             destinationAddress:destinationIdentity,
-            amountAtomic
+            amountAtomic,
+            sourceIndex: Object.freeze({
+                mcBlockSeqno: sourceTx[0].mc_block_seqno ?? null,
+                blockRef: sourceTx[0].block_ref ?? null,
+                emulated: sourceTx[0].emulated ?? null
+            }),
+            recipientIndex: Object.freeze({
+                mcBlockSeqno: matches[0].mc_block_seqno ?? null,
+                blockRef: matches[0].block_ref ?? null,
+                emulated: matches[0].emulated ?? null
+            })
+        });
+    }
+
+    /**
+     * Restart-safe read-only historical reconciliation, from v3 indexed
+     * transaction history plus v3 masterchainInfo. A matching outgoing message
+     * and destination credit must BOTH be indexed under valid Testnet
+     * masterchain blocks strictly behind the latest indexed masterchain head.
+     *
+     * This is explicitly PROVIDER-INDEXED evidence; do not pretend it is an
+     * SSE finalized event, cryptographic Merkle proof, or successful ledger
+     * settlement. SSE subscriptions cannot replay past finalized events.
+     */
+    async verifyIndexedRecipientCredit(query = {}) {
+        const observed = await this.observeRecipientCredit(query);
+        if (!observed || typeof this._client.getMasterchainInfo !== "function")
+            return null;
+
+        const validBlock = (index) =>
+            Number.isSafeInteger(index?.mcBlockSeqno)
+            && index.mcBlockSeqno > 0
+            && index.emulated !== true
+            && index.blockRef?.workchain === 0
+            && Number.isSafeInteger(index.blockRef.seqno)
+            && index.blockRef.seqno > 0
+            && typeof index.blockRef.shard === "string"
+            && index.blockRef.shard.length > 0;
+        if (!validBlock(observed.sourceIndex)
+            || !validBlock(observed.recipientIndex))
+            return null;
+
+        const info = await this._client.getMasterchainInfo();
+        const latest = info?.last;
+        if (latest?.global_id !== -3
+            || !Number.isSafeInteger(latest.seqno)
+            || latest.seqno <= observed.sourceIndex.mcBlockSeqno
+            || latest.seqno <= observed.recipientIndex.mcBlockSeqno)
+            return null;
+
+        return Object.freeze({
+            status: "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED",
+            sourceTransactionId: observed.sourceTransactionId,
+            recipientTransactionId: observed.recipientTransactionId,
+            messageHash: observed.messageHash,
+            sourceWalletAddress: observed.sourceWalletAddress,
+            destinationAddress: observed.destinationAddress,
+            amountAtomic: observed.amountAtomic,
+            sourceMcBlockSeqno: observed.sourceIndex.mcBlockSeqno,
+            recipientMcBlockSeqno: observed.recipientIndex.mcBlockSeqno,
+            latestIndexedMcBlockSeqno: latest.seqno,
+            globalId: -3
         });
     }
     async getOutgoingTransfer({sourceWalletAddress,transactionId}={}){
