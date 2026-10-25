@@ -525,7 +525,7 @@ function createIntent(harness, overrides = {}) {
     );
 
     check(
-        registry.getAvailableCount() === ROOM_WALLET_POOL_SIZE,
+        registry.getAvailableCount() === ROOM_WALLET_POOL_SIZE - 1,
         "all 63 permitted wallets become available after release"
     );
 
