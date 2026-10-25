@@ -21,6 +21,7 @@ import {
     buildPaymentRuntime
 } from "../../payment/runtime/PaymentRuntimeFactory.js";
 import { bindPaymentRuntimeToApplication } from "../../payment/runtime/PaymentApplicationBinder.js";
+import { TestnetWinnerPayoutCoordinator } from "../../payment/runtime/TestnetWinnerPayoutCoordinator.js";
 
 const BASE_MS = 1_700_100_000_000;
 const CREATED_AT = BASE_MS;
@@ -30,7 +31,7 @@ const SYNTHETIC_API_KEY = "SYNTHETIC-TONCENTER-TEST-KEY-NOT-REAL";
 const TESTNET_PAYER = `0:${"a".repeat(64)}`;
 const TESTNET_WALLET = `0:${"b".repeat(64)}`;
 
-const TOTAL_SECTIONS = 13;
+const TOTAL_SECTIONS = 14;
 let assertions = 0;
 let sections = 0;
 
@@ -257,6 +258,82 @@ async function run() {
             paymentRuntimeShutdown(runtime);
             managerShutdown(roomManager, eventBus);
         } finally { t.cleanup(); }
+    });
+
+    await section("three settled Page4 payments authorize gameplay then durably plan one winner plus owner payout", async () => {
+        const t=makeTemp();
+        try {
+            const {runtime,setPayload}=buildRuntime(t.root,t.catalogPath);
+            const roomId="room-3-player-e2e";
+            const gameId="game-3-player-e2e";
+            const descriptor=threePlayerDescriptor(roomId,[1,1,1]);
+            runtime.sessionAdapter.prepareRoom(descriptor);
+            const playerIds=descriptor.requiredPlayers.map(x=>x.playerId);
+            const room={status:ROOM_STATUS.FULL,maxPlayers:3,players:[...playerIds]};
+            const auth=makeAuthorization(runtime.paymentGate,room,{gameId});
+            const wallet=runtime.paymentService.getWalletForRoom(roomId);
+            equal(wallet.roomNumber,2,"quarantined wallet 1 is excluded even without Railway env");
+            const none=auth.authorizedCount();
+            equal(none,0,"before funds the gameplay gate is closed");
+
+            for(let index=0;index<3;index++){
+                const payment=descriptor.requiredPlayers[index];
+                const intent=runtime.paymentService.getPaymentIntent(payment.paymentReference);
+                setPayload(emptyPayload(transactionFor(intent,wallet)));
+                await runtime.sessionAdapter.observeRoomPayments({roomId});
+                auth.eventBus.fire(EVENT_TYPES.VERIFY_BARRIER_COMPLETED,{roomId});
+                equal(auth.authorizedCount(),index===2?1:0,
+                    "Page5 authorized exactly once when the third independently paid player settles");
+            }
+            auth.eventBus.fire(EVENT_TYPES.VERIFY_BARRIER_COMPLETED,{roomId});
+            equal(auth.authorizedCount(),1,
+                "repeated Page4 payment confirmation cannot open a second game");
+
+            const winnerId=playerIds[1];
+            const identity=Object.fromEntries(descriptor.requiredPlayers
+                .map(x=>[x.playerId,x.expectedSender]));
+            const payout=new TestnetWinnerPayoutCoordinator({
+                paymentRuntime:runtime,
+                roomManager:{getRoom:()=>room},
+                playerManager:{getIdentity:id=>({wallet:identity[id]})},
+                contextResolver:{resolveRoomByGameId:current=>
+                    current===gameId?roomId:null},
+                winnerEngine:{getResult:()=>({winnerPlayerId:winnerId})},
+                ownerWalletProvider:()=>syntheticAddress("WheelWin-owner-payee"),
+                feeQuotesProvider:{quote:async()=>({
+                    winner:{feeAtomic:2_000_000},
+                    owner:{feeAtomic:2_000_000}
+                })},
+                payoutSubmitter:null
+            });
+            const planned=await payout.onGameResult({gameId});
+            equal(planned.status,"PAYOUT_PLANNED_EXECUTOR_UNAVAILABLE",
+                "Page6 result creates durable obligations but cannot send funds with live acceptance disabled");
+            const obligations=runtime.ledger.listPayoutObligations(roomId);
+            equal(obligations.length,2,
+                "winner and owner have two independent payout obligations");
+            check(obligations.every(x=>!x.settled),
+                "neither payout is marked complete without on-chain confirmation");
+            const plan=runtime.ledger.store.listForRoom(roomId)
+                .find(x=>x.kind===LEDGER_ENTRY_KIND.PAYOUT_PLAN)?.metadata?.plan;
+            equal(plan?.safetyMarginAtomic,10_000_000,
+                "0.01 GRAM room-wallet reserve remains in the authoritative plan");
+            const repeated=await payout.onGameResult({gameId});
+            equal(repeated.status,"ALREADY_PLANNED_NEEDS_RECONCILIATION",
+                "repeated result never generates a new prize or broadcasts funds");
+            equal(runtime.ledger.store.listForRoom(roomId)
+                .filter(x=>x.kind===LEDGER_ENTRY_KIND.PAYOUT_PLAN).length,1,
+                "only one durable payout plan exists");
+
+            auth.authorization.shutdown();
+            paymentRuntimeShutdown(runtime);
+            const restart=buildRuntime(t.root,t.catalogPath);
+            equal(restart.runtime.walletPool.getReservationForRoom(roomId)?.walletId,
+                wallet.walletId,"room wallet survives a server restart until both payouts settle");
+            equal(restart.runtime.ledger.listPayoutObligations(roomId).length,2,
+                "both Page6 financial obligations recover from disk");
+            paymentRuntimeShutdown(restart.runtime);
+        } finally {t.cleanup();}
     });
 
     await section("a partially paid room cannot start gameplay", async () => {
