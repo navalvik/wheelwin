@@ -13,6 +13,7 @@
 import { Address } from "@ton/core";
 import { EVENT_SOURCES } from "../../events/EventSources.js";
 import { fetchDualSourceRoomWalletTransactions } from "./RoomWalletDualSourceEvidence.js";
+import { RoomWalletProviderBudget } from "./RoomWalletProviderBudget.js";
 import { EVENT_TYPES } from "../../events/EventTypes.js";
 import {
     canonicalizeTonWalletAddress,
@@ -307,6 +308,7 @@ export class RoomWalletIncomingObserver {
         retryDelayMs = null,
         fetchTimeoutMs = null,
         dualSourceFetch = globalThis.fetch,
+        dualSourceBudget = null,
         delay = null
     } = {}) {
         this._logger = logger;
@@ -323,6 +325,11 @@ export class RoomWalletIncomingObserver {
         // Explicit opt-in: never use two external indexers as a silent, untested default.
         this._dualSourceEnabled = String(env?.ROOM_WALLET_DUAL_SOURCE_ENABLED ?? "").trim().toLowerCase() === "true";
         this._dualSourceFetch = dualSourceFetch;
+        // Shared across all active wallet lookups. Provider queue sizes and
+        // concurrency remain bounded under a 50-room RPC outage.
+        this._dualSourceBudget = this._dualSourceEnabled
+            ? (dualSourceBudget ?? new RoomWalletProviderBudget())
+            : null;
         this._now = now;
         this._stopped = false;
         this._pollInFlight = false;
@@ -1352,7 +1359,8 @@ export class RoomWalletIncomingObserver {
                 expectedRoomWalletRaw: Address.parse(address).toRawString(),
                 fetchImpl: this._dualSourceFetch,
                 limit: ROOM_WALLET_INCOMING_TX_PAGE_LIMIT,
-                timeoutMs: this._fetchTimeoutMs
+                timeoutMs: this._fetchTimeoutMs,
+                requestBudget: this._dualSourceBudget
             });
             this._log(
                 "info",
