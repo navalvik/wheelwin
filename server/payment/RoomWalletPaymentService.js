@@ -289,7 +289,7 @@ export class RoomWalletPaymentService {
     // -------------------------------------------------------------------------
 
     /**
-     * The single, immutable room deadline: `roomCreatedAt + 480000` ms.
+     * The single, immutable room deadline: `roomCreatedAt + 300000` ms.
      *
      * @param {number} roomCreatedAt
      * @returns {{ roomCreatedAt: number, roomLifetimeMs: number, deadlineMs: number }}

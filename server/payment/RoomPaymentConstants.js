@@ -1,19 +1,19 @@
 /**
  * Phase 1 — Room Wallet Payment Core: fixed constants.
  *
- * IMPORTANT: the 480s room lifetime below is a *read-only mirror* of the
+ * IMPORTANT: the 300s room lifetime below is a *read-only mirror* of the
  * authoritative room lifetime used for payment-intent deadline computation.
  * It does NOT start, restart, extend, or otherwise influence any existing room
  * timer, Setup Session timer, or game-stage transition.
  */
 
 /**
- * R1 — Immutable room lifetime. Exactly 480 seconds from room creation.
+ * R1 — Immutable pre-Page5 lifetime. Exactly 300 seconds from room creation.
  *
  * Payment intents derive their absolute expiration from this value:
  *   deadlineMs = roomCreatedAt + ROOM_LIFETIME_MS
  */
-export const ROOM_LIFETIME_MS = 480_000;
+export const ROOM_LIFETIME_MS = 300_000;
 
 /**
  * R2 — Number of server-controlled game wallets in the room wallet pool.

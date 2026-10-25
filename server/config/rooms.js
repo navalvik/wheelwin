@@ -1,13 +1,13 @@
-// R18-S16 — Setup Timer 8 minutes (was R7.70C19 5 min). Isolated from Payment/Wallet/Result timers.
-const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
+// Testnet: single pre-Page5 payment/preparation envelope, starting at room creation.
+const DEFAULT_SETUP_DURATION_MS = 5 * 60 * 1000;
 
 /** R6.5 — Page6 result linger before authoritative SESSION_FINISHED. */
 // R7.70C19A — restored from C7 TEMP 10 min → 5 min.
 const DEFAULT_RESULT_SESSION_DURATION_MS = 5 * 60 * 1000;
 
 /** P6.3 — Payment Session wall-clock before authoritative failure. */
-// R18-S16 — 8 minutes (was R7.70C19A 5 min). Isolated from Wallet/Result/Deploy timers.
-const DEFAULT_PAYMENT_SESSION_DURATION_MS = 8 * 60 * 1000;
+// No payment window may exceed the authoritative 5-minute room deadline.
+const DEFAULT_PAYMENT_SESSION_DURATION_MS = 5 * 60 * 1000;
 
 /**
  * R7.24 — Wallet connection barrier after PAYMENT_STAGE_READY.
@@ -25,7 +25,8 @@ const DEFAULT_GAME_CONTRACT_DEPLOY_TIMEOUT_MS = 2 * 60 * 1000;
 // R7.70C19A — restored from C7 TEMP 120 s → 60 s.
 const DEFAULT_GAME_START_AUTHORIZATION_DURATION_MS = 60 * 1000;
 
-const DEFAULT_MAX_CONCURRENT_ROOMS = 64;
+const DEFAULT_MAX_CONCURRENT_ROOMS = 50;
+const MAX_TESTNET_CONCURRENT_ROOMS = 50;
 
 export function loadRoomConfig(env = process.env) {
 
@@ -41,7 +42,8 @@ export function loadRoomConfig(env = process.env) {
         ? DEFAULT_SETUP_DURATION_MS
         : Number(env.SETUP_DURATION_MS);
 
-    if (!Number.isFinite(setupDurationMs) || setupDurationMs <= 0) {
+    if (!Number.isFinite(setupDurationMs) || setupDurationMs <= 0
+        || setupDurationMs > DEFAULT_SETUP_DURATION_MS) {
 
         throw new Error("Invalid SETUP_DURATION_MS environment variable");
 
@@ -61,7 +63,8 @@ export function loadRoomConfig(env = process.env) {
         ? DEFAULT_PAYMENT_SESSION_DURATION_MS
         : Number(env.PAYMENT_SESSION_DURATION_MS);
 
-    if (!Number.isFinite(paymentSessionDurationMs) || paymentSessionDurationMs <= 0) {
+    if (!Number.isFinite(paymentSessionDurationMs) || paymentSessionDurationMs <= 0
+        || paymentSessionDurationMs > DEFAULT_PAYMENT_SESSION_DURATION_MS) {
 
         throw new Error("Invalid PAYMENT_SESSION_DURATION_MS environment variable");
 
@@ -105,7 +108,9 @@ export function loadRoomConfig(env = process.env) {
         ? DEFAULT_MAX_CONCURRENT_ROOMS
         : Number(env.ROOM_MAX_CONCURRENT);
 
-    if (!Number.isFinite(maxConcurrentRooms) || maxConcurrentRooms <= 0) {
+    if (!Number.isInteger(maxConcurrentRooms)
+        || maxConcurrentRooms <= 0
+        || maxConcurrentRooms > MAX_TESTNET_CONCURRENT_ROOMS) {
 
         throw new Error("Invalid ROOM_MAX_CONCURRENT environment variable");
 

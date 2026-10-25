@@ -4,8 +4,8 @@ import { registerRoomDestroyContext } from "../recovery/RoomDestroyContextRegist
 import { SetupSession } from "../models/SetupSession.js";
 import { SETUP_SESSION_STATUS } from "../models/SetupSessionStatus.js";
 
-// R7.70C19 — fallback aligned with rooms.js DEFAULT_SETUP_DURATION_MS (8 min).
-const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
+// Fallback aligned with the authoritative five-minute room deadline.
+const DEFAULT_SETUP_DURATION_MS = 5 * 60 * 1000;
 
 /**
  * C5.6C — Setup Session lifecycle coordinator.
@@ -37,7 +37,7 @@ export class SetupSessionLifecycle {
 
         this._durationMs = Number.isFinite(roomConfig?.setupDurationMs)
             && roomConfig.setupDurationMs > 0
-            ? roomConfig.setupDurationMs
+            ? Math.min(roomConfig.setupDurationMs, DEFAULT_SETUP_DURATION_MS)
             : DEFAULT_SETUP_DURATION_MS;
 
         this._devMode = devMode;
@@ -73,7 +73,9 @@ export class SetupSessionLifecycle {
 
         }
 
-        this._durationMs = next;
+        // Admin changes apply only to future rooms; never extend the
+        // authoritative pre-Page5 five-minute ceiling.
+        this._durationMs = Math.min(next, DEFAULT_SETUP_DURATION_MS);
 
         return this._durationMs;
 

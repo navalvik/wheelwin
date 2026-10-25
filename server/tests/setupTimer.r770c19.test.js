@@ -11,7 +11,6 @@ import { EventBus } from "../events/EventBus.js";
 import { SetupSessionLifecycle } from "../gameplay/SetupSessionLifecycle.js";
 import { LoggerService } from "../services/LoggerService.js";
 
-const EIGHT_MIN_MS = 8 * 60 * 1000;
 const FIVE_MIN_MS = 5 * 60 * 1000;
 
 {
@@ -21,13 +20,13 @@ const FIVE_MIN_MS = 5 * 60 * 1000;
 
     assert.equal(
         config.setupDurationMs,
-        EIGHT_MIN_MS,
-        "rooms.js default Setup Timer must be 8 minutes"
+        FIVE_MIN_MS,
+        "rooms.js default Setup Timer must be 5 minutes"
     );
     assert.equal(
         config.paymentSessionDurationMs,
-        EIGHT_MIN_MS,
-        "R18-S16 Payment Session default must be 8 minutes"
+        FIVE_MIN_MS,
+        "Room Payment Session default must be 5 minutes"
     );
     assert.equal(
         config.walletConnectionDurationMs,

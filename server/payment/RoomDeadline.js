@@ -2,7 +2,7 @@
  * Phase 1 — Immutable room deadline value object.
  *
  * R1 / room deadline: every room has exactly one deadline, fixed at
- * `roomCreatedAt + 480000` milliseconds. The value is immutable — it can be
+ * `roomCreatedAt + 300000` milliseconds. The value is immutable — it can be
  * derived but never restarted, extended, or recomputed.
  */
 
@@ -46,7 +46,7 @@ export class RoomDeadline {
     }
 
     /**
-     * Absolute room deadline: exactly `roomCreatedAt + 480000`.
+     * Absolute room deadline: exactly `roomCreatedAt + 300000`.
      */
     get deadlineMs() {
 
@@ -89,7 +89,7 @@ export class RoomDeadline {
 }
 
 /**
- * Factory used by the payment service. Kept explicit so the 480s rule lives in
+ * Factory used by the payment service. Kept explicit so the 300s rule lives in
  * exactly one place.
  *
  * @param {number} roomCreatedAt
