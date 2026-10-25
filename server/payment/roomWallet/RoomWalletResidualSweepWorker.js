@@ -259,7 +259,7 @@ export class RoomWalletResidualSweepWorker {
         });
     }
 
-    async processRoom(roomNumber, { trigger = "manual" } = {}) {
+    async processRoom(roomNumber, { trigger = "manual", gameId = null } = {}) {
         if (!isRoomWalletResidualSweepEnabled(this._env)) {
             return Object.freeze({
                 ok: false,
@@ -277,7 +277,7 @@ export class RoomWalletResidualSweepWorker {
         }
 
         return this._withRoomLock(normalizedRoomNumber, () => (
-            this._processRoomLocked(normalizedRoomNumber, { trigger })
+            this._processRoomLocked(normalizedRoomNumber, { trigger, gameId })
         ));
     }
 
@@ -349,7 +349,7 @@ export class RoomWalletResidualSweepWorker {
         return this._roomWalletAdapter;
     }
 
-    async _processRoomLocked(roomNumber, { trigger }) {
+    async _processRoomLocked(roomNumber, { trigger, gameId = null }) {
         const inFlight = this._repository.findInFlightByRoomNumber(roomNumber);
 
         if (inFlight) {
@@ -575,6 +575,7 @@ export class RoomWalletResidualSweepWorker {
         try {
             record = this._repository.create({
                 roomNumber,
+                gameId,
                 sourceAddress,
                 destinationAddress: destination.address,
                 observedBalanceNano: balanceNano,
