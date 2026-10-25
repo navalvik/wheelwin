@@ -127,10 +127,14 @@ export class TestnetNativeRoomPayoutTransport {
         // destination wallet's incoming message. This is observational,
         // NOT independently finalized; the ledger stays unpaid.
         if(typeof this._outgoingObserver.observeRecipientCredit==="function"){
+            const hasMasterchainCheck=typeof this._outgoingObserver.verifyIndexedRecipientCredit==="function";
+            const observer=hasMasterchainCheck
+                ? this._outgoingObserver.verifyIndexedRecipientCredit.bind(this._outgoingObserver)
+                : this._outgoingObserver.observeRecipientCredit.bind(this._outgoingObserver);
             const legs=[{role:"winner",transfer:winner,sourceTx:win.transactionId},
                 {role:"owner",transfer:owner,sourceTx:out.transactionId}];
             const credited=await Promise.allSettled(legs.map(({transfer,sourceTx})=>
-                this._outgoingObserver.observeRecipientCredit({
+                observer({
                     sourceWalletAddress:wallet.address,
                     destinationIdentity:transfer.address,
                     transactionId:sourceTx,
@@ -141,7 +145,9 @@ export class TestnetNativeRoomPayoutTransport {
             const accepted=credited.map((result,index)=>{
                 if(result.status!=="fulfilled")return false;
                 const value=result.value, leg=legs[index];
-                return value?.status==="RECIPIENT_CREDIT_OBSERVED_UNFINALIZED"
+                return value?.status===(hasMasterchainCheck
+                    ? "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
+                    : "RECIPIENT_CREDIT_OBSERVED_UNFINALIZED")
                     &&value.sourceTransactionId===leg.sourceTx
                     &&typeof value.recipientTransactionId==="string"
                     &&value.recipientTransactionId.length>0
@@ -149,7 +155,9 @@ export class TestnetNativeRoomPayoutTransport {
                     &&canonical(value.destinationAddress)===canonical(leg.transfer.address);
             });
             if(accepted.every(Boolean))return Object.freeze({
-                status:"BOTH_RECIPIENT_CREDITS_OBSERVED_UNFINALIZED",
+                status:hasMasterchainCheck
+                    ? "BOTH_MASTERCHAIN_INDEXED_CREDITS_OBSERVED_UNFINALIZED"
+                    : "BOTH_RECIPIENT_CREDITS_OBSERVED_UNFINALIZED",
                 payoutId,
                 winnerTransactionId:win.transactionId,
                 ownerTransactionId:out.transactionId,
