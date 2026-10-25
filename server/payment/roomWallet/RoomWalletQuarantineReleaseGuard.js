@@ -371,7 +371,10 @@ export class RoomWalletQuarantineReleaseGuard {
                 headHash: head.headHash,
                 historyHash,
                 verifiedAtMs: this._now(),
-                settledIntents: settled
+                settledIntents: [
+                    ...settled,
+                    ...verifiedSweepReceipts.map(x => x.recordId)
+                ]
             }
         });
     }
