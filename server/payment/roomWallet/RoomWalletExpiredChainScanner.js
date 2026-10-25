@@ -184,7 +184,24 @@ export async function fetchExpiredRoomWalletHistory({
         toncenterTransactions: b.transactions,
         expectedRoomWalletRaw: rawAddress
     });
+    // Keep the actual account-history tip independent of the session window.
+    // A room with ZERO deposits may have an older wallet transaction; it
+    // still needs a two-provider head witness before being released.
+    const tipA = a.transactions[0] ?? null;
+    const tipB = b.transactions[0] ?? null;
+    const tipIdentity = tx => tx ? Object.freeze({
+        lt: String(tx.lt ?? tx.transaction_id?.lt),
+        hash: normalizeTonTransactionHash(tx.hash ?? tx.transaction_id?.hash)
+    }) : null;
+    const currentA = tipIdentity(tipA);
+    const currentB = tipIdentity(tipB);
+    if ((currentA === null) !== (currentB === null)
+        || (currentA && (currentA.lt !== currentB.lt
+            || currentA.hash !== currentB.hash))) {
+        throw new RoomWalletEvidenceUnavailable("HISTORY_PROVIDER_HEADS_DISAGREE");
+    }
     return Object.freeze({
+        accountTip: currentA,
         source: matching.source,
         transactions: Object.freeze(
             matching.transactions.filter(tx => tx.utime >= cutoffSeconds)
