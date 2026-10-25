@@ -4935,6 +4935,7 @@ export class RoomLobbyBridge {
                 reason,
                 paymentReference: intent.paymentReference,
                 amountAtomic: intent.amountAtomic,
+                payerAddress: intent.expectedSender,
                 destinationWalletAddress: intent.destinationWalletAddress,
                 expiresAt: intent.expiresAt ?? null,
                 network: intent.network,
