@@ -150,6 +150,14 @@ export class TestnetNativeRoomPayoutTransport {
                 return value?.status===(hasMasterchainCheck
                     ? "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
                     : "RECIPIENT_CREDIT_OBSERVED_UNFINALIZED")
+                    &&(!hasMasterchainCheck || (value.globalId===-3
+                        &&value.sourceFinality==="finalized"
+                        &&value.recipientFinality==="finalized"
+                        &&Number.isSafeInteger(value.sourceMcBlockSeqno)
+                        &&Number.isSafeInteger(value.recipientMcBlockSeqno)
+                        &&Number.isSafeInteger(value.latestIndexedMcBlockSeqno)
+                        &&value.latestIndexedMcBlockSeqno>value.sourceMcBlockSeqno
+                        &&value.latestIndexedMcBlockSeqno>value.recipientMcBlockSeqno))
                     &&value.sourceTransactionId===leg.sourceTx
                     &&typeof value.recipientTransactionId==="string"
                     &&value.recipientTransactionId.length>0
