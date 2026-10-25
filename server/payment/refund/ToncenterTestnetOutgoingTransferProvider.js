@@ -44,21 +44,30 @@ export class ToncenterTestnetOutgoingTransferProvider {
         this._now=nowProvider;
         this._window=lookbackMs;
     }
-    async _history(sourceWalletAddress){
+    async _history(sourceWalletAddress,{minCreatedAtMs=null}={}){
         if(tonAddressIdentityOrNull(sourceWalletAddress)===null)
             throw new Error("OUTGOING_SOURCE_ADDRESS_INVALID");
         const nowMs=this._now();
         if(!Number.isSafeInteger(nowMs)||nowMs<this._window)
             throw new Error("OUTGOING_HISTORY_TIME_INVALID");
+        if(minCreatedAtMs!==null && (!Number.isSafeInteger(minCreatedAtMs)
+            || minCreatedAtMs<0 || minCreatedAtMs>nowMs))
+            throw new Error("OUTGOING_HISTORY_START_INVALID");
+        const minStartMs=minCreatedAtMs===null?nowMs-this._window
+            :Math.max(nowMs-this._window,minCreatedAtMs);
         const response=await this._client.getTransactions({
             account:sourceWalletAddress,
-            startUtime:Math.floor((nowMs-this._window)/1000),
+            startUtime:Math.floor(minStartMs/1000),
             endUtime:Math.floor(nowMs/1000),
             limit:1000
         });
         if(!Array.isArray(response?.transactions))
             throw new Error("OUTGOING_TRANSACTIONS_UNAVAILABLE");
-        return response.transactions;
+        return response.transactions.filter(row=>
+            minCreatedAtMs===null ||
+            (Number.isSafeInteger(row?.now)
+                && row.now>=Math.floor(minCreatedAtMs/1000))
+        );
     }
     async getOutgoingTransfer({sourceWalletAddress,transactionId}={}){
         if(typeof transactionId!=="string"||!transactionId.trim())return null;
@@ -70,10 +79,10 @@ export class ToncenterTestnetOutgoingTransferProvider {
         // ordinary internal transfer. Extra outputs are held for inspection.
         return outputs.length===1?outputs[0]:null;
     }
-    async findOutgoingTransfer({sourceWalletAddress,destinationIdentity,amountAtomic}={}){
+    async findOutgoingTransfer({sourceWalletAddress,destinationIdentity,amountAtomic,minCreatedAtMs=null}={}){
         if(tonAddressIdentityOrNull(destinationIdentity)===null
             ||!Number.isSafeInteger(amountAtomic)||amountAtomic<=0)return null;
-        const transactions=await this._history(sourceWalletAddress);
+        const transactions=await this._history(sourceWalletAddress,{minCreatedAtMs});
         const matches=[];
         for(const row of transactions){
             const outputs=mapOutputs(row,sourceWalletAddress);
