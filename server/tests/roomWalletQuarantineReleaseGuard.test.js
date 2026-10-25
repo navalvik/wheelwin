@@ -368,6 +368,7 @@ test("post-Page5 wallet remains quarantined until BOTH authoritative payouts fin
         isRoomActive: () => false,
         now: () => NOW + 20 * 60 * 1000
     });
+    let closer = buildCloser();
 
     await assert.rejects(
         closer.tryRelease({ recordId: marker.recordId }),
@@ -398,7 +399,6 @@ test("post-Page5 wallet remains quarantined until BOTH authoritative payouts fin
             }
         });
     }
-    let closer = buildCloser();
     confirm("WINNER", 41);
     await assert.rejects(
         closer.tryRelease({ recordId: marker.recordId }),
