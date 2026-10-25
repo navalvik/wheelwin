@@ -95,6 +95,14 @@ export function reconcileDualSourceTransactions({
     const normalizeProvider = transactions => {
         const byLt = new Map();
         for (const tx of transactions) {
+            // Both TonAPI and TON Center v3 normally identify the queried
+            // account, using an object or an uppercase raw address. A
+            // mismatched or malformed explicit account is NOT evidence from
+            // the expected Room Wallet even if inbound destination matches.
+            if (tx?.account != null
+                && normalizeRawTonAddress(tx.account) !== expected) {
+                throw new RoomWalletEvidenceUnavailable("EVIDENCE_ACCOUNT_MISMATCH");
+            }
             const parsed = normalizeEntry(tx);
             const inbound = tx?.in_msg ?? tx?.inMessage;
             if (inbound) {
