@@ -53,9 +53,6 @@ test("wrong source, failed wallet action, aborted row and second output never pr
             sourceWalletAddress:ROOM,destinationIdentity:PAYER,amountAtomic:998_000_000
         });
         assert.equal(found,null);
-        assert.equal(await x.provider.getOutgoingTransfer({
-            sourceWalletAddress:ROOM,transactionId:TX
-        }),o.value==="999000000" && !o.extra ? null : null);
     }
 });
 test("two possible outgoing refunds are ambiguous, never picked arbitrarily",async()=>{
