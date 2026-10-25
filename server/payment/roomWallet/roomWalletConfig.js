@@ -80,7 +80,9 @@ export function assertRoomWalletSettlementCanBeEnabled(service) {
 export function composeRoomWalletSettlementRouter({
     tonService = null,
     logger = null,
-    env = process.env
+    env = process.env,
+    financialPersistence = null,
+    signerLockDirectory = null
 } = {}) {
     const enableSettlement = isRoomWalletOnlyFinancialPath({ env });
 
@@ -99,7 +101,9 @@ export function composeRoomWalletSettlementRouter({
     const service = createRoomWalletService({
         tonService,
         logger,
-        env
+        env,
+        financialPersistence,
+        signerLockDirectory
     });
 
     assertRoomWalletSettlementCanBeEnabled(service);
