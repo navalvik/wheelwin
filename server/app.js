@@ -1525,7 +1525,13 @@ class WheelWinApplication {
         this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
             tonService: this._services?.tonService ?? null,
             logger: this._logger,
-            env: process.env
+            env: process.env,
+            financialPersistence: this._financialPersistence,
+            // Same canonical durable directory used by the read-only
+            // confirmation worker. Never use a process-local temp lock.
+            signerLockDirectory: join(
+                financialDataDir, "room-wallet-outbound-signer-locks"
+            )
         });
 
         this._logger.startupLine(
