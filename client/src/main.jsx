@@ -3,6 +3,7 @@ import "./polyfills/browserPolyfills";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { TonConnectUIProvider } from "@tonconnect/ui-react";
 
 import App from "./App.jsx";
 
@@ -32,11 +33,15 @@ ReactDOM.createRoot(document.getElementById("root")).render(
 
     <React.StrictMode>
 
-        <BrowserRouter>
+        <TonConnectUIProvider manifestUrl={`${window.location.origin}/tonconnect-manifest.json`}>
 
-            <App />
+            <BrowserRouter>
 
-        </BrowserRouter>
+                <App />
+
+            </BrowserRouter>
+
+        </TonConnectUIProvider>
 
     </React.StrictMode>
 
