@@ -5,6 +5,7 @@ import { Room } from "../models/Room.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import { generateRoomId } from "./room/roomIdAlphabet.js";
 import { ROOM_WALLET_COUNT } from "../payment/roomWallet/RoomWalletRegistry.js";
+import { MAX_SAFE_CONCURRENT_ROOMS } from "../config/rooms.js";
 
 export class RoomManager {
 
@@ -24,6 +25,7 @@ export class RoomManager {
         // player funds. Installed by finance bootstrap after persisted recovery
         // state has been restored; never silently fall back on gate failure.
         this._roomWalletAllocationGuard = null;
+        this._roomWalletDestructionGuard = null;
 
         this._playerRoomIndex = new Map();
 
@@ -67,6 +69,14 @@ export class RoomManager {
 
         this._roomWalletAllocationGuard = guard;
 
+    }
+
+    /** Synchronous, persistent pre-destroy safety barrier. Fail closed on errors. */
+    attachRoomWalletDestructionGuard(guard) {
+        if (!guard || typeof guard.prepareRoomForDestruction !== "function") {
+            throw new TypeError("Room Wallet destruction guard must implement prepareRoomForDestruction");
+        }
+        this._roomWalletDestructionGuard = guard;
     }
 
     initialize() {
@@ -517,6 +527,21 @@ export class RoomManager {
             gameId: forensics.gameId ?? null
         });
 
+        // A wallet must remain owned by the room until its financial
+        // reconciliation quarantine is durably written. A storage failure
+        // prevents destruction and, crucially, prevents wallet reallocation.
+        if (this._roomWalletDestructionGuard) {
+            try {
+                this._roomWalletDestructionGuard.prepareRoomForDestruction(room);
+            } catch (error) {
+                this._logger.error(
+                    `Room destruction blocked: cannot persist financial guard | roomId=${roomId}`
+                        + ` | code=${error?.code ?? error?.name ?? "unknown"}`
+                );
+                return false;
+            }
+        }
+
         room.status = ROOM_STATUS.DESTROYED;
 
         this._logger.info(`Room Destroyed: ${roomId}`);
@@ -852,11 +877,11 @@ export class RoomManager {
 
         if (Number.isFinite(configured) && configured > 0) {
 
-            return configured;
+            return Math.min(MAX_SAFE_CONCURRENT_ROOMS, configured);
 
         }
 
-        return 64;
+        return MAX_SAFE_CONCURRENT_ROOMS;
 
     }
 
