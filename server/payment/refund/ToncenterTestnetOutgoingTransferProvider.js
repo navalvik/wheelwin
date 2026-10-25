@@ -69,6 +69,60 @@ export class ToncenterTestnetOutgoingTransferProvider {
                 && row.now>=Math.floor(minCreatedAtMs/1000))
         );
     }
+
+    /**
+     * Correlate a source wallet's outgoing internal message to the exact
+     * destination wallet's incoming message by message hash. A source-side
+     * transaction alone never proves that the recipient was credited.
+     *
+     * This is TWO independent account-history reads. Historical inclusion is
+     * NOT a finality certificate; the result is deliberately unfinalized.
+     */
+    async observeRecipientCredit({
+        sourceWalletAddress,destinationIdentity,transactionId,
+        amountAtomic,minCreatedAtMs=null
+    }={}){
+        if(typeof transactionId!=="string"||!transactionId.trim()
+            ||tonAddressIdentityOrNull(sourceWalletAddress)===null
+            ||tonAddressIdentityOrNull(destinationIdentity)===null
+            ||!Number.isSafeInteger(amountAtomic)||amountAtomic<=0)return null;
+        const [sourceRows,recipientRows]=await Promise.all([
+            this._history(sourceWalletAddress,{minCreatedAtMs}),
+            this._history(destinationIdentity,{minCreatedAtMs})
+        ]);
+        const sourceTx=sourceRows.filter(row=>row.hash===transactionId
+            &&row.description?.aborted===false
+            &&row.description?.action?.success===true
+            &&tonAddressIdentitiesEqual(row.account,sourceWalletAddress)
+            &&Array.isArray(row.out_msgs)&&row.out_msgs.length===1);
+        if(sourceTx.length!==1)return null;
+        const message=sourceTx[0].out_msgs[0];
+        if(typeof message?.hash!=="string"||!message.hash.trim()
+            ||!tonAddressIdentitiesEqual(message.source,sourceWalletAddress)
+            ||!tonAddressIdentitiesEqual(message.destination,destinationIdentity)
+            ||parseAmount(message.value)!==amountAtomic
+            ||message.bounced===true)return null;
+        const matches=recipientRows.filter(row=>
+            typeof row.hash==="string" && row.hash.trim()!==""
+            &&tonAddressIdentitiesEqual(row.account,destinationIdentity)
+            &&row.description?.aborted===false
+            &&row.in_msg?.hash===message.hash
+            &&tonAddressIdentitiesEqual(row.in_msg?.source,sourceWalletAddress)
+            &&tonAddressIdentitiesEqual(row.in_msg?.destination,destinationIdentity)
+            &&parseAmount(row.in_msg?.value)===amountAtomic
+            &&row.in_msg?.bounced!==true
+        );
+        if(matches.length!==1)return null;
+        return Object.freeze({
+            status:"RECIPIENT_CREDIT_OBSERVED_UNFINALIZED",
+            sourceTransactionId:transactionId,
+            recipientTransactionId:matches[0].hash,
+            messageHash:message.hash,
+            sourceWalletAddress,
+            destinationAddress:destinationIdentity,
+            amountAtomic
+        });
+    }
     async getOutgoingTransfer({sourceWalletAddress,transactionId}={}){
         if(typeof transactionId!=="string"||!transactionId.trim())return null;
         const transactions=await this._history(sourceWalletAddress);
