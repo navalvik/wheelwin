@@ -267,9 +267,9 @@ export class RoomWalletAdapter {
      */
     async prepareSignedTransfer({
         roomNumber, roomWallet, recipientWallet, amountNano,
-        recipientGasChargeNano, role
+        recipientGasChargeNano, sourceRetainedFloorNano = null, role
     } = {}) {
-        if (!["REFUND", "WINNER", "OWNER"].includes(role)) {
+        if (!["REFUND", "WINNER", "OWNER", "SWEEP"].includes(role)) {
             throw new Error("UNSUPPORTED_GUARDED_ROOM_WALLET_ROLE");
         }
         if (typeof amountNano !== "string" || !/^[1-9]\d*$/.test(amountNano)
@@ -286,6 +286,17 @@ export class RoomWalletAdapter {
         }
         const amount = BigInt(amountNano);
         const reserve = BigInt(recipientGasChargeNano);
+        let requiredBalance = amount + reserve;
+        if (role === "SWEEP") {
+            if (amountNano !== "490000000"
+                || recipientGasChargeNano !== "6000000"
+                || sourceRetainedFloorNano !== "10000000") {
+                throw new Error("GUARDED_SWEEP_SOURCE_GAS_POLICY_MISMATCH");
+            }
+            // The historical 0.50 GRAM trigger is 0.49 transfer plus
+            // 0.01 source envelope (0.006 fee + 0.004 safety margin).
+            requiredBalance = amount + BigInt(sourceRetainedFloorNano);
+        }
         const safety = await this._awaitOutboundSequenceSafety(identity);
         if (!safety.ok) throw new Error(safety.code);
 
@@ -301,7 +312,7 @@ export class RoomWalletAdapter {
             throw new Error("GUARDED_SIGNER_SEQNO_INVALID");
         }
         const balance = await this._tonService.getBalance(identity.address);
-        if (BigInt(balance) < amount + reserve) {
+        if (BigInt(balance) < requiredBalance) {
             throw new Error("GUARDED_SIGNER_INSUFFICIENT_BALANCE");
         }
 
