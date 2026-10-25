@@ -29,11 +29,13 @@ function logEvent(path,record,exclusive) {
 
 export class TestnetNativeRoomPayoutTransport {
     constructor({walletPool,walletResolver,tonService,dataDir,logger=null,adapter=null,
-        outgoingObserver=null}={}) {
+        outgoingObserver=null,independentVerifier=null,ledger=null}={}) {
         assert(walletPool && typeof dataDir==="string" && dataDir,"PAYOUT_RUNTIME_UNAVAILABLE");
         assert(adapter || (walletResolver && tonService),"PAYOUT_WALLET_ADAPTER_MISSING");
         this._pool=walletPool;
         this._outgoingObserver=outgoingObserver;
+        this._independentVerifier=independentVerifier;
+        this._ledger=ledger;
         this._adapter=adapter ?? new RoomWalletAdapter({
             walletResolver,tonService,logger,gasReserveNano:RETAINED_NANO
         });
@@ -162,7 +164,9 @@ export class TestnetNativeRoomPayoutTransport {
                 winnerTransactionId:win.transactionId,
                 ownerTransactionId:out.transactionId,
                 winnerRecipientTransactionId:credited[0].value.recipientTransactionId,
-                ownerRecipientTransactionId:credited[1].value.recipientTransactionId
+                ownerRecipientTransactionId:credited[1].value.recipientTransactionId,
+                winnerMessageHash:credited[0].value.messageHash ?? null,
+                ownerMessageHash:credited[1].value.messageHash ?? null
             });
             return Object.freeze({
                 status:"RECIPIENT_CREDIT_CONFIRMATION_PENDING",payoutId,
@@ -176,6 +180,77 @@ export class TestnetNativeRoomPayoutTransport {
             winnerTransactionId:win.transactionId,
             ownerTransactionId:out.transactionId
         });
+    }
+    /**
+     * Idempotent ledger closing requires THREE independent conditions:
+     *   1. Both legs are historically finalized on TON Center source+recipient.
+     *   2. An independent Testnet indexer confirms the same two message hashes,
+     *      destination credits, and source transaction fees.
+     *   3. A previously persisted outgoing claim and ledger plan match exactly.
+     *
+     * No second source or missing fee => keep both obligations OPEN.
+     * Never signs, sends, or guesses actual chain fees.
+     */
+    async reconcileAndSettle(query) {
+        const observed=await this.reconcile(query);
+        if(observed.status!=="BOTH_MASTERCHAIN_INDEXED_CREDITS_OBSERVED_UNFINALIZED")
+            return Object.freeze({...observed,autoSettlement:false});
+        if(typeof this._independentVerifier?.verifyTransfer!=="function"
+            ||typeof this._ledger?.settlePayout!=="function")
+            return Object.freeze({status:"INDEPENDENT_FINALITY_VERIFIER_UNAVAILABLE",
+                payoutId:query.payoutId,autoSettlement:false});
+        const roles=[
+            {role:"WINNER",hash:observed.winnerTransactionId,
+                recipientTxHash:observed.winnerRecipientTransactionId,
+                messageHash:observed.winnerMessageHash},
+            {role:"OWNER",hash:observed.ownerTransactionId,
+                recipientTxHash:observed.ownerRecipientTransactionId,
+                messageHash:observed.ownerMessageHash}
+        ];
+        const transfers=query.plan?.transfers ?? [];
+        const verified=[];
+        for(const leg of roles){
+            const transfer=transfers.find(t=>t.recipientRole===leg.role);
+            if(!transfer||!leg.messageHash) return Object.freeze({
+                status:"PAYOUT_INDEPENDENT_CHECK_PENDING",payoutId:query.payoutId,autoSettlement:false});
+            const proof=await this._independentVerifier.verifyTransfer({
+                sourceTransactionId:leg.hash,
+                recipientTransactionId:leg.recipientTxHash,
+                messageHash:leg.messageHash,
+                sourceWalletAddress:query.roomWalletAddress,
+                destinationAddress:transfer.address,
+                amountAtomic:transfer.netAtomic
+            });
+            if(proof?.status!=="INDEPENDENT_INDEXED_CREDIT_OBSERVED"
+                ||proof.provider!=="tonapi-testnet"
+                ||proof.sourceTransactionId!==leg.hash
+                ||proof.recipientTransactionId!==leg.recipientTxHash
+                ||proof.messageHash!==leg.messageHash
+                ||proof.amountAtomic!==transfer.netAtomic
+                ||canonical(proof.destinationAddress)!==canonical(transfer.address)
+                ||canonical(proof.sourceWalletAddress)!==canonical(query.roomWalletAddress)
+                ||!Number.isSafeInteger(proof.actualFeeAtomic)
+                ||proof.actualFeeAtomic<0)
+                return Object.freeze({status:"PAYOUT_INDEPENDENT_CHECK_PENDING",
+                    payoutId:query.payoutId,autoSettlement:false});
+            verified.push({transfer,proof});
+        }
+        // After *both* legs were independently verified, append settlements.
+        // If the process crashes between the two append operations, the
+        // ledger's payoutId:recipientId idempotency key finishes on retry.
+        const results=verified.map(({transfer,proof})=>
+            this._ledger.settlePayout({
+                payoutId:query.payoutId,recipientId:transfer.recipientId,
+                executionResult:{
+                    transactionId:proof.sourceTransactionId,
+                    actualFeeAtomic:proof.actualFeeAtomic,
+                    settledAtMs:Date.now()
+                }
+            })
+        );
+        return Object.freeze({status:"BOTH_PAYOUTS_SETTLED_FROM_DUAL_FINALITY",
+            payoutId:query.payoutId,autoSettlement:true,
+            replay:results.every(r=>r.replay===true)});
     }
     async submit({roomId,payoutId,roomWalletAddress,winnerWallet,ownerWallet,plan}) {
         assert(typeof payoutId==="string"&&SAFE_PAYOUT_ID.test(payoutId),
