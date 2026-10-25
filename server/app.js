@@ -1803,7 +1803,9 @@ class WheelWinApplication {
             eventBus: this._eventBus,
             logger: this._logger,
             env: process.env,
-            tonService: this._services?.tonService ?? null
+            tonService: this._services?.tonService ?? null,
+            roomWalletAdapter: this._roomWalletSettlementRouter?.activeAdapter?._roomWalletAdapter ?? null,
+            guardedPayoutCoordinator: this._roomWalletSettlementRouter?.activeAdapter?._guardedPayoutCoordinator ?? null
         });
 
         this._roomWalletResidualSweepWorker.initialize();
