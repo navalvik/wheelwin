@@ -74,3 +74,43 @@ test("unavailable network data, invalid source and missing tx fail closed",async
         sourceWalletAddress:"invalid",transactionId:TX
     }),/INVALID/);
 });
+
+test("historical same-recipient same-amount transfer does NOT satisfy a new payout claim",async()=>{
+    const old=row({hash:"1".repeat(64)});
+    const recent=row({hash:"2".repeat(64)});
+    old.now=Math.floor((NOW-90_000)/1000);
+    recent.now=Math.floor((NOW-1_000)/1000);
+    const x=history([old,recent]);
+    const newest=await x.provider.findOutgoingTransfer({
+        sourceWalletAddress:ROOM,destinationIdentity:PAYER,amountAtomic:998_000_000,
+        minCreatedAtMs:NOW-10_000
+    });
+    assert.equal(newest.transactionId,recent.hash);
+    assert.equal(x.requests[0].startUtime,Math.floor((NOW-10_000)/1000));
+    const oldOnly=history([old]);
+    assert.equal(await oldOnly.provider.findOutgoingTransfer({
+        sourceWalletAddress:ROOM,destinationIdentity:PAYER,amountAtomic:998_000_000,
+        minCreatedAtMs:NOW-10_000
+    }),null);
+});
+
+test("invalid or future claim times fail closed instead of silently searching all history",async()=>{
+    const x=history([row()]);
+    for(const minCreatedAtMs of [-1,NaN,"100",NOW+5_000]){
+        await assert.rejects(x.provider.findOutgoingTransfer({
+            sourceWalletAddress:ROOM,destinationIdentity:PAYER,amountAtomic:998_000_000,
+            minCreatedAtMs
+        }),/OUTGOING_HISTORY_START_INVALID/);
+    }
+    assert.equal(x.requests.length,0);
+});
+
+test("bounded history excludes transaction rows missing trustworthy epoch-seconds",async()=>{
+    const unclocked=row();
+    delete unclocked.now;
+    const x=history([unclocked]);
+    assert.equal(await x.provider.findOutgoingTransfer({
+        sourceWalletAddress:ROOM,destinationIdentity:PAYER,amountAtomic:998_000_000,
+        minCreatedAtMs:NOW-5_000
+    }),null);
+});
