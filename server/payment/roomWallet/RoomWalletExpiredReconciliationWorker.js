@@ -27,6 +27,7 @@ export class RoomWalletExpiredReconciliationWorker {
     constructor({
         repository,
         financialPersistence,
+        scanMutex = null,
         logger = null,
         scanner = fetchExpiredRoomWalletHistory,
         requestBudget = null,
@@ -40,6 +41,7 @@ export class RoomWalletExpiredReconciliationWorker {
         if (typeof repository?.listOpenQuarantines !== "function"
             || typeof repository?.persistReconciliation !== "function"
             || typeof financialPersistence?.loadPaymentSession !== "function"
+            || (scanMutex != null && typeof scanMutex?.runExclusive !== "function")
             || typeof scanner !== "function" || typeof now !== "function"
             || typeof fetchImpl !== "function"
             || (requestBudget !== null && typeof requestBudget?.schedule !== "function")
@@ -53,6 +55,7 @@ export class RoomWalletExpiredReconciliationWorker {
 
         this._repository = repository;
         this._financialPersistence = financialPersistence;
+        this._scanMutex = scanMutex;
         this._logger = logger;
         this._scanner = scanner;
         this._requestBudget = requestBudget;
@@ -119,7 +122,11 @@ export class RoomWalletExpiredReconciliationWorker {
                 results.attempted++;
                 const previous = this._attempts.get(item.recordId);
                 try {
-                    const result = await this._reconcileOne(item);
+                    const result = this._scanMutex
+                        ? await this._scanMutex.runExclusive(
+                            Number(item.payload.roomNumber),
+                            () => this._reconcileOne(item))
+                        : await this._reconcileOne(item);
                     if (this._stopped) break;
                     results.persisted++;
                     results.newObligations += result.obligationsCreated;
