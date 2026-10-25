@@ -375,6 +375,14 @@ export class RoomWalletResidualSweepWorker {
         const inFlight = this._repository.findInFlightByRoomNumber(roomNumber);
 
         if (inFlight) {
+            // In guarded Testnet mode the legacy watcher must NEVER observe
+            // or confirm an existing sweep by txHash alone. Even a repeated
+            // settlement trigger or an already-ambiguous PROCESSING record
+            // must go back through the persisted signed-intent coordinator;
+            // that path is idempotent and never blindly re-broadcasts.
+            if (this._guardedOnly) {
+                return this._submitExisting(inFlight.recordId);
+            }
             if (String(inFlight.payload?.txHash ?? "").trim()) {
                 this._watchExisting(inFlight);
                 this._logSweep({
