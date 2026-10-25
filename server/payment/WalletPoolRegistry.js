@@ -741,6 +741,11 @@ export class WalletPoolRegistry {
     }
 
     _isQuarantined(wallet) {
+        // Wallet #1 holds unresolved oj7v funds and is unavailable for a new
+        // Testnet room, even when Railway has no optional quarantine variable.
+        if (wallet?.network === "testnet" && wallet.roomNumber === 1) {
+            return true;
+        }
         const values = String(process.env.ROOM_WALLET_QUARANTINED_NUMBERS ?? "")
             .split(",").map(value => value.trim()).filter(Boolean);
         return values.includes(String(wallet.roomNumber));
