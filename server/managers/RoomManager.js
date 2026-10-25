@@ -20,6 +20,11 @@ export class RoomManager {
 
         this._occupiedRoomNumbers = new Set();
 
+        // Optional durable safety gate: a closed room's wallet may still hold
+        // player funds. Installed by finance bootstrap after persisted recovery
+        // state has been restored; never silently fall back on gate failure.
+        this._roomWalletAllocationGuard = null;
+
         this._playerRoomIndex = new Map();
 
         this._roomListeners = new Map();
@@ -51,6 +56,16 @@ export class RoomManager {
     attachLifecycleGate(lifecycleGate) {
 
         this._lifecycleGate = lifecycleGate;
+
+    }
+
+    attachRoomWalletAllocationGuard(guard) {
+
+        if (!guard || typeof guard.isRoomNumberQuarantined !== "function") {
+            throw new TypeError("Room Wallet allocation guard must implement isRoomNumberQuarantined");
+        }
+
+        this._roomWalletAllocationGuard = guard;
 
     }
 
@@ -849,7 +864,8 @@ export class RoomManager {
 
         for (let roomNumber = 1; roomNumber <= ROOM_WALLET_COUNT; roomNumber += 1) {
 
-            if (!this._occupiedRoomNumbers.has(roomNumber)) {
+            if (!this._occupiedRoomNumbers.has(roomNumber)
+                && this._roomWalletAllocationGuard?.isRoomNumberQuarantined(roomNumber) !== true) {
 
                 this._occupiedRoomNumbers.add(roomNumber);
 
@@ -883,6 +899,16 @@ export class RoomManager {
 
                 this._logger.error(
                     `Room attach failed: invalid roomNumber (${room.roomNumber})`
+                );
+
+                return false;
+
+            }
+
+            if (this._roomWalletAllocationGuard?.isRoomNumberQuarantined(room.roomNumber) === true) {
+
+                this._logger.error(
+                    `Room attach blocked: Room Wallet financial reconciliation pending (${room.roomNumber})`
                 );
 
                 return false;
