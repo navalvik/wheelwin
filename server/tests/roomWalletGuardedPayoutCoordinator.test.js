@@ -130,32 +130,66 @@ test("refund with no authoritative payer obligation IDs never executes", async (
             }]
         }
     });
-    assert.equal(result.code, "GUARDED_REFUND_PROOF_NOT_AUTHORIZED");
+    assert.equal(result.code, "GUARDED_REFUND_FROZEN_PLAN_AND_EVIDENCE_REQUIRED");
     assert.equal(result.ok, false);
     assert.equal(f.events.length, 0);
 });
 
-test("frozen three-player refund intents are queued sequentially, not simultaneously", async () => {
+test("verified room/game/session debts allow one guarded refund at a time", async () => {
     const f = fixture();
+    const roomId = "oj7v", gameId = "game_oj7v";
+    const paymentSessionId = "pay_oj7v";
+    const roomWallet = "0:" + "1".repeat(64);
     const refunds = ["Olga", "Lena", "Bob"].map((name, index) => ({
         playerId: name,
         wallet: "0:" + String(index + 3).repeat(64),
-        amountNano: "1000000000",
-        refundObligationId: "rwrefund_" + String(index + 4).repeat(64),
-        frozenGasPlanHash: "e".repeat(64)
+        amountNano: "1000000000"
     }));
-    const entries = refunds.map(t => ({
-        playerId: t.playerId, wallet: t.wallet,
+    const entries = refunds.map(target => ({
+        playerId: target.playerId, wallet: target.wallet,
         grossRefundNano: "1000000000",
         recipientGasChargeNano: "1000000",
         recipientTransferAmountNano: "999000000"
     }));
+    const refundPlan = { mode: "RECIPIENT_PAYS_GAS", entries };
+    f.guarded._financialPersistence = {
+        loadPaymentSession(id) {
+            assert.equal(id, paymentSessionId);
+            return { payload: {
+                network: "testnet",
+                roomId, gameId, paymentSessionId, roomNumber: 1,
+                roomWalletAddress: roomWallet,
+                recoveryMetadata: { refundPlan }
+            }};
+        }
+    };
+    const records = refunds.map((target, i) => ({
+        recordId: "rwrefund_" + String(i + 4).repeat(64),
+        status: "ACTIVE",
+        payload: {
+            kind: "ROOM_WALLET_REFUND_OBLIGATION",
+            network: "testnet",
+            executionAllowed: true,
+            state: "REFUND_RECONCILIATION_REQUIRED",
+            roomId, gameId, paymentSessionId, roomNumber: 1,
+            playerId: target.playerId, recipientWallet: target.wallet,
+            fromRoomWallet: roomWallet, grossRefundNano: "1000000000"
+        }
+    }));
+    f.guarded._refundRepository = {
+        listRefundObligations({ roomId: id }) {
+            assert.equal(id, roomId);
+            return records;
+        }
+    };
     f.guarded._journal.createRefundPlan = ({ obligationId }) => {
-        const n = refunds.findIndex(t => t.refundObligationId === obligationId);
-        if (n < 0) throw new Error("NO_PROOF");
-        const intentId = "rwout_" + String(n + 5).repeat(64);
-        f.states.set(intentId, { status: "ACTIVE", state: "PLANNED",
-            roomNumber: 1, destinationWallet: refunds[n].wallet });
+        const i = records.findIndex(item => item.recordId === obligationId);
+        if (i < 0) throw new Error("NO_CHAIN_BACKED_DEBT");
+        const intentId = "rwout_" + String(i + 5).repeat(64);
+        f.states.set(intentId, {
+            status: "ACTIVE", state: "PLANNED",
+            destinationWallet: refunds[i].wallet
+        });
         return { intentId };
     };
     const originalLoad = f.guarded._journal.load;
@@ -163,15 +197,33 @@ test("frozen three-player refund intents are queued sequentially, not simultaneo
         const record = originalLoad(id);
         return {
             ...record,
-            payload: { ...record.payload, roomNumber: 1 }
+            payload: {
+                ...record.payload, roomNumber: 1, roomId, gameId,
+                paymentSessionId, roomWallet
+            }
         };
     };
+
+    // Olga's original refund could already have been paid and excluded from
+    // the pending targets. The frozen refundPlan still covers all 3 players.
     const result = await f.guarded.refundPayments({
-        roomNumber: 1, refunds,
-        refundPlan: { mode: "RECIPIENT_PAYS_GAS", entries }
+        roomId, gameId, paymentSessionId, roomNumber: 1,
+        refunds: refunds.slice(1),
+        refundPlan
     });
     assert.equal(result.code, "GUARDED_REFUND_CONFIRMATION_PENDING");
     assert.equal(result.results.length, 1);
+    assert.equal(result.results[0].playerId, "Lena");
+    assert.equal(f.events.filter(x => x.startsWith("execute")).length, 1);
+
+    // Same player wallet reused in a DIFFERENT game cannot borrow the debt.
+    const otherGame = await f.guarded.refundPayments({
+        roomId, gameId: "another_game",
+        paymentSessionId, roomNumber: 1,
+        refunds: refunds.slice(1), refundPlan
+    });
+    assert.equal(otherGame.ok, false);
+    assert.equal(otherGame.code, "GUARDED_REFUND_PROOF_NOT_AUTHORIZED");
     assert.equal(f.events.filter(x => x.startsWith("execute")).length, 1);
 });
 
