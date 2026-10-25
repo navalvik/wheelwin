@@ -17,8 +17,7 @@ export class ActiveRoomObservationBudget {
         this._interval = intervalMs;
         this._maxPerSecond = maxPerSecond;
         this._last = new Map();
-        this._windowSecond = null;
-        this._windowCount = 0;
+        this._recentProviderCalls = [];
     }
     claim(roomId, nowMs = Date.now()) {
         if (typeof roomId !== "string" || roomId.length === 0
@@ -27,15 +26,15 @@ export class ActiveRoomObservationBudget {
         if (last !== undefined && (nowMs < last
             || nowMs - last < this._interval)) return false;
 
-        const second = Math.floor(nowMs / 1000);
-        if (second !== this._windowSecond) {
-            this._windowSecond = second;
-            this._windowCount = 0;
-        }
-        if (this._windowCount >= this._maxPerSecond) return false;
-
-        // Only successful reservations consume room cadence or global budget.
-        this._windowCount += 1;
+        // Sliding window, not wall-clock buckets: six requests at
+        // 12:00:00.999 cannot be followed by six at 12:00:01.000.
+        this._recentProviderCalls = this._recentProviderCalls.filter(
+            startedAt => nowMs >= startedAt && nowMs - startedAt < 1000
+        );
+        if (this._recentProviderCalls.length >= this._maxPerSecond)
+            return false;
+        // Only successful reservations consume room cadence or provider budget.
+        this._recentProviderCalls.push(nowMs);
         this._last.set(roomId, nowMs);
         return true;
     }
