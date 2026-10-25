@@ -8,14 +8,14 @@ const OUT_HASH="1".repeat(64),IN_HASH="2".repeat(64),MESSAGE_HASH="3".repeat(64)
 const block=(seqno)=>({workchain:0,shard:"8000000000000000",seqno});
 const source=()=>({
     account:ROOM,hash:OUT_HASH,now:Math.floor(NOW/1000)-10,
-    mc_block_seqno:100,block_ref:block(30),emulated:false,
+    mc_block_seqno:100,block_ref:block(30),emulated:false,finality:2,
     description:{aborted:false,action:{success:true}},
     out_msgs:[{hash:MESSAGE_HASH,source:ROOM,destination:RECIPIENT,
         value:"998000000",bounced:false}]
 });
 const recipient=()=>({
     account:RECIPIENT,hash:IN_HASH,now:Math.floor(NOW/1000)-8,
-    mc_block_seqno:101,block_ref:block(31),emulated:false,
+    mc_block_seqno:101,block_ref:block(31),emulated:false,finality:2,
     description:{aborted:false,action:{success:true}},
     in_msg:{hash:MESSAGE_HASH,source:ROOM,destination:RECIPIENT,
         value:"998000000",bounced:false}
@@ -47,6 +47,8 @@ test("old outgoing and recipient credit can be verified against indexed Testnet 
     const result=await x.provider.verifyIndexedRecipientCredit(query);
     assert.equal(result.status,"MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED");
     assert.equal(result.globalId,-3);
+    assert.equal(result.sourceFinality,"finalized");
+    assert.equal(result.recipientFinality,"finalized");
     assert.equal(result.sourceMcBlockSeqno,100);
     assert.equal(result.recipientMcBlockSeqno,101);
     assert.equal(result.latestIndexedMcBlockSeqno,110);
@@ -63,6 +65,12 @@ test("mainnet head, stale head, missing indexed block, emulation, or wrong workc
         {sender:{...source(),mc_block_seqno:null}},
         {receiver:{...recipient(),block_ref:null}},
         {sender:{...source(),emulated:true}},
+        {sender:{...source(),finality:0}},
+        {sender:{...source(),finality:1}},
+        {receiver:{...recipient(),finality:1}},
+        {receiver:{...recipient(),finality:0}},
+        {sender:{...source(),finality:null}},
+        {receiver:{...recipient(),finality:"2"}},
         {receiver:{...recipient(),emulated:true}},
         {sender:{...source(),block_ref:{...block(30),workchain:-1}}},
         {receiver:{...recipient(),mc_block_seqno:999}},
