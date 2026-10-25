@@ -56,6 +56,7 @@ import {
     ToncenterTransactionsClient
 } from "../toncenter/index.js";
 import { RoomPaymentSessionAdapter } from "./RoomPaymentSessionAdapter.js";
+import { countUnsettledRoomFinancialObligations } from "./countUnsettledRoomFinancialObligations.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "../PaymentLifecycleAvailability.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -261,7 +262,16 @@ export function buildPaymentRuntime(options = {}) {
         finalityEvidenceProvider: evidenceProvider
     });
 
+    // The public room-wallet registry must account for outstanding prize
+    // and refund debts, not merely PENDING/MATCHED incoming intents. The
+    // callback is evaluated only after both durable financial stores load.
+    let ledger = null;
+    let refundStore = null;
+    const financialObligationCountProvider = roomId =>
+        countUnsettledRoomFinancialObligations({roomId,ledger,refundStore});
+
     const paymentService = new RoomWalletPaymentService({
+        financialObligationCountProvider,
         walletPool,
         intentStore,
         assetRegistry,
@@ -284,7 +294,7 @@ export function buildPaymentRuntime(options = {}) {
         nowProvider
     });
 
-    const ledger = new RoomLedger({
+    ledger = new RoomLedger({
         store: ledgerStore,
         currency: CurrencyMapping.nativeTon({ network: identity.network }),
         intentStore,
@@ -295,7 +305,7 @@ export function buildPaymentRuntime(options = {}) {
         dataDir: join(networkDataDir, "manifests")
     });
 
-    const refundStore = new RefundObligationStore({
+    refundStore = new RefundObligationStore({
         dataDir: join(networkDataDir, "refunds"),
         logger
     });
@@ -374,9 +384,12 @@ export function buildPaymentRuntime(options = {}) {
 
             }
 
-            paymentService.initialize();
-
+            // Recover prize/refund debts BEFORE reconciling wallet ownership.
+            // Otherwise three SETTLED entry intents appear "closed" and the
+            // pool may release a wallet still owing winners or players.
             ledger.initialize();
+            refundStore.initialize();
+            paymentService.initialize();
 
             manifestStore.initialize();
 
