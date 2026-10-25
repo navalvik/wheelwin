@@ -182,3 +182,52 @@ test("missing or mismatching recipient credit prevents claiming both recipients 
     assert.equal(result.winnerCredited,true);
     assert.equal(result.ownerCredited,false);
 });
+
+test("restarted payout can reconcile two masterchain-indexed credits without another send",async t=>{
+    const h=harness(t,{outgoingObserver:{
+        async findOutgoingTransfer({destinationIdentity,amountAtomic,minCreatedAtMs}){
+            assert.ok(Number.isSafeInteger(minCreatedAtMs));
+            return {transactionId:destinationIdentity===WINNER?"winner-tx":"owner-tx",
+                sourceAddress:ROOM,destinationAddress:destinationIdentity,amountAtomic};
+        },
+        async observeRecipientCredit(){
+            throw new Error("historical masterchain verifier must take precedence");
+        },
+        async verifyIndexedRecipientCredit({destinationIdentity,transactionId,amountAtomic}){
+            return {status:"MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED",
+                sourceTransactionId:transactionId,recipientTransactionId:
+                    destinationIdentity===WINNER?"winner-credit":"owner-credit",
+                destinationAddress:destinationIdentity,amountAtomic,
+                sourceMcBlockSeqno:101,recipientMcBlockSeqno:102,
+                latestIndexedMcBlockSeqno:110,globalId:-3};
+        }
+    }});
+    const plan=payout({winner:{feeAtomic:2_000_000},owner:{feeAtomic:2_000_000}});
+    await h.transport.submit({...inputs,plan});
+    const before=h.seen.filter(x=>x.op==="send").length;
+    const reconciled=await h.transport.reconcile({...inputs,plan});
+    assert.equal(reconciled.status,"BOTH_MASTERCHAIN_INDEXED_CREDITS_OBSERVED_UNFINALIZED");
+    assert.equal(reconciled.winnerRecipientTransactionId,"winner-credit");
+    assert.equal(reconciled.ownerRecipientTransactionId,"owner-credit");
+    assert.equal(h.seen.filter(x=>x.op==="send").length,before);
+});
+test("masterchain historical check cannot fall back to a weaker observed credit",async t=>{
+    const h=harness(t,{outgoingObserver:{
+        async findOutgoingTransfer({destinationIdentity,amountAtomic}){
+            return {transactionId:destinationIdentity===WINNER?"winner-tx":"owner-tx",
+                sourceAddress:ROOM,destinationAddress:destinationIdentity,amountAtomic};
+        },
+        async observeRecipientCredit({destinationIdentity,transactionId,amountAtomic}){
+            return {status:"RECIPIENT_CREDIT_OBSERVED_UNFINALIZED",
+                sourceTransactionId:transactionId,recipientTransactionId:"unverified",
+                destinationAddress:destinationIdentity,amountAtomic};
+        },
+        async verifyIndexedRecipientCredit(){return null;}
+    }});
+    const plan=payout({winner:{feeAtomic:2_000_000},owner:{feeAtomic:2_000_000}});
+    await h.transport.submit({...inputs,plan});
+    const out=await h.transport.reconcile({...inputs,plan});
+    assert.equal(out.status,"RECIPIENT_CREDIT_CONFIRMATION_PENDING");
+    assert.equal(out.winnerCredited,false);
+    assert.equal(out.ownerCredited,false);
+});
