@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deriveTestnetRoomPaymentRequirements } from "../../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
+import { RoomLobbyBridge } from "../../socket/RoomLobbyBridge.js";
 
 const A = "0:"+"a".repeat(64);
 const B = "0:"+"b".repeat(64);
@@ -77,4 +78,25 @@ test("wallet 1 with historical oj7v funds is excluded without shrinking 64 walle
     assert.throws(()=>pool.reserve({roomId:"cannot-use-old-wallet",walletId:"wallet-1"}),{
         name:"WalletAssignmentConflictError"
     });
+});
+
+test("actual Page3 socket profile handler records only the payer address before VERIFY_NEXT",()=>{
+    const changed=[], errors=[];
+    const fake={
+        _assertAuthoritativeMutation:()=>({roomId:"room-1",playerId:"Olga"}),
+        _roomManager:{getRoom:()=>({players:["Olga","Lena","Bob"]})},
+        _playerManager:{updateIdentity:(id,patch)=>changed.push({id,patch})},
+        _continueToVerifyByRoom:new Set(),
+        _emitRoomError:(id,code)=>errors.push({id,code})
+    };
+    RoomLobbyBridge.prototype._handleUpdatePlayerProfile.call(fake,"socket-olga",{wallet:A});
+    assert.deepEqual(changed,[{id:"Olga",patch:{wallet:A}}]);
+    assert.equal(errors.length,0);
+    RoomLobbyBridge.prototype._handleUpdatePlayerProfile.call(fake,"socket-olga",{wallet:"-1:"+"a".repeat(64)});
+    assert.equal(changed.length,1);
+    assert.equal(errors.length,1);
+    fake._continueToVerifyByRoom.add("room-1");
+    RoomLobbyBridge.prototype._handleUpdatePlayerProfile.call(fake,"socket-olga",{wallet:B});
+    assert.equal(changed.length,1);
+    assert.equal(errors.length,2);
 });
