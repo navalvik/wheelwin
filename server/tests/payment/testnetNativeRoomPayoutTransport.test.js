@@ -92,8 +92,8 @@ test("mismatched payout/room/recipient is rejected before sending",async t=>{
 test("winner and owner are matched to two different blockchain transactions without resending",async t=>{
     const readCalls=[];
     const h=harness(t,{outgoingObserver:{
-        async findOutgoingTransfer({sourceWalletAddress,destinationIdentity,amountAtomic}){
-            readCalls.push({sourceWalletAddress,destinationIdentity,amountAtomic});
+        async findOutgoingTransfer({sourceWalletAddress,destinationIdentity,amountAtomic,minCreatedAtMs}){
+            readCalls.push({sourceWalletAddress,destinationIdentity,amountAtomic,minCreatedAtMs});
             return {
                 transactionId:destinationIdentity===WINNER?"winner-on-chain":"owner-on-chain",
                 sourceAddress:ROOM,destinationAddress:destinationIdentity,amountAtomic
