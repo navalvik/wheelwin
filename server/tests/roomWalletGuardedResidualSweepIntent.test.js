@@ -196,6 +196,9 @@ test("guarded residual transfer is sent once, remains unknown, then chain proof 
     assert.equal(last.ok, true);
     assert.equal(last.txHash, "f".repeat(64));
     assert.equal(f.sweeps.findById(sweep.recordId).payload.status, "CONFIRMED");
+    const repeated = await coordinator.sweepResidual({ sweepRecordId: sweep.recordId });
+    assert.equal(repeated.ok, true);
+    assert.equal(repeated.repeated, true);
     assert.equal(executed, 1);
 });
 
