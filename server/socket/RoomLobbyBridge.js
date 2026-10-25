@@ -3855,8 +3855,8 @@ export class RoomLobbyBridge {
             }
             try {
                 const payer = deriveTonAddressIdentity(rawProfile.wallet.trim());
-                if (payer.workchain !== 0) throw new Error("invalid workchain");
-                this._playerManager.updateIdentity(playerId, { wallet: payer.identity });
+                if (!payer.startsWith("0:")) throw new Error("invalid workchain");
+                this._playerManager.updateIdentity(playerId, { wallet: payer });
             } catch {
                 this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
             }
