@@ -63,6 +63,7 @@ export class RoomWalletResidualSweepRepository {
 
     create({
         roomNumber,
+        gameId = null,
         sourceAddress,
         destinationAddress,
         observedBalanceNano,
@@ -73,6 +74,9 @@ export class RoomWalletResidualSweepRepository {
         idempotencyKey = null
     } = {}) {
         const normalizedRoomNumber = normalizeRoomNumber(roomNumber);
+        if (gameId != null && (typeof gameId !== "string" || gameId.trim().length === 0)) {
+            throw new TypeError("residual sweep gameId must be a non-empty string");
+        }
         const source = String(sourceAddress ?? "").trim();
         const destination = String(destinationAddress ?? "").trim();
 
@@ -94,6 +98,7 @@ export class RoomWalletResidualSweepRepository {
         const payload = {
             id: recordId,
             roomNumber: normalizedRoomNumber,
+            gameId,
             sourceAddress: source,
             destinationAddress: destination,
             amountNano: nanoToRecordString(amountNano),
