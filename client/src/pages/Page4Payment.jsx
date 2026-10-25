@@ -75,6 +75,25 @@ export default function Page4Payment() {
         };
     }, [roomId, playerId]);
 
+    // Only an active Page4 with an unsettled payment requests observation.
+    // Room-level server throttling coalesces the three players; the 64-wallet
+    // catalog is never scanned. Stop immediately on settlement/unmount/expiry.
+    useEffect(() => {
+        if (!roomId || !playerId
+            || payment.paymentAcceptanceEnabled !== true
+            || payment.status !== "AWAITING_PAYMENT"
+            || !Number.isSafeInteger(payment.expiresAt)) return undefined;
+
+        const check = () => {
+            if (socket.connected && Date.now() < payment.expiresAt) {
+                socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
+            }
+        };
+        const id = setInterval(check, 4000);
+        return () => clearInterval(id);
+    }, [roomId, playerId, payment.paymentAcceptanceEnabled,
+        payment.status, payment.expiresAt]);
+
     const walletMatches = payerMatchesConnectedWallet(payment.payerAddress, connectedWallet);
     const payable = payment.paymentAcceptanceEnabled === true
         && status === "AWAITING_PAYMENT";
