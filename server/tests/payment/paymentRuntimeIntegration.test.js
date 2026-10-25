@@ -583,6 +583,11 @@ function managerShutdown(roomManager, eventBus) {
  * (and leaves no open wallet obligation for restart reconciliation to trip on).
  */
 function seedRoomPayments(runtime, roomId, confirmed, prefix = "payment_seed", { keepUnconfirmedPending = false } = {}) {
+    // The old synthetic test used a nonexistent "wallet-testnet" destination.
+    // A wallet with real confirmed principal must always be traceable to a
+    // genuine reserved slot among the 64 public Testnet room wallets.
+    const wallet = runtime.paymentService.getWalletForRoom(roomId)
+        ?? runtime.paymentService.reserveWalletForRoom({roomId,network:"testnet"});
     for (let index = 0; index < 3; index += 1) {
         const paymentReference = `${prefix}_${index}`;
         const intent = new PaymentIntent({
@@ -590,8 +595,8 @@ function seedRoomPayments(runtime, roomId, confirmed, prefix = "payment_seed", {
             roomId,
             playerId: `seed-player-${index}`,
             network: "testnet",
-            destinationWalletId: "wallet-testnet",
-            destinationWalletAddress: TESTNET_WALLET,
+            destinationWalletId: wallet.walletId,
+            destinationWalletAddress: wallet.address,
             expectedSender: TESTNET_PAYER,
             amountAtomic: 1_000_000_000,
             asset: "TON",
