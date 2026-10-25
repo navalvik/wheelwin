@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ProtectedRefundIntentJournal } from "../payment/refund/ProtectedRefundIntentJournal.js";
 import { WalletContractV4 } from "@ton/ton";
 import { Address, beginCell, external, internal, storeMessage, storeMessageRelaxed, SendMode } from "@ton/core";
 import { verifyProtectedRefundV4Authorization } from "../payment/refund/ProtectedRefundV4Authorization.js";
@@ -122,4 +126,59 @@ test("cryptographic preflight remains read-only despite valid genuine signature"
     assert.equal(r.walletReleaseAuthorized,false);
     assert.equal(r.broadcastAuthorized,false);
     assert.equal(typeof r.sign,"undefined");
+});
+
+test("real signature preflight can be durably frozen with one wallet lock; fake signature cannot",t=>{
+    const root=mkdtempSync(join(tmpdir(),"ww-real-signature-journal-"));
+    t.after(()=>rmSync(root,{recursive:true,force:true}));
+    const f=fx(), obligationId="rfd_auth_journal_test";
+    const debt={
+        obligationId, networkName:"TESTNET",globalId:-3,state:"PENDING",
+        outgoingTransactionId:null,finalizedEvidence:null,
+        roomId:"oj7v",roomNumber:1,playerId:"Olga",
+        paymentIntentId:"pay-auth",incomingTransactionId:"tx-auth",
+        amountAtomic:GROSS,refundDestination:TO,payerAddress:TO,
+        closureReason:"setup_timeout"
+    };
+    const journal=new ProtectedRefundIntentJournal({
+        directory:root,
+        refundStore:{
+            get(id){return id===obligationId?debt:null;},
+            getClosedRoom(){return {
+                networkName:"TESTNET",globalId:-3,roomNumber:1,
+                closureReason:"setup_timeout"
+            }}
+        },
+        intentStore:{
+            require(ref){return {
+                state:"SETTLED", network:"testnet",roomId:"oj7v",
+                playerId:"Olga",paymentReference:ref,transactionId:"tx-auth",
+                amountAtomic:GROSS,asset:"GRAM",expectedSender:TO,
+                destinationWalletAddress:f.account
+            }}
+        }
+    });
+    const intentId=journal.plan({
+        obligationId,feeAtomic:FEE,feeQuoteHash:"f".repeat(64)
+    }).intentId;
+    const lock=journal.claimWallet(intentId);
+    assert.throws(()=>journal.holdSignatureVerifiedBoc({
+        intentId,ownerToken:lock.ownerToken,
+        bocBase64:fx({mutateSignature:true}).params.bocBase64,
+        snapshots:f.params.snapshots
+    }));
+    assert.equal(journal.load(intentId).state,"PLANNED");
+    const verified=journal.holdSignatureVerifiedBoc({
+        intentId,ownerToken:lock.ownerToken,
+        bocBase64:f.params.bocBase64,snapshots:f.params.snapshots
+    });
+    assert.equal(verified.signatureAuthenticated,true);
+    assert.equal(verified.accountHeadLt,"105271924000001");
+    assert.equal(verified.netAtomic,NET);
+    assert.equal(verified.state,"SIGNED_HELD");
+    assert.throws(()=>journal.holdSignatureVerifiedBoc({
+        intentId,ownerToken:lock.ownerToken,
+        bocBase64:f.params.bocBase64,snapshots:f.params.snapshots
+    }),{code:"REFUND_ALREADY_SIGNED"});
+    assert.equal(typeof journal.broadcast,"undefined");
 });
