@@ -148,6 +148,10 @@ import { RoomWalletRefundRecoveryRepository } from "./payment/roomWallet/RoomWal
 import { RoomWalletRefundDestructionGuard } from "./payment/roomWallet/RoomWalletRefundDestructionGuard.js";
 import { RoomWalletProviderBudget } from "./payment/roomWallet/RoomWalletProviderBudget.js";
 import { RoomWalletExpiredReconciliationWorker } from "./payment/roomWallet/RoomWalletExpiredReconciliationWorker.js";
+import { RoomWalletOutboundIntentJournal } from "./payment/roomWallet/RoomWalletOutboundIntentJournal.js";
+import { RoomWalletSingleWriterGate } from "./payment/roomWallet/RoomWalletSingleWriterGate.js";
+import { RoomWalletOutboundChainFinalizer } from "./payment/roomWallet/RoomWalletOutboundChainFinalizer.js";
+import { RoomWalletOutboundConfirmationWorker } from "./payment/roomWallet/RoomWalletOutboundConfirmationWorker.js";
 import { TON_FINANCIAL_RECORD_TYPES } from "./persistence/TonFinancialRecordTypes.js";
 import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
 import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
@@ -348,6 +352,7 @@ class WheelWinApplication {
         this._roomWalletRefundRecoveryRepository = null;
         this._roomWalletProviderBudget = null;
         this._roomWalletExpiredReconciliationWorker = null;
+        this._roomWalletOutboundConfirmationWorker = null;
 
         this._depositSessionCoordinator = null;
 
@@ -1726,6 +1731,40 @@ class WheelWinApplication {
             this._logger.startupLine("RoomWalletExpiredReconciliationWorker (read-only, opt-in)");
         }
 
+        // Optional READ-ONLY confirmation recovery for outbound intents whose
+        // signed V4 messages were already persisted before a network failure.
+        // It cannot sign/send/rebroadcast, and it is disabled unless opted in.
+        // Lock files must reside on the SAME durable financial volume used
+        // by TonFinancialPersistence (never on a separate temporary disk).
+        if (this._roomWalletRefundRecoveryRepository
+            && process.env.ROOM_WALLET_OUTGOING_CONFIRMATION_ENABLED === "true") {
+            const tonChain = this._services?.tonService;
+            if (typeof tonChain?.getSeqno !== "function") {
+                throw new Error("OUTGOING_CONFIRMATION_REQUIRES_TON_SEQNO_READER");
+            }
+            const intentJournal = new RoomWalletOutboundIntentJournal({
+                financialPersistence: this._financialPersistence,
+                roomWalletRegistry: this._roomWalletRegistry
+            });
+            const signerGate = new RoomWalletSingleWriterGate({
+                directory: join(financialDataDir, "room-wallet-outbound-signer-locks"),
+                intentJournal
+            });
+            const finalizer = new RoomWalletOutboundChainFinalizer({
+                intentJournal, walletGate: signerGate, chain: tonChain
+            });
+            this._roomWalletOutboundConfirmationWorker = new RoomWalletOutboundConfirmationWorker({
+                journal: intentJournal,
+                walletGate: signerGate,
+                finalizer,
+                requestBudget: this._roomWalletProviderBudget,
+                logger: this._logger,
+                maxIntentsPerSweep: 2,
+                sweepIntervalMs: 15_000
+            });
+            this._logger.startupLine("RoomWalletOutboundConfirmationWorker (read-only, opt-in)");
+        }
+
         this._logger.startupLine(
             this._roomWalletRegistry.size() > 0
                 ? `RoomWalletIncomingObserver (${this._roomWalletRegistry.size()} wallets)`
@@ -2552,6 +2591,17 @@ class WheelWinApplication {
             this._logger.info("Room Wallet expired reconciliation enabled (read-only)");
         }
 
+        if (this._roomWalletOutboundConfirmationWorker) {
+            this._roomWalletOutboundConfirmationWorker.start();
+            void this._roomWalletOutboundConfirmationWorker.runOnce().catch(error => {
+                this._logger?.error?.(
+                    "Room Wallet outgoing confirmation initial scan failed"
+                    + " | code=" + (error?.code ?? error?.name ?? "unknown")
+                );
+            });
+            this._logger.info("Room Wallet outgoing confirmation enabled (read-only)");
+        }
+
         if (this._productionConfig.runStartupDemonstrations) {
 
             this._runStartupDemonstrations();
@@ -2693,6 +2743,10 @@ class WheelWinApplication {
 
             }
 
+        });
+
+        this._safeShutdownStep("roomWalletOutboundConfirmationWorker", () => {
+            this._roomWalletOutboundConfirmationWorker?.shutdown();
         });
 
         this._safeShutdownStep("roomWalletExpiredReconciliationWorker", () => {
