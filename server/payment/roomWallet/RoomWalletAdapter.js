@@ -30,6 +30,7 @@ export class RoomWalletAdapter {
         logger = null,
         gasReserveNano = ROOM_WALLET_POLICY.initialRoomReserveNano,
         seqnoConfirmTimeoutMs = 90_000,
+        guardedOutboundOnly = false,
         seqnoConfirmPollMs = 2_000,
         now = () => Date.now(),
         sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -60,6 +61,7 @@ export class RoomWalletAdapter {
             throw new TypeError("sleep must be a function");
         }
 
+        this._guardedOutboundOnly = guardedOutboundOnly === true;
         this._tonService = tonService;
         this._walletResolver = walletResolver;
         this._logger = logger;
@@ -255,6 +257,96 @@ export class RoomWalletAdapter {
         }
     }
 
+    /**
+     * Sign-only side of the guarded outbound executor. Never sends to the
+     * network. The caller MUST acquire the durable per-wallet signer gate
+     * and persist the signed hash and seqno before broadcasting this BOC.
+     *
+     * This method does not replace legacy sendTransfer yet; do not deploy an
+     * enabled guarded executor until all legacy sender paths share the gate.
+     */
+    async prepareSignedTransfer({
+        roomNumber, roomWallet, recipientWallet, amountNano,
+        recipientGasChargeNano, sourceRetainedFloorNano = null, role
+    } = {}) {
+        if (!["REFUND", "WINNER", "OWNER", "SWEEP"].includes(role)) {
+            throw new Error("UNSUPPORTED_GUARDED_ROOM_WALLET_ROLE");
+        }
+        if (typeof amountNano !== "string" || !/^[1-9]\d*$/.test(amountNano)
+            || typeof recipientGasChargeNano !== "string"
+            || !/^[1-9]\d*$/.test(recipientGasChargeNano)) {
+            throw new Error("INVALID_GUARDED_PAYOUT_NANO");
+        }
+        const identity = await this._resolve(roomNumber);
+        const source = Address.parse(String(roomWallet ?? ""));
+        const actualSource = Address.parse(identity.address);
+        const destination = Address.parse(String(recipientWallet ?? ""));
+        if (!source.equals(actualSource) || source.workChain !== 0) {
+            throw new Error("GUARDED_SIGNER_WALLET_IDENTITY_MISMATCH");
+        }
+        const amount = BigInt(amountNano);
+        const reserve = BigInt(recipientGasChargeNano);
+        let requiredBalance = amount + reserve;
+        if (role === "SWEEP") {
+            if (amountNano !== "490000000"
+                || recipientGasChargeNano !== "6000000"
+                || sourceRetainedFloorNano !== "10000000") {
+                throw new Error("GUARDED_SWEEP_SOURCE_GAS_POLICY_MISMATCH");
+            }
+            // The historical 0.50 GRAM trigger is 0.49 transfer plus
+            // 0.01 source envelope (0.006 fee + 0.004 safety margin).
+            requiredBalance = amount + BigInt(sourceRetainedFloorNano);
+        }
+        const safety = await this._awaitOutboundSequenceSafety(identity);
+        if (!safety.ok) throw new Error(safety.code);
+
+        // Do not silently assume seqno 0 on a transient RPC failure. That
+        // legacy fallback is inappropriate once funds already exist.
+        let verifiedSeqno;
+        try {
+            verifiedSeqno = await this._tonService.getSeqno(identity.address);
+        } catch {
+            throw new Error("GUARDED_SIGNER_SEQNO_UNAVAILABLE");
+        }
+        if (!Number.isInteger(verifiedSeqno) || verifiedSeqno < 0) {
+            throw new Error("GUARDED_SIGNER_SEQNO_INVALID");
+        }
+        const balance = await this._tonService.getBalance(identity.address);
+        if (BigInt(balance) < requiredBalance) {
+            throw new Error("GUARDED_SIGNER_INSUFFICIENT_BALANCE");
+        }
+
+        const { seqno, externalMessage } = await this._buildSignedExternalMessage({
+            identity,
+            destinationAddress: destination,
+            amountNano: amount,
+            bounce: true,
+            queryId: null
+        });
+        if (seqno !== verifiedSeqno) {
+            throw new Error("GUARDED_SIGNER_SEQNO_CHANGED_BEFORE_SIGNING");
+        }
+
+        const body = externalMessage.body.beginParse();
+        body.skip(512);
+        body.loadUint(32); // V4 wallet ID
+        const validUntil = body.loadUint(32);
+        const embeddedSeqno = body.loadUint(32);
+        if (embeddedSeqno !== seqno || validUntil <= Math.floor(Date.now() / 1000)) {
+            throw new Error("GUARDED_SIGNER_SIGNED_PAYLOAD_INVALID");
+        }
+        const root = beginCell().store(storeMessage(externalMessage)).endCell();
+        return Object.freeze({
+            roomWallet: source.toRawString().toLowerCase(),
+            recipientWallet: destination.toRawString().toLowerCase(),
+            amountNano,
+            seqno,
+            validUntil,
+            externalHash: root.hash().toString("hex"),
+            bocBase64: root.toBoc().toString("base64")
+        });
+    }
+
     async sendTransfer({
         roomNumber,
         destination,
@@ -263,6 +355,11 @@ export class RoomWalletAdapter {
         queryId = null,
         sourceReserveNano = null
     } = {}) {
+        // Once every outbound path is migrated, this explicit kill switch
+        // prevents legacy sends bypassing the durable signing journal.
+        if (this._guardedOutboundOnly) {
+            throw new Error("ROOM_WALLET_LEGACY_DIRECT_BROADCAST_DISABLED");
+        }
         assertNonNegativeNano(amountNano, "amountNano");
 
         if (amountNano <= 0n) {

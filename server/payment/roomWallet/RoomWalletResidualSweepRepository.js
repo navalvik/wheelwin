@@ -63,6 +63,7 @@ export class RoomWalletResidualSweepRepository {
 
     create({
         roomNumber,
+        gameId = null,
         sourceAddress,
         destinationAddress,
         observedBalanceNano,
@@ -73,6 +74,9 @@ export class RoomWalletResidualSweepRepository {
         idempotencyKey = null
     } = {}) {
         const normalizedRoomNumber = normalizeRoomNumber(roomNumber);
+        if (gameId != null && (typeof gameId !== "string" || gameId.trim().length === 0)) {
+            throw new TypeError("residual sweep gameId must be a non-empty string");
+        }
         const source = String(sourceAddress ?? "").trim();
         const destination = String(destinationAddress ?? "").trim();
 
@@ -80,6 +84,18 @@ export class RoomWalletResidualSweepRepository {
             throw new Error("residual sweep create requires source and destination addresses");
         }
 
+        // The room number is recycled. Do not let a repeated settlement
+        // event authorize a SECOND residual transfer for the same game,
+        // even if the old sweep was already confirmed and is terminal.
+        if (gameId != null && this.listActive().some(record =>
+            record.payload?.gameId === gameId
+            && Number(record.payload?.roomNumber) === normalizedRoomNumber
+        )) {
+            throw new DuplicateRecordError(
+                TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP,
+                "game:" + gameId
+            );
+        }
         const inFlight = this.findInFlightByRoomNumber(normalizedRoomNumber);
 
         if (inFlight) {
@@ -94,6 +110,7 @@ export class RoomWalletResidualSweepRepository {
         const payload = {
             id: recordId,
             roomNumber: normalizedRoomNumber,
+            gameId,
             sourceAddress: source,
             destinationAddress: destination,
             amountNano: nanoToRecordString(amountNano),

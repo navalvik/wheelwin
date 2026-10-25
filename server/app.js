@@ -144,6 +144,17 @@ import { RecoveryCheckpointManager } from "./recovery/RecoveryCheckpointManager.
 import { RecoveryOrchestrator } from "./recovery/RecoveryOrchestrator.js";
 import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.js";
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
+import { RoomWalletRefundRecoveryRepository } from "./payment/roomWallet/RoomWalletRefundRecoveryRepository.js";
+import { RoomWalletRefundDestructionGuard } from "./payment/roomWallet/RoomWalletRefundDestructionGuard.js";
+import { RoomWalletProviderBudget } from "./payment/roomWallet/RoomWalletProviderBudget.js";
+import { RoomWalletExpiredReconciliationWorker } from "./payment/roomWallet/RoomWalletExpiredReconciliationWorker.js";
+import { RoomWalletReconciliationMutex } from "./payment/roomWallet/RoomWalletReconciliationMutex.js";
+import { RoomWalletQuarantineReleaseGuard } from "./payment/roomWallet/RoomWalletQuarantineReleaseGuard.js";
+import { RoomWalletQuarantineReleaseWorker } from "./payment/roomWallet/RoomWalletQuarantineReleaseWorker.js";
+import { RoomWalletOutboundIntentJournal } from "./payment/roomWallet/RoomWalletOutboundIntentJournal.js";
+import { RoomWalletSingleWriterGate } from "./payment/roomWallet/RoomWalletSingleWriterGate.js";
+import { RoomWalletOutboundChainFinalizer } from "./payment/roomWallet/RoomWalletOutboundChainFinalizer.js";
+import { RoomWalletOutboundConfirmationWorker } from "./payment/roomWallet/RoomWalletOutboundConfirmationWorker.js";
 import { TON_FINANCIAL_RECORD_TYPES } from "./persistence/TonFinancialRecordTypes.js";
 import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
 import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
@@ -341,6 +352,12 @@ class WheelWinApplication {
         this._sessionWalletStore = null;
 
         this._financialPersistence = null;
+        this._roomWalletRefundRecoveryRepository = null;
+        this._roomWalletProviderBudget = null;
+        this._roomWalletReconciliationMutex = null;
+        this._roomWalletQuarantineReleaseWorker = null;
+        this._roomWalletExpiredReconciliationWorker = null;
+        this._roomWalletOutboundConfirmationWorker = null;
 
         this._depositSessionCoordinator = null;
 
@@ -1201,6 +1218,20 @@ class WheelWinApplication {
 
         const persistenceSummary = this._financialPersistence.initialize();
 
+        // Crash-safe native Room Wallet protection: restore persisted wallet
+        // quarantines before sockets or restored rooms can claim a number.
+        // Mainnet and non-Room-Wallet paths remain completely unchanged.
+        if (this._tonConfig?.network === "testnet"
+            && isRoomWalletOnlyFinancialPath({ env: process.env })) {
+            this._roomWalletRefundRecoveryRepository = new RoomWalletRefundRecoveryRepository({
+                financialPersistence: this._financialPersistence
+            });
+            this._managers.roomManager.attachRoomWalletAllocationGuard(
+                this._roomWalletRefundRecoveryRepository
+            );
+            this._logger.info("Room Wallet durable allocation quarantine attached");
+        }
+
         this._logger.startupLine("TonFinancialPersistence");
 
         this._logger.info(
@@ -1499,7 +1530,13 @@ class WheelWinApplication {
         this._roomWalletSettlementRouter = composeRoomWalletSettlementRouter({
             tonService: this._services?.tonService ?? null,
             logger: this._logger,
-            env: process.env
+            env: process.env,
+            financialPersistence: this._financialPersistence,
+            // Same canonical durable directory used by the read-only
+            // confirmation worker. Never use a process-local temp lock.
+            signerLockDirectory: join(
+                financialDataDir, "room-wallet-outbound-signer-locks"
+            )
         });
 
         this._logger.startupLine(
@@ -1651,6 +1688,28 @@ class WheelWinApplication {
 
         this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
 
+        if (this._roomWalletRefundRecoveryRepository) {
+            // Both active-payment fallback and expired-session reconciliation
+            // must share ONE bounded Testnet provider request budget.
+            this._roomWalletProviderBudget = new RoomWalletProviderBudget();
+            this._roomWalletReconciliationMutex = new RoomWalletReconciliationMutex();
+        }
+
+        if (this._roomWalletRefundRecoveryRepository) {
+            // The guard must be installed before startup recovery begins to
+            // restore expired rooms, and before client connections are accepted.
+            this._managers.roomManager.attachRoomWalletDestructionGuard(
+                new RoomWalletRefundDestructionGuard({
+                    repository: this._roomWalletRefundRecoveryRepository,
+                    paymentSessionManager: this._paymentSessionManager,
+                    setupSessionLifecycle: this._setupSessionLifecycle,
+                    roomWalletRegistry: this._roomWalletRegistry,
+                    financialPersistence: this._financialPersistence
+                })
+            );
+            this._logger.info("Room Wallet pre-Page5 destruction quarantine attached");
+        }
+
         this._roomWalletLedgerRegistry = new RoomWalletLedgerRegistry();
 
         this._roomWalletIncomingObserver = new RoomWalletIncomingObserver({
@@ -1664,12 +1723,60 @@ class WheelWinApplication {
             transport: this._services?.tonService?.getTransport?.() ?? null,
             tonService: this._services?.tonService ?? null,
             auditLedger: this._entryPaymentAuditLedger,
-            network: this._tonConfig?.network ?? null
+            network: this._tonConfig?.network ?? null,
+            dualSourceBudget: this._roomWalletProviderBudget
         });
 
         this._blockchainMonitor.setRoomWalletIncomingObserver?.(
             this._roomWalletIncomingObserver
         );
+
+        if (this._roomWalletRefundRecoveryRepository) {
+            this._roomWalletExpiredReconciliationWorker = new RoomWalletExpiredReconciliationWorker({
+                repository: this._roomWalletRefundRecoveryRepository,
+                financialPersistence: this._financialPersistence,
+                requestBudget: this._roomWalletProviderBudget,
+                scanMutex: this._roomWalletReconciliationMutex,
+                logger: this._logger,
+                maxWalletsPerSweep: 2,
+                sweepIntervalMs: 10_000
+            });
+            this._logger.startupLine("RoomWalletExpiredReconciliationWorker (read-only, opt-in)");
+        }
+
+        // Optional READ-ONLY confirmation recovery for outbound intents whose
+        // signed V4 messages were already persisted before a network failure.
+        // It cannot sign/send/rebroadcast, and it is disabled unless opted in.
+        // Lock files must reside on the SAME durable financial volume used
+        // by TonFinancialPersistence (never on a separate temporary disk).
+        if (this._roomWalletRefundRecoveryRepository
+            && process.env.ROOM_WALLET_OUTGOING_CONFIRMATION_ENABLED === "true") {
+            const tonChain = this._services?.tonService;
+            if (typeof tonChain?.getSeqno !== "function") {
+                throw new Error("OUTGOING_CONFIRMATION_REQUIRES_TON_SEQNO_READER");
+            }
+            const intentJournal = new RoomWalletOutboundIntentJournal({
+                financialPersistence: this._financialPersistence,
+                roomWalletRegistry: this._roomWalletRegistry
+            });
+            const signerGate = new RoomWalletSingleWriterGate({
+                directory: join(financialDataDir, "room-wallet-outbound-signer-locks"),
+                intentJournal
+            });
+            const finalizer = new RoomWalletOutboundChainFinalizer({
+                intentJournal, walletGate: signerGate, chain: tonChain
+            });
+            this._roomWalletOutboundConfirmationWorker = new RoomWalletOutboundConfirmationWorker({
+                journal: intentJournal,
+                walletGate: signerGate,
+                finalizer,
+                requestBudget: this._roomWalletProviderBudget,
+                logger: this._logger,
+                maxIntentsPerSweep: 2,
+                sweepIntervalMs: 15_000
+            });
+            this._logger.startupLine("RoomWalletOutboundConfirmationWorker (read-only, opt-in)");
+        }
 
         this._logger.startupLine(
             this._roomWalletRegistry.size() > 0
@@ -1696,12 +1803,45 @@ class WheelWinApplication {
             eventBus: this._eventBus,
             logger: this._logger,
             env: process.env,
-            tonService: this._services?.tonService ?? null
+            tonService: this._services?.tonService ?? null,
+            roomWalletAdapter: this._roomWalletSettlementRouter?.activeAdapter?._roomWalletAdapter ?? null,
+            guardedPayoutCoordinator: this._roomWalletSettlementRouter?.activeAdapter?._guardedPayoutCoordinator ?? null
         });
 
         this._roomWalletResidualSweepWorker.initialize();
 
         this._logger.startupLine("RoomWalletResidualSweepWorker");
+
+        // Controlled financial closure: NEVER release on room destruction or
+        // timer alone. Strictly opt-in for Testnet; confirmed guarded SWEEP
+        // receipts must have the same two-source signed proof as all payouts.
+        // Any historical or ambiguous sweep lacking that proof remains held.
+        if (process.env.ROOM_WALLET_QUARANTINE_RELEASE_ENABLED === "true") {
+            if (this._tonConfig?.network !== "testnet"
+                || process.env.ROOM_WALLET_GUARDED_OUTBOUND_ONLY !== "true"
+                || process.env.ROOM_WALLET_OUTGOING_CONFIRMATION_ENABLED !== "true"
+                || process.env.ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED !== "true") {
+                throw new Error("ROOM_WALLET_QUARANTINE_RELEASE_UNSAFE_CONFIGURATION");
+            }
+            const releaseGuard = new RoomWalletQuarantineReleaseGuard({
+                repository: this._roomWalletRefundRecoveryRepository,
+                financialPersistence: this._financialPersistence,
+                residualSweepRepository: this._roomWalletResidualSweepRepository,
+                requestBudget: this._roomWalletProviderBudget,
+                isRoomActive: roomId => Boolean(this._managers.roomManager.getRoom(roomId))
+            });
+            this._roomWalletQuarantineReleaseWorker = new RoomWalletQuarantineReleaseWorker({
+                repository: this._roomWalletRefundRecoveryRepository,
+                releaseGuard,
+                scanMutex: this._roomWalletReconciliationMutex,
+                logger: this._logger,
+                maxWalletsPerSweep: 2,
+                intervalMs: 30_000
+            });
+            this._logger.startupLine(
+                "RoomWalletQuarantineReleaseWorker (dual-chain proof, opt-in)"
+            );
+        }
 
         await this._blockchainMonitor.start();
 
@@ -2482,6 +2622,43 @@ class WheelWinApplication {
         this._logger.info("Server Ready");
         this._logger.info("");
 
+        // This worker never signs, broadcasts, or releases wallets. Explicit
+        // Testnet opt-in only, after all persisted financial records and the
+        // HTTP server have completed initialization.
+        if (this._roomWalletExpiredReconciliationWorker
+            && process.env.ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED === "true") {
+            this._roomWalletExpiredReconciliationWorker.start();
+            void this._roomWalletExpiredReconciliationWorker.runOnce().catch(error => {
+                this._logger?.error?.(
+                    "Room Wallet expired reconciliation initial scan failed"
+                    + " | code=" + (error?.code ?? error?.name ?? "unknown")
+                );
+            });
+            this._logger.info("Room Wallet expired reconciliation enabled (read-only)");
+        }
+
+        if (this._roomWalletQuarantineReleaseWorker) {
+            this._roomWalletQuarantineReleaseWorker.start();
+            void this._roomWalletQuarantineReleaseWorker.runOnce().catch(error => {
+                this._logger?.error?.(
+                    "Room Wallet quarantine initial sweep failed"
+                    + " | code=" + (error?.code ?? error?.name ?? "unknown")
+                );
+            });
+            this._logger.info("Room Wallet quarantine release enabled (chain-proof-only)");
+        }
+
+        if (this._roomWalletOutboundConfirmationWorker) {
+            this._roomWalletOutboundConfirmationWorker.start();
+            void this._roomWalletOutboundConfirmationWorker.runOnce().catch(error => {
+                this._logger?.error?.(
+                    "Room Wallet outgoing confirmation initial scan failed"
+                    + " | code=" + (error?.code ?? error?.name ?? "unknown")
+                );
+            });
+            this._logger.info("Room Wallet outgoing confirmation enabled (read-only)");
+        }
+
         if (this._productionConfig.runStartupDemonstrations) {
 
             this._runStartupDemonstrations();
@@ -2623,6 +2800,18 @@ class WheelWinApplication {
 
             }
 
+        });
+
+        this._safeShutdownStep("roomWalletQuarantineReleaseWorker", () => {
+            this._roomWalletQuarantineReleaseWorker?.shutdown();
+        });
+
+        this._safeShutdownStep("roomWalletOutboundConfirmationWorker", () => {
+            this._roomWalletOutboundConfirmationWorker?.shutdown();
+        });
+
+        this._safeShutdownStep("roomWalletExpiredReconciliationWorker", () => {
+            this._roomWalletExpiredReconciliationWorker?.shutdown();
         });
 
         this._safeShutdownStep("blockchainMonitor", () => {

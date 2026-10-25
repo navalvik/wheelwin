@@ -25,7 +25,9 @@ const DEFAULT_GAME_CONTRACT_DEPLOY_TIMEOUT_MS = 2 * 60 * 1000;
 // R7.70C19A — restored from C7 TEMP 120 s → 60 s.
 const DEFAULT_GAME_START_AUTHORIZATION_DURATION_MS = 60 * 1000;
 
-const DEFAULT_MAX_CONCURRENT_ROOMS = 64;
+// Leave at least 14 of the 64 Room Wallets outside the active-room target.
+export const MAX_SAFE_CONCURRENT_ROOMS = 50;
+const DEFAULT_MAX_CONCURRENT_ROOMS = MAX_SAFE_CONCURRENT_ROOMS;
 
 export function loadRoomConfig(env = process.env) {
 
@@ -105,7 +107,9 @@ export function loadRoomConfig(env = process.env) {
         ? DEFAULT_MAX_CONCURRENT_ROOMS
         : Number(env.ROOM_MAX_CONCURRENT);
 
-    if (!Number.isFinite(maxConcurrentRooms) || maxConcurrentRooms <= 0) {
+    if (!Number.isInteger(maxConcurrentRooms)
+        || maxConcurrentRooms <= 0
+        || maxConcurrentRooms > MAX_SAFE_CONCURRENT_ROOMS) {
 
         throw new Error("Invalid ROOM_MAX_CONCURRENT environment variable");
 

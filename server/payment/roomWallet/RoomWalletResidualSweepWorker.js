@@ -42,6 +42,7 @@ export class RoomWalletResidualSweepWorker {
         logger = null,
         env = process.env,
         tonService = null,
+        guardedPayoutCoordinator = null,
         pollIntervalMs = 5_000
     } = {}) {
         if (!repository) {
@@ -57,6 +58,9 @@ export class RoomWalletResidualSweepWorker {
         this._logger = logger;
         this._env = env;
         this._tonService = tonService;
+        this._guardedPayoutCoordinator = guardedPayoutCoordinator;
+        this._guardedOnly = String(env?.ROOM_WALLET_GUARDED_OUTBOUND_ONLY ?? "")
+            .trim().toLowerCase() === "true";
         this._pollIntervalMs = Number.isFinite(Number(pollIntervalMs))
             ? Math.max(1_000, Number(pollIntervalMs))
             : 5_000;
@@ -88,6 +92,10 @@ export class RoomWalletResidualSweepWorker {
             return;
         }
 
+        if (this._guardedOnly
+            && typeof this._guardedPayoutCoordinator?.sweepResidual !== "function") {
+            throw new Error("GUARDED_SWEEP_COORDINATOR_REQUIRED");
+        }
         this._ensureAdapter();
 
         const destination = resolveResiduesWalletDestination(this._env);
@@ -187,6 +195,11 @@ export class RoomWalletResidualSweepWorker {
             return Object.freeze({ recovered: 0, skipped: "feature_disabled" });
         }
 
+        if (this._guardedOnly) {
+            // Legacy tx-hash observer is not proof of a protected sweep.
+            // New outgoing confirmation worker owns chain finality.
+            return Object.freeze({ recovered: 0, guarded: true });
+        }
         const awaiting = this._repository.listAwaitingConfirmation();
         const orphanedProcessing = this._repository.listProcessingWithoutHash();
         let recovered = 0;
@@ -233,7 +246,13 @@ export class RoomWalletResidualSweepWorker {
         }
 
         const results = [];
-        const pending = this._repository.listPending();
+        const pending = this._guardedOnly
+            ? this._repository.listActive().filter(record => [
+                RESIDUAL_SWEEP_STATUS.PENDING,
+                RESIDUAL_SWEEP_STATUS.PROCESSING,
+                RESIDUAL_SWEEP_STATUS.AWAITING_TRANSACTION_HASH
+            ].includes(record.payload?.status))
+            : this._repository.listPending();
 
         for (const record of pending) {
             const roomNumber = tryNormalizeRoomNumber(record.payload?.roomNumber);
@@ -259,7 +278,7 @@ export class RoomWalletResidualSweepWorker {
         });
     }
 
-    async processRoom(roomNumber, { trigger = "manual" } = {}) {
+    async processRoom(roomNumber, { trigger = "manual", gameId = null } = {}) {
         if (!isRoomWalletResidualSweepEnabled(this._env)) {
             return Object.freeze({
                 ok: false,
@@ -277,7 +296,7 @@ export class RoomWalletResidualSweepWorker {
         }
 
         return this._withRoomLock(normalizedRoomNumber, () => (
-            this._processRoomLocked(normalizedRoomNumber, { trigger })
+            this._processRoomLocked(normalizedRoomNumber, { trigger, gameId })
         ));
     }
 
@@ -288,6 +307,9 @@ export class RoomWalletResidualSweepWorker {
             return Object.freeze({ ok: false, code: "TX_HASH_MISSING" });
         }
 
+        if (this._guardedOnly) {
+            return Object.freeze({ ok: false, code: "GUARDED_SWEEP_CHAIN_PROOF_REQUIRED" });
+        }
         const record = this._repository.listAwaitingConfirmation()
             .find((entry) => String(entry.payload?.txHash ?? "").trim() === hash)
             ?? this._repository.listActive().find((entry) => (
@@ -349,10 +371,18 @@ export class RoomWalletResidualSweepWorker {
         return this._roomWalletAdapter;
     }
 
-    async _processRoomLocked(roomNumber, { trigger }) {
+    async _processRoomLocked(roomNumber, { trigger, gameId = null }) {
         const inFlight = this._repository.findInFlightByRoomNumber(roomNumber);
 
         if (inFlight) {
+            // In guarded Testnet mode the legacy watcher must NEVER observe
+            // or confirm an existing sweep by txHash alone. Even a repeated
+            // settlement trigger or an already-ambiguous PROCESSING record
+            // must go back through the persisted signed-intent coordinator;
+            // that path is idempotent and never blindly re-broadcasts.
+            if (this._guardedOnly) {
+                return this._submitExisting(inFlight.recordId);
+            }
             if (String(inFlight.payload?.txHash ?? "").trim()) {
                 this._watchExisting(inFlight);
                 this._logSweep({
@@ -575,6 +605,7 @@ export class RoomWalletResidualSweepWorker {
         try {
             record = this._repository.create({
                 roomNumber,
+                gameId,
                 sourceAddress,
                 destinationAddress: destination.address,
                 observedBalanceNano: balanceNano,
@@ -604,6 +635,15 @@ export class RoomWalletResidualSweepWorker {
                 ok: false,
                 code: "SWEEP_RECORD_NOT_FOUND"
             });
+        }
+
+        // The guarded route never calls adapter.sendTransfer(), including
+        // on restart or when a previous HTTP response had no transaction hash.
+        if (this._guardedOnly) {
+            if (typeof this._guardedPayoutCoordinator?.sweepResidual !== "function") {
+                throw new Error("GUARDED_SWEEP_COORDINATOR_REQUIRED");
+            }
+            return this._guardedPayoutCoordinator.sweepResidual({ sweepRecordId: recordId });
         }
 
         if (String(record.payload?.txHash ?? "").trim()) {
@@ -883,6 +923,7 @@ export class RoomWalletResidualSweepWorker {
     }
 
     async _onSweepTransactionFailed(envelope) {
+        if (this._guardedOnly) return;
         const payload = envelope?.payload ?? envelope ?? {};
 
         if (payload.kind !== RESIDUAL_SWEEP_WATCH_KIND) {

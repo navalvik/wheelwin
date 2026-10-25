@@ -504,7 +504,8 @@ test("partial room-wallet refunds return exactly the paid amount and confirm on 
         getWalletAddress: async () => RW,
         getTransactions: async () => txs,
         sendTransfer(input) {
-            calls.push(input);
+            // createAdapter's wrapper already pushes each invocation to calls.
+            // Counting here again made one refund look like two broadcasts.
             const hash = "refund-" + calls.length;
             txs.push({
                 transaction_id: { hash },

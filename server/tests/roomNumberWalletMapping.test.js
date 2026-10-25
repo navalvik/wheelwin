@@ -85,7 +85,7 @@ function attachPassThroughSetup(roomManager) {
     });
 }
 
-function createLiveRoomManager({ maxConcurrentRooms = 64 } = {}) {
+function createLiveRoomManager({ maxConcurrentRooms = 50 } = {}) {
     const logger = createLogger();
     const eventBus = new EventBus({
         logger,
@@ -180,19 +180,19 @@ test("A. first room receives a valid Room Number", () => {
     logger.shutdown?.();
 });
 
-test("B/C/D/E unique Room Numbers, 64 supported, 65th rejected, destroyed number reusable", () => {
+test("B/C/D/E unique Room Numbers, 50 concurrent, 51st rejected, destroyed number reusable", () => {
     const { roomManager, eventBus, logger } = createLiveRoomManager();
     const rooms = [];
 
-    for (let index = 0; index < 64; index += 1) {
+    for (let index = 0; index < 50; index += 1) {
         const room = roomManager.createRoom();
         assert.ok(room, `room ${index + 1} should be created`);
         rooms.push(room);
     }
 
     const numbers = rooms.map((room) => room.roomNumber);
-    assert.deepEqual([...numbers].sort((a, b) => a - b), [...Array(64)].map((_, i) => i + 1));
-    assert.equal(new Set(numbers).size, 64);
+    assert.deepEqual([...numbers].sort((a, b) => a - b), [...Array(50)].map((_, i) => i + 1));
+    assert.equal(new Set(numbers).size, 50);
     assert.equal(roomManager.createRoom(), null);
 
     const roomTwo = rooms.find((room) => room.roomNumber === 2);

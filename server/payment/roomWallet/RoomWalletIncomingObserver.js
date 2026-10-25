@@ -10,7 +10,10 @@
  * GameEscrow, or Room Wallet settlement.
  */
 
+import { Address } from "@ton/core";
 import { EVENT_SOURCES } from "../../events/EventSources.js";
+import { fetchDualSourceRoomWalletTransactions } from "./RoomWalletDualSourceEvidence.js";
+import { RoomWalletProviderBudget } from "./RoomWalletProviderBudget.js";
 import { EVENT_TYPES } from "../../events/EventTypes.js";
 import {
     canonicalizeTonWalletAddress,
@@ -304,6 +307,8 @@ export class RoomWalletIncomingObserver {
         retryMaxAttempts = null,
         retryDelayMs = null,
         fetchTimeoutMs = null,
+        dualSourceFetch = globalThis.fetch,
+        dualSourceBudget = null,
         delay = null
     } = {}) {
         this._logger = logger;
@@ -317,11 +322,23 @@ export class RoomWalletIncomingObserver {
         this._tonService = tonService;
         this._auditLedger = auditLedger;
         this._network = network;
+        // Explicit opt-in: never use two external indexers as a silent, untested default.
+        this._dualSourceEnabled = String(env?.ROOM_WALLET_DUAL_SOURCE_ENABLED ?? "").trim().toLowerCase() === "true";
+        this._dualSourceFetch = dualSourceFetch;
+        // Shared across all active wallet lookups. Provider queue sizes and
+        // concurrency remain bounded under a 50-room RPC outage.
+        this._dualSourceBudget = this._dualSourceEnabled
+            ? (dualSourceBudget ?? new RoomWalletProviderBudget())
+            : null;
         this._now = now;
         this._stopped = false;
         this._pollInFlight = false;
         this._scanOffset = 0;
         this._idleLogged = false;
+        // Failures are shared across the observer, not counted per wallet.
+        // Avoid spending all 5 minutes repeatedly contacting HTTP 542.
+        this._primaryFailureStreak = 0;
+        this._primaryCircuitUntil = 0;
 
         const traffic = resolveRoomWalletObserverTrafficConfig(env);
 
@@ -1262,6 +1279,25 @@ export class RoomWalletIncomingObserver {
         let retries = 0;
         let lastError = null;
 
+        if (this._dualSourceEnabled
+            && this._network === "testnet"
+            && this._now() < this._primaryCircuitUntil) {
+            // A known broken primary must not stall all 50 payment rooms.
+            // A missing fallback response is PENDING, never no payment.
+            const evidence = await this._readDualSourceEvidence(
+                address, new Error("primary http 542 circuit temporarily open")
+            );
+            return Object.freeze({
+                ok: evidence !== null,
+                transactions: evidence ?? [],
+                http429,
+                retries,
+                error: evidence === null
+                    ? new Error("primary_circuit_open_and_dual_source_unavailable")
+                    : null
+            });
+        }
+
         for (let attempt = 1; attempt <= this._retryMaxAttempts; attempt += 1) {
             if (this._stopped) {
                 return Object.freeze({
@@ -1287,6 +1323,8 @@ export class RoomWalletIncomingObserver {
 
             try {
                 const transactions = await this._fetchTransactionsOnce(address);
+                this._primaryFailureStreak = 0;
+                this._primaryCircuitUntil = 0;
                 return Object.freeze({
                     ok: true,
                     transactions,
@@ -1303,6 +1341,29 @@ export class RoomWalletIncomingObserver {
                     && isInfrastructureFailure(error);
 
                 if (!canRetry) {
+                    if (this._dualSourceEnabled && this._network === "testnet"
+                        && isInfrastructureFailure(error)) {
+                        this._primaryFailureStreak++;
+                        if (this._primaryFailureStreak >= 2) {
+                            this._primaryCircuitUntil = this._now() + 30_000;
+                            this._log(
+                                "warn",
+                                "Room Wallet primary RPC circuit opened"
+                                    + ` | nextProbeMs=30000`
+                                    + ` | consecutiveFailures=${this._primaryFailureStreak}`
+                            );
+                        }
+                    }
+                    const independentlyConfirmed = await this._readDualSourceEvidence(address, error);
+                    if (independentlyConfirmed !== null) {
+                        return Object.freeze({
+                            ok: true,
+                            transactions: independentlyConfirmed,
+                            http429,
+                            retries,
+                            error: null
+                        });
+                    }
                     return Object.freeze({
                         ok: false,
                         transactions: [],
@@ -1321,6 +1382,41 @@ export class RoomWalletIncomingObserver {
             retries,
             error: lastError
         });
+    }
+
+    async _readDualSourceEvidence(address, primaryError) {
+        if (!this._dualSourceEnabled
+            || this._network !== "testnet"
+            || !isInfrastructureFailure(primaryError)) {
+            return null;
+        }
+
+        try {
+            const verified = await fetchDualSourceRoomWalletTransactions({
+                address,
+                expectedRoomWalletRaw: Address.parse(address).toRawString(),
+                fetchImpl: this._dualSourceFetch,
+                limit: ROOM_WALLET_INCOMING_TX_PAGE_LIMIT,
+                timeoutMs: this._fetchTimeoutMs,
+                requestBudget: this._dualSourceBudget
+            });
+            this._log(
+                "info",
+                "Room Wallet dual-source reconciliation"
+                    + ` | address=${address}`
+                    + ` | confirmed=${verified.transactions.length}`
+                    + ` | awaitingSecondProvider=${verified.awaitingSecondProvider}`
+            );
+            return verified.transactions;
+        } catch (error) {
+            this._log(
+                "warn",
+                "Room Wallet dual-source unavailable"
+                    + ` | address=${address}`
+                    + ` | reason=${error?.code ?? error?.name ?? "unknown"}`
+            );
+            return null;
+        }
     }
 
     async _fetchTransactionsOnce(address) {

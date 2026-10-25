@@ -96,7 +96,8 @@ export class RoomWalletSettlementAdapter {
         confirmTimeoutMs = 90_000,
         confirmPollMs = 2_000,
         recipientGasMarginBps = ROOM_WALLET_POLICY.recipientGasMarginBps,
-        recipientGasMarginFloorNano = ROOM_WALLET_POLICY.recipientGasMarginFloorNano
+        recipientGasMarginFloorNano = ROOM_WALLET_POLICY.recipientGasMarginFloorNano,
+        guardedPayoutCoordinator = null
     } = {}) {
         if (!roomWalletAdapter) {
             throw new Error("RoomWalletSettlementAdapter requires roomWalletAdapter");
@@ -120,6 +121,12 @@ export class RoomWalletSettlementAdapter {
 
         assertNonNegativeNano(recipientGasMarginFloorNano, "recipientGasMarginFloorNano");
 
+        if (guardedPayoutCoordinator !== null
+            && (typeof guardedPayoutCoordinator.settleContract !== "function"
+                || typeof guardedPayoutCoordinator.refundPayments !== "function")) {
+            throw new TypeError("Invalid guarded Room Wallet payout coordinator");
+        }
+        this._guardedPayoutCoordinator = guardedPayoutCoordinator;
         this._roomWalletAdapter = roomWalletAdapter;
         this._logger = logger;
         this._inspectHistory = inspectHistory;
@@ -765,11 +772,23 @@ export class RoomWalletSettlementAdapter {
      */
     async refundPayments({
         roomNumber,
+        roomId = null,
+        gameId = null,
+        paymentSessionId = null,
         refunds = [],
         refundPlan = null,
         cutoffUtime = null,
         confirmationTimeoutMs = 60_000
     } = {}) {
+        // Never execute the historical sendTransfer() path when the guarded
+        // payout coordinator is installed. Only a persisted chain-backed
+        // refund obligation authorizes the new path.
+        if (this._guardedPayoutCoordinator) {
+            return this._guardedPayoutCoordinator.refundPayments({
+                roomNumber, roomId, gameId, paymentSessionId,
+                refunds, refundPlan
+            });
+        }
         const normalizedRoomNumber = resolveRoomNumber({ roomNumber });
         const targets = Array.isArray(refunds) ? refunds : [];
         const results = [];
@@ -1203,6 +1222,11 @@ export class RoomWalletSettlementAdapter {
     }
 
     async settleContract(request = {}) {
+        // Protected mode uses a frozen settlement journal and the once-only
+        // guarded executor. No fallback to historical direct sendTransfer().
+        if (this._guardedPayoutCoordinator) {
+            return this._guardedPayoutCoordinator.settleContract(request);
+        }
         const roomNumber = resolveRoomNumber(request);
         const winnerWallet = requireWallet(request.winnerWallet, "winnerWallet");
         const ownerWallet = requireWallet(request.ownerWallet, "ownerWallet");

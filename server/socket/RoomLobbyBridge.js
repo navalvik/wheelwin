@@ -4274,7 +4274,14 @@ export class RoomLobbyBridge {
 
         }
 
-        this._roomManager.destroyRoom(roomId);
+        // Do not clean up the lobby when the financial persistence safety
+        // barrier refused room destruction. Keep its wallet number occupied.
+        if (this._roomManager.destroyRoom(roomId) !== true) {
+            this._logger.error(
+                `ROOM_CLOSE_BLOCKED_BY_FINANCIAL_GUARD | roomId=${roomId}`
+            );
+            return;
+        }
 
         this._roomCreators.delete(roomId);
 
