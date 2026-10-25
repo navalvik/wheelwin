@@ -142,7 +142,11 @@ export class RoomWalletRefundRecoveryRepository {
             ]) {
                 assert(existing.payload[field] === payload[field], "QUARANTINE_IDENTITY_CONFLICT");
             }
-            this._quarantinedRoomNumbers.add(number);
+            // Repeated lifecycle callbacks after a proven closure must not
+            // re-block this number. The durable record remains authoritative.
+            if (existing.status === "ACTIVE") {
+                this._quarantinedRoomNumbers.add(number);
+            }
             return Object.freeze({ created: false, recordId, record: existing });
         }
         existing = this._persistence.createRecoveryDataRecord(payload, {
@@ -189,7 +193,11 @@ export class RoomWalletRefundRecoveryRepository {
                 "network", "roomId", "roomNumber", "gameId", "roomWallet"
             ]) assert(existing.payload[field] === payload[field],
                 "SETTLEMENT_QUARANTINE_IDENTITY_CONFLICT");
-            this._quarantinedRoomNumbers.add(number);
+            // Repeated lifecycle callbacks after a proven closure must not
+            // re-block this number. The durable record remains authoritative.
+            if (existing.status === "ACTIVE") {
+                this._quarantinedRoomNumbers.add(number);
+            }
             return Object.freeze({ created: false, recordId, record: existing });
         }
         const stored = this._persistence.createRecoveryDataRecord(payload, {
@@ -288,7 +296,9 @@ export class RoomWalletRefundRecoveryRepository {
             && /^[0-9a-f]{64}$/.test(evidence.headHash)
             && typeof evidence?.headLt === "string"
             && /^\d+$/.test(evidence.headLt)
-            && Number.isSafeInteger(evidence.verifiedAtMs),
+            && Number.isSafeInteger(evidence.verifiedAtMs)
+            && Array.isArray(evidence.settledIntents)
+            && evidence.settledIntents.every(x => /^rwout_[0-9a-f]{64}$/.test(x)),
             "QUARANTINE_CLOSURE_PROOF_REQUIRED");
         const existing = this._getById(recordId);
         assert(existing && [KIND_QUARANTINE, KIND_SETTLEMENT_QUARANTINE]
