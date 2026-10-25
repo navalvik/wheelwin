@@ -15,6 +15,7 @@ import { Address } from "@ton/core";
 import { normalizeTonTransactionHash } from "./RoomWalletDualSourceEvidence.js";
 import { validatePersistedPayoutPlan } from "./RoomWalletSettlementAdapter.js";
 import { ROOM_WALLET_POLICY, buildResidualSweep } from "./RoomWalletFinancialPolicy.js";
+import { TON_FINANCIAL_RECORD_TYPES } from "../../persistence/TonFinancialRecordTypes.js";
 
 const KIND = "ROOM_WALLET_OUTBOUND_INTENT";
 const HELD = new Set(["SIGNED_HELD", "CONFIRMATION_UNKNOWN"]);
@@ -252,6 +253,24 @@ export class RoomWalletOutboundIntentJournal {
             && settlement.roomId.length > 0
             && settlement.request?.payoutPlan?.mode === "RECIPIENT_PAYS_GAS",
             "OUTBOUND_SWEEP_SETTLEMENT_NOT_FINAL");
+        // A delayed SETTLEMENT_CONFIRMED event from a previously released
+        // room must never sweep funds subsequently deposited by a NEW game
+        // reusing this wallet number. Check the durable room-wallet payment
+        // timeline, not just the event's old gameId.
+        ensure(typeof this._persistence.listActive === "function",
+            "OUTBOUND_SWEEP_PAYMENT_TIMELINE_UNAVAILABLE");
+        const settlementRecord = this._persistence.loadSettlementRecord(p.gameId);
+        const settlementCreatedAt = Number(settlementRecord?.createdAt);
+        ensure(Number.isSafeInteger(settlementCreatedAt) && settlementCreatedAt > 0,
+            "OUTBOUND_SWEEP_SETTLEMENT_TIME_UNAVAILABLE");
+        const recycled = this._persistence
+            .listActive(TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION)
+            .some(sessionRecord =>
+                sessionRecord.payload?.gameId !== p.gameId
+                && Number(sessionRecord.payload?.roomNumber) === p.roomNumber
+                && raw(sessionRecord.payload?.roomWalletAddress) === wallet
+                && Number(sessionRecord.createdAt) >= settlementCreatedAt);
+        ensure(!recycled, "OUTBOUND_SWEEP_WALLET_ALREADY_REASSIGNED");
         const entries = this._persistence.listActiveRecoveryDataRecords();
         const payouts = entries.filter(item =>
             item.payload?.kind === KIND && item.status === "SETTLED"
