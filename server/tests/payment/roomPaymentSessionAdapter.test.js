@@ -1407,7 +1407,7 @@ async function run() {
         });
 
         expectConflict("reserved-elsewhere", (_h, roomId) => {}, [
-            { roomId: "different-room", walletId: "room-wallet-1" }
+            { roomId: "different-room", walletId: "room-wallet-2" }
         ]);
 
         expectConflict("cross-room-obligation", (h, roomId) => {
