@@ -148,12 +148,14 @@ export class ToncenterTestnetOutgoingTransferProvider {
             sourceIndex: Object.freeze({
                 mcBlockSeqno: sourceTx[0].mc_block_seqno ?? null,
                 blockRef: sourceTx[0].block_ref ?? null,
-                emulated: sourceTx[0].emulated ?? null
+                emulated: sourceTx[0].emulated ?? null,
+                finality: sourceTx[0].finality ?? null
             }),
             recipientIndex: Object.freeze({
                 mcBlockSeqno: matches[0].mc_block_seqno ?? null,
                 blockRef: matches[0].block_ref ?? null,
-                emulated: matches[0].emulated ?? null
+                emulated: matches[0].emulated ?? null,
+                finality: matches[0].finality ?? null
             })
         });
     }
@@ -177,6 +179,8 @@ export class ToncenterTestnetOutgoingTransferProvider {
             Number.isSafeInteger(index?.mcBlockSeqno)
             && index.mcBlockSeqno > 0
             && index.emulated !== true
+            // TON Indexer models.FinalityStateFinalized == 2.
+            && index.finality === 2
             && index.blockRef?.workchain === 0
             && Number.isSafeInteger(index.blockRef.seqno)
             && index.blockRef.seqno > 0
@@ -205,7 +209,9 @@ export class ToncenterTestnetOutgoingTransferProvider {
             sourceMcBlockSeqno: observed.sourceIndex.mcBlockSeqno,
             recipientMcBlockSeqno: observed.recipientIndex.mcBlockSeqno,
             latestIndexedMcBlockSeqno: latest.seqno,
-            globalId: -3
+            globalId: -3,
+            sourceFinality: "finalized",
+            recipientFinality: "finalized"
         });
     }
     async getOutgoingTransfer({sourceWalletAddress,transactionId,minCreatedAtMs=null}={}){
