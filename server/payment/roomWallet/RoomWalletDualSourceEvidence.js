@@ -116,9 +116,21 @@ export function reconcileDualSourceTransactions({
                 const nonZeroOrUnknown = inbound.value !== "0"
                     && inbound.value !== 0
                     && inbound.value !== 0n;
+                // Real TON Center v3 external-in messages use source:null
+                // and value:null (TonAPI uses a numeric zero). Their
+                // import_fee is populated while internal message metadata
+                // such as created_lt and fwd_fee are null. Ignore ONLY this
+                // explicitly identifiable external shape, not ambiguous
+                // positive/unknown internal deposits.
+                const toncenterExternal = inbound.source == null
+                    && inbound.value == null
+                    && inbound.import_fee != null
+                    && inbound.created_lt == null
+                    && inbound.fwd_fee == null;
                 const possiblyIncoming = destination === expected
                     || (destination === null && source !== null);
                 if (nonZeroOrUnknown && possiblyIncoming
+                    && !toncenterExternal
                     && (!parsed || parsedValue === null)) {
                     throw new RoomWalletEvidenceUnavailable(
                         "MALFORMED_ROOM_WALLET_INCOMING_EVIDENCE"
