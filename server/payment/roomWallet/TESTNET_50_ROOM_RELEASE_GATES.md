@@ -53,6 +53,7 @@ Status: **DRAFT / NOT DEPLOYABLE**. Scope: native GRAM transfers through 64 serv
 
 ## Testing
 
+- Expanded offline selection (34 suites, before correcting one test fixture): **326 / 328 passed**, 2 failures. Failure A: an obsolete `GameEscrow PAYMENTS_COMPLETE` readiness test contradicts the no-escrow architecture and was left unchanged. Failure B: partial-refund test fixture counted a single sendTransfer call twice; its duplicate mock counter was removed and the affected test then passed on an individual rerun. The full 328-test selection has NOT been rerun after that fixture correction, so do not describe it as fully passing.
 - Latest focused regression run after guarded SWEEP migration: **157 passed / 157 total** across 16 suites, 0 failures, and `node --check app.js` passed. Includes protected sweep signing/journal, duplicate and stale-game prevention, post-restart unknown transfer hold, frozen recipient-paid refunds and payouts, historical sweep proofs in wallet release, and 50-room/quarantine tests. All offline.
 - Before sweep migration, the broader selection had **202 passed / 202 total** across 23 suites; the two selections overlap and must not be added together.
 - Targeted legacy composition, Room Wallet service, and residual sweep regression suite: **34 passed / 34 total**. All tests were offline with no real TON transactions.
