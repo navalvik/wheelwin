@@ -235,6 +235,43 @@ export class RefundObligationStore {
         return this._commitTransition(next);
     }
 
+    /**
+     * Historical finality reconciliation of a previously-sent refund. Never
+     * submits a new transaction. Handles the crash-safe SUBMISSION_UNKNOWN and
+     * manual-hold RECONCILIATION_REQUIRED states without changing principal.
+     * The caller must verify BOTH independent blockchain providers first.
+     * Persist via the ordinary immutable transition gate.
+     */
+    completeFromVerifiedHistory(obligationId,{outgoingTransactionId,finalizedEvidence}={}){
+        const current=this.get(obligationId);
+        if(!current || !["SUBMITTED","SUBMISSION_UNKNOWN","RECONCILIATION_REQUIRED"].includes(current.state))
+            throw new RefundObligationError("refund is not awaiting historical reconciliation");
+        if(typeof outgoingTransactionId!=="string"||!outgoingTransactionId
+            ||current.outgoingTransactionId
+                &&current.outgoingTransactionId!==outgoingTransactionId)
+            throw new RefundObligationError("historical refund transaction identity conflicts");
+        if(!finalizedEvidence ||finalizedEvidence.transactionId!==outgoingTransactionId
+            ||finalizedEvidence.finalized!==true
+            ||finalizedEvidence.networkName!==current.networkName
+            ||finalizedEvidence.globalId!==current.globalId
+            ||finalizedEvidence.amountAtomic!==(current.transferAmountAtomic??current.amountAtomic)
+            ||finalizedEvidence.destination!==current.refundDestination)
+            throw new RefundObligationError("historical finalized refund evidence mismatches obligation");
+        let submitted=current;
+        if(current.state==="SUBMISSION_UNKNOWN"){
+            // A crash between these two writes leaves a normal SUBMITTED
+            // obligation, which the next recovery pass can safely finish.
+            submitted=this._commitTransition(RefundObligation.fromRecord({
+                ...current.toRecord(),state:"SUBMITTED",
+                outgoingTransactionId
+            }));
+        }
+        return this._commitTransition(RefundObligation.fromRecord({
+            ...submitted.toRecord(),state:"COMPLETE",outgoingTransactionId,
+            finalizedEvidence
+        }));
+    }
+
     /** Any non-terminal -> BLOCKED (safe terminal hold with a diagnostic code). */
     markBlocked(obligationId, { attempt = null, lastError = null } = {}) {
         const current = this._requireExisting(attempt, obligationId);
