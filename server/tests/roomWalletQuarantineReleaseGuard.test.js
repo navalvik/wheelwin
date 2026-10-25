@@ -511,6 +511,10 @@ test("fully confirmed historical sweep no longer strands next game's cleaned wal
     const result = await f.guard().tryRelease({ recordId: f.hold.recordId });
     assert.equal(result.changed, true);
     assert.equal(f.repo.isRoomNumberQuarantined(1), false);
+    assert.deepEqual(
+        f.db.loadRecoveryDataRecord(f.hold.recordId).payload.chainClosure.settledIntents,
+        [id]
+    );
 });
 
 test("same-game residual sweep must also occur in double-source scanned history", async t => {
