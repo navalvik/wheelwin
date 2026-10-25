@@ -136,7 +136,8 @@ export class RoomWalletQuarantineReleaseGuard {
         // Also block unrelated pending funds transfers from the SAME wallet,
         // even if they refer to another game on that numbered wallet.
         const inFlight = this._db.listActiveRecoveryDataRecords().filter(x =>
-            x.payload?.kind === "ROOM_WALLET_OUTBOUND_INTENT"
+            x.status === "ACTIVE"
+            && x.payload?.kind === "ROOM_WALLET_OUTBOUND_INTENT"
             && raw(x.payload?.roomWallet) === raw(marker.roomWallet));
         guard(inFlight.length === 0,
             "QUARANTINE_RELEASE_OUTBOUND_INTENT_UNRESOLVED");
