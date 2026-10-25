@@ -16,3 +16,7 @@ An isolated Vercel sandbox ran `npm ci --ignore-scripts`, `node --check app.js`,
 - Live acceptance stays disabled (`REFUND_EXECUTION_NOT_READY`). No escrow or smart contracts. No signed transfers.
 - Do not merge into `main`, deploy Railway/Vercel, use Mainnet or allocate Room Wallet #1 with unresolved Lena/Bob refunds based solely on this proof library.
 - Next slice: guarded, durable refund/payout intent journal and operator-safe recovery, with tests preserving five-minute deadline, single-writer, 50-room capacity and three-player gate. Check that every component correctly uses actual Testnet indexer schemas and fail-closed handling before real operations.
+
+## Guarded outbound compatibility finding
+
+The draft PR #21 `RoomWalletOutboundIntentJournal`, `RoomWalletSingleWriterGate`, and `RoomWalletRefundRecoveryRepository` are not directly portable into the current cleaned-up Testnet branch. They depend on historical `RoomWalletSettlementAdapter`, `RoomWalletFinancialPolicy`, `RoomWalletRegistry` and `TonFinancialPersistence` APIs that are absent from this branch. **Do not restore those historical financial modules just to satisfy imports.** Instead, adapt protected outbound intentions and per-wallet locking to this branch's `RefundObligationStore`, `SqlitePaymentIntentStore`, `WalletPoolRegistry` and current financial persistence contract, with independent restart/concurrency tests before any signer connection. This incompatibility blocks activation, not the read-only evidence library.
