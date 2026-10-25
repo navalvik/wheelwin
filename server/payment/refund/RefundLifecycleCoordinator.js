@@ -195,22 +195,55 @@ export class RefundLifecycleCoordinator {
         }
         const startedAtMs = this._now();
         let result;
+        let preparedOnDisk = false;
         try {
             const sourceWalletAddress = outgoing.resolveSourceWallet
                 ? outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents })
                 : (() => { throw new RefundLifecycleError("provider cannot resolve the refund source wallet"); })();
-            result = await outgoing.signAndBroadcast({ obligation: current, sourceWalletAddress, nowMs: startedAtMs });
+
+            if (typeof outgoing.prepareRefundTransfer === "function") {
+                // Quote the exact Testnet transfer before signing. Persist both
+                // the net amount and an in-flight state BEFORE any broadcast.
+                // Crash/restart after this write can never blindly resubmit.
+                const plan = await outgoing.prepareRefundTransfer({
+                    obligation: current, sourceWalletAddress, nowMs: startedAtMs
+                });
+                const attempt = this._attempt(current, "SUBMISSION_UNKNOWN", {
+                    startedAtMs, completedAtMs: this._now(),
+                    attemptId: `${current.obligationId}:${startedAtMs}`
+                });
+                this._store.markSubmissionUnknown(current.obligationId, {
+                    attempt,
+                    transferAmountAtomic: plan.transferAmountAtomic,
+                    gasChargeAtomic: plan.gasChargeAtomic
+                });
+                preparedOnDisk = true;
+            }
+
+            result = await outgoing.signAndBroadcast({
+                obligation: preparedOnDisk ? this._store.get(current.obligationId) : current,
+                sourceWalletAddress, nowMs: startedAtMs
+            });
         } catch (error) {
-            // Authorization/provider failures fail closed: record and stay PENDING.
             const code = typeof error?.code === "string" ? error.code : "OUTGOING_REFUND_ERROR";
-            const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: code, attemptId: `${current.obligationId}:${startedAtMs}` });
+            const attempt = this._attempt(current,
+                preparedOnDisk ? "SUBMISSION_UNKNOWN" : "FAILED", {
+                    startedAtMs, completedAtMs: this._now(), errorCode: code,
+                    attemptId: `${current.obligationId}:${startedAtMs}`
+                });
             this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: code });
-            return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: code });
+            return Object.freeze({
+                obligationId: current.obligationId,
+                outcome: preparedOnDisk ? "SUBMISSION_UNKNOWN" : "FAILED",
+                outgoingTransactionId: null, reason: code
+            });
         }
 
         if (result.outcome === "SUBMITTED") {
             const attemptStart = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt: attemptStart });
+            if (!preparedOnDisk) {
+                this._store.markSubmissionUnknown(current.obligationId, { attempt: attemptStart });
+            }
             const attemptDone = this._attempt(current, "SUBMITTED", { startedAtMs, completedAtMs: this._now(), outgoingTransactionId: result.outgoingTransactionId, attemptId: `${current.obligationId}:${startedAtMs}` });
             this._store.markSubmitted(current.obligationId, { outgoingTransactionId: result.outgoingTransactionId, attempt: attemptDone });
             this._logger?.info?.(`Refund submitted | obligationId=${current.obligationId} | network=${current.networkName}`);
@@ -218,13 +251,29 @@ export class RefundLifecycleCoordinator {
         }
         if (result.outcome === "UNKNOWN") {
             const attempt = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt, lastError: result.reason ?? null });
+            if (preparedOnDisk) {
+                this._store.recordSubmissionAttempt(current.obligationId, {
+                    attempt, lastError: result.reason ?? null
+                });
+            } else {
+                this._store.markSubmissionUnknown(current.obligationId, {
+                    attempt, lastError: result.reason ?? null
+                });
+            }
             this._logger?.warn?.(`Refund submission outcome unknown | obligationId=${current.obligationId} | reason=${result.reason}`);
             return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMISSION_UNKNOWN", outgoingTransactionId: null, reason: result.reason });
         }
         const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
-        this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: result.reason ?? null });
-        return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: result.reason });
+        this._store.recordSubmissionAttempt(current.obligationId, {
+            attempt, lastError: result.reason ?? null
+        });
+        // Once the transfer plan was persisted before broadcast, a reported
+        // failure cannot safely be used to resubmit without chain checks.
+        return Object.freeze({
+            obligationId: current.obligationId,
+            outcome: preparedOnDisk ? "SUBMISSION_UNKNOWN" : "FAILED",
+            outgoingTransactionId: null, reason: result.reason
+        });
     }
 
     /**
