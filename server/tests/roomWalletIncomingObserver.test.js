@@ -1382,3 +1382,60 @@ test("Testnet HTTP 542: one provider failing does NOT credit a player", async (t
     assert.equal(requests, 2);
     assert.equal(manager.getSession("DualErr").confirmedCount(), 0);
 });
+
+
+test("50-room outage safety: primary HTTP 542 circuit breaker and controlled recovery probe", async (t) => {
+    const roomWallet = friendlyAddress("circuit-50rooms");
+    const players = threePlayers("cb50");
+    let wallClock = Date.now();
+    let primaryCalls = 0;
+    let dualCalls = 0;
+    const { observer, manager } = createObserverFixture({
+        t,
+        registryEntries: [{ roomNumber: 1, address: roomWallet }],
+        rooms: [{ roomId: "Circuit50", roomNumber: 1, gameId: "game-cb50", players }],
+        transport: {
+            async getTransactions() {
+                primaryCalls++;
+                const err = new Error("TonCenter HTTP 542");
+                err.status = 542;
+                throw err;
+            }
+        },
+        observerOptions: {
+            now: () => wallClock,
+            env: { ROOM_WALLET_DUAL_SOURCE_ENABLED: "true" },
+            retryMaxAttempts: 1,
+            dualSourceBudget: {
+                async schedule(_provider, read) { return read(); }
+            },
+            dualSourceFetch: async (_url, opts) => {
+                dualCalls++;
+                assert.equal(opts.method, "GET");
+                return { ok: true, json: async () => ({ transactions: [] }) };
+            }
+        }
+    });
+
+    assert.equal((await observer._fetchTransactionsControlled(roomWallet)).ok, true);
+    assert.equal(primaryCalls, 1);
+    assert.equal((await observer._fetchTransactionsControlled(roomWallet)).ok, true);
+    assert.equal(primaryCalls, 2);
+    assert.equal(observer._primaryFailureStreak, 2);
+
+    // All following room-wallet probes during the outage bypass the broken
+    // primary RPC. No false "paid" state is inferred from empty API histories.
+    for (let i = 0; i < 48; i++) {
+        const result = await observer._fetchTransactionsControlled(roomWallet);
+        assert.equal(result.ok, true);
+        assert.deepEqual(result.transactions, []);
+    }
+    assert.equal(primaryCalls, 2);
+    assert.equal(dualCalls, 100);
+    assert.equal(manager.getSession("Circuit50").confirmedCount(), 0);
+
+    wallClock += 30_001;
+    assert.equal((await observer._fetchTransactionsControlled(roomWallet)).ok, true);
+    assert.equal(primaryCalls, 3);
+    assert.ok(observer._primaryCircuitUntil > wallClock);
+});
