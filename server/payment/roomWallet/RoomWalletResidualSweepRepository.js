@@ -84,6 +84,18 @@ export class RoomWalletResidualSweepRepository {
             throw new Error("residual sweep create requires source and destination addresses");
         }
 
+        // The room number is recycled. Do not let a repeated settlement
+        // event authorize a SECOND residual transfer for the same game,
+        // even if the old sweep was already confirmed and is terminal.
+        if (gameId != null && this.listActive().some(record =>
+            record.payload?.gameId === gameId
+            && Number(record.payload?.roomNumber) === normalizedRoomNumber
+        )) {
+            throw new DuplicateRecordError(
+                TON_FINANCIAL_RECORD_TYPES.RESIDUAL_SWEEP,
+                "game:" + gameId
+            );
+        }
         const inFlight = this.findInFlightByRoomNumber(normalizedRoomNumber);
 
         if (inFlight) {
