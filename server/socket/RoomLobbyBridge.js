@@ -4791,21 +4791,25 @@ export class RoomLobbyBridge {
 
         this._logger.info(`Verify barrier complete | roomId=${roomId}`);
 
-        // Trigger the authoritative game start gate.
+        // Payment rooms do not invoke GameStartAuthorization before Page4 has
+        // settled all THREE real payments. Doing so rejects the not-yet-paid
+        // room before any participant can pay.
+        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+            this._preparePaymentSessionIfEnabled(roomId, room);
+            return;
+        }
+
+        // Historical disabled-acceptance behavior remains fail-closed.
         this._eventBus.emit({
             source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
             type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
             payload: {
                 roomId,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled: false,
                 paymentSessionPrepared: false,
-                paymentStatus: LIVE_PAYMENT_ACCEPTANCE_ENABLED
-                    ? "PENDING_PREPARATION"
-                    : "PAYMENT_UNAVAILABLE"
+                paymentStatus: "PAYMENT_UNAVAILABLE"
             }
         });
-
-        this._preparePaymentSessionIfEnabled(roomId, room);
 
     }
 
@@ -4976,20 +4980,63 @@ export class RoomLobbyBridge {
      * status the reconnect path would have delivered.
      */
     _handlePaymentStatusRequest(socketId) {
-
         const context = this._getSocketContext(socketId);
-
-        if (!context || !context.playerId || !context.roomId) {
-
-            return;
-        }
+        if (!context || !context.playerId || !context.roomId) return;
 
         this._deliverPaymentStatusToSocket(
-            context.roomId,
-            context.playerId,
-            socketId
+            context.roomId, context.playerId, socketId
         );
 
+        // No automatic global wallet scan. Only an occupied Page4 room
+        // receives one explicit, coalesced chain observation on request.
+        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
+        const runtime = this._paymentApplicationBinding?.runtime;
+        const adapter = runtime?.sessionAdapter;
+        const roomId = context.roomId;
+        const room = this._roomManager.getRoom(roomId);
+        if (!room || room.players?.length !== 3
+            || !this._continueToVerifyByRoom.has(roomId)
+            || typeof adapter?.observeRoomPayments !== "function") return;
+
+        if (!this._roomPaymentChecks) this._roomPaymentChecks = new Map();
+        if (this._roomPaymentChecks.has(roomId)) return;
+
+        const pending = Promise.resolve()
+            .then(() => adapter.observeRoomPayments({ roomId }))
+            .then(() => {
+                const active = this._roomManager.getRoom(roomId);
+                if (!active || active.players?.length !== 3) return;
+                for (const playerId of active.players) {
+                    const boundSocket = this._playerToSocket.get(playerId);
+                    if (boundSocket) {
+                        this._deliverPaymentStatusToSocket(roomId, playerId, boundSocket);
+                    }
+                }
+                const gate = runtime.paymentGate?.getGameStartGateStatus(
+                    roomId, active.players
+                );
+                if (gate?.eligible === true) {
+                    this._eventBus.emit({
+                        source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                        type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
+                        payload: {
+                            roomId,
+                            paymentAcceptanceEnabled: true,
+                            paymentSessionPrepared: true,
+                            paymentStatus: "ALL_THREE_SETTLED"
+                        }
+                    });
+                }
+            })
+            .catch(error => this._logger?.warn?.(
+                `Page4 payment check failed | roomId=${roomId} | reason=${error?.message ?? "unknown"}`
+            ))
+            .finally(() => {
+                if (this._roomPaymentChecks.get(roomId) === pending) {
+                    this._roomPaymentChecks.delete(roomId);
+                }
+            });
+        this._roomPaymentChecks.set(roomId, pending);
     }
 
     _preparePaymentSessionIfEnabled(roomId, room) {
