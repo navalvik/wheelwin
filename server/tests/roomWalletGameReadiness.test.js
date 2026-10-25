@@ -532,7 +532,7 @@ test("C. Room Wallet mode blocks until three valid payments and ignores Deposit/
     ready.shutdown();
 });
 
-test("C. legacy mode still requires Deposit FULL and GameEscrow PAYMENTS_COMPLETE", () => {
+test("C. legacy escrow flags never authorize Page5 when room-wallet intake is off", () => {
     const noDeposit = createGsaHarness({
         roomWalletPaymentIntakeEnabled: false,
         depositState: "AWAITING_FUNDS",
@@ -557,7 +557,11 @@ test("C. legacy mode still requires Deposit FULL and GameEscrow PAYMENTS_COMPLET
         contractStatus: GAME_CONTRACT_STATUS.PAYMENTS_COMPLETE
     });
     legacyReady.emitCompleted();
-    assert.equal(legacyReady.auth.getLifecycle("Keah")?.phase, GAME_START_PHASE.OPENED);
+    // Escrow is permanently removed from the financial architecture.
+    // Even the historic DEPOSIT_FULL + PAYMENTS_COMPLETE pair must not
+    // bypass the authoritative 3-player Room Wallet payment gate.
+    assert.equal(legacyReady.collected.length, 0);
+    assert.notEqual(legacyReady.auth.getLifecycle("Keah")?.phase, GAME_START_PHASE.OPENED);
     legacyReady.shutdown();
 });
 
