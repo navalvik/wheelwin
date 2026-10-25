@@ -15,6 +15,7 @@ import {
 import { resolve, join } from "node:path";
 import { Address } from "@ton/core";
 import { inspectProtectedRefundV4Boc } from "./ProtectedRefundV4Boc.js";
+import { verifyProtectedRefundV4Authorization } from "./ProtectedRefundV4Authorization.js";
 
 export class ProtectedRefundIntentError extends Error {
     constructor(code) {
@@ -235,8 +236,43 @@ export class ProtectedRefundIntentJournal {
             && result.signatureAuthenticated === false,
             "REFUND_PREPARATION_MUST_BE_OFFLINE");
         const next = seal({ ...item, state: "SIGNED_HELD",
+            signatureAuthenticated: false,
             ownerToken, signedHash: result.signedHash,
             seqno: result.seqno, validUntil: result.validUntil,
+            checksum: undefined });
+        durableReplace(join(this._records, intentId + ".json"), next, this._records);
+        return this.load(intentId);
+    }
+
+    /**
+     * Cryptographically authenticates the Ed25519 signature using the public
+     * key that deterministically derives this specific standard V4R2 wallet.
+     * Two supplied account snapshots must agree on the signing seqno.
+     *
+     * Snapshot provenance is NOT established by this method. It never sends
+     * funds and it never lets caller-supplied state authorize a broadcast.
+     */
+    holdSignatureVerifiedBoc({ intentId, ownerToken, bocBase64, snapshots } = {}) {
+        const item = this.load(intentId);
+        this._assertOwner(item, ownerToken);
+        assert(item.state === "PLANNED", "REFUND_ALREADY_SIGNED");
+        this._source(item.obligationId);
+        const proof = verifyProtectedRefundV4Authorization({
+            bocBase64, fromWallet: item.fromWallet, toWallet: item.toWallet,
+            netAtomic: item.netAtomic, grossAtomic: item.grossAtomic, snapshots
+        });
+        assert(proof.signatureAuthenticated === true
+            && proof.walletAddressDerivedFromPublicKey === true
+            && proof.observedSeqnoMatches === true
+            && proof.broadcastAuthorized === false,
+            "REFUND_AUTHENTICATED_PREFLIGHT_REQUIRED");
+        const next = seal({ ...item, state: "SIGNED_HELD",
+            ownerToken, signedHash: proof.signedHash,
+            seqno: proof.seqno, validUntil: proof.validUntil,
+            signatureAuthenticated: true,
+            accountHeadLt: proof.accountHeadLt,
+            accountHeadHash: proof.accountHeadHash,
+            accountCodeHash: proof.accountCodeHash,
             checksum: undefined });
         durableReplace(join(this._records, intentId + ".json"), next, this._records);
         return this.load(intentId);
