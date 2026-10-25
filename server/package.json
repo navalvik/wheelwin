@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1108.0",
+    "@ton/core": "0.63.1",
     "better-sqlite3": "13.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
