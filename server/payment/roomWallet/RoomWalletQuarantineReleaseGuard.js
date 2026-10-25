@@ -294,6 +294,21 @@ export class RoomWalletQuarantineReleaseGuard {
 
         const historyHash = createHash("sha256")
             .update(chain.transactions.map(txIdentity).join("|")).digest("hex");
+
+        // Recheck both indexers' account tip immediately before the durable
+        // wallet release write. If a late transfer arrived while evaluating
+        // records, keep the wallet quarantined for a new complete scan.
+        const finalHead = await this._head({
+            roomWallet: marker.roomWallet,
+            requestBudget: this._budget,
+            fetchImpl: this._fetch
+        });
+        guard(finalHead?.providersAgree === true
+            && finalHead.headLt === head.headLt
+            && finalHead.headHash === head.headHash
+            && raw(finalHead.roomWallet) === raw(marker.roomWallet),
+            "QUARANTINE_RELEASE_HEAD_CHANGED_DURING_RECONCILIATION");
+
         return this._repo.closeWithChainEvidence({
             recordId,
             evidence: {
