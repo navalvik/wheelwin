@@ -40,6 +40,7 @@ import {
 import { createHash } from "node:crypto";
 import { deriveTonAddressIdentity } from "../payment/incoming/TonAddressIdentity.js";
 import { deriveTestnetRoomPaymentRequirements } from "../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
+import { ActiveRoomObservationBudget } from "../payment/runtime/ActiveRoomObservationBudget.js";
 
 import {
     LOBBY_ERROR_CODES,
@@ -5005,6 +5006,10 @@ export class RoomLobbyBridge {
 
         if (!this._roomPaymentChecks) this._roomPaymentChecks = new Map();
         if (this._roomPaymentChecks.has(roomId)) return;
+        if (!this._roomObservationBudget) {
+            this._roomObservationBudget = new ActiveRoomObservationBudget();
+        }
+        if (!this._roomObservationBudget.claim(roomId)) return;
 
         const pending = Promise.resolve()
             .then(() => adapter.observeRoomPayments({ roomId }))
@@ -5495,6 +5500,8 @@ export class RoomLobbyBridge {
     }
 
     _clearVerifyBarrier(roomId) {
+
+        this._roomObservationBudget?.forget(roomId);
 
         this._verifyConfirmedByRoom.delete(roomId);
 
