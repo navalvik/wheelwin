@@ -30,6 +30,7 @@ export class RoomWalletAdapter {
         logger = null,
         gasReserveNano = ROOM_WALLET_POLICY.initialRoomReserveNano,
         seqnoConfirmTimeoutMs = 90_000,
+        guardedOutboundOnly = false,
         seqnoConfirmPollMs = 2_000,
         now = () => Date.now(),
         sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -60,6 +61,7 @@ export class RoomWalletAdapter {
             throw new TypeError("sleep must be a function");
         }
 
+        this._guardedOutboundOnly = guardedOutboundOnly === true;
         this._tonService = tonService;
         this._walletResolver = walletResolver;
         this._logger = logger;
@@ -342,6 +344,11 @@ export class RoomWalletAdapter {
         queryId = null,
         sourceReserveNano = null
     } = {}) {
+        // Once every outbound path is migrated, this explicit kill switch
+        // prevents legacy sends bypassing the durable signing journal.
+        if (this._guardedOutboundOnly) {
+            throw new Error("ROOM_WALLET_LEGACY_DIRECT_BROADCAST_DISABLED");
+        }
         assertNonNegativeNano(amountNano, "amountNano");
 
         if (amountNano <= 0n) {
