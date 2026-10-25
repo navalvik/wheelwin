@@ -263,13 +263,13 @@ test("closing one marker does not release another open marker with the same room
 
 test("post-Page5 wallet remains quarantined until BOTH authoritative payouts finalize", async t => {
     const folder = mkdtempSync(join(tmpdir(), "ww-successful-game-quarantine-"));
-    const db = new TonFinancialPersistence({ dataDir: folder });
+    let db = new TonFinancialPersistence({ dataDir: folder });
     db.initialize();
     t.after(() => {
         db.shutdown({ checkpoint: false });
         rmSync(folder, { force: true, recursive: true });
     });
-    const repo = new RoomWalletRefundRecoveryRepository({ financialPersistence: db });
+    let repo = new RoomWalletRefundRecoveryRepository({ financialPersistence: db });
     const winnerWallet = PEOPLE[1][1], ownerWallet = PEOPLE[0][1];
     const feeEvidence = {
         inFwdFeeNano: "101068", storageFeeNano: "2",
@@ -333,7 +333,7 @@ test("post-Page5 wallet remains quarantined until BOTH authoritative payouts fin
         roomId: payment.roomId, gameId: payment.gameId,
         roomNumber: 1, roomWallet: ROOM
     });
-    const journal = new RoomWalletOutboundIntentJournal({
+    let journal = new RoomWalletOutboundIntentJournal({
         financialPersistence: db,
         roomWalletRegistry: { get: num => num === 1 ? { address: ROOM } : null }
     });
@@ -356,7 +356,7 @@ test("post-Page5 wallet remains quarantined until BOTH authoritative payouts fin
             }))
         ]
     };
-    const closer = new RoomWalletQuarantineReleaseGuard({
+    const buildCloser = () => new RoomWalletQuarantineReleaseGuard({
         repository: repo,
         financialPersistence: db,
         residualSweepRepository: { listActive: () => [] },
@@ -398,16 +398,42 @@ test("post-Page5 wallet remains quarantined until BOTH authoritative payouts fin
             }
         });
     }
+    let closer = buildCloser();
     confirm("WINNER", 41);
     await assert.rejects(
         closer.tryRelease({ recordId: marker.recordId }),
         e => e.code === "QUARANTINE_RELEASE_SETTLEMENT_OUTBOUND_UNPAID"
     );
+    // Railway-style restart between winner and owner transfers: a winner
+    // chain receipt must remain durable, but the wallet remains unavailable.
+    db.shutdown({ checkpoint: false });
+    db = new TonFinancialPersistence({ dataDir: folder });
+    db.initialize();
+    repo = new RoomWalletRefundRecoveryRepository({ financialPersistence: db });
+    journal = new RoomWalletOutboundIntentJournal({
+        financialPersistence: db,
+        roomWalletRegistry: { get: num => num === 1 ? { address: ROOM } : null }
+    });
+    closer = buildCloser();
+    assert.equal(repo.isRoomNumberQuarantined(1), true);
+    await assert.rejects(
+        closer.tryRelease({ recordId: marker.recordId }),
+        e => e.code === "QUARANTINE_RELEASE_SETTLEMENT_OUTBOUND_UNPAID"
+    );
+    assert.equal(db.listActiveRecoveryDataRecords()
+        .filter(x => x.payload?.role === "WINNER"
+            && x.payload?.state === "CHAIN_CONFIRMED").length, 1);
     confirm("OWNER", 42);
     const closed = await closer.tryRelease({ recordId: marker.recordId });
     assert.equal(closed.unblocked, true);
     assert.equal(repo.isRoomNumberQuarantined(1), false);
     assert.equal(db.loadRecoveryDataRecord(marker.recordId).payload.chainClosure.settledIntents.length, 2);
+    db.shutdown({ checkpoint: false });
+    db = new TonFinancialPersistence({ dataDir: folder });
+    db.initialize();
+    repo = new RoomWalletRefundRecoveryRepository({ financialPersistence: db });
+    assert.equal(repo.listOpenSettlementQuarantines().length, 0);
+    assert.equal(repo.isRoomNumberQuarantined(1), false);
 });
 
 
