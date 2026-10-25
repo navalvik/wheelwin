@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
+import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../payment/buildRoomWalletTonConnectRequest.js";
 
 import GameLayout from "../layouts/GameLayout";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
@@ -30,6 +32,11 @@ export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
     const { roomId, playerId } = identity ?? {};
     const [payment, setPayment] = useState({status: "PAYMENT_UNAVAILABLE", paymentAcceptanceEnabled: false});
+    const [tonConnectUI] = useTonConnectUI();
+    const connectedWallet = useTonWallet();
+    const [sending, setSending] = useState(false);
+    const [sentToWallet, setSentToWallet] = useState(false);
+    const [paymentError, setPaymentError] = useState(null);
     const status = payment.status;
 
     // Only request the authoritative payment state once per identity cycle.
@@ -68,6 +75,27 @@ export default function Page4Payment() {
         };
     }, [roomId, playerId]);
 
+    const walletMatches = payerMatchesConnectedWallet(payment.payerAddress, connectedWallet);
+    const payable = payment.paymentAcceptanceEnabled === true
+        && status === "AWAITING_PAYMENT";
+    async function initiatePayment() {
+        if (!payable || sending || sentToWallet || !walletMatches) return;
+        setPaymentError(null);
+        setSending(true);
+        try {
+            const transaction = buildRoomWalletTonConnectRequest(payment);
+            await tonConnectUI.sendTransaction(transaction);
+            // TonConnect acknowledgement is NOT a blockchain confirmation.
+            // Prevent repeat submits; only the server can mark the seat SETTLED.
+            setSentToWallet(true);
+            socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId});
+        } catch (error) {
+            setPaymentError(error?.message ?? "Wallet rejected payment");
+        } finally {
+            setSending(false);
+        }
+    }
+
     return (
         <GameLayout message="ENTRY PAYMENT" showNextButton={false}>
             <section className="page4Payment" aria-live="polite">
@@ -86,13 +114,29 @@ export default function Page4Payment() {
                         {payment.paymentReference && (
                             <p>Transfer comment: <code>WW1:{payment.paymentReference}</code></p>
                         )}
-                        {status === "AWAITING_PAYMENT" && (
-                            <button
-                                type="button"
-                                onClick={() => socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId})}
-                            >
-                                CHECK PAYMENT
-                            </button>
+                        {payable && (
+                            <div className="page4PaymentActions">
+                                {!connectedWallet && (
+                                    <button type="button" onClick={() => tonConnectUI.openModal()}>
+                                        CONNECT TESTNET WALLET
+                                    </button>
+                                )}
+                                {connectedWallet && !walletMatches && (
+                                    <p role="alert">Connected wallet or network does not match the wallet entered on Page3. Select that Testnet wallet before paying.</p>
+                                )}
+                                {walletMatches && (
+                                    <button type="button"
+                                        disabled={sending || sentToWallet}
+                                        onClick={initiatePayment}>
+                                        {sending ? "OPENING WALLET…" : sentToWallet ? "PAYMENT SENT — CHECK BELOW" : "PAY GRAM"}
+                                    </button>
+                                )}
+                                {paymentError && <p role="alert">{paymentError}</p>}
+                                <button type="button"
+                                    onClick={() => socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId})}>
+                                    CHECK PAYMENT
+                                </button>
+                            </div>
                         )}
                         {status === "SETTLED" && (
                             <p>Payment verified. Waiting for the other players.</p>
