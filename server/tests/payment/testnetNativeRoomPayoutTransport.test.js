@@ -8,7 +8,7 @@ import {TestnetNativeRoomPayoutTransport} from "../../payment/runtime/TestnetNat
 
 const ROOM="0:"+"a".repeat(64),WINNER="0:"+"b".repeat(64),OWNER="0:"+"c".repeat(64);
 const PAYOUT="payout_"+"a".repeat(32),ROOMID="room-xyz";
-function harness(t,{failRole=null}={}){
+function harness(t,{failRole=null,outgoingObserver=null}={}){
     const dir=mkdtempSync(join(tmpdir(),"wheelwin-v4-outgoing-"));
     t.after(()=>rmSync(dir,{recursive:true,force:true}));
     const seen=[];
@@ -27,7 +27,7 @@ function harness(t,{failRole=null}={}){
         roomNumber:2,reservedByRoomId:ROOMID,address:ROOM
     })};
     const transport=new TestnetNativeRoomPayoutTransport({
-        walletPool,adapter,dataDir:dir
+        walletPool,adapter,dataDir:dir,outgoingObserver
     });
     return {transport,seen,dir};
 }
@@ -87,4 +87,43 @@ test("mismatched payout/room/recipient is rejected before sending",async t=>{
     const plan=payout({winner:{feeAtomic:2_000_000},owner:{feeAtomic:2_000_000}});
     await assert.rejects(h.transport.submit({...inputs,ownerWallet:WINNER,plan}),/PAYOUT_PLAN_NOT_AUTHORIZED/);
     assert.equal(h.seen.filter(x=>x.op==="send").length,0);
+});
+
+test("winner and owner are matched to two different blockchain transactions without resending",async t=>{
+    const readCalls=[];
+    const h=harness(t,{outgoingObserver:{
+        async findOutgoingTransfer({sourceWalletAddress,destinationIdentity,amountAtomic}){
+            readCalls.push({sourceWalletAddress,destinationIdentity,amountAtomic});
+            return {
+                transactionId:destinationIdentity===WINNER?"winner-on-chain":"owner-on-chain",
+                sourceAddress:ROOM,destinationAddress:destinationIdentity,amountAtomic
+            };
+        }
+    }});
+    const fees={winner:{feeAtomic:2_000_000},owner:{feeAtomic:2_000_000}};
+    const plan=payout(fees);
+    assert.equal((await h.transport.reconcile({...inputs,plan})).status,
+        "NO_BROADCAST_ATTEMPT_RECORDED");
+    await h.transport.submit({...inputs,plan});
+    const sendCount=h.seen.filter(x=>x.op==="send").length;
+    const result=await h.transport.reconcile({...inputs,plan});
+    assert.equal(result.status,"BOTH_OUTGOING_MATCHES_FOUND_UNFINALIZED");
+    assert.equal(result.winnerTransactionId,"winner-on-chain");
+    assert.equal(result.ownerTransactionId,"owner-on-chain");
+    assert.equal(readCalls.length,2);
+    assert.ok(readCalls.every(x=>x.sourceWalletAddress===ROOM));
+    assert.equal(h.seen.filter(x=>x.op==="send").length,sendCount);
+});
+test("missing or ambiguous outgoing transfer never becomes confirmed",async t=>{
+    const h=harness(t,{outgoingObserver:{
+        async findOutgoingTransfer({destinationIdentity}){
+            return destinationIdentity===WINNER?{transactionId:"win"}:null;
+        }
+    }});
+    const plan=payout({winner:{feeAtomic:2_000_000},owner:{feeAtomic:2_000_000}});
+    await h.transport.submit({...inputs,plan});
+    const result=await h.transport.reconcile({...inputs,plan});
+    assert.equal(result.status,"PAYOUT_OUTGOING_CONFIRMATION_PENDING");
+    assert.equal(result.winnerObserved,true);
+    assert.equal(result.ownerObserved,false);
 });
