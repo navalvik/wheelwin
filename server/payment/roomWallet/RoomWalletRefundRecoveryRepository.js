@@ -96,6 +96,12 @@ export class RoomWalletRefundRecoveryRepository {
             throw new TypeError("RoomWalletRefundRecoveryRepository requires TonFinancialPersistence");
         }
         this._persistence = financialPersistence;
+        // One O(1) safety lookup per room-number allocation; no full-disk
+        // scan for each of the 50 simultaneous rooms.
+        this._quarantinedRoomNumbers = new Set();
+        for (const record of this.listOpenQuarantines()) {
+            this._quarantinedRoomNumbers.add(normalizeRoomNumber(record.payload.roomNumber));
+        }
     }
 
     /**
@@ -135,6 +141,7 @@ export class RoomWalletRefundRecoveryRepository {
             ]) {
                 assert(existing.payload[field] === payload[field], "QUARANTINE_IDENTITY_CONFLICT");
             }
+            this._quarantinedRoomNumbers.add(number);
             return Object.freeze({ created: false, recordId, record: existing });
         }
         existing = this._persistence.createRecoveryDataRecord(payload, {
@@ -144,6 +151,7 @@ export class RoomWalletRefundRecoveryRepository {
             gameId,
             tonNetwork: network
         });
+        this._quarantinedRoomNumbers.add(number);
         return Object.freeze({ created: true, recordId, record: existing });
     }
 
@@ -229,7 +237,7 @@ export class RoomWalletRefundRecoveryRepository {
 
     isRoomNumberQuarantined(roomNumber) {
         const number = normalizeRoomNumber(roomNumber);
-        return this.listOpenQuarantines().some(x => x.payload.roomNumber === number);
+        return this._quarantinedRoomNumbers.has(number);
     }
 
     listRefundObligations({ roomId = null } = {}) {
