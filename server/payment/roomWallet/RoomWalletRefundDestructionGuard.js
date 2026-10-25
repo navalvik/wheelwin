@@ -19,6 +19,7 @@ export class RoomWalletRefundDestructionGuard {
         financialPersistence
     } = {}) {
         if (typeof repository?.beginQuarantine !== "function"
+            || typeof repository?.beginSettlementQuarantine !== "function"
             || typeof paymentSessionManager?.getSession !== "function"
             || typeof setupSessionLifecycle?.isGameplayOwnershipReleased !== "function"
             || typeof roomWalletRegistry?.get !== "function"
@@ -37,10 +38,40 @@ export class RoomWalletRefundDestructionGuard {
             throw new Error("ROOM_WALLET_DESTROY_ROOM_IDENTITY_REQUIRED");
         }
 
-        // Gameplay ownership has transferred to Page5: settling winner and
-        // owner has its own separate recovery authority.
+        // A Page5 room may be destroyed before its winner and owner payments
+        // are confirmed. Persist a DIFFERENT quarantine rather than treating
+        // the game as eligible for pre-game refunds or releasing its wallet.
         if (this._setup.isGameplayOwnershipReleased(room.roomId)) {
-            return Object.freeze({ quarantined: false, reason: "GAMEPLAY_STARTED" });
+            const mapping = this._wallets.get(room.roomNumber);
+            if (!mapping?.address) {
+                throw new Error("ROOM_WALLET_POST_PAGE5_ADDRESS_UNAVAILABLE");
+            }
+            const persisted = this._persistence.findByRoom(room.roomId);
+            const payment = this._paymentSessions.getSession(room.roomId)
+                ?? persisted.find(x => x.recordType === TON_FINANCIAL_RECORD_TYPES.PAYMENT_SESSION)?.payload;
+            const settlements = persisted.filter(x =>
+                x.recordType === TON_FINANCIAL_RECORD_TYPES.SETTLEMENT);
+            if (settlements.length > 1) {
+                throw new Error("ROOM_WALLET_POST_PAGE5_SETTLEMENT_AMBIGUOUS");
+            }
+            const settlement = settlements[0]?.payload ?? null;
+            const gameId = payment?.gameId ?? settlement?.gameId;
+            if (!gameId || (settlement && settlement.gameId !== gameId)
+                || (payment?.roomWalletAddress
+                    && !tonWalletAccountsEqual(payment.roomWalletAddress, mapping.address))
+                || (settlement?.request?.roomNumber != null
+                    && Number(settlement.request.roomNumber) !== room.roomNumber)) {
+                throw new Error("ROOM_WALLET_POST_PAGE5_IDENTITY_UNVERIFIED");
+            }
+            const hold = this._repository.beginSettlementQuarantine({
+                network: "testnet", roomId: room.roomId,
+                roomNumber: room.roomNumber, roomWallet: mapping.address, gameId
+            });
+            return Object.freeze({
+                quarantined: true,
+                reason: "POST_PAGE5_SETTLEMENT_RECONCILIATION_REQUIRED",
+                created: hold.created
+            });
         }
 
         let session = this._paymentSessions.getSession(room.roomId);
