@@ -87,20 +87,47 @@ export function reconcileDualSourceTransactions({
         throw new RoomWalletEvidenceUnavailable("EVIDENCE_INPUT_INVALID");
     }
 
-    const tonapi = tonapiTransactions.map(normalizeEntry).filter(Boolean);
-    const toncenter = toncenterTransactions.map(normalizeEntry).filter(Boolean);
-    const byLt = new Map();
-    for (const item of toncenter) {
-        if (byLt.has(item.lt) && byLt.get(item.lt).hash !== item.hash) {
-            throw new RoomWalletEvidenceUnavailable("DUPLICATE_LT_ON_PROVIDER");
+    // Every provider page must preserve one on-chain record per LT.
+    // Duplicate identical records are still malformed: TonAPI duplicates
+    // otherwise produce two "confirmed" credits for the same deposit.
+    // Never deduplicate silently, because caller payment and quarantine
+    // accounting must not mistake an unstable index for a reliable ledger.
+    const normalizeProvider = transactions => {
+        const byLt = new Map();
+        for (const tx of transactions) {
+            const parsed = normalizeEntry(tx);
+            const inbound = tx?.in_msg ?? tx?.inMessage;
+            if (inbound && normalizeRawTonAddress(inbound.destination) === expected) {
+                // A malformed positive (or unknown-value) incoming transfer
+                // targeting the Room Wallet cannot be treated as ZERO funds.
+                // External wallet-signing messages normally have zero value
+                // and no source address; those are not payer deposits.
+                const parsedValue = nanoString(inbound.value);
+                const nonZeroOrUnknown = inbound.value !== "0"
+                    && inbound.value !== 0
+                    && inbound.value !== 0n;
+                if (nonZeroOrUnknown && (!parsed || parsedValue === null)) {
+                    throw new RoomWalletEvidenceUnavailable(
+                        "MALFORMED_ROOM_WALLET_INCOMING_EVIDENCE"
+                    );
+                }
+            }
+            if (parsed) {
+                if (byLt.has(parsed.lt)) {
+                    throw new RoomWalletEvidenceUnavailable("DUPLICATE_LT_ON_PROVIDER");
+                }
+                byLt.set(parsed.lt, parsed);
+            }
         }
-        byLt.set(item.lt, item);
-    }
+        return byLt;
+    };
+    const tonapiByLt = normalizeProvider(tonapiTransactions);
+    const byLt = normalizeProvider(toncenterTransactions);
 
     const matched = [];
     let awaitingSecondProvider = 0;
 
-    for (const first of tonapi) {
+    for (const first of tonapiByLt.values()) {
         if (first.destination !== expected) continue;
         const second = byLt.get(first.lt);
         if (!second) {
