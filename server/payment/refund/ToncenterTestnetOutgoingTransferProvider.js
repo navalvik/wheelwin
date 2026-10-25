@@ -35,14 +35,19 @@ function mapOutputs(row,sourceWalletAddress) {
     return seen;
 }
 export class ToncenterTestnetOutgoingTransferProvider {
-    constructor({client,nowProvider=Date.now,lookbackMs=7*24*60*60*1000}={}) {
+    constructor({client,nowProvider=Date.now,lookbackMs=7*24*60*60*1000,
+        pageSize=1000,maxPages=5}={}) {
         if(typeof client?.getTransactions!=="function"
             ||typeof nowProvider!=="function"
-            ||!Number.isSafeInteger(lookbackMs)||lookbackMs<=0)
-            throw new TypeError("Testnet outgoing history provider requires read-only client");
+            ||!Number.isSafeInteger(lookbackMs)||lookbackMs<=0
+            ||!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>1000
+            ||!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>50)
+            throw new TypeError("Testnet outgoing history provider requires bounded read-only client");
         this._client=client;
         this._now=nowProvider;
         this._window=lookbackMs;
+        this._pageSize=pageSize;
+        this._maxPages=maxPages;
     }
     async _history(sourceWalletAddress,{minCreatedAtMs=null}={}){
         if(tonAddressIdentityOrNull(sourceWalletAddress)===null)
@@ -55,19 +60,35 @@ export class ToncenterTestnetOutgoingTransferProvider {
             throw new Error("OUTGOING_HISTORY_START_INVALID");
         const minStartMs=minCreatedAtMs===null?nowMs-this._window
             :Math.max(nowMs-this._window,minCreatedAtMs);
-        const response=await this._client.getTransactions({
-            account:sourceWalletAddress,
-            startUtime:Math.floor(minStartMs/1000),
-            endUtime:Math.floor(nowMs/1000),
-            limit:1000
-        });
-        if(!Array.isArray(response?.transactions))
-            throw new Error("OUTGOING_TRANSACTIONS_UNAVAILABLE");
-        return response.transactions.filter(row=>
-            minCreatedAtMs===null ||
-            (Number.isSafeInteger(row?.now)
-                && row.now>=Math.floor(minCreatedAtMs/1000))
-        );
+        const rows=[];
+        const unique=new Set();
+        // Pages are by descending logical time. Never interpret a partial
+        // scan (provider cap, malformed page, page drift) as "no transfer".
+        for(let page=0;page<this._maxPages;page++){
+            const response=await this._client.getTransactions({
+                account:sourceWalletAddress,
+                startUtime:Math.floor(minStartMs/1000),
+                endUtime:Math.floor(nowMs/1000),
+                limit:this._pageSize,
+                offset:page*this._pageSize
+            });
+            const batch=response?.transactions;
+            if(!Array.isArray(batch) || batch.length>this._pageSize)
+                throw new Error("OUTGOING_TRANSACTIONS_UNAVAILABLE");
+            for(const row of batch){
+                if(typeof row?.hash!=="string"||!row.hash)
+                    throw new Error("OUTGOING_HISTORY_MALFORMED");
+                if(unique.has(row.hash))
+                    throw new Error("OUTGOING_HISTORY_PAGE_DRIFT");
+                unique.add(row.hash);
+                if(minCreatedAtMs===null ||
+                    (Number.isSafeInteger(row.now)
+                        &&row.now>=Math.floor(minCreatedAtMs/1000)))rows.push(row);
+            }
+            if(batch.length<this._pageSize)return rows;
+        }
+        throw new Error("OUTGOING_HISTORY_INCOMPLETE");
+
     }
 
     /**
