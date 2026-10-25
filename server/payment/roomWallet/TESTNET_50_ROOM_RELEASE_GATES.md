@@ -80,6 +80,15 @@ Status: **DRAFT / NOT DEPLOYABLE**. Scope: native GRAM transfers through 64 serv
 - Latest selected **20-suite** offline regression: **206 / 206 passed**, 0 failures, and `node --check app.js` passed. These 206 tests overlap earlier reported selections and must not be added to previous totals.
 - **No real GRAM transfer, deployment, Railway change, Mainnet change or merge.** Olga historical refund already on-chain; Lena and Bob remain unpaid as of this read-only head observation.
 
+### Incoming evidence fail-closed hardening — 25 October 2026
+
+- Corrected `RoomWalletDualSourceEvidence.reconcileDualSourceTransactions`: duplicate records carrying the same logical transaction `LT` (even identical hash and content) are rejected per provider, never counted as two confirmed deposits.
+- Malformed positive incoming Room Wallet transfers (missing sender, destination, amount or valid transaction hash) fail closed rather than becoming a silent zero-payment answer. Legitimate zero-value external signing messages remain excluded from the player-payment ledger.
+- Both TonAPI and TON Center v3 reported account identities are checked against the exact expected Room Wallet when supplied. A cross-wallet mix-up fails closed even when recipient and amount appear to agree.
+- Five negative fixture regressions for duplicates, incomplete values and zero-value external messages plus two explicit cross-account identity regressions added to `server/tests/roomWalletLiveProviderSchema20261025.test.js`. Existing malformed-data regression now expects a quarantine-safe error instead of a zero-payment result.
+- Latest selected **22-file** offline financial suite: **231 / 231 passed**, 0 failures, and `node --check app.js` passed. This count overlaps earlier suites and MUST NOT be added to prior totals.
+- Live deep-pagination still not established; current validation is based on previously observed genuine Testnet provider wire shapes plus offline regression fixtures. No real GRAM transfer or deployment.
+
 ## Rollout restrictions
 
 Keep PR #21 **DRAFT**. Do not merge to `main`, redeploy Testnet, restart Telegram payments, or touch Mainnet until the remaining recovery, wallet-release and settlement execution paths are completed and verified. The historical successful-game branch stays untouched.
