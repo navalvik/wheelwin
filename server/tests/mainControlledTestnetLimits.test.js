@@ -73,3 +73,38 @@ test("RoomManager actually refuses room number 51 even with a bypassed high conf
     assert.equal(manager.createRoom(), null);
     assert.equal(new Set(rooms.map(r => r.roomId)).size, 50);
 });
+
+test("recovered rooms consume all fifty slots and room-number reuse requires a detach", async () => {
+    const { Room } = await import("../models/Room.js");
+    const logger = { info() {}, warn() {}, error() {} };
+    const eventBus = { emit() {}, subscribe() {}, unsubscribe() {} };
+    const manager = new RoomManager({
+        logger, eventBus, roomConfig: { maxPlayers: 3, maxConcurrentRooms: 50 }
+    });
+    manager.attachSetupSessionLifecycle({
+        createForRoom() { return { expiresAt: Date.now() + FIVE_MINUTES }; }
+    });
+
+    for (let n = 1; n <= 50; n += 1) {
+        const room = new Room({
+            roomId: "recovered-" + n,
+            roomNumber: n,
+            createdAt: 1_800_000_000_000,
+            maxPlayers: 3,
+            players: []
+        });
+        assert.equal(manager.attachRoom(room), room);
+    }
+    assert.equal(manager.getActiveRoomCount(), 50);
+    assert.equal(manager.isAtCapacity(), true);
+    assert.equal(manager.createRoom(), null);
+    assert.equal(manager.attachRoom(new Room({roomId:"illegal-51", roomNumber:51})), null);
+
+    assert.equal(manager.detachRoom("recovered-7"), true);
+    assert.equal(manager.getActiveRoomCount(), 49);
+    const replacement = manager.createRoom();
+    assert.ok(replacement);
+    assert.equal(replacement.roomNumber, 7);
+    assert.equal(manager.getActiveRoomCount(), 50);
+    assert.equal(manager.createRoom(), null);
+});
