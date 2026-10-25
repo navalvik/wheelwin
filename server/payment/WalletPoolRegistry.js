@@ -741,9 +741,13 @@ export class WalletPoolRegistry {
     }
 
     _isQuarantined(wallet) {
-        // The Testnet deployment sets ROOM_WALLET_QUARANTINED_NUMBERS=1
-        // while oj7v remains unresolved. Generic pool fixtures may still
-        // exercise all 64 wallets with the setting absent.
+        // Room wallet #1 retains unresolved historical oj7v refunds.
+        // Quarantine is a Testnet invariant, never an optional deployment
+        // variable: missing Railway env settings must not reassign it.
+        if (wallet?.network === "testnet" && wallet.roomNumber === 1) {
+            return true;
+        }
+        // Additional emergency quarantines may still be configured.
         const values = String(process.env.ROOM_WALLET_QUARANTINED_NUMBERS ?? "")
             .split(",").map(value => value.trim()).filter(Boolean);
         return values.includes(String(wallet.roomNumber));
