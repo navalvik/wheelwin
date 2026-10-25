@@ -25,9 +25,9 @@ export function deriveTestnetRoomPaymentRequirements(roomId, playerIds, getIdent
         if (identity.playerId !== id || typeof identity.wallet !== "string") return null;
         let sender;
         try {
-            const parsed = deriveTonAddressIdentity(identity.wallet);
-            if (parsed.workchain !== 0) return null;
-            sender = parsed.identity;
+            const canonical = deriveTonAddressIdentity(identity.wallet);
+            if (!canonical.startsWith("0:")) return null;
+            sender = canonical;
         } catch {
             return null;
         }
