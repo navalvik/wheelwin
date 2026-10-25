@@ -148,6 +148,9 @@ import { RoomWalletRefundRecoveryRepository } from "./payment/roomWallet/RoomWal
 import { RoomWalletRefundDestructionGuard } from "./payment/roomWallet/RoomWalletRefundDestructionGuard.js";
 import { RoomWalletProviderBudget } from "./payment/roomWallet/RoomWalletProviderBudget.js";
 import { RoomWalletExpiredReconciliationWorker } from "./payment/roomWallet/RoomWalletExpiredReconciliationWorker.js";
+import { RoomWalletReconciliationMutex } from "./payment/roomWallet/RoomWalletReconciliationMutex.js";
+import { RoomWalletQuarantineReleaseGuard } from "./payment/roomWallet/RoomWalletQuarantineReleaseGuard.js";
+import { RoomWalletQuarantineReleaseWorker } from "./payment/roomWallet/RoomWalletQuarantineReleaseWorker.js";
 import { RoomWalletOutboundIntentJournal } from "./payment/roomWallet/RoomWalletOutboundIntentJournal.js";
 import { RoomWalletSingleWriterGate } from "./payment/roomWallet/RoomWalletSingleWriterGate.js";
 import { RoomWalletOutboundChainFinalizer } from "./payment/roomWallet/RoomWalletOutboundChainFinalizer.js";
@@ -351,6 +354,8 @@ class WheelWinApplication {
         this._financialPersistence = null;
         this._roomWalletRefundRecoveryRepository = null;
         this._roomWalletProviderBudget = null;
+        this._roomWalletReconciliationMutex = null;
+        this._roomWalletQuarantineReleaseWorker = null;
         this._roomWalletExpiredReconciliationWorker = null;
         this._roomWalletOutboundConfirmationWorker = null;
 
@@ -1687,6 +1692,7 @@ class WheelWinApplication {
             // Both active-payment fallback and expired-session reconciliation
             // must share ONE bounded Testnet provider request budget.
             this._roomWalletProviderBudget = new RoomWalletProviderBudget();
+            this._roomWalletReconciliationMutex = new RoomWalletReconciliationMutex();
         }
 
         if (this._roomWalletRefundRecoveryRepository) {
@@ -1730,6 +1736,7 @@ class WheelWinApplication {
                 repository: this._roomWalletRefundRecoveryRepository,
                 financialPersistence: this._financialPersistence,
                 requestBudget: this._roomWalletProviderBudget,
+                scanMutex: this._roomWalletReconciliationMutex,
                 logger: this._logger,
                 maxWalletsPerSweep: 2,
                 sweepIntervalMs: 10_000
@@ -1802,6 +1809,40 @@ class WheelWinApplication {
         this._roomWalletResidualSweepWorker.initialize();
 
         this._logger.startupLine("RoomWalletResidualSweepWorker");
+
+        // Controlled financial closure: NEVER release on room destruction or
+        // timer alone. Strictly opt-in for Testnet after all outbound routes
+        // have adopted the durable signer, and legacy sweeps are disabled.
+        if (process.env.ROOM_WALLET_QUARANTINE_RELEASE_ENABLED === "true") {
+            if (this._tonConfig?.network !== "testnet"
+                || process.env.ROOM_WALLET_GUARDED_OUTBOUND_ONLY !== "true"
+                || process.env.ROOM_WALLET_OUTGOING_CONFIRMATION_ENABLED !== "true"
+                || process.env.ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED !== "true"
+                || ["true", "1"].includes(
+                    String(process.env.ROOM_WALLET_RESIDUAL_SWEEP_ENABLED ?? "")
+                        .trim().toLowerCase()
+                )) {
+                throw new Error("ROOM_WALLET_QUARANTINE_RELEASE_UNSAFE_CONFIGURATION");
+            }
+            const releaseGuard = new RoomWalletQuarantineReleaseGuard({
+                repository: this._roomWalletRefundRecoveryRepository,
+                financialPersistence: this._financialPersistence,
+                residualSweepRepository: this._roomWalletResidualSweepRepository,
+                requestBudget: this._roomWalletProviderBudget,
+                isRoomActive: roomId => Boolean(this._managers.roomManager.getRoom(roomId))
+            });
+            this._roomWalletQuarantineReleaseWorker = new RoomWalletQuarantineReleaseWorker({
+                repository: this._roomWalletRefundRecoveryRepository,
+                releaseGuard,
+                scanMutex: this._roomWalletReconciliationMutex,
+                logger: this._logger,
+                maxWalletsPerSweep: 2,
+                intervalMs: 30_000
+            });
+            this._logger.startupLine(
+                "RoomWalletQuarantineReleaseWorker (dual-chain proof, opt-in)"
+            );
+        }
 
         await this._blockchainMonitor.start();
 
@@ -2597,6 +2638,17 @@ class WheelWinApplication {
             this._logger.info("Room Wallet expired reconciliation enabled (read-only)");
         }
 
+        if (this._roomWalletQuarantineReleaseWorker) {
+            this._roomWalletQuarantineReleaseWorker.start();
+            void this._roomWalletQuarantineReleaseWorker.runOnce().catch(error => {
+                this._logger?.error?.(
+                    "Room Wallet quarantine initial sweep failed"
+                    + " | code=" + (error?.code ?? error?.name ?? "unknown")
+                );
+            });
+            this._logger.info("Room Wallet quarantine release enabled (chain-proof-only)");
+        }
+
         if (this._roomWalletOutboundConfirmationWorker) {
             this._roomWalletOutboundConfirmationWorker.start();
             void this._roomWalletOutboundConfirmationWorker.runOnce().catch(error => {
@@ -2749,6 +2801,10 @@ class WheelWinApplication {
 
             }
 
+        });
+
+        this._safeShutdownStep("roomWalletQuarantineReleaseWorker", () => {
+            this._roomWalletQuarantineReleaseWorker?.shutdown();
         });
 
         this._safeShutdownStep("roomWalletOutboundConfirmationWorker", () => {
