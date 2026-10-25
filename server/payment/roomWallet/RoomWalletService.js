@@ -19,6 +19,7 @@ import { RoomWalletSingleWriterGate } from "./RoomWalletSingleWriterGate.js";
 import { RoomWalletGuardedOutboundExecutor } from "./RoomWalletGuardedOutboundExecutor.js";
 import { RoomWalletGuardedPayoutCoordinator } from "./RoomWalletGuardedPayoutCoordinator.js";
 import { RoomWalletRefundRecoveryRepository } from "./RoomWalletRefundRecoveryRepository.js";
+import { RoomWalletResidualSweepRepository } from "./RoomWalletResidualSweepRepository.js";
 import {
     createRoomWalletRuntimeResolver,
     createRoomWalletRegistryFromEnv
@@ -79,16 +80,6 @@ export function createRoomWalletService({
         if (String(env?.TON_NETWORK ?? "").trim().toLowerCase() !== "testnet") {
             throw new Error("GUARDED_OUTBOUND_TESTNET_ONLY");
         }
-        const sweepsEnabled = ["true", "1"].includes(
-            String(env?.ROOM_WALLET_RESIDUAL_SWEEP_ENABLED ?? "")
-                .trim().toLowerCase()
-        );
-        if (sweepsEnabled) {
-            // Residual sweeps still call legacy sendTransfer and have not
-            // been moved to the durable signed-intent journal. Operating
-            // both routes would defeat per-wallet seqno protection.
-            throw new Error("GUARDED_OUTBOUND_RESIDUAL_SWEEP_NOT_MIGRATED");
-        }
         if (String(env?.ROOM_WALLET_OUTGOING_CONFIRMATION_ENABLED ?? "")
                 .trim().toLowerCase() !== "true"
             || String(env?.ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED ?? "")
@@ -142,6 +133,10 @@ export function createRoomWalletService({
             financialPersistence,
             refundRecoveryRepository: new RoomWalletRefundRecoveryRepository({
                 financialPersistence
+            }),
+            residualSweepRepository: new RoomWalletResidualSweepRepository({
+                persistence: financialPersistence,
+                tonNetwork: "testnet"
             })
         });
     }
