@@ -10,7 +10,9 @@
  * GameEscrow, or Room Wallet settlement.
  */
 
+import { Address } from "@ton/core";
 import { EVENT_SOURCES } from "../../events/EventSources.js";
+import { fetchDualSourceRoomWalletTransactions } from "./RoomWalletDualSourceEvidence.js";
 import { EVENT_TYPES } from "../../events/EventTypes.js";
 import {
     canonicalizeTonWalletAddress,
@@ -304,6 +306,7 @@ export class RoomWalletIncomingObserver {
         retryMaxAttempts = null,
         retryDelayMs = null,
         fetchTimeoutMs = null,
+        dualSourceFetch = globalThis.fetch,
         delay = null
     } = {}) {
         this._logger = logger;
@@ -317,6 +320,9 @@ export class RoomWalletIncomingObserver {
         this._tonService = tonService;
         this._auditLedger = auditLedger;
         this._network = network;
+        // Explicit opt-in: never use two external indexers as a silent, untested default.
+        this._dualSourceEnabled = String(env?.ROOM_WALLET_DUAL_SOURCE_ENABLED ?? "").trim().toLowerCase() === "true";
+        this._dualSourceFetch = dualSourceFetch;
         this._now = now;
         this._stopped = false;
         this._pollInFlight = false;
@@ -1303,6 +1309,16 @@ export class RoomWalletIncomingObserver {
                     && isInfrastructureFailure(error);
 
                 if (!canRetry) {
+                    const independentlyConfirmed = await this._readDualSourceEvidence(address, error);
+                    if (independentlyConfirmed !== null) {
+                        return Object.freeze({
+                            ok: true,
+                            transactions: independentlyConfirmed,
+                            http429,
+                            retries,
+                            error: null
+                        });
+                    }
                     return Object.freeze({
                         ok: false,
                         transactions: [],
@@ -1321,6 +1337,40 @@ export class RoomWalletIncomingObserver {
             retries,
             error: lastError
         });
+    }
+
+    async _readDualSourceEvidence(address, primaryError) {
+        if (!this._dualSourceEnabled
+            || this._network !== "testnet"
+            || !isInfrastructureFailure(primaryError)) {
+            return null;
+        }
+
+        try {
+            const verified = await fetchDualSourceRoomWalletTransactions({
+                address,
+                expectedRoomWalletRaw: Address.parse(address).toRawString(),
+                fetchImpl: this._dualSourceFetch,
+                limit: ROOM_WALLET_INCOMING_TX_PAGE_LIMIT,
+                timeoutMs: this._fetchTimeoutMs
+            });
+            this._log(
+                "info",
+                "Room Wallet dual-source reconciliation"
+                    + ` | address=${address}`
+                    + ` | confirmed=${verified.transactions.length}`
+                    + ` | awaitingSecondProvider=${verified.awaitingSecondProvider}`
+            );
+            return verified.transactions;
+        } catch (error) {
+            this._log(
+                "warn",
+                "Room Wallet dual-source unavailable"
+                    + ` | address=${address}`
+                    + ` | reason=${error?.code ?? error?.name ?? "unknown"}`
+            );
+            return null;
+        }
     }
 
     async _fetchTransactionsOnce(address) {
