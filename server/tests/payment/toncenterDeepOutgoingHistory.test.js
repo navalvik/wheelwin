@@ -73,3 +73,28 @@ test("Toncenter HTTP transport paginates only nonzero offsets and validates them
     }
     assert.equal(urls.length,2);
 });
+
+test("recovered room payment older than 7 days searches back to original durable claim",async()=>{
+    const fortyDays=40*24*60*60*1000;
+    const originalClaim=NOW-fortyDays;
+    const h=observer({0:[row("5",PAYEE)]},{maxPages:3});
+    const match=await h.provider.findOutgoingTransfer({
+        ...find,minCreatedAtMs:originalClaim
+    });
+    assert.equal(match.transactionId,"5".repeat(64));
+    // An old claim must never be silently cropped to a default 7-day window.
+    assert.deepEqual(h.offsets,[0]);
+    const calls=[];
+    const real=new ToncenterTestnetOutgoingTransferProvider({
+        nowProvider:()=>NOW,
+        client:{getTransactions:async params=>{
+            calls.push(params);
+            return {transactions:[row("5",PAYEE)]};
+        }}
+    });
+    await real.getOutgoingTransfer({
+        sourceWalletAddress:SENDER,transactionId:"5".repeat(64),
+        minCreatedAtMs:originalClaim
+    });
+    assert.equal(calls[0].startUtime,Math.floor(originalClaim/1000));
+});
