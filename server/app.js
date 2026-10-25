@@ -89,6 +89,7 @@ import { createTestnetNativeRefundCapabilities } from "./payment/roomWallet/Test
 import { ToncenterTransactionsClient } from "./payment/toncenter/ToncenterTransactionsClient.js";
 import { ToncenterTestnetOutgoingTransferProvider } from "./payment/refund/ToncenterTestnetOutgoingTransferProvider.js";
 import { TonapiTestnetPayoutVerifier } from "./payment/refund/TonapiTestnetPayoutVerifier.js";
+import { TestnetPendingPayoutReconciler } from "./payment/runtime/TestnetPendingPayoutReconciler.js";
 import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
@@ -1285,6 +1286,25 @@ class WheelWinApplication {
                         client: new ToncenterTransactionsClient()
                     })
                 });
+                // Server-owned, bounded read-only recovery. Survives game
+                // room destruction because it reads the persisted ledger.
+                // No signing or re-broadcasting on this path.
+                this._pendingPayoutRecovery = new TestnetPendingPayoutReconciler({
+                    ledgerStore:paymentRuntime.ledgerStore,
+                    ledger:paymentRuntime.ledger,
+                    walletPool:paymentRuntime.walletPool,
+                    transport:nativePayoutTransport,
+                    maxPerPass:5,
+                    logger:this._logger
+                });
+                const reconcileOnce=() => {
+                    void this._pendingPayoutRecovery.runPass().catch(() =>
+                        this._logger.warn("Testnet finality pass pending independent evidence")
+                    );
+                };
+                reconcileOnce();
+                this._payoutRecoveryTimer=setInterval(reconcileOnce,60_000);
+                this._payoutRecoveryTimer.unref?.();
             }
             this._winnerPayoutCoordinator = new TestnetWinnerPayoutCoordinator({
                 paymentRuntime,
@@ -1925,6 +1945,10 @@ class WheelWinApplication {
         }
 
         this._isShuttingDown = true;
+        if(this._payoutRecoveryTimer){
+            clearInterval(this._payoutRecoveryTimer);
+            this._payoutRecoveryTimer=null;
+        }
 
         this._logger.info("");
         this._logger.info("Stopping WheelWin Server...");
