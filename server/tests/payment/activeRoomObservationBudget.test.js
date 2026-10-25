@@ -44,6 +44,16 @@ test("denied burst does not consume a room cadence",()=>{
     assert.equal(budget.claim("second",101_001),false);
     assert.equal(budget.claim("second",113_000),true);
 });
+test("rolling rate cannot burst across a wall-clock second boundary",()=>{
+    const budget=new ActiveRoomObservationBudget({maxPerSecond:2});
+    assert.equal(budget.claim("a",100_999),true);
+    assert.equal(budget.claim("b",100_999),true);
+    assert.equal(budget.claim("c",101_000),false);
+    assert.equal(budget.claim("c",101_999),true);
+    assert.equal(budget.claim("d",101_999),true);
+    assert.equal(budget.claim("e",102_000),false);
+});
+
 test("closing a room releases only its cadence, never the per-second provider budget",()=>{
     const b=new ActiveRoomObservationBudget({maxPerSecond:2});
     b.claim("old",100_000);
