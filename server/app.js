@@ -84,6 +84,8 @@ import { ResultActivation } from "./gameplay/ResultActivation.js";
 import { TestnetWinnerPayoutCoordinator } from "./payment/runtime/TestnetWinnerPayoutCoordinator.js";
 import { TestnetNativeRoomPayoutTransport } from "./payment/runtime/TestnetNativeRoomPayoutTransport.js";
 import { TestnetNativeTonService } from "./payment/roomWallet/TestnetNativeTonService.js";
+import { RoomWalletAdapter } from "./payment/roomWallet/RoomWalletAdapter.js";
+import { createTestnetNativeRefundCapabilities } from "./payment/roomWallet/TestnetNativeRefundCapabilities.js";
 import { ToncenterTransactionsClient } from "./payment/toncenter/ToncenterTransactionsClient.js";
 import { ToncenterTestnetOutgoingTransferProvider } from "./payment/refund/ToncenterTestnetOutgoingTransferProvider.js";
 import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
@@ -1207,9 +1209,38 @@ class WheelWinApplication {
         // keeps running observably, but no payment or game-start is possible.
         try {
 
+            // Signing capabilities are created only if the static Testnet
+            // acceptance gate is explicitly enabled in a future release.
+            // Current deployments do not resolve wallet secret material.
+            let nativeRoomWalletAdapter = null;
             const paymentRuntime = buildPaymentRuntime({
                 logger: this._logger,
-                dataDir: resolveDefaultRoomWalletPaymentDataDir()
+                dataDir: resolveDefaultRoomWalletPaymentDataDir(),
+                refundSubmitterFactory: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                    ? ({walletPool,networkDataDir,network}) => {
+                        if(network !== "testnet"
+                            || String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
+                            throw new Error("TESTNET_REFUND_NETWORK_MISMATCH");
+                        }
+                        const walletResolver = createRoomWalletRuntimeResolver({env:process.env});
+                        nativeRoomWalletAdapter = new RoomWalletAdapter({
+                            walletResolver,
+                            tonService:new TestnetNativeTonService(),
+                            gasReserveNano:10_000_000n
+                        });
+                        const capabilities = createTestnetNativeRefundCapabilities({
+                            walletPool,
+                            roomWalletAdapter:nativeRoomWalletAdapter,
+                            dataDir:networkDataDir
+                        });
+                        return Object.freeze({
+                            ...capabilities,
+                            outgoingTransferProvider:new ToncenterTestnetOutgoingTransferProvider({
+                                client:new ToncenterTransactionsClient()
+                            })
+                        });
+                    }
+                    : null
             });
 
             const recovery = paymentRuntime.initialize();
@@ -1244,8 +1275,7 @@ class WheelWinApplication {
                 }
                 nativePayoutTransport = new TestnetNativeRoomPayoutTransport({
                     walletPool: paymentRuntime.walletPool,
-                    walletResolver: createRoomWalletRuntimeResolver({env:process.env}),
-                    tonService: new TestnetNativeTonService(),
+                    adapter: nativeRoomWalletAdapter,
                     dataDir: paymentRuntime.networkDataDir,
                     logger: this._logger,
                     outgoingObserver: new ToncenterTestnetOutgoingTransferProvider({
