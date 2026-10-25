@@ -52,7 +52,7 @@ function harness(confirmedCount) {
 
 function prepare(h, count) {
     const result = h.coordinator.prepareClosedRoom({ roomId: "room-x", roomNumber: 37, closureReason: "setup_expired", status: "DESTROYED" });
-    const expectedObligations = count === 3 ? 0 : count;
+    const expectedObligations = count;
     assert.equal(result.length, expectedObligations);
     assert.equal(h.store.size, expectedObligations);
     for (const record of h.store.list()) {
@@ -61,6 +61,21 @@ function prepare(h, count) {
         assert.equal(record.roomNumber, 37);
         assert.equal(record.refundDestination, TESTNET_PAYER);
     }
+}
+
+
+// A successfully finished Page6 session must not be treated as a failed
+// Page4 room even when all three entry payments were confirmed.
+{
+    const h = harness(3);
+    try {
+        const outcome = h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "result_session_expired", status: "DESTROYED"
+        });
+        assert.deepEqual(outcome, []);
+        assert.equal(h.store.list().length, 0);
+    } finally { rmSync(h.root, { recursive: true, force: true }); }
 }
 
 for (const confirmedCount of [1, 2, 0, 3]) {
