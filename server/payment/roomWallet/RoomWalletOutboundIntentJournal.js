@@ -237,7 +237,13 @@ export class RoomWalletOutboundIntentJournal {
             && BigInt(p.observedBalanceNano) >= ROOM_WALLET_POLICY.residualTriggerNano,
             "OUTBOUND_SWEEP_BALANCE_BELOW_THRESHOLD");
 
-        const settlement = this._persistence.loadSettlementRecord(p.gameId)?.payload;
+        let settlement;
+        try {
+            settlement = this._persistence.loadSettlementRecord(p.gameId)?.payload;
+        } catch (error) {
+            if (error?.name !== "RecordNotFoundError") throw error;
+            throw new RoomWalletOutboundIntentError("OUTBOUND_SWEEP_SETTLEMENT_NOT_FINAL");
+        }
         ensure(settlement?.network === "testnet"
             && settlement.gameId === p.gameId
             && settlement.status === "SETTLEMENT_COMPLETED"
