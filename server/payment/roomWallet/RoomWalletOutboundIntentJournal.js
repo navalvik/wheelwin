@@ -318,6 +318,10 @@ export class RoomWalletOutboundIntentJournal {
             broadcastingEnabled: false
         };
         const prior = this._tryLoad(intentId);
+        // An older PROCESSING or AWAITING sweep might already have sent
+        // funds outside this journal. Never adopt it as a fresh new send.
+        ensure(p.status === "PENDING" || prior != null,
+            "OUTBOUND_SWEEP_UNKNOWN_LEGACY_ATTEMPT");
         if (prior) {
             ensure(prior.payload.kind === KIND
                 && prior.payload.role === "SWEEP",
