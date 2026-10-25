@@ -44,6 +44,8 @@ function setup(t,{historical=true,secondary=true,missing=null,fee=1_000_000}={})
                 recipientTransactionId:winner?tx.winnerRecipient:tx.ownerRecipient,
                 messageHash:winner?tx.winnerMsg:tx.ownerMsg,
                 destinationAddress:destinationIdentity,amountAtomic,globalId:-3,
+                sourceMcBlockSeqno:101,recipientMcBlockSeqno:102,
+                latestIndexedMcBlockSeqno:110,
                 sourceFinality:"finalized",recipientFinality:"finalized"
             };
         },
