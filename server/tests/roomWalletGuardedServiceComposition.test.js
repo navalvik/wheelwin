@@ -111,12 +111,21 @@ test("historical default has no guarded coordinator or external broadcast side e
 });
 
 
-test("guarded-mode startup refuses legacy residual sweep sender", t => {
+test("guarded mode composes residual sweeps without allowing direct adapter sends", async t => {
     const f = fixture(t);
-    assert.throws(() => createRoomWalletService({
+    const service = createRoomWalletService({
         ...f.config,
         env: { ...environment(), ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: "true" }
-    }), /GUARDED_OUTBOUND_RESIDUAL_SWEEP_NOT_MIGRATED/);
+    });
+    assert.equal(typeof service.guardedPayoutCoordinator.sweepResidual, "function");
+    assert.equal(service.roomWalletAdapter._guardedOutboundOnly, true);
+    await assert.rejects(
+        service.roomWalletAdapter.sendTransfer({
+            roomNumber: 1,
+            destination: "0:" + "e".repeat(64),
+            amountNano: 490000000n
+        }), /ROOM_WALLET_LEGACY_DIRECT_BROADCAST_DISABLED/
+    );
     assert.equal(f.broadcasts(), 0);
 });
 
