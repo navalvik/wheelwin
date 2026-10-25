@@ -123,8 +123,46 @@ export class TestnetNativeRoomPayoutTransport {
             return Object.freeze({status:"PAYOUT_OUTGOING_CONFIRMATION_PENDING",payoutId,
                 winnerObserved:Boolean(win?.transactionId),
                 ownerObserved:Boolean(out?.transactionId)});
-        // Transaction-history matches are NOT proof that destination-wallet
-        // credits are final. Keep the ledger unpaid until independent proof.
+        // When possible, correlate each room outgoing message with its
+        // destination wallet's incoming message. This is observational,
+        // NOT independently finalized; the ledger stays unpaid.
+        if(typeof this._outgoingObserver.observeRecipientCredit==="function"){
+            const legs=[{role:"winner",transfer:winner,sourceTx:win.transactionId},
+                {role:"owner",transfer:owner,sourceTx:out.transactionId}];
+            const credited=await Promise.allSettled(legs.map(({transfer,sourceTx})=>
+                this._outgoingObserver.observeRecipientCredit({
+                    sourceWalletAddress:wallet.address,
+                    destinationIdentity:transfer.address,
+                    transactionId:sourceTx,
+                    amountAtomic:transfer.netAtomic,
+                    minCreatedAtMs:record.timestamp
+                })
+            ));
+            const accepted=credited.map((result,index)=>{
+                if(result.status!=="fulfilled")return false;
+                const value=result.value, leg=legs[index];
+                return value?.status==="RECIPIENT_CREDIT_OBSERVED_UNFINALIZED"
+                    &&value.sourceTransactionId===leg.sourceTx
+                    &&typeof value.recipientTransactionId==="string"
+                    &&value.recipientTransactionId.length>0
+                    &&value.amountAtomic===leg.transfer.netAtomic
+                    &&canonical(value.destinationAddress)===canonical(leg.transfer.address);
+            });
+            if(accepted.every(Boolean))return Object.freeze({
+                status:"BOTH_RECIPIENT_CREDITS_OBSERVED_UNFINALIZED",
+                payoutId,
+                winnerTransactionId:win.transactionId,
+                ownerTransactionId:out.transactionId,
+                winnerRecipientTransactionId:credited[0].value.recipientTransactionId,
+                ownerRecipientTransactionId:credited[1].value.recipientTransactionId
+            });
+            return Object.freeze({
+                status:"RECIPIENT_CREDIT_CONFIRMATION_PENDING",payoutId,
+                winnerCredited:accepted[0],ownerCredited:accepted[1]
+            });
+        }
+        // A room-wallet outgoing transaction alone never proves that the
+        // recipient was credited or the settlement is final.
         return Object.freeze({
             status:"BOTH_OUTGOING_MATCHES_FOUND_UNFINALIZED",payoutId,
             winnerTransactionId:win.transactionId,
