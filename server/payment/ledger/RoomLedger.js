@@ -693,6 +693,7 @@ export class RoomLedger {
             asset: this._currency.asset,
             network: this._currency.network,
             principalAtomic,
+            safetyMarginAtomic: request.safetyMarginAtomic ?? 0,
             allocation: request.allocation,
             winner: request.winner,
             owner: request.owner,
@@ -739,7 +740,7 @@ export class RoomLedger {
                 + ` | ownerGross=${owner ? owner.grossAtomic : 0}`
                 + ` | winnerNet=${winner ? winner.netAtomic : 0}`
                 + ` | ownerNet=${owner ? owner.netAtomic : 0}`
-                + ` | safetyMargin=0`
+                + ` | safetyMargin=${plan.safetyMarginAtomic}`
         );
 
         return {
