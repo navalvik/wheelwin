@@ -58,8 +58,11 @@ export class ToncenterTestnetOutgoingTransferProvider {
         if(minCreatedAtMs!==null && (!Number.isSafeInteger(minCreatedAtMs)
             || minCreatedAtMs<0 || minCreatedAtMs>nowMs))
             throw new Error("OUTGOING_HISTORY_START_INVALID");
+        // An explicit durable claim may be older than seven days.
+        // Never silently truncate its history. The page budget still bounds
+        // costs and reports OUTGOING_HISTORY_INCOMPLETE when necessary.
         const minStartMs=minCreatedAtMs===null?nowMs-this._window
-            :Math.max(nowMs-this._window,minCreatedAtMs);
+            :minCreatedAtMs;
         const rows=[];
         const unique=new Set();
         // Pages are by descending logical time. Never interpret a partial
@@ -205,9 +208,9 @@ export class ToncenterTestnetOutgoingTransferProvider {
             globalId: -3
         });
     }
-    async getOutgoingTransfer({sourceWalletAddress,transactionId}={}){
+    async getOutgoingTransfer({sourceWalletAddress,transactionId,minCreatedAtMs=null}={}){
         if(typeof transactionId!=="string"||!transactionId.trim())return null;
-        const transactions=await this._history(sourceWalletAddress);
+        const transactions=await this._history(sourceWalletAddress,{minCreatedAtMs});
         const rows=transactions.filter(row=>row.hash===transactionId);
         if(rows.length!==1)return null;
         const outputs=mapOutputs(rows[0],sourceWalletAddress);
