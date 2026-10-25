@@ -1141,7 +1141,10 @@ export class RoomLedger {
             ownerGrossAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.OWNER_GROSS_ALLOCATION),
             networkFeesReservedAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.NETWORK_FEE_RESERVATION),
             netPayoutsAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.NET_PAYOUT),
-            safetyMarginAtomic: 0,
+            safetyMarginAtomic: this._store.listForRoom(roomId)
+                .filter(entry => entry.kind === LEDGER_ENTRY_KIND.PAYOUT_PLAN)
+                .reduce((sum, entry) => sum
+                    + (entry.metadata?.plan?.safetyMarginAtomic ?? 0), 0),
             openObligations: obligations.filter((o) => !o.settled).length,
             settledObligations: obligations.filter((o) => o.settled).length,
             canRecycleWallet: this.canRecycleWallet(roomId)
