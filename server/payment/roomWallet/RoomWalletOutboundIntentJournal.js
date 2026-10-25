@@ -15,6 +15,7 @@ import { Address } from "@ton/core";
 import { normalizeTonTransactionHash } from "./RoomWalletDualSourceEvidence.js";
 import { validatePersistedPayoutPlan } from "./RoomWalletSettlementAdapter.js";
 import { ROOM_WALLET_POLICY, buildResidualSweep } from "./RoomWalletFinancialPolicy.js";
+import { normalizeTonTransactionHash } from "./RoomWalletDualSourceEvidence.js";
 
 const KIND = "ROOM_WALLET_OUTBOUND_INTENT";
 const HELD = new Set(["SIGNED_HELD", "CONFIRMATION_UNKNOWN"]);
@@ -213,7 +214,7 @@ export class RoomWalletOutboundIntentJournal {
         const record = this._persistence.loadResidualSweepRecord(sweepRecordId);
         const p = record?.payload;
         ensure(record?.tonNetwork === "testnet" && p?.id === sweepRecordId
-            && ["PENDING", "PROCESSING", "AWAITING_TRANSACTION_HASH"].includes(p.status)
+            && ["PENDING", "PROCESSING", "AWAITING_TRANSACTION_HASH", "CONFIRMED"].includes(p.status)
             && typeof p.gameId === "string" && p.gameId.length > 0
             && Number.isInteger(p.roomNumber)
             && p.roomNumber >= 1 && p.roomNumber <= 64,
@@ -322,6 +323,13 @@ export class RoomWalletOutboundIntentJournal {
         // funds outside this journal. Never adopt it as a fresh new send.
         ensure(p.status === "PENDING" || prior != null,
             "OUTBOUND_SWEEP_UNKNOWN_LEGACY_ATTEMPT");
+        if (p.status === "CONFIRMED") {
+            ensure(prior?.status === "SETTLED"
+                && prior.payload?.state === "CHAIN_CONFIRMED"
+                && normalizeTonTransactionHash(prior.payload.chainReceipt?.walletTxHash)
+                    === normalizeTonTransactionHash(p.txHash),
+                "OUTBOUND_SWEEP_CONFIRMATION_UNPROVEN");
+        }
         if (prior) {
             ensure(prior.payload.kind === KIND
                 && prior.payload.role === "SWEEP",
