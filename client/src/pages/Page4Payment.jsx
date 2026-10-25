@@ -29,7 +29,8 @@ const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
 export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
     const { roomId, playerId } = identity ?? {};
-    const [status, setStatus] = useState("PAYMENT_UNAVAILABLE");
+    const [payment, setPayment] = useState({status: "PAYMENT_UNAVAILABLE", paymentAcceptanceEnabled: false});
+    const status = payment.status;
 
     // Only request the authoritative payment state once per identity cycle.
     // Resetting the flag when the identity changes lets a later identity
@@ -50,15 +51,15 @@ export default function Page4Payment() {
                 || typeof payload.status !== "string") {
                 return;
             }
-            setStatus(payload.status);
+            setPayment(payload);
         }
 
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
 
         // Re-request the authoritative payment state so a status event that
         // was emitted before this page subscribed is re-delivered now.
-        if (requestedRef.current !== roomId) {
-            requestedRef.current = roomId;
+        if (requestedRef.current !== roomId + ":" + playerId) {
+            requestedRef.current = roomId + ":" + playerId;
             socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
         }
 
@@ -71,10 +72,33 @@ export default function Page4Payment() {
         <GameLayout message="ENTRY PAYMENT" showNextButton={false}>
             <section className="page4Payment" aria-live="polite">
                 <h2>Payment status: {status}</h2>
-                <p>
-                    Payment acceptance is disabled while aborted-game refunds are unavailable.
-                    No wallet request or destination has been issued.
-                </p>
+                {!payment.paymentAcceptanceEnabled ? (
+                    <p>Payments are temporarily disabled. Do not send GRAM to any room wallet.</p>
+                ) : (
+                    <>
+                        <p>Payment information is issued and verified by the game server.</p>
+                        {payment.destinationWalletAddress && (
+                            <p>Room wallet: <code>{payment.destinationWalletAddress}</code></p>
+                        )}
+                        {Number.isSafeInteger(payment.amountAtomic) && (
+                            <p>Required: {(payment.amountAtomic / 1_000_000_000).toFixed(2)} GRAM</p>
+                        )}
+                        {payment.paymentReference && (
+                            <p>Transfer comment: <code>WW1:{payment.paymentReference}</code></p>
+                        )}
+                        {status === "AWAITING_PAYMENT" && (
+                            <button
+                                type="button"
+                                onClick={() => socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId})}
+                            >
+                                CHECK PAYMENT
+                            </button>
+                        )}
+                        {status === "SETTLED" && (
+                            <p>Payment verified. Waiting for the other players.</p>
+                        )}
+                    </>
+                )}
             </section>
         </GameLayout>
     );
