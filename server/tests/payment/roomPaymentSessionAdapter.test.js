@@ -1364,7 +1364,8 @@ async function run() {
 
         expectConflict("conflicting-ids", (h) => {
             const intents = h.service.listPaymentIntentsForRoom("room-recovery-conflicting-ids");
-            const otherWallet = h.walletPool.getWallet("room-wallet-2");
+            const otherWallet = h.walletPool.listAvailableWallets()
+                .find(wallet => wallet.walletId !== intents[0].destinationWalletId);
             const tampered = new PaymentIntent({
                 ...intents[1].toRecord(),
                 destinationWalletId: otherWallet.walletId,
@@ -1379,7 +1380,8 @@ async function run() {
 
         expectConflict("conflicting-addresses", (h) => {
             const intents = h.service.listPaymentIntentsForRoom("room-recovery-conflicting-addresses");
-            const otherWallet = h.walletPool.getWallet("room-wallet-2");
+            const otherWallet = h.walletPool.listAvailableWallets()
+                .find(wallet => wallet.walletId !== intents[0].destinationWalletId);
             const tampered = new PaymentIntent({
                 ...intents[1].toRecord(),
                 destinationWalletAddress: otherWallet.address
