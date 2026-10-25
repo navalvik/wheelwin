@@ -8,7 +8,7 @@ Ported from draft PR #21 only five independent, **read-only** Testnet provider c
 
 ## Verification before commit
 
-An isolated Vercel sandbox ran `npm ci --ignore-scripts`, `node --check app.js`, and 18 selected offline test files, resulting in **71 passing test files / 0 failures**. The 6 new test files alone yielded **54 passing tests**. These are Node test-file entry points containing nested assertions; not an end-to-end live Testnet transaction run.
+An isolated Vercel sandbox ran `npm ci --ignore-scripts`, `node --check app.js`, and 18 selected offline test files, resulting in **71 passing tests across 18 selected files / 0 failures**. The 6 new test files alone yielded **54 passing tests**. These are Node test-file entry points containing nested assertions; not an end-to-end live Testnet transaction run.
 
 ## Explicit non-goals and hard gates
 
