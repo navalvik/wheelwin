@@ -49,9 +49,9 @@ export function inspectProtectedRefundV4Boc({
         root = parsed[0];
         const outerSlice = root.beginParse();
         outer = loadMessage(outerSlice);
-        if (outerSlice.remainingBits !== 0 || outerSlice.remainingRefs !== 0) {
-            fail("BOC_OUTER_TRAILING_DATA");
-        }
+        // TON core intentionally leaves inline message bodies in the original
+        // slice (asCell), so remainingBits is NOT evidence of trailing data.
+        // The decoded V4 body is checked for exact bit/ref consumption below.
     } catch (error) {
         if (error instanceof ProtectedRefundBocError) throw error;
         fail("BOC_MALFORMED");
@@ -81,8 +81,7 @@ export function inspectProtectedRefundV4Boc({
         if (s.remainingBits !== 0 || s.remainingRefs !== 0) fail("BOC_EXTRA_MESSAGES");
         const outSlice = ref.beginParse();
         const inner = loadMessageRelaxed(outSlice);
-        if (outSlice.remainingBits !== 0 || outSlice.remainingRefs !== 0
-            || inner.info?.type !== "internal" || inner.init != null
+        if (inner.info?.type !== "internal" || inner.init != null
             || inner.info.dest?.toRawString().toLowerCase() !== target
             || inner.info.value?.coins !== BigInt(netAtomic)) {
             fail("BOC_RECIPIENT_AMOUNT_MISMATCH");
