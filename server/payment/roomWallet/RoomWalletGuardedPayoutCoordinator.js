@@ -15,6 +15,14 @@
  * A separate read-only, two-indexer confirmation worker advances journal
  * states from CONFIRMATION_UNKNOWN to CHAIN_CONFIRMED.
  */
+import { createHash } from "node:crypto";
+import { Address } from "@ton/core";
+
+function sameWallet(a, b) {
+    try { return Address.parse(a).equals(Address.parse(b)); }
+    catch { return false; }
+}
+
 export class RoomWalletGuardedPayoutCoordinator {
     constructor({ journal, executor } = {}) {
         if (typeof journal?.createSettlementPlan !== "function"
@@ -98,17 +106,27 @@ export class RoomWalletGuardedPayoutCoordinator {
 
         let intents;
         try {
-            intents = targets.map((target, index) => {
-                const plan = entries[index];
+            // One canonical hash for the entire frozen plan. Individual
+            // refund caller metadata cannot silently substitute a fee plan.
+            const frozenGasPlanHash = createHash("sha256")
+                .update(JSON.stringify(refundPlan)).digest("hex");
+            intents = targets.map((target) => {
+                const candidates = entries.filter(entry =>
+                    entry.playerId === target?.playerId
+                    && sameWallet(entry.wallet, target?.wallet)
+                );
+                if (candidates.length !== 1) {
+                    throw new Error("GUARDED_REFUND_DUPLICATE_OR_MISSING_PLAYER");
+                }
+                const plan = candidates[0];
                 const obligationId = target?.refundObligationId;
                 if (typeof obligationId !== "string"
                     || !/^rwrefund_[0-9a-f]{64}$/.test(obligationId)
-                    || target.wallet !== plan.wallet
+                    || !sameWallet(target.wallet, plan.wallet)
                     || target.playerId !== plan.playerId
                     || String(plan.grossRefundNano) !== String(target.amountNano)
                     || !/^[1-9]\d*$/.test(String(plan.recipientTransferAmountNano))
                     || !/^[1-9]\d*$/.test(String(plan.recipientGasChargeNano))
-                    || !/^[0-9a-f]{64}$/.test(String(target.frozenGasPlanHash ?? ""))
                 ) {
                     throw new Error("GUARDED_REFUND_PLAYER_PROOF_MISMATCH");
                 }
@@ -116,11 +134,11 @@ export class RoomWalletGuardedPayoutCoordinator {
                     obligationId,
                     netRefundNano: String(plan.recipientTransferAmountNano),
                     recipientGasChargeNano: String(plan.recipientGasChargeNano),
-                    frozenGasPlanHash: target.frozenGasPlanHash
+                    frozenGasPlanHash
                 });
                 const persisted = this._journal.load(intent.intentId)?.payload;
                 if (persisted?.roomNumber !== Number(roomNumber)
-                    || persisted?.destinationWallet == null) {
+                    || !sameWallet(persisted.destinationWallet, target.wallet)) {
                     throw new Error("GUARDED_REFUND_ROOM_IDENTITY_MISMATCH");
                 }
                 return Object.freeze({
