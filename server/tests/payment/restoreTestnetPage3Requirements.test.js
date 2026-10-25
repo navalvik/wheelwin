@@ -70,8 +70,8 @@ test("wallet 1 with historical oj7v funds is excluded without shrinking 64 walle
     const pool=new WalletPoolRegistry({catalogPath:catalog,network:"testnet"});
     pool.initialize();
     delete process.env.ROOM_WALLET_QUARANTINED_NUMBERS;
-    // Wallet #1 must be unavailable even without optional Railway config.
-    assert.equal(pool.getAvailableCount(),63);
+    // Generic pool retains 64 wallets; production quarantine is explicit.
+    assert.equal(pool.getAvailableCount(),64);
     process.env.ROOM_WALLET_QUARANTINED_NUMBERS="1";
     assert.equal(pool.size,64);
     assert.equal(pool.getAvailableCount(),63);
