@@ -116,13 +116,16 @@ test("explicitly aborted transaction from second provider is never credited", ()
     assert.equal(result.transactions.length, 0);
 });
 
-test("missing sender, destination, value or hash is never credited", () => {
+test("malformed positive incoming evidence fails closed instead of claiming no funds", () => {
     const broken = [
         tonapi(INPUTS[0], { in_msg: { destination: ROOM, value: "1000000000" } }),
         tonapi(INPUTS[1], { in_msg: { source: LENA, value: "1000000000" } }),
         tonapi(INPUTS[2], { hash: "invalid" })
     ];
-    assert.equal(compare(broken).transactions.length, 0);
+    for (const item of broken) {
+        assert.throws(() => compare([item], []),
+            error => error.code === "MALFORMED_ROOM_WALLET_INCOMING_EVIDENCE");
+    }
 });
 
 test("network outage is not treated as zero payments", async () => {
