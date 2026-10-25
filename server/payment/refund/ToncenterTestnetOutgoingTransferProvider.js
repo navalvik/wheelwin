@@ -208,6 +208,8 @@ export class ToncenterTestnetOutgoingTransferProvider {
             amountAtomic: observed.amountAtomic,
             sourceMcBlockSeqno: observed.sourceIndex.mcBlockSeqno,
             recipientMcBlockSeqno: observed.recipientIndex.mcBlockSeqno,
+            sourceBlockRef: Object.freeze({...observed.sourceIndex.blockRef}),
+            recipientBlockRef: Object.freeze({...observed.recipientIndex.blockRef}),
             latestIndexedMcBlockSeqno: latest.seqno,
             globalId: -3,
             sourceFinality: "finalized",
