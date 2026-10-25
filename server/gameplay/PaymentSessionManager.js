@@ -2206,6 +2206,7 @@ export class PaymentSessionManager {
         try {
             result = await this._roomWalletSettlementAdapter.refundPayments({
                 roomNumber,
+                roomId: session.roomId,
                 gameId: session.gameId ?? null,
                 paymentSessionId: session.paymentSessionId,
                 refunds: pendingRefunds,
