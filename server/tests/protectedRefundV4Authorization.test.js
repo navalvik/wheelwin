@@ -16,11 +16,12 @@ const FEE = 1_388_278;
 const NET = GROSS - FEE;
 
 function fx(options = {}) {
+    const nowMs = options.nowMs ?? NOW;
     const pair = generateKeyPairSync("ed25519");
     const publicKey = pair.publicKey.export({format:"der",type:"spki"}).subarray(-32);
     const wallet = WalletContractV4.create({workchain:0, publicKey});
     const seqno = options.seqno ?? 7;
-    const validUntil = Math.floor(NOW / 1000) + 120;
+    const validUntil = Math.floor(nowMs / 1000) + 120;
     const toWallet = options.toWallet ?? TO;
     const netAtomic = options.netAtomic ?? NET;
     const signing = beginCell().storeUint(wallet.walletId, 32)
@@ -46,13 +47,13 @@ function fx(options = {}) {
         provider, network:"testnet", account, status:"active",
         seqno, publicKeyHex:keyHex, codeHash,
         tipLt:"105271924000001", tipHash,
-        balanceAtomic:"4000000000", observedAtMs:NOW-1000,
+        balanceAtomic:"4000000000", observedAtMs:nowMs-1000,
         ...overrides
     });
     const snapshots=[snapshot("tonapi"),snapshot("toncenter-v3")];
     const params = {
         fromWallet:account,toWallet,netAtomic,grossAtomic:GROSS,
-        bocBase64, snapshots,nowMs:NOW
+        bocBase64, snapshots,nowMs
     };
     return { params, wallet, pair, snapshot, account, publicKey };
 }
@@ -131,7 +132,7 @@ test("cryptographic preflight remains read-only despite valid genuine signature"
 test("real signature preflight can be durably frozen with one wallet lock; fake signature cannot",t=>{
     const root=mkdtempSync(join(tmpdir(),"ww-real-signature-journal-"));
     t.after(()=>rmSync(root,{recursive:true,force:true}));
-    const f=fx(), obligationId="rfd_auth_journal_test";
+    const f=fx({nowMs:Date.now()}), obligationId="rfd_auth_journal_test";
     const debt={
         obligationId, networkName:"TESTNET",globalId:-3,state:"PENDING",
         outgoingTransactionId:null,finalizedEvidence:null,
