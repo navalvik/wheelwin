@@ -322,7 +322,8 @@ export class TestnetOutgoingRefundProvider {
         try {
             outgoingTransfer = await this._observation.getOutgoingTransfer({
                 sourceWalletAddress: authorized.sourceAccountId,
-                transactionId: outgoingTransactionId
+                transactionId: outgoingTransactionId,
+                minCreatedAtMs: obligation.createdAtMs
             });
         } catch {
             outgoingTransfer = null;
