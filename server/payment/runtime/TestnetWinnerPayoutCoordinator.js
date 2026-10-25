@@ -102,8 +102,10 @@ export class TestnetWinnerPayoutCoordinator {
         if (payout.replay) {
             // A repeated result can ONLY observe the previous payout.
             // Its ledger identity remains the same and no send is retried.
-            if (typeof this._submitter?.reconcile === "function") {
-                return this._submitter.reconcile({
+            const readOnlyReconcile=this._submitter?.reconcileAndSettle
+                ?? this._submitter?.reconcile;
+            if (typeof readOnlyReconcile === "function") {
+                return readOnlyReconcile.call(this._submitter,{
                     roomId,payoutId,roomWalletAddress:roomWallet.address,
                     winnerWallet,ownerWallet,plan:payout.plan
                 });
