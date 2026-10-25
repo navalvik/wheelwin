@@ -30,7 +30,7 @@ const SYNTHETIC_API_KEY = "SYNTHETIC-TONCENTER-TEST-KEY-NOT-REAL";
 const TESTNET_PAYER = `0:${"a".repeat(64)}`;
 const TESTNET_WALLET = `0:${"b".repeat(64)}`;
 
-const TOTAL_SECTIONS = 10;
+const TOTAL_SECTIONS = 12;
 let assertions = 0;
 let sections = 0;
 
@@ -382,6 +382,75 @@ async function run() {
         } finally { t.cleanup(); }
     });
 
+
+    await section("restarting after three settled payments preserves the wallet while prize is unplanned", () => {
+        const t=makeTemp();
+        try {
+            const first=buildRuntime(t.root,t.catalogPath);
+            const roomId="room-three-paid-no-payout";
+            seedRoomPayments(first.runtime,roomId,3);
+            const wallet=first.runtime.walletPool.getReservationForRoom(roomId);
+            check(wallet?.walletId,"three confirmed players retain their public room wallet");
+            equal(first.runtime.ledger.getConfirmedPrincipalAtomic(roomId),3_000_000_000,
+                "all three native GRAM payments are durably credited");
+            paymentRuntimeShutdown(first.runtime);
+            const restarted=buildRuntime(t.root,t.catalogPath);
+            equal(restarted.runtime.walletPool.getReservationForRoom(roomId)?.walletId,
+                wallet.walletId,
+                "restart must not recycle three-player paid wallet before the winner payout is prepared");
+            check(restarted.runtime.paymentService.countOpenObligations(roomId)>0,
+                "three SETTLED intents leave an open financial obligation until prize or refunds close");
+            paymentRuntimeShutdown(restarted.runtime);
+        } finally {t.cleanup();}
+    });
+
+    await section("restart keeps an unpaid two-recipient prize wallet and releases after both real settlement entries", () => {
+        const t=makeTemp();
+        try {
+            const roomId="room-three-paid-prize";
+            const payoutId="payout_"+"c".repeat(32);
+            const first=buildRuntime(t.root,t.catalogPath);
+            seedRoomPayments(first.runtime,roomId,3);
+            const wallet=first.runtime.walletPool.getReservationForRoom(roomId);
+            const amounts={
+                winner:{feeAtomic:2_000_000},
+                owner:{feeAtomic:2_000_000}
+            };
+            first.runtime.ledger.planPayout({
+                payoutId,roomId,safetyMarginAtomic:10_000_000,
+                winner:{recipientId:"seed-player-1",address:TESTNET_PAYER},
+                owner:{recipientId:"WheelWin",address:syntheticAddress("owner-wallet")},
+                networkFees:amounts,nowMs:NOW_MS
+            });
+            equal(first.runtime.ledger.countOpenObligations(roomId),2,
+                "an unsettled winner and owner create two independent outstanding obligations");
+            paymentRuntimeShutdown(first.runtime);
+            const restarted=buildRuntime(t.root,t.catalogPath);
+            equal(restarted.runtime.walletPool.getReservationForRoom(roomId)?.walletId,
+                wallet.walletId,"wallet must remain reserved after a restart with two unpaid payout obligations");
+            throws(()=>restarted.runtime.paymentService.releaseWalletForRoom(roomId),
+                /unresolved|obligation|blocked/i,"wallet release rejects an unsettled prize");
+            // Settled entries are booked only as a test fixture of externally
+            // verified chain finality. No real RPC or outgoing transfers.
+            for(const recipientId of ["seed-player-1","WheelWin"]){
+                restarted.runtime.ledger.settlePayout({
+                    payoutId,recipientId,
+                    executionResult:{transactionId:"synthetic-final-"+recipientId,
+                        actualFeeAtomic:1_000_000,settledAtMs:NOW_MS}
+                });
+            }
+            equal(restarted.runtime.ledger.countOpenObligations(roomId),0,
+                "both independently finalized transfers close their obligations");
+            equal(restarted.runtime.paymentService.countOpenObligations(roomId),0,
+                "wallet becomes eligible only after the winner AND owner are paid");
+            paymentRuntimeShutdown(restarted.runtime);
+            const completed=buildRuntime(t.root,t.catalogPath);
+            equal(completed.runtime.walletPool.getReservationForRoom(roomId),null,
+                "fully settled prize wallet can finally be recycled on restart");
+            paymentRuntimeShutdown(completed.runtime);
+        } finally {t.cleanup();}
+    });
+
     await section("restart reconstructs refund obligations without duplication", () => {
         const t = makeTemp();
         try {
@@ -411,6 +480,8 @@ async function run() {
             });
             const recovery = restartInit.initialize();
             equal(restartInit.refundStore.size, 2, "restart reloads obligations without duplicating them");
+            check(restartInit.walletPool.getReservationForRoom(room.roomId)!==null,
+                "restart must retain the old room wallet until BOTH confirmed players receive refunds");
             assert.deepEqual(restartInit.refundStore.list().map((o) => o.obligationId).sort(), idsBefore,
                 "restart preserves exact obligation identities");
             equal(recovery.refundRecovery.length, 2, "restart recovery reports each outstanding obligation");
