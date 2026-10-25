@@ -13,7 +13,10 @@ function environment() {
     return {
         TON_NETWORK: "testnet",
         ROOM_WALLETS_JSON: JSON.stringify(createDummyRoomWalletCatalog()),
-        ROOM_WALLET_GUARDED_OUTBOUND_ONLY: "true"
+        ROOM_WALLET_GUARDED_OUTBOUND_ONLY: "true",
+        ROOM_WALLET_OUTGOING_CONFIRMATION_ENABLED: "true",
+        ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED: "true",
+        ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: "false"
     };
 }
 
@@ -104,5 +107,28 @@ test("historical default has no guarded coordinator or external broadcast side e
     });
     assert.equal(service.guardedPayoutCoordinator, null);
     assert.equal(service.roomWalletAdapter._guardedOutboundOnly, false);
+    assert.equal(f.broadcasts(), 0);
+});
+
+
+test("guarded-mode startup refuses legacy residual sweep sender", t => {
+    const f = fixture(t);
+    assert.throws(() => createRoomWalletService({
+        ...f.config,
+        env: { ...environment(), ROOM_WALLET_RESIDUAL_SWEEP_ENABLED: "true" }
+    }), /GUARDED_OUTBOUND_RESIDUAL_SWEEP_NOT_MIGRATED/);
+    assert.equal(f.broadcasts(), 0);
+});
+
+test("guarded mode cannot start without outgoing and expired-room workers", t => {
+    const f = fixture(t);
+    for (const missing of [
+        "ROOM_WALLET_OUTGOING_CONFIRMATION_ENABLED",
+        "ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED"
+    ]) {
+        assert.throws(() => createRoomWalletService({
+            ...f.config, env: { ...environment(), [missing]: "false" }
+        }), /GUARDED_OUTBOUND_REQUIRES_RECOVERY_WORKERS/);
+    }
     assert.equal(f.broadcasts(), 0);
 });
