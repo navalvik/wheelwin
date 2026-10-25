@@ -129,3 +129,56 @@ test("missing or ambiguous outgoing transfer never becomes confirmed",async t=>{
     assert.equal(result.winnerObserved,true);
     assert.equal(result.ownerObserved,false);
 });
+
+test("observed winner AND owner destination credits still remain unfinalized",async t=>{
+    const observed=[];
+    const h=harness(t,{outgoingObserver:{
+        async findOutgoingTransfer({destinationIdentity,amountAtomic,minCreatedAtMs}){
+            assert.ok(Number.isSafeInteger(minCreatedAtMs));
+            return {
+                transactionId:destinationIdentity===WINNER?"w-outgoing":"o-outgoing",
+                sourceAddress:ROOM,destinationAddress:destinationIdentity,amountAtomic
+            };
+        },
+        async observeRecipientCredit({destinationIdentity,transactionId,amountAtomic,minCreatedAtMs}){
+            observed.push({destinationIdentity,transactionId,amountAtomic,minCreatedAtMs});
+            return {
+                status:"RECIPIENT_CREDIT_OBSERVED_UNFINALIZED",
+                sourceTransactionId:transactionId,
+                recipientTransactionId:destinationIdentity===WINNER?"w-incoming":"o-incoming",
+                destinationAddress:destinationIdentity,amountAtomic
+            };
+        }
+    }});
+    const plan=payout({winner:{feeAtomic:2_000_000},owner:{feeAtomic:2_000_000}});
+    await h.transport.submit({...inputs,plan});
+    const before=h.seen.filter(x=>x.op==="send").length;
+    const outcome=await h.transport.reconcile({...inputs,plan});
+    assert.equal(outcome.status,"BOTH_RECIPIENT_CREDITS_OBSERVED_UNFINALIZED");
+    assert.equal(outcome.winnerRecipientTransactionId,"w-incoming");
+    assert.equal(outcome.ownerRecipientTransactionId,"o-incoming");
+    assert.equal(observed.length,2);
+    assert.equal(h.seen.filter(x=>x.op==="send").length,before);
+});
+test("missing or mismatching recipient credit prevents claiming both recipients credited",async t=>{
+    const h=harness(t,{outgoingObserver:{
+        async findOutgoingTransfer({destinationIdentity,amountAtomic}){
+            return {
+                transactionId:destinationIdentity===WINNER?"w-out":"o-out",
+                sourceAddress:ROOM,destinationAddress:destinationIdentity,amountAtomic
+            };
+        },
+        async observeRecipientCredit({destinationIdentity,transactionId,amountAtomic}){
+            if(destinationIdentity===OWNER)return null;
+            return {status:"RECIPIENT_CREDIT_OBSERVED_UNFINALIZED",
+                sourceTransactionId:transactionId,recipientTransactionId:"winner-in",
+                destinationAddress:destinationIdentity,amountAtomic};
+        }
+    }});
+    const plan=payout({winner:{feeAtomic:2_000_000},owner:{feeAtomic:2_000_000}});
+    await h.transport.submit({...inputs,plan});
+    const result=await h.transport.reconcile({...inputs,plan});
+    assert.equal(result.status,"RECIPIENT_CREDIT_CONFIRMATION_PENDING");
+    assert.equal(result.winnerCredited,true);
+    assert.equal(result.ownerCredited,false);
+});
