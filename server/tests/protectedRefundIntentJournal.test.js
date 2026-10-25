@@ -74,6 +74,7 @@ function harness(t) {
         return obligationId;
     }
     return { dir, sqlite, refundDir, journalDir, open, journal, seed,
+        refundStore() { return refunds; },
         reopen() { intents.close(); return open(); } };
 }
 
@@ -191,4 +192,19 @@ test("two independent OS processes cannot claim the same wallet simultaneously",
     assert.equal(pair.filter(result => result.code === 2 && result.stdout === "WALLET_ALREADY_LOCKED").length, 1,
         JSON.stringify(pair));
     assert.throws(() => h.journal.claimWallet(intentId), { code: "WALLET_ALREADY_LOCKED" });
+});
+
+test("a refund blocked after wallet claim cannot receive a signed-intent hold", t => {
+    const h = harness(t), obligationId = h.seed({});
+    const { intentId } = h.journal.plan({
+        obligationId, feeAtomic: 1388278, feeQuoteHash: H
+    });
+    const owner = h.journal.claimWallet(intentId);
+    h.refundStore().markBlocked(obligationId, { lastError: "SOURCE_RECONCILIATION_PENDING" });
+    assert.throws(() => h.journal.holdSignedIdentity({
+        intentId, ownerToken: owner.ownerToken,
+        signedHash: H, seqno: 7, validUntil: VALID_UNTIL
+    }), { code: "REFUND_DEBT_NOT_PENDING" });
+    assert.equal(h.journal.load(intentId).state, "PLANNED");
+    assert.throws(() => h.journal.claimWallet(intentId), { code: "REFUND_DEBT_NOT_PENDING" });
 });
