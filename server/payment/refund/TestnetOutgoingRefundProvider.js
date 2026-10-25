@@ -108,6 +108,26 @@ export class TestnetOutgoingRefundProvider {
             && typeof this._observation?.findOutgoingTransfer === "function";
     }
 
+    canPrepareRefundTransfer() {
+        return this.canExecute() && typeof this._signer?.quoteRefund === "function";
+    }
+
+    async prepareRefundTransfer({ obligation, sourceWalletAddress, nowMs }) {
+        if (!this.canPrepareRefundTransfer()) {
+            throw new OutgoingRefundError("refund native fee quote is unavailable");
+        }
+        const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
+        return this._signer.quoteRefund({
+            roomId: authorized.roomId,
+            roomNumber: authorized.roomNumber,
+            from: authorized.sourceWalletAddress,
+            to: authorized.refundDestination,
+            amountAtomic: authorized.grossAmountAtomic,
+            obligationId: authorized.obligationId,
+            nowMs
+        });
+    }
+
     /** Public, non-secret identity check (no network access, no secrets). */
     async verifyNetwork() {
         return Object.freeze({ networkName: this.networkName, globalId: this.globalId });
