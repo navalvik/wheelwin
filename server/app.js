@@ -81,6 +81,7 @@ import { SpeedActivation } from "./gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
 import { ResultActivation } from "./gameplay/ResultActivation.js";
+import { TestnetWinnerPayoutCoordinator } from "./payment/runtime/TestnetWinnerPayoutCoordinator.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
@@ -1220,6 +1221,35 @@ class WheelWinApplication {
                     logger: this._logger
                 }
             );
+            // This event is emitted only by the server's authoritative
+            // RESULT lifecycle. It plans an exact 3-player payout; until a
+            // real outgoing executor and current fee quotes are connected it
+            // explicitly reports WAITING, never claims funds were sent.
+            this._winnerPayoutCoordinator = new TestnetWinnerPayoutCoordinator({
+                paymentRuntime,
+                roomManager: this._managers.roomManager,
+                playerManager: this._managers.playerManager,
+                contextResolver: this._gameplayContextResolver,
+                winnerEngine: this._engines.winnerEngine
+            });
+            this._eventBus.subscribe(
+                EVENT_TYPES.GAME_RESULT_READY,
+                (envelope) => {
+                    void Promise.resolve()
+                        .then(() => this._winnerPayoutCoordinator.onGameResult({
+                            gameId: envelope.payload?.gameId
+                        }))
+                        .then((outcome) => this._logger.info(
+                            `TESTNET_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
+                                + ` | status=${outcome.status}`
+                        ))
+                        .catch((error) => this._logger.warn(
+                            `TESTNET_WINNER_PAYOUT_PENDING | gameId=${envelope.payload?.gameId}`
+                                + ` | reason=${error?.message ?? "unavailable"}`
+                        ));
+                }
+            );
+
 
             const refundRecovery = recovery?.refundRecovery ?? [];
 
