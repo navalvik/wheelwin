@@ -146,6 +146,8 @@ import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.j
 import { TonFinancialPersistence } from "./persistence/TonFinancialPersistence.js";
 import { RoomWalletRefundRecoveryRepository } from "./payment/roomWallet/RoomWalletRefundRecoveryRepository.js";
 import { RoomWalletRefundDestructionGuard } from "./payment/roomWallet/RoomWalletRefundDestructionGuard.js";
+import { RoomWalletProviderBudget } from "./payment/roomWallet/RoomWalletProviderBudget.js";
+import { RoomWalletExpiredReconciliationWorker } from "./payment/roomWallet/RoomWalletExpiredReconciliationWorker.js";
 import { TON_FINANCIAL_RECORD_TYPES } from "./persistence/TonFinancialRecordTypes.js";
 import { DepositSessionCoordinator } from "./deposit/DepositSessionCoordinator.js";
 import { TonFinancialDepositPersistence } from "./deposit/DepositPersistencePort.js";
@@ -344,6 +346,8 @@ class WheelWinApplication {
 
         this._financialPersistence = null;
         this._roomWalletRefundRecoveryRepository = null;
+        this._roomWalletProviderBudget = null;
+        this._roomWalletExpiredReconciliationWorker = null;
 
         this._depositSessionCoordinator = null;
 
@@ -1669,6 +1673,12 @@ class WheelWinApplication {
         this._roomWalletRegistry = createRoomWalletRegistryFromEnv(process.env);
 
         if (this._roomWalletRefundRecoveryRepository) {
+            // Both active-payment fallback and expired-session reconciliation
+            // must share ONE bounded Testnet provider request budget.
+            this._roomWalletProviderBudget = new RoomWalletProviderBudget();
+        }
+
+        if (this._roomWalletRefundRecoveryRepository) {
             // The guard must be installed before startup recovery begins to
             // restore expired rooms, and before client connections are accepted.
             this._managers.roomManager.attachRoomWalletDestructionGuard(
@@ -1696,12 +1706,25 @@ class WheelWinApplication {
             transport: this._services?.tonService?.getTransport?.() ?? null,
             tonService: this._services?.tonService ?? null,
             auditLedger: this._entryPaymentAuditLedger,
-            network: this._tonConfig?.network ?? null
+            network: this._tonConfig?.network ?? null,
+            dualSourceBudget: this._roomWalletProviderBudget
         });
 
         this._blockchainMonitor.setRoomWalletIncomingObserver?.(
             this._roomWalletIncomingObserver
         );
+
+        if (this._roomWalletRefundRecoveryRepository) {
+            this._roomWalletExpiredReconciliationWorker = new RoomWalletExpiredReconciliationWorker({
+                repository: this._roomWalletRefundRecoveryRepository,
+                financialPersistence: this._financialPersistence,
+                requestBudget: this._roomWalletProviderBudget,
+                logger: this._logger,
+                maxWalletsPerSweep: 2,
+                sweepIntervalMs: 10_000
+            });
+            this._logger.startupLine("RoomWalletExpiredReconciliationWorker (read-only, opt-in)");
+        }
 
         this._logger.startupLine(
             this._roomWalletRegistry.size() > 0
@@ -2514,6 +2537,21 @@ class WheelWinApplication {
         this._logger.info("Server Ready");
         this._logger.info("");
 
+        // This worker never signs, broadcasts, or releases wallets. Explicit
+        // Testnet opt-in only, after all persisted financial records and the
+        // HTTP server have completed initialization.
+        if (this._roomWalletExpiredReconciliationWorker
+            && process.env.ROOM_WALLET_EXPIRED_RECONCILIATION_ENABLED === "true") {
+            this._roomWalletExpiredReconciliationWorker.start();
+            void this._roomWalletExpiredReconciliationWorker.runOnce().catch(error => {
+                this._logger?.error?.(
+                    "Room Wallet expired reconciliation initial scan failed"
+                    + " | code=" + (error?.code ?? error?.name ?? "unknown")
+                );
+            });
+            this._logger.info("Room Wallet expired reconciliation enabled (read-only)");
+        }
+
         if (this._productionConfig.runStartupDemonstrations) {
 
             this._runStartupDemonstrations();
@@ -2655,6 +2693,10 @@ class WheelWinApplication {
 
             }
 
+        });
+
+        this._safeShutdownStep("roomWalletExpiredReconciliationWorker", () => {
+            this._roomWalletExpiredReconciliationWorker?.shutdown();
         });
 
         this._safeShutdownStep("blockchainMonitor", () => {
