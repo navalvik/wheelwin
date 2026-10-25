@@ -112,6 +112,8 @@ test("winner and owner are matched to two different blockchain transactions with
     assert.equal(result.ownerTransactionId,"owner-on-chain");
     assert.equal(readCalls.length,2);
     assert.ok(readCalls.every(x=>x.sourceWalletAddress===ROOM));
+    assert.ok(readCalls.every(x=>Number.isSafeInteger(x.minCreatedAtMs)
+        && x.minCreatedAtMs>0), "every outgoing history check must be bounded by the claim");
     assert.equal(h.seen.filter(x=>x.op==="send").length,sendCount);
 });
 test("missing or ambiguous outgoing transfer never becomes confirmed",async t=>{
