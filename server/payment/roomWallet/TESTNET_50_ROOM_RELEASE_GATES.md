@@ -31,7 +31,7 @@ Status: **DRAFT / NOT DEPLOYABLE**. Scope: native GRAM transfers through 64 serv
 - No payment twice: verify outgoing transaction hash, logical time, recipient amount, and increasing `seqno` before advancing to the next wallet transfer.
 - Use the same deterministic, serial, replay-safe mechanism for winner payments and owner commission. Preserve recipient-borne gas policy and the 0.01 GRAM room safety margin.
 - Quarantines must have a carefully verified, durable, chain-proof-backed closure state, **not** a timeout-based automatic release. Until implemented, a closed payment room can remain quarantined permanently.
-- There are no new automated broadcasts in this PR. The worker never clears quarantine or automatically authorizes any payout. Historical `oj7v` payment receipt OLGA may already be refunded: the *outgoing* chain reconciliation must identify it and must not send it again.
+- There are no new automated broadcasts in this PR. The worker never clears quarantine or automatically authorizes any payout. An additional READ-ONLY outgoing proof module now validates specific Room Wallet outgoing transaction receipts (known wallet tx hash+LT, or signed external intent hash), recipient, nano amount and outgoing message hash across both API providers. The historical Olga `oj7v` refund is used in its offline regression test; identical recipient/amount alone is deliberately insufficient proof.
 
 ## Failed Testnet game `oj7v`
 
@@ -41,7 +41,7 @@ Status: **DRAFT / NOT DEPLOYABLE**. Scope: native GRAM transfers through 64 serv
 
 ## Testing
 
-- Latest offline focused suite: **90 passed / 90 total**, including seven new paginated scanner tests, seven new background worker tests, 50 active rooms, 14 quarantined/unused wallets, 50 simultaneous dual-source fetch calls, HTTP 542 circuit breaker, permanent refund records, late deposit discovery and restart replay. `node --check app.js` also succeeded.
+- Latest offline focused suite: **100 passed / 100 total**, including 10 strict outgoing transaction evidence tests, paginated scanner and background worker tests, 50 active rooms, 14 quarantined/unused wallets, 50 simultaneous dual-source fetch calls, HTTP 542 circuit breaker, durable refund records, late deposit discovery and restart replay. `node --check app.js` also succeeded.
 - Prior `roomWalletActiveWalletPolling.test.js`: **11 passed / 11 total**.
 - `roomNumberWalletMapping.test.js`: **5 passed / 8 total**. Three failures were reproduced **both on the historical base and this branch**, unrelated to the new 50-room ceiling.
 - Old `setupExpiryRoomWalletRefund.test.js` did not complete within an isolated 22-second window; not a passing result.
