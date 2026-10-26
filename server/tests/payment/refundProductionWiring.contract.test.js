@@ -73,7 +73,7 @@ test("payment runtime connects Testnet room-wallet signing callback without load
             signWithWallet: async request => {
                 calls++;
                 assert.equal(request.walletId, "wallet-37");
-                return { sourceWalletAddress: request.from, boc: "dGVzdC1ib2M=" };
+                return { sourceWalletAddress: request.from, boc: "te6ccgEBAQEAAgAAAA==" };
             },
             broadcaster: { broadcast() {} },
             finalityEvidenceProvider: { getSettlementEvidence() {} },
@@ -89,6 +89,6 @@ test("payment runtime connects Testnet room-wallet signing callback without load
         amountAtomic: 1_000_000_000,
         idempotencyKey: "refund-one", obligationId: "obligation-one"
     });
-    assert.deepEqual(signed, { boc: "dGVzdC1ib2M=" });
+    assert.deepEqual(signed, { boc: "te6ccgEBAQEAAgAAAA==" });
     assert.equal(calls, 1);
 });
