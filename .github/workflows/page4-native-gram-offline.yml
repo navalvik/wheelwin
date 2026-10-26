@@ -1,5 +1,11 @@
 name: Page4 native GRAM offline safety
 on:
+  push:
+    branches:
+      - restore/page4-native-gram-ui-main-20261026
+    paths:
+      - "client/src/pages/Page4Payment.jsx"
+      - ".github/workflows/page4-native-gram-offline.yml"
   pull_request:
     paths:
       - "client/src/payment/**"
