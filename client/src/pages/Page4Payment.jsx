@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
@@ -30,19 +30,12 @@ export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
     const { roomId, playerId } = identity ?? {};
     const [status, setStatus] = useState("PAYMENT_UNAVAILABLE");
-
-    // Only request the authoritative payment state once per identity cycle.
-    // Resetting the flag when the identity changes lets a later identity
-    // readiness (identity becomes ready after the component initially mounts)
-    // re-issue the request without creating a request/response loop.
-    const requestedRef = useRef(null);
+    const [connected, setConnected] = useState(socket.connected);
 
     useEffect(() => {
-        if (!roomId || !playerId) {
-
-            requestedRef.current = null;
-            return;
-        }
+        // An old room's status must never be shown for a new room or player.
+        setStatus("PAYMENT_UNAVAILABLE");
+        setConnected(socket.connected);
 
         function handlePaymentStatus(payload) {
             if (payload?.roomId !== roomId
@@ -53,17 +46,24 @@ export default function Page4Payment() {
             setStatus(payload.status);
         }
 
-        socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
-
-        // Re-request the authoritative payment state so a status event that
-        // was emitted before this page subscribed is re-delivered now.
-        if (requestedRef.current !== roomId) {
-            requestedRef.current = roomId;
-            socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
+        function requestCurrentStatus() {
+            setConnected(socket.connected);
+            if (socket.connected && roomId && playerId) {
+                socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
+            }
         }
+
+        // A new identity, a remount, and every reconnect each need a fresh
+        // authoritative status. The request does not authorize any transfer.
+        socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
+        socket.on("connect", requestCurrentStatus);
+        socket.on("disconnect", requestCurrentStatus);
+        requestCurrentStatus();
 
         return () => {
             socket.off(PAYMENT_STATUS_EVENT, handlePaymentStatus);
+            socket.off("connect", requestCurrentStatus);
+            socket.off("disconnect", requestCurrentStatus);
         };
     }, [roomId, playerId]);
 
@@ -71,6 +71,10 @@ export default function Page4Payment() {
         <GameLayout message="ENTRY PAYMENT" showNextButton={false}>
             <section className="page4Payment" aria-live="polite">
                 <h2>Payment status: {status}</h2>
+                <p role="status">Server connection: {connected ? "CONNECTED" : "DISCONNECTED"}</p>
+                {!roomId || !playerId ? (
+                    <p role="alert">Waiting for server-authorized room identity. No payment can be sent.</p>
+                ) : null}
                 <p>
                     Payment acceptance is disabled while aborted-game refunds are unavailable.
                     No wallet request or destination has been issued.

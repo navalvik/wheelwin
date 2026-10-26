@@ -37,6 +37,10 @@ try {
 
     assert.match(html, /Payment status:/,
         "Page4 renders the payment status label");
+    assert.match(html, /Server connection:/,
+        "Page4 always displays a connection diagnostic");
+    assert.match(html, /Waiting for server-authorized room identity/,
+        "Page4 displays a safe fallback when identity is missing");
     assert.match(html, /PAYMENT_UNAVAILABLE/,
         "Page4 renders the disabled payment status without wallet state");
     assert.match(html, /Payment acceptance is disabled/,
