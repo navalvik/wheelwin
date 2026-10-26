@@ -710,7 +710,40 @@ async function testRestartPreservesObligationsAndRecoveryWithoutDuplication() {
     }
 }
 
+async function testPrebroadcastDurabilityObservedBySigner() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        let signerCalls = 0;
+        const mocks = makeMocks();
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: {
+                signTransfer(descriptor) {
+                    signerCalls++;
+                    // The durable disk record must be committed BEFORE the first
+                    // external signing operation, not merely held in memory.
+                    const reopened = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+                    reopened.initialize();
+                    assert.equal(reopened.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+                    return mocks.signer.signTransfer(descriptor);
+                }
+            },
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const result = await h.coordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(result.outcome, "SUBMITTED");
+        assert.equal(signerCalls, 1);
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMITTED);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function main() {
+    await testPrebroadcastDurabilityObservedBySigner();
     await testValidSubmission();
     await testRejections();
     await testAmbiguousNoBlindResubmit();
