@@ -70,6 +70,41 @@ for (const confirmedCount of [1, 2, 0, 3]) {
 }
 
 {
+    // A third payment may be finalized only after setup expiry. The durable
+    // two-payer obligations must replay, and the late payer must be added
+    // exactly once without opening gameplay.
+    const h = harness(2);
+    try {
+        assert.equal(h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "setup_expired", status: "DESTROYED"
+        }).length, 2);
+        const intent = h.intentStore.require("payment_2");
+        const matched = intent.transition(PAYMENT_INTENT_STATE.MATCHED, {
+            transactionId: "incoming_2", now: NOW
+        });
+        h.intentStore.update(matched);
+        h.intentStore.update(matched.transition(PAYMENT_INTENT_STATE.SETTLED, { now: NOW }));
+        h.ledgerStore.append({
+            idempotencyKey: "principal:payment_2", roomId: "room-x",
+            kind: LEDGER_ENTRY_KIND.INCOMING_PRINCIPAL,
+            amountAtomic: intent.amountAtomic, playerId: intent.playerId,
+            asset: intent.asset, network: intent.network,
+            metadata: {
+                paymentReference: "payment_2", transactionId: "incoming_2",
+                intentState: "SETTLED", source: "SETTLED_PAYMENT_INTENT"
+            }
+        });
+        const replay = h.coordinator.prepareLateConfirmedPayments("room-x");
+        assert.equal(replay.length, 3);
+        assert.equal(replay.filter((entry) => entry.replay).length, 2);
+        assert.equal(h.store.size, 3);
+        assert.equal(h.coordinator.prepareLateConfirmedPayments("room-x").length, 3);
+        assert.equal(h.store.size, 3);
+    } finally { rmSync(h.root, { recursive: true, force: true }); }
+}
+
+{
     // Room destruction after a game (or without an authoritative pre-game
     // expiry reason) must never accidentally refund all three paid players.
     const h = harness(3);
