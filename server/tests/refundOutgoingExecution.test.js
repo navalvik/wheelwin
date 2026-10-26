@@ -414,6 +414,26 @@ async function testConflictingEvidenceCannotComplete() {
                 }
             },
             {
+                label: "failed TON action",
+                outgoingTransfer: {
+                    transactionId: "outgoing-testnet-tx",
+                    sourceAddress: TESTNET_ROOM_WALLET,
+                    destinationAddress: TESTNET_PAYER,
+                    amountAtomic: 1_000_000_000,
+                    actionSuccess: false
+                }
+            },
+            {
+                label: "bounced transfer",
+                outgoingTransfer: {
+                    transactionId: "outgoing-testnet-tx",
+                    sourceAddress: TESTNET_ROOM_WALLET,
+                    destinationAddress: TESTNET_PAYER,
+                    amountAtomic: 1_000_000_000,
+                    bounced: true
+                }
+            },
+            {
                 label: "amount mismatch",
                 outgoingTransfer: {
                     transactionId: "outgoing-testnet-tx",
