@@ -16,8 +16,8 @@ test("durable refund maps to original planning shape without transfers", async (
 test("refuses completed and misdirected refunds before planning", async () => {
     let called = 0;
     const settlement = {planRefunds: async () => {called++;}};
-    await assert.rejects(planLegacyRoomWalletRefund({obligation:{...obligation,state:"COMPLETE"},settlement}));
-    await assert.rejects(planLegacyRoomWalletRefund({obligation:{...obligation,refundDestination:"other"},settlement}));
-    await assert.rejects(planLegacyRoomWalletRefund({obligation:{...obligation,networkName:"MAINNET"},settlement}));
+    assert.throws(() => planLegacyRoomWalletRefund({obligation:{...obligation,state:"COMPLETE"},settlement}));
+    assert.throws(() => planLegacyRoomWalletRefund({obligation:{...obligation,refundDestination:"other"},settlement}));
+    assert.throws(() => planLegacyRoomWalletRefund({obligation:{...obligation,networkName:"MAINNET"},settlement}));
     assert.equal(called,0);
 });
