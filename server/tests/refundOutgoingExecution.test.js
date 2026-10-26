@@ -813,7 +813,43 @@ async function testSourceWalletRejectsCrossRoomAndPayerMismatch() {
     }
 }
 
+
+async function testCatalogBoundRefundSourceWallet() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const makeProvider = (wallet) => new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            walletPool: { getWallet: () => wallet }
+        });
+        const validWallet = {
+            walletId: "wallet-testnet", roomNumber: 37,
+            address: TESTNET_ROOM_WALLET, network: "testnet"
+        };
+        assert.equal(makeProvider(validWallet).resolveSourceWallet({
+            obligation, intentStore: h.intentStore
+        }), TESTNET_ROOM_WALLET);
+        for (const invalid of [
+            { ...validWallet, roomNumber: 38 },
+            { ...validWallet, network: "mainnet" },
+            { ...validWallet, address: "0:" + "c".repeat(64) },
+            null
+        ]) {
+            assert.throws(() => makeProvider(invalid).resolveSourceWallet({
+                obligation, intentStore: h.intentStore
+            }), /authoritative Testnet pool/);
+        }
+        assert.equal(mocks.calls.sign, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function main() {
+    await testCatalogBoundRefundSourceWallet();
     await testSourceWalletRejectsCrossRoomAndPayerMismatch();
     await testSimulatedCrashDuringSigningCannotReplay();
     await testPrebroadcastDurabilityObservedBySigner();
