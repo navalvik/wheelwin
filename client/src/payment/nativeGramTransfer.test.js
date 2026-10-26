@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildNativeGramPaymentTransaction } from "./nativeGramTransfer.js";
+import { Cell } from "@ton/core";
 const sender = "0:" + "1".repeat(64);
 const DEADLINE_S = Math.floor(Date.now() / 1000) + 300;
 const destination = "0:" + "2".repeat(64);
@@ -20,8 +21,11 @@ test("native GRAM creates ONE direct room-wallet message with payer-borne gas an
     assert.equal(tx.messages[0].amount, "1500000000");
     const bytes = Buffer.from(tx.messages[0].payload, "base64");
     assert.equal(bytes.subarray(0, 4).toString("hex"), "b5ee9c72");
-    assert.deepEqual([...bytes.subarray(13, 17)], [0, 0, 0, 0]);
-    assert.equal(bytes.subarray(17).toString("utf8"), "WW1:payment-ABC_123");
+    const cells = Cell.fromBoc(bytes);
+    assert.equal(cells.length, 1);
+    const slice = cells[0].beginParse();
+    assert.equal(slice.loadUint(32), 0);
+    assert.equal(slice.loadStringTail(), "WW1:payment-ABC_123");
     assert.equal(tx.messages[0].stateInit, undefined);
     assert.equal(tx.messages[0].jettonMaster, undefined);
 });
