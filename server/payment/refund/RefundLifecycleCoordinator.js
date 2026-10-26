@@ -183,6 +183,13 @@ export class RefundLifecycleCoordinator {
             );
         }
         const startedAtMs = this._now();
+        // Persist an ambiguous attempt BEFORE invoking any external broadcaster.
+        // After a crash the refund cannot be blindly submitted again.
+        const attemptStart = this._attempt(current, "SUBMISSION_UNKNOWN", {
+            startedAtMs, completedAtMs: this._now(), errorCode: null,
+            attemptId: `${current.obligationId}:${startedAtMs}`
+        });
+        this._store.markSubmissionUnknown(current.obligationId, { attempt: attemptStart });
         let result;
         try {
             const sourceWalletAddress = outgoing.resolveSourceWallet
@@ -190,16 +197,11 @@ export class RefundLifecycleCoordinator {
                 : (() => { throw new RefundLifecycleError("provider cannot resolve the refund source wallet"); })();
             result = await outgoing.signAndBroadcast({ obligation: current, sourceWalletAddress, nowMs: startedAtMs });
         } catch (error) {
-            // Authorization/provider failures fail closed: record and stay PENDING.
             const code = typeof error?.code === "string" ? error.code : "OUTGOING_REFUND_ERROR";
-            const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: code, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: code });
-            return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: code });
+            return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMISSION_UNKNOWN", outgoingTransactionId: null, reason: code });
         }
 
         if (result.outcome === "SUBMITTED") {
-            const attemptStart = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt: attemptStart });
             const attemptDone = this._attempt(current, "SUBMITTED", { startedAtMs, completedAtMs: this._now(), outgoingTransactionId: result.outgoingTransactionId, attemptId: `${current.obligationId}:${startedAtMs}` });
             this._store.markSubmitted(current.obligationId, { outgoingTransactionId: result.outgoingTransactionId, attempt: attemptDone });
             this._logger?.info?.(`Refund submitted | obligationId=${current.obligationId} | network=${current.networkName}`);
