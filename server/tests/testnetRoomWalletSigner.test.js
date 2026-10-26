@@ -18,10 +18,10 @@ test("signer attests wallet identity with no embedded credentials", async () => 
             count++;
             assert.equal(request.walletId, "wallet-37");
             assert.equal(request.globalId, -3);
-            return { sourceWalletAddress: from, boc: "dGVzdC1ib2M=" };
+            return { sourceWalletAddress: from, boc: "te6ccgEBAQEAAgAAAA==" };
         }
     });
-    assert.deepEqual(await signer.signTransfer(descriptor), { boc: "dGVzdC1ib2M=" });
+    assert.deepEqual(await signer.signTransfer(descriptor), { boc: "te6ccgEBAQEAAgAAAA==" });
     assert.equal(count, 1);
 });
 test("source mismatch or cross-network wallet prevents signing", async () => {
@@ -41,7 +41,7 @@ test("signature response must attest exact source wallet", async () => {
         walletPool: { listWallets: () => [{
             walletId: "wallet-37", roomNumber: 37, network: "testnet", address: from
         }] },
-        signWithWallet: async () => ({ sourceWalletAddress: to, boc: "dGVzdC1ib2M=" })
+        signWithWallet: async () => ({ sourceWalletAddress: to, boc: "te6ccgEBAQEAAgAAAA==" })
     });
     await assert.rejects(signer.signTransfer(descriptor), /matching source identity/);
 });
