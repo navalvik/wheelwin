@@ -44,7 +44,7 @@ export class TestnetWalletV4CryptoSigner {
         const transfer = await wallet.createTransfer({
             seqno,
             secretKey: material.secretKey,
-            sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
             messages: [internal({
                 to: request.to,
                 value: BigInt(request.amountAtomic),
