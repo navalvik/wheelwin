@@ -275,9 +275,11 @@ async function testSignerUnavailable() {
             outgoingTransferProvider: mocks.outgoingTransferProvider
         });
         const res = await h.coordinator.submitRefund(obligation.obligationId, { provider });
-        assert.equal(res.outcome, "FAILED");
+        assert.equal(res.outcome, "SUBMISSION_UNKNOWN");
         const after = h.store.get(obligation.obligationId);
-        assert.equal(after.state, REFUND_STATE.PENDING);
+        assert.equal(after.state, REFUND_STATE.SUBMISSION_UNKNOWN);
+        // Once signing was attempted, a restart must reconcile rather than resubmit.
+        await assert.rejects(h.coordinator.submitRefund(obligation.obligationId, { provider }), /not awaiting submission/);
     } finally {
         h.cleanup();
     }
