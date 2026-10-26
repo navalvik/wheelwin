@@ -1,0 +1,32 @@
+name: Page4 native GRAM offline safety
+on:
+  pull_request:
+    paths:
+      - "client/src/payment/**"
+      - "client/package.json"
+      - "client/package-lock.json"
+      - ".github/workflows/page4-native-gram-offline.yml"
+  workflow_dispatch:
+jobs:
+  native-gram:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Native GRAM preflight and BOC tests
+        run: |
+          node --test src/payment/gramPaymentAuthorization.test.js
+          node --test src/payment/nativeGramTransfer.test.js
+          node --test src/payment/nativeGramWalletSubmission.test.js
+          node --test src/payment/tonConnectUIAdapter.test.js
