@@ -31,7 +31,7 @@ test("restored transfer and refund planner use the same registered Testnet walle
     const durablePlan = await planDurableRefund(obligation);
     assert.equal(durablePlan.ok, false);
     assert.equal(broadcasts, 0);
-    await assert.rejects(planDurableRefund({...obligation, state: "COMPLETE"}));
+    assert.throws(() => planDurableRefund({...obligation, state: "COMPLETE"}));
 
     assert.equal(signingReads, 0);
     const result = await settlement.planRefunds({
