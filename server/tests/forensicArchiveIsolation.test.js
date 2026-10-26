@@ -186,3 +186,42 @@ test("R2 ZIP stream declares exact ContentLength and verifies object presence", 
         rmSync(root, { recursive: true, force: true });
     }
 });
+
+test("retry reuses staged ZIP when source artifacts are no longer available", async () => {
+    const f = fixture();
+    try {
+        const roomDir = join(f.service._config.stagingDir, "roomReuse");
+        mkdirSync(roomDir, { recursive: true });
+        const name = "staged-roomReuse.zip";
+        // Filename must match the service's authoritative naming on retry.
+        const { buildForensicArchiveFilename } = await import("../forensic/forensicArchiveNaming.js");
+        const archiveFilename = buildForensicArchiveFilename({
+            roomId: "roomReuse",
+            finishedAt: 1700000000000,
+            reason: "setup_expired",
+            lifecycleResult: "FAILED"
+        });
+        writeFileSync(join(roomDir, archiveFilename), "saved-zip-fixture");
+        writeFileSync(join(roomDir, "status.json"), JSON.stringify({
+            state: "failed", phase: "upload", roomId: "roomReuse",
+            archiveFilename, manifest: { files: [] }, attempts: 0
+        }));
+        f.service._sessionHistoryArchive = {
+            listRecords: () => ({ records: [{ finishedAt: 1700000000000, lifecycleResult: "FAILED" }] }),
+            finalizeIfPending: () => {}
+        };
+        f.service._collector = {
+            async collectToZip() {
+                throw new Error("must not reconstruct existing ZIP");
+            }
+        };
+        const result = await f.service.ensureArchivedAndUploaded({
+            roomId: "roomReuse", reason: "setup_expired"
+        });
+        assert.equal(result.uploaded, true);
+        assert.equal(f.uploads.length, 1);
+        assert.equal(f.uploads[0].name, archiveFilename);
+    } finally {
+        f.cleanup();
+    }
+});
