@@ -742,7 +742,46 @@ async function testPrebroadcastDurabilityObservedBySigner() {
     }
 }
 
+async function testSimulatedCrashDuringSigningCannotReplay() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        let signCalls = 0;
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: {
+                signTransfer() {
+                    signCalls++;
+                    const fromDisk = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+                    fromDisk.initialize();
+                    assert.equal(fromDisk.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+                    throw new Error("simulated process interruption during signer");
+                }
+            },
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const outcome = await h.coordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(outcome.outcome, "SUBMISSION_UNKNOWN");
+        assert.equal(signCalls, 1);
+        const restarted = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        restarted.initialize();
+        assert.equal(restarted.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /not awaiting submission/
+        );
+        assert.equal(signCalls, 1, "no second signing after interrupted submission");
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function main() {
+    await testSimulatedCrashDuringSigningCannotReplay();
     await testPrebroadcastDurabilityObservedBySigner();
     await testValidSubmission();
     await testRejections();
