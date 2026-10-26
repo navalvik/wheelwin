@@ -8,6 +8,7 @@ on:
       - "server/package.json"
       - "server/package-lock.json"
       - "server/tests/forensicArchiveIsolation.test.js"
+      - "server/tests/forensicArchiveWiring.test.js"
       - ".github/workflows/testnet-forensic-archive.yml"
   workflow_dispatch:
 jobs:
@@ -35,4 +36,4 @@ jobs:
           node --check forensic/ForensicArchiveService.js
           node --check forensic/R2ForensicArchiveUploader.js
       - name: Isolated archive tests
-        run: node --test tests/forensicArchiveIsolation.test.js
+        run: node --test tests/forensicArchiveIsolation.test.js tests/forensicArchiveWiring.test.js
