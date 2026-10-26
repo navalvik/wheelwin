@@ -711,7 +711,53 @@ async function testRestartPreservesObligationsAndRecoveryWithoutDuplication() {
     }
 }
 
+
+async function testRefundPreflightFailureKeepsPendingForSafeRetry() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: mocks.signer,
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        provider.resolveSourceWallet = () => {
+            throw new Error("source intent temporarily unavailable");
+        };
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /source intent temporarily unavailable/
+        );
+        const unchanged = h.store.get(obligation.obligationId);
+        assert.equal(unchanged.state, REFUND_STATE.PENDING);
+        assert.equal(unchanged.attempts.length, 0);
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+        // No transfer could have occurred, so recovery must permit retry.
+        const restartedStore = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        restartedStore.initialize();
+        assert.equal(restartedStore.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+
+        // An invalid resolved address must likewise fail before any
+        // ambiguous-submission record is created.
+        provider.resolveSourceWallet = () => "invalid-address";
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /refund source wallet is not a valid TON address/
+        );
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+        assert.equal(h.store.get(obligation.obligationId).attempts.length, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function main() {
+    await testRefundPreflightFailureKeepsPendingForSafeRetry();
     await testValidSubmission();
     await testRejections();
     await testAmbiguousNoBlindResubmit();
