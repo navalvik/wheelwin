@@ -19,3 +19,10 @@ test("invalid or Mainnet request fails before key access or crypto imports", asy
     }), /Testnet WalletV4 signing request invalid/);
     assert.equal(accessed, false);
 });
+
+test("financial transfers never mask internal action errors", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(new URL("../payment/refund/TestnetWalletV4CryptoSigner.js", import.meta.url), "utf8");
+    assert.match(source, /sendMode: SendMode\.PAY_GAS_SEPARATELY/);
+    assert.doesNotMatch(source, /SendMode\.IGNORE_ERRORS/);
+});
