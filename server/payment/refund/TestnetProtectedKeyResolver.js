@@ -5,6 +5,7 @@
  */
 import { Buffer } from "node:buffer";
 import { createPrivateKey, createPublicKey } from "node:crypto";
+import { tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
 
 const HEX_32 = /^[a-f0-9]{64}$/i;
 const HEX_64 = /^[a-f0-9]{128}$/i;
@@ -63,7 +64,7 @@ export function createTestnetProtectedKeyResolver({ secretProvider, walletPool }
         const entry = matches[0];
         if (entry.roomNumber !== publicWallet.roomNumber
             || entry.network !== "testnet"
-            || entry.address !== publicWallet.address) {
+            || !tonAddressIdentitiesEqual(entry.address, publicWallet.address)) {
             throw new Error("protected signer public wallet identity mismatch");
         }
         return keyPairFromSecret(entry);
