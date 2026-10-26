@@ -4,6 +4,7 @@ on:
     paths:
       - "server/payment/refund/RefundLifecycleCoordinator.js"
       - "server/payment/refund/TestnetOutgoingRefundProvider.js"
+      - "server/payment/runtime/PaymentRuntimeFactory.js"
       - "server/tests/refundOutgoingExecution.test.js"
       - "server/tests/payment/refundProductionWiring.contract.test.js"
       - ".github/workflows/testnet-refund-prebroadcast.yml"
