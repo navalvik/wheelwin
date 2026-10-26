@@ -130,7 +130,9 @@ function validateNanoTonUnits(value, label) {
  */
 export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finalityEvidenceProvider, walletPool = null }) {
 
-    if (!submitter || globalId !== TON_TESTNET_GLOBAL_ID) {
+    if (!submitter || globalId !== TON_TESTNET_GLOBAL_ID
+        || !walletPool || typeof walletPool.getWallet !== "function"
+        || typeof walletPool.listWallets !== "function") {
 
         return null;
 
