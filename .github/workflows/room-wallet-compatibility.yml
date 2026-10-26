@@ -3,6 +3,10 @@ on:
   pull_request:
     paths:
       - "server/payment/refund/LegacyRoomWalletIdentityBridge.js"
+      - "server/payment/roomWallet/RoomWalletAdapter.js"
+      - "server/payment/roomWallet/RoomWalletFinancialPolicy.js"
+      - "server/package.json"
+      - "server/package-lock.json"
       - "server/tests/legacyRoomWalletIdentityBridge.test.js"
       - ".github/workflows/room-wallet-compatibility.yml"
   workflow_dispatch:
@@ -22,4 +26,7 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci --ignore-scripts
+      - run: node --check payment/roomWallet/RoomWalletAdapter.js
+      - run: node --check payment/roomWallet/RoomWalletFinancialPolicy.js
+      - run: node -e "import('./payment/roomWallet/RoomWalletAdapter.js').then(() => console.log('Legacy WalletV4 transport import OK'))"
       - run: node --test tests/legacyRoomWalletIdentityBridge.test.js
