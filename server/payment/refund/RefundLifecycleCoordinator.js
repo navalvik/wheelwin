@@ -41,7 +41,16 @@ export class RefundLifecycleCoordinator {
         if (principal.length > 3) throw new RefundLifecycleError("room has more than three confirmed principal records; manual reconciliation required", { roomId });
         if (principal.length === 0) return Object.freeze([]);
         if (intents.length !== 3) throw new RefundLifecycleError("refund evidence does not contain the three required payment intents", { roomId, intentCount: intents.length });
-        if (principal.length === 3) return Object.freeze([]);
+        // A full three-player payment set does not prove that gameplay began.
+        // Setup expiry is emitted only while the SetupSessionLifecycle still
+        // owns the room (before GAME_INITIALIZED). Refund all confirmed
+        // principals in that case, even when the third arrived just before
+        // expiry or was reconciled after destruction. For other closure reasons
+        // retain the fail-closed historical hold until gameplay state is
+        // authoritatively known; never refund a completed game on room teardown.
+        if (principal.length === 3 && closed.closureReason !== "setup_expired") {
+            return Object.freeze([]);
+        }
         const results = [];
         for (const entry of principal) {
             const reference = entry.metadata?.paymentReference;
