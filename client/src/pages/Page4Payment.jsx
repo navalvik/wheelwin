@@ -30,6 +30,7 @@ export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
     const { roomId, playerId } = identity ?? {};
     const [status, setStatus] = useState("PAYMENT_UNAVAILABLE");
+    const [connected, setConnected] = useState(socket.connected);
 
     // Only request the authoritative payment state once per identity cycle.
     // Resetting the flag when the identity changes lets a later identity
@@ -54,16 +55,26 @@ export default function Page4Payment() {
         }
 
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
+        const requestCurrentStatus = () => {
+            setConnected(socket.connected);
+            if (socket.connected) {
+                socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
+            }
+        };
+        socket.on("connect", requestCurrentStatus);
+        socket.on("disconnect", requestCurrentStatus);
 
         // Re-request the authoritative payment state so a status event that
         // was emitted before this page subscribed is re-delivered now.
         if (requestedRef.current !== roomId) {
             requestedRef.current = roomId;
-            socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
+            requestCurrentStatus();
         }
 
         return () => {
             socket.off(PAYMENT_STATUS_EVENT, handlePaymentStatus);
+            socket.off("connect", requestCurrentStatus);
+            socket.off("disconnect", requestCurrentStatus);
         };
     }, [roomId, playerId]);
 
@@ -71,6 +82,10 @@ export default function Page4Payment() {
         <GameLayout message="ENTRY PAYMENT" showNextButton={false}>
             <section className="page4Payment" aria-live="polite">
                 <h2>Payment status: {status}</h2>
+                <p role="status">Server connection: {connected ? "CONNECTED" : "DISCONNECTED"}</p>
+                {!roomId || !playerId ? (
+                    <p role="alert">Waiting for server-authorized room identity. No payment can be sent.</p>
+                ) : null}
                 <p>
                     Payment acceptance is disabled while aborted-game refunds are unavailable.
                     No wallet request or destination has been issued.
