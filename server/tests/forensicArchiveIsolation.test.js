@@ -110,3 +110,19 @@ test("restart recovery handles missing staged ZIP without throwing", async () =>
         assert.equal(f.uploads.length, 0);
     } finally { f.cleanup(); }
 });
+
+// CvaA incident regression: room timeout before Page5 must retain an
+// identifiable failure ZIP, even when no payment or gameplay occurred.
+test("setup_expired archive includes room ID and failed result", async () => {
+    const f = fixture();
+    try {
+        const result = await f.service.ensureArchivedAndUploaded({
+            roomId: "CvaA",
+            gameId: "game_dd2f1106-66d5-467e-b23d-67424d96ed94",
+            reason: "setup_expired"
+        });
+        assert.equal(result.uploaded, true);
+        assert.equal(f.uploads.length, 1);
+        assert.match(f.uploads[0].name, /_ROOM_CvaA_GAME_game_dd2f1106-66d5-467e-b23d-67424d96ed94_FAILED\\.zip$/);
+    } finally { f.cleanup(); }
+});
