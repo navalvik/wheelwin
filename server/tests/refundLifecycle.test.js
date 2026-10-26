@@ -52,7 +52,7 @@ function harness(confirmedCount) {
 
 function prepare(h, count) {
     const result = h.coordinator.prepareClosedRoom({ roomId: "room-x", roomNumber: 37, closureReason: "setup_expired", status: "DESTROYED" });
-    const expectedObligations = count === 3 ? 0 : count;
+    const expectedObligations = count;
     assert.equal(result.length, expectedObligations);
     assert.equal(h.store.size, expectedObligations);
     for (const record of h.store.list()) {
@@ -67,6 +67,20 @@ for (const confirmedCount of [1, 2, 0, 3]) {
     const h = harness(confirmedCount);
     try { prepare(h, confirmedCount); }
     finally { rmSync(h.root, { recursive: true, force: true }); }
+}
+
+{
+    // Room destruction after a game (or without an authoritative pre-game
+    // expiry reason) must never accidentally refund all three paid players.
+    const h = harness(3);
+    try {
+        const obligations = h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "game_completed", status: "DESTROYED"
+        });
+        assert.equal(obligations.length, 0);
+        assert.equal(h.store.size, 0);
+    } finally { rmSync(h.root, { recursive: true, force: true }); }
 }
 
 {
