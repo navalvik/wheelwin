@@ -11,8 +11,9 @@ on:
       - "server/payment/roomWallet/RoomWalletFinancialPolicy.js"
       - "server/package.json"
       - "server/package-lock.json"
-      - "server/tests/legacyRoomWalletIdentityBridge.test.js tests/restoredRoomWalletAdapterIntegration.test.js"
+      - "server/tests/legacyRoomWalletIdentityBridge.test.js tests/restoredRoomWalletAdapterIntegration.test.js tests/restoredRoomWalletRefundOffline.test.js"
       - "server/tests/restoredRoomWalletAdapterIntegration.test.js"
+      - "server/tests/restoredRoomWalletRefundOffline.test.js"
       - ".github/workflows/room-wallet-compatibility.yml"
   workflow_dispatch:
 jobs:
