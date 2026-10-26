@@ -4,6 +4,8 @@ on:
     paths:
       - "server/payment/refund/RefundLifecycleCoordinator.js"
       - "server/payment/refund/RefundObligationStore.js"
+      - "server/payment/refund/ToncenterTestnetRefundBroadcaster.js"
+      - "server/tests/toncenterTestnetRefundBroadcaster.test.js"
       - "server/payment/refund/TestnetOutgoingRefundProvider.js"
       - "server/payment/runtime/PaymentRuntimeFactory.js"
       - "server/tests/refundOutgoingExecution.test.js"
@@ -26,4 +28,4 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci --ignore-scripts
-      - run: node --test tests/refundOutgoingExecution.test.js tests/payment/refundProductionWiring.contract.test.js
+      - run: node --test tests/refundOutgoingExecution.test.js tests/payment/refundProductionWiring.contract.test.js tests/toncenterTestnetRefundBroadcaster.test.js
