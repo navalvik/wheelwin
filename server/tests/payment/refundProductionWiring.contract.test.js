@@ -40,3 +40,19 @@ test("complete signer bundle cannot be enabled without authoritative wallet cata
     });
     assert.ok(enabled?.canExecute(), "only explicit catalog-backed Testnet signer may be constructed");
 });
+
+test("outgoing HTTP transport is opt-in, never inferred from signer", () => {
+    const walletPool = { getWallet() { return null; }, listWallets() { return []; } };
+    const submitter = {
+        signer: { signTransfer() {} },
+        outgoingTransferProvider: { getOutgoingTransfer() {}, findOutgoingTransfer() {} },
+        finalityEvidenceProvider: { getSettlementEvidence() {} }
+    };
+    assert.equal(buildTestnetOutgoingRefundProvider({
+        submitter, globalId: -3, walletPool
+    }), null);
+    assert.equal(buildTestnetOutgoingRefundProvider({
+        submitter: { ...submitter, enableToncenterBroadcast: true },
+        globalId: -3, walletPool
+    })?.canExecute(), true);
+});
