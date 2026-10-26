@@ -181,7 +181,10 @@ export function buildPaymentRuntime(options = {}) {
         logger = null,
         fetchImpl = globalThis.fetch,
         settlementEvidenceProvider = null,
-        refundSubmitter = null
+        refundSubmitter = null,
+        // Restored October settlement transport may be injected for offline
+        // reconciliation/planning; never enables live payment acceptance.
+        restoredSettlement = null
     } = options;
 
     // R — network identity is enforced before any store or provider exists.
@@ -328,6 +331,7 @@ export function buildPaymentRuntime(options = {}) {
         refundStore,
         refundLifecycle,
         outgoingRefundProvider,
+        restoredSettlement,
         sessionAdapter,
         paymentGate,
 
