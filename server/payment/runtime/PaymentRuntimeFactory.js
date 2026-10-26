@@ -242,7 +242,8 @@ export function buildPaymentRuntime(options = {}) {
     const outgoingRefundProvider = buildTestnetOutgoingRefundProvider({
         submitter: refundSubmitter,
         globalId: identity.globalId,
-        finalityEvidenceProvider: evidenceProvider
+        finalityEvidenceProvider: evidenceProvider,
+        walletPool
     });
 
     const paymentService = new RoomWalletPaymentService({
