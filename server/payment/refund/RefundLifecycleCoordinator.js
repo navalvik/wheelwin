@@ -191,6 +191,20 @@ export class RefundLifecycleCoordinator {
                 { obligationId, state: current.state }
             );
         }
+        // Validate the durable source wallet and transfer identity BEFORE
+        // persisting submission ambiguity. Neither step can send funds, and a
+        // missing/invalid source must leave the obligation PENDING (retryable).
+        // The actual signing/broadcast step remains after the durable barrier.
+        if (typeof outgoing.resolveSourceWallet !== "function") {
+            throw new RefundLifecycleError("provider cannot resolve the refund source wallet");
+        }
+        const sourceWalletAddress = outgoing.resolveSourceWallet({
+            obligation: current, intentStore: this._intents
+        });
+        if (sourceWalletAddress && typeof sourceWalletAddress.then === "function") {
+            throw new RefundLifecycleError("refund source wallet resolution must be synchronous");
+        }
+        outgoing.authorizeSubmission?.({ obligation: current, sourceWalletAddress });
         const startedAtMs = this._now();
         // Persist ambiguity BEFORE the first awaited signing/broadcast step.
         // After a crash we must reconcile on-chain, never sign a second transfer.
@@ -201,9 +215,6 @@ export class RefundLifecycleCoordinator {
         this._store.markSubmissionUnknown(current.obligationId, { attempt: preflightAttempt });
         let result;
         try {
-            const sourceWalletAddress = outgoing.resolveSourceWallet
-                ? outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents })
-                : (() => { throw new RefundLifecycleError("provider cannot resolve the refund source wallet"); })();
             result = await outgoing.signAndBroadcast({ obligation: current, sourceWalletAddress, nowMs: startedAtMs });
         } catch (error) {
             const code = typeof error?.code === "string" ? error.code : "OUTGOING_REFUND_ERROR";
