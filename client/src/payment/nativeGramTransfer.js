@@ -4,20 +4,19 @@
  * This creates data only; it never prompts a wallet or submits a transfer.
  */
 import { assessGramPaymentRequest, tonAccountIdentityOrNull } from "./gramPaymentAuthorization.js";
+import { beginCell } from "@ton/core";
 
 function encodePlainComment(reference) {
     // Matches the server's PaymentReferenceCodec / Toncenter comment mapper:
     // 32-bit zero opcode followed by UTF-8 bytes "WW1:<reference>".
-    const bytes = new TextEncoder().encode("WW1:" + reference);
-    const data = new Uint8Array(4 + bytes.length);
-    data.set(bytes, 4);
-    if (data.length > 127) throw new Error("Native GRAM comment exceeds one-cell capacity");
-    const boc = new Uint8Array(13 + data.length);
-    boc.set([0xb5, 0xee, 0x9c, 0x72, 1, 1, 1, 1, 0, data.length + 2, 0, 0, data.length * 2]);
-    boc.set(data, 13);
-    let binary = "";
-    for (const byte of boc) binary += String.fromCharCode(byte);
-    return btoa(binary);
+    const comment = "WW1:" + reference;
+    if (new TextEncoder().encode(comment).length > 123) {
+        throw new Error("Native GRAM comment exceeds one-cell capacity");
+    }
+    // A valid TON cell BOC must contain the correct cell descriptors and CRC.
+    // @ton/core produces canonical BOCs; never synthesize BOC headers manually.
+    return beginCell().storeUint(0, 32).storeStringTail(comment)
+        .endCell().toBoc().toString("base64");
 }
 
 /**
