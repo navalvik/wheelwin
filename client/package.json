@@ -22,7 +22,8 @@
     "remark-gfm": "^4.0.1",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
-    "uuid": "^14.0.1"
+    "uuid": "^14.0.1",
+    "@ton/core": "^0.63.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
