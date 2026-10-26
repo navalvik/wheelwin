@@ -202,6 +202,18 @@ export class TestnetOutgoingRefundProvider {
      */
     async signAndBroadcast({ obligation, sourceWalletAddress, nowMs }) {
         const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
+        // Defense in depth: direct callers must not bypass the room wallet
+        // catalog validation performed by resolveSourceWallet().
+        if (this._walletPool) {
+            const matching = this._walletPool.listWallets?.().filter((wallet) =>
+                wallet.network === "testnet"
+                && wallet.roomNumber === obligation.roomNumber
+                && tonAddressIdentitiesEqual(wallet.address, sourceWalletAddress)
+            ) ?? [];
+            if (matching.length !== 1) {
+                throw new OutgoingRefundError("refund signing source is not the authoritative room wallet");
+            }
+        }
         if (!this.canExecute()) {
             return Object.freeze({
                 outcome: OUTGOING_SUBMISSION_OUTCOME.FAILED,
