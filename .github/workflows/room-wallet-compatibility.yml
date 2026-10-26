@@ -4,6 +4,10 @@ on:
     paths:
       - "server/payment/refund/LegacyRoomWalletIdentityBridge.js"
       - "server/payment/roomWallet/RoomWalletAdapter.js"
+      - "server/payment/roomWallet/RoomWalletSettlementAdapter.js"
+      - "server/payment/roomWallet/RoomWalletRegistry.js"
+      - "server/payment/roomWallet/roomWalletTerminalRecoveryChain.js"
+      - "server/models/TonWalletAddress.js"
       - "server/payment/roomWallet/RoomWalletFinancialPolicy.js"
       - "server/package.json"
       - "server/package-lock.json"
@@ -29,5 +33,6 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node --check payment/roomWallet/RoomWalletAdapter.js
       - run: node --check payment/roomWallet/RoomWalletFinancialPolicy.js
+      - run: node -e "import('./payment/roomWallet/RoomWalletSettlementAdapter.js').then(() => console.log('Legacy settlement/refund import OK'))"
       - run: node -e "import('./payment/roomWallet/RoomWalletAdapter.js').then(() => console.log('Legacy WalletV4 transport import OK'))"
       - run: node --test tests/legacyRoomWalletIdentityBridge.test.js
