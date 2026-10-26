@@ -56,3 +56,39 @@ test("outgoing HTTP transport is opt-in, never inferred from signer", () => {
         globalId: -3, walletPool
     })?.canExecute(), true);
 });
+
+test("payment runtime connects Testnet room-wallet signing callback without loading keys", async () => {
+    const address = "0:" + "b".repeat(64);
+    const walletPool = {
+        getWallet: () => null,
+        listWallets: () => [{
+            walletId: "wallet-37", roomNumber: 37,
+            address, network: "testnet"
+        }]
+    };
+    let calls = 0;
+    const provider = buildTestnetOutgoingRefundProvider({
+        globalId: -3, walletPool,
+        submitter: {
+            signWithWallet: async request => {
+                calls++;
+                assert.equal(request.walletId, "wallet-37");
+                return { sourceWalletAddress: request.from, boc: "dGVzdC1ib2M=" };
+            },
+            broadcaster: { broadcast() {} },
+            finalityEvidenceProvider: { getSettlementEvidence() {} },
+            outgoingTransferProvider: {
+                getOutgoingTransfer() {}, findOutgoingTransfer() {}
+            }
+        }
+    });
+    assert.equal(provider?.canExecute(), true);
+    const signed = await provider._signer.signTransfer({
+        networkName: "TESTNET", globalId: -3,
+        from: address, to: "0:" + "a".repeat(64),
+        amountAtomic: 1_000_000_000,
+        idempotencyKey: "refund-one", obligationId: "obligation-one"
+    });
+    assert.deepEqual(signed, { boc: "dGVzdC1ib2M=" });
+    assert.equal(calls, 1);
+});
