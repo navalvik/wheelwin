@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { tonAddressIdentitiesEqual, tonAddressIdentityOrNull } from "../incoming/TonAddressIdentity.js";
 
 /**
@@ -43,9 +44,17 @@ export class TestnetRoomWalletSigner {
             globalId: -3
         }));
         if (!signed || !tonAddressIdentitiesEqual(signed.sourceWalletAddress, wallet.address)
-            || typeof signed.boc !== "string" || signed.boc.length < 8) {
+            || !isTonBocEnvelope(signed.boc)) {
             throw new Error("signer response lacks matching source identity or signed BOC");
         }
         return Object.freeze({ boc: signed.boc });
     }
+}
+
+/** Minimal envelope check; full Wallet V4 signature validation belongs to the signer. */
+export function isTonBocEnvelope(boc) {
+    if (typeof boc !== "string" || boc.length < 12
+        || !/^[A-Za-z0-9+/]+={0,2}$/.test(boc) || boc.length % 4 !== 0) return false;
+    const bytes = Buffer.from(boc, "base64");
+    return bytes.length >= 10 && bytes.subarray(0, 4).equals(Buffer.from([0xb5, 0xee, 0x9c, 0x72]));
 }
