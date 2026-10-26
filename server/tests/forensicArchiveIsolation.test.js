@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ForensicArchiveService } from "../forensic/ForensicArchiveService.js";
+import { resolveForensicArchiveConfig } from "../forensic/forensicArchiveConfig.js";
 
 function fixture({ failUpload = false } = {}) {
     const stagingDir = mkdtempSync(join(tmpdir(), "wheelwin-forensic-"));
@@ -126,4 +127,27 @@ test("setup_expired archive includes room ID and failed result", async () => {
         assert.ok(f.uploads[0].name.includes("_ROOM_CvaA_GAME_game_dd2f1106-66d5-467e-b23d-67424d96ed94_"));
         assert.ok(f.uploads[0].name.endsWith("_FAILED.zip"));
     } finally { f.cleanup(); }
+});
+
+test("explicit forensic ZIP staging path takes precedence over Railway default", () => {
+    const root = mkdtempSync(join(tmpdir(), "wheelwin-r2-volume-"));
+    try {
+        const config = resolveForensicArchiveConfig({
+            FORENSIC_ARCHIVE_STAGING_DIR: join(root, "archives"),
+            TON_FINANCIAL_DATA_DIR: root
+        });
+        assert.equal(config.stagingDir, join(root, "archives"));
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("mounted persistence root is used for forensic ZIP staging", () => {
+    const root = mkdtempSync(join(tmpdir(), "wheelwin-r2-volume-"));
+    try {
+        const config = resolveForensicArchiveConfig({ TON_FINANCIAL_DATA_DIR: root });
+        assert.equal(config.stagingDir, join(root, "forensic-archive-staging"));
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
 });
