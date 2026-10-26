@@ -51,13 +51,10 @@ test("crypto signer cannot substitute a different pool wallet key", async () => 
                 network: "testnet", address
             }]
         },
-        signWithWallet: new TestnetWalletV4CryptoSigner({
+        signWithWallet: request => new TestnetWalletV4CryptoSigner({
             keyResolver: async () => wrongPair,
             seqnoProvider: async () => 0
-        }).signWithWallet.bind(new TestnetWalletV4CryptoSigner({
-            keyResolver: async () => wrongPair,
-            seqnoProvider: async () => 0
-        }))
+        }).signWithWallet(request)
     });
     await assert.rejects(signer.signTransfer({
         networkName: "TESTNET", globalId: -3, from: address,
