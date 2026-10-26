@@ -13,6 +13,8 @@ on:
       - "server/tests/testnetRoomWalletSigner.test.js"
       - "server/payment/refund/TestnetWalletV4CryptoSigner.js"
       - "server/payment/refund/TestnetProtectedKeyResolver.js"
+      - "server/payment/refund/LegacyRoomWalletIdentityBridge.js"
+      - "server/tests/legacyRoomWalletIdentityBridge.test.js"
       - "server/payment/refund/ProtectedTestnetSignerFactory.js"
       - "server/tests/protectedTestnetSignerFactory.test.js"
       - "server/tests/testnetProtectedKeyResolver.test.js"
@@ -41,5 +43,5 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci --ignore-scripts
-      - run: node --test tests/testnetWalletV4CryptoIntegration.test.js tests/testnetRoomWalletSigningPipeline.test.js
+      - run: node --test tests/legacyRoomWalletIdentityBridge.test.js tests/testnetWalletV4CryptoIntegration.test.js tests/testnetRoomWalletSigningPipeline.test.js
       - run: node --test tests/refundOutgoingExecution.test.js tests/payment/refundProductionWiring.contract.test.js tests/toncenterTestnetRefundBroadcaster.test.js tests/testnetRoomWalletSigner.test.js tests/testnetWalletV4CryptoSigner.test.js
