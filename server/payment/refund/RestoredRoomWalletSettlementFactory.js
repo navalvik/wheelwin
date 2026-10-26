@@ -1,6 +1,7 @@
 import { RoomWalletAdapter } from "../roomWallet/RoomWalletAdapter.js";
 import { RoomWalletSettlementAdapter } from "../roomWallet/RoomWalletSettlementAdapter.js";
 import { createLegacyRoomWalletIdentityResolver } from "./LegacyRoomWalletIdentityBridge.js";
+import { planLegacyRoomWalletRefund } from "./LegacyRefundPlanningBridge.js";
 
 /**
  * Reassemble the October native-transfer and settlement pair.
@@ -30,5 +31,13 @@ export function createRestoredRoomWalletSettlement({
         ...(inspectHistory ? { inspectHistory } : {}),
         ...(confirmPayout ? { confirmPayout } : {})
     });
-    return Object.freeze({ transport, settlement });
+    return Object.freeze({
+        transport,
+        settlement,
+        // Read-only preparation from current durable refund obligations.
+        // This never calls refundPayments/sendTransfer and cannot move funds.
+        planDurableRefund(obligation) {
+            return planLegacyRoomWalletRefund({ obligation, settlement });
+        }
+    });
 }
