@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - "server/payment/refund/RefundLifecycleCoordinator.js"
+      - "server/package.json"
+      - "server/package-lock.json"
       - "server/payment/refund/RefundObligationStore.js"
       - "server/payment/refund/ToncenterTestnetRefundBroadcaster.js"
       - "server/tests/toncenterTestnetRefundBroadcaster.test.js"
@@ -33,6 +35,5 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci --ignore-scripts
-      - run: npm install --no-save --ignore-scripts @ton/ton@16.3.0 @ton/core@0.63.1 @ton/crypto@3.3.0
       - run: node --test tests/testnetWalletV4CryptoIntegration.test.js
       - run: node --test tests/refundOutgoingExecution.test.js tests/payment/refundProductionWiring.contract.test.js tests/toncenterTestnetRefundBroadcaster.test.js tests/testnetRoomWalletSigner.test.js tests/testnetWalletV4CryptoSigner.test.js
