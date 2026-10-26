@@ -902,7 +902,41 @@ async function testExclusiveSubmissionClaimAcrossStoreInstances() {
     }
 }
 
+async function testCrashBetweenExclusiveClaimAndStatePersistence() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        // Emulate a crash immediately after an exclusive claim was persisted,
+        // before PENDING -> SUBMISSION_UNKNOWN reached its durable record.
+        const claimPath = join(h.root, "refunds", "refund-obligations",
+            `${obligation.obligationId}.submission-claimed`);
+        writeFileSync(claimPath, `${obligation.idempotencyKey}\n`, { flag: "wx" });
+        const recovered = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        recovered.initialize();
+        assert.equal(recovered.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const restartedCoordinator = new RefundLifecycleCoordinator({
+            store: recovered, intentStore: h.intentStore, ledgerStore: h.ledgerStore,
+            nowProvider: () => NOW
+        });
+        await assert.rejects(
+            restartedCoordinator.submitRefund(obligation.obligationId, { provider }),
+            /already claimed/
+        );
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function main() {
+    await testCrashBetweenExclusiveClaimAndStatePersistence();
     await testExclusiveSubmissionClaimAcrossStoreInstances();
     await testDirectSigningRequiresAuthoritativeRoomWallet();
     await testCatalogBoundRefundSourceWallet();
