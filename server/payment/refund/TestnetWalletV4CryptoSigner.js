@@ -23,8 +23,8 @@ export class TestnetWalletV4CryptoSigner {
             throw new Error("Testnet WalletV4 signing request invalid");
         }
 
-        const { WalletContractV4, internal, SendMode } = await import("@ton/ton");
-        const { beginCell, external, storeMessage } = await import("@ton/core");
+        const { WalletContractV4 } = await import("@ton/ton");
+        const { beginCell, external, internal, storeMessage, SendMode } = await import("@ton/core");
         const material = await this._keys(request.walletId);
         if (!material || !Buffer.isBuffer(material.publicKey)
             || material.publicKey.length !== 32
