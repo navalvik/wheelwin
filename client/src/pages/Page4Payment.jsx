@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
@@ -32,18 +32,10 @@ export default function Page4Payment() {
     const [status, setStatus] = useState("PAYMENT_UNAVAILABLE");
     const [connected, setConnected] = useState(socket.connected);
 
-    // Only request the authoritative payment state once per identity cycle.
-    // Resetting the flag when the identity changes lets a later identity
-    // readiness (identity becomes ready after the component initially mounts)
-    // re-issue the request without creating a request/response loop.
-    const requestedRef = useRef(null);
-
     useEffect(() => {
-        if (!roomId || !playerId) {
-
-            requestedRef.current = null;
-            return;
-        }
+        // An old room's status must never be shown for a new room or player.
+        setStatus("PAYMENT_UNAVAILABLE");
+        setConnected(socket.connected);
 
         function handlePaymentStatus(payload) {
             if (payload?.roomId !== roomId
@@ -54,22 +46,19 @@ export default function Page4Payment() {
             setStatus(payload.status);
         }
 
-        socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
-        const requestCurrentStatus = () => {
+        function requestCurrentStatus() {
             setConnected(socket.connected);
-            if (socket.connected) {
+            if (socket.connected && roomId && playerId) {
                 socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
             }
-        };
+        }
+
+        // A new identity, a remount, and every reconnect each need a fresh
+        // authoritative status. The request does not authorize any transfer.
+        socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
         socket.on("connect", requestCurrentStatus);
         socket.on("disconnect", requestCurrentStatus);
-
-        // Re-request the authoritative payment state so a status event that
-        // was emitted before this page subscribed is re-delivered now.
-        if (requestedRef.current !== roomId) {
-            requestedRef.current = roomId;
-            requestCurrentStatus();
-        }
+        requestCurrentStatus();
 
         return () => {
             socket.off(PAYMENT_STATUS_EVENT, handlePaymentStatus);
