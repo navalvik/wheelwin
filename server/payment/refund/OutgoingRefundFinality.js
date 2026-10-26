@@ -49,6 +49,7 @@ export const OUTGOING_FINALITY_REJECTION = Object.freeze({
     SENDER_MISMATCH: "SENDER_MISMATCH",
     RECIPIENT_MISMATCH: "RECIPIENT_MISMATCH",
     AMOUNT_MISMATCH: "AMOUNT_MISMATCH",
+    TRANSFER_EXECUTION_FAILED: "TRANSFER_EXECUTION_FAILED",
     OBLIGATION_NETWORK_UNSUPPORTED: "OBLIGATION_NETWORK_UNSUPPORTED",
     EVIDENCE_CONFLICTS_WITH_OBLIGATION: "EVIDENCE_CONFLICTS_WITH_OBLIGATION"
 });
@@ -146,6 +147,18 @@ export function verifyOutgoingRefundFinality({
     // recipient nor the amount can be certified, so finality is not proven.
     if (!isRecord(outgoingTransfer)) {
         return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.OUTGOING_TRANSFER_NOT_OBSERVED });
+    }
+    // Finalized inclusion of the sender transaction is NOT proof of payment
+    // when the outgoing action failed or the recipient bounced the message.
+    // Reject explicit failure indicators from independent TON observation.
+    if (outgoingTransfer.bounced === true
+        || outgoingTransfer.bounce === true
+        || outgoingTransfer.executed === false
+        || outgoingTransfer.success === false
+        || outgoingTransfer.actionSuccess === false
+        || outgoingTransfer.actionResultCode !== undefined
+            && outgoingTransfer.actionResultCode !== 0) {
+        return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.TRANSFER_EXECUTION_FAILED });
     }
     if (typeof outgoingTransfer.transactionId !== "string"
         || outgoingTransfer.transactionId !== outgoingTransactionId) {
