@@ -205,37 +205,45 @@ export class ForensicArchiveService {
 
         mkdirSync(stagingRoomDir, { recursive: true });
 
-        let manifest;
+        // Reuse an already-complete ZIP on a repeat request. Recollecting after
+        // a room closes may fail because source artifacts have been cleaned up.
+        const reuseStagedZip = (
+            existingStatus?.archiveFilename === archiveFilename
+            && ["pending_upload", "failed"].includes(existingStatus.state)
+            && existingStatus.phase !== "collect"
+            && existsSync(zipPath)
+        );
+        let manifest = reuseStagedZip ? existingStatus.manifest ?? null : null;
 
-        try {
-
-            manifest = await this._collector.collectToZip({
-                roomId,
-                gameId,
-                reason,
-                zipPath,
-                archiveFilename
-            });
-
+        if (reuseStagedZip) {
             this._logInfo(
-                `${LOG.CREATED} | roomId=${roomId} | gameId=${gameId ?? "null"}`
-                + ` | archive=${archiveFilename} | files=${manifest.files.length}`
+                `FORENSIC_ARCHIVE_REUSE_STAGED | roomId=${roomId} | archive=${archiveFilename}`
             );
-
-        } catch (error) {
-
-            writeStagingStatus(statusPath, {
-                state: "failed",
-                phase: "collect",
-                roomId,
-                gameId,
-                archiveFilename,
-                error: error.message,
-                updatedAt: Date.now()
-            });
-
-            throw error;
-
+        } else {
+            try {
+                manifest = await this._collector.collectToZip({
+                    roomId,
+                    gameId,
+                    reason,
+                    zipPath,
+                    archiveFilename
+                });
+                this._logInfo(
+                    `${LOG.CREATED} | roomId=${roomId} | gameId=${gameId ?? "null"}`
+                    + ` | archive=${archiveFilename} | files=${manifest.files.length}`
+                );
+            } catch (error) {
+                writeStagingStatus(statusPath, {
+                    state: "failed",
+                    phase: "collect",
+                    roomId,
+                    gameId,
+                    archiveFilename,
+                    error: error.message,
+                    updatedAt: Date.now()
+                });
+                throw error;
+            }
         }
 
         writeStagingStatus(statusPath, {
