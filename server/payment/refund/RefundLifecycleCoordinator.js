@@ -210,7 +210,7 @@ export class RefundLifecycleCoordinator {
         }
         if (result.outcome === "UNKNOWN") {
             const attempt = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt, lastError: result.reason ?? null });
+            this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: result.reason ?? null });
             this._logger?.warn?.(`Refund submission outcome unknown | obligationId=${current.obligationId} | reason=${result.reason}`);
             return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMISSION_UNKNOWN", outgoingTransactionId: null, reason: result.reason });
         }
