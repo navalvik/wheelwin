@@ -49,6 +49,7 @@ import { RefundLifecycleCoordinator } from "../refund/RefundLifecycleCoordinator
 import { RefundObligationStore } from "../refund/RefundObligationStore.js";
 import { REFUND_NETWORK } from "../refund/RefundObligation.js";
 import { TestnetOutgoingRefundProvider } from "../refund/TestnetOutgoingRefundProvider.js";
+import { ToncenterTestnetRefundBroadcaster } from "../refund/ToncenterTestnetRefundBroadcaster.js";
 import {
     RoomPaymentObservationService,
     ToncenterFinalityEvidenceProvider,
@@ -144,7 +145,11 @@ export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finali
             globalId,
             walletPool,
             signer: submitter.signer ?? null,
-            broadcaster: submitter.broadcaster ?? null,
+            broadcaster: submitter.broadcaster ?? (submitter.enableToncenterBroadcast === true
+                ? new ToncenterTestnetRefundBroadcaster({
+                    fetchImpl: submitter.fetchImpl ?? globalThis.fetch,
+                    apiKeyProvider: submitter.apiKeyProvider ?? (() => "")
+                }) : null),
             finalityEvidenceProvider: submitter.finalityEvidenceProvider ?? finalityEvidenceProvider ?? null,
             outgoingTransferProvider: submitter.outgoingTransferProvider ?? null
         });
