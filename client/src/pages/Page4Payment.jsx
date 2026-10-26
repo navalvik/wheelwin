@@ -50,11 +50,22 @@ export default function Page4Payment() {
         } catch {
             return undefined;
         }
-        if (!ui) return undefined;
-        const unsubscribe = ui.onStatusChange(() => {
-            setWalletRevision(value => value + 1);
-        });
-        setWalletAdapter(ui);
+        if (!ui || typeof ui.onStatusChange !== "function") {
+            setWalletError("TON Connect is unavailable. Payment cannot be submitted.");
+            return undefined;
+        }
+        let unsubscribe;
+        try {
+            unsubscribe = ui.onStatusChange(() => {
+                setWalletRevision(value => value + 1);
+            });
+            setWalletAdapter(ui);
+            setWalletError(null);
+        } catch {
+            // A connector bootstrap failure must not crash Page4.
+            setWalletError("TON Connect could not initialize. Payment cannot be submitted.");
+            return undefined;
+        }
         return () => {
             unsubscribe?.();
         };
@@ -223,6 +234,7 @@ export default function Page4Payment() {
                 <button type="button" disabled={!walletAdapter} onClick={() => walletAdapter?.openModal?.()}>
                     {walletAdapter?.connected ? "Connected TON wallet" : "CONNECT TON WALLET"}
                 </button>
+                {walletError && <p role="alert">{walletError}</p>}
                 {!identityReady && (
                     <p>Waiting for your room and player session to become available.</p>
                 )}
@@ -238,7 +250,6 @@ export default function Page4Payment() {
                             {submitting ? "Waiting for wallet approval…" : alreadySubmitted ? "Waiting for server confirmation" : "CONFIRM IN TELEGRAM WALLET"}
                         </button>
                         {!walletReady && <p>Connect the matching TON Testnet wallet to enable payment.</p>}
-                        {walletError && <p role="alert">{walletError}</p>}
                     </div>
                 )}
                 {identityReady && connected && status === "PAYMENT_UNAVAILABLE" && (
