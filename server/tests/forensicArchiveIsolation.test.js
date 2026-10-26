@@ -177,7 +177,11 @@ test("R2 ZIP stream declares exact ContentLength and verifies object presence", 
         assert.equal(calls[0].input.Key, "forensic-archives/fixture.zip");
         assert.equal(calls[1].input.Key, calls[0].input.Key);
         assert.equal(result.etag, "fixture-etag");
-        calls[0].input.Body.destroy();
+        // Drain the upload stream before deleting its temporary source file.
+        // Otherwise an asynchronous open may race with fixture cleanup.
+        for await (const chunk of calls[0].input.Body) {
+            assert.ok(chunk.length > 0);
+        }
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
