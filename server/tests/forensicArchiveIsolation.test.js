@@ -123,6 +123,7 @@ test("setup_expired archive includes room ID and failed result", async () => {
         });
         assert.equal(result.uploaded, true);
         assert.equal(f.uploads.length, 1);
-        assert.match(f.uploads[0].name, /_ROOM_CvaA_GAME_game_dd2f1106-66d5-467e-b23d-67424d96ed94_FAILED\\.zip$/);
+        assert.ok(f.uploads[0].name.includes("_ROOM_CvaA_GAME_game_dd2f1106-66d5-467e-b23d-67424d96ed94_"));
+        assert.ok(f.uploads[0].name.endsWith("_FAILED.zip"));
     } finally { f.cleanup(); }
 });
