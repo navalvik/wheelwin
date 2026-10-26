@@ -4901,6 +4901,7 @@ export class RoomLobbyBridge {
                 paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
                 reason,
                 paymentReference: intent.paymentReference,
+                expectedSenderWalletAddress: intent.expectedSender,
                 amountAtomic: intent.amountAtomic,
                 destinationWalletAddress: intent.destinationWalletAddress,
                 expiresAt: intent.expiresAt ?? null,
