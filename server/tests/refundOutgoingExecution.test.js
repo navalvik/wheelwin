@@ -715,7 +715,7 @@ async function testPrebroadcastDurabilityObservedBySigner() {
     try {
         const [obligation] = prepareObligations(h, 1);
         let signerCalls = 0;
-        const mocks = makeMocks();
+        const mocks = makeMocks({});
         const provider = new TestnetOutgoingRefundProvider({
             globalId: -3,
             signer: {
