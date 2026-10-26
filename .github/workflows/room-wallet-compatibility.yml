@@ -9,6 +9,7 @@ on:
       - "server/payment/roomWallet/roomWalletTerminalRecoveryChain.js"
       - "server/models/TonWalletAddress.js"
       - "server/payment/refund/RefundLifecycleCoordinator.js"
+      - "server/tests/refundOutgoingExecution.test.js"
       - "server/payment/roomWallet/RoomWalletFinancialPolicy.js"
       - "server/package.json"
       - "server/package-lock.json"
