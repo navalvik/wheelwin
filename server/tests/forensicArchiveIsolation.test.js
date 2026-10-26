@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ForensicArchiveService } from "../forensic/ForensicArchiveService.js";
 import { resolveForensicArchiveConfig } from "../forensic/forensicArchiveConfig.js";
+import { R2ForensicArchiveUploader } from "../forensic/R2ForensicArchiveUploader.js";
 
 function fixture({ failUpload = false } = {}) {
     const stagingDir = mkdtempSync(join(tmpdir(), "wheelwin-forensic-"));
@@ -147,6 +148,36 @@ test("mounted persistence root is used for forensic ZIP staging", () => {
     try {
         const config = resolveForensicArchiveConfig({ TON_FINANCIAL_DATA_DIR: root });
         assert.equal(config.stagingDir, join(root, "forensic-archive-staging"));
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("R2 ZIP stream declares exact ContentLength and verifies object presence", async () => {
+    const root = mkdtempSync(join(tmpdir(), "wheelwin-r2-stream-"));
+    try {
+        const zipPath = join(root, "fixture.zip");
+        const bytes = Buffer.from("offline-archive-fixture");
+        writeFileSync(zipPath, bytes);
+        const calls = [];
+        const uploader = new R2ForensicArchiveUploader({
+            bucket: "offline-bucket", endpoint: "http://localhost:9000",
+            accessKeyId: "fake", secretAccessKey: "fake"
+        });
+        uploader._client = {
+            async send(command) {
+                calls.push(command);
+                return { ETag: '"fixture-etag"' };
+            }
+        };
+        const result = await uploader.uploadFile(zipPath, "fixture.zip");
+        assert.equal(calls.length, 2);
+        assert.equal(calls[0].input.ContentLength, bytes.length);
+        assert.equal(calls[0].input.ContentType, "application/zip");
+        assert.equal(calls[0].input.Key, "forensic-archives/fixture.zip");
+        assert.equal(calls[1].input.Key, calls[0].input.Key);
+        assert.equal(result.etag, "fixture-etag");
+        calls[0].input.Body.destroy();
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
