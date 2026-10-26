@@ -182,6 +182,10 @@ export class RefundLifecycleCoordinator {
                 { obligationId, state: current.state }
             );
         }
+        // A provably unavailable provider cannot broadcast; keep the obligation PENDING.
+        if (typeof outgoing.canExecute === "function" && !outgoing.canExecute()) {
+            return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: "SIGNER_UNAVAILABLE" });
+        }
         const startedAtMs = this._now();
         // Persist an ambiguous attempt BEFORE invoking any external broadcaster.
         // After a crash the refund cannot be blindly submitted again.
