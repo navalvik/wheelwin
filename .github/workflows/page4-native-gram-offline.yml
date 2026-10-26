@@ -41,6 +41,9 @@ jobs:
         run: node src/tests/page4ProtocolContract.test.js
       - name: Page4 fail-closed render
         run: node src/tests/page4Payment.render.test.js
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci --ignore-scripts
       - name: Server refund readiness gate
         working-directory: server
         run: node --test tests/payment/page4RefundReadiness.contract.test.js
