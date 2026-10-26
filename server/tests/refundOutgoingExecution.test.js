@@ -833,6 +833,7 @@ async function testCatalogBoundRefundSourceWallet() {
             obligation, intentStore: h.intentStore
         }), TESTNET_ROOM_WALLET);
         for (const invalid of [
+            { ...validWallet, walletId: "wrong-wallet" },
             { ...validWallet, roomNumber: 38 },
             { ...validWallet, network: "mainnet" },
             { ...validWallet, address: "0:" + "c".repeat(64) },
