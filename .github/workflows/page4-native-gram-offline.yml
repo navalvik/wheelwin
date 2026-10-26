@@ -5,6 +5,8 @@ on:
       - "client/src/payment/**"
       - "client/src/pages/Page4Payment.jsx"
       - "client/src/tests/page4Payment.render.test.js"
+      - "client/src/tests/page4ProtocolContract.test.js"
+      - "server/socket/RoomLobbyBridge.js"
       - "client/index.html"
       - "client/public/tonconnect-manifest.json"
       - "client/package.json"
@@ -34,6 +36,8 @@ jobs:
           node --test src/payment/nativeGramTransfer.test.js
           node --test src/payment/nativeGramWalletSubmission.test.js
           node --test src/payment/tonConnectUIAdapter.test.js
+      - name: Page4 server-client protocol contract
+        run: node src/tests/page4ProtocolContract.test.js
       - name: Page4 fail-closed render
         run: node src/tests/page4Payment.render.test.js
       - name: Production client build
