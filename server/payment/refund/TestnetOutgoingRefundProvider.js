@@ -171,6 +171,11 @@ export class TestnetOutgoingRefundProvider {
             throw new OutgoingRefundError("settled payment intent is unavailable; cannot resolve the refund source wallet");
         }
         if (!intent || intent.paymentReference !== obligation.paymentIntentId
+            || intent.roomId !== obligation.roomId
+            || intent.playerId !== obligation.playerId
+            || intent.network !== "testnet"
+            || intent.asset !== obligation.denomination
+            || !tonAddressIdentitiesEqual(intent.expectedSender, obligation.refundDestination)
             || tonAddressIdentityOrNull(intent.destinationWalletAddress) === null) {
             throw new OutgoingRefundError("durable payment intent does not identify a valid source wallet");
         }
