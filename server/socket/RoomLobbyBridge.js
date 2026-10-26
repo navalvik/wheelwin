@@ -3371,26 +3371,7 @@ export class RoomLobbyBridge {
 
             this._roomManager.destroyRoom(roomId);
 
-        // Archive asynchronously after the authoritative room destruction.
-        // Cloudflare errors must never delay cleanup or escape as unhandled rejections.
-        const forensicArchiveService = this._forensicArchiveService;
-        if (forensicArchiveService) {
-            Promise.resolve()
-                .then(() => forensicArchiveService.ensureArchivedAndUploaded({
-                    roomId,
-                    gameId,
-                    reason: reason ?? "room_destroyed"
-                }))
-                .catch((error) => {
-                    try {
-                        this._logger?.error?.(
-                            `FORENSIC_ARCHIVE_ASYNC_FAILED | roomId=${roomId} | error=${error?.message ?? error}`
-                        );
-                    } catch {
-                        // Logging failures must not affect gameplay cleanup.
-                    }
-                });
-        }
+
 
 
             this._roomCreators.delete(roomId);
@@ -3705,6 +3686,27 @@ export class RoomLobbyBridge {
         });
 
         this._roomManager.destroyRoom(roomId);
+
+        // Archive asynchronously after the authoritative room destruction.
+        // Cloudflare errors must never delay cleanup or escape as unhandled rejections.
+        const forensicArchiveService = this._forensicArchiveService;
+        if (forensicArchiveService) {
+            Promise.resolve()
+                .then(() => forensicArchiveService.ensureArchivedAndUploaded({
+                    roomId,
+                    gameId,
+                    reason: reason ?? "room_destroyed"
+                }))
+                .catch((error) => {
+                    try {
+                        this._logger?.error?.(
+                            `FORENSIC_ARCHIVE_ASYNC_FAILED | roomId=${roomId} | error=${error?.message ?? error}`
+                        );
+                    } catch {
+                        // Logging failures must not affect gameplay cleanup.
+                    }
+                });
+        }
 
         this._roomCreators.delete(roomId);
 
