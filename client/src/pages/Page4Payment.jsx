@@ -48,6 +48,7 @@ export default function Page4Payment() {
         try {
             ui = getTonConnectUI();
         } catch {
+            setWalletError("TON Connect could not initialize. Payment cannot be submitted.");
             return undefined;
         }
         if (!ui || typeof ui.onStatusChange !== "function") {
