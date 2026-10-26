@@ -20,3 +20,23 @@ test("without explicit signing bundle there is no outgoing refund execution", ()
         submitter: null, globalId: -3, finalityEvidenceProvider: null
     }), null);
 });
+
+test("complete signer bundle cannot be enabled without authoritative wallet catalog", () => {
+    const submitter = {
+        signer: { signTransfer() {} },
+        broadcaster: { broadcast() {} },
+        outgoingTransferProvider: { getOutgoingTransfer() {}, findOutgoingTransfer() {} },
+        finalityEvidenceProvider: { getSettlementEvidence() {} }
+    };
+    assert.equal(buildTestnetOutgoingRefundProvider({
+        submitter, globalId: -3, walletPool: null
+    }), null);
+    const catalog = {
+        getWallet() { return null; },
+        listWallets() { return []; }
+    };
+    const enabled = buildTestnetOutgoingRefundProvider({
+        submitter, globalId: -3, walletPool: catalog
+    });
+    assert.ok(enabled?.canExecute(), "only explicit catalog-backed Testnet signer may be constructed");
+});
