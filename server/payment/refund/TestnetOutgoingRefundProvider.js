@@ -183,6 +183,7 @@ export class TestnetOutgoingRefundProvider {
         if (this._walletPool) {
             const wallet = this._walletPool.getWallet?.(intent.destinationWalletId);
             if (!wallet
+                || wallet.walletId !== intent.destinationWalletId
                 || wallet.network !== "testnet"
                 || wallet.roomNumber !== obligation.roomNumber
                 || !tonAddressIdentitiesEqual(wallet.address, intent.destinationWalletAddress)) {
