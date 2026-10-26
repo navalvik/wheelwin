@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 
 /**
  * R13.9H — Forensic archive + Cloudflare R2 configuration (environment only).
@@ -32,9 +33,14 @@ export function resolveForensicArchiveConfig(env = process.env) {
             && String(env.FORENSIC_ARCHIVE_REQUIRED ?? "auto").toLowerCase()
                 !== "false");
 
+    // On Railway, staging must survive container replacement so pending ZIPs
+    // can be uploaded after restart. Never write financial records here.
+    const persistentVolumeRoot = String(env.TON_FINANCIAL_DATA_DIR || "/app/data/ton-financial").trim();
     const stagingDir = String(
         env.FORENSIC_ARCHIVE_STAGING_DIR
-            || join(process.cwd(), "data", "archive-staging")
+            || (existsSync(persistentVolumeRoot)
+                ? join(persistentVolumeRoot, "forensic-archive-staging")
+                : join(process.cwd(), "data", "archive-staging"))
     ).trim();
 
     const sessionHistoryDir = String(
