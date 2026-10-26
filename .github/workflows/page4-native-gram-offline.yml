@@ -7,6 +7,7 @@ on:
       - "client/src/tests/page4Payment.render.test.js"
       - "client/src/tests/page4ProtocolContract.test.js"
       - "server/socket/RoomLobbyBridge.js"
+      - "server/tests/payment/page4RefundReadiness.contract.test.js"
       - "client/index.html"
       - "client/public/tonconnect-manifest.json"
       - "client/package.json"
@@ -40,5 +41,8 @@ jobs:
         run: node src/tests/page4ProtocolContract.test.js
       - name: Page4 fail-closed render
         run: node src/tests/page4Payment.render.test.js
+      - name: Server refund readiness gate
+        working-directory: server
+        run: node --test tests/payment/page4RefundReadiness.contract.test.js
       - name: Production client build
         run: npm run build
