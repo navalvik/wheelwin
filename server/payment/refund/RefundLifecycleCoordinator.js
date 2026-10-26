@@ -216,7 +216,7 @@ export class RefundLifecycleCoordinator {
         }
         const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
         this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: result.reason ?? null });
-        return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: result.reason });
+        return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMISSION_UNKNOWN", outgoingTransactionId: null, reason: result.reason });
     }
 
     /**
