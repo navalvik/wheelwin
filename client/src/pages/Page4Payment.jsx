@@ -37,7 +37,8 @@ export default function Page4Payment() {
         playerId: null,
         status: "WAITING_FOR_SESSION",
         connected: socket.connected,
-        payment: null
+        payment: null,
+        reason: null
     });
 
     useEffect(() => {
@@ -82,6 +83,7 @@ export default function Page4Payment() {
                 roomId,
                 playerId,
                 status: payload.status,
+                reason: payload.reason ?? null,
                 connected: socket.connected,
                 payment: {
                     amountAtomic: payload.amountAtomic,
@@ -123,6 +125,7 @@ export default function Page4Payment() {
             roomId,
             playerId,
             status: "WAITING_FOR_SERVER",
+            reason: null,
             connected: socket.connected,
             payment: null
         });
@@ -238,7 +241,10 @@ export default function Page4Payment() {
                         {walletError && <p role="alert">{walletError}</p>}
                     </div>
                 )}
-                {identityReady && connected && !requestReady && (
+                {identityReady && connected && status === "PAYMENT_UNAVAILABLE" && (
+                    <p role="alert">The server has disabled payments for this room. Do not send GRAM. {state.reason ? `Reason: ${state.reason}` : ""}</p>
+                )}
+                {identityReady && connected && !requestReady && status !== "PAYMENT_UNAVAILABLE" && (
                     <p>
                         Waiting for the server-authoritative native GRAM room-wallet payment session.
                         Do not transfer funds until the verified destination, amount,
