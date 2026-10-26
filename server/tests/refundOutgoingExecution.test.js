@@ -873,7 +873,37 @@ async function testDirectSigningRequiresAuthoritativeRoomWallet() {
     }
 }
 
+async function testExclusiveSubmissionClaimAcrossStoreInstances() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const concurrentStore = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        concurrentStore.initialize(); // Both instances see PENDING before the first claim.
+        const attempt = {
+            attemptId: "concurrent-claim-1", status: "SUBMISSION_UNKNOWN",
+            startedAtMs: NOW, completedAtMs: NOW
+        };
+        // Use a valid attempt shape taken from the existing persistence layer.
+        const originalCoordinator = h.coordinator;
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const first = await originalCoordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(first.outcome, "SUBMITTED");
+        assert.throws(() => concurrentStore.markSubmissionUnknown(obligation.obligationId, {
+            attempt: h.store.get(obligation.obligationId).attempts[0]
+        }), /already claimed/);
+        assert.equal(mocks.calls.sign, 1, "only first process reaches signer");
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function main() {
+    await testExclusiveSubmissionClaimAcrossStoreInstances();
     await testDirectSigningRequiresAuthoritativeRoomWallet();
     await testCatalogBoundRefundSourceWallet();
     await testSourceWalletRejectsCrossRoomAndPayerMismatch();
