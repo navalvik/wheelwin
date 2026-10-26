@@ -849,7 +849,32 @@ async function testCatalogBoundRefundSourceWallet() {
     }
 }
 
+async function testDirectSigningRequiresAuthoritativeRoomWallet() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const walletPool = {
+            listWallets: () => [{ walletId: "wallet-testnet", roomNumber: 38,
+                network: "testnet", address: TESTNET_ROOM_WALLET }]
+        };
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider, walletPool
+        });
+        await assert.rejects(provider.signAndBroadcast({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
+        }), /authoritative room wallet/);
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function main() {
+    await testDirectSigningRequiresAuthoritativeRoomWallet();
     await testCatalogBoundRefundSourceWallet();
     await testSourceWalletRejectsCrossRoomAndPayerMismatch();
     await testSimulatedCrashDuringSigningCannotReplay();
