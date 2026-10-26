@@ -47,3 +47,4 @@ jobs:
       - run: node --test tests/refundOutgoingExecution.test.js
       - run: node --test tests/legacyRoomWalletIdentityBridge.test.js tests/restoredRoomWalletAdapterIntegration.test.js tests/restoredRoomWalletRefundOffline.test.js tests/legacyRefundPlanningBridge.test.js tests/restoredPositiveRefundPlan.test.js tests/restoredSettlementFactory.test.js
       - run: node --check payment/runtime/PaymentRuntimeFactory.js
+      - run: node -e "import('./payment/runtime/PaymentRuntimeFactory.js').then(() => console.log('Payment runtime import OK'))"
