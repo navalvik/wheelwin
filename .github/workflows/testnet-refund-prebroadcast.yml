@@ -1,0 +1,47 @@
+name: Testnet refund prebroadcast durability
+on:
+  pull_request:
+    paths:
+      - "server/payment/refund/RefundLifecycleCoordinator.js"
+      - "server/payment/refund/OutgoingRefundFinality.js"
+      - "server/package.json"
+      - "server/package-lock.json"
+      - "server/payment/refund/RefundObligationStore.js"
+      - "server/payment/refund/ToncenterTestnetRefundBroadcaster.js"
+      - "server/tests/toncenterTestnetRefundBroadcaster.test.js"
+      - "server/payment/refund/TestnetRoomWalletSigner.js"
+      - "server/tests/testnetRoomWalletSigner.test.js"
+      - "server/payment/refund/TestnetWalletV4CryptoSigner.js"
+      - "server/payment/refund/TestnetProtectedKeyResolver.js"
+      - "server/payment/refund/LegacyRoomWalletIdentityBridge.js"
+      - "server/tests/legacyRoomWalletIdentityBridge.test.js"
+      - "server/payment/refund/ProtectedTestnetSignerFactory.js"
+      - "server/tests/protectedTestnetSignerFactory.test.js"
+      - "server/tests/testnetProtectedKeyResolver.test.js"
+      - "server/tests/testnetWalletV4CryptoSigner.test.js"
+      - "server/tests/testnetWalletV4CryptoIntegration.test.js"
+      - "server/tests/testnetRoomWalletSigningPipeline.test.js"
+      - "server/payment/refund/TestnetOutgoingRefundProvider.js"
+      - "server/payment/runtime/PaymentRuntimeFactory.js"
+      - "server/tests/refundOutgoingExecution.test.js"
+      - "server/tests/payment/refundProductionWiring.contract.test.js"
+      - ".github/workflows/testnet-refund-prebroadcast.yml"
+  workflow_dispatch:
+jobs:
+  refund-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/legacyRoomWalletIdentityBridge.test.js tests/testnetWalletV4CryptoIntegration.test.js tests/testnetRoomWalletSigningPipeline.test.js
+      - run: node --test tests/refundOutgoingExecution.test.js tests/payment/refundProductionWiring.contract.test.js tests/toncenterTestnetRefundBroadcaster.test.js tests/testnetRoomWalletSigner.test.js tests/testnetWalletV4CryptoSigner.test.js
