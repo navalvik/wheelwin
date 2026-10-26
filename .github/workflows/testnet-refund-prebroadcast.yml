@@ -8,6 +8,8 @@ on:
       - "server/tests/toncenterTestnetRefundBroadcaster.test.js"
       - "server/payment/refund/TestnetRoomWalletSigner.js"
       - "server/tests/testnetRoomWalletSigner.test.js"
+      - "server/payment/refund/TestnetWalletV4CryptoSigner.js"
+      - "server/tests/testnetWalletV4CryptoSigner.test.js"
       - "server/payment/refund/TestnetOutgoingRefundProvider.js"
       - "server/payment/runtime/PaymentRuntimeFactory.js"
       - "server/tests/refundOutgoingExecution.test.js"
@@ -30,4 +32,4 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci --ignore-scripts
-      - run: node --test tests/refundOutgoingExecution.test.js tests/payment/refundProductionWiring.contract.test.js tests/toncenterTestnetRefundBroadcaster.test.js tests/testnetRoomWalletSigner.test.js
+      - run: node --test tests/refundOutgoingExecution.test.js tests/payment/refundProductionWiring.contract.test.js tests/toncenterTestnetRefundBroadcaster.test.js tests/testnetRoomWalletSigner.test.js tests/testnetWalletV4CryptoSigner.test.js
