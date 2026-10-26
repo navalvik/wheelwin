@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - "server/payment/refund/RefundLifecycleCoordinator.js"
+      - "server/payment/refund/RefundObligationStore.js"
       - "server/payment/refund/TestnetOutgoingRefundProvider.js"
       - "server/payment/runtime/PaymentRuntimeFactory.js"
       - "server/tests/refundOutgoingExecution.test.js"
