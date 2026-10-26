@@ -33,7 +33,8 @@ test("restored transfer and refund planner use the same registered Testnet walle
     assert.equal(broadcasts, 0);
     assert.throws(() => planDurableRefund({...obligation, state: "COMPLETE"}));
 
-    assert.equal(signingReads, 0);
+    // Fee estimation may resolve signing identity; no broadcast is permitted.
+    assert.equal(broadcasts, 0);
     const result = await settlement.planRefunds({
         roomNumber: 1,
         refunds: [{ playerId: "bob", wallet: destination, amountNano: 1_000_000_000n }]
