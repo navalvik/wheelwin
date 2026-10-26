@@ -780,7 +780,41 @@ async function testSimulatedCrashDuringSigningCannotReplay() {
     }
 }
 
+
+async function testSourceWalletRejectsCrossRoomAndPayerMismatch() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const original = h.intentStore.require(obligation.paymentIntentId);
+        for (const override of [
+            { roomId: "different-room" },
+            { playerId: "another-player" },
+            { expectedSender: "0:" + "c".repeat(64) },
+            { network: "mainnet" }
+        ]) {
+            const altered = { ...original, ...override };
+            assert.throws(() => provider.resolveSourceWallet({
+                obligation,
+                intentStore: { require: () => altered }
+            }), /durable payment intent/);
+        }
+        assert.equal(provider.resolveSourceWallet({
+            obligation, intentStore: h.intentStore
+        }), TESTNET_ROOM_WALLET);
+        assert.equal(mocks.calls.sign, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function main() {
+    await testSourceWalletRejectsCrossRoomAndPayerMismatch();
     await testSimulatedCrashDuringSigningCannotReplay();
     await testPrebroadcastDurabilityObservedBySigner();
     await testValidSubmission();
