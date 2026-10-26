@@ -13,13 +13,14 @@ on:
       - "server/payment/roomWallet/RoomWalletFinancialPolicy.js"
       - "server/package.json"
       - "server/package-lock.json"
-      - "server/tests/legacyRoomWalletIdentityBridge.test.js tests/restoredRoomWalletAdapterIntegration.test.js tests/restoredRoomWalletRefundOffline.test.js tests/legacyRefundPlanningBridge.test.js tests/restoredPositiveRefundPlan.test.js tests/restoredSettlementFactory.test.js"
+      - "server/tests/legacyRoomWalletIdentityBridge.test.js"
       - "server/tests/restoredRoomWalletAdapterIntegration.test.js"
       - "server/tests/restoredRoomWalletRefundOffline.test.js"
       - "server/payment/refund/LegacyRefundPlanningBridge.js"
       - "server/tests/legacyRefundPlanningBridge.test.js"
       - "server/tests/restoredPositiveRefundPlan.test.js"
       - "server/payment/refund/RestoredRoomWalletSettlementFactory.js"
+      - "server/payment/runtime/PaymentRuntimeFactory.js"
       - "server/tests/restoredSettlementFactory.test.js"
       - ".github/workflows/room-wallet-compatibility.yml"
   workflow_dispatch:
@@ -44,4 +45,5 @@ jobs:
       - run: node -e "import('./payment/roomWallet/RoomWalletSettlementAdapter.js').then(() => console.log('Legacy settlement/refund import OK'))"
       - run: node -e "import('./payment/roomWallet/RoomWalletAdapter.js').then(() => console.log('Legacy WalletV4 transport import OK'))"
       - run: node --test tests/refundOutgoingExecution.test.js
-      - run: node --test tests/legacyRoomWalletIdentityBridge.test.js
+      - run: node --test tests/legacyRoomWalletIdentityBridge.test.js tests/restoredRoomWalletAdapterIntegration.test.js tests/restoredRoomWalletRefundOffline.test.js tests/legacyRefundPlanningBridge.test.js tests/restoredPositiveRefundPlan.test.js tests/restoredSettlementFactory.test.js
+      - run: node --check payment/runtime/PaymentRuntimeFactory.js
