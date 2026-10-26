@@ -396,6 +396,24 @@ export function buildPaymentRuntime(options = {}) {
 
         },
 
+        /**
+         * Read-only reconciliation preparation for a durable pending refund.
+         * Does not sign, broadcast, or modify the refund ledger.
+         */
+        async planPendingRefund(obligationId) {
+            if (!state.initialized) {
+                throw new Error("payment runtime not initialized");
+            }
+            if (!restoredSettlement || typeof restoredSettlement.planDurableRefund !== "function") {
+                throw new Error("restored room-wallet settlement is not attached");
+            }
+            const obligation = refundStore.get(obligationId);
+            if (!obligation) {
+                throw new Error("refund obligation not found");
+            }
+            return restoredSettlement.planDurableRefund(obligation);
+        },
+
         get initialized() {
 
             return state.initialized === true;
