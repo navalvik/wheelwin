@@ -159,12 +159,25 @@ export class RefundObligationStore {
         if (current.state !== "PENDING") {
             throw new RefundObligationError("only a PENDING refund obligation can begin submission");
         }
+        // Permanent exclusive claim: two server processes with stale in-memory
+        // PENDING state must never both reach the signer. Never auto-remove
+        // this claim after a crash: ambiguous submissions require reconciliation.
+        const claimPath = join(this._recordsDir, `${current.obligationId}.submission-claimed`);
+        try {
+            writeFileSync(claimPath, `${current.idempotencyKey}\n`, { encoding: "utf8", flag: "wx" });
+        } catch (error) {
+            if (error?.code === "EEXIST") {
+                throw new RefundObligationError("refund submission already claimed; reconcile before retry");
+            }
+            throw error;
+        }
         const next = RefundObligation.fromRecord({
             ...current.toRecord(),
             state: "SUBMISSION_UNKNOWN",
             attempts: [...current.attempts, attempt],
             lastError
-            });
+        });
+        // If persistence fails the exclusive claim remains: fail closed.
         return this._commitTransition(next);
     }
 

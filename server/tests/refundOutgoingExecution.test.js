@@ -275,9 +275,10 @@ async function testSignerUnavailable() {
             outgoingTransferProvider: mocks.outgoingTransferProvider
         });
         const res = await h.coordinator.submitRefund(obligation.obligationId, { provider });
-        assert.equal(res.outcome, "FAILED");
+        assert.equal(res.outcome, "SUBMISSION_UNKNOWN");
         const after = h.store.get(obligation.obligationId);
-        assert.equal(after.state, REFUND_STATE.PENDING);
+        assert.equal(after.state, REFUND_STATE.SUBMISSION_UNKNOWN);
+        await assert.rejects(h.coordinator.submitRefund(obligation.obligationId, { provider }), /not awaiting submission/);
     } finally {
         h.cleanup();
     }
@@ -410,6 +411,26 @@ async function testConflictingEvidenceCannotComplete() {
                     sourceAddress: TESTNET_ROOM_WALLET,
                     destinationAddress: `0:${"c".repeat(64)}`,
                     amountAtomic: 1_000_000_000
+                }
+            },
+            {
+                label: "failed TON action",
+                outgoingTransfer: {
+                    transactionId: "outgoing-testnet-tx",
+                    sourceAddress: TESTNET_ROOM_WALLET,
+                    destinationAddress: TESTNET_PAYER,
+                    amountAtomic: 1_000_000_000,
+                    actionSuccess: false
+                }
+            },
+            {
+                label: "bounced transfer",
+                outgoingTransfer: {
+                    transactionId: "outgoing-testnet-tx",
+                    sourceAddress: TESTNET_ROOM_WALLET,
+                    destinationAddress: TESTNET_PAYER,
+                    amountAtomic: 1_000_000_000,
+                    bounced: true
                 }
             },
             {
@@ -709,7 +730,239 @@ async function testRestartPreservesObligationsAndRecoveryWithoutDuplication() {
     }
 }
 
+async function testPrebroadcastDurabilityObservedBySigner() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        let signerCalls = 0;
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: {
+                signTransfer(descriptor) {
+                    signerCalls++;
+                    // The durable disk record must be committed BEFORE the first
+                    // external signing operation, not merely held in memory.
+                    const reopened = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+                    reopened.initialize();
+                    assert.equal(reopened.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+                    return mocks.signer.signTransfer(descriptor);
+                }
+            },
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const result = await h.coordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(result.outcome, "SUBMITTED");
+        assert.equal(signerCalls, 1);
+        assert.equal(h.store.get(obligation.obligationId).state, REFUND_STATE.SUBMITTED);
+    } finally {
+        h.cleanup();
+    }
+}
+
+async function testSimulatedCrashDuringSigningCannotReplay() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        let signCalls = 0;
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3,
+            signer: {
+                signTransfer() {
+                    signCalls++;
+                    const fromDisk = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+                    fromDisk.initialize();
+                    assert.equal(fromDisk.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+                    throw new Error("simulated process interruption during signer");
+                }
+            },
+            broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const outcome = await h.coordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(outcome.outcome, "SUBMISSION_UNKNOWN");
+        assert.equal(signCalls, 1);
+        const restarted = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        restarted.initialize();
+        assert.equal(restarted.get(obligation.obligationId).state, REFUND_STATE.SUBMISSION_UNKNOWN);
+        await assert.rejects(
+            h.coordinator.submitRefund(obligation.obligationId, { provider }),
+            /not awaiting submission/
+        );
+        assert.equal(signCalls, 1, "no second signing after interrupted submission");
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
+
+async function testSourceWalletRejectsCrossRoomAndPayerMismatch() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const original = h.intentStore.require(obligation.paymentIntentId);
+        for (const override of [
+            { roomId: "different-room" },
+            { playerId: "another-player" },
+            { expectedSender: "0:" + "c".repeat(64) },
+            { network: "mainnet" }
+        ]) {
+            const altered = { ...original, ...override };
+            assert.throws(() => provider.resolveSourceWallet({
+                obligation,
+                intentStore: { require: () => altered }
+            }), /durable payment intent/);
+        }
+        assert.equal(provider.resolveSourceWallet({
+            obligation, intentStore: h.intentStore
+        }), TESTNET_ROOM_WALLET);
+        assert.equal(mocks.calls.sign, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
+
+async function testCatalogBoundRefundSourceWallet() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const makeProvider = (wallet) => new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider,
+            walletPool: { getWallet: () => wallet }
+        });
+        const validWallet = {
+            walletId: "wallet-testnet", roomNumber: 37,
+            address: TESTNET_ROOM_WALLET, network: "testnet"
+        };
+        assert.equal(makeProvider(validWallet).resolveSourceWallet({
+            obligation, intentStore: h.intentStore
+        }), TESTNET_ROOM_WALLET);
+        for (const invalid of [
+            { ...validWallet, walletId: "wrong-wallet" },
+            { ...validWallet, roomNumber: 38 },
+            { ...validWallet, network: "mainnet" },
+            { ...validWallet, address: "0:" + "c".repeat(64) },
+            null
+        ]) {
+            assert.throws(() => makeProvider(invalid).resolveSourceWallet({
+                obligation, intentStore: h.intentStore
+            }), /authoritative Testnet pool/);
+        }
+        assert.equal(mocks.calls.sign, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
+async function testDirectSigningRequiresAuthoritativeRoomWallet() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const mocks = makeMocks({});
+        const walletPool = {
+            listWallets: () => [{ walletId: "wallet-testnet", roomNumber: 38,
+                network: "testnet", address: TESTNET_ROOM_WALLET }]
+        };
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider, walletPool
+        });
+        await assert.rejects(provider.signAndBroadcast({
+            obligation, sourceWalletAddress: TESTNET_ROOM_WALLET, nowMs: NOW
+        }), /authoritative room wallet/);
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
+async function testExclusiveSubmissionClaimAcrossStoreInstances() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        const concurrentStore = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        concurrentStore.initialize(); // Both instances see PENDING before the first claim.
+        const attempt = {
+            attemptId: "concurrent-claim-1", status: "SUBMISSION_UNKNOWN",
+            startedAtMs: NOW, completedAtMs: NOW
+        };
+        // Use a valid attempt shape taken from the existing persistence layer.
+        const originalCoordinator = h.coordinator;
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const first = await originalCoordinator.submitRefund(obligation.obligationId, { provider });
+        assert.equal(first.outcome, "SUBMITTED");
+        assert.throws(() => concurrentStore.markSubmissionUnknown(obligation.obligationId, {
+            attempt: h.store.get(obligation.obligationId).attempts[0]
+        }), /already claimed/);
+        assert.equal(mocks.calls.sign, 1, "only first process reaches signer");
+    } finally {
+        h.cleanup();
+    }
+}
+
+async function testCrashBetweenExclusiveClaimAndStatePersistence() {
+    const h = harness(1);
+    try {
+        const [obligation] = prepareObligations(h, 1);
+        // Emulate a crash immediately after an exclusive claim was persisted,
+        // before PENDING -> SUBMISSION_UNKNOWN reached its durable record.
+        const claimPath = join(h.root, "refunds", "refund-obligations",
+            `${obligation.obligationId}.submission-claimed`);
+        writeFileSync(claimPath, `${obligation.idempotencyKey}\n`, { flag: "wx" });
+        const recovered = new RefundObligationStore({ dataDir: join(h.root, "refunds") });
+        recovered.initialize();
+        assert.equal(recovered.get(obligation.obligationId).state, REFUND_STATE.PENDING);
+        const mocks = makeMocks({});
+        const provider = new TestnetOutgoingRefundProvider({
+            globalId: -3, signer: mocks.signer, broadcaster: mocks.broadcaster,
+            finalityEvidenceProvider: mocks.finalityEvidenceProvider,
+            outgoingTransferProvider: mocks.outgoingTransferProvider
+        });
+        const restartedCoordinator = new RefundLifecycleCoordinator({
+            store: recovered, intentStore: h.intentStore, ledgerStore: h.ledgerStore,
+            nowProvider: () => NOW
+        });
+        await assert.rejects(
+            restartedCoordinator.submitRefund(obligation.obligationId, { provider }),
+            /already claimed/
+        );
+        assert.equal(mocks.calls.sign, 0);
+        assert.equal(mocks.calls.broadcast, 0);
+    } finally {
+        h.cleanup();
+    }
+}
+
 async function main() {
+    await testCrashBetweenExclusiveClaimAndStatePersistence();
+    await testExclusiveSubmissionClaimAcrossStoreInstances();
+    await testDirectSigningRequiresAuthoritativeRoomWallet();
+    await testCatalogBoundRefundSourceWallet();
+    await testSourceWalletRejectsCrossRoomAndPayerMismatch();
+    await testSimulatedCrashDuringSigningCannotReplay();
+    await testPrebroadcastDurabilityObservedBySigner();
     await testValidSubmission();
     await testRejections();
     await testAmbiguousNoBlindResubmit();

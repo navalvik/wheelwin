@@ -49,6 +49,8 @@ import { RefundLifecycleCoordinator } from "../refund/RefundLifecycleCoordinator
 import { RefundObligationStore } from "../refund/RefundObligationStore.js";
 import { REFUND_NETWORK } from "../refund/RefundObligation.js";
 import { TestnetOutgoingRefundProvider } from "../refund/TestnetOutgoingRefundProvider.js";
+import { ToncenterTestnetRefundBroadcaster } from "../refund/ToncenterTestnetRefundBroadcaster.js";
+import { TestnetRoomWalletSigner } from "../refund/TestnetRoomWalletSigner.js";
 import {
     RoomPaymentObservationService,
     ToncenterFinalityEvidenceProvider,
@@ -128,9 +130,11 @@ function validateNanoTonUnits(value, label) {
  * @param {{ submitter: object|null, globalId: number, finalityEvidenceProvider: object|null }} deps
  * @returns {import("../refund/TestnetOutgoingRefundProvider.js").TestnetOutgoingRefundProvider|null}
  */
-export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finalityEvidenceProvider }) {
+export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finalityEvidenceProvider, walletPool = null }) {
 
-    if (!submitter || globalId !== TON_TESTNET_GLOBAL_ID) {
+    if (!submitter || globalId !== TON_TESTNET_GLOBAL_ID
+        || !walletPool || typeof walletPool.getWallet !== "function"
+        || typeof walletPool.listWallets !== "function") {
 
         return null;
 
@@ -140,8 +144,15 @@ export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finali
     try {
         provider = new TestnetOutgoingRefundProvider({
             globalId,
-            signer: submitter.signer ?? null,
-            broadcaster: submitter.broadcaster ?? null,
+            walletPool,
+            signer: submitter.signer ?? (typeof submitter.signWithWallet === "function"
+                ? new TestnetRoomWalletSigner({ walletPool, signWithWallet: submitter.signWithWallet })
+                : null),
+            broadcaster: submitter.broadcaster ?? (submitter.enableToncenterBroadcast === true
+                ? new ToncenterTestnetRefundBroadcaster({
+                    fetchImpl: submitter.fetchImpl ?? globalThis.fetch,
+                    apiKeyProvider: submitter.apiKeyProvider ?? (() => "")
+                }) : null),
             finalityEvidenceProvider: submitter.finalityEvidenceProvider ?? finalityEvidenceProvider ?? null,
             outgoingTransferProvider: submitter.outgoingTransferProvider ?? null
         });
@@ -241,7 +252,8 @@ export function buildPaymentRuntime(options = {}) {
     const outgoingRefundProvider = buildTestnetOutgoingRefundProvider({
         submitter: refundSubmitter,
         globalId: identity.globalId,
-        finalityEvidenceProvider: evidenceProvider
+        finalityEvidenceProvider: evidenceProvider,
+        walletPool
     });
 
     const paymentService = new RoomWalletPaymentService({
