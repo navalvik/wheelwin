@@ -10,6 +10,7 @@ on:
       - "server/models/TonWalletAddress.js"
       - "server/payment/refund/RefundLifecycleCoordinator.js"
       - "server/tests/refundOutgoingExecution.test.js"
+      - "server/tests/refundLifecycle.test.js"
       - "server/payment/roomWallet/RoomWalletFinancialPolicy.js"
       - "server/package.json"
       - "server/package-lock.json"
@@ -44,7 +45,7 @@ jobs:
       - run: node --check payment/roomWallet/RoomWalletFinancialPolicy.js
       - run: node -e "import('./payment/roomWallet/RoomWalletSettlementAdapter.js').then(() => console.log('Legacy settlement/refund import OK'))"
       - run: node -e "import('./payment/roomWallet/RoomWalletAdapter.js').then(() => console.log('Legacy WalletV4 transport import OK'))"
-      - run: node --test tests/refundOutgoingExecution.test.js
+      - run: node --test tests/refundOutgoingExecution.test.js tests/refundLifecycle.test.js tests/payment/paymentRuntimeIntegration.test.js
       - run: node --test tests/legacyRoomWalletIdentityBridge.test.js tests/restoredRoomWalletAdapterIntegration.test.js tests/restoredRoomWalletRefundOffline.test.js tests/legacyRefundPlanningBridge.test.js tests/restoredPositiveRefundPlan.test.js tests/restoredSettlementFactory.test.js
       - run: node --check payment/runtime/PaymentRuntimeFactory.js
       - run: node -e "import('./payment/runtime/PaymentRuntimeFactory.js').then(() => console.log('Payment runtime import OK'))"
