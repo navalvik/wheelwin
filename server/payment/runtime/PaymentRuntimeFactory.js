@@ -128,7 +128,7 @@ function validateNanoTonUnits(value, label) {
  * @param {{ submitter: object|null, globalId: number, finalityEvidenceProvider: object|null }} deps
  * @returns {import("../refund/TestnetOutgoingRefundProvider.js").TestnetOutgoingRefundProvider|null}
  */
-export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finalityEvidenceProvider }) {
+export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finalityEvidenceProvider, walletPool = null }) {
 
     if (!submitter || globalId !== TON_TESTNET_GLOBAL_ID) {
 
@@ -140,6 +140,7 @@ export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finali
     try {
         provider = new TestnetOutgoingRefundProvider({
             globalId,
+            walletPool,
             signer: submitter.signer ?? null,
             broadcaster: submitter.broadcaster ?? null,
             finalityEvidenceProvider: submitter.finalityEvidenceProvider ?? finalityEvidenceProvider ?? null,
