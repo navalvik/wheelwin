@@ -185,7 +185,11 @@ export function buildPaymentRuntime(options = {}) {
         refundSubmitter = null,
         // Restored October settlement transport may be injected for offline
         // reconciliation/planning; never enables live payment acceptance.
-        restoredSettlement = null
+        restoredSettlement = null,
+        // Optional Testnet-only assembly after the authoritative wallet pool
+        // exists. The factory is not a signer/submitter and cannot enable
+        // payment acceptance or outgoing transfers.
+        restoredSettlementFactory = null
     } = options;
 
     // R — network identity is enforced before any store or provider exists.
@@ -201,6 +205,14 @@ export function buildPaymentRuntime(options = {}) {
         network: identity.network,
         logger
     });
+
+    if (restoredSettlementFactory !== null && typeof restoredSettlementFactory !== "function") {
+        throw new Error("restored settlement factory must be a function");
+    }
+    const resolvedRestoredSettlement = restoredSettlement ??
+        (restoredSettlementFactory?.({
+            walletPool, network: identity.network, globalId: identity.globalId
+        }) ?? null);
 
     const intentStore = new PaymentIntentStore({
         dataDir: networkDataDir,
@@ -335,7 +347,7 @@ export function buildPaymentRuntime(options = {}) {
         refundStore,
         refundLifecycle,
         outgoingRefundProvider,
-        restoredSettlement,
+        restoredSettlement: resolvedRestoredSettlement,
         sessionAdapter,
         paymentGate,
 
@@ -408,7 +420,7 @@ export function buildPaymentRuntime(options = {}) {
             if (!state.initialized) {
                 throw new Error("payment runtime not initialized");
             }
-            if (!restoredSettlement || typeof restoredSettlement.planDurableRefund !== "function") {
+            if (!resolvedRestoredSettlement || typeof resolvedRestoredSettlement.planDurableRefund !== "function") {
                 throw new Error("restored room-wallet settlement is not attached");
             }
             const obligation = refundStore.get(obligationId);
@@ -422,7 +434,7 @@ export function buildPaymentRuntime(options = {}) {
                 obligation.globalId !== identity.globalId) {
                 throw new Error("refund obligation is not pending on TON Testnet");
             }
-            return restoredSettlement.planDurableRefund(obligation);
+            return resolvedRestoredSettlement.planDurableRefund(obligation);
         },
 
         get initialized() {
