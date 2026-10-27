@@ -26,7 +26,7 @@ function requireAddress(value) {
 function nano(value, label) {
     if (typeof value !== "bigint" &&
         !(typeof value === "number" && Number.isSafeInteger(value)) &&
-        !(typeof value === "string" && /^\\d+$/.test(value))) {
+        !(typeof value === "string" && /^\d+$/.test(value))) {
         throw new Error(`invalid Testnet fee component: ${label}`);
     }
     const result = BigInt(value);
