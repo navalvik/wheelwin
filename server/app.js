@@ -1615,6 +1615,15 @@ class WheelWinApplication {
             this._roomLobbyBridge.configureForensicArchiveService(
                 this._forensicArchiveService
             );
+            // Resume failed ZIP deliveries from the previous server lifetime.
+            // This never blocks startup, room creation or gameplay timers.
+            void this._forensicArchiveService.recoverPendingUploads()
+                .catch((error) => {
+                    this._logger.warn?.(
+                        "R2_ARCHIVE_RECOVERY_PENDING | code="
+                        + (error?.code ?? "RECOVERY_FAILED")
+                    );
+                });
             this._logger.startupLine(
                 "R2ForensicArchive (enabled="
                 + archiveConfig.enabled
