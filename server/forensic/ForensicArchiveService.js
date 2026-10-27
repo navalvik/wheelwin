@@ -5,7 +5,7 @@ import {
     readFileSync,
     renameSync
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { ForensicArchiveCollector, writeStagingStatus } from "./ForensicArchiveCollector.js";
 import {
@@ -193,13 +193,20 @@ export class ForensicArchiveService {
 
         const finishedAt = this._resolveFinishedAt(roomId) ?? Date.now();
         const lifecycleResult = this._resolveLifecycleResult(roomId, reason);
-        const archiveFilename = buildForensicArchiveFilename({
-            roomId,
-            gameId,
-            finishedAt,
-            lifecycleResult,
-            reason
-        });
+        const previousName = existingStatus?.archiveFilename;
+        // A retry must target the SAME R2 object key, even after a restart.
+        const archiveFilename = typeof previousName === "string"
+            && basename(previousName) === previousName
+            && previousName.endsWith(".zip")
+            && !previousName.includes("..")
+            ? previousName
+            : buildForensicArchiveFilename({
+                roomId,
+                gameId,
+                finishedAt,
+                lifecycleResult,
+                reason
+            });
 
         const zipPath = join(stagingRoomDir, archiveFilename);
 
