@@ -175,12 +175,16 @@ test("read-only refund planner factory receives the exact authoritative 64-walle
                 };
             }
         });
+        assert.equal(calls.length, 0, "factory must wait for catalog initialization");
+        runtime.initialize();
         assert.equal(calls.length, 1);
         assert.equal(calls[0].walletPool, runtime.walletPool);
         assert.equal(calls[0].network, "testnet");
         assert.equal(calls[0].globalId, -3);
         assert.equal(runtime.walletPool.size, 64);
+        assert.equal(runtime.walletPool.listWallets().length, 64);
         runtime.initialize();
+        assert.equal(calls.length, 1, "idempotent restart never rebuilds planner");
         const obligation = pendingObligation();
         runtime.refundStore.create(obligation);
         const result = await runtime.planPendingRefund(obligation.obligationId);
