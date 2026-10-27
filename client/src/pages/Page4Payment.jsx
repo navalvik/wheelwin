@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
 import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../payment/buildRoomWalletTonConnectRequest.js";
+import { bindPage4PaymentStatusRecovery } from "./page4PaymentStatusRecovery.js";
 
 import GameLayout from "../layouts/GameLayout";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
@@ -39,18 +40,14 @@ export default function Page4Payment() {
     const [paymentError, setPaymentError] = useState(null);
     const status = payment.status;
 
-    // Only request the authoritative payment state once per identity cycle.
-    // Resetting the flag when the identity changes lets a later identity
-    // readiness (identity becomes ready after the component initially mounts)
-    // re-issue the request without creating a request/response loop.
-    const requestedRef = useRef(null);
-
     useEffect(() => {
-        if (!roomId || !playerId) {
-
-            requestedRef.current = null;
-            return;
-        }
+        // Identity changes must never display the previous player's payable
+        // destination or permit an accidental second wallet submission.
+        setPayment({ status: "PAYMENT_UNAVAILABLE", paymentAcceptanceEnabled: false });
+        setSending(false);
+        setSentToWallet(false);
+        setPaymentError(null);
+        if (!roomId || !playerId) return undefined;
 
         function handlePaymentStatus(payload) {
             if (payload?.roomId !== roomId
@@ -62,15 +59,12 @@ export default function Page4Payment() {
         }
 
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
-
-        // Re-request the authoritative payment state so a status event that
-        // was emitted before this page subscribed is re-delivered now.
-        if (requestedRef.current !== roomId + ":" + playerId) {
-            requestedRef.current = roomId + ":" + playerId;
-            socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
-        }
+        // Do not emit while disconnected. Every new connection (including
+        // reconnection) re-requests the server's authoritative payment state.
+        const stopRecovery = bindPage4PaymentStatusRecovery(socket, { roomId, playerId });
 
         return () => {
+            stopRecovery();
             socket.off(PAYMENT_STATUS_EVENT, handlePaymentStatus);
         };
     }, [roomId, playerId]);
