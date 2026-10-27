@@ -4953,10 +4953,17 @@ export class RoomLobbyBridge {
 
             }
 
-        } else if (intent.state === PAYMENT_INTENT_STATE.PENDING
-            || intent.state === PAYMENT_INTENT_STATE.MATCHED) {
+        } else if (intent.state === PAYMENT_INTENT_STATE.PENDING) {
 
             status = "AWAITING_PAYMENT";
+            reason = null;
+
+        } else if (intent.state === PAYMENT_INTENT_STATE.MATCHED) {
+
+            // A chain transaction has already been attributed to this seat.
+            // It is NOT yet final, but asking for another payment could charge
+            // the player twice (especially after Page4 reconnect/reload).
+            status = "CONFIRMING_PAYMENT";
             reason = null;
 
         } else {

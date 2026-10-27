@@ -106,3 +106,60 @@ test("actual Page3 socket profile handler records only the payer address before 
     assert.equal(changed.length,1);
     assert.equal(errors.length,2);
 });
+
+
+test("Page4 reconnect never labels an already MATCHED transfer as payable", () => {
+    const delivered = [];
+    let intentState = "PENDING";
+    const fake = {
+        _roomManager: { getRoom: () => ({ players: seats }) },
+        _playerToSocket: new Map([["Olga", "socket-olga"]]),
+        _paymentApplicationBinding: {
+            runtime: {
+                paymentService: {
+                    listPaymentIntentsForRoom: () => [{
+                        roomId: "room-1",
+                        playerId: "Olga",
+                        state: intentState,
+                        paymentReference: "WW_123",
+                        amountAtomic: 1_000_000_000,
+                        expectedSender: A,
+                        destinationWalletAddress: B,
+                        expiresAt: Date.now() + 30_000,
+                        network: "testnet",
+                        asset: "TON"
+                    }]
+                },
+                ledger: { store: { findByIdempotencyKey: () => null } }
+            }
+        },
+        _deliverToSocket: (socketId, event, payload) =>
+            delivered.push({ socketId, event, payload })
+    };
+
+    RoomLobbyBridge.prototype._deliverPaymentStatusToSocket.call(
+        fake, "room-1", "Olga", "socket-olga"
+    );
+    assert.equal(delivered.at(-1).payload.status, "AWAITING_PAYMENT");
+
+    intentState = "MATCHED";
+    RoomLobbyBridge.prototype._deliverPaymentStatusToSocket.call(
+        fake, "room-1", "Olga", "socket-olga"
+    );
+    assert.equal(delivered.at(-1).payload.status, "CONFIRMING_PAYMENT");
+    assert.equal(delivered.at(-1).payload.playerId, "Olga");
+    assert.equal(delivered.at(-1).payload.paymentReference, "WW_123");
+
+    // A second seat must not see Olga's payment status.
+    const count = delivered.length;
+    RoomLobbyBridge.prototype._deliverPaymentStatusToSocket.call(
+        fake, "room-1", "Lena", "socket-olga"
+    );
+    assert.equal(delivered.length, count);
+
+    intentState = "FAILED";
+    RoomLobbyBridge.prototype._deliverPaymentStatusToSocket.call(
+        fake, "room-1", "Olga", "socket-olga"
+    );
+    assert.equal(delivered.at(-1).payload.status, "PAYMENT_UNAVAILABLE");
+});

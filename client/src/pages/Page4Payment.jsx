@@ -155,6 +155,9 @@ export default function Page4Payment() {
                                 </button>
                             </div>
                         )}
+                        {status === "CONFIRMING_PAYMENT" && (
+                            <p>Payment detected on Testnet. Waiting for final blockchain confirmation. Do not pay again.</p>
+                        )}
                         {status === "SETTLED" && (
                             <p>Payment verified. Waiting for the other players.</p>
                         )}

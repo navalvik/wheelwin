@@ -3,17 +3,30 @@ on:
   push:
     branches:
       - restore/page3-wallet-to-page4-testnet
+      - fix/testnet-page4-matched-not-payable-20261028
     paths:
       - "client/src/pages/Page4Payment.jsx"
       - "client/src/pages/page4PaymentStatusRecovery.js"
       - "client/src/tests/page4PaymentStatusRecovery.test.js"
       - "client/src/payment/buildRoomWalletTonConnectRequest.js"
+      - "client/tests/roomWalletTonConnectRequest.test.js"
+      - "server/socket/RoomLobbyBridge.js"
+      - "server/tests/payment/restoreTestnetPage3Requirements.test.js"
       - "server/payment/roomWallet/RoomWalletAdapter.js"
       - "server/payment/roomWallet/TestnetNativeTonService.js"
       - "server/tests/payment/legacyRoomWalletV4.test.js"
       - "server/tests/paymentCore.phase1.test.js"
       - "server/config/rooms.js"
       - "server/payment/RoomPaymentConstants.js"
+      - ".github/workflows/page4-reconnect-testnet.yml"
+  pull_request:
+    branches:
+      - restore/page3-wallet-to-page4-testnet
+    paths:
+      - "client/src/pages/Page4Payment.jsx"
+      - "client/tests/roomWalletTonConnectRequest.test.js"
+      - "server/socket/RoomLobbyBridge.js"
+      - "server/tests/payment/restoreTestnetPage3Requirements.test.js"
       - ".github/workflows/page4-reconnect-testnet.yml"
   workflow_dispatch:
 jobs:
@@ -54,4 +67,5 @@ jobs:
       - run: node --check payment/roomWallet/RoomWalletAdapter.js
       - run: node --check payment/roomWallet/TestnetNativeTonService.js
       - run: node tests/paymentCore.phase1.test.js
+      - run: node --test tests/payment/restoreTestnetPage3Requirements.test.js
       - run: node --test tests/payment/legacyRoomWalletV4.test.js tests/payment/nativeRoomRefundIntegration.test.js tests/payment/testnetNativeRoomPayoutTransport.test.js
