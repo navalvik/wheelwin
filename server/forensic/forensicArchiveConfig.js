@@ -21,7 +21,7 @@ export function resolveForensicArchiveConfig(env = process.env) {
         enabled,
         required,
         bucket,
-        prefix: String(env.R2_FORENSIC_PREFIX || "forensic-archives").replace(/^\\/+|\\/+$/g, ""),
+        prefix: String(env.R2_FORENSIC_PREFIX || "forensic-archives").replace(/^\/+|\/+$/g, ""),
         stagingDir: String(env.FORENSIC_ARCHIVE_STAGING_DIR || join(process.cwd(), "data", "archive-staging")).trim(),
         sessionHistoryDir: String(env.SESSION_HISTORY_DIR || join(process.cwd(), "data", "session-history")).trim(),
         diagnosticLogsDir: String(env.DIAGNOSTIC_LOGS_DIR || join(process.cwd(), "logs", "games")).trim(),
