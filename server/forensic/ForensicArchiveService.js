@@ -255,7 +255,9 @@ export class ForensicArchiveService {
             updatedAt: Date.now()
         });
 
-        // Every recovery invocation gets a new bounded retry budget.\n        const previousAttempts = Number(existingStatus?.attempts ?? 0);\n        let attempt = 0;
+        // Every recovery invocation gets a new bounded retry budget.
+        const previousAttempts = Number(existingStatus?.attempts ?? 0);
+        let attempt = 0;
 
         while (attempt < this._config.maxUploadAttempts) {
 
