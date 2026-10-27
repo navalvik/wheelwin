@@ -39,6 +39,7 @@ on:
       - "server/tests/restoredPositiveRefundPlan.test.js"
       - "server/payment/refund/RestoredRoomWalletSettlementFactory.js"
       - "server/payment/runtime/PaymentRuntimeFactory.js"
+      - "server/app.js"
       - "server/payment/runtime/PaymentApplicationBinder.js"
       - "server/payment/runtime/AuthoritativeRoomPaymentRequests.js"
       - "server/tests/payment/authoritativeRoomPaymentRequests.test.js"
@@ -81,6 +82,7 @@ jobs:
       - run: node --test tests/refundOutgoingExecution.test.js tests/refundLifecycle.test.js tests/payment/paymentRuntimeIntegration.test.js tests/refundSourceWalletIdentity.test.js
       - run: node --test tests/protectedTestnetRoomWalletKeys.test.js
       - run: node --test tests/legacyRoomWalletIdentityBridge.test.js tests/restoredRoomWalletAdapterIntegration.test.js tests/restoredRoomWalletRefundOffline.test.js tests/legacyRefundPlanningBridge.test.js tests/restoredPositiveRefundPlan.test.js tests/restoredSettlementFactory.test.js
+      - run: node --check app.js
       - run: node --check payment/runtime/PaymentRuntimeFactory.js
       - run: node --test tests/payment/restoredRuntimeRefundPlanning.test.js tests/payment/walletPoolEnvPrecedence.test.js tests/payment/fractionalGramStakeRecovery.test.js
       - run: node --test tests/payment/page4ReconnectSocketIo.integration.test.js tests/payment/page4ReconnectPaymentRecovery.test.js tests/payment/paymentBinderPreparation.test.js tests/payment/roomPaymentSessionAdapter.test.js
