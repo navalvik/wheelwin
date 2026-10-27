@@ -16,13 +16,16 @@ export function resolveForensicArchiveConfig(env = process.env) {
     // A failed upload must never extend or alter the five-minute room deadline.
     const required = String(env.FORENSIC_ARCHIVE_REQUIRED ?? "false").toLowerCase() === "true";
     const maxUploadAttempts = Number.parseInt(env.FORENSIC_ARCHIVE_MAX_UPLOAD_ATTEMPTS ?? "5", 10);
+    // Railway provides the mounted persistent volume path automatically.
+    // Store ZIPs and retry status there, not on the ephemeral application disk.
+    const volumeRoot = String(env.RAILWAY_VOLUME_MOUNT_PATH || "").trim();
 
     return Object.freeze({
         enabled,
         required,
         bucket,
         prefix: String(env.R2_FORENSIC_PREFIX || "forensic-archives").replace(/^\/+|\/+$/g, ""),
-        stagingDir: String(env.FORENSIC_ARCHIVE_STAGING_DIR || join(process.cwd(), "data", "archive-staging")).trim(),
+        stagingDir: String(env.FORENSIC_ARCHIVE_STAGING_DIR || (volumeRoot ? join(volumeRoot, "r2-archive-staging") : join(process.cwd(), "data", "archive-staging"))).trim(),
         sessionHistoryDir: String(env.SESSION_HISTORY_DIR || join(process.cwd(), "data", "session-history")).trim(),
         diagnosticLogsDir: String(env.DIAGNOSTIC_LOGS_DIR || join(process.cwd(), "logs", "games")).trim(),
         accountId,
