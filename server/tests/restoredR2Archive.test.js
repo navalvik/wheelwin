@@ -101,4 +101,7 @@ test("R2 config never enables a blocking room teardown by default", () => {
     assert.equal(config.required, false);
     assert.equal(config.prefix, "forensic-archives");
     assert.equal(resolveForensicArchiveConfig({}).r2Configured, false);
+    assert.equal(resolveForensicArchiveConfig({
+        RAILWAY_VOLUME_MOUNT_PATH: "/mnt/volume"
+    }).stagingDir, "/mnt/volume/r2-archive-staging");
 });
