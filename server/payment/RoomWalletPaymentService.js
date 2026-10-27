@@ -1256,7 +1256,7 @@ export class RoomWalletPaymentService {
 
             }
 
-            const mapping = this._assetRegistry.requireMapping(
+            this._assetRegistry.requireMapping(
                 intent.network,
                 intent.asset
             );
