@@ -577,26 +577,26 @@ function createIntent(harness, overrides = {}) {
     const deadline = harness.service.getRoomDeadline(ROOM_CREATED_AT);
 
     check(
-        deadline.deadlineMs === ROOM_CREATED_AT + 300_000,
-        "room deadline must be exactly roomCreatedAt + 300000"
+        deadline.deadlineMs === ROOM_CREATED_AT + 480_000,
+        "room deadline must be exactly roomCreatedAt + 480000"
     );
 
     check(
-        harness.service.roomLifetimeMs === 300_000,
-        "room lifetime must remain exactly 300000 ms"
+        harness.service.roomLifetimeMs === 480_000,
+        "room lifetime must remain exactly 480000 ms"
     );
 
     check(
-        deadline.roomLifetimeMs === 300_000,
-        "roomLifetimeMs must be 300000"
+        deadline.roomLifetimeMs === 480_000,
+        "roomLifetimeMs must be 480000"
     );
 
     // A negative / shifted creation time must still produce an exact 480s span.
     const second = harness.service.getRoomDeadline(ROOM_CREATED_AT + 1_234);
 
     check(
-        second.deadlineMs - second.roomCreatedAt === 300_000,
-        "room deadline span must be exactly 300000 ms"
+        second.deadlineMs - second.roomCreatedAt === 480_000,
+        "room deadline span must be exactly 480000 ms"
     );
 
     rmSync(harness.env.workspace, { recursive: true, force: true });
@@ -648,8 +648,8 @@ function createIntent(harness, overrides = {}) {
         "payment intent must carry an absolute expiration time"
     );
     check(
-        intent.roomDeadlineMs === ROOM_CREATED_AT + 300_000,
-        "payment intent deadline must equal roomCreatedAt + 300000"
+        intent.roomDeadlineMs === ROOM_CREATED_AT + 480_000,
+        "payment intent deadline must equal roomCreatedAt + 480000"
     );
     check(intent.state === "PENDING", "new payment intent must start PENDING");
     check(
@@ -1030,7 +1030,7 @@ function createIntent(harness, overrides = {}) {
     expectThrow(
         () => harness.service.expirePaymentIntent(
             "pay-exp-1",
-            ROOM_CREATED_AT + 300_000 - 1
+            ROOM_CREATED_AT + 480_000 - 1
         ),
         "PaymentValidationError",
         "expiring before the deadline must be rejected"
@@ -1061,7 +1061,7 @@ function createIntent(harness, overrides = {}) {
     // Expiring at exactly the deadline is allowed and is terminal.
     const expired = harness.service.expirePaymentIntent(
         "pay-exp-1",
-        ROOM_CREATED_AT + 300_000
+        ROOM_CREATED_AT + 480_000
     );
 
     check(
@@ -1097,12 +1097,12 @@ function createIntent(harness, overrides = {}) {
         "sweep must expire every intent past its absolute deadline"
     );
 
-    // The room deadline stays at exactly +300000 ms regardless of clock skew.
+    // The room deadline stays at exactly +480000 ms regardless of clock skew.
     const deadline = harness.service.getRoomDeadline(ROOM_CREATED_AT);
 
     check(
-        deadline.deadlineMs === ROOM_CREATED_AT + 300_000,
-        "room deadline must remain exactly roomCreatedAt + 300000 ms"
+        deadline.deadlineMs === ROOM_CREATED_AT + 480_000,
+        "room deadline must remain exactly roomCreatedAt + 480000 ms"
     );
 
     rmSync(harness.env.workspace, { recursive: true, force: true });
@@ -1329,7 +1329,7 @@ function createIntent(harness, overrides = {}) {
     );
 
     check(
-        restored.roomDeadlineMs === ROOM_CREATED_AT + 300_000,
+        restored.roomDeadlineMs === ROOM_CREATED_AT + 480_000,
         "the immutable room deadline must survive a restart"
     );
 
