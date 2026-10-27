@@ -125,6 +125,26 @@ export function bindPaymentRuntimeToApplication(runtime, dependencies = {}) {
 
             }
 
+            // A payment descriptor must cover the EXACT three authoritative
+            // room seats. Never reserve a wallet or create payable intents for
+            // a partial roster, duplicate player or foreign player identity.
+            // The player list is taken from RoomManager, not from the client.
+            const roomPlayers = room.players;
+            if (!Array.isArray(roomPlayers)
+                || roomPlayers.length !== 3
+                || new Set(roomPlayers).size !== 3
+                || !Array.isArray(playerPayments)
+                || playerPayments.length !== 3
+                || new Set(playerPayments.map((payment) => payment?.playerId)).size !== 3
+                || playerPayments.some((payment) =>
+                    !payment || !roomPlayers.includes(payment.playerId))) {
+
+                throw new PaymentExecutionBlockedError(
+                    "room payment session requires exactly the three authoritative room players"
+                );
+
+            }
+
             return runtime.sessionAdapter.prepareRoom({
                 roomId,
                 roomCreatedAt: room.createdAt,
