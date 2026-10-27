@@ -811,19 +811,19 @@ async function run() {
             ] });
             throws(() => h.adapter.prepareRoom(crossRoom),
                 RoomPaymentSessionValidationError, "cross-room requirement rejected");
-            const invalidLaterDenomination = makeDescriptor({ requiredPlayers: [
+            const invalidLaterAtomicAmount = makeDescriptor({ requiredPlayers: [
                 base.requiredPlayers[0],
                 {
                     roomId: base.roomId,
                     paymentReference: "WW-SESSION-PLAYER-2",
                     playerId: "player-2",
                     expectedSender: syntheticAddress("sender-2"),
-                    amountAtomic: 1
+                    amountAtomic: 1.5
                 }
             ] });
-            throws(() => h.adapter.prepareRoom(invalidLaterDenomination),
+            throws(() => h.adapter.prepareRoom(invalidLaterAtomicAmount),
                 RoomPaymentSessionValidationError,
-                "later invalid denomination rejected before creating earlier payment");
+                "later fractional nanoton is rejected before creating earlier payment");
             equal(intentEntries(h.service, base.roomId).length, 0,
                 "invalid descriptors create no intents");
             equal(h.service.getWalletForRoom(base.roomId), null,
