@@ -1,0 +1,25 @@
+name: Testnet WalletV4 seqno RPC safety
+on:
+  push:
+    branches:
+      - fix/testnet-v4-seqno-rpc-fail-closed-20261027
+  workflow_dispatch:
+jobs:
+  seqno-regression:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --check payment/roomWallet/RoomWalletAdapter.js
+      - run: node --check payment/roomWallet/TestnetNativeTonService.js
+      - run: node --test tests/payment/legacyRoomWalletV4.test.js tests/payment/nativeRoomRefundIntegration.test.js tests/payment/testnetNativeRoomPayoutTransport.test.js
