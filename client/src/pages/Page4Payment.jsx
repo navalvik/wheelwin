@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import socket from "../socket/socket";
 import {
-    INCOMING_SOCKET_EVENTS,
-    OUTGOING_SOCKET_EVENTS
+    INCOMING_SOCKET_EVENTS
 } from "../socket/socketEvents";
+
+import { bindPage4PaymentStatusRecovery } from "./page4PaymentStatusRecovery";
 
 import "../styles/page4payment.css";
 
@@ -24,23 +25,15 @@ import "../styles/page4payment.css";
  * on unmount and whenever the identity changes.
  */
 const PAYMENT_STATUS_EVENT = INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED;
-const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
 
 export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
     const { roomId, playerId } = identity ?? {};
     const [status, setStatus] = useState("PAYMENT_UNAVAILABLE");
 
-    // Only request the authoritative payment state once per identity cycle.
-    // Resetting the flag when the identity changes lets a later identity
-    // readiness (identity becomes ready after the component initially mounts)
-    // re-issue the request without creating a request/response loop.
-    const requestedRef = useRef(null);
-
     useEffect(() => {
         if (!roomId || !playerId) {
 
-            requestedRef.current = null;
             return;
         }
 
@@ -53,16 +46,12 @@ export default function Page4Payment() {
             setStatus(payload.status);
         }
 
+        setStatus("PAYMENT_UNAVAILABLE");
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
-
-        // Re-request the authoritative payment state so a status event that
-        // was emitted before this page subscribed is re-delivered now.
-        if (requestedRef.current !== roomId) {
-            requestedRef.current = roomId;
-            socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
-        }
+        const unbindRecovery = bindPage4PaymentStatusRecovery(socket, { roomId, playerId });
 
         return () => {
+            unbindRecovery();
             socket.off(PAYMENT_STATUS_EVENT, handlePaymentStatus);
         };
     }, [roomId, playerId]);
