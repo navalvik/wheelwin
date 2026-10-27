@@ -249,10 +249,16 @@ export function buildPaymentRuntime(options = {}) {
         walletPool
     });
 
+    const refundStore = new RefundObligationStore({
+        dataDir: join(networkDataDir, "refunds"),
+        logger
+    });
+
     const paymentService = new RoomWalletPaymentService({
         walletPool,
         intentStore,
         assetRegistry,
+        refundStore,
         observationService,
         snapshotDir: join(networkDataDir, "payment-core"),
         nowProvider,
@@ -281,11 +287,6 @@ export function buildPaymentRuntime(options = {}) {
 
     const manifestStore = new RoomPreparationManifestStore({
         dataDir: join(networkDataDir, "manifests")
-    });
-
-    const refundStore = new RefundObligationStore({
-        dataDir: join(networkDataDir, "refunds"),
-        logger
     });
 
     const refundLifecycle = new RefundLifecycleCoordinator({
