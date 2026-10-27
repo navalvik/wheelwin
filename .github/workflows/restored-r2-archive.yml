@@ -1,0 +1,34 @@
+name: Restored R2 game archive regression
+on:
+  pull_request:
+    paths:
+      - "server/forensic/**"
+      - "server/app.js"
+      - "server/socket/RoomLobbyBridge.js"
+      - "server/tests/restoredR2Archive.test.js"
+      - "server/package.json"
+      - "server/package-lock.json"
+      - ".github/workflows/restored-r2-archive.yml"
+  workflow_dispatch:
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --check app.js
+      - run: node --check socket/RoomLobbyBridge.js
+      - run: node --check forensic/ForensicArchiveCollector.js
+      - run: node --check forensic/ForensicArchiveService.js
+      - run: node --check forensic/forensicArchiveConfig.js
+      - run: node --test tests/restoredR2Archive.test.js
