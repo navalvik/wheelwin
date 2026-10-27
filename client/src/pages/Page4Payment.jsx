@@ -105,7 +105,7 @@ export default function Page4Payment() {
             // TonConnect acknowledgement is NOT a blockchain confirmation.
             // Prevent repeat submits; only the server can mark the seat SETTLED.
             setSentToWalletIdentity(identityKey);
-            socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId});
+            if (socket.connected) socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId});
         } catch (error) {
             setPaymentErrorState({ identityKey, message: error?.message ?? "Wallet rejected payment" });
         } finally {
@@ -150,7 +150,7 @@ export default function Page4Payment() {
                                 )}
                                 {paymentError && <p role="alert">{paymentError}</p>}
                                 <button type="button"
-                                    onClick={() => socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId})}>
+                                    onClick={() => { if (socket.connected) socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId}); }}>
                                     CHECK PAYMENT
                                 </button>
                             </div>
