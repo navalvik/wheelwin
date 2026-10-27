@@ -39,6 +39,8 @@ on:
       - "server/tests/restoredPositiveRefundPlan.test.js"
       - "server/payment/refund/RestoredRoomWalletSettlementFactory.js"
       - "server/payment/runtime/PaymentRuntimeFactory.js"
+      - "server/payment/runtime/PaymentApplicationBinder.js"
+      - "server/tests/payment/paymentBinderPreparation.test.js"
       - "server/payment/runtime/RoomPaymentSessionAdapter.js"
       - "server/payment/RoomWalletPaymentService.js"
       - "server/tests/payment/fractionalGramStakeRecovery.test.js"
