@@ -273,9 +273,9 @@ console.log("Refund lifecycle tests passed");
             closureReason: "setup_expired", status: "DESTROYED"
         });
         assert.equal(obligations.length, 1);
-        assert.equal(obligations[0].roomNumber, 12);
+        assert.equal(obligations[0].obligation.roomNumber, 12);
         assert.equal(h.store.getClosedRoom("room-x").roomNumber, 12);
-        assert.equal(h.coordinator.prepareLateConfirmedPayments("room-x")[0].roomNumber, 12);
+        assert.equal(h.coordinator.prepareLateConfirmedPayments("room-x")[0].obligation.roomNumber, 12);
     } finally {
         rmSync(h.root, { recursive: true, force: true });
     }
