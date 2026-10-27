@@ -12,6 +12,8 @@ on:
       - "server/payment/refund/ProtectedTestnetRoomWalletKeys.js"
       - "server/tests/protectedTestnetRoomWalletKeys.test.js"
       - "server/payment/roomWallet/RoomWalletAdapter.js"
+      - "server/payment/roomWallet/TestnetToncenterTransport.js"
+      - "server/tests/testnetToncenterTransport.test.js"
       - "server/payment/roomWallet/RoomWalletSettlementAdapter.js"
       - "server/payment/roomWallet/RoomWalletRegistry.js"
       - "server/payment/roomWallet/roomWalletTerminalRecoveryChain.js"
@@ -55,6 +57,8 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - run: npm ci --ignore-scripts
       - run: node --check payment/roomWallet/RoomWalletAdapter.js
+      - run: node --check payment/roomWallet/TestnetToncenterTransport.js
+      - run: node --test tests/testnetToncenterTransport.test.js
       - run: node --check payment/roomWallet/RoomWalletFinancialPolicy.js
       - run: node -e "import('./payment/roomWallet/RoomWalletSettlementAdapter.js').then(() => console.log('Legacy settlement/refund import OK'))"
       - run: node -e "import('./payment/roomWallet/RoomWalletAdapter.js').then(() => console.log('Legacy WalletV4 transport import OK'))"
