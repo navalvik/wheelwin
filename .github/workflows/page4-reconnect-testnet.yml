@@ -8,6 +8,9 @@ on:
       - "client/src/pages/page4PaymentStatusRecovery.js"
       - "client/src/tests/page4PaymentStatusRecovery.test.js"
       - "client/src/payment/buildRoomWalletTonConnectRequest.js"
+      - "server/payment/roomWallet/RoomWalletAdapter.js"
+      - "server/payment/roomWallet/TestnetNativeTonService.js"
+      - "server/tests/payment/legacyRoomWalletV4.test.js"
       - ".github/workflows/page4-reconnect-testnet.yml"
   workflow_dispatch:
 jobs:
@@ -29,3 +32,22 @@ jobs:
       - run: node --import ./scripts/register.js src/tests/page4PaymentStatusRecovery.test.js
       - run: node --test tests/roomWalletTonConnectRequest.test.js
       - run: npm run build
+
+  wallet-v4-seqno:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --check payment/roomWallet/RoomWalletAdapter.js
+      - run: node --check payment/roomWallet/TestnetNativeTonService.js
+      - run: node --test tests/payment/legacyRoomWalletV4.test.js tests/payment/nativeRoomRefundIntegration.test.js tests/payment/testnetNativeRoomPayoutTransport.test.js
