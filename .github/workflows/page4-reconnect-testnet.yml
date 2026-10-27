@@ -19,6 +19,15 @@ on:
       - "server/config/rooms.js"
       - "server/payment/RoomPaymentConstants.js"
       - ".github/workflows/page4-reconnect-testnet.yml"
+  pull_request:
+    branches:
+      - restore/page3-wallet-to-page4-testnet
+    paths:
+      - "client/src/pages/Page4Payment.jsx"
+      - "client/tests/roomWalletTonConnectRequest.test.js"
+      - "server/socket/RoomLobbyBridge.js"
+      - "server/tests/payment/restoreTestnetPage3Requirements.test.js"
+      - ".github/workflows/page4-reconnect-testnet.yml"
   workflow_dispatch:
 jobs:
   client-check:
