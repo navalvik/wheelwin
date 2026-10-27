@@ -209,11 +209,6 @@ export function buildPaymentRuntime(options = {}) {
     if (restoredSettlementFactory !== null && typeof restoredSettlementFactory !== "function") {
         throw new Error("restored settlement factory must be a function");
     }
-    const resolvedRestoredSettlement = restoredSettlement ??
-        (restoredSettlementFactory?.({
-            walletPool, network: identity.network, globalId: identity.globalId
-        }) ?? null);
-
     const intentStore = new PaymentIntentStore({
         dataDir: networkDataDir,
         logger,
@@ -331,7 +326,7 @@ export function buildPaymentRuntime(options = {}) {
     });
 
     // Mutable initialization/recovery state kept outside the frozen descriptor.
-    const state = { initialized: false, lastRecovery: null };
+    const state = { initialized: false, lastRecovery: null, restoredSettlement };
 
     const runtime = Object.freeze({
         // Durable stores + services.
@@ -347,7 +342,7 @@ export function buildPaymentRuntime(options = {}) {
         refundStore,
         refundLifecycle,
         outgoingRefundProvider,
-        restoredSettlement: resolvedRestoredSettlement,
+        get restoredSettlement() { return state.restoredSettlement; },
         sessionAdapter,
         paymentGate,
 
@@ -378,6 +373,20 @@ export function buildPaymentRuntime(options = {}) {
             }
 
             paymentService.initialize();
+
+            // The catalog is loaded by paymentService.initialize(). A protected
+            // resolver created earlier would see an EMPTY pool and silently
+            // disable planning even when all 64 keys are configured.
+            if (!state.restoredSettlement && restoredSettlementFactory) {
+                try {
+                    state.restoredSettlement = restoredSettlementFactory({
+                        walletPool, network: identity.network, globalId: identity.globalId
+                    }) ?? null;
+                } catch {
+                    // Planning is optional and never authorizes transfers.
+                    logger?.warn?.("TESTNET_REFUND_PLANNER_UNAVAILABLE");
+                }
+            }
 
             ledger.initialize();
 
@@ -420,7 +429,7 @@ export function buildPaymentRuntime(options = {}) {
             if (!state.initialized) {
                 throw new Error("payment runtime not initialized");
             }
-            if (!resolvedRestoredSettlement || typeof resolvedRestoredSettlement.planDurableRefund !== "function") {
+            if (!state.restoredSettlement || typeof state.restoredSettlement.planDurableRefund !== "function") {
                 throw new Error("restored room-wallet settlement is not attached");
             }
             const obligation = refundStore.get(obligationId);
@@ -434,7 +443,7 @@ export function buildPaymentRuntime(options = {}) {
                 obligation.globalId !== identity.globalId) {
                 throw new Error("refund obligation is not pending on TON Testnet");
             }
-            return resolvedRestoredSettlement.planDurableRefund(obligation);
+            return state.restoredSettlement.planDurableRefund(obligation);
         },
 
         get initialized() {
