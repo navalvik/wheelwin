@@ -2,6 +2,10 @@ name: Room wallet compatibility regression
 on:
   pull_request:
     paths:
+      - "client/src/socket/socketEvents.js"
+      - "client/src/pages/Page4Payment.jsx"
+      - "client/package.json"
+      - "client/package-lock.json"
       - "server/payment/refund/LegacyRoomWalletIdentityBridge.js"
       - "server/payment/roomWallet/RoomWalletAdapter.js"
       - "server/payment/roomWallet/RoomWalletSettlementAdapter.js"
@@ -53,3 +57,22 @@ jobs:
       - run: node --check payment/runtime/PaymentRuntimeFactory.js
       - run: node --test tests/payment/restoredRuntimeRefundPlanning.test.js
       - run: node -e "import('./payment/runtime/PaymentRuntimeFactory.js').then(() => console.log('Payment runtime import OK'))"
+
+  client-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --check src/socket/socketEvents.js
+      - run: npm run build
+      - run: node src/tests/page4Payment.render.test.js
