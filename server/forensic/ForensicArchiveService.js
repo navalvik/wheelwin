@@ -73,11 +73,15 @@ export class ForensicArchiveService {
             return [];
         }
         const report = [];
+        const maxPending = Math.max(0, Math.min(limit, 50));
         const entries = readdirSync(this._config.stagingDir, { withFileTypes: true })
             .filter(entry => entry.isDirectory())
-            .slice(0, Math.max(0, Math.min(limit, 50)));
+            .sort((a, b) => a.name.localeCompare(b.name));
 
         for (const entry of entries) {
+            if (report.length >= maxPending) {
+                break;
+            }
             const status = readStatus(join(this._config.stagingDir, entry.name, "status.json"));
             if (!status || status.state === "uploaded" || !status.roomId) {
                 continue;
