@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, statSync } from "node:fs";
 import { PutObjectCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 /**
@@ -96,6 +96,9 @@ export class R2ForensicArchiveUploader {
                 Bucket: this._bucketName,
                 Key: destination,
                 Body: createReadStream(localPath),
+                // R2 S3-compatible endpoint needs a fixed payload length for
+                // reliable streamed uploads (avoid ambiguous chunked bodies).
+                ContentLength: statSync(localPath).size,
                 ContentType: "application/zip",
                 CacheControl: "private, max-age=0, no-transform"
             }));
