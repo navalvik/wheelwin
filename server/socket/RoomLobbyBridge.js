@@ -139,6 +139,12 @@ export class RoomLobbyBridge {
         // room registry before it is reused.
         this._paymentApplicationBinding = paymentApplicationBinding;
 
+        // Coalesce the three players' on-demand Page4 status checks into one
+        // authoritative Toncenter observation per room, at most once per 5s.
+        // No background wallet scanner or timer is started.
+        this._paymentObservationInFlight = new Map();
+        this._paymentObservationLastAt = new Map();
+
         // R23 — Mainnet-side HTTP client for the R21 Testnet handoff
         // contract (claim/complete). Injected by WheelWinServer; never
         // instantiated here; the shared secret stays inside the client.
@@ -4992,11 +4998,72 @@ export class RoomLobbyBridge {
             return;
         }
 
-        this._deliverPaymentStatusToSocket(
-            context.roomId,
-            context.playerId,
-            socketId
+        const { roomId, playerId } = context;
+        this._deliverPaymentStatusToSocket(roomId, playerId, socketId);
+
+        // No chain request while live acceptance is disabled. Once the
+        // authorized outgoing refund path is ready, Page4 status requests
+        // become the bounded, on-demand incoming observation trigger.
+        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED
+            || !this._verifyBarrierCompletedByRoom.has(roomId)) {
+            return;
+        }
+
+        const binding = this._paymentApplicationBinding;
+        const runtime = binding?.runtime;
+        const room = this._roomManager.getRoom(roomId);
+        if (!room || room.status === ROOM_STATUS.DESTROYED
+            || !Array.isArray(room.players) || room.players.length !== 3
+            || !room.players.includes(playerId)
+            || new Set(room.players).size !== 3
+            || typeof binding?.observePreparedRoomPayments !== "function"
+            || runtime?.paymentService?.listPaymentIntentsForRoom?.(roomId)?.length !== 3) {
+            return;
+        }
+
+        if (this._paymentObservationInFlight.has(roomId)) {
+            return;
+        }
+        const now = Date.now();
+        if (now - (this._paymentObservationLastAt.get(roomId) ?? 0) < 5_000) {
+            return;
+        }
+        this._paymentObservationLastAt.set(roomId, now);
+
+        const pending = Promise.resolve().then(() =>
+            binding.observePreparedRoomPayments(roomId)
         );
+        this._paymentObservationInFlight.set(roomId, pending);
+        void pending.then(({ gate }) => {
+            // The binder rechecks the room after awaiting Toncenter. Only the
+            // durable three-player gate can authorize the gameplay transition.
+            if (gate?.eligible === true
+                && this._roomManager.getRoom(roomId)?.status !== ROOM_STATUS.DESTROYED) {
+                this._eventBus.emit({
+                    source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                    type: EVENT_TYPES.ROOM_PAYMENT_GATE_UPDATED,
+                    payload: { roomId }
+                });
+            }
+        }).catch((error) => {
+            this._logger?.warn?.(
+                `Page4 payment observation unavailable | roomId=${roomId} | reason=${error?.code ?? "OBSERVATION_FAILED"}`
+            );
+        }).finally(() => {
+            if (this._paymentObservationInFlight.get(roomId) === pending) {
+                this._paymentObservationInFlight.delete(roomId);
+            }
+            const current = this._roomManager.getRoom(roomId);
+            if (!current || current.status === ROOM_STATUS.DESTROYED) {
+                return;
+            }
+            for (const currentPlayerId of current.players) {
+                const currentSocketId = this._playerToSocket.get(currentPlayerId);
+                if (currentSocketId) {
+                    this._deliverPaymentStatusToSocket(roomId, currentPlayerId, currentSocketId);
+                }
+            }
+        });
 
     }
 
@@ -5465,6 +5532,9 @@ export class RoomLobbyBridge {
     }
 
     _clearVerifyBarrier(roomId) {
+
+        this._paymentObservationInFlight.delete(roomId);
+        this._paymentObservationLastAt.delete(roomId);
 
         this._verifyConfirmedByRoom.delete(roomId);
 
