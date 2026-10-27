@@ -4,6 +4,8 @@ on:
     paths:
       - "client/src/socket/socketEvents.js"
       - "client/src/pages/Page4Payment.jsx"
+      - "client/src/pages/page4PaymentStatusRecovery.js"
+      - "client/src/tests/page4PaymentStatusRecovery.test.js"
       - "client/package.json"
       - "client/package-lock.json"
       - "server/payment/refund/LegacyRoomWalletIdentityBridge.js"
@@ -79,3 +81,4 @@ jobs:
       - run: node --check src/socket/socketEvents.js
       - run: npm run build
       - run: node src/tests/page4Payment.render.test.js
+      - run: node --import ./scripts/register.js src/tests/page4PaymentStatusRecovery.test.js
