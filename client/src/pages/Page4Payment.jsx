@@ -169,6 +169,22 @@ export default function Page4Payment() {
                 : "WAITING_FOR_SERVER";
 
     const payment = matchesIdentity ? state.payment : null;
+
+    // Once the server has explicitly enabled this room's payment session,
+    // refresh authoritative status at a bounded rate while Page4 is mounted.
+    // The server coalesces three players into one observation per room. No
+    // client payment or confirmation is inferred from this timer.
+    const shouldRefreshPayment = connected && payment?.enabled === true;
+    useEffect(() => {
+        if (!roomId || !playerId || !shouldRefreshPayment) return undefined;
+        const interval = window.setInterval(() => {
+            if (socket.connected) {
+                socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
+            }
+        }, 10_000);
+        return () => window.clearInterval(interval);
+    }, [roomId, playerId, shouldRefreshPayment]);
+
     // Never present a transfer destination unless the server explicitly enables
     // intake and all authoritative payment fields are present.
     // The current server payment-intent model uses safe integer atomic amounts;
