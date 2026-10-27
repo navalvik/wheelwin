@@ -436,15 +436,15 @@ export class RoomWalletAdapter {
             .toBoc()
             .toString("base64");
 
+        // Mark the seqno as potentially consumed BEFORE awaiting the RPC.
+        // A timeout/connection loss can occur after Toncenter accepted the BOC;
+        // treating that exception as "never sent" would let a second payout
+        // sign the same seqno. Only positive chain advancement releases it.
+        // If the RPC definitely rejected the BOC, this conservative hold
+        // expires without authorizing another transfer on the stale seqno.
+        this._pendingOutboundSeqno.set(identity.address, { seqno });
         const broadcast = await this._tonService.broadcastTransaction(bocBase64);
         const txHash = extractBroadcastTxHash(broadcast);
-
-        // The transport accepted the broadcast: this seqno is consumed as soon
-        // as the message is processed. Hold it until the next send observes
-        // the authoritative seqno advance. A broadcast that threw is not
-        // recorded here; the settlement layer re-inspects chain history before
-        // any retry and the duplicate-payout evidence scan stays fail-closed.
-        this._pendingOutboundSeqno.set(identity.address, { seqno });
 
         this._logger?.info?.(
             `RoomWalletAdapter transfer broadcast | room=${identity.roomNumber} | `
