@@ -1,6 +1,7 @@
 import {
     existsSync,
     mkdirSync,
+    readdirSync,
     readFileSync,
     renameSync
 } from "node:fs";
@@ -56,6 +57,47 @@ export class ForensicArchiveService {
 
         }
 
+    }
+
+    /**
+     * Retry archives left in the staging directory by an earlier outage or
+     * server restart. The original game is already closed; this is archive
+     * delivery only, never a gameplay or payment action.
+     *
+     * Runs sequentially and is bounded to avoid a burst of R2 requests when
+     * many rooms ended during an outage.
+     */
+    async recoverPendingUploads({ limit = 50 } = {}) {
+        if (!this._config.enabled || !this._uploader?.isConfigured?.()
+            || !existsSync(this._config.stagingDir)) {
+            return [];
+        }
+        const report = [];
+        const entries = readdirSync(this._config.stagingDir, { withFileTypes: true })
+            .filter(entry => entry.isDirectory())
+            .slice(0, Math.max(0, Math.min(limit, 50)));
+
+        for (const entry of entries) {
+            const status = readStatus(join(this._config.stagingDir, entry.name, "status.json"));
+            if (!status || status.state === "uploaded" || !status.roomId) {
+                continue;
+            }
+            try {
+                const result = await this.ensureArchivedAndUploaded({
+                    roomId: status.roomId,
+                    gameId: status.gameId ?? null,
+                    reason: status.reason ?? "room_destroyed"
+                });
+                report.push({ roomId: status.roomId, uploaded: result.uploaded === true });
+            } catch (error) {
+                report.push({ roomId: status.roomId, uploaded: false });
+                this._logError(
+                    "R2_ARCHIVE_RECOVERY_PENDING | roomId=" + status.roomId
+                    + " | code=" + (error?.code ?? "UPLOAD_FAILED")
+                );
+            }
+        }
+        return report;
     }
 
     isBlockingEnabled() {
@@ -206,13 +248,14 @@ export class ForensicArchiveService {
             state: "pending_upload",
             roomId,
             gameId,
+            reason,
             archiveFilename,
             zipPath,
             manifest,
             updatedAt: Date.now()
         });
 
-        let attempt = existingStatus?.attempts ?? 0;
+        // Every recovery invocation gets a new bounded retry budget.\n        const previousAttempts = Number(existingStatus?.attempts ?? 0);\n        let attempt = 0;
 
         while (attempt < this._config.maxUploadAttempts) {
 
@@ -234,12 +277,13 @@ export class ForensicArchiveService {
                     state: "uploaded",
                     roomId,
                     gameId,
+                    reason,
                     archiveFilename,
                     zipPath,
                     objectName: upload.objectName,
                     generation: upload.generation,
                     manifest,
-                    attempts: attempt,
+                    attempts: previousAttempts + attempt,
                     uploadedAt: Date.now()
                 });
 
@@ -263,7 +307,7 @@ export class ForensicArchiveService {
                     archiveFilename,
                     zipPath,
                     manifest,
-                    attempts: attempt,
+                    attempts: previousAttempts + attempt,
                     error: error.message,
                     updatedAt: Date.now()
                 });
