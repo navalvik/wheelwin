@@ -113,3 +113,41 @@ test("seqno zero is allowed only for explicitly uninitialized wallet", async () 
     assert.equal(result.seqno, 0);
     assert.equal(broadcasts, 1);
 });
+
+test("ambiguous broadcast holds wallet seqno until chain advancement, preventing a second transfer", async () => {
+    const keys = keyPairFromSeed(Buffer.alloc(32, 9));
+    const address = WalletContractV4.create({ workchain: 0, publicKey: keys.publicKey }).address.toString();
+    let broadcasts = 0;
+    let clock = 0;
+    const adapter = new RoomWalletAdapter({
+        tonService: {
+            getBalance: async () => 3_000_000_000n,
+            getSeqno: async () => 0,
+            broadcastTransaction: async () => {
+                broadcasts++;
+                // The RPC may throw AFTER the network has accepted this BOC.
+                throw new Error("ambiguous Toncenter timeout");
+            }
+        },
+        walletResolver: async () => ({
+            walletId: "room-wallet-1", roomNumber: 1, network: "testnet",
+            address, workchain: 0, publicKey: keys.publicKey, secretKey: keys.secretKey
+        }),
+        gasReserveNano: 0n,
+        seqnoConfirmTimeoutMs: 2,
+        seqnoConfirmPollMs: 0,
+        now: () => clock,
+        sleep: async () => { clock++; }
+    });
+    const request = {
+        roomNumber: 1,
+        destination: "0:" + "b".repeat(64),
+        amountNano: 1_000_000_000n
+    };
+    await assert.rejects(adapter.sendTransfer(request), /ambiguous Toncenter timeout/);
+    const next = await adapter.sendTransfer(request);
+    assert.equal(next.ok, false);
+    assert.equal(next.code, "SEQNO_CONFIRMATION_TIMEOUT");
+    assert.equal(next.pendingSeqno, 0);
+    assert.equal(broadcasts, 1, "an ambiguous broadcast must never be immediately repeated");
+});
