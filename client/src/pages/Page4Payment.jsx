@@ -250,7 +250,10 @@ export default function Page4Payment() {
                         <button type="button" disabled={!canPay} onClick={submitPayment}>
                             {submitting ? "Waiting for wallet approval…" : alreadySubmitted ? "Waiting for server confirmation" : "CONFIRM IN TELEGRAM WALLET"}
                         </button>
-                        {!walletReady && <p>Connect the matching TON Testnet wallet to enable payment.</p>}
+                        {status === "CONFIRMING_PAYMENT" && (
+                            <p>Payment detected. Waiting for independent blockchain confirmation. Do not pay again.</p>
+                        )}
+                        {!walletReady && status === "AWAITING_PAYMENT" && <p>Connect the matching TON Testnet wallet to enable payment.</p>}
                     </div>
                 )}
                 {identityReady && connected && status === "PAYMENT_UNAVAILABLE" && (
