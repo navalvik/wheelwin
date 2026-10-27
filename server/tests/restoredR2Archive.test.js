@@ -72,6 +72,18 @@ test("failed R2 upload remains durable for recovery, never claims success", asyn
         assert.equal(status.state, "failed");
         assert.equal(status.phase, "upload");
         assert.equal(status.attempts, 2);
+
+        // Simulate a fresh server after the R2 credentials/network recover.
+        uploader.shouldFail = false;
+        const restarted = new ForensicArchiveService({ config: f.config, uploader });
+        const recovery = await restarted.recoverPendingUploads();
+        assert.deepEqual(recovery, [{ roomId: "Abc", uploaded: true }]);
+        const recovered = JSON.parse(readFileSync(
+            join(f.config.stagingDir, "Abc", "status.json"), "utf8"
+        ));
+        assert.equal(recovered.state, "uploaded");
+        assert.equal(recovered.attempts, 3);
+        assert.equal(uploader.uploads.length, 1);
     } finally {
         f.cleanup();
     }
