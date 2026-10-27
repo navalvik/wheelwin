@@ -9,9 +9,10 @@
  * Safety scope (unchanged from the isolated core):
  *   - Testnet only; global ID -3. Mainnet is rejected, never selected.
  *   - No smart contract / escrow / deposit system is referenced (R9).
- *   - No wallet secret material is read, retained or written. The wallet
- *     catalog is parsed through the existing secret-stripping loader and the
- *     outgoing signer path does not exist (payment execution is disabled).
+ *   - The payment catalog is parsed through the secret-stripping loader.
+ *     An optional Testnet-only refund fee planner can resolve protected keys
+ *     after catalog initialization, but its transport cannot broadcast.
+ *     No outgoing submitter is configured by this factory.
  *   - This factory never moves real funds. Incoming observation is read-only;
  *     outgoing refunds have no authorized submitter, so live payment
  *     acceptance stays disabled and refunds remain recoverable obligations.
