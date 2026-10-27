@@ -12,8 +12,19 @@ export class TestnetNativeTonService {
         this._client=client??new TonClient({endpoint,apiKey:apiKey||undefined});
     }
     async getSeqno(address) {
-        const result=await this._client.runMethod(Address.parse(address),"seqno");
-        return result.stack.readNumber();
+        const account=Address.parse(address);
+        // Only an authoritative "uninitialized" account state permits
+        // WalletV4 seqno 0 and StateInit. A failed RPC is not evidence that
+        // the wallet is fresh; never sign seqno 0 on an unknown active wallet.
+        const state=await this._client.getContractState(account);
+        if(state?.state==="uninitialized")return 0;
+        if(state?.state!=="active")
+            throw new Error("TESTNET_WALLET_STATE_UNAVAILABLE");
+        const result=await this._client.runMethod(account,"seqno");
+        const seqno=result?.stack?.readNumber?.();
+        if(!Number.isSafeInteger(seqno)||seqno<0)
+            throw new Error("TESTNET_WALLET_SEQNO_INVALID");
+        return seqno;
     }
     async getBalance(address) {
         return BigInt(await this._client.getBalance(Address.parse(address)));

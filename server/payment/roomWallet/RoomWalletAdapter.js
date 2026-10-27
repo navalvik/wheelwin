@@ -494,14 +494,10 @@ export class RoomWalletAdapter {
             throw new Error("room wallet identity drift");
         }
 
-        let seqno = 0;
-        try {
-            seqno = await this._tonService.getSeqno(identity.address);
-        } catch {
-            // A fresh/uninitialized V4 wallet has no readable seqno. Its first
-            // outbound transaction must include StateInit and use seqno 0.
-            seqno = 0;
-        }
+        // The Testnet transport returns seqno 0 only when it has positively
+        // verified an uninitialized WalletV4 account. An RPC failure must
+        // abort fee planning and broadcast, never be mistaken for seqno 0.
+        const seqno = await this._tonService.getSeqno(identity.address);
 
         if (!Number.isInteger(seqno) || seqno < 0) {
             throw new Error("invalid room wallet seqno");
