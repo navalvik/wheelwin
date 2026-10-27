@@ -6,6 +6,7 @@ on:
       - "server/app.js"
       - "server/socket/RoomLobbyBridge.js"
       - "server/tests/restoredR2Archive.test.js"
+      - "server/tests/restoredR2ArchiveRoomClose.test.js"
       - "server/package.json"
       - "server/package-lock.json"
       - ".github/workflows/restored-r2-archive.yml"
@@ -31,4 +32,4 @@ jobs:
       - run: node --check forensic/ForensicArchiveCollector.js
       - run: node --check forensic/ForensicArchiveService.js
       - run: node --check forensic/forensicArchiveConfig.js
-      - run: node --test tests/restoredR2Archive.test.js
+      - run: node --test tests/restoredR2Archive.test.js tests/restoredR2ArchiveRoomClose.test.js
