@@ -1,0 +1,62 @@
+name: Page4 native GRAM offline safety
+on:
+  push:
+    branches:
+      - restore/page4-native-gram-ui-main-20261026
+    paths:
+      - "client/src/pages/Page4Payment.jsx"
+      - "client/src/socket/socketEvents.js"
+      - "client/src/tests/page4ProtocolContract.test.js"
+      - ".github/workflows/page4-native-gram-offline.yml"
+  pull_request:
+    paths:
+      - "client/src/payment/**"
+      - "client/src/pages/Page4Payment.jsx"
+      - "client/src/socket/socketEvents.js"
+      - "client/src/tests/page4Payment.render.test.js"
+      - "client/src/tests/page4ProtocolContract.test.js"
+      - "server/socket/RoomLobbyBridge.js"
+      - "server/tests/payment/page4RefundReadiness.contract.test.js"
+      - "client/index.html"
+      - "client/public/tonconnect-manifest.json"
+      - "client/package.json"
+      - "client/package-lock.json"
+      - ".github/workflows/page4-native-gram-offline.yml"
+  workflow_dispatch:
+jobs:
+  native-gram:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Native GRAM preflight and BOC tests
+        run: |
+          node --test src/payment/gramPaymentAuthorization.test.js
+          node --test src/payment/nativeGramTransfer.test.js
+          node --test src/payment/nativeGramWalletSubmission.test.js
+          node --test src/payment/tonConnectUIAdapter.test.js
+      - name: Page4 server-client protocol contract
+        run: |
+          node --check src/socket/socketEvents.js
+          node src/tests/page4ProtocolContract.test.js
+      - name: Page4 fail-closed render
+        run: node src/tests/page4Payment.render.test.js
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci --ignore-scripts
+      - name: Server refund readiness gate
+        working-directory: server
+        run: node --test tests/payment/page4RefundReadiness.contract.test.js
+      - name: Production client build
+        run: npm run build

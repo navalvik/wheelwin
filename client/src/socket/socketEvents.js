@@ -40,6 +40,9 @@ export const INCOMING_SOCKET_EVENTS = Object.freeze({
     SETUP_SESSION_EXPIRED: "SETUP_SESSION_EXPIRED",
     VERIFY_COMPLETED: "VERIFY_COMPLETED",
     PAYMENT_STAGE_READY: "PAYMENT_STAGE_READY",
+    // Page4 receives the initial server intent notification, then re-requests
+    // the authoritative status before displaying a payable destination.
+    PAYMENT_REQUEST: "PAYMENT_REQUEST",
     // P6.7 — authoritative per-player entry-payment status (Page4).
     ENTRY_PAYMENT_SESSION_UPDATED: "ENTRY_PAYMENT_SESSION_UPDATED",
     // P6.7 — server-owned start gate (Page4 waits; Page5 only on OPEN_PAGE5).
@@ -61,7 +64,7 @@ export const INCOMING_SOCKET_EVENTS = Object.freeze({
 
 export const SOCKET_MESSAGE_CHANNEL = "game:message";
 
-/"R1.3D — lobby client command (raw socket emit, not game:message). */
+/* R1.3D — lobby client command (raw socket emit, not game:message). */
 export const LOBBY_OUTGOING_EVENTS = Object.freeze({
     DEBUG_START_GAME: "DEBUG_START_GAME",
     /** R6.4 — leave the finished room before client session reset. */

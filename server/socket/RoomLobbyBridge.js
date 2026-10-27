@@ -4876,10 +4876,16 @@ export class RoomLobbyBridge {
 
             }
 
-        } else if (intent.state === PAYMENT_INTENT_STATE.PENDING
-            || intent.state === PAYMENT_INTENT_STATE.MATCHED) {
+        } else if (intent.state === PAYMENT_INTENT_STATE.PENDING) {
 
             status = "AWAITING_PAYMENT";
+            reason = null;
+
+        } else if (intent.state === PAYMENT_INTENT_STATE.MATCHED) {
+
+            // An observed transaction is awaiting independent chain finality.
+            // Never invite a second wallet transfer for the same payment intent.
+            status = "CONFIRMING_PAYMENT";
             reason = null;
 
         } else {
@@ -4901,6 +4907,7 @@ export class RoomLobbyBridge {
                 paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
                 reason,
                 paymentReference: intent.paymentReference,
+                expectedSenderWalletAddress: intent.expectedSender,
                 amountAtomic: intent.amountAtomic,
                 destinationWalletAddress: intent.destinationWalletAddress,
                 expiresAt: intent.expiresAt ?? null,
