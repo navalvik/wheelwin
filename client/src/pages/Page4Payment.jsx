@@ -168,6 +168,22 @@ export default function Page4Payment() {
                 ? state.status
                 : "WAITING_FOR_SERVER";
 
+    // Register only the connected Testnet payer address for this server-owned
+    // socket seat. The server derives stake and reference from Page2 identity;
+    // the transfer is still independently verified on-chain.
+    useEffect(() => {
+        const account = walletAdapter?.account;
+        if (!roomId || !playerId || !connected || !socket.connected
+            || account?.chain !== "-3"
+            || !tonAccountIdentityOrNull(account.address)) {
+            return;
+        }
+        socket.emit(OUTGOING_SOCKET_EVENTS.PAYMENT_WALLET_REGISTER, {
+            address: account.address,
+            chain: "-3"
+        });
+    }, [roomId, playerId, connected, walletAdapter, walletRevision]);
+
     const payment = matchesIdentity ? state.payment : null;
 
     // Once the server has explicitly enabled this room's payment session,

@@ -38,6 +38,8 @@ import {
     LEDGER_ENTRY_KIND
 } from "../payment/ledger/index.js";
 import { createHash } from "node:crypto";
+import { describeTonWalletIdentity, tonWalletAccountsEqual } from "../models/TonWalletAddress.js";
+import { buildAuthoritativeRoomPaymentRequests } from "../payment/runtime/AuthoritativeRoomPaymentRequests.js";
 import {
     LOBBY_ERROR_CODES,
     LOBBY_ERROR_MESSAGES,
@@ -64,6 +66,8 @@ export class RoomLobbyBridge {
         roomConfig = null,
         telegramIdentityResolver = null,
         paymentApplicationBinding = null,
+        // Synthetic test binding only; production uses the fail-closed constant.
+        paymentAcceptanceEnabled = LIVE_PAYMENT_ACCEPTANCE_ENABLED,
         metricsService = null
     }) {
 
@@ -138,6 +142,7 @@ export class RoomLobbyBridge {
         // authoritative mainnetRoomId) and is re-verified against the live
         // room registry before it is reused.
         this._paymentApplicationBinding = paymentApplicationBinding;
+        this._paymentAcceptanceEnabled = paymentAcceptanceEnabled === true;
 
         // Coalesce the three players' on-demand Page4 status checks into one
         // authoritative Toncenter observation per room, at most once per 5s.
@@ -620,6 +625,17 @@ export class RoomLobbyBridge {
 
                 this._handlePaymentStatusRequest(envelope.payload.socketId);
 
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_PAYMENT_WALLET_REGISTER,
+            (envelope) => {
+                this._handlePaymentWalletRegister(
+                    envelope.payload.socketId,
+                    envelope.payload.address,
+                    envelope.payload.chain
+                );
             }
         );
 
@@ -5067,12 +5083,68 @@ export class RoomLobbyBridge {
 
     }
 
+    /**
+     * A TON Connect wallet address is only a payer-address proposal from the
+     * currently authenticated room seat. It is NOT proof of wallet ownership:
+     * the incoming observer must still verify the actual chain sender.
+     * Never accept amounts, payment references or room/player ids from it.
+     */
+    _handlePaymentWalletRegister(socketId, address, chain) {
+        if (!this._paymentAcceptanceEnabled || chain !== "-3") {
+            return;
+        }
+
+        const context = this._assertAuthoritativeMutation(socketId, "registerPaymentWallet");
+        if (!context || this._playerToSocket.get(context.playerId) !== socketId) {
+            return;
+        }
+
+        const { roomId, playerId } = context;
+        const room = this._roomManager.getRoom(roomId);
+        if (!this._verifyBarrierCompletedByRoom.has(roomId)
+            || !room || room.status === ROOM_STATUS.DESTROYED
+            || !Array.isArray(room.players) || room.players.length !== 3
+            || new Set(room.players).size !== 3
+            || !room.players.includes(playerId)
+            || this._roomNetworkByRoom.get(roomId) === "mainnet") {
+            return;
+        }
+
+        const payer = describeTonWalletIdentity(address, "testnet");
+        if (!payer.address || !payer.accountId?.startsWith("0:")) {
+            return;
+        }
+
+        const paymentService = this._paymentApplicationBinding?.runtime?.paymentService;
+        if (typeof paymentService?.listPaymentIntentsForRoom !== "function"
+            || paymentService.listPaymentIntentsForRoom(roomId).length > 0) {
+            // Payer identities are immutable after any intent exists.
+            return;
+        }
+
+        for (const otherId of room.players) {
+            if (otherId !== playerId
+                && tonWalletAccountsEqual(this._playerManager.getIdentity(otherId)?.wallet, payer.address)) {
+                return;
+            }
+        }
+
+        if (!this._playerManager.getIdentity(playerId)
+            || !this._playerManager.updateIdentity(playerId, { wallet: payer.address })) {
+            return;
+        }
+
+        // No wallet reservation until all three independent registered payers
+        // and the server-owned Page2 stakes are available.
+        this._preparePaymentSessionIfEnabled(roomId, room);
+    }
+
     _preparePaymentSessionIfEnabled(roomId, room) {
         const binding = this._paymentApplicationBinding;
         if (!binding || typeof binding.prepareRoomPaymentSession !== "function") {
             return;
         }
-        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+        if (!this._paymentAcceptanceEnabled) {
             return;
         }
         if (!room || !Array.isArray(room.players) || room.players.length !== 3) {
@@ -5084,31 +5156,12 @@ export class RoomLobbyBridge {
             return;
         }
 
-        const paymentRequests = [];
-        for (const playerId of room.players) {
-            const runtime = this._playerManager.getRuntime?.(playerId);
-            const paymentConfig = runtime?.payment ?? runtime?.paymentRequest ?? null;
-            if (!paymentConfig || typeof paymentConfig !== "object") {
-                return;
-            }
-            if (typeof paymentConfig.expectedSender !== "string" || paymentConfig.expectedSender.trim() === "") {
-                return;
-            }
-            if (typeof paymentConfig.amountAtomic !== "number" || !Number.isSafeInteger(paymentConfig.amountAtomic) || paymentConfig.amountAtomic <= 0) {
-                return;
-            }
-            if (typeof paymentConfig.paymentReference !== "string" || paymentConfig.paymentReference.trim() === "") {
-                return;
-            }
-            paymentRequests.push({
-                playerId,
-                paymentReference: paymentConfig.paymentReference.trim(),
-                expectedSender: paymentConfig.expectedSender.trim(),
-                amountAtomic: paymentConfig.amountAtomic
-            });
-        }
-
-        if (paymentRequests.length !== 3) {
+        const paymentRequests = buildAuthoritativeRoomPaymentRequests({
+            roomId,
+            playerIds: room.players,
+            playerManager: this._playerManager
+        });
+        if (!paymentRequests) {
             return;
         }
 

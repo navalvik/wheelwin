@@ -40,6 +40,12 @@ on:
       - "server/payment/refund/RestoredRoomWalletSettlementFactory.js"
       - "server/payment/runtime/PaymentRuntimeFactory.js"
       - "server/payment/runtime/PaymentApplicationBinder.js"
+      - "server/payment/runtime/AuthoritativeRoomPaymentRequests.js"
+      - "server/tests/payment/authoritativeRoomPaymentRequests.test.js"
+      - "server/socket/RoomLobbyBridge.js"
+      - "server/socket/SocketGateway.js"
+      - "server/socket/lobbyProtocol.js"
+      - "server/events/EventTypes.js"
       - "server/tests/payment/paymentBinderPreparation.test.js"
       - "server/payment/runtime/RoomPaymentSessionAdapter.js"
       - "server/payment/RoomWalletPaymentService.js"
@@ -79,7 +85,7 @@ jobs:
       - run: node --test tests/payment/restoredRuntimeRefundPlanning.test.js tests/payment/walletPoolEnvPrecedence.test.js tests/payment/fractionalGramStakeRecovery.test.js
       - run: node --test tests/payment/page4ReconnectSocketIo.integration.test.js tests/payment/page4ReconnectPaymentRecovery.test.js tests/payment/paymentBinderPreparation.test.js tests/payment/roomPaymentSessionAdapter.test.js
       - run: node -e "import('./payment/runtime/PaymentRuntimeFactory.js').then(() => console.log('Payment runtime import OK'))"
-      - run: node --test tests/payment/page4RefundReadiness.contract.test.js
+      - run: node --test tests/payment/page4RefundReadiness.contract.test.js tests/payment/authoritativeRoomPaymentRequests.test.js
 
   client-build:
     runs-on: ubuntu-latest

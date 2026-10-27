@@ -21,7 +21,8 @@ export const OUTGOING_SOCKET_EVENTS = Object.freeze({
     // subscribed. The server resolves identity from the socket→player
     // binding and re-derives the status from the authoritative payment
     // runtime; the client payload is never trusted.
-    PAYMENT_STATUS_REQUEST: "PAYMENT_STATUS_REQUEST"
+    PAYMENT_STATUS_REQUEST: "PAYMENT_STATUS_REQUEST",
+    PAYMENT_WALLET_REGISTER: "PAYMENT_WALLET_REGISTER"
 });
 
 export const INCOMING_SOCKET_EVENTS = Object.freeze({

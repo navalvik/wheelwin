@@ -134,6 +134,7 @@ export const EVENT_TYPES = Object.freeze({
     // from Page4 after it mounts. Identity is resolved server-side from the
     // socket→player binding; the client payload is never trusted.
     LOBBY_PAYMENT_STATUS_REQUEST: "LOBBY_PAYMENT_STATUS_REQUEST",
+    LOBBY_PAYMENT_WALLET_REGISTER: "LOBBY_PAYMENT_WALLET_REGISTER",
 
     LOBBY_SOCKET_DISCONNECTED: "LOBBY_SOCKET_DISCONNECTED",
     LOBBY_SOCKET_DELIVERY: "LOBBY_SOCKET_DELIVERY",

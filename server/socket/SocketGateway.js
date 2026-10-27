@@ -830,6 +830,16 @@ export class SocketGateway {
 
         });
 
+        // Page4 may register its connected payer address, never a stake or room id.
+        // The authoritative socket binding is resolved by RoomLobbyBridge.
+        socket.on(LOBBY_CLIENT_EVENTS.PAYMENT_WALLET_REGISTER, (payload) => {
+            this._emitLobbyRequest(EVENT_TYPES.LOBBY_PAYMENT_WALLET_REGISTER, {
+                socketId: socket.id,
+                address: payload?.address ?? null,
+                chain: payload?.chain ?? null
+            });
+        });
+
         // R12.5G — observation-only. Never mutates gameplay / navigation.
         socket.on(LOBBY_CLIENT_EVENTS.PAGE6_CLIENT_DIAG, (payload) => {
 

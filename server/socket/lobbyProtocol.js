@@ -24,6 +24,7 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     // server resolves identity from the socket→player binding and re-derives
     // the status from the authoritative payment runtime.
     PAYMENT_STATUS_REQUEST: "PAYMENT_STATUS_REQUEST",
+    PAYMENT_WALLET_REGISTER: "PAYMENT_WALLET_REGISTER",
     // P6.2 — Telegram Wallet / TON Connect reports (connection only).
     WALLET_CONNECT_STARTED: "WALLET_CONNECT_STARTED",
     WALLET_CONNECT_REPORT: "WALLET_CONNECT_REPORT",
