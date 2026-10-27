@@ -40,6 +40,7 @@ test("native Testnet TonClient fee quote carries the real source fee sum",async(
             in_fwd_fee:100_000,storage_fee:300_000,gas_fee:400_000,fwd_fee:200_000
         }}),
         getBalance:async()=>3_000_000_000n,
+        getContractState:async()=>({state:"active"}),
         runMethod:async()=>({stack:{readNumber:()=>1}}),
         sendFile:async()=>{}
     }});
@@ -81,4 +82,56 @@ test("restored V4 adapter builds a wallet-signed ordinary transfer without real 
     assert.equal(submitted.code,"SENT");
     assert.ok(typeof observed==="string" && observed.length>50);
     // Mock acknowledgement is not proof of final on-chain delivery.
+});
+
+test("Testnet seqno 0 requires an explicitly uninitialized WalletV4 account",async()=>{
+    const wallet=catalog()[1];
+    let runCalls=0;
+    const fresh=new TestnetNativeTonService({client:{
+        getContractState:async()=>({state:"uninitialized"}),
+        runMethod:async()=>{runCalls++;throw new Error("must not call seqno on fresh wallet");}
+    }});
+    assert.equal(await fresh.getSeqno(wallet.address),0);
+    assert.equal(runCalls,0);
+    const frozen=new TestnetNativeTonService({client:{
+        getContractState:async()=>({state:"frozen"})
+    }});
+    await assert.rejects(frozen.getSeqno(wallet.address),/TESTNET_WALLET_STATE_UNAVAILABLE/);
+    const unknown=new TestnetNativeTonService({client:{
+        getContractState:async()=>{throw new Error("TESTNET_RPC_TIMEOUT");}
+    }});
+    await assert.rejects(unknown.getSeqno(wallet.address),/TESTNET_RPC_TIMEOUT/);
+    const brokenActive=new TestnetNativeTonService({client:{
+        getContractState:async()=>({state:"active"}),
+        runMethod:async()=>{throw new Error("SEQNO_RPC_TIMEOUT");}
+    }});
+    await assert.rejects(brokenActive.getSeqno(wallet.address),/SEQNO_RPC_TIMEOUT/);
+});
+
+test("WalletV4 adapter refuses fee quote and transfer when seqno RPC is unavailable",async()=>{
+    const wallets=catalog();
+    const resolver=createRoomWalletRuntimeResolver({
+        env:{TON_NETWORK:"testnet",ROOM_WALLETS_TESTNET_JSON:JSON.stringify(wallets)}
+    });
+    let broadcasts=0;
+    let estimates=0;
+    const adapter=new RoomWalletAdapter({
+        walletResolver:resolver,
+        tonService:{
+            getBalance:async()=>3_000_000_000n,
+            getSeqno:async()=>{throw new Error("SEQNO_RPC_TIMEOUT");},
+            estimateExternalMessageFee:async()=>{estimates++;return {totalFeeNano:1_000_000n};},
+            broadcastTransaction:async()=>{broadcasts++;return {status:"SUBMITTED"};}
+        }
+    });
+    const request={
+        roomNumber:2,destination:wallets[2].address,
+        amountNano:1_000_000_000n,bounce:false
+    };
+    const quote=await adapter.estimateOutboundTransferFee(request);
+    assert.equal(quote.ok,false);
+    assert.equal(quote.code,"FEE_ESTIMATION_UNAVAILABLE");
+    await assert.rejects(adapter.sendTransfer(request),/SEQNO_RPC_TIMEOUT/);
+    assert.equal(estimates,0);
+    assert.equal(broadcasts,0);
 });
