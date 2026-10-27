@@ -1,5 +1,8 @@
 name: Restored R2 game archive regression
 on:
+  push:
+    branches:
+      - restore/page3-wallet-to-page4-testnet
   pull_request:
     paths:
       - "server/forensic/**"
