@@ -73,7 +73,10 @@ test("failed R2 upload remains durable for recovery, never claims success", asyn
         assert.equal(status.phase, "upload");
         assert.equal(status.attempts, 2);
 
-        // Simulate a fresh server after the R2 credentials/network recover.
+        // Simulate a Railway restart: original ephemeral history/logs vanish,
+        // but the mounted-volume ZIP and status remain available.
+        rmSync(f.config.sessionHistoryDir, { recursive: true, force: true });
+        rmSync(f.config.diagnosticLogsDir, { recursive: true, force: true });
         uploader.shouldFail = false;
         const restarted = new ForensicArchiveService({ config: f.config, uploader });
         const recovery = await restarted.recoverPendingUploads();
