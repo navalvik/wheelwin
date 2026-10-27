@@ -139,6 +139,9 @@ export class RoomLobbyBridge {
         // room registry before it is reused.
         this._paymentApplicationBinding = paymentApplicationBinding;
 
+        // October private R2 game archive, reattached after room teardown.
+        this._forensicArchiveService = null;
+
         // R23 — Mainnet-side HTTP client for the R21 Testnet handoff
         // contract (claim/complete). Injected by WheelWinServer; never
         // instantiated here; the shared secret stays inside the client.
@@ -290,6 +293,14 @@ export class RoomLobbyBridge {
     configureRoomNetworkHandoffClient(handoffClient) {
 
         this._roomNetworkHandoffClient = handoffClient ?? null;
+
+        return this;
+
+    }
+
+    configureForensicArchiveService(service) {
+
+        this._forensicArchiveService = service ?? null;
 
         return this;
 
@@ -3370,6 +3381,22 @@ export class RoomLobbyBridge {
             });
 
             this._roomManager.destroyRoom(roomId);
+
+        // Archive only AFTER the terminal ROOM_DESTROYED record and diagnostic
+        // log are finalized. Never hold room teardown or gameplay timers while
+        // Cloudflare R2 is slow or unavailable.
+        if (this._forensicArchiveService) {
+            void this._forensicArchiveService.ensureArchivedAndUploaded({
+                roomId,
+                gameId,
+                reason: reason ?? "room_destroyed"
+            }).catch((error) => {
+                this._logger?.error?.(
+                    "R2_ARCHIVE_PENDING | roomId=" + roomId
+                    + " | code=" + (error?.code ?? "UPLOAD_FAILED")
+                );
+            });
+        }
 
             this._roomCreators.delete(roomId);
 
