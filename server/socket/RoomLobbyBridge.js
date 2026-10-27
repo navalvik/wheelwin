@@ -4889,7 +4889,25 @@ export class RoomLobbyBridge {
 
         if (intents.length === 0) {
 
-            failClosed(LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON);
+            if (this._paymentAcceptanceEnabled
+                && this._verifyBarrierCompletedByRoom.has(roomId)) {
+                // The three player wallets have not all registered yet.
+                // This is not a payable intent, but it is not a disabled
+                // server either. Do not expose a destination or amount.
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
+                    {
+                        roomId,
+                        playerId,
+                        status: "WAITING_FOR_WALLETS",
+                        paymentAcceptanceEnabled: true,
+                        reason: null
+                    }
+                );
+            } else {
+                failClosed(LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON);
+            }
             return;
         }
 

@@ -151,3 +151,29 @@ test("closed room, stale socket and disabled intake never register wallet", () =
     bridge._handlePaymentWalletRegister("new", wallet(1), "-3");
     assert.equal(identities.get(players[0]).wallet, null);
 });
+
+test("Page4 reports pending wallet registration rather than disabled payment when intake is enabled", () => {
+    const { manager } = fixtures();
+    const deliveries = [];
+    const bridge = new RoomLobbyBridge({
+        logger: { info() {}, warn() {}, error() {} },
+        eventBus: { emit: (event) => deliveries.push(event) },
+        roomManager: { getRoom: () => ({ roomId, players: [...players], status: "LOCKED" }) },
+        playerManager: manager,
+        paymentApplicationBinding: {
+            runtime: {
+                paymentService: { listPaymentIntentsForRoom: () => [] },
+                ledger: { store: { findByIdempotencyKey: () => null } }
+            }
+        },
+        paymentAcceptanceEnabled: true
+    });
+    bridge._verifyBarrierCompletedByRoom.add(roomId);
+    bridge._playerToSocket.set(players[0], "socket-0");
+    bridge._deliverPaymentStatusToSocket(roomId, players[0], "socket-0");
+    const payload = deliveries.at(-1)?.payload?.payload;
+    assert.equal(payload?.status, "WAITING_FOR_WALLETS");
+    assert.equal(payload?.paymentAcceptanceEnabled, true);
+    assert.equal(Object.hasOwn(payload, "destinationWalletAddress"), false);
+    assert.equal(Object.hasOwn(payload, "amountAtomic"), false);
+});
