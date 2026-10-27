@@ -6,6 +6,8 @@ import { join } from "node:path";
 
 import { buildPaymentRuntime } from "../../payment/runtime/PaymentRuntimeFactory.js";
 import { createRefundObligationId, RefundObligation } from "../../payment/refund/RefundObligation.js";
+import { PaymentIntent } from "../../payment/PaymentIntent.js";
+import { PAYMENT_INTENT_STATE } from "../../payment/PaymentIntentStatus.js";
 
 function fixture() {
     const root = mkdtempSync(join(tmpdir(), "wheelwin-restored-refund-runtime-"));
@@ -93,6 +95,54 @@ test("restored runtime without a settlement planner fails closed", async () => {
         runtime.refundStore.create(obligation);
         await assert.rejects(runtime.planPendingRefund(obligation.obligationId), /not attached/);
         assert.equal(runtime.refundStore.get(obligation.obligationId).state, "PENDING");
+    } finally {
+        f.cleanup();
+    }
+});
+
+test("pending refund retains its exact source wallet across restart even without a snapshot", () => {
+    const f = fixture();
+    try {
+        const dataDir = join(f.root, "payment-data");
+        const now = 1_800_000_000_000;
+        const first = buildPaymentRuntime({
+            dataDir, walletCatalogPath: f.catalogPath, nowProvider: () => now
+        });
+        first.initialize();
+        first.paymentService.reserveWalletForRoom({
+            roomId: "room-test", walletId: "room-wallet-2"
+        });
+        const payerAddress = `0:${"a".repeat(64)}`;
+        const intent = new PaymentIntent({
+            paymentReference: "payment-1", roomId: "room-test",
+            playerId: "bob", network: "testnet",
+            destinationWalletId: "room-wallet-2",
+            destinationWalletAddress: `0:${"2".padStart(64, "0")}`,
+            expectedSender: payerAddress, amountAtomic: 1_000_000_000,
+            asset: "TON", createdAt: now - 1_000, expiresAt: now + 1_000,
+            roomDeadlineMs: now + 2_000
+        });
+        first.intentStore.save(intent);
+        const matched = intent.transition(PAYMENT_INTENT_STATE.MATCHED, {
+            transactionId: "incoming-1", now
+        });
+        first.intentStore.update(matched);
+        first.intentStore.update(matched.transition(PAYMENT_INTENT_STATE.SETTLED, { now }));
+        first.refundStore.create(pendingObligation());
+        first.shutdown();
+
+        // Simulate loss of the public reservation snapshot, not of payment
+        // intents or durable refunds. Rebuild must never recycle wallet #2.
+        rmSync(join(dataDir, "testnet", "payment-core"), { recursive: true, force: true });
+        const recovered = buildPaymentRuntime({
+            dataDir, walletCatalogPath: f.catalogPath, nowProvider: () => now
+        });
+        recovered.initialize();
+        assert.equal(recovered.walletPool.getReservationForRoom("room-test").walletId, "room-wallet-2");
+        assert.equal(recovered.walletPool.getAvailableCount(), 63);
+        assert.equal(recovered.paymentService.countOpenObligations("room-test"), 1);
+        assert.throws(() => recovered.paymentService.releaseWalletForRoom("room-test"), /obligation|recycl/i);
+        assert.equal(recovered.refundStore.listPending().length, 1);
     } finally {
         f.cleanup();
     }
