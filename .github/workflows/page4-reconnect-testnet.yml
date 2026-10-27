@@ -1,0 +1,31 @@
+name: Testnet Page4 reconnect regression
+on:
+  push:
+    branches:
+      - restore/page3-wallet-to-page4-testnet
+    paths:
+      - "client/src/pages/Page4Payment.jsx"
+      - "client/src/pages/page4PaymentStatusRecovery.js"
+      - "client/src/tests/page4PaymentStatusRecovery.test.js"
+      - "client/src/payment/buildRoomWalletTonConnectRequest.js"
+      - ".github/workflows/page4-reconnect-testnet.yml"
+  workflow_dispatch:
+jobs:
+  client-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --import ./scripts/register.js src/tests/page4PaymentStatusRecovery.test.js
+      - run: node --test tests/roomWalletTonConnectRequest.test.js
+      - run: npm run build
