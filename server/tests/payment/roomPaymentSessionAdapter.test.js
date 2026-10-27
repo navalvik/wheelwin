@@ -719,23 +719,29 @@ async function run() {
         });
 
         await withHarness({}, (h) => {
+            // Payment requirements use integer nanoton, not integer Gram.
+            // A one-nanoton amount is representable even though the UI
+            // normally offers larger stakes (including 1.5 Gram).
             const descriptor = makeDescriptor({
-                roomId: "room-unrepresentable-denomination",
+                roomId: "room-one-nanoton-denomination",
                 requiredPlayers: [{
-                    roomId: "room-unrepresentable-denomination",
-                    paymentReference: "WW-ONE-NANOTON-UNREPRESENTABLE",
+                    roomId: "room-one-nanoton-denomination",
+                    paymentReference: "WW-ONE-NANOTON-VALID",
                     playerId: "one-nanoton-player",
                     expectedSender: syntheticAddress("one-nanoton-sender"),
                     amountAtomic: 1
                 }]
             });
-            throws(() => h.adapter.prepareRoom(descriptor), RoomPaymentSessionValidationError,
-                "one nanotons cannot represent an exact whole-Gram payment");
-            equal(intentEntries(h.service, descriptor.roomId).length, 0,
-                "unrepresentable amount creates no payment intents");
-            equal(h.service.getWalletForRoom(descriptor.roomId), null,
-                "unrepresentable amount reserves no room wallet");
-            equal(h.ledger.store.size, 0, "unrepresentable amount writes no ledger entries");
+            const prepared = h.adapter.prepareRoom(descriptor);
+            equal(prepared.payments[0].amountAtomic, 1,
+                "integer nanoton remains exact in the prepared session");
+            equal(intentEntries(h.service, descriptor.roomId).length, 1,
+                "valid atomic amount creates one payment intent");
+            check(Boolean(h.service.getWalletForRoom(descriptor.roomId)),
+                "valid atomic amount reserves a room wallet");
+            equal(h.ledger.store.listForRoom(descriptor.roomId).filter(
+                (entry) => entry.kind === LEDGER_ENTRY_KIND.PLAYER_STAKE
+            ).length, 1, "valid atomic amount records one stake");
         });
     });
 
