@@ -1501,7 +1501,14 @@ async function run() {
             try {
                 equal(restarted.service.getWalletForRoom(roomId), null,
                     "restart reconciliation releases the reservation with no open obligations");
-                restarted.adapter.prepareRoom(descriptor);
+                const beforeReadOnlyGate = durablePreparationSnapshot(restarted, roomId);
+                const beforeRecoveryGate = restarted.adapter.getGameStartGateStatus(
+                    roomId, requiredPlayers.map((payment) => payment.playerId)
+                );
+                equal(beforeRecoveryGate.eligible, false,
+                    "restart cannot start gameplay before durable principal replay");
+                deepEqual(durablePreparationSnapshot(restarted, roomId), beforeReadOnlyGate,
+                    "lazy session recovery performs no durable writes");
                 equal(principalEntries(restarted.ledger, roomId).length, 0,
                     "reloaded ledger still has no principal before recovery");
 
@@ -1540,6 +1547,11 @@ async function run() {
                 }
                 equal(restarted.fetchCalls, 0,
                     "already-settled recovery performs no provider query");
+                const recoveredGate = restarted.adapter.getGameStartGateStatus(
+                    roomId, requiredPlayers.map((payment) => payment.playerId)
+                );
+                equal(recoveredGate.eligible, true,
+                    "durably recovered three-player principal unlocks the gate without re-preparation");
 
                 const replay = await restarted.adapter.observeRoomPayments({ roomId });
                 equal(replay.report.mode, "PERSISTED_SETTLEMENT_RECOVERY",
