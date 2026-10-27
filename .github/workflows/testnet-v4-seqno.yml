@@ -3,6 +3,12 @@ on:
   push:
     branches:
       - fix/testnet-v4-seqno-rpc-fail-closed-20261027
+  pull_request:
+    paths:
+      - 'server/payment/roomWallet/RoomWalletAdapter.js'
+      - 'server/payment/roomWallet/TestnetNativeTonService.js'
+      - 'server/tests/payment/legacyRoomWalletV4.test.js'
+      - '.github/workflows/testnet-v4-seqno.yml'
   workflow_dispatch:
 jobs:
   seqno-regression:
