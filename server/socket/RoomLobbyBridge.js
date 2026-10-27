@@ -298,6 +298,33 @@ export class RoomLobbyBridge {
 
     }
 
+    /**
+     * Queue the October private R2 archive after the terminal room record.
+     * Never await network I/O or allow an archive failure to affect gameplay.
+     */
+    _queueForensicArchive(roomId, gameId, reason) {
+        if (!this._forensicArchiveService) {
+            return;
+        }
+        try {
+            Promise.resolve(this._forensicArchiveService.ensureArchivedAndUploaded({
+                roomId,
+                gameId,
+                reason
+            })).catch((error) => {
+                this._logger?.error?.(
+                    "R2_ARCHIVE_PENDING | roomId=" + roomId
+                    + " | code=" + (error?.code ?? "UPLOAD_FAILED")
+                );
+            });
+        } catch (error) {
+            this._logger?.error?.(
+                "R2_ARCHIVE_PENDING | roomId=" + roomId
+                + " | code=" + (error?.code ?? "ARCHIVE_START_FAILED")
+            );
+        }
+    }
+
     configureForensicArchiveService(service) {
 
         this._forensicArchiveService = service ?? null;
@@ -3381,22 +3408,11 @@ export class RoomLobbyBridge {
             });
 
             this._roomManager.destroyRoom(roomId);
-
-        // Archive only AFTER the terminal ROOM_DESTROYED record and diagnostic
-        // log are finalized. Never hold room teardown or gameplay timers while
-        // Cloudflare R2 is slow or unavailable.
-        if (this._forensicArchiveService) {
-            void this._forensicArchiveService.ensureArchivedAndUploaded({
+            this._queueForensicArchive(
                 roomId,
-                gameId,
-                reason: reason ?? "room_destroyed"
-            }).catch((error) => {
-                this._logger?.error?.(
-                    "R2_ARCHIVE_PENDING | roomId=" + roomId
-                    + " | code=" + (error?.code ?? "UPLOAD_FAILED")
-                );
-            });
-        }
+                this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId) ?? null,
+                "empty_room"
+            );
 
             this._roomCreators.delete(roomId);
 
@@ -3706,6 +3722,7 @@ export class RoomLobbyBridge {
         });
 
         this._roomManager.destroyRoom(roomId);
+        this._queueForensicArchive(roomId, gameId, reason ?? "room_destroyed");
 
         this._roomCreators.delete(roomId);
 
