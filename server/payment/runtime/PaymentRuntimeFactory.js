@@ -402,7 +402,7 @@ export function buildPaymentRuntime(options = {}) {
 
         /**
          * Read-only reconciliation preparation for a durable pending refund.
-         * Does not sign, broadcast, or modify the refund ledger.
+         * May prepare a signed fee-estimation BOC via the injected planner;\n         * never broadcasts or changes the refund ledger.
          */
         async planPendingRefund(obligationId) {
             if (!state.initialized) {
@@ -414,6 +414,13 @@ export function buildPaymentRuntime(options = {}) {
             const obligation = refundStore.get(obligationId);
             if (!obligation) {
                 throw new Error("refund obligation not found");
+            }
+            // A failed or ambiguous prior submission must be reconciled,
+            // never planned again as if it were a fresh refund.
+            if (obligation.state !== "PENDING" ||
+                obligation.networkName !== REFUND_NETWORK.TESTNET ||
+                obligation.globalId !== identity.globalId) {
+                throw new Error("refund obligation is not pending on TON Testnet");
             }
             return restoredSettlement.planDurableRefund(obligation);
         },
