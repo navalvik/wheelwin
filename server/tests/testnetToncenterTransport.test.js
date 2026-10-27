@@ -51,6 +51,25 @@ test("fee estimate returns precise bigint components and rejects missing evidenc
         inFwdFeeNano: 2n, storageFeeNano: 3n,
         gasFeeNano: 5n, fwdFeeNano: 7n, totalFeeNano: 17n
     });
+    // Toncenter often serializes fee values as decimal strings. Do not
+    // reject valid RPC evidence or round amounts through Number.
+    client.estimateExternalMessageFee = async () => ({
+        source_fees: {
+            in_fwd_fee: "2", storage_fee: "0",
+            gas_fee: "9007199254740993", fwd_fee: "7"
+        }
+    });
+    const stringFee = await transport.estimateExternalMessageFee(address, {
+        body: beginCell().endCell()
+    });
+    assert.equal(stringFee.gasFeeNano, 9007199254740993n);
+    assert.equal(stringFee.totalFeeNano, 9007199254741002n);
+    client.estimateExternalMessageFee = async () => ({
+        source_fees: { in_fwd_fee: "1.5", storage_fee: "0", gas_fee: "5", fwd_fee: "7" }
+    });
+    await assert.rejects(transport.estimateExternalMessageFee(address, {
+        body: beginCell().endCell()
+    }), /invalid Testnet fee component/);
     client.estimateExternalMessageFee = async () => ({ source_fees: { in_fwd_fee: 1 } });
     await assert.rejects(transport.estimateExternalMessageFee(address, {
         body: beginCell().endCell()
