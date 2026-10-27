@@ -41,7 +41,7 @@ test("restored R2 archive ZIP contains room artifacts and uploads once", async (
             roomId: "Abc", gameId: "game-1", reason: "game_completed"
         });
         assert.equal(result.uploaded, true);
-        assert.match(result.archiveFilename, /_COMPLETED\\.zip$/);
+        assert.match(result.archiveFilename, /_COMPLETED\.zip$/);
         assert.equal(uploader.uploads.length, 1);
         const zip = readFileSync(uploader.uploads[0].localPath);
         assert.equal(zip.subarray(0, 2).toString(), "PK");
