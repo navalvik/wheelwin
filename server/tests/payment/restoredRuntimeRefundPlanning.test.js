@@ -78,6 +78,16 @@ test("restored runtime plans a persisted pending refund without moving funds", a
         assert.equal(runtime.getCapabilities().livePaymentAcceptanceEnabled, false);
         assert.equal(runtime.getCapabilities().outgoingRefundTransfersEnabled, false);
         await assert.rejects(runtime.planPendingRefund("unknown"), /not found/);
+        // A refund whose prior attempt was blocked must not be planned again.
+        runtime.refundStore.markBlocked(obligation.obligationId, {
+            lastError: "TEST_RECONCILIATION_HOLD"
+        });
+        await assert.rejects(
+            runtime.planPendingRefund(obligation.obligationId),
+            /not pending on TON Testnet/
+        );
+        assert.equal(seen.length, 1, "blocked refund never reaches planner");
+        assert.equal(runtime.refundStore.get(obligation.obligationId).state, "BLOCKED");
     } finally {
         f.cleanup();
     }
