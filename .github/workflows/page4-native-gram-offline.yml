@@ -5,11 +5,14 @@ on:
       - restore/page4-native-gram-ui-main-20261026
     paths:
       - "client/src/pages/Page4Payment.jsx"
+      - "client/src/socket/socketEvents.js"
+      - "client/src/tests/page4ProtocolContract.test.js"
       - ".github/workflows/page4-native-gram-offline.yml"
   pull_request:
     paths:
       - "client/src/payment/**"
       - "client/src/pages/Page4Payment.jsx"
+      - "client/src/socket/socketEvents.js"
       - "client/src/tests/page4Payment.render.test.js"
       - "client/src/tests/page4ProtocolContract.test.js"
       - "server/socket/RoomLobbyBridge.js"
@@ -44,7 +47,9 @@ jobs:
           node --test src/payment/nativeGramWalletSubmission.test.js
           node --test src/payment/tonConnectUIAdapter.test.js
       - name: Page4 server-client protocol contract
-        run: node src/tests/page4ProtocolContract.test.js
+        run: |
+          node --check src/socket/socketEvents.js
+          node src/tests/page4ProtocolContract.test.js
       - name: Page4 fail-closed render
         run: node src/tests/page4Payment.render.test.js
       - name: Install server dependencies
