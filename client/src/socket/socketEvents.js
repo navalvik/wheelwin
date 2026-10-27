@@ -64,7 +64,7 @@ export const INCOMING_SOCKET_EVENTS = Object.freeze({
 
 export const SOCKET_MESSAGE_CHANNEL = "game:message";
 
-/"R1.3D — lobby client command (raw socket emit, not game:message). */
+/* R1.3D — lobby client command (raw socket emit, not game:message). */
 export const LOBBY_OUTGOING_EVENTS = Object.freeze({
     DEBUG_START_GAME: "DEBUG_START_GAME",
     /** R6.4 — leave the finished room before client session reset. */
