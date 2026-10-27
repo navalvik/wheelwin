@@ -27,7 +27,7 @@ const TESTNET_PAYER = `0:${"a".repeat(64)}`;
 
 let assertions = 0;
 let sections = 0;
-const TOTAL_SECTIONS = 6;
+const TOTAL_SECTIONS = 7;
 
 function check(value, message) { assert.ok(value, message); assertions += 1; }
 function equal(actual, expected, message) { assert.equal(actual, expected, message); assertions += 1; }
@@ -346,6 +346,51 @@ async function run() {
                 PaymentExecutionBlockedError, "room with only two seats cannot prepare payments");
             equal(runtime.paymentService.listPaymentIntentsForRoom(roomId).length, 0,
                 "invalid room roster creates no payable intents");
+            paymentRuntimeShutdown(runtime);
+        } finally { t.cleanup(); }
+    });
+
+    await section("bounded observation uses persisted three-player settlement and refuses a closed room", async () => {
+        const t = makeTemp();
+        try {
+            const { runtime, setPayload } = buildRuntime(t.root, t.catalogPath);
+            const roomId = "room-binder-observation";
+            const descriptor = threePlayerDescriptor(roomId);
+            const roomManager = minimalRoomManager(
+                roomId, CREATED_AT, descriptor.requiredPlayers.map((row) => row.playerId)
+            );
+            const binding = bindPaymentRuntimeToApplication(runtime, {
+                roomManager, gameStartAuthorization: { configurePaymentGate: () => {} },
+                paymentAcceptanceEnabled: true
+            });
+            binding.prepareRoomPaymentSession(roomId, descriptor.requiredPlayers);
+            const wallet = runtime.paymentService.getWalletForRoom(roomId);
+            const intents = runtime.paymentService.listPaymentIntentsForRoom(roomId);
+            equal(intents.length, 3, "observation uses exactly three durable payment intents");
+            setPayload(emptyPayload(...intents.map((intent) => transactionFor(intent, wallet))));
+            const observed = await binding.observePreparedRoomPayments(roomId);
+            equal(observed.gate.eligible, true,
+                "three independently observed settled intents open the authoritative payment gate");
+            equal(runtime.ledger.store.listForRoom(roomId).filter(
+                (entry) => entry.kind === LEDGER_ENTRY_KIND.INCOMING_PRINCIPAL
+            ).length, 3, "one verified principal is durably recorded for each player");
+
+            // Simulate room closure while an in-flight RPC resolves. Even
+            // already-settled records cannot authorize a destroyed room.
+            const originalObserve = runtime.sessionAdapter.observeRoomPayments.bind(runtime.sessionAdapter);
+            runtime.sessionAdapter.observeRoomPayments = async (request) => {
+                const result = await originalObserve(request);
+                roomManager.getRoom(roomId).status = "DESTROYED";
+                return result;
+            };
+            const afterClose = await binding.observePreparedRoomPayments(roomId);
+            equal(afterClose.gate.eligible, false,
+                "room destruction during observation prevents a Page5 authorization");
+            await assert.rejects(
+                binding.observePreparedRoomPayments(roomId),
+                PaymentExecutionBlockedError
+            );
+            assertions += 1;
             paymentRuntimeShutdown(runtime);
         } finally { t.cleanup(); }
     });
