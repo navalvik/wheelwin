@@ -292,6 +292,7 @@ export function buildPaymentRuntime(options = {}) {
         store: refundStore,
         intentStore,
         ledgerStore,
+        walletPool,
         nowProvider,
         logger,
         outgoingRefundProvider
