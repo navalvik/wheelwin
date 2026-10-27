@@ -391,13 +391,8 @@ export class RoomPaymentSessionAdapter {
             if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) {
                 fail("amountAtomic must be a positive safe integer", { index, amountAtomic });
             }
-            if (amountAtomic % denomination.atomicUnitsPerUnit !== 0) {
-                fail("amountAtomic must be an exact multiple of the configured payment denomination", {
-                    index,
-                    amountAtomic,
-                    atomicUnitsPerUnit: denomination.atomicUnitsPerUnit
-                });
-            }
+            // Atomic amounts are integer nanoton; 1.5 Gram is valid.
+            // The positive safe-integer check above rejects fractional nanoton.
             if (references.has(paymentReference)) {
                 fail("payment references must be unique", { paymentReference });
             }
