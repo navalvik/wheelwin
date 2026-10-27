@@ -389,18 +389,14 @@ export class RoomWalletPaymentService {
         // D2 — reject when the asset/denomination mapping is not configured.
         const mapping = this._assetRegistry.requireMapping(requestedNetwork, asset);
 
-        // Integer-only amount validation against the explicit mapping.
-        if (amountAtomic % mapping.atomicUnitsPerUnit !== 0) {
+        // TON amounts are exact integer nanoton values, not whole-Gram
+        // multiples. A 1.5 Gram sector costs 1_500_000_000 nanoton.
+        // Reject fractional nanoton and unsafe integers before reserving a wallet.
+        if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) {
 
             throw new PaymentValidationError(
-                "amountAtomic is not an exact multiple of the configured "
-                    + "atomic-unit denomination",
-                {
-                    amountAtomic,
-                    atomicUnitsPerUnit: mapping.atomicUnitsPerUnit,
-                    asset: mapping.asset,
-                    network: requestedNetwork
-                }
+                "amountAtomic must be a positive safe integer of atomic units",
+                { asset: mapping.asset, network: requestedNetwork }
             );
 
         }
@@ -1265,7 +1261,7 @@ export class RoomWalletPaymentService {
                 intent.asset
             );
 
-            if (intent.amountAtomic % mapping.atomicUnitsPerUnit !== 0
+            if (!Number.isSafeInteger(intent.amountAtomic) || intent.amountAtomic <= 0
                 || intent.roomDeadlineMs <= intent.createdAt
                 || intent.roomDeadlineMs > intent.createdAt + ROOM_LIFETIME_MS) {
 
