@@ -44,6 +44,9 @@ import { TimerService } from "./services/TimerService.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
+import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
+import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
+import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -215,6 +218,8 @@ class WheelWinApplication {
         this._gameDiagnosticLogManager = null;
 
         this._sessionHistoryArchive = null;
+
+        this._forensicArchiveService = null;
 
         this._resultSessionLifecycle = null;
 
@@ -1586,6 +1591,43 @@ class WheelWinApplication {
         this._sessionHistoryArchive.rebuildIndexFromDisk();
 
         this._logger.startupLine("SessionHistoryArchiveManager");
+
+        // Restore October's private R2 ZIP archive path, using current
+        // session-history and diagnostic logs only. No escrow/contract code.
+        // Upload is queued after room destruction, never in the game timer.
+        try {
+            const archiveConfig = resolveForensicArchiveConfig();
+            const archiveUploader = new R2ForensicArchiveUploader({
+                logger: this._logger,
+                bucket: archiveConfig.bucket,
+                prefix: archiveConfig.prefix,
+                endpoint: archiveConfig.endpoint,
+                accessKeyId: archiveConfig.accessKeyId,
+                secretAccessKey: archiveConfig.secretAccessKey,
+                accountId: archiveConfig.accountId
+            });
+            this._forensicArchiveService = new ForensicArchiveService({
+                logger: this._logger,
+                config: archiveConfig,
+                uploader: archiveUploader,
+                sessionHistoryArchive: this._sessionHistoryArchive
+            });
+            this._roomLobbyBridge.configureForensicArchiveService(
+                this._forensicArchiveService
+            );
+            this._logger.startupLine(
+                "R2ForensicArchive (enabled="
+                + archiveConfig.enabled
+                + " | configured=" + archiveUploader.isConfigured() + ")"
+            );
+        } catch (error) {
+            this._forensicArchiveService = null;
+            this._logger.warn?.(
+                "R2ForensicArchive unavailable; game continues | code="
+                + (error?.code ?? "ARCHIVE_INIT_FAILED")
+            );
+        }
+
 
         // R6.1 / R7.0C — Secure Developer Access from immutable runtime config.
         this._developerAuthService = new DeveloperAuthService({
