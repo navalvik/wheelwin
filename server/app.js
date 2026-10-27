@@ -1578,6 +1578,9 @@ class WheelWinApplication {
         });
 
         // R7.0 — Immutable session lifecycle history (observe-only archive).
+        // On Railway, keep history in the existing mounted volume so it can
+        // survive a restart and support later R2 archive reconciliation.
+        const archiveConfig = resolveForensicArchiveConfig();
         this._sessionHistoryArchive = SessionHistoryArchiveManager.getInstance();
 
         this._sessionHistoryArchive.initialize({
@@ -1585,7 +1588,8 @@ class WheelWinApplication {
             projectionService: this._consoleProjectionService,
             roomLobbyBridge: this._roomLobbyBridge,
             playerManager: this._managers.playerManager,
-            loggingManager: LoggingManager.getInstance()
+            loggingManager: LoggingManager.getInstance(),
+            directory: archiveConfig.sessionHistoryDir
         });
 
         this._sessionHistoryArchive.rebuildIndexFromDisk();
@@ -1596,7 +1600,6 @@ class WheelWinApplication {
         // session-history and diagnostic logs only. No escrow/contract code.
         // Upload is queued after room destruction, never in the game timer.
         try {
-            const archiveConfig = resolveForensicArchiveConfig();
             const archiveUploader = new R2ForensicArchiveUploader({
                 logger: this._logger,
                 bucket: archiveConfig.bucket,
