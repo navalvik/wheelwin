@@ -497,9 +497,14 @@ export class RoomWalletAdapter {
         let seqno = 0;
         try {
             seqno = await this._tonService.getSeqno(identity.address);
-        } catch {
-            // A fresh/uninitialized V4 wallet has no readable seqno. Its first
-            // outbound transaction must include StateInit and use seqno 0.
+        } catch (error) {
+            // Only a positively identified uninitialized wallet may start at
+            // seqno 0. An RPC timeout, 429 or malformed response is NOT proof
+            // of an unused wallet: silently treating it as seqno 0 could
+            // construct an invalid transfer and strand a refund/payout.
+            if (error?.code !== "WALLET_UNINITIALIZED") {
+                throw error;
+            }
             seqno = 0;
         }
 
