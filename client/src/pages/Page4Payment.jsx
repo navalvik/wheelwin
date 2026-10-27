@@ -32,21 +32,25 @@ const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
 export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
     const { roomId, playerId } = identity ?? {};
-    const [payment, setPayment] = useState({status: "PAYMENT_UNAVAILABLE", paymentAcceptanceEnabled: false});
+    const identityKey = roomId && playerId ? roomId + ":" + playerId : null;
+    const [paymentState, setPaymentState] = useState(null);
+    // An identity change must never expose the previous player's payment details.
+    const payment = identityKey && paymentState?.identityKey === identityKey
+        ? paymentState.payload
+        : { status: "PAYMENT_UNAVAILABLE", paymentAcceptanceEnabled: false };
     const [tonConnectUI] = useTonConnectUI();
     const connectedWallet = useTonWallet();
     const [sending, setSending] = useState(false);
-    const [sentToWallet, setSentToWallet] = useState(false);
-    const [paymentError, setPaymentError] = useState(null);
+    const [sentToWalletIdentity, setSentToWalletIdentity] = useState(null);
+    const sentToWallet = identityKey && sentToWalletIdentity === identityKey;
+    const [paymentErrorState, setPaymentErrorState] = useState(null);
+    const paymentError = paymentErrorState?.identityKey === identityKey
+        ? paymentErrorState.message : null;
     const status = payment.status;
 
     useEffect(() => {
-        // Identity changes must never display the previous player's payable
-        // destination or permit an accidental second wallet submission.
-        setPayment({ status: "PAYMENT_UNAVAILABLE", paymentAcceptanceEnabled: false });
-        setSending(false);
-        setSentToWallet(false);
-        setPaymentError(null);
+        // The displayed status is identity-keyed, so old payment data is
+        // hidden immediately without a synchronous state update in an effect.
         if (!roomId || !playerId) return undefined;
 
         function handlePaymentStatus(payload) {
@@ -55,7 +59,7 @@ export default function Page4Payment() {
                 || typeof payload.status !== "string") {
                 return;
             }
-            setPayment(payload);
+            setPaymentState({ identityKey: roomId + ":" + playerId, payload });
         }
 
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
@@ -93,17 +97,17 @@ export default function Page4Payment() {
         && status === "AWAITING_PAYMENT";
     async function initiatePayment() {
         if (!payable || sending || sentToWallet || !walletMatches) return;
-        setPaymentError(null);
+        setPaymentErrorState(null);
         setSending(true);
         try {
             const transaction = buildRoomWalletTonConnectRequest(payment);
             await tonConnectUI.sendTransaction(transaction);
             // TonConnect acknowledgement is NOT a blockchain confirmation.
             // Prevent repeat submits; only the server can mark the seat SETTLED.
-            setSentToWallet(true);
+            setSentToWalletIdentity(identityKey);
             socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId});
         } catch (error) {
-            setPaymentError(error?.message ?? "Wallet rejected payment");
+            setPaymentErrorState({ identityKey, message: error?.message ?? "Wallet rejected payment" });
         } finally {
             setSending(false);
         }
