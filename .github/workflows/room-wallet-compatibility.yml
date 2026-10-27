@@ -32,6 +32,8 @@ on:
       - "server/tests/restoredPositiveRefundPlan.test.js"
       - "server/payment/refund/RestoredRoomWalletSettlementFactory.js"
       - "server/payment/runtime/PaymentRuntimeFactory.js"
+      - "server/payment/WalletPoolRegistry.js"
+      - "server/tests/payment/walletPoolEnvPrecedence.test.js"
       - "server/tests/payment/restoredRuntimeRefundPlanning.test.js"
       - "server/tests/restoredSettlementFactory.test.js"
       - ".github/workflows/room-wallet-compatibility.yml"
@@ -60,7 +62,7 @@ jobs:
       - run: node --test tests/protectedTestnetRoomWalletKeys.test.js
       - run: node --test tests/legacyRoomWalletIdentityBridge.test.js tests/restoredRoomWalletAdapterIntegration.test.js tests/restoredRoomWalletRefundOffline.test.js tests/legacyRefundPlanningBridge.test.js tests/restoredPositiveRefundPlan.test.js tests/restoredSettlementFactory.test.js
       - run: node --check payment/runtime/PaymentRuntimeFactory.js
-      - run: node --test tests/payment/restoredRuntimeRefundPlanning.test.js
+      - run: node --test tests/payment/restoredRuntimeRefundPlanning.test.js tests/payment/walletPoolEnvPrecedence.test.js
       - run: node -e "import('./payment/runtime/PaymentRuntimeFactory.js').then(() => console.log('Payment runtime import OK'))"
 
   client-build:
