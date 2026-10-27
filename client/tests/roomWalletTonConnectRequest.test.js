@@ -40,6 +40,7 @@ test("wallet must be same account and explicitly connected to Testnet", () => {
 test("do not request payment when authority, amount, deadline, or chain is wrong", () => {
     for (const modified of [
         {paymentAcceptanceEnabled:false}, {status:"SETTLED"},
+        {status:"CONFIRMING_PAYMENT"}, {status:"MATCHED"},
         {network:"mainnet"}, {asset:"JETTON"},
         {amountAtomic:0},{amountAtomic:NaN},
         {paymentReference:"bad ref"},{destinationWalletAddress:FROM},
