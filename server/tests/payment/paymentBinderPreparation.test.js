@@ -27,7 +27,7 @@ const TESTNET_PAYER = `0:${"a".repeat(64)}`;
 
 let assertions = 0;
 let sections = 0;
-const TOTAL_SECTIONS = 5;
+const TOTAL_SECTIONS = 6;
 
 function check(value, message) { assert.ok(value, message); assertions += 1; }
 function equal(actual, expected, message) { assert.equal(actual, expected, message); assertions += 1; }
@@ -306,6 +306,46 @@ async function run() {
             equal(runtime.paymentService.getWalletForRoom("room-missing"), null,
                 "rejected preparation reserves no wallet");
             equal(runtime.ledger.store.size, 0, "rejected preparation writes no ledger records");
+            paymentRuntimeShutdown(runtime);
+        } finally { t.cleanup(); }
+    });
+
+    await section("test-only binder refuses partial, duplicate, foreign and oversized payment rosters", async () => {
+        const t = makeTemp();
+        try {
+            const { runtime } = buildRuntime(t.root, t.catalogPath);
+            const roomId = "room-binder-roster";
+            const descriptor = threePlayerDescriptor(roomId);
+            const playerIds = descriptor.requiredPlayers.map((payment) => payment.playerId);
+            const roomManager = minimalRoomManager(roomId, CREATED_AT, playerIds);
+            const binding = bindPaymentRuntimeToApplication(runtime, {
+                roomManager, gameStartAuthorization: { configurePaymentGate: () => {} },
+                paymentAcceptanceEnabled: true
+            });
+            const valid = descriptor.requiredPlayers;
+            const invalidRosters = [
+                valid.slice(0, 2),
+                [valid[0], valid[0], valid[2]],
+                [valid[0], valid[1], { ...valid[2], playerId: "foreign-player" }],
+                [...valid, { ...valid[0], playerId: "fourth-player", paymentReference: "WW-BINDER-FOURTH" }]
+            ];
+            for (const invalid of invalidRosters) {
+                throws(() => binding.prepareRoomPaymentSession(roomId, invalid),
+                    PaymentExecutionBlockedError, "non-authoritative roster is rejected");
+                equal(runtime.paymentService.listPaymentIntentsForRoom(roomId).length, 0,
+                    "invalid roster creates no payable intents");
+                equal(runtime.paymentService.getWalletForRoom(roomId), null,
+                    "invalid roster reserves no wallet");
+            }
+            const partialRoom = minimalRoomManager(roomId, CREATED_AT, playerIds.slice(0, 2));
+            const partialBinding = bindPaymentRuntimeToApplication(runtime, {
+                roomManager: partialRoom,
+                paymentAcceptanceEnabled: true
+            });
+            throws(() => partialBinding.prepareRoomPaymentSession(roomId, valid),
+                PaymentExecutionBlockedError, "room with only two seats cannot prepare payments");
+            equal(runtime.paymentService.listPaymentIntentsForRoom(roomId).length, 0,
+                "invalid room roster creates no payable intents");
             paymentRuntimeShutdown(runtime);
         } finally { t.cleanup(); }
     });
