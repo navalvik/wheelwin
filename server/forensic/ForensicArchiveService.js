@@ -5,7 +5,7 @@ import {
     readFileSync,
     renameSync
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 
 import { ForensicArchiveCollector, writeStagingStatus } from "./ForensicArchiveCollector.js";
 import {
@@ -84,6 +84,47 @@ export class ForensicArchiveService {
             }
             const status = readStatus(join(this._config.stagingDir, entry.name, "status.json"));
             if (!status || status.state === "uploaded" || !status.roomId) {
+                continue;
+            }
+            const roomStagingDir = resolve(this._config.stagingDir, entry.name);
+            const stagedZip = typeof status.zipPath === "string"
+                ? resolve(status.zipPath)
+                : null;
+            // The original history may be gone after a Railway restart. The
+            // immutable ZIP is the durable retry source on the mounted volume.
+            if (stagedZip
+                && typeof status.archiveFilename === "string"
+                && relative(roomStagingDir, stagedZip) === status.archiveFilename
+                && basename(stagedZip) === status.archiveFilename
+                && existsSync(stagedZip)) {
+                try {
+                    const upload = await this._uploader.uploadFile(
+                        stagedZip, status.archiveFilename
+                    );
+                    writeStagingStatus(join(roomStagingDir, "status.json"), {
+                        ...status,
+                        state: "uploaded",
+                        objectName: upload.objectName,
+                        generation: upload.generation,
+                        attempts: Number(status.attempts ?? 0) + 1,
+                        uploadedAt: Date.now()
+                    });
+                    report.push({ roomId: status.roomId, uploaded: true });
+                } catch (error) {
+                    writeStagingStatus(join(roomStagingDir, "status.json"), {
+                        ...status,
+                        state: "failed",
+                        phase: "upload",
+                        attempts: Number(status.attempts ?? 0) + 1,
+                        error: error?.code ?? "UPLOAD_FAILED",
+                        updatedAt: Date.now()
+                    });
+                    report.push({ roomId: status.roomId, uploaded: false });
+                    this._logError(
+                        "R2_ARCHIVE_RECOVERY_PENDING | roomId=" + status.roomId
+                        + " | code=" + (error?.code ?? "UPLOAD_FAILED")
+                    );
+                }
                 continue;
             }
             try {
