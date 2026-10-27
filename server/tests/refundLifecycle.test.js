@@ -252,3 +252,55 @@ for (const confirmedCount of [1, 2, 0, 3]) {
 }
 
 console.log("Refund lifecycle tests passed");
+
+
+{
+    // RoomManager's numeric room slot can differ from the actual reserved
+    // wallet number when an earlier room still holds a pending refund.
+    // Refunds must always target the wallet that received the deposits.
+    const h = harness(1);
+    try {
+        h.coordinator._walletPool = {
+            getWallet(id) {
+                return id === "wallet-testnet" ? {
+                    walletId: id, roomNumber: 12, network: "testnet",
+                    workchain: 0, address: `0:${"b".repeat(64)}`
+                } : null;
+            }
+        };
+        const obligations = h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "setup_expired", status: "DESTROYED"
+        });
+        assert.equal(obligations.length, 1);
+        assert.equal(obligations[0].roomNumber, 12);
+        assert.equal(h.store.getClosedRoom("room-x").roomNumber, 12);
+        assert.equal(h.coordinator.prepareLateConfirmedPayments("room-x")[0].roomNumber, 12);
+    } finally {
+        rmSync(h.root, { recursive: true, force: true });
+    }
+}
+
+{
+    // Invalid pool identity must fail before recording closure or any refund.
+    const h = harness(1);
+    try {
+        h.coordinator._walletPool = {
+            getWallet() {
+                return {
+                    walletId: "wallet-testnet", roomNumber: 12,
+                    network: "testnet", workchain: 0,
+                    address: `0:${"c".repeat(64)}`
+                };
+            }
+        };
+        assert.throws(() => h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "setup_expired", status: "DESTROYED"
+        }), /does not match authoritative Testnet pool/);
+        assert.equal(h.store.getClosedRoom("room-x"), null);
+        assert.equal(h.store.size, 0);
+    } finally {
+        rmSync(h.root, { recursive: true, force: true });
+    }
+}
