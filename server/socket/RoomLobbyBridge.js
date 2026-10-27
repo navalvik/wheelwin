@@ -3606,6 +3606,10 @@ export class RoomLobbyBridge {
 
     }
 
+    configureForensicArchiveService(service) {
+        this._forensicArchiveService = service ?? null;
+    }
+
     async _closeRoom(roomId, reason) {
 
         const room = this._roomManager.getRoom(roomId);
@@ -3679,6 +3683,28 @@ export class RoomLobbyBridge {
         });
 
         this._roomManager.destroyRoom(roomId);
+
+        // R2 ZIP archive runs asynchronously after authoritative room closure.
+        // Upload errors must never interrupt gameplay cleanup.
+        const forensicArchiveService = this._forensicArchiveService;
+        if (forensicArchiveService) {
+            Promise.resolve()
+                .then(() => forensicArchiveService.ensureArchivedAndUploaded({
+                    roomId,
+                    gameId,
+                    reason: reason ?? "room_destroyed"
+                }))
+                .catch((error) => {
+                    try {
+                        this._logger?.error?.(
+                            `FORENSIC_ARCHIVE_ASYNC_FAILED | roomId=${roomId} | error=${error?.message ?? error}`
+                        );
+                    } catch {
+                        // A failed log write cannot affect room teardown.
+                    }
+                });
+        }
+
 
         this._roomCreators.delete(roomId);
 
