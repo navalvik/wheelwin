@@ -139,6 +139,9 @@ export class RoomLobbyBridge {
         // room registry before it is reused.
         this._paymentApplicationBinding = paymentApplicationBinding;
 
+        // October private R2 game archive, reattached after room teardown.
+        this._forensicArchiveService = null;
+
         // R23 — Mainnet-side HTTP client for the R21 Testnet handoff
         // contract (claim/complete). Injected by WheelWinServer; never
         // instantiated here; the shared secret stays inside the client.
@@ -290,6 +293,41 @@ export class RoomLobbyBridge {
     configureRoomNetworkHandoffClient(handoffClient) {
 
         this._roomNetworkHandoffClient = handoffClient ?? null;
+
+        return this;
+
+    }
+
+    /**
+     * Queue the October private R2 archive after the terminal room record.
+     * Never await network I/O or allow an archive failure to affect gameplay.
+     */
+    _queueForensicArchive(roomId, gameId, reason) {
+        if (!this._forensicArchiveService) {
+            return;
+        }
+        try {
+            Promise.resolve(this._forensicArchiveService.ensureArchivedAndUploaded({
+                roomId,
+                gameId,
+                reason
+            })).catch((error) => {
+                this._logger?.error?.(
+                    "R2_ARCHIVE_PENDING | roomId=" + roomId
+                    + " | code=" + (error?.code ?? "UPLOAD_FAILED")
+                );
+            });
+        } catch (error) {
+            this._logger?.error?.(
+                "R2_ARCHIVE_PENDING | roomId=" + roomId
+                + " | code=" + (error?.code ?? "ARCHIVE_START_FAILED")
+            );
+        }
+    }
+
+    configureForensicArchiveService(service) {
+
+        this._forensicArchiveService = service ?? null;
 
         return this;
 
@@ -3370,6 +3408,11 @@ export class RoomLobbyBridge {
             });
 
             this._roomManager.destroyRoom(roomId);
+            this._queueForensicArchive(
+                roomId,
+                this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId) ?? null,
+                "empty_room"
+            );
 
             this._roomCreators.delete(roomId);
 
@@ -3679,6 +3722,7 @@ export class RoomLobbyBridge {
         });
 
         this._roomManager.destroyRoom(roomId);
+        this._queueForensicArchive(roomId, gameId, reason ?? "room_destroyed");
 
         this._roomCreators.delete(roomId);
 
