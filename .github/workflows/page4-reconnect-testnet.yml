@@ -11,6 +11,9 @@ on:
       - "server/payment/roomWallet/RoomWalletAdapter.js"
       - "server/payment/roomWallet/TestnetNativeTonService.js"
       - "server/tests/payment/legacyRoomWalletV4.test.js"
+      - "server/tests/paymentCore.phase1.test.js"
+      - "server/config/rooms.js"
+      - "server/payment/RoomPaymentConstants.js"
       - ".github/workflows/page4-reconnect-testnet.yml"
   workflow_dispatch:
 jobs:
@@ -50,4 +53,5 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node --check payment/roomWallet/RoomWalletAdapter.js
       - run: node --check payment/roomWallet/TestnetNativeTonService.js
+      - run: node tests/paymentCore.phase1.test.js
       - run: node --test tests/payment/legacyRoomWalletV4.test.js tests/payment/nativeRoomRefundIntegration.test.js tests/payment/testnetNativeRoomPayoutTransport.test.js
