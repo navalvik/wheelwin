@@ -1,7 +1,7 @@
 import { createRefundObligationId, REFUND_NETWORK, REFUND_STATE, refundIdempotencyKey } from "./RefundObligation.js";
 import { LEDGER_ENTRY_KIND } from "../ledger/LedgerConstants.js";
 import { PAYMENT_INTENT_STATE } from "../PaymentIntentStatus.js";
-import { deriveTonAddressIdentity } from "../incoming/TonAddressIdentity.js";
+import { deriveTonAddressIdentity, tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
 
 export const TON_TESTNET_GLOBAL_ID = -3;
 
@@ -11,10 +11,11 @@ export class RefundLifecycleError extends Error {
 
 /** Creates obligations only from settled intents that exactly back durable principal entries. */
 export class RefundLifecycleCoordinator {
-    constructor({ store, intentStore, ledgerStore, nowProvider = Date.now, logger = null, outgoingRefundProvider = null } = {}) {
+    constructor({ store, intentStore, ledgerStore, walletPool = null, nowProvider = Date.now, logger = null, outgoingRefundProvider = null } = {}) {
         if (!store || typeof store.create !== "function" || typeof store.listPending !== "function") throw new RefundLifecycleError("durable refund store is required");
         this._store = store; this._intents = intentStore; this._ledger = ledgerStore; this._now = nowProvider; this._logger = logger;
         this._outgoingProvider = outgoingRefundProvider ?? null;
+        this._walletPool = walletPool;
     }
 
     initialize({ providers = new Map() } = {}) {
@@ -30,12 +31,40 @@ export class RefundLifecycleCoordinator {
         }
         if (status !== "DESTROYED") throw new RefundLifecycleError("refund obligations may only be prepared after room destruction");
         if (!Number.isSafeInteger(roomNumber) || roomNumber < 1) throw new RefundLifecycleError("original roomNumber is required");
+        const intents = this._intents.listForRoom(roomId);
+        // A gameplay room number can be recycled independently of the 64-wallet
+        // pool. Refunds must use the wallet that actually received the payment,
+        // never a reused gameplay room number. Validate all three intent
+        // destinations before persisting the closed-room wallet identity.
+        let sourceRoomNumber = roomNumber;
+        if (this._walletPool && intents.length > 0) {
+            const sources = intents.map((intent) => {
+                const wallet = this._walletPool.getWallet?.(intent.destinationWalletId);
+                if (!wallet || wallet.walletId !== intent.destinationWalletId ||
+                    wallet.network !== "testnet" || wallet.workchain !== 0 ||
+                    !Number.isSafeInteger(wallet.roomNumber) ||
+                    wallet.roomNumber < 1 || wallet.roomNumber > 64 ||
+                    !tonAddressIdentitiesEqual(wallet.address, intent.destinationWalletAddress)) {
+                    throw new RefundLifecycleError(
+                        "refund source wallet does not match authoritative Testnet pool",
+                        { roomId, paymentIntentId: intent.paymentReference }
+                    );
+                }
+                return wallet;
+            });
+            if (sources.some((wallet) => wallet.walletId !== sources[0].walletId)) {
+                throw new RefundLifecycleError(
+                    "room payment intents identify different source wallets",
+                    { roomId }
+                );
+            }
+            sourceRoomNumber = sources[0].roomNumber;
+        }
         const closed = this._store.recordClosedRoom({
-            roomId, roomNumber, closureReason: closureReason ?? "unspecified",
+            roomId, roomNumber: sourceRoomNumber, closureReason: closureReason ?? "unspecified",
             closedAtMs: this._now(), networkName: REFUND_NETWORK.TESTNET,
             globalId: TON_TESTNET_GLOBAL_ID
         }).context;
-        const intents = this._intents.listForRoom(roomId);
         const byReference = new Map(intents.map((intent) => [intent.paymentReference, intent]));
         const principal = this._ledger.listForRoom(roomId).filter((entry) => entry.kind === LEDGER_ENTRY_KIND.INCOMING_PRINCIPAL);
         if (principal.length > 3) throw new RefundLifecycleError("room has more than three confirmed principal records; manual reconciliation required", { roomId });
