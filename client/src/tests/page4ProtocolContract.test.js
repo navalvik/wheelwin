@@ -8,7 +8,8 @@ test("authoritative payment status provides the expected sender required by Page
     const client = readFileSync(new URL("../pages/Page4Payment.jsx", import.meta.url), "utf8");
     assert.match(server, /expectedSenderWalletAddress: intent\.expectedSender/);
     assert.match(client, /expectedSender: payload\.expectedSenderWalletAddress/);
-    assert.match(server, /paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED/);
+    assert.match(server, /paymentAcceptanceEnabled = LIVE_PAYMENT_ACCEPTANCE_ENABLED/);
+    assert.match(server, /paymentAcceptanceEnabled: this\._paymentAcceptanceEnabled/);
 });
 
 test("Page4 initial PAYMENT_REQUEST event is registered and matches the server protocol", () => {
