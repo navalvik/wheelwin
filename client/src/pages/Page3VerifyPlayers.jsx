@@ -5,6 +5,7 @@ import GameLayout from "../layouts/GameLayout";
 import { useAuthoritativeSession } from "../context/AuthoritativeSessionContext";
 import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
+import { useGameSession } from "../context/GameSessionContext";
 
 import {
     hasAuthoritativePlayers,
@@ -68,6 +69,8 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     const { identity } = usePlayerIdentity();
 
+    const gameSession = useGameSession();
+
     const verifyCompleted = authoritative.lifecycle?.verifyCompleted === true;
 
     const localPlayerId = resolveLocalPlayerId(
@@ -77,6 +80,10 @@ export default function Page3VerifyPlayers({ onNavigate }) {
     );
 
     const [waitingForVerify, setWaitingForVerify] = useState(false);
+
+    const [payerWalletAddress, setPayerWalletAddress] = useState("");
+
+    const payerWalletValid = /^(?:0:[0-9a-fA-F]{64}|[A-Za-z0-9_-]{48})$/.test(payerWalletAddress.trim());
 
     const [waitingForContinue, setWaitingForContinue] = useState(false);
 
@@ -88,10 +95,11 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                 player,
                 index,
                 {
-                    localPlayerId
+                    localPlayerId,
+                    baseStake: gameSession.baseStake
                 }
             )),
-        [authoritative.players, localPlayerId]
+        [authoritative.players, localPlayerId, gameSession.baseStake]
     );
 
     const roomId = authoritative.roomId ?? null;
@@ -269,11 +277,17 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     function handleConfirmVerify() {
 
-        if (waitingForVerify || verifyCompleted) {
+        if (waitingForVerify || verifyCompleted || !payerWalletValid) {
 
             return;
 
         }
+
+        // Same authoritative socket: send wallet identity before VERIFY.
+        // No amount, room wallet, payment reference or confirmation is supplied.
+        socket.emit("updatePlayerProfile", {
+            wallet: payerWalletAddress.trim()
+        });
 
         setWaitingForVerify(true);
 
@@ -282,7 +296,20 @@ export default function Page3VerifyPlayers({ onNavigate }) {
     }
 
     function handleNext() {
-return (
+
+        // Manual NEXT confirms this player's wallet identity. The server then
+        // coordinates the verification barrier and advances the room.
+        if (verifyCompleted) {
+
+            return;
+
+        }
+
+        handleConfirmVerify();
+
+    }
+
+    return (
 
         <GameLayout
 
@@ -295,7 +322,7 @@ return (
             nextEnabled={
                 verifyCompleted
                     ? false
-                    : !waitingForVerify
+                    : !waitingForVerify && payerWalletValid
             }
 
             onNext={handleNext}
@@ -364,6 +391,51 @@ return (
 
                     </div>
 
+                    {playersReady && (
+
+                        <div className="verifyFinanceRow">
+
+                            <div className="verifyFinanceGroup">
+                                <span className="verifyFinanceLabel">BASE STAKE</span>
+                                <strong className="verifyFinanceValue">
+                                    {gameSession.baseStake > 0 ? gameSession.baseStake : "—"}
+                                </strong>
+                            </div>
+
+                            <div className="verifyFinanceGroup">
+                                <span className="verifyFinanceLabel">YOU NEED PAY GRAM</span>
+                                <strong className="verifyFinanceValue">
+                                    {players.find((player) => player.isLocal)?.paymentDisplay ?? "—"}
+                                </strong>
+                            </div>
+
+                        </div>
+
+                    )}
+
+                    <div className="verifyWallet">
+                        <label className="verifyWalletLabel" htmlFor="page3-testnet-wallet">
+                            ENTER YOUR GRAM (TON) TELEGRAM WALLET ADDRESS
+                        </label>
+                        <input
+                            className="verifyWalletInput"
+                            id="page3-testnet-wallet"
+                            type="text"
+                            inputMode="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={payerWalletAddress}
+                            onChange={(event) => setPayerWalletAddress(event.target.value)}
+                            disabled={waitingForVerify || verifyCompleted}
+                            maxLength={66}
+                            aria-invalid={payerWalletAddress.length > 0 && !payerWalletValid}
+                            placeholder="0Q... or UQ..."
+                        />
+                        {!payerWalletValid && (
+                            <p>Enter your own Testnet wallet address before VERIFY.</p>
+                        )}
+                    </div>
+
                     {waitingForVerify && !verifyCompleted && (
 
                         <div
@@ -399,15 +471,3 @@ return (
     );
 
 }
-
-        // R7.30 — after VERIFY_COMPLETED, continuation is automatic.
-        // Manual NEXT is only for barrier #1 (confirmVerify).
-        if (verifyCompleted) {
-
-            return;
-
-        }
-
-        handleConfirmVerify();
-
-    }

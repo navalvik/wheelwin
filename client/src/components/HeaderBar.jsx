@@ -1,5 +1,6 @@
 import { useLanguage } from "../context/LanguageContext";
 import { DEBUG_JUMP_ENABLED } from "../config/devMode";
+import { isTestnetDisplay } from "../config/displayNetwork.js";
 
 export default function HeaderBar({
     message,
@@ -19,10 +20,7 @@ export default function HeaderBar({
 
     const resolvedNextLabel = nextLabel ?? t("common.next");
 
-    const isTestnet = typeof window !== "undefined" && (
-        window.location.hostname.includes("nine") ||
-        window.location.hostname.includes("testnet")
-    );
+    const isTestnet = isTestnetDisplay();
 
     // R18-S109 — Testnet → Mainnet Telegram Mini App handoff.
     //

@@ -1,3 +1,4 @@
+import { durableWriteJson } from './DurableJson.js';
 /**
  * Phase 1 — Durable payment intent store.
  *
@@ -84,68 +85,11 @@ const IMMUTABLE_PAYMENT_INTENT_FIELDS = Object.freeze([
  * @param {string} filePath
  * @param {object} payload
  */
-function atomicWriteJson(filePath, payload) {
-
-    mkdirSync(dirname(filePath), { recursive: true });
-
-    const temp = `${filePath}.tmp`;
-
-    writeFileSync(temp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-
-    renameSync(temp, filePath);
-
-}
+function atomicWriteJson(filePath, payload) { durableWriteJson(filePath, payload); }
 
 function atomicCreateJson(filePath, payload) {
-
-    mkdirSync(dirname(filePath), { recursive: true });
-
-    const tempPath = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
-
-    let fd = null;
-
-    try {
-
-        fd = openSync(tempPath, "wx");
-
-        writeFileSync(fd, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-
-        fsyncSync(fd);
-
-        closeSync(fd);
-
-        fd = null;
-
-        try {
-
-            linkSync(tempPath, filePath);
-
-            return true;
-
-        } catch (error) {
-
-            if (error?.code === "EEXIST") {
-
-                return false;
-
-            }
-
-            throw error;
-
-        }
-
-    } finally {
-
-        if (fd !== null) {
-
-            try { closeSync(fd); } catch { /* preserve the original failure */ }
-
-        }
-
-        try { unlinkSync(tempPath); } catch { /* absent after cleanup or crash */ }
-
-    }
-
+    try { durableWriteJson(filePath, payload, {exclusive:true}); return true; }
+    catch (error) { if (error.code === 'EEXIST') return false; throw error; }
 }
 
 export class PaymentIntentStore {

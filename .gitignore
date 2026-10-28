@@ -3,6 +3,16 @@
 .env.*
 !.env.example
 
+# Installed packages, generated output, and workstation-only browser access
+node_modules/
+_node_modules/
+client/dist/
+*.log
+server/local-browser-only/
+/Start-Local-Browser.ps1
+server/data/room-wallet-payments/
+/AI_CONTEXT/
+
 #
 # R7.69E - local investigation scratch (never commit)
 _audit_tmp/

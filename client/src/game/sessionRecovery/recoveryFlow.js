@@ -9,7 +9,10 @@ export const APP_PAGES = Object.freeze({
     VERIFY: 5,
     PAYMENT: 6,
     GAMEPLAY: 7,
-    RESULT: 8
+    RESULT: 8,
+    ENTRY_MODE: 9,
+    NO_FRIENDS_QUEUE: 10,
+    NO_FRIENDS_OPTIONS: 11
 });
 
 export const RECOVERY_UI_STATUS = Object.freeze({
@@ -24,7 +27,8 @@ const PRE_GAME_PAGES = Object.freeze([
     APP_PAGES.PLAYER_SETUP,
     APP_PAGES.MATRIX,
     APP_PAGES.VERIFY,
-    APP_PAGES.PAYMENT
+    APP_PAGES.PAYMENT,
+    APP_PAGES.NO_FRIENDS_OPTIONS
 ]);
 
 /** R6.1 — Pages that may reclaim an active Setup Session seat. */

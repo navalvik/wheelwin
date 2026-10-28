@@ -4,8 +4,8 @@ import { registerRoomDestroyContext } from "../recovery/RoomDestroyContextRegist
 import { SetupSession } from "../models/SetupSession.js";
 import { SETUP_SESSION_STATUS } from "../models/SetupSessionStatus.js";
 
-// R7.70C19 — fallback aligned with rooms.js DEFAULT_SETUP_DURATION_MS (8 min).
-const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
+// All room modes share the same setup deadline from room creation: 7m40s.
+const DEFAULT_SETUP_DURATION_MS = 460 * 1000;
 
 /**
  * C5.6C — Setup Session lifecycle coordinator.

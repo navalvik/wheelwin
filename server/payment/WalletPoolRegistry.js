@@ -1,3 +1,4 @@
+import { durableWriteJson } from './DurableJson.js';
 /**
  * Phase 1 — Room wallet pool registry.
  *
@@ -44,6 +45,7 @@ const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
 /** Resolved location of the 64-wallet testnet pool catalog. */
 export function resolveDefaultRoomWalletCatalogPath() {
+    if (process.env.ROOM_WALLETS_TESTNET_JSON_PATH) return process.env.ROOM_WALLETS_TESTNET_JSON_PATH;
 
     return join(
         MODULE_DIR,
@@ -281,9 +283,7 @@ export class WalletPoolRegistry {
 
         try {
 
-            const raw = hasCatalogFile
-                ? readFileSync(this._catalogPath, "utf8")
-                : configuredCatalog;
+            const raw = configuredCatalog || readFileSync(this._catalogPath, "utf8");
 
             // Secrets are dropped during parsing — they never enter memory.
             parsed = JSON.parse(raw, stripSecretsReviver);
@@ -445,7 +445,7 @@ export class WalletPoolRegistry {
      */
     getAvailableCount() {
 
-        return this._wallets.size - this._roomToWallet.size;
+        return [...this._wallets.values()].filter(wallet => wallet.isAvailable() && !this._isQuarantined(wallet)).length;
 
     }
 
@@ -454,7 +454,7 @@ export class WalletPoolRegistry {
      */
     listAvailableWallets() {
 
-        return this.listWallets().filter((wallet) => wallet.reservedByRoomId === null);
+        return this.listWallets().filter((wallet) => wallet.reservedByRoomId === null && !this._isQuarantined(wallet));
 
     }
 
@@ -723,6 +723,11 @@ export class WalletPoolRegistry {
 
         for (const wallet of this._wallets.values()) {
 
+            // Exclude the old oj7v wallet when the active Testnet environment
+            // explicitly quarantines its room number. Never recycle an
+            // unresolved historical wallet into a new paid game.
+            if (this._isQuarantined(wallet)) continue;
+
             if (wallet.isAvailable() && wallet.network === effectiveNetwork) {
 
                 return wallet;
@@ -733,6 +738,19 @@ export class WalletPoolRegistry {
 
         return null;
 
+    }
+
+    _isQuarantined(wallet) {
+        // Room wallet #1 retains unresolved historical oj7v refunds.
+        // Quarantine is a Testnet invariant, never an optional deployment
+        // variable: missing Railway env settings must not reassign it.
+        if (wallet?.network === "testnet" && wallet.roomNumber === 1) {
+            return true;
+        }
+        // Additional emergency quarantines may still be configured.
+        const values = String(process.env.ROOM_WALLET_QUARANTINED_NUMBERS ?? "")
+            .split(",").map(value => value.trim()).filter(Boolean);
+        return values.includes(String(wallet.roomNumber));
     }
 
     _selectRequestedWallet(walletId, network, roomId) {
@@ -746,6 +764,13 @@ export class WalletPoolRegistry {
                 { walletId, roomId }
             );
 
+        }
+
+        if (this._isQuarantined(wallet)) {
+            throw new WalletAssignmentConflictError(
+                "wallet quarantined due to unresolved historical funds",
+                { walletId, roomId }
+            );
         }
 
         if (network !== null && wallet.network !== network) {
@@ -850,17 +875,7 @@ export class WalletPoolRegistry {
  * @param {string} filePath
  * @param {object} payload
  */
-export function atomicWriteJson(filePath, payload) {
-
-    mkdirSync(dirname(filePath), { recursive: true });
-
-    const temp = `${filePath}.tmp`;
-
-    writeFileSync(temp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-
-    renameSync(temp, filePath);
-
-}
+export function atomicWriteJson(filePath, payload) { durableWriteJson(filePath, payload); }
 
 /**
  * Load the 64-wallet catalog for inspection. Secrets are stripped at parse

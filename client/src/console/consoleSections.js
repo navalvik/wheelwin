@@ -10,7 +10,8 @@ export const CONSOLE_GROUP_IDS = Object.freeze({
     GAME_OPERATIONS: "GAME_OPERATIONS",
     DEPLOYMENT: "DEPLOYMENT",
     PLATFORM: "PLATFORM",
-    CONFIGURATION: "CONFIGURATION"
+    CONFIGURATION: "CONFIGURATION",
+    FINANCE: "FINANCE"
 });
 
 /** Display order and labels for sidebar groups. */
@@ -39,6 +40,11 @@ export const CONSOLE_GROUPS = Object.freeze([
         id: CONSOLE_GROUP_IDS.CONFIGURATION,
         label: "CONFIGURATION",
         defaultExpanded: false
+    }),
+    Object.freeze({
+        id: CONSOLE_GROUP_IDS.FINANCE,
+        label: "FINANCE",
+        defaultExpanded: true
     })
 ]);
 
@@ -174,6 +180,20 @@ export const CONSOLE_SECTIONS = Object.freeze([
         id: "audio-registry",
         label: "Audio Registry",
         group: CONSOLE_GROUP_IDS.CONFIGURATION,
+        administratorOnly: true
+    }),
+
+    // FINANCE
+    Object.freeze({
+        id: "finance-testnet",
+        label: "Testnet",
+        group: CONSOLE_GROUP_IDS.FINANCE,
+        administratorOnly: true
+    }),
+    Object.freeze({
+        id: "finance-mainnet",
+        label: "Mainnet",
+        group: CONSOLE_GROUP_IDS.FINANCE,
         administratorOnly: true
     })
 ]);

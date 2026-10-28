@@ -11,14 +11,17 @@ export class RefundLifecycleError extends Error {
 
 /** Creates obligations only from settled intents that exactly back durable principal entries. */
 export class RefundLifecycleCoordinator {
-    constructor({ store, intentStore, ledgerStore, nowProvider = Date.now, logger = null, outgoingRefundProvider = null } = {}) {
+    constructor({ store, intentStore, ledgerStore, outcomeStore = null, nowProvider = Date.now, logger = null, outgoingRefundProvider = null } = {}) {
         if (!store || typeof store.create !== "function" || typeof store.listPending !== "function") throw new RefundLifecycleError("durable refund store is required");
         this._store = store; this._intents = intentStore; this._ledger = ledgerStore; this._now = nowProvider; this._logger = logger;
         this._outgoingProvider = outgoingRefundProvider ?? null;
+        this._outcomes = outcomeStore;
     }
 
     initialize({ providers = new Map() } = {}) {
         this._store.initialize();
+        // A crash may occur after closure persistence but before debt creation.
+        for (const closed of this._store.listClosedRooms()) this.prepareLateConfirmedPayments(closed.roomId);
         return this.recover({ providers });
     }
 
@@ -35,13 +38,27 @@ export class RefundLifecycleCoordinator {
             closedAtMs: this._now(), networkName: REFUND_NETWORK.TESTNET,
             globalId: TON_TESTNET_GLOBAL_ID
         }).context;
+        if (this._outcomes?.get(roomId)?.kind === 'PAYOUT'
+            || this._ledger.listForRoom(roomId).some(x => x.kind === LEDGER_ENTRY_KIND.PAYOUT_PLAN)) return Object.freeze([]);
         const intents = this._intents.listForRoom(roomId);
         const byReference = new Map(intents.map((intent) => [intent.paymentReference, intent]));
         const principal = this._ledger.listForRoom(roomId).filter((entry) => entry.kind === LEDGER_ENTRY_KIND.INCOMING_PRINCIPAL);
         if (principal.length > 3) throw new RefundLifecycleError("room has more than three confirmed principal records; manual reconciliation required", { roomId });
         if (principal.length === 0) return Object.freeze([]);
         if (intents.length !== 3) throw new RefundLifecycleError("refund evidence does not contain the three required payment intents", { roomId, intentCount: intents.length });
-        if (principal.length === 3) return Object.freeze([]);
+        // Result-session cleanup is not an aborted pre-Page5 game. Payments
+        // from a completed game belong to its payout flow, not refunds.
+        const completedGameClosures = new Set([
+            "session_ended", "result_session_expired",
+            "result_session_finished"
+        ]);
+        if (completedGameClosures.has(closed.closureReason)) {
+            return Object.freeze([]);
+        }
+        // A room destroyed before Page5 must refund ALL confirmed payers,
+        // including 3/3 paid if game start failed before Page5. The previous
+        // principal.length===3 shortcut silently abandoned their money.
+        this._outcomes?.claim(roomId, "REFUND");
         const results = [];
         for (const entry of principal) {
             const reference = entry.metadata?.paymentReference;
@@ -184,22 +201,63 @@ export class RefundLifecycleCoordinator {
         }
         const startedAtMs = this._now();
         let result;
+        let preparedOnDisk = false;
         try {
             const sourceWalletAddress = outgoing.resolveSourceWallet
                 ? outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents })
                 : (() => { throw new RefundLifecycleError("provider cannot resolve the refund source wallet"); })();
-            result = await outgoing.signAndBroadcast({ obligation: current, sourceWalletAddress, nowMs: startedAtMs });
+
+            if (typeof outgoing.prepareRefundTransfer === "function"
+                && (typeof outgoing.canPrepareRefundTransfer !== "function"
+                    || outgoing.canPrepareRefundTransfer() === true)) {
+                // Quote the exact Testnet transfer before signing. Persist both
+                // the net amount and an in-flight state BEFORE any broadcast.
+                // Crash/restart after this write can never blindly resubmit.
+                const plan = await outgoing.prepareRefundTransfer({
+                    obligation: current, sourceWalletAddress, nowMs: startedAtMs
+                });
+                const attempt = this._attempt(current, "SUBMISSION_UNKNOWN", {
+                    startedAtMs, completedAtMs: this._now(),
+                    attemptId: `${current.obligationId}:${startedAtMs}`
+                });
+                this._store.markSubmissionUnknown(current.obligationId, {
+                    attempt,
+                    transferAmountAtomic: plan.transferAmountAtomic,
+                    gasChargeAtomic: plan.gasChargeAtomic
+                });
+                preparedOnDisk = true;
+            }
+
+            if (!preparedOnDisk) {
+                this._store.markSubmissionUnknown(current.obligationId, {attempt:this._attempt(current, 'SUBMISSION_UNKNOWN', {
+                    startedAtMs, completedAtMs:this._now(), attemptId:current.obligationId + ':' + startedAtMs
+                })});
+                preparedOnDisk = true;
+            }
+            result = await outgoing.signAndBroadcast({
+                obligation: preparedOnDisk ? this._store.get(current.obligationId) : current,
+                sourceWalletAddress, nowMs: startedAtMs
+            });
         } catch (error) {
-            // Authorization/provider failures fail closed: record and stay PENDING.
             const code = typeof error?.code === "string" ? error.code : "OUTGOING_REFUND_ERROR";
-            const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: code, attemptId: `${current.obligationId}:${startedAtMs}` });
+            const attempt = this._attempt(current,
+                preparedOnDisk ? "SUBMISSION_UNKNOWN" : "FAILED", {
+                    startedAtMs, completedAtMs: this._now(), errorCode: code,
+                    attemptId: `${current.obligationId}:${startedAtMs}`
+                });
             this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: code });
-            return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: code });
+            return Object.freeze({
+                obligationId: current.obligationId,
+                outcome: preparedOnDisk ? "SUBMISSION_UNKNOWN" : "FAILED",
+                outgoingTransactionId: null, reason: code
+            });
         }
 
         if (result.outcome === "SUBMITTED") {
             const attemptStart = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt: attemptStart });
+            if (!preparedOnDisk) {
+                this._store.markSubmissionUnknown(current.obligationId, { attempt: attemptStart });
+            }
             const attemptDone = this._attempt(current, "SUBMITTED", { startedAtMs, completedAtMs: this._now(), outgoingTransactionId: result.outgoingTransactionId, attemptId: `${current.obligationId}:${startedAtMs}` });
             this._store.markSubmitted(current.obligationId, { outgoingTransactionId: result.outgoingTransactionId, attempt: attemptDone });
             this._logger?.info?.(`Refund submitted | obligationId=${current.obligationId} | network=${current.networkName}`);
@@ -207,13 +265,29 @@ export class RefundLifecycleCoordinator {
         }
         if (result.outcome === "UNKNOWN") {
             const attempt = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt, lastError: result.reason ?? null });
+            if (preparedOnDisk) {
+                this._store.recordSubmissionAttempt(current.obligationId, {
+                    attempt, lastError: result.reason ?? null
+                });
+            } else {
+                this._store.markSubmissionUnknown(current.obligationId, {
+                    attempt, lastError: result.reason ?? null
+                });
+            }
             this._logger?.warn?.(`Refund submission outcome unknown | obligationId=${current.obligationId} | reason=${result.reason}`);
             return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMISSION_UNKNOWN", outgoingTransactionId: null, reason: result.reason });
         }
         const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
-        this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: result.reason ?? null });
-        return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: result.reason });
+        this._store.recordSubmissionAttempt(current.obligationId, {
+            attempt, lastError: result.reason ?? null
+        });
+        // Once the transfer plan was persisted before broadcast, a reported
+        // failure cannot safely be used to resubmit without chain checks.
+        return Object.freeze({
+            obligationId: current.obligationId,
+            outcome: preparedOnDisk ? "SUBMISSION_UNKNOWN" : "FAILED",
+            outgoingTransactionId: null, reason: result.reason
+        });
     }
 
     /**

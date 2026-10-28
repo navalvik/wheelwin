@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WheelWin — платёжный QR 0,25 Gram</title></head>
+<body style="font:18px system-ui;max-width:650px;margin:24px auto;padding:20px;text-align:center;overflow-wrap:anywhere">
+<h1>WheelWin — 0,25 Gram</h1>
+<p>Testnet · игровой кошелёк №7</p>
+<img id="payment-qr" width="360" height="360" style="max-width:100%;height:auto" alt="Платёжный QR: 0,25 Gram на игровой кошелёк №7">
+<p><strong>Ожидаемая сумма в кошельке: 0,25 Gram</strong></p>
+<p>Сначала проверьте заполнение суммы, адреса и комментария, не подтверждая перевод. Это отдельная проверка QR, без игровой комнаты и автоматического возврата.</p>
+<p id="destination"></p><p id="memo"></p>
+<p><a id="payment-link">Открыть платёж в кошельке</a></p>
+<script type="module" src="/src/payment/walletPaymentCheck.js"></script>
+</body></html>

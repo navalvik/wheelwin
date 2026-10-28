@@ -93,6 +93,7 @@ export class RoomWalletPaymentService {
         nowProvider = Date.now,
         paymentWindowMs = ROOM_LIFETIME_MS,
         persistSnapshots = true,
+        financialObligationCountProvider = null,
         observationService
     } = {}) {
 
@@ -159,6 +160,12 @@ export class RoomWalletPaymentService {
         this._paymentWindowMs = paymentWindowMs;
 
         this._persistSnapshots = persistSnapshots === true;
+
+        if (financialObligationCountProvider !== null
+            && typeof financialObligationCountProvider !== "function") {
+            throw new PaymentConfigurationError("financial hold provider must be a function");
+        }
+        this._financialObligationCountProvider = financialObligationCountProvider;
 
         this._initialized = false;
 
@@ -390,11 +397,10 @@ export class RoomWalletPaymentService {
         const mapping = this._assetRegistry.requireMapping(requestedNetwork, asset);
 
         // Integer-only amount validation against the explicit mapping.
-        if (amountAtomic % mapping.atomicUnitsPerUnit !== 0) {
+        if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) {
 
             throw new PaymentValidationError(
-                "amountAtomic is not an exact multiple of the configured "
-                    + "atomic-unit denomination",
+                "amountAtomic must be a positive safe integer in atomic units",
                 {
                     amountAtomic,
                     atomicUnitsPerUnit: mapping.atomicUnitsPerUnit,
@@ -549,7 +555,7 @@ export class RoomWalletPaymentService {
      * @param {string} transactionId
      * @returns {PaymentIntent}
      */
-    matchTransaction(paymentReference, transactionId) {
+    matchTransaction(paymentReference, transactionId, observationResult = null) {
 
         this._assertInitialized();
 
@@ -583,9 +589,24 @@ export class RoomWalletPaymentService {
 
         }
 
+        let transitionTime = this._now();
+        if (intent.isExpired(transitionTime)) {
+            if (!observationResult) {
+                // Preserve the model's terminal-state and expiry error ordering.
+                intent.transition(PAYMENT_INTENT_STATE.MATCHED, { transactionId, now: transitionTime });
+            }
+            // A room can close before the indexer shows an on-time transfer.
+            // Only the exact trusted, finalized room observation can reconcile
+            // that payment, and its chain timestamp must remain inside the
+            // original payment deadline.
+            this.#assertTrustedObservationCandidate(observationResult, transactionId, intent);
+            const observedTransfer = observationResult.transfers.find(x => x.transactionId === transactionId);
+            transitionTime = observedTransfer.transactionTime;
+        }
+
         const next = intent.transition(PAYMENT_INTENT_STATE.MATCHED, {
             transactionId,
-            now: this._now()
+            now: transitionTime
         });
 
         const committed = this._intentStore.update(next);
@@ -656,9 +677,11 @@ export class RoomWalletPaymentService {
 
         }
 
-        const next = intent.transition(PAYMENT_INTENT_STATE.SETTLED, {
-            now: this._now()
-        });
+        const observedTransfer = observationResult.transfers.find(x => x.transactionId === transactionId);
+        const settlementTime = intent.isExpired(this._now())
+            ? observedTransfer.transactionTime
+            : this._now();
+        const next = intent.transition(PAYMENT_INTENT_STATE.SETTLED, { now: settlementTime });
 
         const committed = this._intentStore.update(next);
 
@@ -841,7 +864,6 @@ export class RoomWalletPaymentService {
             || transfer.transactionTime < window.floorMs
             || transfer.transactionTime > window.ceilingMs
             || transfer.transactionTime >= intent.expiresAt
-            || intent.isExpired(window.ceilingMs)
             || entry.amountAtomic !== transfer.amountAtomic
             || entry.transactionTime !== transfer.transactionTime
             || !tonAddressIdentitiesEqual(
@@ -1197,8 +1219,16 @@ export class RoomWalletPaymentService {
 
         }
 
-        return count;
+        return count + this._financialHoldForRoom(roomId);
 
+    }
+
+    _financialHoldForRoom(roomId) {
+        const count = this._financialObligationCountProvider?.(roomId) ?? 0;
+        if (!Number.isSafeInteger(count) || count < 0) {
+            throw new PaymentConfigurationError("room financial hold count is invalid");
+        }
+        return count;
     }
 
     /**
@@ -1229,6 +1259,12 @@ export class RoomWalletPaymentService {
 
         }
 
+        // Completed incoming intents do not release a wallet that still
+        // contains unpaid prize principal or a nonfinalized player refund.
+        for (const roomId of new Set(this._intentStore.list().map(intent => intent.roomId))) {
+            const financial = this._financialHoldForRoom(roomId);
+            if (financial > 0) map.set(roomId, (map.get(roomId) ?? 0) + financial);
+        }
         return map;
 
     }
@@ -1243,7 +1279,9 @@ export class RoomWalletPaymentService {
 
         for (const intent of this._intentStore.list()) {
 
-            if (!intent.hasOpenObligation()) {
+            if (!intent.hasOpenObligation()
+                && !(intent.state === "SETTLED"
+                    && this._financialHoldForRoom(intent.roomId) > 0)) {
 
                 continue;
 
@@ -1265,9 +1303,10 @@ export class RoomWalletPaymentService {
                 intent.asset
             );
 
-            if (intent.amountAtomic % mapping.atomicUnitsPerUnit !== 0
+            if (!Number.isSafeInteger(intent.amountAtomic) || intent.amountAtomic <= 0
                 || intent.roomDeadlineMs <= intent.createdAt
-                || intent.roomDeadlineMs > intent.createdAt + ROOM_LIFETIME_MS) {
+                || (intent.hasOpenObligation()
+                    && intent.roomDeadlineMs > intent.createdAt + ROOM_LIFETIME_MS)) {
 
                 throw new PaymentValidationError(
                     "open payment intent has invalid amount or room-deadline metadata",

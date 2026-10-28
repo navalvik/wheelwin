@@ -37,7 +37,17 @@ import {
     INCOMING_PRINCIPAL_CONFIRMATION_SOURCE,
     LEDGER_ENTRY_KIND
 } from "../payment/ledger/index.js";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
+import { deriveTonAddressIdentity } from "../payment/incoming/TonAddressIdentity.js";
+import { deriveTestnetRoomPaymentRequirements } from "../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
+import { ActiveRoomObservationBudget } from "../payment/runtime/ActiveRoomObservationBudget.js";
+import { NoFriendsAbuseStore } from "../matchmaking/NoFriendsAbuseStore.js";
+
+const NO_FRIENDS_SECTOR_COLORS = new Set([
+    "Red", "Green", "Blue", "Yellow", "Orange", "Violet",
+    "Light Blue", "Light Green", "Light Red", "Beige"
+]);
+
 import {
     LOBBY_ERROR_CODES,
     LOBBY_ERROR_MESSAGES,
@@ -112,10 +122,10 @@ export class RoomLobbyBridge {
         // never limited by this map. Released whenever the room is destroyed.
         this._activeRoomsByTelegramUser = new Map();
 
-        // R20 — one-time authoritative room network selection (post-CREATE_ROOM).
-        // roomId → "testnet" | "mainnet". Absent until the verified room Owner
-        // commits the choice. In-memory only; never part of the Room model and
-        // never persisted. Released by the existing room destruction paths.
+        // Room network is selected by the Telegram Mini App entrypoint and
+        // resolved from this server runtime's trusted TON_NETWORK setting.
+        // roomId → "testnet" | "mainnet". In-memory only; never part of the
+        // Room model and never persisted. Released by room destruction paths.
         this._roomNetworkByRoom = new Map();
 
         // R22 — pending MAINNET cross-runtime handoff continuation.
@@ -138,6 +148,9 @@ export class RoomLobbyBridge {
         // authoritative mainnetRoomId) and is re-verified against the live
         // room registry before it is reused.
         this._paymentApplicationBinding = paymentApplicationBinding;
+
+        // October private R2 game archive, reattached after room teardown.
+        this._forensicArchiveService = null;
 
         // R23 — Mainnet-side HTTP client for the R21 Testnet handoff
         // contract (claim/complete). Injected by WheelWinServer; never
@@ -186,6 +199,22 @@ export class RoomLobbyBridge {
         this._continueToVerifyByRoom = new Map();
 
         this._verifyBarrierCompletedByRoom = new Set();
+
+        // No-verbal-contact matchmaking. Candidate data and per-room NEXT
+        // barriers are server-owned; only the requested stake and profile
+        // fields are accepted from clients.
+        this._noFriendsQueues = new Map();
+        this._noFriendsQueueBySocket = new Map();
+        this._noFriendsQueueTimers = new Map();
+        this._noFriendsVerificationSockets = new Set();
+        this._noFriendsDisconnectedSockets = new Set();
+        this._noFriendsOptionsReadyByRoom = new Map();
+        this._noFriendsAbuseStore = new NoFriendsAbuseStore({
+            filePath: process.env.WHEELWIN_NO_FRIENDS_ABUSE_STORE_PATH || undefined
+        });
+        this._noFriendsUserKeysByRoom = new Map();
+        this._noFriendsFailureRecordedRooms = new Set();
+        this._noFriendsSucceededRooms = new Set();
 
 
         // Secret Matrix submissions keyed by roomId → Map(playerId → cells).
@@ -290,6 +319,41 @@ export class RoomLobbyBridge {
     configureRoomNetworkHandoffClient(handoffClient) {
 
         this._roomNetworkHandoffClient = handoffClient ?? null;
+
+        return this;
+
+    }
+
+    /**
+     * Queue the October private R2 archive after the terminal room record.
+     * Never await network I/O or allow an archive failure to affect gameplay.
+     */
+    _queueForensicArchive(roomId, gameId, reason) {
+        if (!this._forensicArchiveService) {
+            return;
+        }
+        try {
+            Promise.resolve(this._forensicArchiveService.ensureArchivedAndUploaded({
+                roomId,
+                gameId,
+                reason
+            })).catch((error) => {
+                this._logger?.error?.(
+                    "R2_ARCHIVE_PENDING | roomId=" + roomId
+                    + " | code=" + (error?.code ?? "UPLOAD_FAILED")
+                );
+            });
+        } catch (error) {
+            this._logger?.error?.(
+                "R2_ARCHIVE_PENDING | roomId=" + roomId
+                + " | code=" + (error?.code ?? "ARCHIVE_START_FAILED")
+            );
+        }
+    }
+
+    configureForensicArchiveService(service) {
+
+        this._forensicArchiveService = service ?? null;
 
         return this;
 
@@ -490,6 +554,35 @@ export class RoomLobbyBridge {
 
     initialize() {
 
+        this._subscribe(EVENT_TYPES.ROOM_DESTROYED, (envelope) => {
+            const roomId = envelope.payload?.roomId;
+            this._recordNoFriendsFailure(roomId);
+            this._noFriendsOptionsReadyByRoom.delete(roomId);
+            this._noFriendsUserKeysByRoom.delete(roomId);
+            this._noFriendsFailureRecordedRooms.delete(roomId);
+            this._noFriendsSucceededRooms.delete(roomId);
+        });
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_NO_FRIENDS_REQUEST,
+            (envelope) => {
+                void this._handleNoFriendsRequest(
+                    envelope.payload?.socketId,
+                    envelope.payload?.request
+                );
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_NO_FRIENDS_OPTIONS_NEXT,
+            (envelope) => {
+                this._handleNoFriendsOptionsNext(
+                    envelope.payload?.socketId,
+                    envelope.payload?.profile
+                );
+            }
+        );
+
         this._subscribe(
             EVENT_TYPES.LOBBY_CREATE_ROOM_REQUEST,
             (envelope) => {
@@ -686,6 +779,11 @@ export class RoomLobbyBridge {
             EVENT_TYPES.OPEN_PAGE6,
             (envelope) => {
 
+                const page6RoomId = envelope.payload?.roomId
+                    ?? (envelope.payload?.gameId
+                        ? this._gameplayContextResolver?.resolveRoomByGameId?.(envelope.payload.gameId)
+                        : null);
+                this._recordNoFriendsSuccess(page6RoomId);
                 this._deliverOpenPage6(envelope.payload);
 
             }
@@ -833,7 +931,302 @@ export class RoomLobbyBridge {
 
     }
 
-    _handleCreateRoom(socketId) {
+    async _verifyNoFriendsWallet(wallet, baseStake) {
+
+        const apiKey = process.env.TON_API_KEY
+            ?? process.env.TONCENTER_API_KEY
+            ?? process.env.TONCENTER_TESTNET_API_KEY
+            ?? "";
+        const address = deriveTonAddressIdentity(wallet.trim());
+        if (!address.startsWith("0:")) throw new Error("invalid wallet address");
+
+        const url = new URL("https://testnet.toncenter.com/api/v2/getAddressInformation");
+        url.searchParams.set("address", address);
+        if (apiKey) url.searchParams.set("api_key", apiKey);
+
+        // Share the payment runtime's Toncenter limiter with Page4 transaction
+        // observations. This caps balance lookups and payment checks together
+        // at the configured eight requests per second for this server process.
+        const rateLimiter = this._paymentApplicationBinding
+            ?.runtime?.observationService?.rateLimiter;
+        if (typeof rateLimiter?.acquire !== "function") {
+            throw new Error("Toncenter request rate limiter is unavailable");
+        }
+        await rateLimiter.acquire();
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8_000);
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            if (!response.ok) throw new Error(`Testnet balance HTTP ${response.status}`);
+            const body = await response.json();
+            const account = body?.result;
+            if (!account || String(account.state ?? "").toLowerCase() !== "active") {
+                throw new Error("wallet is not initialized on Testnet");
+            }
+            const balance = BigInt(String(account.balance ?? "0"));
+            // Maximum possible sector purchase: one sector at base stake plus
+            // a second sector at 1.5x. Gas is paid by the wallet at transaction
+            // time and is not inferred from the account's unrelated history.
+            const required = BigInt(Math.round(baseStake * 2.5 * 1_000_000_000));
+            if (balance < required) {
+                throw new Error("insufficient balance for two sectors at this base stake");
+            }
+            return { address, balance: balance.toString() };
+        } finally {
+            clearTimeout(timeout);
+        }
+
+    }
+
+    async _handleNoFriendsRequest(socketId, rawRequest) {
+
+        if (!socketId || this._socketToPlayer.has(socketId)
+            || this._noFriendsQueueBySocket.has(socketId)) return;
+        const requestStartedAt = Date.now();
+        const telegramUserId = this._resolveSocketTelegramUserId(socketId);
+        const localBrowser = process.env.WHEELWIN_LOCAL_BROWSER === "true";
+        if (telegramUserId == null && !localBrowser) {
+            this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "TELEGRAM_REQUIRED" });
+            return;
+        }
+        const abuseHmacSecret = process.env.WHEELWIN_NO_FRIENDS_ABUSE_KEY
+            ?? process.env.TELEGRAM_BOT_TOKEN
+            ?? "";
+        if (!localBrowser && !String(abuseHmacSecret).trim()) {
+            this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "SECURITY_CONFIG" });
+            return;
+        }
+
+        const nickname = String(rawRequest?.nickname ?? "").trim().slice(0, 4);
+        const age = Number(rawRequest?.age);
+        const baseStake = Number(rawRequest?.baseStake);
+        if (!nickname || !isValidPlayerAge(age) || !isAllowedBaseStake(baseStake)
+            || typeof rawRequest?.wallet !== "string"
+            || rawRequest.wallet.trim().length < 10
+            || rawRequest.wallet.trim().length > 128) {
+            this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "INVALID_PROFILE" });
+            return;
+        }
+
+        const userKey = localBrowser
+            ? `local:${socketId}`
+            : createHmac("sha256", String(abuseHmacSecret))
+                .update(String(telegramUserId))
+                .digest("hex");
+        if (!localBrowser) {
+            const abuse = this._noFriendsAbuseStore.get(userKey);
+            if (abuse.blockedUntil > Date.now()) {
+                this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, {
+                    code: "COOLDOWN",
+                    blockedUntil: abuse.blockedUntil
+                });
+                return;
+            }
+        }
+
+        const activeRoomMatch = [...this._noFriendsUserKeysByRoom.values()]
+            .some((keys) => keys.includes(userKey));
+        if (activeRoomMatch) {
+            this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "ACTIVE_MATCH" });
+            return;
+        }
+
+        this._noFriendsVerificationSockets.add(socketId);
+
+        let verified;
+        try {
+            verified = await this._verifyNoFriendsWallet(rawRequest.wallet, baseStake);
+        } catch (error) {
+            this._noFriendsVerificationSockets.delete(socketId);
+            this._noFriendsDisconnectedSockets.delete(socketId);
+            const reason = String(error?.message ?? error).slice(0, 180);
+            this._logger.warn(`No Friends wallet verification rejected | ${reason}`);
+            this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, {
+                code: "WALLET_CHECK_FAILED",
+                ...(localBrowser ? { detail: reason } : {})
+            });
+            return;
+        }
+        this._noFriendsVerificationSockets.delete(socketId);
+        if (this._noFriendsDisconnectedSockets.delete(socketId)) return;
+
+        const candidate = {
+            socketId,
+            telegramUserId: telegramUserId == null ? null : String(telegramUserId),
+            userKey,
+            nickname,
+            age,
+            baseStake,
+            wallet: verified.address,
+            balanceNano: verified.balance,
+            queuedAt: requestStartedAt
+        };
+        const expiresAt = requestStartedAt + 180_000;
+        if (expiresAt <= Date.now()) {
+            this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_QUEUE_EXPIRED, {});
+            return;
+        }
+        let queue = this._noFriendsQueues.get(baseStake);
+        if (!queue) this._noFriendsQueues.set(baseStake, queue = []);
+        const duplicateWaiting = [...this._noFriendsQueues.values()].some((entries) => (
+            entries.some((entry) => entry.wallet === candidate.wallet
+                || (candidate.telegramUserId && entry.telegramUserId === candidate.telegramUserId))
+        ));
+        if (duplicateWaiting) {
+            this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "DUPLICATE_PLAYER" });
+            return;
+        }
+        queue.push(candidate);
+        this._noFriendsQueueBySocket.set(socketId, candidate);
+        const timer = setTimeout(
+            () => this._expireNoFriendsCandidate(candidate),
+            expiresAt - Date.now()
+        );
+        this._noFriendsQueueTimers.set(socketId, timer);
+        this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_QUEUE_STATUS, {
+            waitingFor: 3 - queue.length,
+            expiresAt,
+            network: "testnet"
+        });
+        if (queue.length >= 3) void this._formNoFriendsRoom(queue.splice(0, 3));
+
+    }
+
+    _expireNoFriendsCandidate(candidate) {
+
+        const queue = this._noFriendsQueues.get(candidate.baseStake) ?? [];
+        const index = queue.indexOf(candidate);
+        if (index < 0) return;
+        queue.splice(index, 1);
+        this._noFriendsQueueBySocket.delete(candidate.socketId);
+        this._noFriendsQueueTimers.delete(candidate.socketId);
+        this._deliverToSocket(candidate.socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_QUEUE_EXPIRED, {});
+
+    }
+
+    async _formNoFriendsRoom(candidates) {
+
+        for (const candidate of candidates) {
+            clearTimeout(this._noFriendsQueueTimers.get(candidate.socketId));
+            this._noFriendsQueueTimers.delete(candidate.socketId);
+            this._noFriendsQueueBySocket.delete(candidate.socketId);
+        }
+        const [first, ...rest] = candidates;
+        this._handleCreateRoom(first.socketId, { gameMode: "NO_FRIENDS" });
+        const firstPlayerId = this._socketToPlayer.get(first.socketId);
+        const firstRuntime = firstPlayerId ? this._playerManager.getPlayer(firstPlayerId)?.runtime : null;
+        const roomId = firstRuntime?.roomId;
+        const room = roomId ? this._roomManager.getRoom(roomId) : null;
+        if (!room) {
+            for (const candidate of candidates) this._deliverToSocket(candidate.socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "ROOM_UNAVAILABLE" });
+            return;
+        }
+        room.gameMode = "NO_FRIENDS";
+        this._roomNetworkByRoom.set(roomId, "testnet");
+        const matched = [first];
+        for (const candidate of rest) {
+            this._handleJoinRoom(candidate.socketId, roomId);
+            if (this._socketToPlayer.has(candidate.socketId)) matched.push(candidate);
+        }
+        if (matched.length !== 3) {
+            void this._closeRoom(roomId, "no_friends_match_failed");
+            for (const candidate of candidates) this._deliverToSocket(candidate.socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "ROOM_UNAVAILABLE" });
+            return;
+        }
+        for (const candidate of matched) {
+            const playerId = this._socketToPlayer.get(candidate.socketId);
+            this._playerManager.updateIdentity(playerId, {
+                nickname: candidate.nickname,
+                age: candidate.age,
+                wallet: candidate.wallet,
+                baseStake: candidate.baseStake
+            });
+            this._deliverToSocket(candidate.socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_MATCHED, {
+                roomId,
+                playerId,
+                network: "testnet",
+                nickname: candidate.nickname,
+                age: candidate.age,
+                baseStake: candidate.baseStake,
+                optionsReady: false,
+                readyCount: 0
+            });
+        }
+        this._noFriendsOptionsReadyByRoom.set(roomId, new Set());
+        this._noFriendsUserKeysByRoom.set(roomId, matched
+            .map((candidate) => candidate.userKey)
+            .filter((key) => !key.startsWith("local:")));
+        this._logger.info(`No Friends team formed | roomId=${roomId} | players=3 | network=testnet | stake=${first.baseStake}`);
+
+    }
+
+    _handleNoFriendsOptionsNext(socketId, rawProfile) {
+
+        const context = this._getSocketContext(socketId);
+        if (!context) return;
+        const room = this._roomManager.getRoom(context.roomId);
+        const ready = this._noFriendsOptionsReadyByRoom.get(context.roomId);
+        if (!room || room.gameMode !== "NO_FRIENDS" || !ready || ready.has(context.playerId)) return;
+        const rawSectorCount = Number(rawProfile?.sectorCount);
+        const rawColor = typeof rawProfile?.color === "string" ? rawProfile.color.trim() : "";
+        const rawColor2 = typeof rawProfile?.colorSector2 === "string"
+            ? rawProfile.colorSector2.trim()
+            : "";
+        if ((rawSectorCount !== 1 && rawSectorCount !== 2)
+            || !NO_FRIENDS_SECTOR_COLORS.has(rawColor)
+            || (rawSectorCount === 2 && (!NO_FRIENDS_SECTOR_COLORS.has(rawColor2)
+                || rawColor === rawColor2))
+            || (rawProfile?.sectorArrangement !== "together"
+                && rawProfile?.sectorArrangement !== "separate")) {
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+            return;
+        }
+        const profile = this._normalizePlayerProfile(rawProfile);
+        const initialIdentity = this._playerManager.getIdentity(context.playerId);
+        if (!profile
+            || profile.nickname !== initialIdentity?.nickname
+            || profile.age !== initialIdentity?.age
+            || profile.baseStake !== initialIdentity?.baseStake) {
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+            return;
+        }
+        this._handleUpdatePlayerProfile(socketId, rawProfile);
+        ready.add(context.playerId);
+        this._deliverToRoom(context.roomId, LOBBY_SERVER_EVENTS.NO_FRIENDS_OPTIONS_READY, {
+            readyCount: ready.size,
+            required: 3
+        });
+        if (ready.size === 3) this._completeVerifyBarrier(context.roomId);
+
+    }
+
+    _recordNoFriendsFailure(roomId) {
+
+        if (!roomId || this._noFriendsFailureRecordedRooms.has(roomId)
+            || this._noFriendsSucceededRooms.has(roomId)) return;
+        const keys = this._noFriendsUserKeysByRoom.get(roomId);
+        if (!keys) return;
+        this._noFriendsFailureRecordedRooms.add(roomId);
+        for (const key of keys) {
+            const outcome = this._noFriendsAbuseStore.recordFailure(key);
+            this._logger.info(`No Friends failed attempt recorded | roomId=${roomId} | count=${outcome.failures} | blocked=${outcome.blockedUntil > Date.now()}`);
+        }
+
+    }
+
+    _recordNoFriendsSuccess(roomId) {
+
+        if (!roomId) return;
+        const keys = this._noFriendsUserKeysByRoom.get(roomId);
+        if (!keys) return;
+        this._noFriendsSucceededRooms.add(roomId);
+        for (const key of keys) this._noFriendsAbuseStore.recordSuccess(key);
+        this._logger.info(`No Friends game completed into Page6 | roomId=${roomId} | lockout counters reset`);
+
+    }
+
+    _handleCreateRoom(socketId, { gameMode = "FRIENDS" } = {}) {
 
         if (this._socketToPlayer.has(socketId)) {
 
@@ -941,7 +1334,9 @@ export class RoomLobbyBridge {
 
         }
 
-        const room = this._roomManager.createRoom();
+        const room = gameMode === "NO_FRIENDS"
+            ? this._roomManager.createRoom({ gameMode })
+            : this._roomManager.createRoom();
 
         if (!room) {
 
@@ -960,6 +1355,18 @@ export class RoomLobbyBridge {
             return;
 
         }
+
+        // Telegram bot instances are deployed against their selected network.
+        // The server-side TON_NETWORK value is authoritative; the client no
+        // longer chooses or submits a network after room creation. Local
+        // development defaults to Testnet when the setting is absent.
+        const configuredNetwork = String(process.env.TON_NETWORK ?? "testnet")
+            .trim()
+            .toLowerCase();
+        const roomNetwork = configuredNetwork === "mainnet"
+            ? "mainnet"
+            : "testnet";
+        this._roomNetworkByRoom.set(room.roomId, roomNetwork);
 
         const player = this._playerManager.createPlayer();
 
@@ -1051,6 +1458,7 @@ export class RoomLobbyBridge {
             roomId: roomSnapshot.roomId,
             playerId,
             recoveryCredential,
+            network: roomNetwork,
             connectedPlayers: roomSnapshot.players.length,
             maxPlayers: roomSnapshot.maxPlayers,
             players: this._buildPlayerList(roomSnapshot)
@@ -2010,6 +2418,20 @@ export class RoomLobbyBridge {
 
     _handleSocketDisconnected(socketId, disconnectReason = null) {
 
+        if (this._noFriendsVerificationSockets.has(socketId)) {
+            this._noFriendsDisconnectedSockets.add(socketId);
+        }
+
+        const queuedCandidate = this._noFriendsQueueBySocket.get(socketId);
+        if (queuedCandidate) {
+            clearTimeout(this._noFriendsQueueTimers.get(socketId));
+            this._noFriendsQueueTimers.delete(socketId);
+            this._noFriendsQueueBySocket.delete(socketId);
+            const queue = this._noFriendsQueues.get(queuedCandidate.baseStake) ?? [];
+            const index = queue.indexOf(queuedCandidate);
+            if (index >= 0) queue.splice(index, 1);
+        }
+
         const context = this._getSocketContext(socketId);
 
         const roomId = context?.roomId ?? null;
@@ -2783,6 +3205,28 @@ export class RoomLobbyBridge {
             `Lobby recovery reconnect | roomId=${roomId} | playerId=${playerId}`
         );
 
+        if (room.gameMode === "NO_FRIENDS") {
+            if (this._verifyBarrierCompletedByRoom.has(roomId)) {
+                this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY, {
+                    roomId,
+                    paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                });
+            } else {
+                const optionsReady = this._noFriendsOptionsReadyByRoom.get(roomId);
+                this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_MATCHED, {
+                    roomId,
+                    playerId,
+                    network: "testnet",
+                    nickname: this._playerManager.getIdentity(playerId)?.nickname ?? null,
+                    age: this._playerManager.getIdentity(playerId)?.age ?? null,
+                    baseStake: this._playerManager.getIdentity(playerId)?.baseStake ?? null,
+                    gameId: this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId) ?? null,
+                    optionsReady: optionsReady?.has(playerId) === true,
+                    readyCount: optionsReady?.size ?? 0
+                });
+            }
+        }
+
         return {
             ok: true,
             playerId,
@@ -2998,6 +3442,8 @@ export class RoomLobbyBridge {
 
         }
 
+        this._recordNoFriendsFailure(roomId);
+
         // R8.6 — After GAME_INITIALIZED Setup expiry must not close the room
         // or tear down gameplay/financial bindings.
         if (this._setupSessionLifecycle?.isGameplayOwnershipReleased?.(roomId)) {
@@ -3050,9 +3496,31 @@ export class RoomLobbyBridge {
 
         }
 
+        if (this._roomManager.getRoom(roomId)?.gameMode === "NO_FRIENDS") {
+            this._logger.info(`No Friends room skips legacy Page2 start event | roomId=${roomId}`);
+            const room = this._roomManager.getRoom(roomId);
+            for (const playerId of room?.players ?? []) {
+                const socketId = this._playerToSocket.get(playerId);
+                if (socketId) {
+                    this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_GAME_CREATED, {
+                        roomId,
+                        gameId
+                    });
+                }
+            }
+            return;
+        }
+
         // R1.1 — startGame (Page2 entry) fires at game prep / room-full,
         // not at GAME_INITIALIZED (which now waits for verify barrier).
-        this._deliverStartGame(roomId, gameId);
+        // Defer one microtask so the final join handler can emit ROOM_JOINED
+        // with its recovery credential before START_GAME navigates away from
+        // the lobby and unmounts the join UI.
+        queueMicrotask(() => {
+
+            this._deliverStartGame(roomId, gameId);
+
+        });
 
     }
 
@@ -3370,6 +3838,11 @@ export class RoomLobbyBridge {
             });
 
             this._roomManager.destroyRoom(roomId);
+            this._queueForensicArchive(
+                roomId,
+                this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId) ?? null,
+                "empty_room"
+            );
 
             this._roomCreators.delete(roomId);
 
@@ -3679,6 +4152,7 @@ export class RoomLobbyBridge {
         });
 
         this._roomManager.destroyRoom(roomId);
+        this._queueForensicArchive(roomId, gameId, reason ?? "room_destroyed");
 
         this._roomCreators.delete(roomId);
 
@@ -3837,6 +4311,28 @@ export class RoomLobbyBridge {
         }
 
         const { playerId, roomId } = context;
+
+        // Page3 provides the payer address separately from the Page2 game
+        // profile. Keep it private to the authoritative player identity.
+        // Do not overwrite stake/sectors or accept changes after verification.
+        if (rawProfile && typeof rawProfile === "object"
+            && Object.keys(rawProfile).length === 1
+            && typeof rawProfile.wallet === "string") {
+            const room = this._roomManager.getRoom(roomId);
+            if (!room || !room.players?.includes(playerId)
+                || this._continueToVerifyByRoom.has(roomId)) {
+                this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+                return;
+            }
+            try {
+                const payer = deriveTonAddressIdentity(rawProfile.wallet.trim());
+                if (!payer.startsWith("0:")) throw new Error("invalid workchain");
+                this._playerManager.updateIdentity(playerId, { wallet: payer });
+            } catch {
+                this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+            }
+            return;
+        }
 
         const profile = this._normalizePlayerProfile(rawProfile);
 
@@ -4743,6 +5239,13 @@ export class RoomLobbyBridge {
             archivedSetup
         );
 
+        // Create payment intents before Page4 receives its first authoritative
+        // snapshot; otherwise all three seats see PAYMENT_UNAVAILABLE even
+        // when real intake is enabled.
+        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+            this._preparePaymentSessionIfEnabled(roomId, room);
+        }
+
         this._deliverToRoom(
             roomId,
             LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
@@ -4766,21 +5269,22 @@ export class RoomLobbyBridge {
 
         this._logger.info(`Verify barrier complete | roomId=${roomId}`);
 
-        // Trigger the authoritative game start gate.
+        // Payment rooms do not invoke GameStartAuthorization before Page4 has
+        // settled all THREE real payments. Doing so rejects the not-yet-paid
+        // room before any participant can pay.
+        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
+
+        // Historical disabled-acceptance behavior remains fail-closed.
         this._eventBus.emit({
             source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
             type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
             payload: {
                 roomId,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled: false,
                 paymentSessionPrepared: false,
-                paymentStatus: LIVE_PAYMENT_ACCEPTANCE_ENABLED
-                    ? "PENDING_PREPARATION"
-                    : "PAYMENT_UNAVAILABLE"
+                paymentStatus: "PAYMENT_UNAVAILABLE"
             }
         });
-
-        this._preparePaymentSessionIfEnabled(roomId, room);
 
     }
 
@@ -4879,7 +5383,7 @@ export class RoomLobbyBridge {
         } else if (intent.state === PAYMENT_INTENT_STATE.PENDING
             || intent.state === PAYMENT_INTENT_STATE.MATCHED) {
 
-            status = "AWAITING_PAYMENT";
+            status = intent.state === PAYMENT_INTENT_STATE.MATCHED ? "MATCHED" : "AWAITING_PAYMENT";
             reason = null;
 
         } else {
@@ -4902,6 +5406,7 @@ export class RoomLobbyBridge {
                 reason,
                 paymentReference: intent.paymentReference,
                 amountAtomic: intent.amountAtomic,
+                payerAddress: intent.expectedSender,
                 destinationWalletAddress: intent.destinationWalletAddress,
                 expiresAt: intent.expiresAt ?? null,
                 network: intent.network,
@@ -4951,20 +5456,67 @@ export class RoomLobbyBridge {
      * status the reconnect path would have delivered.
      */
     _handlePaymentStatusRequest(socketId) {
-
         const context = this._getSocketContext(socketId);
-
-        if (!context || !context.playerId || !context.roomId) {
-
-            return;
-        }
+        if (!context || !context.playerId || !context.roomId) return;
 
         this._deliverPaymentStatusToSocket(
-            context.roomId,
-            context.playerId,
-            socketId
+            context.roomId, context.playerId, socketId
         );
 
+        // No automatic global wallet scan. Only an occupied Page4 room
+        // receives one explicit, coalesced chain observation on request.
+        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
+        const runtime = this._paymentApplicationBinding?.runtime;
+        const adapter = runtime?.sessionAdapter;
+        const roomId = context.roomId;
+        const room = this._roomManager.getRoom(roomId);
+        if (!room || room.players?.length !== 3
+            || !this._continueToVerifyByRoom.has(roomId)
+            || typeof adapter?.observeRoomPayments !== "function") return;
+
+        if (!this._roomPaymentChecks) this._roomPaymentChecks = new Map();
+        if (this._roomPaymentChecks.has(roomId)) return;
+        if (!this._roomObservationBudget) {
+            this._roomObservationBudget = new ActiveRoomObservationBudget();
+        }
+        if (!this._roomObservationBudget.claim(roomId)) return;
+
+        const pending = Promise.resolve()
+            .then(() => adapter.observeRoomPayments({ roomId }))
+            .then(() => {
+                const active = this._roomManager.getRoom(roomId);
+                if (!active || active.players?.length !== 3) return;
+                for (const playerId of active.players) {
+                    const boundSocket = this._playerToSocket.get(playerId);
+                    if (boundSocket) {
+                        this._deliverPaymentStatusToSocket(roomId, playerId, boundSocket);
+                    }
+                }
+                const gate = runtime.paymentGate?.getGameStartGateStatus(
+                    roomId, active.players
+                );
+                if (gate?.eligible === true) {
+                    this._eventBus.emit({
+                        source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                        type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
+                        payload: {
+                            roomId,
+                            paymentAcceptanceEnabled: true,
+                            paymentSessionPrepared: true,
+                            paymentStatus: "ALL_THREE_SETTLED"
+                        }
+                    });
+                }
+            })
+            .catch(error => this._logger?.warn?.(
+                `Page4 payment check failed | roomId=${roomId} | reason=${error?.message ?? "unknown"}`
+            ))
+            .finally(() => {
+                if (this._roomPaymentChecks.get(roomId) === pending) {
+                    this._roomPaymentChecks.delete(roomId);
+                }
+            });
+        this._roomPaymentChecks.set(roomId, pending);
     }
 
     _preparePaymentSessionIfEnabled(roomId, room) {
@@ -4984,31 +5536,17 @@ export class RoomLobbyBridge {
             return;
         }
 
-        const paymentRequests = [];
-        for (const playerId of room.players) {
-            const runtime = this._playerManager.getRuntime?.(playerId);
-            const paymentConfig = runtime?.payment ?? runtime?.paymentRequest ?? null;
-            if (!paymentConfig || typeof paymentConfig !== "object") {
-                return;
-            }
-            if (typeof paymentConfig.expectedSender !== "string" || paymentConfig.expectedSender.trim() === "") {
-                return;
-            }
-            if (typeof paymentConfig.amountAtomic !== "number" || !Number.isSafeInteger(paymentConfig.amountAtomic) || paymentConfig.amountAtomic <= 0) {
-                return;
-            }
-            if (typeof paymentConfig.paymentReference !== "string" || paymentConfig.paymentReference.trim() === "") {
-                return;
-            }
-            paymentRequests.push({
-                playerId,
-                paymentReference: paymentConfig.paymentReference.trim(),
-                expectedSender: paymentConfig.expectedSender.trim(),
-                amountAtomic: paymentConfig.amountAtomic
-            });
-        }
-
-        if (paymentRequests.length !== 3) {
+        // Derive all three payment requirements from the server-side Page2
+        // stake/sector selection and Page3 payer wallet, not an unattached
+        // PlayerRuntime.paymentRequest field (which never existed).
+        const paymentRequests = deriveTestnetRoomPaymentRequirements(
+            roomId, room.players,
+            playerId => this._playerManager.getIdentity(playerId)
+        );
+        if (!paymentRequests) {
+            this._logger?.warn?.(
+                `Payment session awaits three valid wallet addresses and matching stakes | roomId=${roomId}`
+            );
             return;
         }
 
@@ -5432,6 +5970,8 @@ export class RoomLobbyBridge {
     }
 
     _clearVerifyBarrier(roomId) {
+
+        this._roomObservationBudget?.forget(roomId);
 
         this._verifyConfirmedByRoom.delete(roomId);
 

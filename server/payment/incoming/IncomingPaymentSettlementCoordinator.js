@@ -185,7 +185,7 @@ export class IncomingPaymentSettlementCoordinator {
      *   nowProvider?: () => number
      * }} dependencies
      */
-    constructor({ paymentService, observationService, logger = null, nowProvider = Date.now }) {
+    constructor({ paymentService, observationService, logger = null, nowProvider = Date.now, receiptAccounting = null }) {
 
         if (!paymentService
             || typeof paymentService.settlePayment !== "function"
@@ -219,6 +219,7 @@ export class IncomingPaymentSettlementCoordinator {
         this._observationService = observationService;
         this._logger = logger;
         this._nowProvider = nowProvider;
+        this._receiptAccounting = receiptAccounting;
 
     }
 
@@ -446,6 +447,9 @@ export class IncomingPaymentSettlementCoordinator {
 
         }
 
+        // Persist finalized received funds even when they cannot qualify as stakes.
+        // A persistence failure stops settlement; never acknowledge unrecorded money.
+        this._receiptAccounting?.capture(observation);
         const entriesByReference = new Map();
 
         for (const entry of observation.observations) {
@@ -863,7 +867,8 @@ export class IncomingPaymentSettlementCoordinator {
 
         }
 
-        if (intent.isExpired(window.ceilingMs)) {
+        if (intent.isExpired(window.ceilingMs)
+            && transfer.transactionTime >= intent.expiresAt) {
 
             return {
                 ok: false,
@@ -986,7 +991,8 @@ export class IncomingPaymentSettlementCoordinator {
 
             matched = this._paymentService.matchTransaction(
                 intent.paymentReference,
-                transfer.transactionId
+                transfer.transactionId,
+                observation
             );
 
         } catch (error) {

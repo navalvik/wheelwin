@@ -1,3 +1,4 @@
+import { durableWriteJson } from '../DurableJson.js';
 /**
  * Phase 4 — Durable, append-only internal ledger store.
  *
@@ -50,17 +51,7 @@ import {
  * @param {string} filePath
  * @param {object} payload
  */
-function atomicWriteJson(filePath, payload) {
-
-    mkdirSync(dirname(filePath), { recursive: true });
-
-    const temp = `${filePath}.tmp`;
-
-    writeFileSync(temp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-
-    renameSync(temp, filePath);
-
-}
+function atomicWriteJson(filePath, payload) { durableWriteJson(filePath, payload); }
 
 /**
  * @param {string} filePath

@@ -2,6 +2,7 @@ import * as React from "react";
 import { useCallback, useState } from "react";
 
 import { SHOW_TESTNET_WARNING } from "../config/features";
+import { isTestnetDisplay } from "../config/displayNetwork.js";
 import { useLanguage } from "../context/LanguageContext";
 
 import "../styles/networkWarningOverlay.css";
@@ -15,9 +16,7 @@ const FADE_MS = 280;
  * feature flag, and the i18n context: no TON libraries, wallets, smart
  * contracts, payment modules, or deleted financial components are imported.
  *
- * The network is derived from the hostname (same rule as HeaderBar):
- *   - "nine" or "testnet" in the hostname → TESTNET
- *   - anything else → MAINNET
+ * The display network uses the same rule as HeaderBar. Local hosts use Testnet.
  *
  * A small error boundary wraps the render so that if this component ever
  * throws, Page1 keeps working instead of becoming a blank screen.
@@ -58,10 +57,7 @@ function NetworkWarningContent() {
 
     }
 
-    const isTestnet = typeof window !== "undefined" && (
-        window.location.hostname.includes("nine") ||
-        window.location.hostname.includes("testnet")
-    );
+    const isTestnet = isTestnetDisplay();
 
     const titleKey = isTestnet ? "welcome.testMode" : "welcome.mainnetMode";
     const bodyKey = isTestnet ? "welcome.testnetBody" : "welcome.mainnetBody";

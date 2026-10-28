@@ -108,6 +108,26 @@ export class TestnetOutgoingRefundProvider {
             && typeof this._observation?.findOutgoingTransfer === "function";
     }
 
+    canPrepareRefundTransfer() {
+        return this.canExecute() && typeof this._signer?.quoteRefund === "function";
+    }
+
+    async prepareRefundTransfer({ obligation, sourceWalletAddress, nowMs }) {
+        if (!this.canPrepareRefundTransfer()) {
+            throw new OutgoingRefundError("refund native fee quote is unavailable");
+        }
+        const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
+        return this._signer.quoteRefund({
+            roomId: authorized.roomId,
+            roomNumber: authorized.roomNumber,
+            from: authorized.sourceWalletAddress,
+            to: authorized.refundDestination,
+            amountAtomic: authorized.grossAmountAtomic,
+            obligationId: authorized.obligationId,
+            nowMs
+        });
+    }
+
     /** Public, non-secret identity check (no network access, no secrets). */
     async verifyNetwork() {
         return Object.freeze({ networkName: this.networkName, globalId: this.globalId });
@@ -145,13 +165,17 @@ export class TestnetOutgoingRefundProvider {
         return Object.freeze({
             networkName: this.networkName,
             globalId: this.globalId,
+            roomId: obligation.roomId,
+            roomNumber: obligation.roomNumber,
             obligationId: obligation.obligationId,
             idempotencyKey: obligation.idempotencyKey,
             sourceWalletAddress,
             sourceIdentity,
             sourceAccountId: sourceIdentity,
             refundDestination: obligation.refundDestination,
-            amountAtomic: obligation.amountAtomic,
+            amountAtomic: obligation.transferAmountAtomic ?? obligation.amountAtomic,
+            grossAmountAtomic: obligation.amountAtomic,
+            gasChargeAtomic: obligation.gasChargeAtomic ?? 0,
             denomination: obligation.denomination
         });
     }
@@ -209,6 +233,10 @@ export class TestnetOutgoingRefundProvider {
                 from: authorized.sourceWalletAddress,
                 to: authorized.refundDestination,
                 amountAtomic: authorized.amountAtomic,
+                grossAmountAtomic: authorized.grossAmountAtomic,
+                gasChargeAtomic: authorized.gasChargeAtomic,
+                roomId: authorized.roomId,
+                roomNumber: authorized.roomNumber,
                 denomination: authorized.denomination,
                 idempotencyKey: authorized.idempotencyKey,
                 obligationId: authorized.obligationId,
@@ -294,7 +322,8 @@ export class TestnetOutgoingRefundProvider {
         try {
             outgoingTransfer = await this._observation.getOutgoingTransfer({
                 sourceWalletAddress: authorized.sourceAccountId,
-                transactionId: outgoingTransactionId
+                transactionId: outgoingTransactionId,
+                minCreatedAtMs: obligation.createdAtMs
             });
         } catch {
             outgoingTransfer = null;
@@ -325,7 +354,8 @@ export class TestnetOutgoingRefundProvider {
             match = await this._observation.findOutgoingTransfer({
                 sourceWalletAddress: authorized.sourceAccountId,
                 destinationIdentity: deriveTonAddressIdentity(authorized.refundDestination),
-                amountAtomic: authorized.amountAtomic
+                amountAtomic: authorized.amountAtomic,
+                minCreatedAtMs: obligation.createdAtMs
             });
         } catch {
             match = null;

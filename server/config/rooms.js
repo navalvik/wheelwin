@@ -1,5 +1,5 @@
-// R18-S16 — Setup Timer 8 minutes (was R7.70C19 5 min). Isolated from Payment/Wallet/Result timers.
-const DEFAULT_SETUP_DURATION_MS = 8 * 60 * 1000;
+// Shared setup deadline for both room modes, measured from room creation.
+const DEFAULT_SETUP_DURATION_MS = 460 * 1000;
 
 /** R6.5 — Page6 result linger before authoritative SESSION_FINISHED. */
 // R7.70C19A — restored from C7 TEMP 10 min → 5 min.

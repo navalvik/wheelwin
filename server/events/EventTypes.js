@@ -114,6 +114,8 @@ export const EVENT_TYPES = Object.freeze({
     AUDIT_REPORT_REMOVED: "AUDIT_REPORT_REMOVED",
 
     LOBBY_CREATE_ROOM_REQUEST: "LOBBY_CREATE_ROOM_REQUEST",
+    LOBBY_NO_FRIENDS_REQUEST: "LOBBY_NO_FRIENDS_REQUEST",
+    LOBBY_NO_FRIENDS_OPTIONS_NEXT: "LOBBY_NO_FRIENDS_OPTIONS_NEXT",
     // R20 — room Owner network selection request (client "selectRoomNetwork").
     LOBBY_SELECT_ROOM_NETWORK_REQUEST: "LOBBY_SELECT_ROOM_NETWORK_REQUEST",
     // R23 — Mainnet handoff bootstrap request (client

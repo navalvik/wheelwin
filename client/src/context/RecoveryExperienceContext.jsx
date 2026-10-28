@@ -205,7 +205,7 @@ export function RecoveryExperienceProvider({
 
         recoveryInFlightRef.current = false;
 
-        const restoredPage = readStoredRecoveryPage();
+        const restoredPage = readStoredRecoveryPage() ?? APP_PAGES.LOBBY;
 
         if (
             restoredPage
@@ -510,14 +510,6 @@ export function RecoveryExperienceProvider({
 
         }
 
-        const storedPage = readStoredRecoveryPage();
-
-        if (!storedPage || !isSetupRecoveryPage(storedPage)) {
-
-            return;
-
-        }
-
         function tryBootRecovery() {
 
             if (!socket.connected || recoveryInFlightRef.current) {
@@ -550,7 +542,7 @@ export function RecoveryExperienceProvider({
 
     }, [currentPage, getIdentity, requestSessionRecovery]);
 
-    // R12.2 — WebView wake-up: request recovery without waiting for disconnect.
+    // R12.2 — Browser/WebView wake-up: request recovery without waiting for disconnect.
     useEffect(() => {
 
         if (typeof document === "undefined" || typeof window === "undefined") {
@@ -567,7 +559,7 @@ export function RecoveryExperienceProvider({
 
             }
 
-            if (!isGameplayPage(currentPage)) {
+            if (!isSetupRecoveryPage(currentPage) && !isGameplayPage(currentPage)) {
 
                 return;
 
@@ -763,7 +755,14 @@ export function RecoveryExperienceProvider({
 
             if (type === RECOVERY_SOCKET_EVENTS.SESSION_SNAPSHOT) {
 
-                if (isGameplayPage(currentPage) || pendingGameplaySnapshotRef.current !== null) {
+                if (
+                    isGameplayPage(currentPage)
+                    || pendingGameplaySnapshotRef.current !== null
+                    || (
+                        currentPage === APP_PAGES.WELCOME
+                        && recoveryInFlightRef.current
+                    )
+                ) {
 
                     handleGameplaySnapshot(rawMessage.payload);
 
@@ -788,7 +787,13 @@ export function RecoveryExperienceProvider({
                 playerId: getIdentity().playerId
             });
 
-            if (isSetupRecoveryPage(currentPage)) {
+            if (
+                isSetupRecoveryPage(currentPage)
+                || (
+                    currentPage === APP_PAGES.WELCOME
+                    && recoveryInFlightRef.current
+                )
+            ) {
 
                 handleSetupRecoveryComplete();
 

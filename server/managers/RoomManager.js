@@ -124,7 +124,7 @@ export class RoomManager {
 
     }
 
-    createRoom({ maxPlayers } = {}) {
+    createRoom({ maxPlayers, gameMode } = {}) {
 
         if (this._lifecycleGate
             && this._lifecycleGate.isAcceptingNewWork() !== true) {
@@ -199,7 +199,8 @@ export class RoomManager {
             createdAt: Date.now(),
             status: ROOM_STATUS.CREATED,
             maxPlayers: resolvedMaxPlayers,
-            players: []
+            players: [],
+            gameMode
         });
 
         this._rooms.set(roomId, room);
@@ -227,7 +228,9 @@ export class RoomManager {
             roomNumber: room.roomNumber,
             status: room.status,
             maxPlayers: room.maxPlayers,
-            playerCount: room.players.length
+            playerCount: room.players.length,
+            gameMode: room.gameMode,
+            displayMode: room.gameMode === "NO_FRIENDS" ? "НЕТ ДРУЗЕЙ" : "ЕСТЬ ДРУЗЬЯ"
         });
 
         room.status = ROOM_STATUS.WAITING_FOR_PLAYERS;

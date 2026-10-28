@@ -18,31 +18,41 @@ try {
     const [
         { default: Page4Payment },
         { PlayerIdentityProvider },
-        { LanguageProvider }
+        { LanguageProvider },
+        { AuthoritativeSessionProvider },
+        { EngineBridgeProvider }
     ] = await Promise.all([
         vite.ssrLoadModule(resolve(clientRoot, "src/pages/Page4Payment.jsx")),
         vite.ssrLoadModule(resolve(clientRoot, "src/context/PlayerIdentityContext.jsx")),
-        vite.ssrLoadModule(resolve(clientRoot, "src/context/LanguageContext.jsx"))
+        vite.ssrLoadModule(resolve(clientRoot, "src/context/LanguageContext.jsx")),
+        vite.ssrLoadModule(resolve(clientRoot, "src/context/AuthoritativeSessionContext.jsx")),
+        vite.ssrLoadModule(resolve(clientRoot, "src/context/EngineBridgeContext.jsx"))
     ]);
 
     const html = renderToString(createElement(
         LanguageProvider,
         null,
         createElement(
-            PlayerIdentityProvider,
+            EngineBridgeProvider,
             null,
-            createElement(Page4Payment)
+            createElement(
+                PlayerIdentityProvider,
+                null,
+                createElement(
+                    AuthoritativeSessionProvider,
+                    null,
+                    createElement(Page4Payment)
+                )
+            )
         )
     ));
 
-    assert.match(html, /Payment status:/,
-        "Page4 renders the payment status label");
-    assert.match(html, /PAYMENT_UNAVAILABLE/,
-        "Page4 renders the disabled payment status without wallet state");
-    assert.match(html, /Payment acceptance is disabled/,
+    assert.match(html, /PAYMENT/,
+        "Page4 renders the payment page heading");
+    assert.match(html, /Payments are unavailable\. Do not send GRAM to any room wallet\./,
         "Page4 explains why payment is unavailable");
-    assert.match(html, /No wallet request or destination has been issued/,
-        "Page4 does not imply that a payment session is active");
+    assert.doesNotMatch(html, /Room wallet:|Transfer comment:|CHECK PAYMENT|CONNECT TESTNET WALLET/,
+        "Page4 does not expose the old raw payment details and separate actions");
 } finally {
     await vite.close();
 }

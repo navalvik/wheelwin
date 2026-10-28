@@ -71,6 +71,11 @@ function createFakeSocket() {
 
             handler(message);
 
+        },
+        _hasListener(channel) {
+
+            return listeners.has(channel);
+
         }
     };
 
@@ -195,6 +200,54 @@ const AUTHORITATIVE_SEQUENCE = [
     );
 
     console.log("  lifetime: first COUNTDOWN packet delivered (no navigation race) passed");
+
+}
+
+// ---------------------------------------------------------------------------
+// PAYMENT_STAGE_READY is a direct lobby event emitted after the server has
+// completed the three-player verification barrier. It must cross the socket
+// sync boundary so OpenPage5Navigator can open Page4 for that room.
+// ---------------------------------------------------------------------------
+
+{
+
+    const socket = createFakeSocket();
+
+    const bridge = new EngineBridge();
+
+    const received = [];
+
+    bridge.register("pageNavigation", {
+        onPaymentStageReady: (payload) => received.push(payload)
+    });
+
+    const layer = new SocketSyncLayer(socket, {
+        engineBridge: bridge,
+        devMode: false
+    });
+
+    layer.connect();
+
+    const payload = {
+        roomId: "PAY4",
+        paymentAcceptanceEnabled: true
+    };
+
+    socket._serverEmit(INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY, payload);
+
+    assert(
+        received.length === 1 && received[0] === payload,
+        "server PAYMENT_STAGE_READY must reach the page navigation module"
+    );
+
+    layer.dispose();
+
+    assert(
+        !socket._hasListener(INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY),
+        "PAYMENT_STAGE_READY listener must be removed on layer disposal"
+    );
+
+    console.log("  payment: PAYMENT_STAGE_READY reaches Page4 navigation and cleans up passed");
 
 }
 

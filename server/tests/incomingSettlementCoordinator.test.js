@@ -411,8 +411,18 @@ async function run() {
             const wallet = h.service.getWalletForRoom(intent.roomId);
             h.setPayload(rowPayload(transactionFor(intent, wallet)));
             const report = await settle(h, intent.roomId, { now: intent.expiresAt + 1 });
-            check(report.refused.length + report.unmatched.length > 0, "expired intent is reported without settlement");
-            equal(h.service.getPaymentIntent(intent.paymentReference).state, "PENDING", "expired intent stays pending");
+            equal(report.settled.length, 1, "on-time chain payment discovered after deadline is accounted for");
+            equal(h.service.getPaymentIntent(intent.paymentReference).state, "SETTLED", "delayed indexing must not lose a paid player's funds");
+        });
+        await usingHarness({}, async (h) => {
+            const intent = makeIntent(h);
+            const wallet = h.service.getWalletForRoom(intent.roomId);
+            h.setPayload(rowPayload(transactionFor(intent, wallet, {
+                nowSeconds: Math.ceil(intent.expiresAt / 1000)
+            })));
+            const report = await settle(h, intent.roomId, { now: intent.expiresAt + 1000 });
+            equal(report.settled.length, 0, "chain payment at or after deadline cannot authorize gameplay");
+            equal(h.service.getPaymentIntent(intent.paymentReference).state, "PENDING", "late chain payment does not settle intent");
         });
         await usingHarness({}, async (h) => {
             const intent = makeIntent(h);

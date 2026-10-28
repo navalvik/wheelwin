@@ -269,6 +269,15 @@ export class SocketSyncLayer {
 
         };
 
+        this._handlePaymentStageReady = (payload) => {
+
+            this._handleIncoming({
+                type: INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY,
+                payload
+            });
+
+        };
+
         this._handleGameStartAuthorized = (payload) => {
 
             this._handleIncoming({
@@ -351,6 +360,11 @@ export class SocketSyncLayer {
             this._handleVerifyCompleted
         );
 
+        this._socket.on(
+            INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY,
+            this._handlePaymentStageReady
+        );
+
 
 
         this._socket.on(
@@ -425,6 +439,11 @@ export class SocketSyncLayer {
         this._socket.off(
             INCOMING_SOCKET_EVENTS.VERIFY_COMPLETED,
             this._handleVerifyCompleted
+        );
+
+        this._socket.off(
+            INCOMING_SOCKET_EVENTS.PAYMENT_STAGE_READY,
+            this._handlePaymentStageReady
         );
 
 

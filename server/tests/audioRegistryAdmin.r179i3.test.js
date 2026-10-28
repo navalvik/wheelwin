@@ -18,7 +18,7 @@ import {
 test("R17.9I.3 admin-only sections include R17.9 modules", () => {
 
     assert.equal(isAdministratorOnlySection("runtime-configuration"), true);
-    assert.equal(isAdministratorOnlySection("wallet-monitoring"), true);
+    assert.equal(isAdministratorOnlySection("wallet-monitoring"), false);
     assert.equal(isAdministratorOnlySection("audio-registry"), true);
     assert.equal(isAdministratorOnlySection("payments"), false);
     assert.equal(isAdministratorOnlySection("server-health"), false);

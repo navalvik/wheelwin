@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WheelWin — проверка подключения кошелька</title></head>
+<body style="font:18px system-ui;max-width:650px;margin:32px auto;padding:20px">
+<h1>WheelWin — проверка подключения</h1>
+<p>Откройте общий сканер QR в Gram Wallet или сканер в разделе подключённых приложений. Сканер внутри поля «Отправить на» для подключения не подходит.</p>
+<p>Эта проверка только подключает кошелёк. Запроса на перевод средств здесь нет.</p>
+<button id="connect" type="button">Подключить Gram Wallet</button>
+<button id="disconnect" type="button">Отключить</button>
+<p id="status" role="status">Загрузка…</p>
+<script type="module" src="/src/payment/walletConnectionCheck.js"></script>
+</body></html>

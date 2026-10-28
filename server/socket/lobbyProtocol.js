@@ -1,5 +1,7 @@
 export const LOBBY_CLIENT_EVENTS = Object.freeze({
     CREATE_ROOM: "createRoom",
+    NO_FRIENDS_REQUEST: "noFriendsRequest",
+    NO_FRIENDS_OPTIONS_NEXT: "noFriendsOptionsNext",
     JOIN_ROOM: "joinRoom",
     LEAVE_ROOM: "leaveRoom",
     DISCONNECT: "disconnect",
@@ -40,6 +42,12 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({
     ROOM_CREATED: "roomCreated",
+    NO_FRIENDS_QUEUE_STATUS: "noFriendsQueueStatus",
+    NO_FRIENDS_MATCHED: "noFriendsMatched",
+    NO_FRIENDS_GAME_CREATED: "noFriendsGameCreated",
+    NO_FRIENDS_QUEUE_EXPIRED: "noFriendsQueueExpired",
+    NO_FRIENDS_ERROR: "noFriendsError",
+    NO_FRIENDS_OPTIONS_READY: "noFriendsOptionsReady",
     // R20 — authoritative one-time room network selection broadcast to all
     // sockets currently in the room. Payload: { roomId, network } only.
     ROOM_NETWORK_SELECTED: "roomNetworkSelected",

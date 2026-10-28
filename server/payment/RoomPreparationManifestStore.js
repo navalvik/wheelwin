@@ -1,3 +1,4 @@
+import { durableWriteJson } from './DurableJson.js';
 /**
  * Durable, immutable manifests for resumable room-payment preparation.
  *
@@ -212,13 +213,9 @@ export class RoomPreparationManifestStore {
         const tempPath = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
         let fd = null;
         try {
-            fd = openSync(tempPath, "wx");
-            writeFileSync(fd, `${JSON.stringify(requested, null, 2)}\n`, "utf8");
-            fsyncSync(fd);
-            closeSync(fd);
-            fd = null;
+
             try {
-                linkSync(tempPath, filePath);
+                durableWriteJson(filePath, requested, {exclusive:true});
                 return requested;
             } catch (error) {
                 if (error?.code !== "EEXIST") {

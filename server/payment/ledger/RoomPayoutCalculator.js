@@ -217,7 +217,7 @@ export class RoomPayoutCalculator {
      *   ownerGrossAllocationAtomic: number, safetyMarginAtomic: 0,
      *   allocationRuleId: string }}
      */
-    static allocatePrincipal(principalAtomic, allocation) {
+    static allocatePrincipal(principalAtomic, allocation, safetyMarginAtomic = 0) {
 
         assertPositiveSafeInteger(principalAtomic, "principalAtomic");
 
@@ -231,7 +231,15 @@ export class RoomPayoutCalculator {
         // from a caller input: floor(principalAtomic * 95 / 100), in BigInt.
         const winner = config.winnerGrossAllocationBigInt(principal);
 
-        const owner = principal - winner;
+        if (!Number.isSafeInteger(safetyMarginAtomic)
+            || safetyMarginAtomic < 0) {
+            throw new PayoutValidationError(
+                "safety margin must be a nonnegative safe integer",
+                { safetyMarginAtomic }
+            );
+        }
+
+        const owner = principal - winner - BigInt(safetyMarginAtomic);
 
         if (owner < 0n) {
 
@@ -254,8 +262,7 @@ export class RoomPayoutCalculator {
             principalAtomic,
             winnerGrossAllocationAtomic: toSafeInteger(winner, "winnerGrossAllocationAtomic"),
             ownerGrossAllocationAtomic: toSafeInteger(owner, "ownerGrossAllocationAtomic"),
-            // Safety Margin is permanently zero.
-            safetyMarginAtomic: 0,
+            safetyMarginAtomic,
             allocationRuleId: config.ruleId
         });
 
@@ -328,9 +335,10 @@ export class RoomPayoutCalculator {
         const {
             principalAtomic,
             winnerGrossAllocationAtomic,
-            ownerGrossAllocationAtomic
+            ownerGrossAllocationAtomic,
+            safetyMarginAtomic
         } = RoomPayoutCalculator.allocatePrincipal(
-            input.principalAtomic, allocation);
+            input.principalAtomic, allocation, input.safetyMarginAtomic ?? 0);
 
         const freshness = {
             nowMs: input.nowMs,
@@ -389,6 +397,7 @@ export class RoomPayoutCalculator {
             asset: input.asset,
             network: input.network,
             principalAtomic,
+            safetyMarginAtomic,
             allocation: allocation.toJSON(),
             transfers,
             createdAtMs: input.createdAtMs ?? input.nowMs

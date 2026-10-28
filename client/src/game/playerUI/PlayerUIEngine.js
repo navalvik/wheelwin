@@ -433,7 +433,7 @@ export class PlayerUIEngine {
 
         }
 
-        if (partialPlayer.state && partialPlayer.state !== PLAYER_UI_STATES.OFFLINE) {
+        if (isValidPlayerUIState(partialPlayer.state) && partialPlayer.state !== PLAYER_UI_STATES.OFFLINE) {
 
             next.activityState = partialPlayer.state;
 
@@ -472,6 +472,10 @@ export class PlayerUIEngine {
         if (!next.online) {
 
             next.state = PLAYER_UI_STATES.OFFLINE;
+
+        } else {
+
+            next.state = next.activityState || PLAYER_UI_STATES.READY;
 
         }
 

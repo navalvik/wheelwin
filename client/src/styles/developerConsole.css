@@ -1157,6 +1157,14 @@ body:has(.devConsole) {
     word-break: break-word;
 }
 
+.devConsole__financeAddress {
+
+    overflow-wrap: anywhere;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+
+}
+
 .devConsole__kvHint {
 
     color: var(--console-muted);

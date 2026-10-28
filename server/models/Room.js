@@ -8,7 +8,8 @@ export class Room {
         createdAt = null,
         status = ROOM_STATUS.CREATED,
         maxPlayers = 3,
-        players = []
+        players = [],
+        gameMode = "FRIENDS"
     } = {}) {
 
         this.roomId = roomId;
@@ -25,6 +26,8 @@ export class Room {
 
         this.players = players;
 
+        this.gameMode = gameMode === "NO_FRIENDS" ? "NO_FRIENDS" : "FRIENDS";
+
     }
 
     toSnapshot() {
@@ -35,7 +38,8 @@ export class Room {
             createdAt: this.createdAt,
             status: this.status,
             maxPlayers: this.maxPlayers,
-            players: [...this.players]
+            players: [...this.players],
+            gameMode: this.gameMode
         };
 
     }

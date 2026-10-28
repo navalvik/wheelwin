@@ -21,6 +21,7 @@ import {
     buildPaymentRuntime
 } from "../../payment/runtime/PaymentRuntimeFactory.js";
 import { bindPaymentRuntimeToApplication } from "../../payment/runtime/PaymentApplicationBinder.js";
+import { TestnetWinnerPayoutCoordinator } from "../../payment/runtime/TestnetWinnerPayoutCoordinator.js";
 
 const BASE_MS = 1_700_100_000_000;
 const CREATED_AT = BASE_MS;
@@ -30,7 +31,7 @@ const SYNTHETIC_API_KEY = "SYNTHETIC-TONCENTER-TEST-KEY-NOT-REAL";
 const TESTNET_PAYER = `0:${"a".repeat(64)}`;
 const TESTNET_WALLET = `0:${"b".repeat(64)}`;
 
-const TOTAL_SECTIONS = 10;
+const TOTAL_SECTIONS = 14;
 let assertions = 0;
 let sections = 0;
 
@@ -259,6 +260,82 @@ async function run() {
         } finally { t.cleanup(); }
     });
 
+    await section("three settled Page4 payments authorize gameplay then durably plan one winner plus owner payout", async () => {
+        const t=makeTemp();
+        try {
+            const {runtime,setPayload}=buildRuntime(t.root,t.catalogPath);
+            const roomId="room-3-player-e2e";
+            const gameId="game-3-player-e2e";
+            const descriptor=threePlayerDescriptor(roomId,[1,1,1]);
+            runtime.sessionAdapter.prepareRoom(descriptor);
+            const playerIds=descriptor.requiredPlayers.map(x=>x.playerId);
+            const room={status:ROOM_STATUS.FULL,maxPlayers:3,players:[...playerIds]};
+            const auth=makeAuthorization(runtime.paymentGate,room,{gameId});
+            const wallet=runtime.paymentService.getWalletForRoom(roomId);
+            equal(wallet.roomNumber,2,"quarantined wallet 1 is excluded even without Railway env");
+            const none=auth.authorizedCount();
+            equal(none,0,"before funds the gameplay gate is closed");
+
+            for(let index=0;index<3;index++){
+                const payment=descriptor.requiredPlayers[index];
+                const intent=runtime.paymentService.getPaymentIntent(payment.paymentReference);
+                setPayload(emptyPayload(transactionFor(intent,wallet)));
+                await runtime.sessionAdapter.observeRoomPayments({roomId});
+                auth.eventBus.fire(EVENT_TYPES.VERIFY_BARRIER_COMPLETED,{roomId});
+                equal(auth.authorizedCount(),index===2?1:0,
+                    "Page5 authorized exactly once when the third independently paid player settles");
+            }
+            auth.eventBus.fire(EVENT_TYPES.VERIFY_BARRIER_COMPLETED,{roomId});
+            equal(auth.authorizedCount(),1,
+                "repeated Page4 payment confirmation cannot open a second game");
+
+            const winnerId=playerIds[1];
+            const identity=Object.fromEntries(descriptor.requiredPlayers
+                .map(x=>[x.playerId,x.expectedSender]));
+            const payout=new TestnetWinnerPayoutCoordinator({
+                paymentRuntime:runtime,
+                roomManager:{getRoom:()=>room},
+                playerManager:{getIdentity:id=>({wallet:identity[id]})},
+                contextResolver:{resolveRoomByGameId:current=>
+                    current===gameId?roomId:null},
+                winnerEngine:{getResult:()=>({winnerPlayerId:winnerId})},
+                ownerWalletProvider:()=>syntheticAddress("WheelWin-owner-payee"),
+                feeQuotesProvider:{quote:async()=>({
+                    winner:{feeAtomic:2_000_000},
+                    owner:{feeAtomic:2_000_000}
+                })},
+                payoutSubmitter:null
+            });
+            const planned=await payout.onGameResult({gameId});
+            equal(planned.status,"PAYOUT_PLANNED_EXECUTOR_UNAVAILABLE",
+                "Page6 result creates durable obligations but cannot send funds with live acceptance disabled");
+            const obligations=runtime.ledger.listPayoutObligations(roomId);
+            equal(obligations.length,2,
+                "winner and owner have two independent payout obligations");
+            check(obligations.every(x=>!x.settled),
+                "neither payout is marked complete without on-chain confirmation");
+            const plan=runtime.ledger.store.listForRoom(roomId)
+                .find(x=>x.kind===LEDGER_ENTRY_KIND.PAYOUT_PLAN)?.metadata?.plan;
+            equal(plan?.safetyMarginAtomic,0,
+                "full principal is allocated 95/5 before recipient fees");
+            const repeated=await payout.onGameResult({gameId});
+            equal(repeated.status,"ALREADY_PLANNED_NEEDS_RECONCILIATION",
+                "repeated result never generates a new prize or broadcasts funds");
+            equal(runtime.ledger.store.listForRoom(roomId)
+                .filter(x=>x.kind===LEDGER_ENTRY_KIND.PAYOUT_PLAN).length,1,
+                "only one durable payout plan exists");
+
+            auth.authorization.shutdown();
+            paymentRuntimeShutdown(runtime);
+            const restart=buildRuntime(t.root,t.catalogPath);
+            equal(restart.runtime.walletPool.getReservationForRoom(roomId)?.walletId,
+                wallet.walletId,"room wallet survives a server restart until both payouts settle");
+            equal(restart.runtime.ledger.listPayoutObligations(roomId).length,2,
+                "both Page6 financial obligations recover from disk");
+            paymentRuntimeShutdown(restart.runtime);
+        } finally {t.cleanup();}
+    });
+
     await section("a partially paid room cannot start gameplay", async () => {
         const t = makeTemp();
         try {
@@ -306,7 +383,7 @@ async function run() {
                 seedRoomPayments(runtime, room.roomId, confirmed);
 
                 equal(roomManager.destroyRoom(room.roomId), true, "room is destroyed");
-                const expected = confirmed === 3 ? 0 : confirmed;
+                const expected = confirmed;
                 equal(runtime.refundStore.size, expected,
                     `${confirmed} confirmed payment(s) -> ${expected} refund obligation(s)`);
                 for (const obligation of runtime.refundStore.list()) {
@@ -382,6 +459,109 @@ async function run() {
         } finally { t.cleanup(); }
     });
 
+
+    await section("restarting after three settled payments preserves the wallet while prize is unplanned", () => {
+        const t=makeTemp();
+        try {
+            const first=buildRuntime(t.root,t.catalogPath);
+            const roomId="room-three-paid-no-payout";
+            seedRoomPayments(first.runtime,roomId,3);
+            const wallet=first.runtime.walletPool.getReservationForRoom(roomId);
+            check(wallet?.walletId,"three confirmed players retain their public room wallet");
+            equal(first.runtime.ledger.getConfirmedPrincipalAtomic(roomId),3_000_000_000,
+                "all three native GRAM payments are durably credited");
+            paymentRuntimeShutdown(first.runtime);
+            const restarted=buildRuntime(t.root,t.catalogPath);
+            equal(restarted.runtime.walletPool.getReservationForRoom(roomId)?.walletId,
+                wallet.walletId,
+                "restart must not recycle three-player paid wallet before the winner payout is prepared");
+            check(restarted.runtime.paymentService.countOpenObligations(roomId)>0,
+                "three SETTLED intents leave an open financial obligation until prize or refunds close");
+            paymentRuntimeShutdown(restarted.runtime);
+        } finally {t.cleanup();}
+    });
+
+    await section("restart keeps an unpaid two-recipient prize wallet and releases after both real settlement entries", () => {
+        const t=makeTemp();
+        try {
+            const roomId="room-three-paid-prize";
+            const payoutId="payout_"+"c".repeat(32);
+            const first=buildRuntime(t.root,t.catalogPath);
+            seedRoomPayments(first.runtime,roomId,3);
+            const wallet=first.runtime.walletPool.getReservationForRoom(roomId);
+            const amounts={
+                winner:{feeAtomic:2_000_000},
+                owner:{feeAtomic:2_000_000}
+            };
+            first.runtime.ledger.planPayout({
+                payoutId,roomId,safetyMarginAtomic:10_000_000,
+                winner:{recipientId:"seed-player-1",address:TESTNET_PAYER},
+                owner:{recipientId:"WheelWin",address:syntheticAddress("owner-wallet")},
+                networkFees:amounts,nowMs:NOW_MS
+            });
+            equal(first.runtime.ledger.countOpenObligations(roomId),2,
+                "an unsettled winner and owner create two independent outstanding obligations");
+            paymentRuntimeShutdown(first.runtime);
+            const restarted=buildRuntime(t.root,t.catalogPath);
+            equal(restarted.runtime.walletPool.getReservationForRoom(roomId)?.walletId,
+                wallet.walletId,"wallet must remain reserved after a restart with two unpaid payout obligations");
+            throws(()=>restarted.runtime.paymentService.releaseWalletForRoom(roomId),
+                /unresolved|obligation|blocked/i,"wallet release rejects an unsettled prize");
+            // Settled entries are booked only as a test fixture of externally
+            // verified chain finality. No real RPC or outgoing transfers.
+            for(const recipientId of ["seed-player-1","WheelWin"]){
+                restarted.runtime.ledger.settlePayout({
+                    payoutId,recipientId,
+                    executionResult:{transactionId:"synthetic-final-"+recipientId,
+                        actualFeeAtomic:1_000_000,settledAtMs:NOW_MS}
+                });
+            }
+            equal(restarted.runtime.ledger.countOpenObligations(roomId),0,
+                "both independently finalized transfers close their obligations");
+            equal(restarted.runtime.paymentService.countOpenObligations(roomId),0,
+                "wallet becomes eligible only after the winner AND owner are paid");
+            paymentRuntimeShutdown(restarted.runtime);
+            const completed=buildRuntime(t.root,t.catalogPath);
+            equal(completed.runtime.walletPool.getReservationForRoom(roomId),null,
+                "fully settled prize wallet can finally be recycled on restart");
+            paymentRuntimeShutdown(completed.runtime);
+        } finally {t.cleanup();}
+    });
+
+    await section("50 simultaneous paid rooms retain 50 distinct wallets after restart without using wallet #1", () => {
+        const t=makeTemp();
+        const prior=process.env.ROOM_WALLET_QUARANTINED_NUMBERS;
+        process.env.ROOM_WALLET_QUARANTINED_NUMBERS="1";
+        try {
+            const first=buildRuntime(t.root,t.catalogPath);
+            const rooms=Array.from({length:50},(_,i)=>`room-concurrent-${i}`);
+            const walletIds=[];
+            for(const roomId of rooms){
+                seedRoomPayments(first.runtime,roomId,3,`payment_${roomId}`);
+                const wallet=first.runtime.walletPool.getReservationForRoom(roomId);
+                check(wallet?.roomNumber!==1,`quarantined wallet #1 never serves ${roomId}`);
+                walletIds.push(wallet.walletId);
+            }
+            equal(new Set(walletIds).size,50,
+                "all fifty simultaneously paid rooms have a different source wallet");
+            equal(first.runtime.walletPool.listAvailableWallets().length,13,
+                "exactly thirteen of the eligible sixty-three room wallets remain free");
+            paymentRuntimeShutdown(first.runtime);
+            const restarted=buildRuntime(t.root,t.catalogPath);
+            for(let i=0;i<rooms.length;i++){
+                equal(restarted.runtime.walletPool.getReservationForRoom(rooms[i])?.walletId,
+                    walletIds[i],`recovery preserves exclusive wallet assignment for room ${i}`);
+            }
+            equal(restarted.runtime.walletPool.listAvailableWallets().length,13,
+                "fifty funded rooms never free their wallets prematurely at restart");
+            paymentRuntimeShutdown(restarted.runtime);
+        } finally {
+            if(prior===undefined)delete process.env.ROOM_WALLET_QUARANTINED_NUMBERS;
+            else process.env.ROOM_WALLET_QUARANTINED_NUMBERS=prior;
+            t.cleanup();
+        }
+    });
+
     await section("restart reconstructs refund obligations without duplication", () => {
         const t = makeTemp();
         try {
@@ -411,6 +591,8 @@ async function run() {
             });
             const recovery = restartInit.initialize();
             equal(restartInit.refundStore.size, 2, "restart reloads obligations without duplicating them");
+            check(restartInit.walletPool.getReservationForRoom(room.roomId)!==null,
+                "restart must retain the old room wallet until BOTH confirmed players receive refunds");
             assert.deepEqual(restartInit.refundStore.list().map((o) => o.obligationId).sort(), idsBefore,
                 "restart preserves exact obligation identities");
             equal(recovery.refundRecovery.length, 2, "restart recovery reports each outstanding obligation");
@@ -583,6 +765,11 @@ function managerShutdown(roomManager, eventBus) {
  * (and leaves no open wallet obligation for restart reconciliation to trip on).
  */
 function seedRoomPayments(runtime, roomId, confirmed, prefix = "payment_seed", { keepUnconfirmedPending = false } = {}) {
+    // The old synthetic test used a nonexistent "wallet-testnet" destination.
+    // A wallet with real confirmed principal must always be traceable to a
+    // genuine reserved slot among the 64 public Testnet room wallets.
+    const wallet = runtime.paymentService.getWalletForRoom(roomId)
+        ?? runtime.paymentService.reserveWalletForRoom({roomId,network:"testnet"});
     for (let index = 0; index < 3; index += 1) {
         const paymentReference = `${prefix}_${index}`;
         const intent = new PaymentIntent({
@@ -590,8 +777,8 @@ function seedRoomPayments(runtime, roomId, confirmed, prefix = "payment_seed", {
             roomId,
             playerId: `seed-player-${index}`,
             network: "testnet",
-            destinationWalletId: "wallet-testnet",
-            destinationWalletAddress: TESTNET_WALLET,
+            destinationWalletId: wallet.walletId,
+            destinationWalletAddress: wallet.address,
             expectedSender: TESTNET_PAYER,
             amountAtomic: 1_000_000_000,
             asset: "TON",
@@ -601,7 +788,9 @@ function seedRoomPayments(runtime, roomId, confirmed, prefix = "payment_seed", {
         });
         runtime.intentStore.save(intent);
         if (index < confirmed) {
-            settleSeed(runtime, roomId, index, `incoming_${index}`, prefix, intent);
+            const txId = prefix === "payment_seed"
+                ? `incoming_${index}` : `incoming_${prefix}_${index}`;
+            settleSeed(runtime, roomId, index, txId, prefix, intent);
         } else if (!keepUnconfirmedPending) {
             runtime.intentStore.update(intent.transition(PAYMENT_INTENT_STATE.FAILED, { now: NOW_MS }));
         }

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Routes, Route } from "react-router-dom";
 
 import Page1Welcome from "./pages/Page1Welcome";
@@ -9,6 +9,9 @@ import Page3VerifyPlayers from "./pages/Page3VerifyPlayers";
 import Page4Payment from "./pages/Page4Payment";
 import Page5Game from "./pages/Page5Game";
 import Page6Result from "./pages/Page6Result";
+import EntryModePage from "./pages/EntryModePage";
+import NoFriendsQueuePage from "./pages/NoFriendsQueuePage";
+import NoFriendsOptionsPage from "./pages/NoFriendsOptionsPage";
 
 import OpenPage5Navigator from "./components/OpenPage5Navigator";
 
@@ -16,7 +19,7 @@ import RoomNetworkHandoffBootstrap from "./components/RoomNetworkHandoffBootstra
 
 import { DevNavigationContext } from "./context/DevNavigationContext";
 import { LanguageProvider } from "./context/LanguageContext";
-import { PlayerIdentityProvider } from "./context/PlayerIdentityContext";
+import { PlayerIdentityProvider, usePlayerIdentity } from "./context/PlayerIdentityContext";
 import { GameEngineProviders } from "./providers/GameEngineProviders";
 import RecoveryOverlay from "./components/RecoveryOverlay";
 import {
@@ -36,6 +39,69 @@ const PageDeveloperConsole = DEV_CONSOLE_ENABLED
     ? lazy(() => import("./pages/PageDeveloperConsole.jsx"))
     : null;
 
+function RoomIdentityListener() {
+
+    const { setIdentity } = usePlayerIdentity();
+
+    useEffect(() => {
+        const storeIdentity = (payload) => {
+            if (!payload?.roomId || !payload?.playerId) return;
+            setIdentity({
+                roomId: payload.roomId,
+                playerId: payload.playerId,
+                ...(payload.recoveryCredential
+                    ? { recoveryCredential: payload.recoveryCredential }
+                    : {})
+            });
+        };
+        socket.on("roomCreated", storeIdentity);
+        socket.on("roomJoined", storeIdentity);
+        const storeNoFriendsGame = (payload) => {
+            if (!payload?.roomId || !payload?.gameId) return;
+            setIdentity({ roomId: payload.roomId, gameId: payload.gameId });
+        };
+        socket.on("noFriendsGameCreated", storeNoFriendsGame);
+        const storeNoFriendsProfile = (payload) => {
+            if (!payload?.roomId || !payload?.playerId) return;
+            setIdentity({
+                roomId: payload.roomId,
+                playerId: payload.playerId,
+                gameId: payload.gameId ?? undefined,
+                nickname: payload.nickname ?? null,
+                age: payload.age ?? null,
+                baseStake: payload.baseStake ?? null
+            });
+        };
+        socket.on("noFriendsMatched", storeNoFriendsProfile);
+        return () => {
+            socket.off("roomCreated", storeIdentity);
+            socket.off("roomJoined", storeIdentity);
+            socket.off("noFriendsGameCreated", storeNoFriendsGame);
+            socket.off("noFriendsMatched", storeNoFriendsProfile);
+        };
+    }, [setIdentity]);
+
+    return null;
+
+}
+
+function NoFriendsFlowNavigator({ onNavigate }) {
+
+    useEffect(() => {
+        const onMatched = () => onNavigate(APP_PAGES.NO_FRIENDS_OPTIONS);
+        const onExpired = () => onNavigate(APP_PAGES.WELCOME);
+        socket.on("noFriendsMatched", onMatched);
+        socket.on("noFriendsQueueExpired", onExpired);
+        return () => {
+            socket.off("noFriendsMatched", onMatched);
+            socket.off("noFriendsQueueExpired", onExpired);
+        };
+    }, [onNavigate]);
+
+    return null;
+
+}
+
 function GameFlow() {
 
     const [currentPage, setCurrentPage] = useState(1);
@@ -46,6 +112,7 @@ function GameFlow() {
     const currentPageRef = useRef(currentPage);
 
     currentPageRef.current = currentPage;
+
 
     function navigate(page) {
 
@@ -223,11 +290,30 @@ function GameFlow() {
 
                     <Page1Welcome
 
-                        onNext={() => navigate(2)}
+                        onNext={() => navigate(APP_PAGES.ENTRY_MODE)}
 
                     />
 
                 );
+
+            case APP_PAGES.ENTRY_MODE:
+
+                return <EntryModePage
+                    onFriends={() => navigate(APP_PAGES.LOBBY)}
+                    onNoFriends={() => navigate(APP_PAGES.NO_FRIENDS_QUEUE)}
+                    onBack={() => navigate(APP_PAGES.WELCOME)}
+                />;
+
+            case APP_PAGES.NO_FRIENDS_QUEUE:
+
+                return <NoFriendsQueuePage
+                    onNavigate={navigate}
+                    onBack={() => navigate(APP_PAGES.ENTRY_MODE)}
+                />;
+
+            case APP_PAGES.NO_FRIENDS_OPTIONS:
+
+                return <NoFriendsOptionsPage onNavigate={navigate} />;
 
             case APP_PAGES.LOBBY:
 
@@ -316,7 +402,7 @@ function GameFlow() {
 
                     <Page1Welcome
 
-                        onNext={() => navigate(2)}
+                        onNext={() => navigate(APP_PAGES.ENTRY_MODE)}
 
                     />
 
@@ -329,6 +415,8 @@ function GameFlow() {
     return (
 
         <PlayerIdentityProvider key={sessionGeneration}>
+
+            <RoomIdentityListener />
 
             <DevNavigationContext.Provider value={devNavigation}>
 
@@ -358,6 +446,8 @@ function GameFlow() {
                         onSessionFinished={handleSessionFinished}
                         onArmNewGameplaySession={armNewGameplaySession}
                     />
+
+                    <NoFriendsFlowNavigator onNavigate={navigate} />
 
                     {/*
                         R24 — cross-runtime room network handoff consumption.

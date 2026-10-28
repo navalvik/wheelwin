@@ -67,5 +67,7 @@ export const LOBBY_OUTGOING_EVENTS = Object.freeze({
     /** R6.4 — leave the finished room before client session reset. */
     LEAVE_ROOM: "leaveRoom",
     /** R12.5G — observation-only Page6 / InfoBar client diagnostics. */
-    PAGE6_CLIENT_DIAG: "PAGE6_CLIENT_DIAG"
+    PAGE6_CLIENT_DIAG: "PAGE6_CLIENT_DIAG",
+    NO_FRIENDS_REQUEST: "noFriendsRequest",
+    NO_FRIENDS_OPTIONS_NEXT: "noFriendsOptionsNext"
 });

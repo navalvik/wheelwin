@@ -1,3 +1,4 @@
+import { PayoutPlan } from './PayoutPlan.js';
 /**
  * Phase 4 — Server-authoritative room ledger facade.
  *
@@ -150,6 +151,11 @@ export class RoomLedger {
         this._store.initialize();
 
         this._initialized = true;
+        // Complete idempotent recipient entries if a process stopped after the plan append.
+        for (const entry of this._store.list().filter(x => x.kind === LEDGER_ENTRY_KIND.PAYOUT_PLAN)) {
+            const plan = PayoutPlan.fromJSON(entry.metadata.plan);
+            for (const transfer of plan.transfers) this._appendTransferEntries({roomId:plan.roomId, payoutId:plan.payoutId}, transfer);
+        }
 
         this._logInfo(
             `RoomLedger ready | asset=${this._currency.asset}`
@@ -677,6 +683,8 @@ export class RoomLedger {
         if (existing) {
 
             const plan = existing.metadata?.plan ?? null;
+            const restored = PayoutPlan.fromJSON(plan);
+            for (const transfer of restored.transfers) this._appendTransferEntries(request, transfer);
 
             return {
                 replay: true,
@@ -693,6 +701,7 @@ export class RoomLedger {
             asset: this._currency.asset,
             network: this._currency.network,
             principalAtomic,
+            safetyMarginAtomic: request.safetyMarginAtomic ?? 0,
             allocation: request.allocation,
             winner: request.winner,
             owner: request.owner,
@@ -739,7 +748,7 @@ export class RoomLedger {
                 + ` | ownerGross=${owner ? owner.grossAtomic : 0}`
                 + ` | winnerNet=${winner ? winner.netAtomic : 0}`
                 + ` | ownerNet=${owner ? owner.netAtomic : 0}`
-                + ` | safetyMargin=0`
+                + ` | safetyMargin=${plan.safetyMarginAtomic}`
         );
 
         return {
@@ -1140,7 +1149,10 @@ export class RoomLedger {
             ownerGrossAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.OWNER_GROSS_ALLOCATION),
             networkFeesReservedAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.NETWORK_FEE_RESERVATION),
             netPayoutsAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.NET_PAYOUT),
-            safetyMarginAtomic: 0,
+            safetyMarginAtomic: this._store.listForRoom(roomId)
+                .filter(entry => entry.kind === LEDGER_ENTRY_KIND.PAYOUT_PLAN)
+                .reduce((sum, entry) => sum
+                    + (entry.metadata?.plan?.safetyMarginAtomic ?? 0), 0),
             openObligations: obligations.filter((o) => !o.settled).length,
             settledObligations: obligations.filter((o) => o.settled).length,
             canRecycleWallet: this.canRecycleWallet(roomId)

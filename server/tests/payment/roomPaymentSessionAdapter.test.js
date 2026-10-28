@@ -60,7 +60,7 @@ const SYNTHETIC_API_KEY = "SYNTHETIC-TONCENTER-TEST-KEY-NOT-REAL";
 const TEST_DIR = fileURLToPath(new URL(".", import.meta.url));
 let assertions = 0;
 let sections = 0;
-const TOTAL_SECTIONS = 23;
+const TOTAL_SECTIONS = 24;
 const PROCESS_WORKER_EXIT_CODE = 87;
 
 function check(value, message) {
@@ -726,11 +726,11 @@ async function run() {
                     paymentReference: "WW-ONE-NANOTON-UNREPRESENTABLE",
                     playerId: "one-nanoton-player",
                     expectedSender: syntheticAddress("one-nanoton-sender"),
-                    amountAtomic: 1
+                    amountAtomic: 0.5
                 }]
             });
             throws(() => h.adapter.prepareRoom(descriptor), RoomPaymentSessionValidationError,
-                "one nanotons cannot represent an exact whole-Gram payment");
+                "fractional nanotons cannot be represented exactly");
             equal(intentEntries(h.service, descriptor.roomId).length, 0,
                 "unrepresentable amount creates no payment intents");
             equal(h.service.getWalletForRoom(descriptor.roomId), null,
@@ -739,6 +739,18 @@ async function run() {
         });
     });
 
+    await section("2.5 Gram and 25 Gram survive session preparation and disk reload", async () => {
+        for (const amountAtomic of [2_500_000_000, 25_000_000_000]) {
+            await withHarness({}, h => {
+                const base = makeDescriptor();
+                const descriptor = {...base, requiredPlayers:base.requiredPlayers.map(row => ({...row, amountAtomic}))};
+                h.adapter.prepareRoom(descriptor);
+                equal(h.service.getPaymentIntent(descriptor.requiredPlayers[0].paymentReference).amountAtomic, amountAtomic);
+                h.service.initialize();
+                equal(h.service.getPaymentIntent(descriptor.requiredPlayers[0].paymentReference).amountAtomic, amountAtomic);
+            });
+        }
+    });
     await section("repeated preparation is idempotent", async () => {
         await withHarness({}, (h) => {
             const descriptor = makeDescriptor();
@@ -812,7 +824,7 @@ async function run() {
                     paymentReference: "WW-SESSION-PLAYER-2",
                     playerId: "player-2",
                     expectedSender: syntheticAddress("sender-2"),
-                    amountAtomic: 1
+                    amountAtomic: 0.5
                 }
             ] });
             throws(() => h.adapter.prepareRoom(invalidLaterDenomination),
@@ -879,11 +891,11 @@ async function run() {
             h.setPayload(emptyPayload(transactionFor(intent, wallet)));
             currentNow = intent.expiresAt;
             return h.adapter.observeRoomPayments({ roomId: descriptor.roomId }).then((result) => {
-                equal(result.report.settled.length, 0, "expired intent does not settle");
-                equal(principalEntries(h.ledger, descriptor.roomId).length, 0,
-                    "expired intent does not create principal");
+                equal(result.report.settled.length, 1, "on-time payment discovered after deadline is reconciled");
+                equal(principalEntries(h.ledger, descriptor.roomId).length, 1,
+                    "late observation preserves principal for refund accounting");
                 equal(h.service.getPaymentIntent(intent.paymentReference).state,
-                    PAYMENT_INTENT_STATE.PENDING, "expired intent remains an open nonsettled obligation");
+                    PAYMENT_INTENT_STATE.SETTLED, "on-time transfer is recorded despite delayed indexing");
                 currentNow = CREATED_AT + ROOM_LIFETIME_MS;
                 const expiredRoom = makeDescriptor({
                     roomId: "room-expired",
@@ -1364,7 +1376,8 @@ async function run() {
 
         expectConflict("conflicting-ids", (h) => {
             const intents = h.service.listPaymentIntentsForRoom("room-recovery-conflicting-ids");
-            const otherWallet = h.walletPool.getWallet("room-wallet-2");
+            const otherWallet = h.walletPool.listAvailableWallets()
+                .find(wallet => wallet.walletId !== intents[0].destinationWalletId);
             const tampered = new PaymentIntent({
                 ...intents[1].toRecord(),
                 destinationWalletId: otherWallet.walletId,
@@ -1379,7 +1392,8 @@ async function run() {
 
         expectConflict("conflicting-addresses", (h) => {
             const intents = h.service.listPaymentIntentsForRoom("room-recovery-conflicting-addresses");
-            const otherWallet = h.walletPool.getWallet("room-wallet-2");
+            const otherWallet = h.walletPool.listAvailableWallets()
+                .find(wallet => wallet.walletId !== intents[0].destinationWalletId);
             const tampered = new PaymentIntent({
                 ...intents[1].toRecord(),
                 destinationWalletAddress: otherWallet.address
@@ -1405,7 +1419,7 @@ async function run() {
         });
 
         expectConflict("reserved-elsewhere", (_h, roomId) => {}, [
-            { roomId: "different-room", walletId: "room-wallet-1" }
+            { roomId: "different-room", walletId: "room-wallet-2" }
         ]);
 
         expectConflict("cross-room-obligation", (h, roomId) => {

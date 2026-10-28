@@ -723,6 +723,24 @@ export class SocketGateway {
 
         });
 
+        socket.on(LOBBY_CLIENT_EVENTS.NO_FRIENDS_REQUEST, (payload) => {
+
+            this._emitLobbyRequest(EVENT_TYPES.LOBBY_NO_FRIENDS_REQUEST, {
+                socketId: socket.id,
+                request: payload
+            });
+
+        });
+
+        socket.on(LOBBY_CLIENT_EVENTS.NO_FRIENDS_OPTIONS_NEXT, (profile) => {
+
+            this._emitLobbyRequest(EVENT_TYPES.LOBBY_NO_FRIENDS_OPTIONS_NEXT, {
+                socketId: socket.id,
+                profile
+            });
+
+        });
+
         socket.on(LOBBY_CLIENT_EVENTS.JOIN_ROOM, (roomId) => {
 
             this._emitLobbyRequest(EVENT_TYPES.LOBBY_JOIN_ROOM_REQUEST, {
@@ -1103,6 +1121,8 @@ export class SocketGateway {
             + ` | reason=${context?.ok ? "active binding" : (context?.reason ?? "unbound")}`
         );
 
+        let sessionResynced = false;
+
         if (!context?.ok) {
 
             if (!this._roomLobbyBridge) {
@@ -1215,6 +1235,50 @@ export class SocketGateway {
                 gameId: reconnected.gameId,
                 setupActive: reconnected.setupActive === true
             };
+
+            sessionResynced = true;
+
+        }
+
+        // The socket may still have an authoritative binding after a brief
+        // mobile background/network interruption. In that case the identity
+        // is already trusted, but the previous branch skipped all room/page
+        // synchronization. Reuse the server-owned binding to resend setup,
+        // matrix, verify and payment state without requiring a client claim.
+        if (!sessionResynced && this._roomLobbyBridge) {
+
+            const resynced = this._roomLobbyBridge.reconnectGameplaySession(
+                socket.id
+            );
+
+            if (resynced?.ok) {
+
+                context = {
+                    ...context,
+                    playerId: resynced.playerId ?? context.playerId,
+                    roomId: resynced.roomId ?? context.roomId,
+                    gameId: resynced.gameId ?? context.gameId,
+                    setupActive: resynced.setupActive === true
+                };
+
+                this._logger.info(
+                    `[R6.2A Recovery] active binding resynchronized`
+                    + ` | roomId=${context.roomId ?? "null"}`
+                    + ` | playerId=${context.playerId ?? "null"}`
+                    + ` | socket.id=${socket.id}`
+                );
+
+            } else {
+
+                this._logger.info(
+                    `[R6.2A Recovery] active binding sync unavailable`
+                    + ` | roomId=${context.roomId ?? "null"}`
+                    + ` | playerId=${context.playerId ?? "null"}`
+                    + ` | socket.id=${socket.id}`
+                    + ` | reason=${resynced?.reason ?? "unknown"}`
+                );
+
+            }
 
         }
 

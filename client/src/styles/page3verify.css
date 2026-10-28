@@ -325,27 +325,20 @@
 .verifyWallet {
 
     flex: 0 0 auto;
-
     display: flex;
     flex-direction: column;
-
     gap: 5px;
-
-    padding-top: 2px;
+    padding-top: 8px;
+    border-top: 1px solid #d6e4f0;
 }
 
 .verifyWalletLabel {
 
-    color: #222;
-
-    font-size: clamp(8px, 1.1vh, 12px);
-
+    color: #405570;
+    font-size: clamp(8px, 1.05vh, 11px);
     font-weight: 800;
-
     line-height: 1.1;
-
     text-align: center;
-
     text-transform: uppercase;
 }
 
@@ -384,6 +377,20 @@
 
     box-shadow:
         0 0 0 3px rgba(28,115,208,.15);
+}
+
+.verifyWalletInput:disabled {
+
+    color: #607080;
+    background: #f4f8fc;
+    opacity: 1;
+}
+
+.verifyWallet p {
+
+    color: #5a7a96;
+    font-size: clamp(7px, 0.9vh, 10px);
+    line-height: 1.2;
 }
 
 @media (max-width: 600px) {
@@ -492,17 +499,12 @@
     .verifyWallet {
 
         gap: 4px;
-    }
-
-    .verifyWalletLabel {
-
-        font-size: 8px;
+        padding-top: 6px;
     }
 
     .verifyWalletInput {
 
         min-height: 38px;
-
         font-size: 11px;
     }
 }

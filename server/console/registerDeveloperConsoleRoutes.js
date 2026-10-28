@@ -1,4 +1,6 @@
+import { Address } from "@ton/core";
 import { createAdministratorAuthMiddleware } from "./auth/developerAuthMiddleware.js";
+import { canPerformAdministratorActions } from "./auth/developerRoles.js";
 import { readMultipartOggUpload } from "./configuration/readMultipartOggUpload.js";
 import { AUDIO_UPLOAD_MAX_BYTES } from "./configuration/uploadAudioRegistryAsset.js";
 
@@ -30,6 +32,92 @@ export function registerDeveloperConsoleRoutes(
         app.use("/console", authMiddleware);
 
     }
+
+    app.get("/console/wallets/balances", async (req, res) => {
+
+        const network = String(req.query?.network ?? "").trim().toLowerCase();
+        if (network !== "testnet" && network !== "mainnet") {
+            res.status(400).json({ error: "network must be testnet or mainnet" });
+            return;
+        }
+
+        if (req.developer && !canPerformAdministratorActions(req.developer.role)) {
+            res.status(403).json({ error: "Administrator access required" });
+            return;
+        }
+
+        const configuredNetwork = String(process.env.TON_NETWORK ?? "")
+            .trim().toLowerCase();
+        const networkWalletKey = `OWNER_WALLET_${network.toUpperCase()}`;
+        const configuredWallet = String(process.env[networkWalletKey] ?? "").trim();
+        const activeNetworkWallet = network === configuredNetwork
+            ? String(process.env.OWNER_WALLET ?? "").trim()
+            : "";
+        const ownerWallet = configuredWallet || activeNetworkWallet;
+
+        if (!ownerWallet) {
+            res.setHeader("Cache-Control", "no-store");
+            res.json({
+                network,
+                configured: false,
+                ownerWallet: null,
+                balanceNano: null,
+                accountState: null,
+                updatedAt: new Date().toISOString()
+            });
+            return;
+        }
+
+        let rawAddress;
+        try {
+            rawAddress = Address.parse(ownerWallet).toRawString();
+        } catch {
+            res.status(503).json({ error: `Owner Wallet address is invalid for ${network}` });
+            return;
+        }
+
+        const apiKey = network === "mainnet"
+            ? (process.env.TONCENTER_MAINNET_API_KEY ?? process.env.TON_API_KEY ?? "")
+            : (process.env.TONCENTER_TESTNET_API_KEY ?? process.env.TON_API_KEY ?? "");
+        const endpoint = network === "mainnet"
+            ? "https://toncenter.com/api/v2/getAddressInformation"
+            : "https://testnet.toncenter.com/api/v2/getAddressInformation";
+        const url = new URL(endpoint);
+        url.searchParams.set("address", rawAddress);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8_000);
+
+        try {
+            const headers = { Accept: "application/json" };
+            if (apiKey) headers["X-API-Key"] = apiKey;
+            const response = await fetch(url, { headers, signal: controller.signal });
+            const body = await response.json().catch(() => null);
+            if (!response.ok || body?.ok === false || !body?.result) {
+                const detail = String(body?.error ?? `HTTP ${response.status}`).slice(0, 160);
+                res.status(502).json({ error: `TonCenter ${network} balance lookup failed`, detail });
+                return;
+            }
+
+            const balanceNano = BigInt(String(body.result.balance ?? "0"));
+            res.setHeader("Cache-Control", "no-store");
+            res.json({
+                network,
+                configured: true,
+                ownerWallet,
+                balanceNano: balanceNano.toString(),
+                accountState: String(body.result.state ?? "unknown"),
+                updatedAt: new Date().toISOString()
+            });
+        } catch (error) {
+            res.status(502).json({
+                error: `TonCenter ${network} balance lookup failed`,
+                detail: error?.name === "AbortError" ? "request timed out" : "provider unavailable"
+            });
+        } finally {
+            clearTimeout(timeout);
+        }
+
+    });
 
     app.get("/console/server", (req, res) => {
 
