@@ -4881,6 +4881,13 @@ export class RoomLobbyBridge {
             return;
         }
 
+        // An old durable PENDING intent is not permission to accept new funds
+        // after the runtime's live-acceptance switch has been disabled.
+        if (this._paymentAcceptanceEnabled === false) {
+            failClosed(LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON);
+            return;
+        }
+
         if (!paymentService
             || !ledger
             || typeof paymentService.listPaymentIntentsForRoom !== "function"
