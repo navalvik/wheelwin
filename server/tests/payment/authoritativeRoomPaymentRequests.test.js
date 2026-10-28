@@ -177,3 +177,53 @@ test("Page4 reports pending wallet registration rather than disabled payment whe
     assert.equal(Object.hasOwn(payload, "destinationWalletAddress"), false);
     assert.equal(Object.hasOwn(payload, "amountAtomic"), false);
 });
+
+test("Page4 cannot advertise an old pending intent after closure or intake disablement", () => {
+    const { manager } = fixtures();
+    const deliveries = [];
+    const room = { roomId, players: [...players], status: "DESTROYED" };
+    const pending = {
+        roomId,
+        playerId: players[0],
+        state: "PENDING",
+        paymentReference: "WW-TEST-OLD-INTENT",
+        amountAtomic: 1_000_000_000,
+        expectedSender: wallet(1),
+        destinationWalletAddress: wallet(9),
+        network: "testnet",
+        asset: "TON",
+        expiresAt: Date.now() + 60_000
+    };
+    const bridge = new RoomLobbyBridge({
+        logger: { info() {}, warn() {}, error() {} },
+        eventBus: { emit: (event) => deliveries.push(event) },
+        roomManager: { getRoom: () => room },
+        playerManager: manager,
+        paymentApplicationBinding: {
+            runtime: {
+                paymentService: { listPaymentIntentsForRoom: () => [pending] },
+                ledger: { store: { findByIdempotencyKey: () => null } }
+            }
+        },
+        paymentAcceptanceEnabled: true
+    });
+    bridge._playerToSocket.set(players[0], "socket-0");
+
+    const status = () => deliveries.at(-1)?.payload?.payload;
+    bridge._deliverPaymentStatusToSocket(roomId, players[0], "socket-0");
+    assert.equal(status()?.status, "PAYMENT_UNAVAILABLE");
+    assert.equal(status()?.reason, "room_closed");
+    assert.equal(Object.hasOwn(status(), "destinationWalletAddress"), false);
+
+    room.status = "LOCKED";
+    bridge._deliverPaymentStatusToSocket(roomId, players[0], "socket-0");
+    assert.equal(status()?.status, "AWAITING_PAYMENT");
+    assert.equal(status()?.paymentAcceptanceEnabled, true);
+    assert.equal(status()?.amountAtomic, pending.amountAtomic);
+
+    bridge._paymentAcceptanceEnabled = false;
+    bridge._deliverPaymentStatusToSocket(roomId, players[0], "socket-0");
+    assert.equal(status()?.status, "PAYMENT_UNAVAILABLE");
+    assert.equal(status()?.paymentAcceptanceEnabled, false);
+    assert.equal(Object.hasOwn(status(), "destinationWalletAddress"), false);
+});
