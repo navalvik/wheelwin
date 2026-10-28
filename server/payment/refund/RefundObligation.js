@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
 
 export const REFUND_NETWORK = Object.freeze({ TESTNET: "TESTNET", MAINNET: "MAINNET" });
 export const REFUND_STATE = Object.freeze({
@@ -60,7 +61,7 @@ export class RefundObligation {
         this.denomination = text(record.denomination, "denomination");
         this.payerAddress = text(record.payerAddress, "payerAddress");
         this.refundDestination = text(record.refundDestination, "refundDestination");
-        if (this.payerAddress !== this.refundDestination) throw new RefundObligationError("refund destination must match the verified payer address");
+        if (!tonAddressIdentitiesEqual(this.payerAddress, this.refundDestination)) throw new RefundObligationError("refund destination must match the verified payer address");
         this.closureReason = text(record.closureReason, "closureReason");
         if (!Number.isSafeInteger(record.createdAtMs) || record.createdAtMs <= 0) throw new RefundObligationError("createdAtMs must be a positive safe integer");
         this.createdAtMs = record.createdAtMs;
@@ -103,7 +104,7 @@ export class RefundObligation {
                 || this.finalizedEvidence.globalId !== this.globalId
                 || this.finalizedEvidence.transactionId !== this.outgoingTransactionId
                 || this.finalizedEvidence.amountAtomic !== this.amountAtomic
-                || this.finalizedEvidence.destination !== this.refundDestination
+                || !tonAddressIdentitiesEqual(this.finalizedEvidence.destination, this.refundDestination)
                 || this.finalizedEvidence.finalized !== true) {
                 throw new RefundObligationError("finalized evidence does not match the outgoing refund identity");
             }
