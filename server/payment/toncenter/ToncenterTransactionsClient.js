@@ -279,7 +279,7 @@ export class ToncenterTransactionsClient {
      * }} query
      * @returns {Promise<object>} the parsed, envelope-validated response body
      */
-    async getTransactions({ account, startUtime, endUtime, limit = 50 }) {
+    async getTransactions({ account, startUtime, endUtime, limit = 50, offset = 0 }) {
 
         assertNonEmptyString(account, "account");
 
@@ -321,6 +321,13 @@ export class ToncenterTransactionsClient {
 
         }
 
+        if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) {
+            throw new ToncenterRequestError(
+                "offset must be a non-negative safe integer in 0..1000000",
+                { offset }
+            );
+        }
+
         // Authentication. No key => no request at all.
         const apiKey = this._apiKeyProvider();
 
@@ -338,6 +345,8 @@ export class ToncenterTransactionsClient {
         url.searchParams.set("start_utime", String(startUtime));
         url.searchParams.set("end_utime", String(endUtime));
         url.searchParams.set("limit", String(limit));
+        // Preserve the old URL for first-page callers; v3 supports offset.
+        if (offset > 0) url.searchParams.set("offset", String(offset));
         url.searchParams.set("sort", "desc");
 
         // Explicit controller + ref'd timer: `AbortSignal.timeout` relies on

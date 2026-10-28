@@ -1,3 +1,4 @@
+import { TestnetPendingRefundExecutor } from './payment/runtime/TestnetPendingRefundExecutor.js';
 import "dotenv/config";
 
 import cors from "cors";
@@ -44,6 +45,9 @@ import { TimerService } from "./services/TimerService.js";
 import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
+import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
+import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
+import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -81,6 +85,17 @@ import { SpeedActivation } from "./gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
 import { ResultActivation } from "./gameplay/ResultActivation.js";
+import { TestnetWinnerPayoutCoordinator } from "./payment/runtime/TestnetWinnerPayoutCoordinator.js";
+import { TestnetNativeRoomPayoutTransport } from "./payment/runtime/TestnetNativeRoomPayoutTransport.js";
+import { TestnetNativeTonService } from "./payment/roomWallet/TestnetNativeTonService.js";
+import { RoomWalletAdapter } from "./payment/roomWallet/RoomWalletAdapter.js";
+import { createTestnetNativeRefundCapabilities } from "./payment/roomWallet/TestnetNativeRefundCapabilities.js";
+import { ToncenterTransactionsClient } from "./payment/toncenter/ToncenterTransactionsClient.js";
+import { ToncenterTestnetOutgoingTransferProvider } from "./payment/refund/ToncenterTestnetOutgoingTransferProvider.js";
+import { TonapiTestnetPayoutVerifier } from "./payment/refund/TonapiTestnetPayoutVerifier.js";
+import { TestnetPendingPayoutReconciler } from "./payment/runtime/TestnetPendingPayoutReconciler.js";
+import { TestnetPendingRefundReconciler } from "./payment/runtime/TestnetPendingRefundReconciler.js";
+import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
@@ -215,6 +230,8 @@ class WheelWinApplication {
         this._gameDiagnosticLogManager = null;
 
         this._sessionHistoryArchive = null;
+
+        this._forensicArchiveService = null;
 
         this._resultSessionLifecycle = null;
 
@@ -1201,9 +1218,38 @@ class WheelWinApplication {
         // keeps running observably, but no payment or game-start is possible.
         try {
 
+            // Transfers stay closed by default. An explicit Testnet opt-in
+            // resolves secrets only in server memory and wires all recovery workers.
+            let nativeRoomWalletAdapter = null;
             const paymentRuntime = buildPaymentRuntime({
                 logger: this._logger,
-                dataDir: resolveDefaultRoomWalletPaymentDataDir()
+                dataDir: resolveDefaultRoomWalletPaymentDataDir(),
+                refundSubmitterFactory: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                    ? ({walletPool,networkDataDir,network}) => {
+                        if(network !== "testnet"
+                            || String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
+                            throw new Error("TESTNET_REFUND_NETWORK_MISMATCH");
+                        }
+                        const walletResolver = createRoomWalletRuntimeResolver({env:process.env});
+                        nativeRoomWalletAdapter = new RoomWalletAdapter({
+                            sequenceStateDir: join(networkDataDir, "outbound-sequences"),
+                            walletResolver,
+                            tonService:new TestnetNativeTonService(),
+                            gasReserveNano:10_000_000n
+                        });
+                        const capabilities = createTestnetNativeRefundCapabilities({
+                            walletPool,
+                            roomWalletAdapter:nativeRoomWalletAdapter,
+                            dataDir:networkDataDir
+                        });
+                        return Object.freeze({
+                            ...capabilities,
+                            outgoingTransferProvider:new ToncenterTestnetOutgoingTransferProvider({
+                                client:new ToncenterTransactionsClient()
+                            })
+                        });
+                    }
+                    : null
             });
 
             const recovery = paymentRuntime.initialize();
@@ -1220,6 +1266,108 @@ class WheelWinApplication {
                     logger: this._logger
                 }
             );
+            // This event is emitted only by the server's authoritative
+            // RESULT lifecycle. It plans an exact 3-player payout; until a
+            // real outgoing executor and current fee quotes are connected it
+            // explicitly reports WAITING, never claims funds were sent.
+            // Live entry acceptance MUST NOT be enabled without both a
+            // working refund executor and the native V4 winner/owner sender.
+            // When acceptance is disabled (the current Testnet release),
+            // wallet signing material is neither resolved nor loaded.
+            let nativePayoutTransport = null;
+            if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+                if (paymentRuntime.outgoingRefundProvider?.canExecute?.() !== true) {
+                    throw new Error("TESTNET_REFUND_EXECUTOR_NOT_READY");
+                }
+                if (String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
+                    throw new Error("TESTNET_PAYOUT_NETWORK_MISMATCH");
+                }
+                const finalizedHistory = new ToncenterTestnetOutgoingTransferProvider({
+                    client: new ToncenterTransactionsClient()
+                });
+                const independentCredit = new TonapiTestnetPayoutVerifier();
+                nativePayoutTransport = new TestnetNativeRoomPayoutTransport({
+                    walletPool: paymentRuntime.walletPool,
+                    adapter: nativeRoomWalletAdapter,
+                    dataDir: paymentRuntime.networkDataDir,
+                    logger: this._logger,
+                    ledger: paymentRuntime.ledger,
+                    independentVerifier: independentCredit,
+                    outgoingObserver: finalizedHistory
+                });
+                this._pendingRefundRecovery = new TestnetPendingRefundReconciler({
+                    refundStore: paymentRuntime.refundStore,
+                    intentStore: paymentRuntime.intentStore,
+                    toncenterObserver: finalizedHistory,
+                    independentVerifier: independentCredit,
+                    maxPerPass:2,
+                    logger:this._logger
+                });
+                // Server-owned, bounded read-only recovery. Survives game
+                // room destruction because it reads the persisted ledger.
+                // No signing or re-broadcasting on this path.
+                this._pendingPayoutRecovery = new TestnetPendingPayoutReconciler({
+                    ledgerStore:paymentRuntime.ledgerStore,
+                    ledger:paymentRuntime.ledger,
+                    walletPool:paymentRuntime.walletPool,
+                    transport:nativePayoutTransport,
+                    maxPerPass:2,
+                    logger:this._logger
+                });
+                const refundExecutor = new TestnetPendingRefundExecutor({runtime: paymentRuntime});
+                let financialPassRunning = false;
+                let archiveCursor = 0;
+                const reconcileOnce=() => {
+                    if (financialPassRunning) return;
+                    financialPassRunning = true;
+                    // One bounded pass: execute unattempted debts, verify history, archive.
+                    void refundExecutor.runPass().then(() => this._winnerPayoutCoordinator?.recoverPendingResults?.()).then(() => this._pendingPayoutRecovery.runPass())
+                        .then(() => this._pendingRefundRecovery.runPass())
+                        .then(async () => {
+                            if (!this._forensicArchiveService) return;
+                            await this._forensicArchiveService.recoverPendingUploads({limit: 3});
+                            const rooms = paymentRuntime.refundStore.listClosedRooms();
+                            for (let i = 0; i < Math.min(3, rooms.length); i++) {
+                                const closed = rooms[(archiveCursor + i) % rooms.length];
+                                await this._forensicArchiveService.ensureArchivedAndUploaded({roomId:closed.roomId, reason:closed.closureReason});
+                            }
+                            archiveCursor = rooms.length ? (archiveCursor + 3) % rooms.length : 0;
+                        })
+                        .catch(() => this._logger.warn(
+                            "Testnet financial recovery pass pending"
+                        )).finally(() => { financialPassRunning = false; });
+                };
+                reconcileOnce();
+                this._payoutRecoveryTimer=setInterval(reconcileOnce,60_000);
+                this._payoutRecoveryTimer.unref?.();
+            }
+            this._winnerPayoutCoordinator = new TestnetWinnerPayoutCoordinator({
+                paymentRuntime,
+                roomManager: this._managers.roomManager,
+                playerManager: this._managers.playerManager,
+                contextResolver: this._gameplayContextResolver,
+                winnerEngine: this._engines.winnerEngine,
+                feeQuotesProvider: nativePayoutTransport,
+                payoutSubmitter: nativePayoutTransport
+            });
+            this._eventBus.subscribe(
+                EVENT_TYPES.GAME_RESULT_READY,
+                (envelope) => {
+                    void Promise.resolve()
+                        .then(() => this._winnerPayoutCoordinator.onGameResult({
+                            gameId: envelope.payload?.gameId
+                        }))
+                        .then((outcome) => this._logger.info(
+                            `TESTNET_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
+                                + ` | status=${outcome.status}`
+                        ))
+                        .catch((error) => this._logger.warn(
+                            `TESTNET_WINNER_PAYOUT_PENDING | gameId=${envelope.payload?.gameId}`
+                                + ` | reason=${error?.message ?? "unavailable"}`
+                        ));
+                }
+            );
+
 
             const refundRecovery = recovery?.refundRecovery ?? [];
 
@@ -1573,6 +1721,9 @@ class WheelWinApplication {
         });
 
         // R7.0 — Immutable session lifecycle history (observe-only archive).
+        // On Railway, keep history in the existing mounted volume so it can
+        // survive a restart and support later R2 archive reconciliation.
+        const archiveConfig = resolveForensicArchiveConfig();
         this._sessionHistoryArchive = SessionHistoryArchiveManager.getInstance();
 
         this._sessionHistoryArchive.initialize({
@@ -1580,12 +1731,59 @@ class WheelWinApplication {
             projectionService: this._consoleProjectionService,
             roomLobbyBridge: this._roomLobbyBridge,
             playerManager: this._managers.playerManager,
-            loggingManager: LoggingManager.getInstance()
+            loggingManager: LoggingManager.getInstance(),
+            directory: archiveConfig.sessionHistoryDir
         });
 
         this._sessionHistoryArchive.rebuildIndexFromDisk();
 
         this._logger.startupLine("SessionHistoryArchiveManager");
+
+        // Restore October's private R2 ZIP archive path, using current
+        // session-history and diagnostic logs only. No escrow/contract code.
+        // Upload is queued after room destruction, never in the game timer.
+        try {
+            const archiveUploader = new R2ForensicArchiveUploader({
+                logger: this._logger,
+                bucket: archiveConfig.bucket,
+                prefix: archiveConfig.prefix,
+                endpoint: archiveConfig.endpoint,
+                accessKeyId: archiveConfig.accessKeyId,
+                secretAccessKey: archiveConfig.secretAccessKey,
+                accountId: archiveConfig.accountId
+            });
+            this._forensicArchiveService = new ForensicArchiveService({
+                logger: this._logger,
+                config: archiveConfig,
+                financialSnapshotProvider: roomId => this._paymentRuntime?.financialSnapshot(roomId),
+                uploader: archiveUploader,
+                sessionHistoryArchive: this._sessionHistoryArchive
+            });
+            this._roomLobbyBridge.configureForensicArchiveService(
+                this._forensicArchiveService
+            );
+            // Resume failed ZIP deliveries from the previous server lifetime.
+            // This never blocks startup, room creation or gameplay timers.
+            void this._forensicArchiveService.recoverPendingUploads()
+                .catch((error) => {
+                    this._logger.warn?.(
+                        "R2_ARCHIVE_RECOVERY_PENDING | code="
+                        + (error?.code ?? "RECOVERY_FAILED")
+                    );
+                });
+            this._logger.startupLine(
+                "R2ForensicArchive (enabled="
+                + archiveConfig.enabled
+                + " | configured=" + archiveUploader.isConfigured() + ")"
+            );
+        } catch (error) {
+            this._forensicArchiveService = null;
+            this._logger.warn?.(
+                "R2ForensicArchive unavailable; game continues | code="
+                + (error?.code ?? "ARCHIVE_INIT_FAILED")
+            );
+        }
+
 
         // R6.1 / R7.0C — Secure Developer Access from immutable runtime config.
         this._developerAuthService = new DeveloperAuthService({
@@ -1832,6 +2030,10 @@ class WheelWinApplication {
         }
 
         this._isShuttingDown = true;
+        if(this._payoutRecoveryTimer){
+            clearInterval(this._payoutRecoveryTimer);
+            this._payoutRecoveryTimer=null;
+        }
 
         this._logger.info("");
         this._logger.info("Stopping WheelWin Server...");

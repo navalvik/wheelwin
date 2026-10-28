@@ -986,7 +986,8 @@ export class IncomingPaymentSettlementCoordinator {
 
             matched = this._paymentService.matchTransaction(
                 intent.paymentReference,
-                transfer.transactionId
+                transfer.transactionId,
+                observation
             );
 
         } catch (error) {

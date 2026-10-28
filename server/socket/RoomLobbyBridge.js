@@ -38,6 +38,10 @@ import {
     LEDGER_ENTRY_KIND
 } from "../payment/ledger/index.js";
 import { createHash } from "node:crypto";
+import { deriveTonAddressIdentity } from "../payment/incoming/TonAddressIdentity.js";
+import { deriveTestnetRoomPaymentRequirements } from "../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
+import { ActiveRoomObservationBudget } from "../payment/runtime/ActiveRoomObservationBudget.js";
+
 import {
     LOBBY_ERROR_CODES,
     LOBBY_ERROR_MESSAGES,
@@ -138,6 +142,9 @@ export class RoomLobbyBridge {
         // authoritative mainnetRoomId) and is re-verified against the live
         // room registry before it is reused.
         this._paymentApplicationBinding = paymentApplicationBinding;
+
+        // October private R2 game archive, reattached after room teardown.
+        this._forensicArchiveService = null;
 
         // R23 — Mainnet-side HTTP client for the R21 Testnet handoff
         // contract (claim/complete). Injected by WheelWinServer; never
@@ -290,6 +297,41 @@ export class RoomLobbyBridge {
     configureRoomNetworkHandoffClient(handoffClient) {
 
         this._roomNetworkHandoffClient = handoffClient ?? null;
+
+        return this;
+
+    }
+
+    /**
+     * Queue the October private R2 archive after the terminal room record.
+     * Never await network I/O or allow an archive failure to affect gameplay.
+     */
+    _queueForensicArchive(roomId, gameId, reason) {
+        if (!this._forensicArchiveService) {
+            return;
+        }
+        try {
+            Promise.resolve(this._forensicArchiveService.ensureArchivedAndUploaded({
+                roomId,
+                gameId,
+                reason
+            })).catch((error) => {
+                this._logger?.error?.(
+                    "R2_ARCHIVE_PENDING | roomId=" + roomId
+                    + " | code=" + (error?.code ?? "UPLOAD_FAILED")
+                );
+            });
+        } catch (error) {
+            this._logger?.error?.(
+                "R2_ARCHIVE_PENDING | roomId=" + roomId
+                + " | code=" + (error?.code ?? "ARCHIVE_START_FAILED")
+            );
+        }
+    }
+
+    configureForensicArchiveService(service) {
+
+        this._forensicArchiveService = service ?? null;
 
         return this;
 
@@ -3370,6 +3412,11 @@ export class RoomLobbyBridge {
             });
 
             this._roomManager.destroyRoom(roomId);
+            this._queueForensicArchive(
+                roomId,
+                this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId) ?? null,
+                "empty_room"
+            );
 
             this._roomCreators.delete(roomId);
 
@@ -3679,6 +3726,7 @@ export class RoomLobbyBridge {
         });
 
         this._roomManager.destroyRoom(roomId);
+        this._queueForensicArchive(roomId, gameId, reason ?? "room_destroyed");
 
         this._roomCreators.delete(roomId);
 
@@ -3837,6 +3885,28 @@ export class RoomLobbyBridge {
         }
 
         const { playerId, roomId } = context;
+
+        // Page3 provides the payer address separately from the Page2 game
+        // profile. Keep it private to the authoritative player identity.
+        // Do not overwrite stake/sectors or accept changes after verification.
+        if (rawProfile && typeof rawProfile === "object"
+            && Object.keys(rawProfile).length === 1
+            && typeof rawProfile.wallet === "string") {
+            const room = this._roomManager.getRoom(roomId);
+            if (!room || !room.players?.includes(playerId)
+                || this._continueToVerifyByRoom.has(roomId)) {
+                this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+                return;
+            }
+            try {
+                const payer = deriveTonAddressIdentity(rawProfile.wallet.trim());
+                if (!payer.startsWith("0:")) throw new Error("invalid workchain");
+                this._playerManager.updateIdentity(playerId, { wallet: payer });
+            } catch {
+                this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+            }
+            return;
+        }
 
         const profile = this._normalizePlayerProfile(rawProfile);
 
@@ -4743,6 +4813,13 @@ export class RoomLobbyBridge {
             archivedSetup
         );
 
+        // Create payment intents before Page4 receives its first authoritative
+        // snapshot; otherwise all three seats see PAYMENT_UNAVAILABLE even
+        // when real intake is enabled.
+        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+            this._preparePaymentSessionIfEnabled(roomId, room);
+        }
+
         this._deliverToRoom(
             roomId,
             LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
@@ -4766,21 +4843,22 @@ export class RoomLobbyBridge {
 
         this._logger.info(`Verify barrier complete | roomId=${roomId}`);
 
-        // Trigger the authoritative game start gate.
+        // Payment rooms do not invoke GameStartAuthorization before Page4 has
+        // settled all THREE real payments. Doing so rejects the not-yet-paid
+        // room before any participant can pay.
+        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
+
+        // Historical disabled-acceptance behavior remains fail-closed.
         this._eventBus.emit({
             source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
             type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
             payload: {
                 roomId,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled: false,
                 paymentSessionPrepared: false,
-                paymentStatus: LIVE_PAYMENT_ACCEPTANCE_ENABLED
-                    ? "PENDING_PREPARATION"
-                    : "PAYMENT_UNAVAILABLE"
+                paymentStatus: "PAYMENT_UNAVAILABLE"
             }
         });
-
-        this._preparePaymentSessionIfEnabled(roomId, room);
 
     }
 
@@ -4879,7 +4957,7 @@ export class RoomLobbyBridge {
         } else if (intent.state === PAYMENT_INTENT_STATE.PENDING
             || intent.state === PAYMENT_INTENT_STATE.MATCHED) {
 
-            status = "AWAITING_PAYMENT";
+            status = intent.state === PAYMENT_INTENT_STATE.MATCHED ? "MATCHED" : "AWAITING_PAYMENT";
             reason = null;
 
         } else {
@@ -4902,6 +4980,7 @@ export class RoomLobbyBridge {
                 reason,
                 paymentReference: intent.paymentReference,
                 amountAtomic: intent.amountAtomic,
+                payerAddress: intent.expectedSender,
                 destinationWalletAddress: intent.destinationWalletAddress,
                 expiresAt: intent.expiresAt ?? null,
                 network: intent.network,
@@ -4951,20 +5030,67 @@ export class RoomLobbyBridge {
      * status the reconnect path would have delivered.
      */
     _handlePaymentStatusRequest(socketId) {
-
         const context = this._getSocketContext(socketId);
-
-        if (!context || !context.playerId || !context.roomId) {
-
-            return;
-        }
+        if (!context || !context.playerId || !context.roomId) return;
 
         this._deliverPaymentStatusToSocket(
-            context.roomId,
-            context.playerId,
-            socketId
+            context.roomId, context.playerId, socketId
         );
 
+        // No automatic global wallet scan. Only an occupied Page4 room
+        // receives one explicit, coalesced chain observation on request.
+        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
+        const runtime = this._paymentApplicationBinding?.runtime;
+        const adapter = runtime?.sessionAdapter;
+        const roomId = context.roomId;
+        const room = this._roomManager.getRoom(roomId);
+        if (!room || room.players?.length !== 3
+            || !this._continueToVerifyByRoom.has(roomId)
+            || typeof adapter?.observeRoomPayments !== "function") return;
+
+        if (!this._roomPaymentChecks) this._roomPaymentChecks = new Map();
+        if (this._roomPaymentChecks.has(roomId)) return;
+        if (!this._roomObservationBudget) {
+            this._roomObservationBudget = new ActiveRoomObservationBudget();
+        }
+        if (!this._roomObservationBudget.claim(roomId)) return;
+
+        const pending = Promise.resolve()
+            .then(() => adapter.observeRoomPayments({ roomId }))
+            .then(() => {
+                const active = this._roomManager.getRoom(roomId);
+                if (!active || active.players?.length !== 3) return;
+                for (const playerId of active.players) {
+                    const boundSocket = this._playerToSocket.get(playerId);
+                    if (boundSocket) {
+                        this._deliverPaymentStatusToSocket(roomId, playerId, boundSocket);
+                    }
+                }
+                const gate = runtime.paymentGate?.getGameStartGateStatus(
+                    roomId, active.players
+                );
+                if (gate?.eligible === true) {
+                    this._eventBus.emit({
+                        source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                        type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
+                        payload: {
+                            roomId,
+                            paymentAcceptanceEnabled: true,
+                            paymentSessionPrepared: true,
+                            paymentStatus: "ALL_THREE_SETTLED"
+                        }
+                    });
+                }
+            })
+            .catch(error => this._logger?.warn?.(
+                `Page4 payment check failed | roomId=${roomId} | reason=${error?.message ?? "unknown"}`
+            ))
+            .finally(() => {
+                if (this._roomPaymentChecks.get(roomId) === pending) {
+                    this._roomPaymentChecks.delete(roomId);
+                }
+            });
+        this._roomPaymentChecks.set(roomId, pending);
     }
 
     _preparePaymentSessionIfEnabled(roomId, room) {
@@ -4984,31 +5110,17 @@ export class RoomLobbyBridge {
             return;
         }
 
-        const paymentRequests = [];
-        for (const playerId of room.players) {
-            const runtime = this._playerManager.getRuntime?.(playerId);
-            const paymentConfig = runtime?.payment ?? runtime?.paymentRequest ?? null;
-            if (!paymentConfig || typeof paymentConfig !== "object") {
-                return;
-            }
-            if (typeof paymentConfig.expectedSender !== "string" || paymentConfig.expectedSender.trim() === "") {
-                return;
-            }
-            if (typeof paymentConfig.amountAtomic !== "number" || !Number.isSafeInteger(paymentConfig.amountAtomic) || paymentConfig.amountAtomic <= 0) {
-                return;
-            }
-            if (typeof paymentConfig.paymentReference !== "string" || paymentConfig.paymentReference.trim() === "") {
-                return;
-            }
-            paymentRequests.push({
-                playerId,
-                paymentReference: paymentConfig.paymentReference.trim(),
-                expectedSender: paymentConfig.expectedSender.trim(),
-                amountAtomic: paymentConfig.amountAtomic
-            });
-        }
-
-        if (paymentRequests.length !== 3) {
+        // Derive all three payment requirements from the server-side Page2
+        // stake/sector selection and Page3 payer wallet, not an unattached
+        // PlayerRuntime.paymentRequest field (which never existed).
+        const paymentRequests = deriveTestnetRoomPaymentRequirements(
+            roomId, room.players,
+            playerId => this._playerManager.getIdentity(playerId)
+        );
+        if (!paymentRequests) {
+            this._logger?.warn?.(
+                `Payment session awaits three valid wallet addresses and matching stakes | roomId=${roomId}`
+            );
             return;
         }
 
@@ -5432,6 +5544,8 @@ export class RoomLobbyBridge {
     }
 
     _clearVerifyBarrier(roomId) {
+
+        this._roomObservationBudget?.forget(roomId);
 
         this._verifyConfirmedByRoom.delete(roomId);
 

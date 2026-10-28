@@ -1,3 +1,5 @@
+import { FinancialOutcomeStore } from '../FinancialOutcomeStore.js';
+import { recoverSettledPrincipal } from './recoverSettledPrincipal.js';
 /**
  * Room-wallet payment runtime composition root (Testnet).
  *
@@ -11,10 +13,9 @@
  *   - No smart contract / escrow / deposit system is referenced (R9).
  *   - No wallet secret material is read, retained or written. The wallet
  *     catalog is parsed through the existing secret-stripping loader and the
- *     outgoing signer path does not exist (payment execution is disabled).
- *   - This factory never moves real funds. Incoming observation is read-only;
- *     outgoing refunds have no authorized submitter, so live payment
- *     acceptance stays disabled and refunds remain recoverable obligations.
+ *     signer capabilities are injected only by the explicit Testnet entrypoint.
+ *   - Default acceptance is disabled. Explicitly configured Testnet workers
+ *     execute durable debts and independently reconcile on-chain delivery.
  *
  * Durable state (isolated per network namespace under `dataDir`) is file-backed
  * JSON with atomic temp+rename writes, matching the existing server storage
@@ -56,6 +57,7 @@ import {
     ToncenterTransactionsClient
 } from "../toncenter/index.js";
 import { RoomPaymentSessionAdapter } from "./RoomPaymentSessionAdapter.js";
+import { countUnsettledRoomFinancialObligations } from "./countUnsettledRoomFinancialObligations.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "../PaymentLifecycleAvailability.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -71,12 +73,15 @@ const CANONICAL_TON_SYMBOL = "Gram";
 
 /**
  * Default durable storage directory for the isolated room-wallet payment
- * runtime. Module-relative like the existing advertisement store, and never on
- * top of the retired historical financial volume.
+ * runtime. Railway uses a new namespace inside its persistent mounted volume;
+ * historical escrow records are never imported.
  *
  * @returns {string}
  */
-export function resolveDefaultRoomWalletPaymentDataDir() {
+export function resolveDefaultRoomWalletPaymentDataDir(env = process.env) {
+    if (env.ROOM_WALLET_DATA_DIR) return env.ROOM_WALLET_DATA_DIR;
+    if (env.RAILWAY_VOLUME_MOUNT_PATH) return join(env.RAILWAY_VOLUME_MOUNT_PATH, "room-wallet-payments");
+    if (env.RAILWAY_ENVIRONMENT_ID) throw new Error("Persistent room-wallet volume is required on Railway");
 
     return join(MODULE_DIR, "..", "..", "data", "room-wallet-payments");
 
@@ -181,7 +186,8 @@ export function buildPaymentRuntime(options = {}) {
         logger = null,
         fetchImpl = globalThis.fetch,
         settlementEvidenceProvider = null,
-        refundSubmitter = null
+        refundSubmitter = null,
+        refundSubmitterFactory = null
     } = options;
 
     // R — network identity is enforced before any store or provider exists.
@@ -192,6 +198,7 @@ export function buildPaymentRuntime(options = {}) {
     // Explicit per-network store namespace (Testnet vs future Mainnet).
     const networkDataDir = join(dataDir, identity.network);
 
+    const outcomeStore = new FinancialOutcomeStore(networkDataDir);
     const walletPool = new WalletPoolRegistry({
         catalogPath: walletCatalogPath,
         network: identity.network,
@@ -238,13 +245,38 @@ export function buildPaymentRuntime(options = {}) {
     // Outgoing refund signer is NEVER constructed or read here. It is only
     // assembled when the caller injects an authorized, out-of-process Testnet
     // signing bundle; otherwise it is null and outgoing refunds stay disabled.
+    // Real native signing is supplied only when the entrypoint explicitly
+    // opts in. The factory is never called on the disabled acceptance path.
+    // Runtime constructs neither secrets nor a signer on its own.
+    if (refundSubmitter !== null && refundSubmitterFactory !== null) {
+        throw new Error("REFUND_SIGNER_CONFIGURATION_CONFLICT");
+    }
+    if (refundSubmitterFactory !== null
+        && typeof refundSubmitterFactory !== "function") {
+        throw new TypeError("refundSubmitterFactory must be a function");
+    }
+    const nativeRefundSubmitter = refundSubmitterFactory === null
+        ? refundSubmitter
+        : refundSubmitterFactory(Object.freeze({
+            walletPool,networkDataDir,network:identity.network,
+            globalId:identity.globalId
+        }));
     const outgoingRefundProvider = buildTestnetOutgoingRefundProvider({
-        submitter: refundSubmitter,
+        submitter: nativeRefundSubmitter,
         globalId: identity.globalId,
         finalityEvidenceProvider: evidenceProvider
     });
 
+    // The public room-wallet registry must account for outstanding prize
+    // and refund debts, not merely PENDING/MATCHED incoming intents. The
+    // callback is evaluated only after both durable financial stores load.
+    let ledger = null;
+    let refundStore = null;
+    const financialObligationCountProvider = roomId =>
+        countUnsettledRoomFinancialObligations({roomId,ledger,refundStore});
+
     const paymentService = new RoomWalletPaymentService({
+        financialObligationCountProvider,
         walletPool,
         intentStore,
         assetRegistry,
@@ -267,7 +299,7 @@ export function buildPaymentRuntime(options = {}) {
         nowProvider
     });
 
-    const ledger = new RoomLedger({
+    ledger = new RoomLedger({
         store: ledgerStore,
         currency: CurrencyMapping.nativeTon({ network: identity.network }),
         intentStore,
@@ -278,13 +310,14 @@ export function buildPaymentRuntime(options = {}) {
         dataDir: join(networkDataDir, "manifests")
     });
 
-    const refundStore = new RefundObligationStore({
+    refundStore = new RefundObligationStore({
         dataDir: join(networkDataDir, "refunds"),
         logger
     });
 
     const refundLifecycle = new RefundLifecycleCoordinator({
         store: refundStore,
+        outcomeStore,
         intentStore,
         ledgerStore,
         nowProvider,
@@ -326,6 +359,7 @@ export function buildPaymentRuntime(options = {}) {
         ledgerStore,
         manifestStore,
         refundStore,
+        outcomeStore,
         refundLifecycle,
         outgoingRefundProvider,
         sessionAdapter,
@@ -357,11 +391,19 @@ export function buildPaymentRuntime(options = {}) {
 
             }
 
-            paymentService.initialize();
-
+            // Recover prize/refund debts BEFORE reconciling wallet ownership.
+            // Otherwise three SETTLED entry intents appear "closed" and the
+            // pool may release a wallet still owing winners or players.
             ledger.initialize();
+            refundStore.initialize();
+            intentStore.initialize();
 
             manifestStore.initialize();
+            // SETTLED intent is the authoritative durable receipt. Repair a crash
+            // between writing that receipt and appending its principal entry.
+            recoverSettledPrincipal({intentStore, ledgerStore, ledger});
+
+            paymentService.initialize();
 
             // Refund recovery uses the identity-only Testnet provider. With no
             // authorized outgoing signer it reports each outstanding obligation
@@ -392,6 +434,15 @@ export function buildPaymentRuntime(options = {}) {
 
         },
 
+        financialSnapshot(roomId) {
+            // Public financial records only; never export wallet catalog/signing material.
+            return {schemaVersion:1, network:identity.network, globalId:identity.globalId, roomId,
+                closedRoom:refundStore.getClosedRoom(roomId), outcome:outcomeStore.get(roomId),
+                intents:intentStore.listForRoom(roomId).map(x => x.toRecord()),
+                ledger:ledgerStore.listForRoom(roomId),
+                refunds:refundStore.list().filter(x => x.roomId === roomId).map(x => x.toRecord()),
+                outstandingObligations:financialObligationCountProvider(roomId)};
+        },
         get initialized() {
 
             return state.initialized === true;
@@ -399,9 +450,8 @@ export function buildPaymentRuntime(options = {}) {
         },
 
         /**
-         * Explicit, auditable capability descriptor. Outgoing refund submission
-         * is intentionally reported as disabled — the repository has no
-         * authorized Testnet transfer signer, so this must not be faked.
+         * Explicit, auditable capability descriptor. Transfer execution only
+         * activates under the explicit Testnet opt-in with a complete provider.
          *
          * @returns {Readonly<object>}
          */
@@ -417,7 +467,7 @@ export function buildPaymentRuntime(options = {}) {
                 settlementEnabled: true,
                 gameStartGateEnforced: true,
                 outgoingRefundTransfersEnabled: Boolean(outgoingRefundProvider && outgoingRefundProvider.canExecute?.()),
-                livePaymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                livePaymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED && Boolean(outgoingRefundProvider?.canExecute()),
                 outgoingRefundDisabledReason: Boolean(outgoingRefundProvider && outgoingRefundProvider.canExecute?.())
                     ? null
                     : "NO_AUTHORIZED_TESTNET_OUTGOING_SIGNER"

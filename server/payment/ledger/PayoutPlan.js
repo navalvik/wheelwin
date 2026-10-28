@@ -167,6 +167,8 @@ export class PayoutPlan {
         assertNonEmptyString(input.asset, "asset");
         assertNonEmptyString(input.network, "network");
         assertPositiveSafeInteger(input.principalAtomic, "principalAtomic");
+        const safetyMarginAtomic = input.safetyMarginAtomic ?? 0;
+        assertNonNegativeSafeInteger(safetyMarginAtomic, "safetyMarginAtomic");
 
         if (!Array.isArray(input.transfers) || input.transfers.length === 0) {
 
@@ -202,7 +204,7 @@ export class PayoutPlan {
         //   === the total settled principal. No reserve, no safety margin.
         const netPlusFees = totalNetAtomic + totalReservedFeeAtomic;
 
-        if (netPlusFees !== input.principalAtomic) {
+        if (netPlusFees + safetyMarginAtomic !== input.principalAtomic) {
 
             throw new PayoutValidationError(
                 "payout plan must exactly account for settled principal "
@@ -229,6 +231,8 @@ export class PayoutPlan {
         this.network = input.network;
 
         this.principalAtomic = input.principalAtomic;
+
+        this.safetyMarginAtomic = safetyMarginAtomic;
 
         this.allocation = Object.freeze({ ...(input.allocation ?? {}) });
 
@@ -284,7 +288,7 @@ export class PayoutPlan {
                 sum + BigInt(transfer.netAtomic) + BigInt(transfer.reservedFeeAtomic),
             0n);
 
-        return total === principal;
+        return total + BigInt(this.safetyMarginAtomic) === principal;
 
     }
 
@@ -297,6 +301,7 @@ export class PayoutPlan {
             asset: this.asset,
             network: this.network,
             principalAtomic: this.principalAtomic,
+            safetyMarginAtomic: this.safetyMarginAtomic,
             allocation: this.allocation,
             transfers: this.transfers.map((t) => t.toJSON()),
             totalGrossAtomic: this.totalGrossAtomic,
@@ -315,6 +320,7 @@ export class PayoutPlan {
             asset: record.asset,
             network: record.network,
             principalAtomic: record.principalAtomic,
+            safetyMarginAtomic: record.safetyMarginAtomic ?? 0,
             allocation: record.allocation,
             transfers: (record.transfers ?? []).map((t) => PayoutTransfer.fromJSON(t)),
             createdAtMs: record.createdAtMs,

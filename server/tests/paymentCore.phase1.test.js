@@ -12,7 +12,7 @@
  *
  * These tests are fully isolated from gameplay: they never touch Page1/Page4,
  * Player Setup, game navigation, game-stage transitions, or the existing
- * 480-second room timer. No blockchain node is ever contacted.
+ * 300-second room timer. No blockchain node is ever contacted.
  */
 
 import { createHash } from "node:crypto";
@@ -326,13 +326,13 @@ function syntheticTransactionRow(harness, intent, overrides = {}) {
     return {
         account: destination,
         hash: overrides.hash ?? "a".repeat(64),
-        lt: "40576730000001",
+        lt: "40576748000001",
         now: nowSeconds,
         orig_status: "active",
         end_status: "active",
         total_fees: "1234",
         prev_trans_hash: "0".repeat(64),
-        prev_trans_lt: "40576730000000",
+        prev_trans_lt: "40576748000000",
         description: {
             type: "trans_ord",
             aborted: false,
@@ -349,7 +349,7 @@ function syntheticTransactionRow(harness, intent, overrides = {}) {
             value: String(intent.amountAtomic),
             fwd_fee: "1",
             ihr_fee: "0",
-            created_lt: "40576730000001",
+            created_lt: "40576748000001",
             created_at: String(nowSeconds),
             opcode: 0,
             bounce: true,
@@ -441,8 +441,8 @@ function createIntent(harness, overrides = {}) {
     );
 
     check(
-        registry.getAvailableCount() === ROOM_WALLET_POOL_SIZE,
-        "all 64 wallets must start available"
+        registry.getAvailableCount() === ROOM_WALLET_POOL_SIZE - 1,
+        "the 64-wallet catalog excludes unresolved Testnet wallet 1 from new reservations"
     );
 
     // Wallet secrets must never be surfaced by the registry.
@@ -525,8 +525,8 @@ function createIntent(harness, overrides = {}) {
     );
 
     check(
-        registry.getAvailableCount() === ROOM_WALLET_POOL_SIZE,
-        "all wallets must be available again after release"
+        registry.getAvailableCount() === ROOM_WALLET_POOL_SIZE - 1,
+        "all 63 permitted wallets become available after release"
     );
 
     // The released wallet can now be recycled.
@@ -543,7 +543,7 @@ function createIntent(harness, overrides = {}) {
     registry.release({ roomId: "room-2" });
 
     // Exhaustion.
-    for (let index = 0; index < ROOM_WALLET_POOL_SIZE; index += 1) {
+    for (let index = 0; index < ROOM_WALLET_POOL_SIZE - 1; index += 1) {
 
         registry.reserve({ roomId: `room-x-${index}` });
 
@@ -552,7 +552,7 @@ function createIntent(harness, overrides = {}) {
     const exhausted = expectThrow(
         () => registry.reserve({ roomId: "room-overflow" }),
         "WalletPoolExhaustedError",
-        "reservation must fail once all 64 wallets are reserved"
+        "reservation must fail once all 63 eligible wallets are reserved"
     );
 
     check(
@@ -1196,10 +1196,10 @@ function createIntent(harness, overrides = {}) {
         () => createIntent(configured, {
             paymentReference: "pay-fractional",
             roomId: "room-f",
-            amountAtomic: 1_500_000_000
+            amountAtomic: 1_500_000_000.5
         }),
         "PaymentValidationError",
-        "non-multiple atomic amounts must be rejected (integer-only)"
+        "fractional atomic amounts must be rejected"
     );
 
     expectThrow(

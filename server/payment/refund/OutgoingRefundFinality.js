@@ -70,7 +70,7 @@ function buildFinalizedEvidence({ obligation, outgoingTransactionId, evidence, n
         networkName: obligation.networkName,
         globalId: obligation.globalId,
         transactionId: outgoingTransactionId,
-        amountAtomic: obligation.amountAtomic,
+        amountAtomic: obligation.transferAmountAtomic ?? obligation.amountAtomic,
         destination: obligation.refundDestination,
         finalized: true,
         observedAtMs: nowMs,
@@ -158,7 +158,7 @@ export function verifyOutgoingRefundFinality({
         return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.RECIPIENT_MISMATCH });
     }
     if (!Number.isSafeInteger(outgoingTransfer.amountAtomic)
-        || outgoingTransfer.amountAtomic !== obligation.amountAtomic) {
+        || outgoingTransfer.amountAtomic !== (obligation.transferAmountAtomic ?? obligation.amountAtomic)) {
         return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.AMOUNT_MISMATCH });
     }
 

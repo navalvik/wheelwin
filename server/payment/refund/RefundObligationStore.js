@@ -1,22 +1,12 @@
+import { durableWriteJson } from '../DurableJson.js';
 import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { RefundObligation, RefundObligationError } from "./RefundObligation.js";
 
-function writeAtomic(path, record) {
-    mkdirSync(dirname(path), { recursive: true });
-    const temp = `${path}.tmp`;
-    writeFileSync(temp, `${JSON.stringify(record, null, 2)}\n`, "utf8");
-    renameSync(temp, path);
-}
+function writeAtomic(path, record) { durableWriteJson(path, record); }
 
-function writeExclusive(path, record) {
-    mkdirSync(dirname(path), { recursive: true });
-    const temp = `${path}.${randomBytes(8).toString("hex")}.tmp`;
-    writeFileSync(temp, `${JSON.stringify(record, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
-    try { linkSync(temp, path); }
-    finally { try { unlinkSync(temp); } catch {} }
-}
+function writeExclusive(path, record) { durableWriteJson(path, record, { exclusive: true }); }
 
 export class RefundObligationStore {
     constructor({ dataDir, logger = null } = {}) {
@@ -61,7 +51,7 @@ export class RefundObligationStore {
         if (existingId) {
             const existing = this._byId.get(existingId);
             const replayComparable = (item) => {
-                const { obligationId, createdAtMs, ...identity } = item.toRecord();
+                const { obligationId, createdAtMs, state, attempts, outgoingTransactionId, finalizedEvidence, lastError, transferAmountAtomic, gasChargeAtomic, ...identity } = item.toRecord();
                 return JSON.stringify(identity);
             };
             const left = replayComparable(existing);
@@ -77,7 +67,7 @@ export class RefundObligationStore {
             if (error?.code !== "EEXIST" || !existsSync(path)) throw error;
             const persisted = RefundObligation.fromRecord(JSON.parse(readFileSync(path, "utf8")));
             const comparable = (item) => {
-                const { obligationId, createdAtMs, ...identity } = item.toRecord();
+                const { obligationId, createdAtMs, state, attempts, outgoingTransactionId, finalizedEvidence, lastError, transferAmountAtomic, gasChargeAtomic, ...identity } = item.toRecord();
                 return JSON.stringify(identity);
             };
             if (comparable(persisted) !== comparable(obligation)) {
@@ -131,6 +121,15 @@ export class RefundObligationStore {
         if (next.state !== current.state && !allowed[current.state]?.includes(next.state)) {
             throw new RefundObligationError(`invalid refund state transition: ${current.state} -> ${next.state}`);
         }
+        if (current.transferAmountAtomic !== null &&
+            (next.transferAmountAtomic !== current.transferAmountAtomic
+                || next.gasChargeAtomic !== current.gasChargeAtomic)) {
+            throw new RefundObligationError("persisted refund transfer plan is immutable");
+        }
+        if (current.transferAmountAtomic === null && next.transferAmountAtomic !== null
+            && !(current.state === "PENDING" && next.state === "SUBMISSION_UNKNOWN")) {
+            throw new RefundObligationError("refund transfer plan must be fixed before first submission");
+        }
         if (current.outgoingTransactionId && next.outgoingTransactionId !== current.outgoingTransactionId) {
             throw new RefundObligationError("outgoing transaction identity cannot be replaced");
         }
@@ -154,7 +153,8 @@ export class RefundObligationStore {
     }
 
     /** PENDING -> SUBMISSION_UNKNOWN: an authorized submission was attempted. */
-    markSubmissionUnknown(obligationId, { attempt, lastError = null } = {}) {
+    markSubmissionUnknown(obligationId, { attempt, lastError = null,
+        transferAmountAtomic = null, gasChargeAtomic = null } = {}) {
         const current = this._requireExisting(attempt, obligationId);
         if (current.state !== "PENDING") {
             throw new RefundObligationError("only a PENDING refund obligation can begin submission");
@@ -162,6 +162,8 @@ export class RefundObligationStore {
         const next = RefundObligation.fromRecord({
             ...current.toRecord(),
             state: "SUBMISSION_UNKNOWN",
+            transferAmountAtomic: transferAmountAtomic ?? current.transferAmountAtomic,
+            gasChargeAtomic: gasChargeAtomic ?? current.gasChargeAtomic,
             attempts: [...current.attempts, attempt],
             lastError
             });
@@ -223,6 +225,43 @@ export class RefundObligationStore {
         return this._commitTransition(next);
     }
 
+    /**
+     * Historical finality reconciliation of a previously-sent refund. Never
+     * submits a new transaction. Handles the crash-safe SUBMISSION_UNKNOWN and
+     * manual-hold RECONCILIATION_REQUIRED states without changing principal.
+     * The caller must verify BOTH independent blockchain providers first.
+     * Persist via the ordinary immutable transition gate.
+     */
+    completeFromVerifiedHistory(obligationId,{outgoingTransactionId,finalizedEvidence}={}){
+        const current=this.get(obligationId);
+        if(!current || !["SUBMITTED","SUBMISSION_UNKNOWN","RECONCILIATION_REQUIRED"].includes(current.state))
+            throw new RefundObligationError("refund is not awaiting historical reconciliation");
+        if(typeof outgoingTransactionId!=="string"||!outgoingTransactionId
+            ||current.outgoingTransactionId
+                &&current.outgoingTransactionId!==outgoingTransactionId)
+            throw new RefundObligationError("historical refund transaction identity conflicts");
+        if(!finalizedEvidence ||finalizedEvidence.transactionId!==outgoingTransactionId
+            ||finalizedEvidence.finalized!==true
+            ||finalizedEvidence.networkName!==current.networkName
+            ||finalizedEvidence.globalId!==current.globalId
+            ||finalizedEvidence.amountAtomic!==(current.transferAmountAtomic??current.amountAtomic)
+            ||finalizedEvidence.destination!==current.refundDestination)
+            throw new RefundObligationError("historical finalized refund evidence mismatches obligation");
+        let submitted=current;
+        if(current.state==="SUBMISSION_UNKNOWN"){
+            // A crash between these two writes leaves a normal SUBMITTED
+            // obligation, which the next recovery pass can safely finish.
+            submitted=this._commitTransition(RefundObligation.fromRecord({
+                ...current.toRecord(),state:"SUBMITTED",
+                outgoingTransactionId
+            }));
+        }
+        return this._commitTransition(RefundObligation.fromRecord({
+            ...submitted.toRecord(),state:"COMPLETE",outgoingTransactionId,
+            finalizedEvidence
+        }));
+    }
+
     /** Any non-terminal -> BLOCKED (safe terminal hold with a diagnostic code). */
     markBlocked(obligationId, { attempt = null, lastError = null } = {}) {
         const current = this._requireExisting(attempt, obligationId);
@@ -277,6 +316,14 @@ export class RefundObligationStore {
         }
         writeExclusive(path, context);
         return Object.freeze({ replay: false, context });
+    }
+    listClosedRooms() {
+        this._assertInitialized();
+        return readdirSync(this._closedRoomsDir).filter(name => name.endsWith('.json')).map(name => {
+            const record = JSON.parse(readFileSync(join(this._closedRoomsDir, name), 'utf8'));
+            if (name !== createHash('sha256').update(record.roomId).digest('hex') + '.json') throw new RefundObligationError('invalid closed-room filename');
+            return this.getClosedRoom(record.roomId);
+        });
     }
     getClosedRoom(roomId) {
         this._assertInitialized();
