@@ -166,12 +166,22 @@ function createFakeSocket() {
 {
     assert.deepEqual(
         [...EXTERNAL_ADVERTISEMENT_PAGES],
-        [APP_PAGES.WELCOME, APP_PAGES.LOBBY, APP_PAGES.RESULT]
+        [
+            APP_PAGES.WELCOME,
+            APP_PAGES.LOBBY,
+            APP_PAGES.RESULT,
+            APP_PAGES.ENTRY_MODE,
+            APP_PAGES.NO_FRIENDS_QUEUE,
+            APP_PAGES.NO_FRIENDS_OPTIONS
+        ]
     );
 
     assert.equal(isExternalAdvertisementPage(APP_PAGES.WELCOME), true);
     assert.equal(isExternalAdvertisementPage(APP_PAGES.LOBBY), true);
     assert.equal(isExternalAdvertisementPage(APP_PAGES.RESULT), true);
+    assert.equal(isExternalAdvertisementPage(APP_PAGES.ENTRY_MODE), true);
+    assert.equal(isExternalAdvertisementPage(APP_PAGES.NO_FRIENDS_QUEUE), true);
+    assert.equal(isExternalAdvertisementPage(APP_PAGES.NO_FRIENDS_OPTIONS), true);
 
     const welcome = resolveAdvertisementRenderModel({
         page: APP_PAGES.WELCOME,

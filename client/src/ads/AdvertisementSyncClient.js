@@ -28,7 +28,10 @@ export const ADVERTISEMENT_MESSAGE_TYPES = Object.freeze({
 export const EXTERNAL_ADVERTISEMENT_PAGES = Object.freeze([
     APP_PAGES.WELCOME,
     APP_PAGES.LOBBY,
-    APP_PAGES.RESULT
+    APP_PAGES.RESULT,
+    APP_PAGES.ENTRY_MODE,
+    APP_PAGES.NO_FRIENDS_QUEUE,
+    APP_PAGES.NO_FRIENDS_OPTIONS
 ]);
 
 /** Pages that must always show the WheelWin brand banner. */
