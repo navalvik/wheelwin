@@ -21,7 +21,9 @@ test("live payment acceptance remains fail-closed without executable refund sign
 
 test("payment status cannot advertise intake when live acceptance is disabled", () => {
     const bridge = readFileSync(new URL("../../socket/RoomLobbyBridge.js", import.meta.url), "utf8");
-    assert.match(bridge, /paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED/);
+    assert.match(bridge, /paymentAcceptanceEnabled = LIVE_PAYMENT_ACCEPTANCE_ENABLED/);
+    assert.match(bridge, /paymentAcceptanceEnabled: this\._paymentAcceptanceEnabled/);
+    assert.match(bridge, /room\.status === ROOM_STATUS\.DESTROYED/);
     assert.match(bridge, /expectedSenderWalletAddress: intent\.expectedSender/);
     assert.match(bridge, /status: "PAYMENT_UNAVAILABLE"/);
 });
