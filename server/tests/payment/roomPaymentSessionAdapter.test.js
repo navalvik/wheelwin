@@ -719,23 +719,29 @@ async function run() {
         });
 
         await withHarness({}, (h) => {
+            // Payment requirements use integer nanoton, not integer Gram.
+            // A one-nanoton amount is representable even though the UI
+            // normally offers larger stakes (including 1.5 Gram).
             const descriptor = makeDescriptor({
-                roomId: "room-unrepresentable-denomination",
+                roomId: "room-one-nanoton-denomination",
                 requiredPlayers: [{
-                    roomId: "room-unrepresentable-denomination",
-                    paymentReference: "WW-ONE-NANOTON-UNREPRESENTABLE",
+                    roomId: "room-one-nanoton-denomination",
+                    paymentReference: "WW-ONE-NANOTON-VALID",
                     playerId: "one-nanoton-player",
                     expectedSender: syntheticAddress("one-nanoton-sender"),
                     amountAtomic: 1
                 }]
             });
-            throws(() => h.adapter.prepareRoom(descriptor), RoomPaymentSessionValidationError,
-                "one nanotons cannot represent an exact whole-Gram payment");
-            equal(intentEntries(h.service, descriptor.roomId).length, 0,
-                "unrepresentable amount creates no payment intents");
-            equal(h.service.getWalletForRoom(descriptor.roomId), null,
-                "unrepresentable amount reserves no room wallet");
-            equal(h.ledger.store.size, 0, "unrepresentable amount writes no ledger entries");
+            const prepared = h.adapter.prepareRoom(descriptor);
+            equal(prepared.payments[0].amountAtomic, 1,
+                "integer nanoton remains exact in the prepared session");
+            equal(intentEntries(h.service, descriptor.roomId).length, 1,
+                "valid atomic amount creates one payment intent");
+            check(Boolean(h.service.getWalletForRoom(descriptor.roomId)),
+                "valid atomic amount reserves a room wallet");
+            equal(h.ledger.store.listForRoom(descriptor.roomId).filter(
+                (entry) => entry.kind === LEDGER_ENTRY_KIND.PLAYER_STAKE
+            ).length, 1, "valid atomic amount records one stake");
         });
     });
 
@@ -805,19 +811,19 @@ async function run() {
             ] });
             throws(() => h.adapter.prepareRoom(crossRoom),
                 RoomPaymentSessionValidationError, "cross-room requirement rejected");
-            const invalidLaterDenomination = makeDescriptor({ requiredPlayers: [
+            const invalidLaterAtomicAmount = makeDescriptor({ requiredPlayers: [
                 base.requiredPlayers[0],
                 {
                     roomId: base.roomId,
                     paymentReference: "WW-SESSION-PLAYER-2",
                     playerId: "player-2",
                     expectedSender: syntheticAddress("sender-2"),
-                    amountAtomic: 1
+                    amountAtomic: 1.5
                 }
             ] });
-            throws(() => h.adapter.prepareRoom(invalidLaterDenomination),
+            throws(() => h.adapter.prepareRoom(invalidLaterAtomicAmount),
                 RoomPaymentSessionValidationError,
-                "later invalid denomination rejected before creating earlier payment");
+                "later fractional nanoton is rejected before creating earlier payment");
             equal(intentEntries(h.service, base.roomId).length, 0,
                 "invalid descriptors create no intents");
             equal(h.service.getWalletForRoom(base.roomId), null,
@@ -1495,7 +1501,14 @@ async function run() {
             try {
                 equal(restarted.service.getWalletForRoom(roomId), null,
                     "restart reconciliation releases the reservation with no open obligations");
-                restarted.adapter.prepareRoom(descriptor);
+                const beforeReadOnlyGate = durablePreparationSnapshot(restarted, roomId);
+                const beforeRecoveryGate = restarted.adapter.getGameStartGateStatus(
+                    roomId, requiredPlayers.map((payment) => payment.playerId)
+                );
+                equal(beforeRecoveryGate.eligible, false,
+                    "restart cannot start gameplay before durable principal replay");
+                deepEqual(durablePreparationSnapshot(restarted, roomId), beforeReadOnlyGate,
+                    "lazy session recovery performs no durable writes");
                 equal(principalEntries(restarted.ledger, roomId).length, 0,
                     "reloaded ledger still has no principal before recovery");
 
@@ -1534,6 +1547,11 @@ async function run() {
                 }
                 equal(restarted.fetchCalls, 0,
                     "already-settled recovery performs no provider query");
+                const recoveredGate = restarted.adapter.getGameStartGateStatus(
+                    roomId, requiredPlayers.map((payment) => payment.playerId)
+                );
+                equal(recoveredGate.eligible, true,
+                    "durably recovered three-player principal unlocks the gate without re-preparation");
 
                 const replay = await restarted.adapter.observeRoomPayments({ roomId });
                 equal(replay.report.mode, "PERSISTED_SETTLEMENT_RECOVERY",

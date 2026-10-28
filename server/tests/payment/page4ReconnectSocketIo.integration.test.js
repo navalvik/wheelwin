@@ -420,6 +420,10 @@ async function buildSocketHarness(root, catalogPath) {
 
         telegramIdentityResolver: (socketId) => `tg:${socketId}`,
 
+        // This isolated socket integration explicitly exercises enabled
+        // Testnet intake; production still defaults to disabled.
+        paymentAcceptanceEnabled: true,
+
         isDevelopment: true
 
     });
@@ -546,7 +550,7 @@ async function expectPaymentStatus(socket, {
 
     equal(payload.status, status, "status payload carries the expected status");
 
-    equal(payload.paymentAcceptanceEnabled, false, "status payload carries acceptance flag false");
+    equal(payload.paymentAcceptanceEnabled, true, "status payload carries acceptance flag true");
 
     equal(payload.paymentReference, paymentReference, "status payload carries the payment reference");
 
@@ -879,7 +883,7 @@ async function run() {
 
             equal(recovered.status, "AWAITING_PAYMENT", "recovered status is AWAITING_PAYMENT");
 
-            equal(recovered.paymentAcceptanceEnabled, false, "recovered status carries acceptance flag false");
+            equal(recovered.paymentAcceptanceEnabled, true, "recovered status carries acceptance flag true");
 
         });
 
@@ -907,7 +911,7 @@ async function run() {
 
             equal(payload.amountAtomic, 3_000_000_000, "player3 status carries player3's amount");
 
-            equal(payload.paymentAcceptanceEnabled, false, "player3 status carries acceptance flag false");
+            equal(payload.paymentAcceptanceEnabled, true, "player3 status carries acceptance flag true");
 
             check(payload.playerId !== player1, "player3 socket cannot consume player1's payment status");
 
@@ -947,7 +951,7 @@ async function run() {
 
             equal(settled1.expiresAt, deadline, "settled status carries the original room deadline");
 
-            equal(settled1.paymentAcceptanceEnabled, false, "settled status carries acceptance flag false");
+            equal(settled1.paymentAcceptanceEnabled, true, "settled status carries acceptance flag true");
 
             const gate1 = runtime.paymentGate.getGameStartGateStatus(roomId, [player1, player2, player3]);
 

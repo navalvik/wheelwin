@@ -93,7 +93,8 @@ export class RoomWalletPaymentService {
         nowProvider = Date.now,
         paymentWindowMs = ROOM_LIFETIME_MS,
         persistSnapshots = true,
-        observationService
+        observationService,
+        refundStore = null
     } = {}) {
 
         if (!(walletPool instanceof WalletPoolRegistry)) {
@@ -150,6 +151,9 @@ export class RoomWalletPaymentService {
 
         this._observationService = observationService;
 
+        // SETTLED intents are terminal, but a refund can still be owed.
+        this._refundStore = refundStore;
+
         this._logger = logger;
 
         this._snapshotDir = snapshotDir ?? join(intentStore.dataDir, "payment-core");
@@ -192,6 +196,9 @@ export class RoomWalletPaymentService {
     initialize(options = {}) {
 
         const snapshotDir = options.snapshotDir ?? this._snapshotDir;
+
+        // Load refund obligations before reconciling wallet reservations.
+        this._refundStore?.initialize();
 
         this._walletPool.initialize({ snapshotDir });
 
@@ -389,18 +396,14 @@ export class RoomWalletPaymentService {
         // D2 — reject when the asset/denomination mapping is not configured.
         const mapping = this._assetRegistry.requireMapping(requestedNetwork, asset);
 
-        // Integer-only amount validation against the explicit mapping.
-        if (amountAtomic % mapping.atomicUnitsPerUnit !== 0) {
+        // TON amounts are exact integer nanoton values, not whole-Gram
+        // multiples. A 1.5 Gram sector costs 1_500_000_000 nanoton.
+        // Reject fractional nanoton and unsafe integers before reserving a wallet.
+        if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) {
 
             throw new PaymentValidationError(
-                "amountAtomic is not an exact multiple of the configured "
-                    + "atomic-unit denomination",
-                {
-                    amountAtomic,
-                    atomicUnitsPerUnit: mapping.atomicUnitsPerUnit,
-                    asset: mapping.asset,
-                    network: requestedNetwork
-                }
+                "amountAtomic must be a positive safe integer of atomic units",
+                { asset: mapping.asset, network: requestedNetwork }
             );
 
         }
@@ -1197,6 +1200,10 @@ export class RoomWalletPaymentService {
 
         }
 
+        if (this._refundStore) {
+            count += this._refundStore.listPending().filter(item => item.roomId === roomId).length;
+        }
+
         return count;
 
     }
@@ -1227,6 +1234,10 @@ export class RoomWalletPaymentService {
 
             map.set(intent.roomId, (map.get(intent.roomId) ?? 0) + 1);
 
+        }
+
+        for (const obligation of this._refundStore?.listPending() ?? []) {
+            map.set(obligation.roomId, (map.get(obligation.roomId) ?? 0) + 1);
         }
 
         return map;
@@ -1260,12 +1271,12 @@ export class RoomWalletPaymentService {
 
             }
 
-            const mapping = this._assetRegistry.requireMapping(
+            this._assetRegistry.requireMapping(
                 intent.network,
                 intent.asset
             );
 
-            if (intent.amountAtomic % mapping.atomicUnitsPerUnit !== 0
+            if (!Number.isSafeInteger(intent.amountAtomic) || intent.amountAtomic <= 0
                 || intent.roomDeadlineMs <= intent.createdAt
                 || intent.roomDeadlineMs > intent.createdAt + ROOM_LIFETIME_MS) {
 
@@ -1408,6 +1419,46 @@ export class RoomWalletPaymentService {
 
             }
 
+        }
+
+        // Recover reservations for settled payments with outstanding refunds.
+        // A SETTLED intent alone does not count as an open obligation.
+        for (const obligation of this._refundStore?.listPending() ?? []) {
+            const intent = this._intentStore.require(obligation.paymentIntentId);
+            const wallet = this._walletPool.getWallet(intent.destinationWalletId);
+            if (obligation.networkName !== "TESTNET" || obligation.globalId !== -3 ||
+                intent.state !== PAYMENT_INTENT_STATE.SETTLED ||
+                intent.roomId !== obligation.roomId || intent.playerId !== obligation.playerId ||
+                intent.network !== "testnet" || intent.asset !== obligation.denomination ||
+                intent.amountAtomic !== obligation.amountAtomic ||
+                !tonAddressIdentitiesEqual(intent.expectedSender, obligation.refundDestination) ||
+                !wallet || wallet.network !== "testnet" ||
+                wallet.roomNumber !== obligation.roomNumber ||
+                !tonAddressIdentitiesEqual(wallet.address, intent.destinationWalletAddress)) {
+                throw new WalletAssignmentConflictError(
+                    "pending refund source does not match settled intent and Testnet wallet",
+                    { roomId: obligation.roomId, paymentIntentId: obligation.paymentIntentId }
+                );
+            }
+            const addressIdentity = deriveTonAddressIdentity(wallet.address);
+            const existing = rooms.get(obligation.roomId);
+            const otherOwner = walletOwners.get(wallet.walletId) ?? addressOwners.get(addressIdentity);
+            if ((existing && existing.walletId !== wallet.walletId) ||
+                (otherOwner && otherOwner !== obligation.roomId) ||
+                (wallet.reservedByRoomId && wallet.reservedByRoomId !== obligation.roomId)) {
+                throw new WalletAssignmentConflictError(
+                    "pending refund wallet is assigned to a different room",
+                    { roomId: obligation.roomId, walletId: wallet.walletId }
+                );
+            }
+            walletOwners.set(wallet.walletId, obligation.roomId);
+            addressOwners.set(addressIdentity, obligation.roomId);
+            if (!existing) {
+                rooms.set(obligation.roomId, {
+                    roomId: obligation.roomId, walletId: wallet.walletId,
+                    addressIdentity, network: "testnet"
+                });
+            }
         }
 
         return [...rooms.values()];

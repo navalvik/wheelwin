@@ -125,6 +125,26 @@ export function bindPaymentRuntimeToApplication(runtime, dependencies = {}) {
 
             }
 
+            // A payment descriptor must cover the EXACT three authoritative
+            // room seats. Never reserve a wallet or create payable intents for
+            // a partial roster, duplicate player or foreign player identity.
+            // The player list is taken from RoomManager, not from the client.
+            const roomPlayers = room.players;
+            if (!Array.isArray(roomPlayers)
+                || roomPlayers.length !== 3
+                || new Set(roomPlayers).size !== 3
+                || !Array.isArray(playerPayments)
+                || playerPayments.length !== 3
+                || new Set(playerPayments.map((payment) => payment?.playerId)).size !== 3
+                || playerPayments.some((payment) =>
+                    !payment || !roomPlayers.includes(payment.playerId))) {
+
+                throw new PaymentExecutionBlockedError(
+                    "room payment session requires exactly the three authoritative room players"
+                );
+
+            }
+
             return runtime.sessionAdapter.prepareRoom({
                 roomId,
                 roomCreatedAt: room.createdAt,
@@ -140,6 +160,46 @@ export function bindPaymentRuntimeToApplication(runtime, dependencies = {}) {
                 }))
             });
 
+        },
+
+        /**
+         * Perform one read-only chain observation through the already-bound
+         * payment session. Only an active room with the same three authoritative
+         * seats may be observed. A client cannot supply evidence or an amount.
+         *
+         * The caller must re-check the room after awaiting the provider: a
+         * timeout or room destruction during an RPC must never open Page5.
+         */
+        async observePreparedRoomPayments(roomId) {
+            if (!paymentAcceptanceEnabled) {
+                throw new PaymentExecutionBlockedError(
+                    "live room-wallet payment observation is disabled"
+                );
+            }
+            if (!roomManager || typeof roomManager.getRoom !== "function") {
+                throw new Error("roomManager.getRoom() is required for observation");
+            }
+            const room = roomManager.getRoom(roomId);
+            const roster = room?.players;
+            if (!room || room.status === "DESTROYED"
+                || !Array.isArray(roster) || roster.length !== 3
+                || new Set(roster).size !== 3) {
+                throw new PaymentExecutionBlockedError(
+                    "payment observation requires an active authoritative three-player room"
+                );
+            }
+
+            const result = await runtime.sessionAdapter.observeRoomPayments({ roomId });
+            const current = roomManager.getRoom(roomId);
+            const sameRoster = current && current.status !== "DESTROYED"
+                && Array.isArray(current.players)
+                && current.players.length === 3
+                && new Set(current.players).size === 3
+                && roster.every((playerId) => current.players.includes(playerId));
+            const gate = sameRoster
+                ? runtime.paymentGate.getGameStartGateStatus(roomId, current.players)
+                : Object.freeze({ eligible: false, reason: "room_closed_or_roster_changed" });
+            return Object.freeze({ result, gate });
         },
 
         /**

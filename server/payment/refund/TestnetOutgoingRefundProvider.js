@@ -83,7 +83,7 @@ export class TestnetOutgoingRefundProvider {
      *   }
      * }} dependencies
      */
-    constructor({ globalId, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider } = {}) {
+    constructor({ globalId, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider, walletPool = null } = {}) {
         if (globalId !== TON_TESTNET_GLOBAL_ID) {
             throw new OutgoingRefundError("outgoing refund provider requires verified TON Testnet global ID -3");
         }
@@ -93,6 +93,7 @@ export class TestnetOutgoingRefundProvider {
         this._broadcaster = broadcaster ?? null;
         this._finality = finalityEvidenceProvider ?? null;
         this._observation = outgoingTransferProvider ?? null;
+        this._walletPool = walletPool;
     }
 
     /**
@@ -171,8 +172,25 @@ export class TestnetOutgoingRefundProvider {
             throw new OutgoingRefundError("settled payment intent is unavailable; cannot resolve the refund source wallet");
         }
         if (!intent || intent.paymentReference !== obligation.paymentIntentId
+            || intent.roomId !== obligation.roomId
+            || intent.playerId !== obligation.playerId
+            || intent.network !== "testnet"
+            || intent.asset !== obligation.denomination
+            || intent.state !== "SETTLED"
+            || !tonAddressIdentitiesEqual(intent.expectedSender, obligation.refundDestination)
             || tonAddressIdentityOrNull(intent.destinationWalletAddress) === null) {
             throw new OutgoingRefundError("durable payment intent does not identify a valid source wallet");
+        }
+        // When the production runtime provides its authoritative 64-wallet
+        // catalog, a durable intent alone cannot authorize a different source.
+        if (this._walletPool) {
+            const wallet = this._walletPool.getWallet?.(intent.destinationWalletId);
+            if (!wallet || wallet.walletId !== intent.destinationWalletId
+                || wallet.network !== "testnet"
+                || wallet.roomNumber !== obligation.roomNumber
+                || !tonAddressIdentitiesEqual(wallet.address, intent.destinationWalletAddress)) {
+                throw new OutgoingRefundError("refund source wallet does not match authoritative Testnet pool");
+            }
         }
         return intent.destinationWalletAddress;
     }
@@ -186,6 +204,17 @@ export class TestnetOutgoingRefundProvider {
      */
     async signAndBroadcast({ obligation, sourceWalletAddress, nowMs }) {
         const authorized = this.authorizeSubmission({ obligation, sourceWalletAddress });
+        // Direct provider calls must not bypass the pool identity check.
+        if (this._walletPool) {
+            const matching = this._walletPool.listWallets?.().filter(wallet =>
+                wallet.network === "testnet"
+                && wallet.roomNumber === obligation.roomNumber
+                && tonAddressIdentitiesEqual(wallet.address, sourceWalletAddress)
+            ) ?? [];
+            if (matching.length !== 1) {
+                throw new OutgoingRefundError("refund signing source is not the authoritative room wallet");
+            }
+        }
         if (!this.canExecute()) {
             return Object.freeze({
                 outcome: OUTGOING_SUBMISSION_OUTCOME.FAILED,

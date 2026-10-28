@@ -261,9 +261,9 @@ export class WalletPoolRegistry {
 
     _loadCatalog() {
 
-        // Railway keeps the 64-wallet Testnet catalog in Variables, not in
-        // Git. Prefer the existing local catalog for compatibility; otherwise
-        // read the variable directly without writing wallet secrets to disk.
+        // Railway Variables are the authoritative Testnet catalog. Prefer
+        // them over a possibly stale local file, matching the protected
+        // signing-key resolver's source precedence. Never write secrets to disk.
         const hasCatalogFile = existsSync(this._catalogPath);
         const configuredCatalog = process.env.ROOM_WALLETS_TESTNET_JSON
             || process.env.ROOM_WALLETS_JSON;
@@ -281,9 +281,7 @@ export class WalletPoolRegistry {
 
         try {
 
-            const raw = hasCatalogFile
-                ? readFileSync(this._catalogPath, "utf8")
-                : configuredCatalog;
+            const raw = configuredCatalog || readFileSync(this._catalogPath, "utf8");
 
             // Secrets are dropped during parsing — they never enter memory.
             parsed = JSON.parse(raw, stripSecretsReviver);

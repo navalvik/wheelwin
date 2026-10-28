@@ -1,7 +1,7 @@
 import { createRefundObligationId, REFUND_NETWORK, REFUND_STATE, refundIdempotencyKey } from "./RefundObligation.js";
 import { LEDGER_ENTRY_KIND } from "../ledger/LedgerConstants.js";
 import { PAYMENT_INTENT_STATE } from "../PaymentIntentStatus.js";
-import { deriveTonAddressIdentity } from "../incoming/TonAddressIdentity.js";
+import { deriveTonAddressIdentity, tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
 
 export const TON_TESTNET_GLOBAL_ID = -3;
 
@@ -11,10 +11,11 @@ export class RefundLifecycleError extends Error {
 
 /** Creates obligations only from settled intents that exactly back durable principal entries. */
 export class RefundLifecycleCoordinator {
-    constructor({ store, intentStore, ledgerStore, nowProvider = Date.now, logger = null, outgoingRefundProvider = null } = {}) {
+    constructor({ store, intentStore, ledgerStore, walletPool = null, nowProvider = Date.now, logger = null, outgoingRefundProvider = null } = {}) {
         if (!store || typeof store.create !== "function" || typeof store.listPending !== "function") throw new RefundLifecycleError("durable refund store is required");
         this._store = store; this._intents = intentStore; this._ledger = ledgerStore; this._now = nowProvider; this._logger = logger;
         this._outgoingProvider = outgoingRefundProvider ?? null;
+        this._walletPool = walletPool;
     }
 
     initialize({ providers = new Map() } = {}) {
@@ -30,18 +31,55 @@ export class RefundLifecycleCoordinator {
         }
         if (status !== "DESTROYED") throw new RefundLifecycleError("refund obligations may only be prepared after room destruction");
         if (!Number.isSafeInteger(roomNumber) || roomNumber < 1) throw new RefundLifecycleError("original roomNumber is required");
+        const intents = this._intents.listForRoom(roomId);
+        // A gameplay room number can be recycled independently of the 64-wallet
+        // pool. Refunds must use the wallet that actually received the payment,
+        // never a reused gameplay room number. Validate all three intent
+        // destinations before persisting the closed-room wallet identity.
+        let sourceRoomNumber = roomNumber;
+        if (this._walletPool && intents.length > 0) {
+            const sources = intents.map((intent) => {
+                const wallet = this._walletPool.getWallet?.(intent.destinationWalletId);
+                if (!wallet || wallet.walletId !== intent.destinationWalletId ||
+                    wallet.network !== "testnet" || wallet.workchain !== 0 ||
+                    !Number.isSafeInteger(wallet.roomNumber) ||
+                    wallet.roomNumber < 1 || wallet.roomNumber > 64 ||
+                    !tonAddressIdentitiesEqual(wallet.address, intent.destinationWalletAddress)) {
+                    throw new RefundLifecycleError(
+                        "refund source wallet does not match authoritative Testnet pool",
+                        { roomId, paymentIntentId: intent.paymentReference }
+                    );
+                }
+                return wallet;
+            });
+            if (sources.some((wallet) => wallet.walletId !== sources[0].walletId)) {
+                throw new RefundLifecycleError(
+                    "room payment intents identify different source wallets",
+                    { roomId }
+                );
+            }
+            sourceRoomNumber = sources[0].roomNumber;
+        }
         const closed = this._store.recordClosedRoom({
-            roomId, roomNumber, closureReason: closureReason ?? "unspecified",
+            roomId, roomNumber: sourceRoomNumber, closureReason: closureReason ?? "unspecified",
             closedAtMs: this._now(), networkName: REFUND_NETWORK.TESTNET,
             globalId: TON_TESTNET_GLOBAL_ID
         }).context;
-        const intents = this._intents.listForRoom(roomId);
         const byReference = new Map(intents.map((intent) => [intent.paymentReference, intent]));
         const principal = this._ledger.listForRoom(roomId).filter((entry) => entry.kind === LEDGER_ENTRY_KIND.INCOMING_PRINCIPAL);
         if (principal.length > 3) throw new RefundLifecycleError("room has more than three confirmed principal records; manual reconciliation required", { roomId });
         if (principal.length === 0) return Object.freeze([]);
         if (intents.length !== 3) throw new RefundLifecycleError("refund evidence does not contain the three required payment intents", { roomId, intentCount: intents.length });
-        if (principal.length === 3) return Object.freeze([]);
+        // A full three-player payment set does not prove that gameplay began.
+        // Setup expiry is emitted only while the SetupSessionLifecycle still
+        // owns the room (before GAME_INITIALIZED). Refund all confirmed
+        // principals in that case, even when the third arrived just before
+        // expiry or was reconciled after destruction. For other closure reasons
+        // retain the fail-closed historical hold until gameplay state is
+        // authoritatively known; never refund a completed game on room teardown.
+        if (principal.length === 3 && closed.closureReason !== "setup_expired") {
+            return Object.freeze([]);
+        }
         const results = [];
         for (const entry of principal) {
             const reference = entry.metadata?.paymentReference;
@@ -182,24 +220,38 @@ export class RefundLifecycleCoordinator {
                 { obligationId, state: current.state }
             );
         }
+        // Validate the durable source wallet and transfer identity BEFORE
+        // persisting submission ambiguity. Neither step can send funds, and a
+        // missing/invalid source must leave the obligation PENDING (retryable).
+        // The actual signing/broadcast step remains after the durable barrier.
+        if (typeof outgoing.resolveSourceWallet !== "function") {
+            throw new RefundLifecycleError("provider cannot resolve the refund source wallet");
+        }
+        const sourceWalletAddress = outgoing.resolveSourceWallet({
+            obligation: current, intentStore: this._intents
+        });
+        if (sourceWalletAddress && typeof sourceWalletAddress.then === "function") {
+            throw new RefundLifecycleError("refund source wallet resolution must be synchronous");
+        }
+        outgoing.authorizeSubmission?.({ obligation: current, sourceWalletAddress });
         const startedAtMs = this._now();
+        // Persist ambiguity BEFORE the first awaited signing/broadcast step.
+        // After a crash we must reconcile on-chain, never sign a second transfer.
+        const preflightAttempt = this._attempt(current, "SUBMISSION_UNKNOWN", {
+            startedAtMs, completedAtMs: startedAtMs,
+            attemptId: `${current.obligationId}:${startedAtMs}`
+        });
+        this._store.markSubmissionUnknown(current.obligationId, { attempt: preflightAttempt });
         let result;
         try {
-            const sourceWalletAddress = outgoing.resolveSourceWallet
-                ? outgoing.resolveSourceWallet({ obligation: current, intentStore: this._intents })
-                : (() => { throw new RefundLifecycleError("provider cannot resolve the refund source wallet"); })();
             result = await outgoing.signAndBroadcast({ obligation: current, sourceWalletAddress, nowMs: startedAtMs });
         } catch (error) {
-            // Authorization/provider failures fail closed: record and stay PENDING.
             const code = typeof error?.code === "string" ? error.code : "OUTGOING_REFUND_ERROR";
-            const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: code, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: code });
-            return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: code });
+            this._logger?.warn?.(`Refund submission needs reconciliation | obligationId=${current.obligationId} | error=${code}`);
+            return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMISSION_UNKNOWN", outgoingTransactionId: null, reason: code });
         }
 
         if (result.outcome === "SUBMITTED") {
-            const attemptStart = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt: attemptStart });
             const attemptDone = this._attempt(current, "SUBMITTED", { startedAtMs, completedAtMs: this._now(), outgoingTransactionId: result.outgoingTransactionId, attemptId: `${current.obligationId}:${startedAtMs}` });
             this._store.markSubmitted(current.obligationId, { outgoingTransactionId: result.outgoingTransactionId, attempt: attemptDone });
             this._logger?.info?.(`Refund submitted | obligationId=${current.obligationId} | network=${current.networkName}`);
@@ -207,13 +259,13 @@ export class RefundLifecycleCoordinator {
         }
         if (result.outcome === "UNKNOWN") {
             const attempt = this._attempt(current, "SUBMISSION_UNKNOWN", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
-            this._store.markSubmissionUnknown(current.obligationId, { attempt, lastError: result.reason ?? null });
+            this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: result.reason ?? null });
             this._logger?.warn?.(`Refund submission outcome unknown | obligationId=${current.obligationId} | reason=${result.reason}`);
             return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMISSION_UNKNOWN", outgoingTransactionId: null, reason: result.reason });
         }
         const attempt = this._attempt(current, "FAILED", { startedAtMs, completedAtMs: this._now(), errorCode: result.reason ?? null, attemptId: `${current.obligationId}:${startedAtMs}` });
         this._store.recordSubmissionAttempt(current.obligationId, { attempt, lastError: result.reason ?? null });
-        return Object.freeze({ obligationId: current.obligationId, outcome: "FAILED", outgoingTransactionId: null, reason: result.reason });
+        return Object.freeze({ obligationId: current.obligationId, outcome: "SUBMISSION_UNKNOWN", outgoingTransactionId: null, reason: result.reason });
     }
 
     /**

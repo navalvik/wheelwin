@@ -128,7 +128,7 @@ function validateNanoTonUnits(value, label) {
  * @param {{ submitter: object|null, globalId: number, finalityEvidenceProvider: object|null }} deps
  * @returns {import("../refund/TestnetOutgoingRefundProvider.js").TestnetOutgoingRefundProvider|null}
  */
-export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finalityEvidenceProvider }) {
+export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finalityEvidenceProvider, walletPool = null }) {
 
     if (!submitter || globalId !== TON_TESTNET_GLOBAL_ID) {
 
@@ -143,7 +143,8 @@ export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finali
             signer: submitter.signer ?? null,
             broadcaster: submitter.broadcaster ?? null,
             finalityEvidenceProvider: submitter.finalityEvidenceProvider ?? finalityEvidenceProvider ?? null,
-            outgoingTransferProvider: submitter.outgoingTransferProvider ?? null
+            outgoingTransferProvider: submitter.outgoingTransferProvider ?? null,
+            walletPool
         });
     } catch {
         // A non-Testnet or malformed bundle fails closed to "disabled".
@@ -181,7 +182,10 @@ export function buildPaymentRuntime(options = {}) {
         logger = null,
         fetchImpl = globalThis.fetch,
         settlementEvidenceProvider = null,
-        refundSubmitter = null
+        refundSubmitter = null,
+        // Restored October settlement transport may be injected for offline
+        // reconciliation/planning; never enables live payment acceptance.
+        restoredSettlement = null
     } = options;
 
     // R — network identity is enforced before any store or provider exists.
@@ -241,13 +245,20 @@ export function buildPaymentRuntime(options = {}) {
     const outgoingRefundProvider = buildTestnetOutgoingRefundProvider({
         submitter: refundSubmitter,
         globalId: identity.globalId,
-        finalityEvidenceProvider: evidenceProvider
+        finalityEvidenceProvider: evidenceProvider,
+        walletPool
+    });
+
+    const refundStore = new RefundObligationStore({
+        dataDir: join(networkDataDir, "refunds"),
+        logger
     });
 
     const paymentService = new RoomWalletPaymentService({
         walletPool,
         intentStore,
         assetRegistry,
+        refundStore,
         observationService,
         snapshotDir: join(networkDataDir, "payment-core"),
         nowProvider,
@@ -278,15 +289,11 @@ export function buildPaymentRuntime(options = {}) {
         dataDir: join(networkDataDir, "manifests")
     });
 
-    const refundStore = new RefundObligationStore({
-        dataDir: join(networkDataDir, "refunds"),
-        logger
-    });
-
     const refundLifecycle = new RefundLifecycleCoordinator({
         store: refundStore,
         intentStore,
         ledgerStore,
+        walletPool,
         nowProvider,
         logger,
         outgoingRefundProvider
@@ -328,6 +335,7 @@ export function buildPaymentRuntime(options = {}) {
         refundStore,
         refundLifecycle,
         outgoingRefundProvider,
+        restoredSettlement,
         sessionAdapter,
         paymentGate,
 
@@ -390,6 +398,31 @@ export function buildPaymentRuntime(options = {}) {
 
             return Object.freeze({ refundRecovery, replayed: false });
 
+        },
+
+        /**
+         * Read-only reconciliation preparation for a durable pending refund.
+         * May prepare a signed fee-estimation BOC via the injected planner;\n         * never broadcasts or changes the refund ledger.
+         */
+        async planPendingRefund(obligationId) {
+            if (!state.initialized) {
+                throw new Error("payment runtime not initialized");
+            }
+            if (!restoredSettlement || typeof restoredSettlement.planDurableRefund !== "function") {
+                throw new Error("restored room-wallet settlement is not attached");
+            }
+            const obligation = refundStore.get(obligationId);
+            if (!obligation) {
+                throw new Error("refund obligation not found");
+            }
+            // A failed or ambiguous prior submission must be reconciled,
+            // never planned again as if it were a fresh refund.
+            if (obligation.state !== "PENDING" ||
+                obligation.networkName !== REFUND_NETWORK.TESTNET ||
+                obligation.globalId !== identity.globalId) {
+                throw new Error("refund obligation is not pending on TON Testnet");
+            }
+            return restoredSettlement.planDurableRefund(obligation);
         },
 
         get initialized() {

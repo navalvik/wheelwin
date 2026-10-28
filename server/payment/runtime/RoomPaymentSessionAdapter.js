@@ -391,13 +391,8 @@ export class RoomPaymentSessionAdapter {
             if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) {
                 fail("amountAtomic must be a positive safe integer", { index, amountAtomic });
             }
-            if (amountAtomic % denomination.atomicUnitsPerUnit !== 0) {
-                fail("amountAtomic must be an exact multiple of the configured payment denomination", {
-                    index,
-                    amountAtomic,
-                    atomicUnitsPerUnit: denomination.atomicUnitsPerUnit
-                });
-            }
+            // Atomic amounts are integer nanoton; 1.5 Gram is valid.
+            // The positive safe-integer check above rejects fractional nanoton.
             if (references.has(paymentReference)) {
                 fail("payment references must be unique", { paymentReference });
             }
@@ -634,9 +629,9 @@ export class RoomPaymentSessionAdapter {
             : ["roomId"];
         const input = exactDataRecord(request, keys, "observation request");
         const roomId = nonEmptyString(input.roomId, "roomId");
-        const session = this.#sessions.get(roomId);
+        const session = this.#sessions.get(roomId) ?? this.#recoverPersistedSession(roomId);
         if (!session) {
-            fail("room must be prepared by this adapter before observation", { roomId });
+            fail("room must have a valid durable preparation manifest before observation", { roomId });
         }
 
         // Exactly one coordinator entry point call; no loop, retry, or polling.
@@ -776,7 +771,7 @@ export class RoomPaymentSessionAdapter {
      * The roster must come from the server's authoritative room record.
      */
     getGameStartGateStatus(roomId, roomPlayerIds) {
-        const session = this.#sessions.get(roomId);
+        const session = this.#sessions.get(roomId) ?? this.#recoverPersistedSession(roomId);
         if (!session) {
             return Object.freeze({ eligible: false, reason: "payment_session_missing" });
         }
@@ -831,6 +826,117 @@ export class RoomPaymentSessionAdapter {
             principalEntries,
             nowMs: this.#nowProvider()
         });
+    }
+
+    /**
+     * After a server restart the in-memory session map is empty, although the
+     * immutable manifest, intents and stake ledger survived on disk. Recover
+     * only a COMPLETE, matching three-player preparation. This is read-only:
+     * no new intent, wallet reservation or ledger entry may be created here.
+     * The trusted caller still checks that the room is active before observing.
+     */
+    #recoverPersistedSession(roomId) {
+        try {
+            const manifest = this.#manifestStore.get(roomId);
+            const descriptor = manifest?.descriptor;
+            if (!descriptor || descriptor.roomId !== roomId
+                || descriptor.roomDeadlineMs !== descriptor.roomCreatedAt + ROOM_LIFETIME_MS
+                || descriptor.network !== this.#ledger.network
+                || descriptor.asset !== this.#ledger.asset
+                || descriptor.stakeLedgerRelation !== DESCRIPTOR_STAKE_RELATION
+                || !Array.isArray(descriptor.requiredPlayers)
+                || descriptor.requiredPlayers.length !== 3) {
+                return null;
+            }
+
+            const denomination = requireAuthoritativeDenomination(
+                this.#paymentService, this.#ledger, descriptor.network, descriptor.asset
+            );
+            if (descriptor.denomination.asset !== denomination.asset
+                || descriptor.denomination.network !== denomination.network
+                || descriptor.denomination.symbol !== denomination.symbol
+                || descriptor.denomination.atomicUnitsPerUnit !== denomination.atomicUnitsPerUnit) {
+                return null;
+            }
+
+            const playerIds = new Set();
+            const references = new Set();
+            const senderAccounts = new Set();
+            const payments = [];
+            const intents = [];
+            for (const payment of descriptor.requiredPlayers) {
+                if (payment.roomId !== roomId
+                    || !isPaymentReference(payment.paymentReference)
+                    || typeof payment.playerId !== "string" || !payment.playerId
+                    || !Number.isSafeInteger(payment.amountAtomic) || payment.amountAtomic <= 0) {
+                    return null;
+                }
+                const senderAccount = deriveTonAddressIdentity(payment.expectedSender);
+                if (playerIds.has(payment.playerId)
+                    || references.has(payment.paymentReference)
+                    || senderAccounts.has(senderAccount)) {
+                    return null;
+                }
+                playerIds.add(payment.playerId);
+                references.add(payment.paymentReference);
+                senderAccounts.add(senderAccount);
+
+                const intent = this.#paymentService.getPaymentIntent(payment.paymentReference);
+                const stake = this.#ledger.store.findByIdempotencyKey(
+                    stakeKey(payment.paymentReference)
+                );
+                if (!intent || !samePaymentIntent(
+                    intent, payment, descriptor.roomCreatedAt,
+                    descriptor.network, descriptor.asset
+                ) || !stake || !verifyStakeEntry(
+                    stake, payment, descriptor.asset, descriptor.network
+                ) || stake.idempotencyKey !== stakeKey(payment.paymentReference)) {
+                    return null;
+                }
+                intents.push(intent);
+                payments.push(Object.freeze({ ...payment }));
+            }
+
+            const roomIntents = this.#paymentService.listPaymentIntentsForRoom(roomId);
+            const roomStakes = this.#ledger.store.listForRoom(roomId).filter(
+                (entry) => entry.kind === LEDGER_ENTRY_KIND.PLAYER_STAKE
+            );
+            if (roomIntents.length !== 3 || roomStakes.length !== 3
+                || roomIntents.some((intent) => !references.has(intent.paymentReference))
+                || roomStakes.some((entry) => !references.has(entry.metadata?.paymentReference))) {
+                return null;
+            }
+
+            const walletId = intents[0].destinationWalletId;
+            const walletAddress = intents[0].destinationWalletAddress;
+            if (!walletId || !walletAddress || intents.some((intent) =>
+                intent.destinationWalletId !== walletId
+                || intent.destinationWalletAddress !== walletAddress)) {
+                return null;
+            }
+            const reservation = this.#paymentService.getWalletForRoom(roomId);
+            if (intents.some((intent) => intent.hasOpenObligation()) && !reservation) {
+                return null;
+            }
+            if (reservation && (reservation.walletId !== walletId
+                || reservation.address !== walletAddress)) {
+                return null;
+            }
+
+            const session = Object.freeze({
+                roomId,
+                roomCreatedAt: descriptor.roomCreatedAt,
+                network: descriptor.network,
+                asset: descriptor.asset,
+                stakeLedgerRelation: DESCRIPTOR_STAKE_RELATION,
+                payments: Object.freeze(payments)
+            });
+            this.#sessions.set(roomId, session);
+            return session;
+        } catch {
+            // Corrupt or incomplete durable records never authorize gameplay.
+            return null;
+        }
     }
 
     #sameSession(left, right) {

@@ -37,12 +37,10 @@ try {
 
     assert.match(html, /Payment status:/,
         "Page4 renders the payment status label");
-    assert.match(html, /PAYMENT_UNAVAILABLE/,
-        "Page4 renders the disabled payment status without wallet state");
-    assert.match(html, /Payment acceptance is disabled/,
-        "Page4 explains why payment is unavailable");
-    assert.match(html, /No wallet request or destination has been issued/,
-        "Page4 does not imply that a payment session is active");
+    assert.match(html, /WAITING_FOR_PLAYER_IDENTITY/, "Page4 waits for server identity");
+    assert.match(html, /Waiting for your room and player session/, "Page4 explains missing identity");
+    assert.doesNotMatch(html, /Room wallet:/, "No unverified destination is shown");
+    assert.doesNotMatch(html, /CONFIRM IN TELEGRAM WALLET/, "No payment action without server intent");
 } finally {
     await vite.close();
 }

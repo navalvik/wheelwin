@@ -38,6 +38,8 @@ import {
     LEDGER_ENTRY_KIND
 } from "../payment/ledger/index.js";
 import { createHash } from "node:crypto";
+import { describeTonWalletIdentity, tonWalletAccountsEqual } from "../models/TonWalletAddress.js";
+import { buildAuthoritativeRoomPaymentRequests } from "../payment/runtime/AuthoritativeRoomPaymentRequests.js";
 import {
     LOBBY_ERROR_CODES,
     LOBBY_ERROR_MESSAGES,
@@ -64,6 +66,8 @@ export class RoomLobbyBridge {
         roomConfig = null,
         telegramIdentityResolver = null,
         paymentApplicationBinding = null,
+        // Synthetic test binding only; production uses the fail-closed constant.
+        paymentAcceptanceEnabled = LIVE_PAYMENT_ACCEPTANCE_ENABLED,
         metricsService = null
     }) {
 
@@ -138,6 +142,13 @@ export class RoomLobbyBridge {
         // authoritative mainnetRoomId) and is re-verified against the live
         // room registry before it is reused.
         this._paymentApplicationBinding = paymentApplicationBinding;
+        this._paymentAcceptanceEnabled = paymentAcceptanceEnabled === true;
+
+        // Coalesce the three players' on-demand Page4 status checks into one
+        // authoritative Toncenter observation per room, at most once per 5s.
+        // No background wallet scanner or timer is started.
+        this._paymentObservationInFlight = new Map();
+        this._paymentObservationLastAt = new Map();
 
         // R23 — Mainnet-side HTTP client for the R21 Testnet handoff
         // contract (claim/complete). Injected by WheelWinServer; never
@@ -614,6 +625,17 @@ export class RoomLobbyBridge {
 
                 this._handlePaymentStatusRequest(envelope.payload.socketId);
 
+            }
+        );
+
+        this._subscribe(
+            EVENT_TYPES.LOBBY_PAYMENT_WALLET_REGISTER,
+            (envelope) => {
+                this._handlePaymentWalletRegister(
+                    envelope.payload.socketId,
+                    envelope.payload.address,
+                    envelope.payload.chain
+                );
             }
         );
 
@@ -2711,7 +2733,7 @@ export class RoomLobbyBridge {
                     LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
                     {
                         roomId,
-                        paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                        paymentAcceptanceEnabled: this._paymentAcceptanceEnabled
                     }
                 );
 
@@ -3606,6 +3628,10 @@ export class RoomLobbyBridge {
 
     }
 
+    configureForensicArchiveService(service) {
+        this._forensicArchiveService = service ?? null;
+    }
+
     async _closeRoom(roomId, reason) {
 
         const room = this._roomManager.getRoom(roomId);
@@ -3679,6 +3705,28 @@ export class RoomLobbyBridge {
         });
 
         this._roomManager.destroyRoom(roomId);
+
+        // R2 ZIP archive runs asynchronously after authoritative room closure.
+        // Upload errors must never interrupt gameplay cleanup.
+        const forensicArchiveService = this._forensicArchiveService;
+        if (forensicArchiveService) {
+            Promise.resolve()
+                .then(() => forensicArchiveService.ensureArchivedAndUploaded({
+                    roomId,
+                    gameId,
+                    reason: reason ?? "room_destroyed"
+                }))
+                .catch((error) => {
+                    try {
+                        this._logger?.error?.(
+                            `FORENSIC_ARCHIVE_ASYNC_FAILED | roomId=${roomId} | error=${error?.message ?? error}`
+                        );
+                    } catch {
+                        // A failed log write cannot affect room teardown.
+                    }
+                });
+        }
+
 
         this._roomCreators.delete(roomId);
 
@@ -4748,7 +4796,7 @@ export class RoomLobbyBridge {
             LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
             {
                 roomId,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                paymentAcceptanceEnabled: this._paymentAcceptanceEnabled
             }
         );
 
@@ -4772,9 +4820,9 @@ export class RoomLobbyBridge {
             type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
             payload: {
                 roomId,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled: this._paymentAcceptanceEnabled,
                 paymentSessionPrepared: false,
-                paymentStatus: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                paymentStatus: this._paymentAcceptanceEnabled
                     ? "PENDING_PREPARATION"
                     : "PAYMENT_UNAVAILABLE"
             }
@@ -4819,12 +4867,26 @@ export class RoomLobbyBridge {
                     roomId,
                     playerId,
                     status: "PAYMENT_UNAVAILABLE",
-                    paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                    paymentAcceptanceEnabled: this._paymentAcceptanceEnabled,
                     reason: reason || LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON
                 }
             );
 
         };
+
+        // A destroyed room may still have durable pending intents for refund
+        // reconciliation. Never advertise them as payable after closure.
+        if (room.status === ROOM_STATUS.DESTROYED) {
+            failClosed("room_closed");
+            return;
+        }
+
+        // An old durable PENDING intent is not permission to accept new funds
+        // after the runtime's live-acceptance switch has been disabled.
+        if (this._paymentAcceptanceEnabled === false) {
+            failClosed(LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON);
+            return;
+        }
 
         if (!paymentService
             || !ledger
@@ -4841,7 +4903,25 @@ export class RoomLobbyBridge {
 
         if (intents.length === 0) {
 
-            failClosed(LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON);
+            if (this._paymentAcceptanceEnabled
+                && this._verifyBarrierCompletedByRoom.has(roomId)) {
+                // The three player wallets have not all registered yet.
+                // This is not a payable intent, but it is not a disabled
+                // server either. Do not expose a destination or amount.
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
+                    {
+                        roomId,
+                        playerId,
+                        status: "WAITING_FOR_WALLETS",
+                        paymentAcceptanceEnabled: true,
+                        reason: null
+                    }
+                );
+            } else {
+                failClosed(LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON);
+            }
             return;
         }
 
@@ -4876,10 +4956,16 @@ export class RoomLobbyBridge {
 
             }
 
-        } else if (intent.state === PAYMENT_INTENT_STATE.PENDING
-            || intent.state === PAYMENT_INTENT_STATE.MATCHED) {
+        } else if (intent.state === PAYMENT_INTENT_STATE.PENDING) {
 
             status = "AWAITING_PAYMENT";
+            reason = null;
+
+        } else if (intent.state === PAYMENT_INTENT_STATE.MATCHED) {
+
+            // The transfer has been observed but finality is not verified.
+            // Never prompt a second wallet submission for the same intent.
+            status = "CONFIRMING_PAYMENT";
             reason = null;
 
         } else {
@@ -4898,9 +4984,10 @@ export class RoomLobbyBridge {
                 roomId,
                 playerId,
                 status,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled: this._paymentAcceptanceEnabled,
                 reason,
                 paymentReference: intent.paymentReference,
+                expectedSenderWalletAddress: intent.expectedSender,
                 amountAtomic: intent.amountAtomic,
                 destinationWalletAddress: intent.destinationWalletAddress,
                 expiresAt: intent.expiresAt ?? null,
@@ -4959,12 +5046,129 @@ export class RoomLobbyBridge {
             return;
         }
 
-        this._deliverPaymentStatusToSocket(
-            context.roomId,
-            context.playerId,
-            socketId
-        );
+        const { roomId, playerId } = context;
+        this._deliverPaymentStatusToSocket(roomId, playerId, socketId);
 
+        // No chain request while live acceptance is disabled. Once the
+        // authorized outgoing refund path is ready, Page4 status requests
+        // become the bounded, on-demand incoming observation trigger.
+        if (!this._paymentAcceptanceEnabled
+            || !this._verifyBarrierCompletedByRoom.has(roomId)) {
+            return;
+        }
+
+        const binding = this._paymentApplicationBinding;
+        const runtime = binding?.runtime;
+        const room = this._roomManager.getRoom(roomId);
+        if (!room || room.status === ROOM_STATUS.DESTROYED
+            || !Array.isArray(room.players) || room.players.length !== 3
+            || !room.players.includes(playerId)
+            || new Set(room.players).size !== 3
+            || typeof binding?.observePreparedRoomPayments !== "function"
+            || runtime?.paymentService?.listPaymentIntentsForRoom?.(roomId)?.length !== 3) {
+            return;
+        }
+
+        if (this._paymentObservationInFlight.has(roomId)) {
+            return;
+        }
+        const now = Date.now();
+        if (now - (this._paymentObservationLastAt.get(roomId) ?? 0) < 5_000) {
+            return;
+        }
+        this._paymentObservationLastAt.set(roomId, now);
+
+        const pending = Promise.resolve().then(() =>
+            binding.observePreparedRoomPayments(roomId)
+        );
+        this._paymentObservationInFlight.set(roomId, pending);
+        void pending.then(({ gate }) => {
+            // The binder rechecks the room after awaiting Toncenter. Only the
+            // durable three-player gate can authorize the gameplay transition.
+            if (gate?.eligible === true
+                && this._roomManager.getRoom(roomId)?.status !== ROOM_STATUS.DESTROYED) {
+                this._eventBus.emit({
+                    source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                    type: EVENT_TYPES.ROOM_PAYMENT_GATE_UPDATED,
+                    payload: { roomId }
+                });
+            }
+        }).catch((error) => {
+            this._logger?.warn?.(
+                `Page4 payment observation unavailable | roomId=${roomId} | reason=${error?.code ?? "OBSERVATION_FAILED"}`
+            );
+        }).finally(() => {
+            if (this._paymentObservationInFlight.get(roomId) === pending) {
+                this._paymentObservationInFlight.delete(roomId);
+            }
+            const current = this._roomManager.getRoom(roomId);
+            if (!current || current.status === ROOM_STATUS.DESTROYED) {
+                return;
+            }
+            for (const currentPlayerId of current.players) {
+                const currentSocketId = this._playerToSocket.get(currentPlayerId);
+                if (currentSocketId) {
+                    this._deliverPaymentStatusToSocket(roomId, currentPlayerId, currentSocketId);
+                }
+            }
+        });
+
+    }
+
+    /**
+     * A TON Connect wallet address is only a payer-address proposal from the
+     * currently authenticated room seat. It is NOT proof of wallet ownership:
+     * the incoming observer must still verify the actual chain sender.
+     * Never accept amounts, payment references or room/player ids from it.
+     */
+    _handlePaymentWalletRegister(socketId, address, chain) {
+        if (!this._paymentAcceptanceEnabled || chain !== "-3") {
+            return;
+        }
+
+        const context = this._assertAuthoritativeMutation(socketId, "registerPaymentWallet");
+        if (!context || this._playerToSocket.get(context.playerId) !== socketId) {
+            return;
+        }
+
+        const { roomId, playerId } = context;
+        const room = this._roomManager.getRoom(roomId);
+        if (!this._verifyBarrierCompletedByRoom.has(roomId)
+            || !room || room.status === ROOM_STATUS.DESTROYED
+            || !Array.isArray(room.players) || room.players.length !== 3
+            || new Set(room.players).size !== 3
+            || !room.players.includes(playerId)
+            || this._roomNetworkByRoom.get(roomId) === "mainnet") {
+            return;
+        }
+
+        const payer = describeTonWalletIdentity(address, "testnet");
+        if (!payer.address || !payer.accountId?.startsWith("0:")) {
+            return;
+        }
+
+        const paymentService = this._paymentApplicationBinding?.runtime?.paymentService;
+        if (typeof paymentService?.listPaymentIntentsForRoom !== "function"
+            || paymentService.listPaymentIntentsForRoom(roomId).length > 0) {
+            // Payer identities are immutable after any intent exists.
+            return;
+        }
+
+        for (const otherId of room.players) {
+            if (otherId !== playerId
+                && tonWalletAccountsEqual(this._playerManager.getIdentity(otherId)?.wallet, payer.address)) {
+                return;
+            }
+        }
+
+        if (!this._playerManager.getIdentity(playerId)
+            || !this._playerManager.updateIdentity(playerId, { wallet: payer.address })) {
+            return;
+        }
+
+        // No wallet reservation until all three independent registered payers
+        // and the server-owned Page2 stakes are available.
+        this._preparePaymentSessionIfEnabled(roomId, room);
     }
 
     _preparePaymentSessionIfEnabled(roomId, room) {
@@ -4972,7 +5176,7 @@ export class RoomLobbyBridge {
         if (!binding || typeof binding.prepareRoomPaymentSession !== "function") {
             return;
         }
-        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+        if (!this._paymentAcceptanceEnabled) {
             return;
         }
         if (!room || !Array.isArray(room.players) || room.players.length !== 3) {
@@ -4984,31 +5188,12 @@ export class RoomLobbyBridge {
             return;
         }
 
-        const paymentRequests = [];
-        for (const playerId of room.players) {
-            const runtime = this._playerManager.getRuntime?.(playerId);
-            const paymentConfig = runtime?.payment ?? runtime?.paymentRequest ?? null;
-            if (!paymentConfig || typeof paymentConfig !== "object") {
-                return;
-            }
-            if (typeof paymentConfig.expectedSender !== "string" || paymentConfig.expectedSender.trim() === "") {
-                return;
-            }
-            if (typeof paymentConfig.amountAtomic !== "number" || !Number.isSafeInteger(paymentConfig.amountAtomic) || paymentConfig.amountAtomic <= 0) {
-                return;
-            }
-            if (typeof paymentConfig.paymentReference !== "string" || paymentConfig.paymentReference.trim() === "") {
-                return;
-            }
-            paymentRequests.push({
-                playerId,
-                paymentReference: paymentConfig.paymentReference.trim(),
-                expectedSender: paymentConfig.expectedSender.trim(),
-                amountAtomic: paymentConfig.amountAtomic
-            });
-        }
-
-        if (paymentRequests.length !== 3) {
+        const paymentRequests = buildAuthoritativeRoomPaymentRequests({
+            roomId,
+            playerIds: room.players,
+            playerManager: this._playerManager
+        });
+        if (!paymentRequests) {
             return;
         }
 
@@ -5432,6 +5617,9 @@ export class RoomLobbyBridge {
     }
 
     _clearVerifyBarrier(roomId) {
+
+        this._paymentObservationInFlight.delete(roomId);
+        this._paymentObservationLastAt.delete(roomId);
 
         this._verifyConfirmedByRoom.delete(roomId);
 

@@ -1,0 +1,110 @@
+name: Room wallet compatibility regression
+on:
+  pull_request:
+    paths:
+      - "client/src/socket/socketEvents.js"
+      - "client/src/pages/Page4Payment.jsx"
+      - "client/src/payment/**"
+      - "client/src/tests/page4ProtocolContract.test.js"
+      - "server/tests/payment/page4RefundReadiness.contract.test.js"
+      - "client/index.html"
+      - "client/public/tonconnect-manifest.json"
+      - "client/src/pages/page4PaymentStatusRecovery.js"
+      - "client/src/tests/page4PaymentStatusRecovery.test.js"
+      - "client/package.json"
+      - "client/package-lock.json"
+      - "server/payment/refund/LegacyRoomWalletIdentityBridge.js"
+      - "server/payment/refund/ProtectedTestnetRoomWalletKeys.js"
+      - "server/tests/protectedTestnetRoomWalletKeys.test.js"
+      - "server/payment/roomWallet/RoomWalletAdapter.js"
+      - "server/payment/roomWallet/TestnetToncenterTransport.js"
+      - "server/tests/testnetToncenterTransport.test.js"
+      - "server/payment/roomWallet/RoomWalletSettlementAdapter.js"
+      - "server/payment/roomWallet/RoomWalletRegistry.js"
+      - "server/payment/roomWallet/roomWalletTerminalRecoveryChain.js"
+      - "server/models/TonWalletAddress.js"
+      - "server/payment/refund/RefundLifecycleCoordinator.js"
+      - "server/tests/refundOutgoingExecution.test.js"
+      - "server/tests/refundSourceWalletIdentity.test.js"
+      - "server/payment/refund/TestnetOutgoingRefundProvider.js"
+      - "server/tests/refundLifecycle.test.js"
+      - "server/payment/roomWallet/RoomWalletFinancialPolicy.js"
+      - "server/package.json"
+      - "server/package-lock.json"
+      - "server/tests/legacyRoomWalletIdentityBridge.test.js"
+      - "server/tests/restoredRoomWalletAdapterIntegration.test.js"
+      - "server/tests/restoredRoomWalletRefundOffline.test.js"
+      - "server/payment/refund/LegacyRefundPlanningBridge.js"
+      - "server/tests/legacyRefundPlanningBridge.test.js"
+      - "server/tests/restoredPositiveRefundPlan.test.js"
+      - "server/payment/refund/RestoredRoomWalletSettlementFactory.js"
+      - "server/payment/runtime/PaymentRuntimeFactory.js"
+      - "server/payment/runtime/PaymentApplicationBinder.js"
+      - "server/payment/runtime/AuthoritativeRoomPaymentRequests.js"
+      - "server/tests/payment/authoritativeRoomPaymentRequests.test.js"
+      - "server/socket/RoomLobbyBridge.js"
+      - "server/socket/SocketGateway.js"
+      - "server/socket/lobbyProtocol.js"
+      - "server/events/EventTypes.js"
+      - "server/tests/payment/paymentBinderPreparation.test.js"
+      - "server/payment/runtime/RoomPaymentSessionAdapter.js"
+      - "server/payment/RoomWalletPaymentService.js"
+      - "server/tests/payment/fractionalGramStakeRecovery.test.js"
+      - "server/payment/WalletPoolRegistry.js"
+      - "server/tests/payment/walletPoolEnvPrecedence.test.js"
+      - "server/tests/payment/restoredRuntimeRefundPlanning.test.js"
+      - "server/tests/restoredSettlementFactory.test.js"
+      - ".github/workflows/room-wallet-compatibility.yml"
+  workflow_dispatch:
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --check payment/roomWallet/RoomWalletAdapter.js
+      - run: node --check payment/roomWallet/TestnetToncenterTransport.js
+      - run: node --test tests/testnetToncenterTransport.test.js
+      - run: node --check payment/roomWallet/RoomWalletFinancialPolicy.js
+      - run: node -e "import('./payment/roomWallet/RoomWalletSettlementAdapter.js').then(() => console.log('Legacy settlement/refund import OK'))"
+      - run: node -e "import('./payment/roomWallet/RoomWalletAdapter.js').then(() => console.log('Legacy WalletV4 transport import OK'))"
+      - run: node --test tests/refundOutgoingExecution.test.js tests/refundLifecycle.test.js tests/payment/paymentRuntimeIntegration.test.js tests/refundSourceWalletIdentity.test.js
+      - run: node --test tests/protectedTestnetRoomWalletKeys.test.js
+      - run: node --test tests/legacyRoomWalletIdentityBridge.test.js tests/restoredRoomWalletAdapterIntegration.test.js tests/restoredRoomWalletRefundOffline.test.js tests/legacyRefundPlanningBridge.test.js tests/restoredPositiveRefundPlan.test.js tests/restoredSettlementFactory.test.js
+      - run: node --check payment/runtime/PaymentRuntimeFactory.js
+      - run: node --test tests/payment/restoredRuntimeRefundPlanning.test.js tests/payment/walletPoolEnvPrecedence.test.js tests/payment/fractionalGramStakeRecovery.test.js
+      - run: node --test tests/payment/page4ReconnectSocketIo.integration.test.js tests/payment/page4ReconnectPaymentRecovery.test.js tests/payment/paymentBinderPreparation.test.js tests/payment/roomPaymentSessionAdapter.test.js
+      - run: node -e "import('./payment/runtime/PaymentRuntimeFactory.js').then(() => console.log('Payment runtime import OK'))"
+      - run: node --test tests/payment/page4RefundReadiness.contract.test.js tests/payment/authoritativeRoomPaymentRequests.test.js
+
+  client-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --check src/socket/socketEvents.js
+      - run: npm run build
+      - run: node --test src/payment/gramPaymentAuthorization.test.js src/payment/nativeGramTransfer.test.js src/payment/nativeGramWalletSubmission.test.js src/payment/tonConnectUIAdapter.test.js
+      - run: node src/tests/page4ProtocolContract.test.js
+      - run: node src/tests/page4Payment.render.test.js
+      - run: node --import ./scripts/register.js src/tests/page4PaymentStatusRecovery.test.js

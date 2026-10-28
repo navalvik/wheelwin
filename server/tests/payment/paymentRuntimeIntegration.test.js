@@ -583,6 +583,7 @@ function managerShutdown(roomManager, eventBus) {
  * (and leaves no open wallet obligation for restart reconciliation to trip on).
  */
 function seedRoomPayments(runtime, roomId, confirmed, prefix = "payment_seed", { keepUnconfirmedPending = false } = {}) {
+    const sourceWallet = runtime.walletPool.listWallets()[0];
     for (let index = 0; index < 3; index += 1) {
         const paymentReference = `${prefix}_${index}`;
         const intent = new PaymentIntent({
@@ -590,8 +591,8 @@ function seedRoomPayments(runtime, roomId, confirmed, prefix = "payment_seed", {
             roomId,
             playerId: `seed-player-${index}`,
             network: "testnet",
-            destinationWalletId: "wallet-testnet",
-            destinationWalletAddress: TESTNET_WALLET,
+            destinationWalletId: sourceWallet.walletId,
+            destinationWalletAddress: sourceWallet.address,
             expectedSender: TESTNET_PAYER,
             amountAtomic: 1_000_000_000,
             asset: "TON",

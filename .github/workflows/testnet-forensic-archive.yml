@@ -1,0 +1,39 @@
+name: Testnet forensic archive isolation
+on:
+  pull_request:
+    paths:
+      - "server/forensic/**"
+      - "server/socket/RoomLobbyBridge.js"
+      - "server/app.js"
+      - "server/package.json"
+      - "server/package-lock.json"
+      - "server/tests/forensicArchiveIsolation.test.js"
+      - "server/tests/forensicArchiveWiring.test.js"
+      - ".github/workflows/testnet-forensic-archive.yml"
+  workflow_dispatch:
+jobs:
+  isolated-archive-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Check syntax
+        run: |
+          node --check app.js
+          node --check socket/RoomLobbyBridge.js
+          node --check forensic/ForensicArchiveCollector.js
+          node --check forensic/ForensicArchiveService.js
+          node --check forensic/R2ForensicArchiveUploader.js
+      - name: Isolated archive tests
+        run: node --test tests/forensicArchiveIsolation.test.js tests/forensicArchiveWiring.test.js

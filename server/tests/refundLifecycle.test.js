@@ -52,7 +52,7 @@ function harness(confirmedCount) {
 
 function prepare(h, count) {
     const result = h.coordinator.prepareClosedRoom({ roomId: "room-x", roomNumber: 37, closureReason: "setup_expired", status: "DESTROYED" });
-    const expectedObligations = count === 3 ? 0 : count;
+    const expectedObligations = count;
     assert.equal(result.length, expectedObligations);
     assert.equal(h.store.size, expectedObligations);
     for (const record of h.store.list()) {
@@ -67,6 +67,55 @@ for (const confirmedCount of [1, 2, 0, 3]) {
     const h = harness(confirmedCount);
     try { prepare(h, confirmedCount); }
     finally { rmSync(h.root, { recursive: true, force: true }); }
+}
+
+{
+    // A third payment may be finalized only after setup expiry. The durable
+    // two-payer obligations must replay, and the late payer must be added
+    // exactly once without opening gameplay.
+    const h = harness(2);
+    try {
+        assert.equal(h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "setup_expired", status: "DESTROYED"
+        }).length, 2);
+        const intent = h.intentStore.require("payment_2");
+        const matched = intent.transition(PAYMENT_INTENT_STATE.MATCHED, {
+            transactionId: "incoming_2", now: NOW
+        });
+        h.intentStore.update(matched);
+        h.intentStore.update(matched.transition(PAYMENT_INTENT_STATE.SETTLED, { now: NOW }));
+        h.ledgerStore.append({
+            idempotencyKey: "principal:payment_2", roomId: "room-x",
+            kind: LEDGER_ENTRY_KIND.INCOMING_PRINCIPAL,
+            amountAtomic: intent.amountAtomic, playerId: intent.playerId,
+            asset: intent.asset, network: intent.network,
+            metadata: {
+                paymentReference: "payment_2", transactionId: "incoming_2",
+                intentState: "SETTLED", source: "SETTLED_PAYMENT_INTENT"
+            }
+        });
+        const replay = h.coordinator.prepareLateConfirmedPayments("room-x");
+        assert.equal(replay.length, 3);
+        assert.equal(replay.filter((entry) => entry.replay).length, 2);
+        assert.equal(h.store.size, 3);
+        assert.equal(h.coordinator.prepareLateConfirmedPayments("room-x").length, 3);
+        assert.equal(h.store.size, 3);
+    } finally { rmSync(h.root, { recursive: true, force: true }); }
+}
+
+{
+    // Room destruction after a game (or without an authoritative pre-game
+    // expiry reason) must never accidentally refund all three paid players.
+    const h = harness(3);
+    try {
+        const obligations = h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "game_completed", status: "DESTROYED"
+        });
+        assert.equal(obligations.length, 0);
+        assert.equal(h.store.size, 0);
+    } finally { rmSync(h.root, { recursive: true, force: true }); }
 }
 
 {
@@ -203,3 +252,55 @@ for (const confirmedCount of [1, 2, 0, 3]) {
 }
 
 console.log("Refund lifecycle tests passed");
+
+
+{
+    // RoomManager's numeric room slot can differ from the actual reserved
+    // wallet number when an earlier room still holds a pending refund.
+    // Refunds must always target the wallet that received the deposits.
+    const h = harness(1);
+    try {
+        h.coordinator._walletPool = {
+            getWallet(id) {
+                return id === "wallet-testnet" ? {
+                    walletId: id, roomNumber: 12, network: "testnet",
+                    workchain: 0, address: `0:${"b".repeat(64)}`
+                } : null;
+            }
+        };
+        const obligations = h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "setup_expired", status: "DESTROYED"
+        });
+        assert.equal(obligations.length, 1);
+        assert.equal(obligations[0].obligation.roomNumber, 12);
+        assert.equal(h.store.getClosedRoom("room-x").roomNumber, 12);
+        assert.equal(h.coordinator.prepareLateConfirmedPayments("room-x")[0].obligation.roomNumber, 12);
+    } finally {
+        rmSync(h.root, { recursive: true, force: true });
+    }
+}
+
+{
+    // Invalid pool identity must fail before recording closure or any refund.
+    const h = harness(1);
+    try {
+        h.coordinator._walletPool = {
+            getWallet() {
+                return {
+                    walletId: "wallet-testnet", roomNumber: 12,
+                    network: "testnet", workchain: 0,
+                    address: `0:${"c".repeat(64)}`
+                };
+            }
+        };
+        assert.throws(() => h.coordinator.prepareClosedRoom({
+            roomId: "room-x", roomNumber: 37,
+            closureReason: "setup_expired", status: "DESTROYED"
+        }), /does not match authoritative Testnet pool/);
+        assert.equal(h.store.getClosedRoom("room-x"), null);
+        assert.equal(h.store.size, 0);
+    } finally {
+        rmSync(h.root, { recursive: true, force: true });
+    }
+}
