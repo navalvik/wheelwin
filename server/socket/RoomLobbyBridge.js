@@ -2733,7 +2733,7 @@ export class RoomLobbyBridge {
                     LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
                     {
                         roomId,
-                        paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                        paymentAcceptanceEnabled: this._paymentAcceptanceEnabled
                     }
                 );
 
@@ -4796,7 +4796,7 @@ export class RoomLobbyBridge {
             LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
             {
                 roomId,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                paymentAcceptanceEnabled: this._paymentAcceptanceEnabled
             }
         );
 
@@ -4820,9 +4820,9 @@ export class RoomLobbyBridge {
             type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
             payload: {
                 roomId,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled: this._paymentAcceptanceEnabled,
                 paymentSessionPrepared: false,
-                paymentStatus: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                paymentStatus: this._paymentAcceptanceEnabled
                     ? "PENDING_PREPARATION"
                     : "PAYMENT_UNAVAILABLE"
             }
@@ -4867,12 +4867,19 @@ export class RoomLobbyBridge {
                     roomId,
                     playerId,
                     status: "PAYMENT_UNAVAILABLE",
-                    paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                    paymentAcceptanceEnabled: this._paymentAcceptanceEnabled,
                     reason: reason || LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON
                 }
             );
 
         };
+
+        // A destroyed room may still have durable pending intents for refund
+        // reconciliation. Never advertise them as payable after closure.
+        if (room.status === ROOM_STATUS.DESTROYED) {
+            failClosed("room_closed");
+            return;
+        }
 
         if (!paymentService
             || !ledger
@@ -4970,7 +4977,7 @@ export class RoomLobbyBridge {
                 roomId,
                 playerId,
                 status,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled: this._paymentAcceptanceEnabled,
                 reason,
                 paymentReference: intent.paymentReference,
                 expectedSenderWalletAddress: intent.expectedSender,
@@ -5038,7 +5045,7 @@ export class RoomLobbyBridge {
         // No chain request while live acceptance is disabled. Once the
         // authorized outgoing refund path is ready, Page4 status requests
         // become the bounded, on-demand incoming observation trigger.
-        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED
+        if (!this._paymentAcceptanceEnabled
             || !this._verifyBarrierCompletedByRoom.has(roomId)) {
             return;
         }
