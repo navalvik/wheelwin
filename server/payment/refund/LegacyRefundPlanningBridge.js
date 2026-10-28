@@ -1,3 +1,5 @@
+import { tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
+
 /**
  * Read-only conversion from a durable Testnet refund obligation to the
  * October room-wallet refund PLANNING contract. Never submits transfers.
@@ -9,7 +11,7 @@ export function planLegacyRoomWalletRefund({ obligation, settlement }) {
         obligation.roomNumber > 64 ||
         !Number.isSafeInteger(obligation.amountAtomic) || obligation.amountAtomic <= 0 ||
         typeof obligation.refundDestination !== "string" ||
-        obligation.refundDestination !== obligation.payerAddress ||
+        !tonAddressIdentitiesEqual(obligation.refundDestination, obligation.payerAddress) ||
         typeof obligation.playerId !== "string" || !obligation.playerId ||
         typeof settlement?.planRefunds !== "function") {
         throw new Error("unsupported or non-pending Testnet refund obligation");
