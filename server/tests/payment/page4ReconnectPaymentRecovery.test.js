@@ -187,7 +187,7 @@ async function run() {
             equal(delivered[0].payload.roomId, roomId, "payload roomId matches");
             equal(delivered[0].payload.playerId, playerIds[0], "payload playerId matches");
             equal(delivered[0].payload.status, "AWAITING_PAYMENT", "pending intent reports AWAITING_PAYMENT");
-            equal(delivered[0].payload.paymentAcceptanceEnabled, false, "acceptance flag stays false");
+            equal(delivered[0].payload.paymentAcceptanceEnabled, true, "explicitly enabled isolated test session advertises payable intent");
             equal(delivered[0].payload.paymentReference, descriptor.requiredPlayers[0].paymentReference, "payload carries the payment reference");
             equal(delivered[0].payload.amountAtomic, descriptor.requiredPlayers[0].amountAtomic, "payload carries the amount");
             equal(delivered[0].payload.network, "testnet", "payload carries testnet");
