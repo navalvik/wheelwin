@@ -863,7 +863,8 @@ export class IncomingPaymentSettlementCoordinator {
 
         }
 
-        if (intent.isExpired(window.ceilingMs)) {
+        if (intent.isExpired(window.ceilingMs)
+            && transfer.transactionTime >= intent.expiresAt) {
 
             return {
                 ok: false,

@@ -21,7 +21,7 @@ export class TestnetPendingRefundExecutor {
                     if (intents.some(x => ['PENDING','MATCHED'].includes(x.state))) {
                         // Recheck the original payment window after finality arrives.
                         // This never extends a room deadline or reopens gameplay.
-                        const ceilingMs = Math.min(Date.now(), ...intents.map(x => x.expiresAt - 1));
+                        const ceilingMs = Math.min(Date.now(), Math.max(...intents.map(x => x.expiresAt - 1)));
                         await this.runtime.coordinator.settleRoomPayments({roomId:room.roomId, ceilingMs});
                     }
                     recoverSettledPrincipal(this.runtime, room.roomId);

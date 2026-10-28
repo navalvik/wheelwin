@@ -860,7 +860,6 @@ export class RoomWalletPaymentService {
             || transfer.transactionTime < window.floorMs
             || transfer.transactionTime > window.ceilingMs
             || transfer.transactionTime >= intent.expiresAt
-            || intent.isExpired(window.ceilingMs)
             || entry.amountAtomic !== transfer.amountAtomic
             || entry.transactionTime !== transfer.transactionTime
             || !tonAddressIdentitiesEqual(
