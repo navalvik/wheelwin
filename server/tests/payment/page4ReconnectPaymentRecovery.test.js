@@ -173,6 +173,7 @@ async function run() {
                 _eventBus: eventBus,
                 _logger: logger,
                 _paymentApplicationBinding: binding,
+                _paymentAcceptanceEnabled: true,
                 _deliverToSocket: (_socketId, eventName, payload) => { delivered.push({ eventName, payload }); }
             });
             const delivered = [];
