@@ -1,0 +1,35 @@
+name: Single R2 forensic archive safety
+on:
+  push:
+    branches:
+      - fix/r2-single-archive-per-room-20261030
+  pull_request:
+    paths:
+      - 'server/forensic/**'
+      - 'server/tests/restoredR2Archive.test.js'
+      - 'server/tests/paymentReconciliationDefects.test.js'
+      - '.github/workflows/r2-single-archive.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r2-safety:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Syntax and focused forensic regressions
+        run: |
+          node --check forensic/ForensicArchiveService.js
+          node --check forensic/R2ForensicArchiveUploader.js
+          node --test tests/restoredR2Archive.test.js tests/restoredR2ArchiveRoomClose.test.js tests/paymentReconciliationDefects.test.js
+      - name: Payment gate, refunds, and historical recovery must remain safe
+        run: node --test tests/payment/*.test.js tests/paymentHistoricalCrossRoom.test.js tests/paymentObservationWithoutAcknowledgement.test.js tests/paymentThreePlayerGate.test.js
