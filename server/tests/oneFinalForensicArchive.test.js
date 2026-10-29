@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ForensicArchiveService } from "../forensic/ForensicArchiveService.js";
@@ -82,7 +82,7 @@ test("one game creates no preliminary ZIP and sends exactly one final ZIP", asyn
         const pending=await service.ensureArchivedAndUploaded(request);
         assert.equal(pending.skipped,true);
         assert.equal(uploader.uploads.length,0,"R2 has no incomplete archive");
-        assert.deepEqual(readdirSync(stagingDir),["room-final"]);
+        assert.equal(existsSync(stagingDir),false,"no staging before finality");
         snapshot={...snapshot,refunds:[completeRefund("olga"),completeRefund("bob"),completeRefund("lena")],
             paymentObservations:[checked()]};
         const result=await service.ensureArchivedAndUploaded(request);
