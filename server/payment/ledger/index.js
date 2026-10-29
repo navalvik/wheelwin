@@ -20,7 +20,7 @@
  *   winnerGrossAllocationAtomic  = floor(totalSettledPrincipalAtomic * 95 / 100)
  *   ownerGrossAllocationAtomic   = totalSettledPrincipalAtomic
  *                                  - winnerGrossAllocationAtomic
- *   safetyMarginAtomic           = 0 (permanently — no reserve exists)
+ *   gasReserveAtomic             = principal - winner - owner (retained)
  *
  * The winner receives 95% of the total settled principal, rounded down to a
  * whole nanoton; the owner receives the exact remainder (including any

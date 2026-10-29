@@ -1,18 +1,19 @@
 import { durableWriteJson } from '../DurableJson.js';
 /**
  * Native Wallet V4 outbound transport, reusing the historical RoomWalletAdapter.
- * Fee quotes come from the Testnet RPC. One pre-broadcast durable claim
- * prevents restart/concurrent replay from ever sending the same payout again.
+ * Optional fee quotes may be read from the Testnet RPC for diagnostics; they
+ * never gate a transfer. One pre-broadcast durable claim prevents
+ * restart/concurrent replay from ever sending the same payout again.
  * No escrow/game contract, Jetton, Mainnet or blockchain finality claim.
  */
 import {mkdirSync,openSync,writeSync,fsyncSync,closeSync,readFileSync} from "node:fs";
 import {join} from "node:path";
 import {RoomWalletAdapter} from "../roomWallet/RoomWalletAdapter.js";
-import {buildRecipientGasCharge,ROOM_WALLET_POLICY} from "../roomWallet/RoomWalletFinancialPolicy.js";
+import {PayoutPlan} from "../ledger/PayoutPlan.js";
 import {deriveTonAddressIdentity} from "../incoming/TonAddressIdentity.js";
 
 const SAFE_PAYOUT_ID=/^payout_[a-f0-9]{32}$/;
-const RETAINED_NANO=0n;
+const RETAINED_NANO=0n; // estimate is not a send gate; plan carries the exact 0.1% reserve
 function assert(ok,reason) {if(!ok)throw new Error(reason);}
 function canonical(address) {
     const value=deriveTonAddressIdentity(address);
@@ -57,7 +58,7 @@ export class TestnetNativeRoomPayoutTransport {
         assert(Number.isSafeInteger(principalAtomic)&&principalAtomic>0,
             "PAYOUT_PRINCIPAL_INVALID");
         const winnerGross=BigInt(principalAtomic)*95n/100n;
-        const ownerGross=BigInt(principalAtomic)-winnerGross-RETAINED_NANO;
+        const ownerGross=BigInt(principalAtomic)*49n/1000n;
         assert(ownerGross>0n,"PAYOUT_OWNER_NONPOSITIVE");
         const quote=async (address,amountNano)=>{
             const result=await this._adapter.estimateOutboundTransferFee({
@@ -66,11 +67,9 @@ export class TestnetNativeRoomPayoutTransport {
             });
             assert(result?.ok===true && typeof result.totalNano==="bigint"
                 && result.totalNano>=0n,"PAYOUT_TESTNET_FEE_QUOTE_UNAVAILABLE");
-            return feeToNumber(buildRecipientGasCharge({
-                feeEstimateTotalNano:result.totalNano,
-                marginBps:ROOM_WALLET_POLICY.recipientGasMarginBps,
-                marginFloorNano:ROOM_WALLET_POLICY.recipientGasMarginFloorNano
-            }).recipientGasChargeNano);
+            // Source-side estimate is diagnostic only; never charge the
+            // recipient or use a quote as a payout gate.
+            return feeToNumber(result.totalNano);
         };
         return Object.freeze({
             winner:Object.freeze({feeAtomic:await quote(winnerWallet,winnerGross),quotedAtMs:Date.now()}),
@@ -272,18 +271,23 @@ export class TestnetNativeRoomPayoutTransport {
         const wallet=this._reservation(roomId,roomWalletAddress);
         const winner=plan?.transfers?.find(x=>x.recipientRole==="WINNER");
         const owner=plan?.transfers?.find(x=>x.recipientRole==="OWNER");
+        PayoutPlan.fromJSON(plan);
         assert(plan.roomId===roomId && plan.payoutId===payoutId
-            && plan.safetyMarginAtomic===Number(RETAINED_NANO)
+            && Number.isSafeInteger(plan.gasReserveAtomic)
+            && plan.gasReserveAtomic > 0
             && Array.isArray(plan.transfers)&&plan.transfers.length===2
             && winner?.netAtomic>0&&owner?.netAtomic>0
+            && winner.netAtomic===winner.grossAtomic
+            && owner.netAtomic===owner.grossAtomic
+            && winner.reservedFeeAtomic===0&&owner.reservedFeeAtomic===0
             && canonical(winner.address)===canonical(winnerWallet)
             && canonical(owner.address)===canonical(ownerWallet)
             && winner.netAtomic+owner.netAtomic
-                +winner.reservedFeeAtomic+owner.reservedFeeAtomic
-                +plan.safetyMarginAtomic===plan.principalAtomic,
+                +plan.gasReserveAtomic===plan.principalAtomic,
             "PAYOUT_PLAN_NOT_AUTHORIZED");
         const path=join(this._dir,payoutId+".jsonl");
-        const initial={journalVersion:2,payoutId,roomId,roomNumber:wallet.roomNumber,
+        let initial={journalVersion:3,payoutId,roomId,roomNumber:wallet.roomNumber,
+            durableRetry:this._adapter.supportsDurableTransferRetry?.()===true,
             winnerAddress:canonical(winner.address),ownerAddress:canonical(owner.address),
             winnerAmountAtomic:winner.netAtomic,ownerAmountAtomic:owner.netAtomic,
             state:"SUBMISSION_UNKNOWN",timestamp:Date.now()};
@@ -292,35 +296,43 @@ export class TestnetNativeRoomPayoutTransport {
             if(e?.code!=="EEXIST") throw e;
             const original = JSON.parse(readFileSync(path,'utf8').split('\n')[0]);
             for (const key of ['payoutId','roomId','roomNumber','winnerAddress','ownerAddress','winnerAmountAtomic','ownerAmountAtomic']) assert(original[key] === initial[key], 'PAYOUT_JOURNAL_IDENTITY_MISMATCH');
-            if (!resume || original.journalVersion !== 2) return Object.freeze({status:'ALREADY_ATTEMPTED_NEEDS_RECONCILIATION',payoutId});
+            if (!resume || ![2,3].includes(original.journalVersion)) return Object.freeze({status:'ALREADY_ATTEMPTED_NEEDS_RECONCILIATION',payoutId});
+            initial = original;
         }
+        const durableRetry = initial.journalVersion === 3 && initial.durableRetry
+            && this._adapter.supportsDurableTransferRetry?.() === true;
         const amounts=[{role:"WINNER",transfer:winner,reserve:BigInt(owner.netAtomic+
-            owner.reservedFeeAtomic)+RETAINED_NANO},
-            {role:"OWNER",transfer:owner,reserve:RETAINED_NANO}];
+            plan.gasReserveAtomic)},
+            {role:"OWNER",transfer:owner,reserve:BigInt(plan.gasReserveAtomic)}];
         for(const {role,transfer,reserve} of amounts){
             // Exclusive per-leg intent is published before calling the signer.
-            // Existing claims are never retried, including ambiguous crashes.
+            // A durable adapter retries only the exact persisted message. Older
+            // attempts without that payload remain observation-only.
             try { durableWriteJson(join(this._dir, payoutId + '.' + role + '.json'),
                 {payoutId, role, amountAtomic:transfer.netAtomic, destination:canonical(transfer.address), state:'SUBMISSION_UNKNOWN'}, {exclusive:true}); }
             catch (error) {
                 if (error.code !== 'EEXIST') throw error;
                 if (role === 'WINNER') {
                     const journal = readFileSync(path,'utf8').trim().split('\n').map(line => JSON.parse(line));
-                    const accepted = journal.some(row => row.role === 'WINNER' && row.state === 'SUBMITTED_UNCONFIRMED');
-                    if (!accepted) {
-                        const observed = await this._outgoingObserver?.findOutgoingTransfer?.({sourceWalletAddress:wallet.address,
-                            destinationIdentity:winner.address, amountAtomic:winner.netAtomic, minCreatedAtMs:journal[0].timestamp});
-                        if (!observed?.transactionId || observed.ambiguous) return {status:'SUBMISSION_UNKNOWN',role,payoutId};
-                    }
+                    const confirmed = await this._confirmWinnerCredit({
+                        sourceWalletAddress: wallet.address,
+                        winnerWallet: winner.address,
+                        amountAtomic: winner.netAtomic,
+                        minCreatedAtMs: journal[0].timestamp
+                    });
+                    if (confirmed) continue;
+                    if (!durableRetry)
+                        return {status:'WINNER_CONFIRMATION_PENDING',role,payoutId};
                 }
-                continue;
+                if (!durableRetry) continue;
             }
             let receipt;
             try {
                 receipt=await this._adapter.sendTransfer({
                     roomNumber:wallet.roomNumber,destination:transfer.address,
                     amountNano:BigInt(transfer.netAtomic),bounce:false,
-                    sourceReserveNano:reserve
+                    sourceReserveNano:reserve,
+                    ...(durableRetry ? {idempotencyKey:payoutId+':'+role} : {})
                 });
             } catch {
                 logEvent(path,{role,state:"SUBMISSION_UNKNOWN",timestamp:Date.now()},false);
@@ -332,8 +344,54 @@ export class TestnetNativeRoomPayoutTransport {
                 txHash:receipt?.txHash??null,timestamp:Date.now()},false);
             if(status!=="SUBMITTED_UNCONFIRMED")
                 return Object.freeze({status,role,payoutId});
+            if (role === "WINNER") {
+                const confirmed = await this._confirmWinnerCredit({
+                    sourceWalletAddress: wallet.address,
+                    winnerWallet: winner.address,
+                    amountAtomic: winner.netAtomic,
+                    minCreatedAtMs: initial.timestamp
+                });
+                if (!confirmed) {
+                    return Object.freeze({status:"WINNER_CONFIRMATION_PENDING",role,payoutId});
+                }
+            }
         }
         // Blockchain finality is separately required before ledger settlement.
         return Object.freeze({status:"SUBMITTED_UNCONFIRMED",payoutId});
+    }
+
+    async _confirmWinnerCredit({sourceWalletAddress,winnerWallet,amountAtomic,minCreatedAtMs}) {
+        if (typeof this._outgoingObserver?.findOutgoingTransfer !== "function"
+            || typeof this._outgoingObserver?.verifyIndexedRecipientCredit !== "function") {
+            return false;
+        }
+        const outgoing = await this._outgoingObserver.findOutgoingTransfer({
+            sourceWalletAddress,
+            destinationIdentity: winnerWallet,
+            amountAtomic,
+            minCreatedAtMs
+        });
+        if (!outgoing?.transactionId || outgoing.ambiguous) return false;
+        const credit = await this._outgoingObserver.verifyIndexedRecipientCredit({
+            sourceWalletAddress,
+            destinationIdentity: winnerWallet,
+            transactionId: outgoing.transactionId,
+            amountAtomic,
+            minCreatedAtMs
+        });
+        return credit?.status === "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
+            && credit.sourceTransactionId === outgoing.transactionId
+            && typeof credit.recipientTransactionId === 'string'
+            && credit.recipientTransactionId.length > 0
+            && credit.amountAtomic === amountAtomic
+            && canonical(credit.destinationAddress) === canonical(winnerWallet)
+            && credit.globalId === -3
+            && credit.sourceFinality === "finalized"
+            && credit.recipientFinality === "finalized"
+            && Number.isSafeInteger(credit.sourceMcBlockSeqno)
+            && Number.isSafeInteger(credit.recipientMcBlockSeqno)
+            && Number.isSafeInteger(credit.latestIndexedMcBlockSeqno)
+            && credit.latestIndexedMcBlockSeqno > credit.sourceMcBlockSeqno
+            && credit.latestIndexedMcBlockSeqno > credit.recipientMcBlockSeqno;
     }
 }

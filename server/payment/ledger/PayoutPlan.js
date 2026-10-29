@@ -1,29 +1,23 @@
 /**
  * Phase 4 — Validated payout plan value object.
  *
- * A payout plan is a pure, deterministic description of how confirmed principal
- * is allocated and how each OUTGOING transfer nets out after its own network
- * fee. It sends, signs, broadcasts and contacts nothing.
+ * A payout plan allocates confirmed principal into full recipient transfers
+ * plus a retained room-wallet gas reserve. Actual network fees are booked as
+ * source-wallet expenses after chain verification.
  *
  * Approved payout rules enforced here:
- *   - the winner's gross allocation is the explicit authoritative amount, the
- *     owner's gross allocation is the exact residual (principal - winner), and
- *     the Safety Margin is permanently zero (this model has no reserve at all);
- *   - each outgoing payout represents its own network fee separately;
- *   - the winner payout fee is charged ONLY against the winner's gross
- *     allocation, and the owner payout fee is charged ONLY against the owner's
- *     gross allocation;
- *   - net transfer = that recipient's gross - the fee allocated to them;
- *   - a recipient's fee is NEVER charged against another recipient's funds.
+ *   - winner amount is 95%, owner amount is 4.9%, and remaining 0.1% plus
+ *     rounding dust stays in the source Room Wallet;
+ *   - `netAtomic` equals the full recipient amount; `reservedFeeAtomic` is
+ *     zero because the Room Wallet pays actual network fees separately.
  *
  * The final reconciliation invariant
  *
- *   winnerNetPayoutAtomic + ownerNetPayoutAtomic
- *       + winnerNetworkFeeAtomic + ownerNetworkFeeAtomic
+ *   winnerTransferAtomic + ownerTransferAtomic + gasReserveAtomic
  *       === totalSettledPrincipalAtomic
  *
- * proves that no cross-charging and no silent reserve is possible. There is no
- * reserve term.
+ * proves that payouts plus the retained reserve account for principal. Actual
+ * source-wallet network fees are recorded separately when verified.
  */
 
 import { PayoutValidationError } from "./LedgerErrors.js";
@@ -71,9 +65,8 @@ function assertNonNegativeSafeInteger(value, field) {
 /**
  * One outgoing payout transfer with its own, separately represented network fee.
  *
- * A network fee may be ZERO (a genuinely free transfer); it must never be
- * negative, and it must be strictly less than the recipient's own gross
- * allocation whenever a positive transfer is required.
+ * Recipient amounts are never reduced by a reserved network fee. Actual fees
+ * are recorded separately as source-wallet expenses.
  */
 export class PayoutTransfer {
 
@@ -87,13 +80,11 @@ export class PayoutTransfer {
         // Non-negative (a zero fee is valid), never a floating-point value.
         assertNonNegativeSafeInteger(reservedFeeAtomic, "reservedFeeAtomic");
 
-        if (reservedFeeAtomic >= grossAtomic) {
+        if (reservedFeeAtomic !== 0) {
 
-            // A transfer must leave a positive net for the recipient; a net of
-            // zero (fee == gross) would silently burn the recipient's gross to
-            // fees and cannot be sent as a valid native TON transfer.
+            // Fees belong to source-wallet accounting, not recipient deductions.
             throw new PayoutValidationError(
-                "reserved network fee must be strictly less than the gross allocation",
+                "recipient reserved network fee must be zero; source wallet pays fees separately",
                 { recipientRole, grossAtomic, reservedFeeAtomic }
             );
 
@@ -109,8 +100,8 @@ export class PayoutTransfer {
 
         this.reservedFeeAtomic = reservedFeeAtomic;
 
-        // net = recipient's gross - the fee allocated to THIS recipient only.
-        this.netAtomic = grossAtomic - reservedFeeAtomic;
+        // Full transfer amount. TON fees are charged separately to source.
+        this.netAtomic = grossAtomic;
 
         this.feeQuote = feeQuote
             ? Object.freeze({
@@ -139,6 +130,9 @@ export class PayoutTransfer {
 
     static fromJSON(record) {
 
+        if (record.netAtomic !== undefined && record.netAtomic !== record.grossAtomic) {
+            throw new PayoutValidationError("recipient net amount must equal its full allocation");
+        }
         return new PayoutTransfer(record);
 
     }
@@ -167,8 +161,8 @@ export class PayoutPlan {
         assertNonEmptyString(input.asset, "asset");
         assertNonEmptyString(input.network, "network");
         assertPositiveSafeInteger(input.principalAtomic, "principalAtomic");
-        const safetyMarginAtomic = input.safetyMarginAtomic ?? 0;
-        assertNonNegativeSafeInteger(safetyMarginAtomic, "safetyMarginAtomic");
+        const gasReserveAtomic = input.gasReserveAtomic ?? input.safetyMarginAtomic ?? 0;
+        assertNonNegativeSafeInteger(gasReserveAtomic, "gasReserveAtomic");
 
         if (!Array.isArray(input.transfers) || input.transfers.length === 0) {
 
@@ -190,6 +184,35 @@ export class PayoutPlan {
 
         }
 
+        const winnerTransfer = input.transfers.find(
+            (transfer) => transfer.recipientRole === "WINNER");
+        const ownerTransfer = input.transfers.find(
+            (transfer) => transfer.recipientRole === "OWNER");
+        const principal = BigInt(input.principalAtomic);
+        const expectedWinnerAtomic = Number((principal * 95n) / 100n);
+        const expectedOwnerAtomic = Number((principal * 49n) / 1000n);
+
+        if (input.transfers.length !== 2
+            || !winnerTransfer
+            || !ownerTransfer
+            || winnerTransfer.grossAtomic !== expectedWinnerAtomic
+            || ownerTransfer.grossAtomic !== expectedOwnerAtomic
+            || gasReserveAtomic !== Number(
+                principal - BigInt(expectedWinnerAtomic) - BigInt(expectedOwnerAtomic))) {
+
+            throw new PayoutValidationError(
+                "payout plan must preserve the fixed 95% winner, 4.9% owner, and retained remainder",
+                {
+                    expectedWinnerAtomic,
+                    actualWinnerAtomic: winnerTransfer?.grossAtomic ?? null,
+                    expectedOwnerAtomic,
+                    actualOwnerAtomic: ownerTransfer?.grossAtomic ?? null,
+                    gasReserveAtomic
+                }
+            );
+
+        }
+
         const totalGrossAtomic = input.transfers.reduce(
             (sum, transfer) => sum + transfer.grossAtomic, 0);
 
@@ -199,22 +222,18 @@ export class PayoutPlan {
         const totalNetAtomic = input.transfers.reduce(
             (sum, transfer) => sum + transfer.netAtomic, 0);
 
-        // THE core accounting invariant (approved final reconciliation):
-        //   every nanotons of net paid out + every nanotons of network fee
-        //   === the total settled principal. No reserve, no safety margin.
-        const netPlusFees = totalNetAtomic + totalReservedFeeAtomic;
-
-        if (netPlusFees + safetyMarginAtomic !== input.principalAtomic) {
+        // Actual fees are separate wallet expenses and do not alter these
+        // allocations. The retained reserve is the untransferred remainder.
+        if (totalNetAtomic + gasReserveAtomic !== input.principalAtomic) {
 
             throw new PayoutValidationError(
                 "payout plan must exactly account for settled principal "
-                    + "(winner net + owner net + winner fee + owner fee "
-                    + "!== principal)",
+                    + "(winner transfer + owner transfer + retained reserve !== principal)",
                 {
                     principalAtomic: input.principalAtomic,
                     totalNetAtomic,
                     totalReservedFeeAtomic,
-                    netPlusFees
+                    gasReserveAtomic
                 }
             );
 
@@ -232,7 +251,9 @@ export class PayoutPlan {
 
         this.principalAtomic = input.principalAtomic;
 
-        this.safetyMarginAtomic = safetyMarginAtomic;
+        this.gasReserveAtomic = gasReserveAtomic;
+        // Compatibility alias retained for old forensic serializers.
+        this.safetyMarginAtomic = gasReserveAtomic;
 
         this.allocation = Object.freeze({ ...(input.allocation ?? {}) });
 
@@ -271,10 +292,9 @@ export class PayoutPlan {
     }
 
     /**
-     * The approved final reconciliation, evaluated exactly in BigInt:
+     * The allocation reconciliation, evaluated exactly in BigInt:
      *
-     *   winnerNetPayoutAtomic + ownerNetPayoutAtomic
-     *       + winnerNetworkFeeAtomic + ownerNetworkFeeAtomic
+     *   winnerTransferAtomic + ownerTransferAtomic + gasReserveAtomic
      *       === totalSettledPrincipalAtomic
      *
      * @returns {boolean}
@@ -284,11 +304,8 @@ export class PayoutPlan {
         const principal = BigInt(this.principalAtomic);
 
         const total = this.transfers.reduce(
-            (sum, transfer) =>
-                sum + BigInt(transfer.netAtomic) + BigInt(transfer.reservedFeeAtomic),
-            0n);
-
-        return total + BigInt(this.safetyMarginAtomic) === principal;
+            (sum, transfer) => sum + BigInt(transfer.netAtomic), 0n);
+        return total + BigInt(this.gasReserveAtomic) === principal;
 
     }
 
@@ -301,7 +318,8 @@ export class PayoutPlan {
             asset: this.asset,
             network: this.network,
             principalAtomic: this.principalAtomic,
-            safetyMarginAtomic: this.safetyMarginAtomic,
+            gasReserveAtomic: this.gasReserveAtomic,
+            safetyMarginAtomic: this.gasReserveAtomic,
             allocation: this.allocation,
             transfers: this.transfers.map((t) => t.toJSON()),
             totalGrossAtomic: this.totalGrossAtomic,
@@ -320,7 +338,7 @@ export class PayoutPlan {
             asset: record.asset,
             network: record.network,
             principalAtomic: record.principalAtomic,
-            safetyMarginAtomic: record.safetyMarginAtomic ?? 0,
+            gasReserveAtomic: record.gasReserveAtomic ?? record.safetyMarginAtomic ?? 0,
             allocation: record.allocation,
             transfers: (record.transfers ?? []).map((t) => PayoutTransfer.fromJSON(t)),
             createdAtMs: record.createdAtMs,

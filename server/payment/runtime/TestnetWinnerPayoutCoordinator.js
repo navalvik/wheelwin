@@ -25,7 +25,7 @@ export class TestnetWinnerPayoutCoordinator {
     constructor({
         paymentRuntime, roomManager, playerManager, contextResolver,
         winnerEngine, ownerWalletProvider = () => process.env.OWNER_WALLET,
-        feeQuotesProvider = null, payoutSubmitter = null
+        payoutSubmitter = null
     }) {
         this._payment = paymentRuntime;
         this._resultsDir = paymentRuntime.networkDataDir ? join(paymentRuntime.networkDataDir, 'payout-results') : null;
@@ -37,7 +37,6 @@ export class TestnetWinnerPayoutCoordinator {
         this._context = contextResolver;
         this._winners = winnerEngine;
         this._ownerWallet = ownerWalletProvider;
-        this._fees = feeQuotesProvider;
         this._submitter = payoutSubmitter;
     }
 
@@ -124,26 +123,11 @@ export class TestnetWinnerPayoutCoordinator {
 
     async _executeResultOnce({roomId, gameId, payoutId, winnerId, winnerWallet, ownerWallet, roomWallet, principal}) {
         ensure(this._payment.outcomeStore?.get(roomId)?.kind !== 'REFUND', 'PAYOUT_REFUND_CONFLICT');
-        // A fee quote must come from an actual provider; never manufacture a
-        // zero-fee payment merely to mark payout as completed.
-        if (!this._fees?.quote) {
-            return Object.freeze({status:"WAITING_FOR_FEE_QUOTES",payoutId,roomId});
-        }
-        const networkFees = await this._fees.quote({
-            roomId, roomWallet: roomWallet.address,
-            winnerWallet, ownerWallet, principalAtomic: principal
-        });
-        ensure(Number.isSafeInteger(networkFees?.winner?.feeAtomic)
-            && networkFees.winner.feeAtomic >= 0
-            && Number.isSafeInteger(networkFees?.owner?.feeAtomic)
-            && networkFees.owner.feeAtomic >= 0,
-            "PAYOUT_FEE_QUOTES_INVALID");
-
         const payout = this._payment.ledger.planPayout({
-            payoutId, roomId, safetyMarginAtomic:TESTNET_ROOM_RETAINED_ATOMIC,
+            payoutId, roomId,
             winner:{recipientId:winnerId,address:winnerWallet},
             owner:{recipientId:"WheelWin",address:ownerWallet},
-            networkFees, nowMs:Date.now()
+            nowMs:Date.now()
         });
         // Idempotent ledger plan prevents repeated result events making a
         // second submission. Existing plans require separate reconciliation.

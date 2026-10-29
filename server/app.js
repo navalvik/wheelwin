@@ -1269,9 +1269,9 @@ class WheelWinApplication {
                 }
             );
             // This event is emitted only by the server's authoritative
-            // RESULT lifecycle. It plans an exact 3-player payout; until a
-            // real outgoing executor and current fee quotes are connected it
-            // explicitly reports WAITING, never claims funds were sent.
+            // RESULT lifecycle. The payout plan uses fixed 95% / 4.9% shares
+            // and a retained 0.1% gas reserve. Fee quotes do not gate the send;
+            // actual source-wallet fees are recorded from verified chain data.
             // Live entry acceptance MUST NOT be enabled without both a
             // working refund executor and the native V4 winner/owner sender.
             // When acceptance is disabled (the current Testnet release),
@@ -1356,7 +1356,6 @@ class WheelWinApplication {
                 playerManager: this._managers.playerManager,
                 contextResolver: this._gameplayContextResolver,
                 winnerEngine: this._engines.winnerEngine,
-                feeQuotesProvider: nativePayoutTransport,
                 payoutSubmitter: nativePayoutTransport
             });
             this._eventBus.subscribe(

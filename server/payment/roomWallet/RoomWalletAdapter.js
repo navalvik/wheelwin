@@ -7,9 +7,9 @@ import { durableWriteJson } from '../DurableJson.js';
  *
  * The adapter is intentionally independent from WheelWin gameplay and
  * settlement calculations. It accepts an already-resolved wallet identity
- * and signs a plain TON transfer. Recipient value is never reduced by gas;
- * the source Room Wallet must have enough balance for value plus the configured
- * source-wallet reserve.
+ * and signs a plain TON transfer. Recipient value is never reduced by gas.
+ * Sending does not preflight balance or reject on a fee estimate; TON
+ * determines whether the source has enough to execute the message.
  */
 
 import {
@@ -105,19 +105,28 @@ export class RoomWalletAdapter {
     _sequencePath(address) {
         return this._sequenceStateDir ? join(this._sequenceStateDir, createHash('sha256').update(address).digest('hex') + '.json') : null;
     }
-    _holdSequence(address, seqno) {
+    _holdSequence(address, seqno, transfer = null) {
         const path = this._sequencePath(address);
         if (path) {
             if (existsSync(path)) {
                 const previous = JSON.parse(readFileSync(path, 'utf8'));
-                if (previous.address !== address || !Number.isSafeInteger(previous.seqno) || seqno <= previous.seqno) throw new Error('OUTBOUND_SEQNO_NOT_ADVANCED');
+                const sameTransfer = transfer && previous.transferKey === transfer.transferKey
+                    && seqno === previous.seqno
+                    && (previous.bocHash === transfer.bocHash
+                        || previous.validUntil <= Math.floor(this._now() / 1000));
+                if (previous.address !== address || !Number.isSafeInteger(previous.seqno)
+                    || (seqno <= previous.seqno && !sameTransfer)) throw new Error('OUTBOUND_SEQNO_NOT_ADVANCED');
             }
-            durableWriteJson(path, {address, seqno});
+            durableWriteJson(path, {address, seqno, ...(transfer ?? {})});
         }
         this._pendingOutboundSeqno.set(address, {seqno});
     }
     getGasReserveNano() {
         return this._gasReserveNano;
+    }
+
+    supportsDurableTransferRetry() {
+        return Boolean(this._sequenceStateDir);
     }
 
     async getBalance(roomNumber) {
@@ -281,7 +290,8 @@ export class RoomWalletAdapter {
         amountNano,
         bounce = true,
         queryId = null,
-        sourceReserveNano = null
+        sourceReserveNano = null,
+        idempotencyKey = null
     } = {}) {
         assertNonNegativeNano(amountNano, "amountNano");
 
@@ -303,16 +313,69 @@ export class RoomWalletAdapter {
         // SEQNO SAFETY: all broadcasts from one Room Wallet are serialized per
         // address and gated on the authoritative confirmation of the previous
         // broadcast before the next seqno is read.
-        return this._enqueueOutbound(identity.address, () =>
-            this._sendTransferLocked({
+        return this._enqueueOutbound(identity.address, () => {
+            const request = {
                 identity,
                 destinationAddress,
                 amountNano,
                 bounce,
                 queryId,
                 reserveNano
-            })
-        );
+            };
+            return idempotencyKey === null
+                ? this._sendTransferLocked(request)
+                : this._sendDurableTransferLocked({...request, idempotencyKey});
+        });
+    }
+
+    // A durable outbox stores the exact signed message BEFORE broadcast.
+    // Retries replay the same seqno/message; a lost RPC reply cannot create
+    // a second payment. Expired messages may be renewed only while the
+    // authoritative wallet seqno still equals their unused seqno.
+    async _sendDurableTransferLocked(request) {
+        const {identity, destinationAddress, amountNano, bounce, queryId, idempotencyKey} = request;
+        if (!this._sequenceStateDir || typeof idempotencyKey !== 'string'
+            || !/^[A-Za-z0-9:_-]{1,160}$/.test(idempotencyKey))
+            throw new Error('DURABLE_TRANSFER_KEY_REQUIRED');
+        const transferKey = createHash('sha256').update(idempotencyKey).digest('hex');
+        const path = join(this._sequenceStateDir, 'transfers', transferKey + '.json');
+        const expected = {transferKey, roomNumber:identity.roomNumber,
+            source:identity.address, destination:configuredDestination(destinationAddress),
+            amountNano:amountNano.toString(), bounce, queryId:queryId == null ? null : String(queryId)};
+        let record = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
+        if (record) {
+            for (const [key, value] of Object.entries(expected)) {
+                if (record[key] !== value) throw new Error('DURABLE_TRANSFER_IDENTITY_MISMATCH');
+            }
+            if (!Number.isSafeInteger(record.seqno) || record.seqno < 0
+                || !Number.isSafeInteger(record.validUntil)
+                || typeof record.boc !== 'string'
+                || createHash('sha256').update(record.boc).digest('hex') !== record.bocHash)
+                throw new Error('DURABLE_TRANSFER_PAYLOAD_INVALID');
+            const observedSeqno = await this._tonService.getSeqno(identity.address);
+            if (!Number.isSafeInteger(observedSeqno) || observedSeqno < record.seqno)
+                throw new Error('DURABLE_TRANSFER_SEQNO_UNAVAILABLE');
+            if (observedSeqno > record.seqno) return Object.freeze({ok:true,
+                code:'ACCEPTED_AWAITING_CREDIT',seqno:record.seqno,txHash:null});
+        } else {
+            const safety = await this._awaitOutboundSequenceSafety(identity);
+            if (!safety.ok) return Object.freeze({...safety, txHash:null});
+        }
+        if (!record || record.validUntil <= Math.floor(this._now() / 1000)) {
+            const signed = await this._buildSignedExternalMessage(request);
+            if (record && signed.seqno !== record.seqno)
+                return Object.freeze({ok:true, code:'ACCEPTED_AWAITING_CREDIT',seqno:record.seqno,txHash:null});
+            const boc = beginCell().store(storeMessage(signed.externalMessage)).endCell().toBoc().toString('base64');
+            record = {...expected, seqno:signed.seqno, validUntil:signed.validUntil,
+                boc, bocHash:createHash('sha256').update(boc).digest('hex')};
+            durableWriteJson(path, record);
+        }
+        this._holdSequence(identity.address, record.seqno, {
+            transferKey, bocHash:record.bocHash, validUntil:record.validUntil
+        });
+        const broadcast = await this._tonService.broadcastTransaction(record.boc);
+        return Object.freeze({ok:true, code:'SUBMITTED_UNCONFIRMED',
+            seqno:record.seqno,txHash:extractBroadcastTxHash(broadcast)});
     }
 
     /**
@@ -432,22 +495,6 @@ export class RoomWalletAdapter {
             });
         }
 
-        const balanceNano = await this._tonService.getBalance(identity.address);
-        const requiredNano = amountNano + reserveNano;
-
-        if (balanceNano < requiredNano) {
-            return Object.freeze({
-                ok: false,
-                code: "INSUFFICIENT_BALANCE",
-                roomNumber: identity.roomNumber,
-                address: identity.address,
-                balanceNano,
-                requiredNano,
-                shortfallNano: requiredNano - balanceNano,
-                txHash: null
-            });
-        }
-
         const { wallet, seqno, externalMessage } = await this._buildSignedExternalMessage({
             identity,
             destinationAddress,
@@ -525,9 +572,11 @@ export class RoomWalletAdapter {
             throw new Error("invalid room wallet seqno");
         }
 
+        const validUntil = seqno === 0 ? 0xffffffff : Math.floor(this._now() / 1000) + 120;
         const transfer = wallet.createTransfer({
             seqno,
             secretKey,
+            timeout: validUntil,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
             messages: [
                 internal({
@@ -545,7 +594,7 @@ export class RoomWalletAdapter {
             body: transfer
         });
 
-        return Object.freeze({ wallet, seqno, externalMessage });
+        return Object.freeze({ wallet, seqno, externalMessage, validUntil });
     }
 
     async _resolveAddress(roomNumber) {

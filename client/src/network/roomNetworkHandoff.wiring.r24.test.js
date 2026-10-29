@@ -383,7 +383,7 @@ function readSource(relativePath) {
 
     const socketSource = readSource("socket/socket.js");
 
-    const authIndex = socketSource.indexOf("auth: {");
+    const authIndex = socketSource.indexOf("auth: (callback) => {");
 
     assert.notEqual(authIndex, -1, "socket.js must keep the auth block");
 
@@ -391,8 +391,8 @@ function readSource(relativePath) {
 
     assert.match(
         authBlock,
-        /telegramInitData:\s*resolveTelegramInitData\(\)/,
-        "the handshake auth must forward the fresh Telegram initData"
+        /callback\(\s*\{\s*telegramInitData:\s*resolveTelegramInitData\(\)\s*\}\s*\)/,
+        "the handshake auth callback must forward fresh Telegram initData"
     );
 
     assert.equal(

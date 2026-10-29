@@ -47,7 +47,8 @@ test("restored R2 archive ZIP contains room artifacts and uploads once", async (
         assert.equal(zip.subarray(0, 2).toString(), "PK");
         const status = JSON.parse(readFileSync(join(f.config.stagingDir, "Abc", "status.json"), "utf8"));
         assert.equal(status.state, "uploaded");
-        assert.equal(status.manifest.files.length, 2);
+        assert.equal(status.manifest.files.length, 3);
+        assert.ok(status.manifest.files.some(f => f.zipPath === 'session/game-mode.json'));
         assert.ok(status.manifest.files.some(f => f.zipPath.includes("session-history")));
         assert.ok(status.manifest.files.some(f => f.zipPath.includes("diagnostic-logs")));
         await service.ensureArchivedAndUploaded({

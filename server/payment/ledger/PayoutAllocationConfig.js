@@ -3,15 +3,11 @@
  *
  * APPROVED, AUTHORITATIVE BUSINESS RULE (Phase 4 alignment):
  *
- *   1. the winner receives exactly 95% of the total settled game principal,
- *      rounded DOWN to a whole nanoton;
- *   2. the owner receives the exact remainder after the winner's gross
- *      allocation (including any rounding remainder produced by step 1);
- *   3. the Safety Margin is PERMANENTLY ZERO — this model has no reserve
- *      percentage, no reserve amount and no reserve-allocation entry kind:
- *      there is nothing to create, reserve, deduct or transfer;
- *   4. each recipient's network fee is deducted independently from that
- *      recipient's own gross allocation (enforced by RoomPayoutCalculator);
+ *   1. the winner receives exactly 95% of settled principal;
+ *   2. the owner receives exactly 4.9% of settled principal;
+ *   3. 0.1% plus integer-rounding remainder is retained in the Room Wallet
+ *      for source-paid TON fees and accumulated wallet balance;
+ *   4. quoted and actual network fees never reduce either recipient transfer;
  *   5. all arithmetic is exact integer atomic-unit (nanoton) arithmetic using
  *      BigInt; results are converted to Number only after a safe-integer
  *      bounds check.
@@ -19,8 +15,8 @@
  * The APPROVED formula, evaluated in whole nanotons:
  *
  *   winnerGrossAllocationAtomic = floor(totalSettledPrincipalAtomic * 95 / 100)
- *   ownerGrossAllocationAtomic  = totalSettledPrincipalAtomic
- *                                  - winnerGrossAllocationAtomic
+ *   ownerGrossAllocationAtomic  = floor(totalSettledPrincipalAtomic * 49 / 1000)
+ *   gasReserveAtomic            = principal - winner - owner
  *
  * This rule is a FIXED, IMMUTABLE BUSINESS-RULE CONSTANT. It is NOT an
  * editable owner fee, NOT a runtime-configurable percentage, and NOT derived
@@ -44,40 +40,38 @@ export const WINNER_SHARE_NUMERATOR = 95n;
 /** The fixed denominator of the approved winner share (percent basis). */
 export const WINNER_SHARE_DENOMINATOR = 100n;
 
+/** The fixed owner share: 4.9% of the settled principal. */
+export const OWNER_SHARE_NUMERATOR = 49n;
+export const OWNER_SHARE_DENOMINATOR = 1000n;
+
 /**
  * Stable identifier for the approved, fixed winner payout rule. Carried on
  * every payout plan as explicit provenance so an auditor can prove which rule
  * produced the allocation.
  */
 export const APPROVED_WINNER_RULE_ID =
-    "APPROVED_FIXED_WINNER_95_OF_100_PERCENT_RULE";
+    "APPROVED_WINNER_95_OWNER_4_9_GAS_RESERVE_0_1_RULE";
 
 /**
  * Human-readable description of the approved, fixed rule (provenance). It is
  * frozen and never edited at runtime.
  */
 export const APPROVED_WINNER_RULE_TEXT = Object.freeze(
-    "winner gross allocation = floor(totalSettledPrincipalAtomic * 95 / 100); "
-    + "owner gross allocation = totalSettledPrincipalAtomic "
-    + "- winner gross allocation; owner receives the exact remainder "
-    + "including any rounding remainder"
+    "winner transfer = floor(totalSettledPrincipalAtomic * 95 / 100); "
+    + "owner transfer = floor(totalSettledPrincipalAtomic * 49 / 1000); "
+    + "remainder is retained in the Room Wallet for source-paid network fees"
 );
 
 /**
  * The approved, FIXED winner-allocation rule for a payout.
  *
- * Immutable value object. It carries the fixed `95 / 100` winner share plus
- * provenance identifying the approved rule. It NEVER holds an editable
- * percentage, an owner commission, or a reserve of any kind, and it NEVER
- * accepts a caller-supplied `winnerGrossAllocationAtomic`.
+ * Immutable value object for the fixed 95% / 4.9% / retained-remainder rule.
  */
 export class PayoutAllocationConfig {
 
     /**
      * @param {{ allocationSource?: string|null }} [config]
-     *   Only optional free-text provenance is accepted. A caller-supplied
-     *   winner amount, percentage or reserve is IGNORED: the fixed rule is the
-     *   only authority and can never be overridden.
+     *   Only optional free-text provenance is accepted; percentages are fixed.
      */
     constructor(config = {}) {
 
@@ -89,6 +83,8 @@ export class PayoutAllocationConfig {
 
         this.numerator = WINNER_SHARE_NUMERATOR;
         this.denominator = WINNER_SHARE_DENOMINATOR;
+        this.ownerNumerator = OWNER_SHARE_NUMERATOR;
+        this.ownerDenominator = OWNER_SHARE_DENOMINATOR;
         this.ruleId = APPROVED_WINNER_RULE_ID;
         this.rule = APPROVED_WINNER_RULE_TEXT;
         this.allocationSource = source;
@@ -104,8 +100,8 @@ export class PayoutAllocationConfig {
      *
      * computed in BigInt and rounded DOWN toward zero. Division truncates
      * toward zero, which for the always-positive settled principal is exactly
-     * the required floor: the winner is never rounded up, and the truncated
-     * remainder is left for the owner.
+     * the required floor. Integer-rounding remainder stays in the Room Wallet
+     * reserve rather than increasing either recipient share.
      *
      * @param {number|bigint} principalAtomic total settled principal (nanotons)
      * @returns {bigint} the winner gross allocation, in nanotons
@@ -117,6 +113,11 @@ export class PayoutAllocationConfig {
         // (principal * 95) / 100 with BigInt truncation == floor for principal > 0.
         return (principal * WINNER_SHARE_NUMERATOR) / WINNER_SHARE_DENOMINATOR;
 
+    }
+
+    ownerGrossAllocationBigInt(principalAtomic) {
+        return (BigInt(principalAtomic) * OWNER_SHARE_NUMERATOR)
+            / OWNER_SHARE_DENOMINATOR;
     }
 
     /**
@@ -132,6 +133,8 @@ export class PayoutAllocationConfig {
             ruleId: this.ruleId,
             numerator: Number(WINNER_SHARE_NUMERATOR),
             denominator: Number(WINNER_SHARE_DENOMINATOR),
+            ownerNumerator: Number(OWNER_SHARE_NUMERATOR),
+            ownerDenominator: Number(OWNER_SHARE_DENOMINATOR),
             rule: this.rule,
             allocationSource: this.allocationSource
         });

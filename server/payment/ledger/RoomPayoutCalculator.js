@@ -3,9 +3,8 @@
  *
  * The calculator is PURE: it accepts explicit inputs and returns a validated
  * `PayoutPlan`. It NEVER sends, broadcasts, signs, deploys, queries a provider,
- * or executes anything, and it stores nothing. A future fee-estimation /
- * execution layer supplies the per-transfer network-fee quotes; this phase
- * never hardcodes a fixed fee and never contacts a provider.
+ * or executes anything, and it stores nothing. Optional fee quotes are
+ * diagnostic metadata only and are not required to make a payout plan.
  *
  * APPROVED payout rule (Phase 4 alignment) — the FIXED 95% winner rule:
  *
@@ -14,24 +13,14 @@
  *      rounded DOWN to a whole nanoton; the rule is a fixed, immutable
  *      business-rule constant (see PayoutAllocationConfig) and is NEVER
  *      supplied or overridden by the caller;
- *   2. ownerGrossAllocationAtomic  = principalAtomic - winnerGrossAllocationAtomic
- *      — the owner receives the exact remainder, including any rounding
- *      remainder produced by step 1;
- *   3. the Safety Margin is PERMANENTLY ZERO — this calculator creates,
- *      reserves, deducts or transfers no reserve of any kind;
- *   4. every financial calculation is exact integer atomic-unit arithmetic
+ *   2. ownerGrossAllocationAtomic  = floor(principalAtomic * 49 / 1000);
+ *   3. gasReserveAtomic            = principalAtomic - winner - owner;
+ *   4. fee quotes are diagnostic only; source-side TON fees do not reduce
+ *      either recipient transfer;
+ *   5. every financial calculation is exact integer atomic-unit arithmetic
  *      (BigInt); a Number is produced only after a safe-integer bounds check;
- *   5. each outgoing payout represents its own network fee separately, and
- *      that fee is charged ONLY to its own recipient's gross allocation —
- *      never to the other recipient and never to any residue;
- *   6. a fee must be known (quoted), a non-negative integer, and strictly
- *      less than its own recipient's gross allocation when a positive
- *      transfer is required.
- *
- * final reconciliation invariant (exact, in nanotons):
- *   winnerNetPayoutAtomic + ownerNetPayoutAtomic
- *       + winnerNetworkFeeAtomic + ownerNetworkFeeAtomic
- *       === totalSettledPrincipalAtomic
+ *   final allocation invariant (exact, in nanotons):
+ *   winnerTransfer + ownerTransfer + retainedGasReserve === principal.
  */
 
 import { randomBytes } from "node:crypto";
@@ -42,10 +31,7 @@ import {
 
 import { PayoutPlan, PayoutTransfer } from "./PayoutPlan.js";
 
-import {
-    PayoutFeeError,
-    PayoutValidationError
-} from "./LedgerErrors.js";
+import { PayoutValidationError } from "./LedgerErrors.js";
 
 /**
  * @param {unknown} value
@@ -104,91 +90,19 @@ function toSafeInteger(value, field) {
  * @param {{ nowMs: number, maxQuoteAgeMs: number|null }} freshness
  * @returns {{ feeAtomic: number, quotedAtMs: number|null }}
  */
-function validateNetworkFee(role, grossAtomic, feeQuote, { nowMs, maxQuoteAgeMs }) {
-
-    if (!feeQuote || typeof feeQuote !== "object") {
-
-        throw new PayoutFeeError(
-            "MISSING",
-            `network fee for ${role} is required and must be supplied by a `
-                + "validated fee-estimation layer",
-            { recipientRole: role, grossAtomic }
-        );
-
-    }
-
-    const feeAtomic = feeQuote.feeAtomic;
-
-    // A fee must be a known, non-negative integer atomic amount. Zero is a
-    // valid, genuinely free transfer; a negative or fractional fee is not.
-    if (typeof feeAtomic !== "number"
-        || !Number.isSafeInteger(feeAtomic)
-        || feeAtomic < 0) {
-
-        throw new PayoutFeeError(
-            "INVALID",
-            `network fee for ${role} must be a non-negative integer (atomic units)`,
-            { recipientRole: role, feeAtomic }
-        );
-
-    }
-
-    let quotedAtMs = feeQuote.quotedAtMs ?? null;
-
-    if (quotedAtMs !== null) {
-
-        if (typeof quotedAtMs !== "number"
-            || !Number.isInteger(quotedAtMs)
-            || quotedAtMs <= 0) {
-
-            throw new PayoutFeeError(
-                "INVALID",
-                `network fee quote for ${role} must carry a valid quote time`,
-                { recipientRole: role, quotedAtMs }
-            );
-
-        }
-
-    }
-
-    if (maxQuoteAgeMs !== null && maxQuoteAgeMs !== undefined) {
-
-        if (!Number.isInteger(maxQuoteAgeMs) || maxQuoteAgeMs <= 0) {
-
-            throw new PayoutFeeError(
-                "INVALID",
-                "maxQuoteAgeMs must be a positive integer when supplied",
-                { maxQuoteAgeMs }
-            );
-
-        }
-
-        if (quotedAtMs === null || nowMs - quotedAtMs > maxQuoteAgeMs) {
-
-            throw new PayoutFeeError(
-                "STALE",
-                `network fee quote for ${role} is stale`,
-                { recipientRole: role, quotedAtMs, nowMs, maxQuoteAgeMs }
-            );
-
-        }
-
-    }
-
-    if (feeAtomic >= grossAtomic) {
-
-        // Reject when the fee is greater than OR equal to the gross allocation.
-        // The fee is strictly less than ITS OWN recipient's gross allocation.
-        throw new PayoutFeeError(
-            "EXCEEDS_GROSS",
-            `network fee for ${role} (${feeAtomic}) must be less than the `
-                + `recipient's gross allocation (${grossAtomic})`,
-            { recipientRole: role, feeAtomic, grossAtomic }
-        );
-
-    }
-
-    return { feeAtomic, quotedAtMs };
+function validateNetworkFee(role, grossAtomic, feeQuote) {
+    // Fee quote is optional diagnostic metadata. Its absence, age, or size
+    // never blocks a payout and never reduces the recipient's transfer.
+    const feeAtomic = feeQuote?.feeAtomic;
+    const quotedAtMs = feeQuote?.quotedAtMs;
+    const valid = Number.isSafeInteger(feeAtomic) && feeAtomic >= 0;
+    return {
+        feeAtomic: valid ? feeAtomic : null,
+        quotedAtMs: Number.isSafeInteger(quotedAtMs) && quotedAtMs > 0
+            ? quotedAtMs : null,
+        recipientRole: role,
+        diagnosticGrossAtomic: grossAtomic
+    };
 
 }
 
@@ -199,25 +113,24 @@ export class RoomPayoutCalculator {
      * the FIXED, approved 95% rule.
      *
      * Pure, deterministic and exact. The winner's gross allocation is computed
-     * directly from the total settled principal and the owner's gross
-     * allocation is the exact RESIDUAL, both in BigInt so the arithmetic is
-     * exact for any room principal:
+     * directly from the total settled principal; the owner receives a fixed
+     * 4.9% share; the remainder is retained by the Room Wallet. BigInt keeps
+     * every calculation exact:
      *
      *   winnerGrossAllocationAtomic = floor(principalAtomic * 95 / 100)
-     *   ownerGrossAllocationAtomic  = principalAtomic - winnerGrossAllocationAtomic
-     *   safetyMarginAtomic          = 0 (permanently)
+     *   ownerGrossAllocationAtomic  = floor(principalAtomic * 49 / 1000)
+     *   gasReserveAtomic            = principalAtomic - winner - owner
      *
-     * The winner is rounded DOWN; the truncation remainder is left for the
-     * owner. Because the fixed share is strictly below 100%, the owner residual
-     * is always non-negative.
+     * Both percentage amounts are rounded DOWN; integer-rounding remainder is
+     * included in the retained Room Wallet reserve.
      *
      * @param {number} principalAtomic total settled principal (nanotons)
      * @param {PayoutAllocationConfig|object} [allocation] optional provenance
      * @returns {{ principalAtomic: number, winnerGrossAllocationAtomic: number,
-     *   ownerGrossAllocationAtomic: number, safetyMarginAtomic: 0,
+     *   ownerGrossAllocationAtomic: number, gasReserveAtomic: number,
      *   allocationRuleId: string }}
      */
-    static allocatePrincipal(principalAtomic, allocation, safetyMarginAtomic = 0) {
+    static allocatePrincipal(principalAtomic, allocation) {
 
         assertPositiveSafeInteger(principalAtomic, "principalAtomic");
 
@@ -231,28 +144,20 @@ export class RoomPayoutCalculator {
         // from a caller input: floor(principalAtomic * 95 / 100), in BigInt.
         const winner = config.winnerGrossAllocationBigInt(principal);
 
-        if (!Number.isSafeInteger(safetyMarginAtomic)
-            || safetyMarginAtomic < 0) {
+        const owner = config.ownerGrossAllocationBigInt(principal);
+        const gasReserve = principal - winner - owner;
+
+        if (owner < 0n || gasReserve < 0n) {
+
+            // Defensive only: the fixed shares total less than 100%.
             throw new PayoutValidationError(
-                "safety margin must be a nonnegative safe integer",
-                { safetyMarginAtomic }
-            );
-        }
-
-        const owner = principal - winner - BigInt(safetyMarginAtomic);
-
-        if (owner < 0n) {
-
-            // Defensive only: the fixed share is below 100%, so the owner
-            // residual can never be negative.
-            throw new PayoutValidationError(
-                "winner gross allocation exceeds the total settled principal "
-                    + "(negative owner residual)",
+                "fixed recipient allocations exceed the total settled principal",
                 {
                     principalAtomic,
                     winnerGrossAllocationAtomic:
                         toSafeInteger(winner, "winnerGrossAllocationAtomic"),
-                    ownerResidualAtomic: toSafeInteger(owner, "ownerResidualAtomic")
+                    ownerGrossAllocationAtomic: toSafeInteger(owner, "ownerGrossAllocationAtomic"),
+                    gasReserveAtomic: toSafeInteger(gasReserve, "gasReserveAtomic")
                 }
             );
 
@@ -262,7 +167,7 @@ export class RoomPayoutCalculator {
             principalAtomic,
             winnerGrossAllocationAtomic: toSafeInteger(winner, "winnerGrossAllocationAtomic"),
             ownerGrossAllocationAtomic: toSafeInteger(owner, "ownerGrossAllocationAtomic"),
-            safetyMarginAtomic,
+            gasReserveAtomic: toSafeInteger(gasReserve, "gasReserveAtomic"),
             allocationRuleId: config.ruleId
         });
 
@@ -336,55 +241,45 @@ export class RoomPayoutCalculator {
             principalAtomic,
             winnerGrossAllocationAtomic,
             ownerGrossAllocationAtomic,
-            safetyMarginAtomic
-        } = RoomPayoutCalculator.allocatePrincipal(
-            input.principalAtomic, allocation, input.safetyMarginAtomic ?? 0);
-
-        const freshness = {
-            nowMs: input.nowMs,
-            maxQuoteAgeMs: input.maxQuoteAgeMs ?? null
-        };
+            gasReserveAtomic
+        } = RoomPayoutCalculator.allocatePrincipal(input.principalAtomic, allocation);
 
         const transfers = [];
 
-        // Winner payout: its fee is charged to the winner's gross allocation
-        // ONLY. A zero-gross allocation produces no transfer at all.
+        // Winner receives the full 95%. Fees are paid separately by the source
+        // Room Wallet and never deducted from the recipient amount.
         if (winnerGrossAllocationAtomic > 0) {
 
             const winnerFee = validateNetworkFee(
                 "WINNER",
                 winnerGrossAllocationAtomic,
-                input.networkFees?.winner,
-                freshness);
+                input.networkFees?.winner);
 
             transfers.push(new PayoutTransfer({
                 recipientRole: "WINNER",
                 recipientId: input.winner.recipientId,
                 address: input.winner.address,
                 grossAtomic: winnerGrossAllocationAtomic,
-                reservedFeeAtomic: winnerFee.feeAtomic,
+                reservedFeeAtomic: 0,
                 feeQuote: winnerFee
             }));
 
         }
 
-        // Owner residual payout: its fee is charged to the owner's gross
-        // allocation ONLY — never to the winner and never to any residue.
-        // A zero residual produces no transfer at all.
+        // Owner receives the fixed 4.9% after the Winner leg.
         if (ownerGrossAllocationAtomic > 0) {
 
             const ownerFee = validateNetworkFee(
                 "OWNER",
                 ownerGrossAllocationAtomic,
-                input.networkFees?.owner,
-                freshness);
+                input.networkFees?.owner);
 
             transfers.push(new PayoutTransfer({
                 recipientRole: "OWNER",
                 recipientId: input.owner.recipientId,
                 address: input.owner.address,
                 grossAtomic: ownerGrossAllocationAtomic,
-                reservedFeeAtomic: ownerFee.feeAtomic,
+                reservedFeeAtomic: 0,
                 feeQuote: ownerFee
             }));
 
@@ -397,7 +292,7 @@ export class RoomPayoutCalculator {
             asset: input.asset,
             network: input.network,
             principalAtomic,
-            safetyMarginAtomic,
+            gasReserveAtomic,
             allocation: allocation.toJSON(),
             transfers,
             createdAtMs: input.createdAtMs ?? input.nowMs

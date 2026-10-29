@@ -16,10 +16,9 @@ import { PayoutPlan } from './PayoutPlan.js';
  *     confirmation;
  *   - the total settled principal used for a payout is DERIVED from the
  *     ledger, never trusted from a caller;
- *   - the winner's gross allocation is the FIXED, approved 95% rule applied to
- *     the total settled principal (floor(principal * 95 / 100)); the owner's
- *     gross allocation is the exact residual, and the Safety Margin is
- *     permanently zero (no reserve is created, reserved or booked);
+ *   - the winner receives floor(95% of settled principal), the owner receives
+ *     floor(4.9%), and the remainder (0.1% plus rounding dust) is allocated
+ *     to the Room Wallet as a retained source-fee reserve;
  *   - a payout obligation cannot be settled without an execution result, and
  *     an actual-fee variance is settled only through an explicit idempotent
  *     reconciliation that never charges one recipient's fee to the other;
@@ -153,8 +152,34 @@ export class RoomLedger {
         this._initialized = true;
         // Complete idempotent recipient entries if a process stopped after the plan append.
         for (const entry of this._store.list().filter(x => x.kind === LEDGER_ENTRY_KIND.PAYOUT_PLAN)) {
+            const storedPlan = entry.metadata.plan;
+            // Preserve historical payout obligations exactly as stored.
+            // New plans carry gasReserveAtomic and use 95/4.9/remaining reserve;
+            // recovery must never reinterpret an already-issued payout.
+            if (!Number.isSafeInteger(storedPlan?.gasReserveAtomic)) {
+                for (const transfer of storedPlan?.transfers ?? []) {
+                    this._appendTransferEntries({
+                        roomId: storedPlan.roomId,
+                        payoutId: storedPlan.payoutId
+                    }, transfer);
+                }
+                continue;
+            }
             const plan = PayoutPlan.fromJSON(entry.metadata.plan);
             for (const transfer of plan.transfers) this._appendTransferEntries({roomId:plan.roomId, payoutId:plan.payoutId}, transfer);
+            if (plan.gasReserveAtomic > 0) this._store.append({
+                idempotencyKey: `${plan.payoutId}:gas-reserve-allocation`,
+                roomId: plan.roomId,
+                kind: LEDGER_ENTRY_KIND.GAS_RESERVE_ALLOCATION,
+                amountAtomic: plan.gasReserveAtomic,
+                asset: this._currency.asset,
+                network: this._currency.network,
+                metadata: Object.freeze({
+                    payoutId: plan.payoutId,
+                    retainedInRoomWallet: true,
+                    sourceFeePayer: "ROOM_WALLET"
+                })
+            });
         }
 
         this._logInfo(
@@ -641,18 +666,16 @@ export class RoomLedger {
      * `payoutId`.
      *
      * The total settled principal is DERIVED from the ledger (never taken from
-     * the caller). The winner's gross allocation is computed from that
-     * principal by the FIXED, approved 95% rule and the per-transfer fee
-     * quotes are validated by the pure calculator, which fails closed on any
-     * invalid fee. The owner's gross allocation is the calculator's exact
-     * residual. No percentage, owner-commission, reserve or winner-gross input
-     * is required from the caller.
+     * the caller). The fixed shares are 95% Winner, 4.9% Owner and the
+     * remainder (0.1% plus rounding) stays in the Room Wallet. Fee quotes are
+     * optional diagnostics; actual fees are recorded separately after chain
+     * evidence and never reduce either transfer.
      *
      * @param {{ payoutId: string, roomId: string,
      *   winner: { recipientId: string, address: string },
      *   owner: { recipientId: string, address: string },
      *   allocation?: { allocationSource?: string|null },
-     *   networkFees: object,
+     *   networkFees?: object,
      *   maxQuoteAgeMs?: number|null,
      *   nowMs: number }} request
      * @returns {{ replay: boolean, payoutId: string, plan: object, principalAtomic: number }}
@@ -683,8 +706,35 @@ export class RoomLedger {
         if (existing) {
 
             const plan = existing.metadata?.plan ?? null;
+            if (!Number.isSafeInteger(plan?.gasReserveAtomic)) {
+                for (const transfer of plan?.transfers ?? []) {
+                    this._appendTransferEntries({
+                        roomId: plan.roomId,
+                        payoutId: plan.payoutId
+                    }, transfer);
+                }
+                return {
+                    replay: true,
+                    payoutId: request.payoutId,
+                    plan,
+                    principalAtomic
+                };
+            }
             const restored = PayoutPlan.fromJSON(plan);
             for (const transfer of restored.transfers) this._appendTransferEntries(request, transfer);
+            if (restored.gasReserveAtomic > 0) this._store.append({
+                idempotencyKey: `${restored.payoutId}:gas-reserve-allocation`,
+                roomId: restored.roomId,
+                kind: LEDGER_ENTRY_KIND.GAS_RESERVE_ALLOCATION,
+                amountAtomic: restored.gasReserveAtomic,
+                asset: this._currency.asset,
+                network: this._currency.network,
+                metadata: Object.freeze({
+                    payoutId: restored.payoutId,
+                    retainedInRoomWallet: true,
+                    sourceFeePayer: "ROOM_WALLET"
+                })
+            });
 
             return {
                 replay: true,
@@ -701,7 +751,6 @@ export class RoomLedger {
             asset: this._currency.asset,
             network: this._currency.network,
             principalAtomic,
-            safetyMarginAtomic: request.safetyMarginAtomic ?? 0,
             allocation: request.allocation,
             winner: request.winner,
             owner: request.owner,
@@ -741,6 +790,22 @@ export class RoomLedger {
 
         }
 
+        if (plan.gasReserveAtomic > 0) {
+            this._store.append({
+                idempotencyKey: `${request.payoutId}:gas-reserve-allocation`,
+                roomId: request.roomId,
+                kind: LEDGER_ENTRY_KIND.GAS_RESERVE_ALLOCATION,
+                amountAtomic: plan.gasReserveAtomic,
+                asset: this._currency.asset,
+                network: this._currency.network,
+                metadata: Object.freeze({
+                    payoutId: request.payoutId,
+                    retainedInRoomWallet: true,
+                    sourceFeePayer: "ROOM_WALLET"
+                })
+            });
+        }
+
         this._logInfo(
             `Payout planned | payoutId=${request.payoutId}`
                 + ` | principal=${principalAtomic}`
@@ -748,7 +813,7 @@ export class RoomLedger {
                 + ` | ownerGross=${owner ? owner.grossAtomic : 0}`
                 + ` | winnerNet=${winner ? winner.netAtomic : 0}`
                 + ` | ownerNet=${owner ? owner.netAtomic : 0}`
-                + ` | safetyMargin=${plan.safetyMarginAtomic}`
+                + ` | gasReserve=${plan.gasReserveAtomic}`
         );
 
         return {
@@ -840,8 +905,9 @@ export class RoomLedger {
      * differs from the reserved fee this explicit, idempotent call is the
      * reconciliation. Each actual fee is validated independently: it must be a
      * non-negative integer. The variance is recorded for accounting but is
-     * never charged to the OTHER recipient, and the Safety Margin is
-     * permanently zero — there is no reserve to consume.
+     * charged to the source Room Wallet and never reduces the recipient
+     * amount. Any amount beyond the 0.1% reserve is absorbed by accumulated
+     * room-wallet balance.
      *
      * @param {{ payoutId: string, recipientId: string,
      *   executionResult: { transactionId: string, actualFeeAtomic: number,
@@ -945,9 +1011,8 @@ export class RoomLedger {
 
         }
 
-        // The settlement. Neither recipient's fee is ever charged to the other
-        // recipient, and no reserve / safety margin exists to be consumed — the
-        // variance is recorded for explicit, idempotent reconciliation only.
+        // Settle the full gross transfer. Fee variance is diagnostic accounting;
+        // it never alters the Winner or Owner amount.
         this._store.append({
             idempotencyKey: settleKey,
             roomId: obligation.roomId,
@@ -1128,7 +1193,7 @@ export class RoomLedger {
      *
      * `totalSettledPrincipalAtomic` is the same authoritative, derived value as
      * `confirmedPrincipalAtomic`; it is the total settled principal the payout
-     * reconciliation is exact against. `safetyMarginAtomic` is permanently 0.
+     * reconciliation is exact against. Gas reserve remains in the Room Wallet.
      *
      * @param {string} roomId
      */
@@ -1147,12 +1212,15 @@ export class RoomLedger {
             totalSectorPurchasesAtomic: this.getTotalSectorPurchasesAtomic(roomId),
             winnerGrossAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.WINNER_GROSS_ALLOCATION),
             ownerGrossAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.OWNER_GROSS_ALLOCATION),
+            actualNetworkFeesAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.NETWORK_FEE_ACTUAL),
             networkFeesReservedAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.NETWORK_FEE_RESERVATION),
             netPayoutsAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.NET_PAYOUT),
+            gasReserveAtomic: this._sumKind(roomId, LEDGER_ENTRY_KIND.GAS_RESERVE_ALLOCATION),
             safetyMarginAtomic: this._store.listForRoom(roomId)
                 .filter(entry => entry.kind === LEDGER_ENTRY_KIND.PAYOUT_PLAN)
                 .reduce((sum, entry) => sum
-                    + (entry.metadata?.plan?.safetyMarginAtomic ?? 0), 0),
+                    + (entry.metadata?.plan?.gasReserveAtomic
+                        ?? entry.metadata?.plan?.safetyMarginAtomic ?? 0), 0),
             openObligations: obligations.filter((o) => !o.settled).length,
             settledObligations: obligations.filter((o) => o.settled).length,
             canRecycleWallet: this.canRecycleWallet(roomId)

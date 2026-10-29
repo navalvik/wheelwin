@@ -316,8 +316,8 @@ async function run() {
                 "neither payout is marked complete without on-chain confirmation");
             const plan=runtime.ledger.store.listForRoom(roomId)
                 .find(x=>x.kind===LEDGER_ENTRY_KIND.PAYOUT_PLAN)?.metadata?.plan;
-            equal(plan?.safetyMarginAtomic,0,
-                "full principal is allocated 95/5 before recipient fees");
+            equal(plan?.gasReserveAtomic,3_000_000,
+                "3 GRAM assigns 0.003 GRAM to source gas reserve");
             const repeated=await payout.onGameResult({gameId});
             equal(repeated.status,"ALREADY_PLANNED_NEEDS_RECONCILIATION",
                 "repeated result never generates a new prize or broadcasts funds");

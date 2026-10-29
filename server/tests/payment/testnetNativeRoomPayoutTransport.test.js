@@ -27,7 +27,15 @@ function harness(t,{failRole=null,outgoingObserver=null}={}){
         roomNumber:2,reservedByRoomId:ROOMID,address:ROOM
     })};
     const transport=new TestnetNativeRoomPayoutTransport({
-        walletPool,adapter,dataDir:dir,outgoingObserver
+        walletPool,adapter,dataDir:dir,outgoingObserver:outgoingObserver ?? {
+        findOutgoingTransfer:async()=>({transactionId:"winner-tx"}),
+        verifyIndexedRecipientCredit:async ({destinationIdentity,transactionId,amountAtomic})=>({
+            status:"MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED",sourceTransactionId:transactionId,
+            recipientTransactionId:"winner-credit",destinationAddress:destinationIdentity,amountAtomic,globalId:-3,
+            sourceFinality:"finalized",recipientFinality:"finalized",
+            sourceMcBlockSeqno:1,recipientMcBlockSeqno:2,latestIndexedMcBlockSeqno:3
+        })
+    }
     });
     return {transport,seen,dir};
 }
@@ -42,16 +50,16 @@ function payout(fees){
 }
 const inputs={roomId:ROOMID,payoutId:PAYOUT,roomWalletAddress:ROOM,
     winnerWallet:WINNER,ownerWallet:OWNER};
-test("two real-Testnet fee quotes produce recipient-funded gas charges",async t=>{
+test("fee quotes remain diagnostic and do not reduce payouts",async t=>{
     const h=harness(t);
     const fee=await h.transport.quote({
         roomId:ROOMID,roomWallet:ROOM,winnerWallet:WINNER,ownerWallet:OWNER,
         principalAtomic:3_000_000_000
     });
-    assert.equal(fee.winner.feeAtomic,2_000_000);
-    assert.equal(fee.owner.feeAtomic,2_000_000);
+    assert.equal(fee.winner.feeAtomic,1_000_000);
+    assert.equal(fee.owner.feeAtomic,1_000_000);
     assert.deepEqual(h.seen.map(x=>x.op),["quote","quote"]);
-    assert.ok(payout(fee).safetyMarginAtomic===0);
+    assert.equal(payout(fee).gasReserveAtomic,3_000_000);
 });
 test("one 3-player result sends winner then owner, respecting room reserve and no double-submit",async t=>{
     const h=harness(t);
@@ -64,10 +72,10 @@ test("one 3-player result sends winner then owner, respecting room reserve and n
     assert.equal(outcome.status,"SUBMITTED_UNCONFIRMED");
     const sent=h.seen.filter(x=>x.op==="send");
     assert.equal(sent.length,2);
-    assert.equal(sent[0].amountNano,2_848_000_000n);
-    assert.equal(sent[1].amountNano,148_000_000n);
+    assert.equal(sent[0].amountNano,2_850_000_000n);
+    assert.equal(sent[1].amountNano,147_000_000n);
     assert.equal(sent[0].sourceReserveNano,150_000_000n);
-    assert.equal(sent[1].sourceReserveNano,0n);
+    assert.equal(sent[1].sourceReserveNano,3_000_000n);
     const second=await h.transport.submit({...inputs,plan});
     assert.equal(second.status,"ALREADY_ATTEMPTED_NEEDS_RECONCILIATION");
     assert.equal(h.seen.filter(x=>x.op==="send").length,2);

@@ -51,19 +51,19 @@ function harness({ allPaid=true, fees=true, submit=true, dataDir=null }={}) {
     });
     return {c,calls,sent};
 }
-test("result binds exact 3 settled payments, winner wallet, no deduction from the 95/5 allocation",async()=>{
+test("result binds exact 3 settled payments, winner wallet, full 95% and 4.9% transfers",async()=>{
     const {c,calls,sent}=harness();
     const result=await c.onGameResult({gameId:"game-123"});
     assert.equal(result.status,"SUBMITTED_UNCONFIRMED");
     assert.equal(calls.length,1);
-    assert.equal(calls[0].safetyMarginAtomic,0);
+    assert.equal(calls[0].networkFees,undefined);
     assert.equal(calls[0].winner.address,B);
     assert.equal(calls[0].owner.address,D);
     assert.equal(sent.length,1);
     assert.equal(sent[0].plan.principalAtomic,3_000_000_000);
-    assert.equal(sent[0].plan.safetyMarginAtomic,0);
+    assert.equal(sent[0].plan.gasReserveAtomic,3_000_000);
     assert.equal(sent[0].plan.transfers.find(x=>x.recipientRole==="WINNER").grossAtomic,2_850_000_000);
-    assert.equal(sent[0].plan.transfers.find(x=>x.recipientRole==="OWNER").grossAtomic,150_000_000);
+    assert.equal(sent[0].plan.transfers.find(x=>x.recipientRole==="OWNER").grossAtomic,147_000_000);
 });
 test("second result and reconnect cannot call payout submitter twice",async()=>{
     const {c,calls,sent}=harness();
@@ -79,12 +79,13 @@ test("no 3/3 settled -> no payout plan and absolutely no outgoing call",async()=
     assert.equal(calls.length,0);
     assert.equal(sent.length,0);
 });
-test("absence of fee quotes never fabricates sender payout",async()=>{
+test("absence of fee quotes does not block the full winner payout",async()=>{
     const {c,calls,sent}=harness({fees:false});
     const result=await c.onGameResult({gameId:"game-123"});
-    assert.equal(result.status,"WAITING_FOR_FEE_QUOTES");
-    assert.equal(calls.length,0);
-    assert.equal(sent.length,0);
+    assert.equal(result.status,"SUBMITTED_UNCONFIRMED");
+    assert.equal(calls.length,1);
+    assert.equal(sent.length,1);
+    assert.equal(sent[0].plan.transfers[0].netAtomic,2_850_000_000);
 });
 test("a planned payout without executor remains an obligation, not a completed transfer",async()=>{
     const {c,calls,sent}=harness({submit:false});
@@ -100,16 +101,16 @@ test('restart pays a durably captured result without live room or player objects
     const {join} = await import('node:path');
     const dir = mkdtempSync(join(tmpdir(), 'ww-result-recovery-'));
     t.after(() => rmSync(dir, {recursive:true, force:true}));
-    const original = harness({dataDir:dir, fees:false});
-    assert.equal((await original.c.onGameResult({gameId:'game-123'})).status, 'WAITING_FOR_FEE_QUOTES');
+    const original = harness({dataDir:dir, submit:false});
+    assert.equal((await original.c.onGameResult({gameId:'game-123'})).status, 'PAYOUT_PLANNED_EXECUTOR_UNAVAILABLE');
     const recovered = [];
     const restarted = new TestnetWinnerPayoutCoordinator({paymentRuntime:original.c._payment,
         feeQuotesProvider:{quote:async()=>({winner:{feeAtomic:2000000},owner:{feeAtomic:2000000}})},
-        payoutSubmitter:{submit:async x => {recovered.push(x); return {status:'SUBMITTED_UNCONFIRMED'};}}
+        payoutSubmitter:{resumeUnattempted:async x => {recovered.push(x); return {status:'SUBMITTED_UNCONFIRMED'};}}
     });
     const result = await restarted.recoverPendingResults();
     assert.equal(result[0].status, 'SUBMITTED_UNCONFIRMED');
     assert.equal(recovered.length, 1);
     assert.equal(recovered[0].winnerWallet, B);
-    assert.equal(recovered[0].plan.safetyMarginAtomic, 0);
+    assert.equal(recovered[0].plan.gasReserveAtomic, 3_000_000);
 });

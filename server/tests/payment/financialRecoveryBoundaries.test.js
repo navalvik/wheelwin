@@ -59,5 +59,28 @@ test('restart repairs both recipient obligations after crash immediately after p
     ledger.initialize();
     assert.equal(ledger.store.size, count);
     assert.equal(plan.transfers[0].grossAtomic, 5700000000);
-    assert.equal(plan.transfers[1].grossAtomic, 300000000);
+    assert.equal(plan.transfers[1].grossAtomic, 294000000);
+    assert.equal(plan.gasReserveAtomic, 6000000);
+});
+
+test('retry repairs reserve after a partial plan write without requiring restart', t => {
+    const dir = directory(t);
+    const store = new LedgerStore({dataDir:dir});
+    const intents = new PaymentIntentStore({dataDir:dir}); intents.initialize();
+    const ledger = new RoomLedger({store, intentStore:intents, currency:CurrencyMapping.nativeTon({network:'testnet'})});
+    ledger.initialize();
+    const plan = RoomPayoutCalculator.computePlan({payoutId:'partial',roomId:'room',asset:'TON',network:'testnet',
+        principalAtomic:3000000000,
+        winner:{recipientId:'Lena',address:'0:'+'a'.repeat(64)}, owner:{recipientId:'WheelWin',address:'0:'+'b'.repeat(64)},nowMs:Date.now()});
+    store.append({idempotencyKey:'incoming',roomId:'room',kind:'INCOMING_PRINCIPAL',amountAtomic:3000000000,
+        asset:'TON',network:'testnet',metadata:{}});
+    store.append({idempotencyKey:'partial:plan',roomId:'room',kind:'PAYOUT_PLAN',amountAtomic:3000000000,
+        asset:'TON',network:'testnet',metadata:{payoutId:'partial',plan:plan.toJSON()}});
+    assert.equal(ledger.planPayout({payoutId:'partial',roomId:'room'}).replay,true);
+    const reserves = () => store.list().filter(entry => entry.kind === 'GAS_RESERVE_ALLOCATION');
+    assert.equal(reserves().length,1);
+    assert.equal(reserves()[0].amountAtomic,3000000);
+    assert.equal(ledger.listPayoutObligations('room').length,2);
+    ledger.planPayout({payoutId:'partial',roomId:'room'});
+    assert.equal(reserves().length,1);
 });

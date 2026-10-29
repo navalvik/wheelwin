@@ -51,6 +51,6 @@ assert.throws(() => buildRoomWalletTonConnectRequest({
     expiresAt: now + 600_000,
     destinationWalletAddress: destination,
     payerAddress: payer
-}, now), /No active authoritative Testnet payment request/);
+}, now), /No active authoritative TON payment request/);
 
 process.stdout.write("buildRoomWalletTonConnectRequest.test.js: all assertions passed\n");
