@@ -36,6 +36,12 @@ import "../styles/page4payment.css";
 const PAYMENT_STATUS_EVENT = INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED;
 const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
 
+function hasPaymentSubmissionSignal(paymentReference) {
+    if (!paymentReference) return false;
+    const state = localStorage.getItem('wheelwin:payment:' + paymentReference);
+    return state === 'PAYMENT_SUBMITTED' || state === 'SUBMISSION_UNKNOWN';
+}
+
 export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
     const { roomId, playerId } = identity ?? {};
@@ -49,6 +55,7 @@ export default function Page4Payment() {
     const status = payment.status;
     const [transferQr, setTransferQr] = useState(null);
     const [showTransferQr, setShowTransferQr] = useState(false);
+    const paymentReferenceRef = useRef(null);
 
     useEffect(() => {
         let disposed = false;
@@ -82,8 +89,11 @@ export default function Page4Payment() {
         if (!roomId || !playerId) {
 
             requestedRef.current = null;
+            paymentReferenceRef.current = null;
             return;
         }
+
+        paymentReferenceRef.current = null;
 
         function handlePaymentStatus(payload) {
             if (payload?.roomId !== roomId
@@ -92,10 +102,15 @@ export default function Page4Payment() {
                 return;
             }
             setPayment(payload);
+            paymentReferenceRef.current = payload.paymentReference ?? null;
             setSentToWallet(Boolean(payload.paymentReference && localStorage.getItem('wheelwin:payment:' + payload.paymentReference)));
         }
 
-        const requestStatus = () => socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId});
+        const requestStatus = () => {
+            const paymentReference = paymentReferenceRef.current;
+            const paymentSubmitted = hasPaymentSubmissionSignal(paymentReference);
+            socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId, paymentSubmitted});
+        };
         socket.on('connect', requestStatus);
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
 
@@ -123,13 +138,14 @@ export default function Page4Payment() {
 
         const check = () => {
             if (socket.connected && Date.now() < payment.expiresAt) {
-                socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
+                const paymentSubmitted = hasPaymentSubmissionSignal(payment.paymentReference);
+                socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId, paymentSubmitted });
             }
         };
-        const id = setInterval(check, 4000);
+        const id = setInterval(check, 3000);
         return () => clearInterval(id);
     }, [roomId, playerId, payment.paymentAcceptanceEnabled,
-        payment.status, payment.expiresAt]);
+        payment.status, payment.expiresAt, payment.paymentReference]);
 
     const walletMatches = payerMatchesConnectedWallet(payment.payerAddress, connectedWallet, payment.network);
     const payable = payment.paymentAcceptanceEnabled === true
@@ -164,19 +180,25 @@ export default function Page4Payment() {
         let transaction;
         try { transaction = buildRoomWalletTonConnectRequest(payment); }
         catch (error) { setPaymentError(error.message); return; }
-        localStorage.setItem(attemptKey, 'SUBMISSION_UNKNOWN');
+        localStorage.setItem(attemptKey, 'SUBMISSION_PENDING');
+        paymentReferenceRef.current = payment.paymentReference;
         setSentToWallet(true);
         setSending(true);
         try {
             await tonConnectUI.sendTransaction(transaction);
             // TonConnect acknowledgement is NOT a blockchain confirmation.
             // Prevent repeat submits; only the server can mark the seat SETTLED.
+            localStorage.setItem(attemptKey, 'PAYMENT_SUBMITTED');
             setSentToWallet(true);
-            socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId});
+            socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId, paymentSubmitted: true});
         } catch (error) {
             if (error?.name === 'UserRejectsError') {
                 localStorage.removeItem(attemptKey);
                 setSentToWallet(false);
+            } else {
+                // Wallet errors can happen after the transfer was broadcast;
+                // ask the server to inspect the chain without assuming success.
+                localStorage.setItem(attemptKey, 'SUBMISSION_UNKNOWN');
             }
             setPaymentError(error?.message ?? "Wallet rejected payment");
         } finally {

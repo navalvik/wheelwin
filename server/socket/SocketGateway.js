@@ -843,7 +843,8 @@ export class SocketGateway {
             this._emitLobbyRequest(EVENT_TYPES.LOBBY_PAYMENT_STATUS_REQUEST, {
                 socketId: socket.id,
                 roomId: payload?.roomId ?? null,
-                playerId: payload?.playerId ?? null
+                playerId: payload?.playerId ?? null,
+                paymentSubmitted: payload?.paymentSubmitted === true
             });
 
         });

@@ -198,6 +198,11 @@ export class RoomLobbyBridge {
         // the game start gate evaluates. Keyed by roomId → Set(playerId).
         this._continueToVerifyByRoom = new Map();
 
+        // Authenticated Page4 payment-submission signals, keyed by room and
+        // authoritative playerId. Signals trigger chain observation only;
+        // they are never evidence that a payment settled.
+        this._roomPaymentSubmittedPlayers = new Map();
+
         this._verifyBarrierCompletedByRoom = new Set();
 
         // No-verbal-contact matchmaking. Candidate data and per-room NEXT
@@ -705,7 +710,10 @@ export class RoomLobbyBridge {
             EVENT_TYPES.LOBBY_PAYMENT_STATUS_REQUEST,
             (envelope) => {
 
-                this._handlePaymentStatusRequest(envelope.payload.socketId);
+                this._handlePaymentStatusRequest(
+                    envelope.payload.socketId,
+                    envelope.payload.paymentSubmitted === true
+                );
 
             }
         );
@@ -895,6 +903,8 @@ export class RoomLobbyBridge {
         this._verifyIconsAssignedByRoom.clear();
 
         this._continueToVerifyByRoom.clear();
+
+        this._roomPaymentSubmittedPlayers.clear();
 
         this._verifyBarrierCompletedByRoom.clear();
 
@@ -5490,7 +5500,7 @@ export class RoomLobbyBridge {
      * claim is trusted. The re-delivery is idempotent: it re-derives the same
      * status the reconnect path would have delivered.
      */
-    _handlePaymentStatusRequest(socketId) {
+    _handlePaymentStatusRequest(socketId, paymentSubmitted = false) {
         const context = this._getSocketContext(socketId);
         if (!context || !context.playerId || !context.roomId) return;
 
@@ -5508,6 +5518,21 @@ export class RoomLobbyBridge {
         if (!room || room.players?.length !== 3
             || !this._continueToVerifyByRoom.has(roomId)
             || typeof adapter?.observeRoomPayments !== "function") return;
+
+        // Wait for an explicit submission signal from each authenticated
+        // player before observing the shared room wallet. The socket binding
+        // supplies playerId; client room/player claims are not consulted.
+        if (paymentSubmitted !== true || !room.players.includes(context.playerId)) return;
+        if (!this._roomPaymentSubmittedPlayers) {
+            this._roomPaymentSubmittedPlayers = new Map();
+        }
+        let submittedPlayers = this._roomPaymentSubmittedPlayers.get(roomId);
+        if (!submittedPlayers) {
+            submittedPlayers = new Set();
+            this._roomPaymentSubmittedPlayers.set(roomId, submittedPlayers);
+        }
+        submittedPlayers.add(context.playerId);
+        if (!room.players.every(playerId => submittedPlayers.has(playerId))) return;
 
         if (!this._roomPaymentChecks) this._roomPaymentChecks = new Map();
         if (this._roomPaymentChecks.has(roomId)) return;
@@ -6007,6 +6032,8 @@ export class RoomLobbyBridge {
     _clearVerifyBarrier(roomId) {
 
         this._roomObservationBudget?.forget(roomId);
+
+        this._roomPaymentSubmittedPlayers?.delete(roomId);
 
         this._verifyConfirmedByRoom.delete(roomId);
 
