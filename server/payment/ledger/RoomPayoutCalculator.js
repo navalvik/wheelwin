@@ -14,9 +14,8 @@
  *      business-rule constant (see PayoutAllocationConfig) and is NEVER
  *      supplied or overridden by the caller;
  *   2. ownerGrossAllocationAtomic  = floor(principalAtomic * 5 / 100);
- *   3. gasReserveAtomic            = principalAtomic - winner - owner;
- *   4. fee quotes are diagnostic only; source-side TON fees do not reduce
- *      either recipient transfer;
+ *   3. gasReserveAtomic            = 0 for new plans;
+ *   4. recipient-facing transfers are gross minus frozen fee charges;
  *   5. every financial calculation is exact integer atomic-unit arithmetic
  *      (BigInt); a Number is produced only after a safe-integer bounds check;
  *   final allocation invariant (exact, in nanotons):
