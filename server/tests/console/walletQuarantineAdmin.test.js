@@ -36,7 +36,7 @@ function fixture({ balanceNano = "5000000000", openDebts = false,
     };
     const service = new WalletQuarantineAdminService({
         getRuntime:()=>runtime,
-        getAdapter:()=>({sendAllBalance:async args=>{
+        getAdapter:()=>({getWalletAddress:async()=>WALLET,sendAllBalance:async args=>{
             sweepCalls++;return {ok:true,code:"SUBMITTED_UNCONFIRMED",...args};
         }}),
         env:{TON_NETWORK:"testnet",TON_RESIDUES_EXPECTED_ADDRESS:RESIDUES,
