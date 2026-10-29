@@ -121,3 +121,33 @@ test("mismatched signing key cannot quarantine or sweep a different game wallet"
     assert.equal(f.held,0);
     assert.equal(f.sweepCalls,0);
 });
+
+test("manual investigation quarantine accepts an actively assigned wallet and unpaid debts",async()=>{
+    const f=fixture({reservedByRoomId:"live-room-123",openDebts:true});
+    await assert.rejects(
+        Promise.resolve().then(() => f.service.quarantine({
+            roomNumber:1,confirmation:"QUARANTINE 2"
+        })),/QUARANTINE_CONFIRMATION_REQUIRED/
+    );
+    assert.equal(f.held,0);
+    const result=f.service.quarantine({
+        roomNumber:1,confirmation:"QUARANTINE 1",
+        note:"Investigate unusual payment trail",actor:"administrator"
+    });
+    assert.equal(result.quarantined,true);
+    assert.equal(f.held,1);
+    assert.equal(f.released,0);
+    assert.equal(f.sweepCalls,0);
+    assert.equal(f.requests,0,"quarantine requires no blockchain connection");
+});
+
+test("manual investigation hold validates wallet number and note length",async()=>{
+    const f=fixture();
+    assert.throws(() => f.service.quarantine({
+        roomNumber:65,confirmation:"QUARANTINE 65"
+    }),/WALLET_NUMBER_MUST_BE_1_TO_64/);
+    assert.throws(() => f.service.quarantine({
+        roomNumber:1,confirmation:"QUARANTINE 1",note:"x".repeat(201)
+    }),/QUARANTINE_NOTE_TOO_LONG/);
+    assert.equal(f.held,0);
+});
