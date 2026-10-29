@@ -4,10 +4,9 @@
  * APPROVED, AUTHORITATIVE BUSINESS RULE (Phase 4 alignment):
  *
  *   1. the winner receives exactly 95% of settled principal;
- *   2. the owner receives exactly 5% of settled principal;
- *   3. 0% plus integer-rounding remainder is retained in the Room Wallet
- *      for source-paid TON fees and accumulated wallet balance;
- *   4. quoted and actual network fees never reduce either recipient transfer;
+ *   2. the owner receives the remaining 5% of settled principal;
+ *   3. no gross principal is retained as a mandatory reserve;
+ *   4. each recipient's frozen network-gas charge is deducted from its gross share;
  *   5. all arithmetic is exact integer atomic-unit (nanoton) arithmetic using
  *      BigInt; results are converted to Number only after a safe-integer
  *      bounds check.
