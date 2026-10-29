@@ -74,7 +74,7 @@ export class R2ForensicArchiveUploader {
     /**
      * @returns {Promise<{ objectName: string, generation: string|null, etag: string|null }>}
      */
-    async uploadFile(localPath, objectName, { revision = null } = {}) {
+    async uploadFile(localPath, objectName, { revision = null, final = false } = {}) {
 
         if (!this.isConfigured() || !this._client) {
 
@@ -104,6 +104,11 @@ export class R2ForensicArchiveUploader {
                     generation:existingObject.VersionId ?? existingObject.ETag ?? null,
                     etag:existingObject.ETag ?? null, alreadyPresent:true };
             }
+            if (final && existingObject) {
+                // This key has already been finalized with DIFFERENT bytes.
+                // Stop rather than overwriting the only evidentiary archive.
+                throw new Error("R2_FINAL_ARCHIVE_CONFLICT");
+            }
             if (revision !== null && (!/^[a-f0-9]{24}$/.test(revision))) {
                 throw new Error("R2_INVALID_FINANCIAL_REVISION");
             }
@@ -119,7 +124,8 @@ export class R2ForensicArchiveUploader {
                     Body: createReadStream(localPath),
                     // Stable room key, conditional create or compare-and-swap update.
                     // A stale writer must never silently overwrite newer evidence.
-                    ...(existingObject ? { IfMatch: existingObject.ETag } : { IfNoneMatch: "*" }),
+                    ...(final ? { IfNoneMatch: "*" } : existingObject
+                        ? { IfMatch: existingObject.ETag } : { IfNoneMatch: "*" }),
                     ...(revision !== null ? { Metadata: { wheelwinrevision: revision } } : {}),
                     // R2 S3-compatible endpoint needs a fixed payload length for
                     // reliable streamed uploads (avoid ambiguous chunked bodies).
@@ -136,7 +142,8 @@ export class R2ForensicArchiveUploader {
                             generation:racedObject.VersionId ?? racedObject.ETag ?? null,
                             etag:racedObject.ETag ?? null, alreadyPresent:true };
                     }
-                    throw new Error("R2_ARCHIVE_CONCURRENT_UPDATE");
+                    throw new Error(final ? "R2_FINAL_ARCHIVE_CONFLICT"
+                        : "R2_ARCHIVE_CONCURRENT_UPDATE");
                 }
                 throw error;
             }
@@ -215,7 +222,7 @@ export class MockForensicArchiveUploader {
 
     }
 
-    async uploadFile(localPath, objectName, { revision = null } = {}) {
+    async uploadFile(localPath, objectName, { revision = null, final = false } = {}) {
 
         if (this.shouldFail) {
 
@@ -228,6 +235,7 @@ export class MockForensicArchiveUploader {
             return { objectName, generation:"mock-generation", etag:previous.etag,
                 alreadyPresent:true };
         }
+        if (final && previous) throw new Error("R2_FINAL_ARCHIVE_CONFLICT");
         const etag = "mock-etag-" + (this.uploads.length + 1);
         this.uploads.push({ localPath, objectName, revision, bytes: readFileSync(localPath) });
         this.objects.set(objectName, { localPath, revision, etag });
