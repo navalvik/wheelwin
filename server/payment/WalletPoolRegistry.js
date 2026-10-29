@@ -204,6 +204,8 @@ export class WalletPoolRegistry {
         this._roomToWallet = new Map();
 
         this._initialized = false;
+        this._snapshotDir = null;
+        this._manualQuarantineReleases = new Set();
 
     }
 
@@ -245,6 +247,7 @@ export class WalletPoolRegistry {
         this._loadCatalog();
 
         const snapshotDir = options.snapshotDir ?? null;
+        this._snapshotDir = snapshotDir;
 
         if (snapshotDir) {
 
@@ -458,6 +461,51 @@ export class WalletPoolRegistry {
 
     }
 
+    /** Public-only list. The historical Testnet hold and env holds remain active
+     * until an explicit administrator release has been durably persisted. */
+    listQuarantinedWallets() {
+        this._assertInitialized();
+        return this.listWallets().filter(wallet => this._isQuarantined(wallet)).map(wallet => ({
+            roomNumber: wallet.roomNumber,
+            walletId: wallet.walletId,
+            address: wallet.address,
+            network: wallet.network,
+            reservedByRoomId: wallet.reservedByRoomId,
+            reason: wallet.network === "testnet" && wallet.roomNumber === 1
+                ? "HISTORICAL_UNRESOLVED_FUNDS"
+                : "ADMIN_ENVIRONMENT_HOLD"
+        }));
+    }
+
+    getWalletByRoomNumber(roomNumber) {
+        this._assertInitialized();
+        return this.listWallets().find(wallet => wallet.roomNumber === roomNumber) ?? null;
+    }
+
+    isQuarantined(roomNumber) {
+        const wallet = this.getWalletByRoomNumber(roomNumber);
+        return wallet ? this._isQuarantined(wallet) : false;
+    }
+
+    /** Release a quarantine hold, NOT a room reservation. Caller must first
+     * verify ledger/refund obligations and a fresh on-chain zero balance. */
+    manuallyReleaseQuarantine({roomNumber, verifiedSafe}) {
+        this._assertInitialized();
+        const wallet = this.getWalletByRoomNumber(roomNumber);
+        if (!wallet || verifiedSafe !== true || wallet.reservedByRoomId !== null
+            || !this._isQuarantined(wallet) || !this._snapshotDir) {
+            throw new PaymentValidationError("QUARANTINE_RELEASE_NOT_SAFE");
+        }
+        this._manualQuarantineReleases.add(roomNumber);
+        try {
+            this.persistSnapshot(this._snapshotDir);
+        } catch (error) {
+            this._manualQuarantineReleases.delete(roomNumber);
+            throw error;
+        }
+        return {roomNumber, released: true};
+    }
+
     // -------------------------------------------------------------------------
     // Reservation / release rules
     // -------------------------------------------------------------------------
@@ -633,6 +681,7 @@ export class WalletPoolRegistry {
             schemaVersion: WALLET_POOL_SCHEMA_VERSION,
             network: this._network,
             poolSize: this._wallets.size,
+            manualQuarantineReleases: [...this._manualQuarantineReleases],
             reservations: Object.freeze(
                 [...this._wallets.values()].map((wallet) => wallet.toRecord())
             ),
@@ -668,6 +717,12 @@ export class WalletPoolRegistry {
                 { filePath }
             );
 
+        }
+
+        if (Array.isArray(parsed?.manualQuarantineReleases)) {
+            this._manualQuarantineReleases = new Set(
+                parsed.manualQuarantineReleases.filter(n => Number.isInteger(n) && n >= 1 && n <= ROOM_WALLET_POOL_SIZE)
+            );
         }
 
         if (!Array.isArray(parsed?.reservations)) {
@@ -741,6 +796,7 @@ export class WalletPoolRegistry {
     }
 
     _isQuarantined(wallet) {
+        if (this._manualQuarantineReleases.has(wallet?.roomNumber)) return false;
         // Room wallet #1 retains unresolved historical oj7v refunds.
         // Quarantine is a Testnet invariant, never an optional deployment
         // variable: missing Railway env settings must not reassign it.
