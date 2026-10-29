@@ -123,10 +123,21 @@ export class TestnetWinnerPayoutCoordinator {
 
     async _executeResultOnce({roomId, gameId, payoutId, winnerId, winnerWallet, ownerWallet, roomWallet, principal}) {
         ensure(this._payment.outcomeStore?.get(roomId)?.kind !== 'REFUND', 'PAYOUT_REFUND_CONFLICT');
+        const existing = this._payment.ledger.store?.findByIdempotencyKey(payoutId + ':plan');
+        // A historic payout must be replayed exactly as persisted. Only a new
+        // 95/5 plan needs fresh gas estimates, frozen before its first send.
+        if (!existing && typeof this._submitter?.quote !== "function") {
+            return Object.freeze({status:"PAYOUT_RECIPIENT_GAS_ESTIMATOR_UNAVAILABLE",payoutId,roomId});
+        }
+        const networkFees = existing ? undefined : await this._submitter.quote({
+            roomId, roomWallet:roomWallet.address, winnerWallet, ownerWallet,
+            principalAtomic:principal
+        });
         const payout = this._payment.ledger.planPayout({
             payoutId, roomId,
             winner:{recipientId:winnerId,address:winnerWallet},
             owner:{recipientId:"WheelWin",address:ownerWallet},
+            networkFees,
             nowMs:Date.now()
         });
         // Idempotent ledger plan prevents repeated result events making a
