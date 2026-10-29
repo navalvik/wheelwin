@@ -1,0 +1,61 @@
+name: Testnet three-player payment release gate
+on:
+  push:
+    branches:
+      - fix/testnet-payment-reconciliation-forensics
+  pull_request:
+    paths:
+      - 'server/payment/**'
+      - 'server/forensic/**'
+      - 'server/history/**'
+      - 'server/socket/**'
+      - 'client/src/pages/Page4Payment.jsx'
+      - 'client/src/payment/**'
+      - 'server/tests/paymentHistoricalCrossRoom.test.js'
+      - 'server/tests/paymentObservationWithoutAcknowledgement.test.js'
+      - 'server/tests/paymentReconciliationDefects.test.js'
+      - 'server/tests/paymentThreePlayerGate.test.js'
+      - '.github/workflows/testnet-three-player-release-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Validate changed financial modules
+        run: |
+          node --check payment/runtime/HistoricalIncomingReceiptReconciler.js
+          node --check payment/WalletPoolRegistry.js
+          node --check socket/RoomLobbyBridge.js
+          node --check forensic/ForensicArchiveService.js
+          node --check forensic/R2ForensicArchiveUploader.js
+      - name: Deterministic payment and 3/3 gate regressions
+        run: node --test tests/payment/*.test.js tests/paymentReconciliationDefects.test.js tests/paymentHistoricalCrossRoom.test.js tests/paymentObservationWithoutAcknowledgement.test.js tests/paymentThreePlayerGate.test.js tests/paymentLedgerPayout.phase4.test.js tests/restoredR2ArchiveRoomClose.test.js
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - name: Verify UI unit tests
+        run: node scripts/run-tests.js
+      - name: Verify production build
+        run: npm run build
