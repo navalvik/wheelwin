@@ -23,6 +23,7 @@ export default function WalletQuarantinePanel() {
     const [error,setError] = useState("");
     const [message,setMessage] = useState("");
     const [confirmation,setConfirmation] = useState("");
+    const [investigationNote,setInvestigationNote] = useState("");
     const [busy,setBusy] = useState(false);
     const inFlight = useRef(false);
     const load = useCallback(async () => {
@@ -51,15 +52,18 @@ export default function WalletQuarantinePanel() {
         setSelected(n);
         setInput(String(n));
         setConfirmation("");
+        setInvestigationNote("");
         setMessage("");
         setError("");
     };
 
     const action = async (kind) => {
         if (!accessToken || !isAdministrator || !selected || busy) return;
-        const expected = kind === "release"
-            ? `RELEASE ${selected}`
-            : `SWEEP ${selected} TO TON_RESIDUES`;
+        const expected = kind === "quarantine"
+            ? `QUARANTINE ${selected}`
+            : kind === "release"
+                ? `RELEASE ${selected}`
+                : `SWEEP ${selected} TO TON_RESIDUES`;
         if (confirmation !== expected) {
             setError("Введите точную фразу подтверждения");
             return;
@@ -68,12 +72,19 @@ export default function WalletQuarantinePanel() {
         setError("");
         setMessage("");
         try {
-            const result = await performWalletQuarantineAction(accessToken,kind,selected,confirmation);
-            setMessage(kind === "release"
-                ? `Кошелёк №${selected}: карантин снят.`
-                : `Кошелёк №${selected}: ${result.code ?? "результат неизвестен"}.
+            const result = await performWalletQuarantineAction(
+                accessToken,kind,selected,confirmation,investigationNote
+            );
+            setMessage(kind === "quarantine"
+                ? `Кошелёк №${selected}: карантин установлен.${result.reservedByRoomId
+                    ? " Текущая комната продолжает работу; повторное назначение запрещено."
+                    : " Новые назначения запрещены."}`
+                : kind === "release"
+                    ? `Кошелёк №${selected}: карантин снят.`
+                    : `Кошелёк №${selected}: ${result.code ?? "результат неизвестен"}.
 Отправка ещё не означает подтверждённое зачисление на TON_RESIDUES.`);
             setConfirmation("");
+            if (kind === "quarantine") setInvestigationNote("");
             await load();
         } catch(e) {
             setError(e.message || "Операция отклонена");
@@ -83,6 +94,7 @@ export default function WalletQuarantinePanel() {
 
     const current = snapshot?.selected;
     const blocked = current?.outstanding?.open > 0 || Boolean(current?.reservedByRoomId);
+    const quarantineText = current ? `QUARANTINE ${current.roomNumber}` : "";
     const releaseText = current ? `RELEASE ${current.roomNumber}` : "";
     const sweepText = current ? `SWEEP ${current.roomNumber} TO TON_RESIDUES` : "";
 
@@ -98,7 +110,11 @@ export default function WalletQuarantinePanel() {
                 {(snapshot?.quarantined ?? []).length === 0 && <p>В карантине нет кошельков.</p>}
                 {(snapshot?.quarantined ?? []).map(wallet => (
                     <div className="devConsole__kvRow" key={wallet.roomNumber}>
-                        <span className="devConsole__kvKey">№{wallet.roomNumber} · {wallet.reason}</span>
+                        <span className="devConsole__kvKey">
+                            №{wallet.roomNumber} · {wallet.reason}
+                            {wallet.reservedByRoomId ? ` · активная комната: ${wallet.reservedByRoomId}` : ""}
+                            {wallet.quarantineNote ? ` · ${wallet.quarantineNote}` : ""}
+                        </span>
                         <button type="button" disabled={busy} onClick={() => choose(wallet.roomNumber)}>
                             Проверить
                         </button>
@@ -124,6 +140,10 @@ export default function WalletQuarantinePanel() {
                     <div className="devConsole__kvRow"><span>Баланс</span><strong>{grams(current.balanceNano)}</strong></div>
                     <div className="devConsole__kvRow"><span>Карантин</span><strong>{current.quarantined ? "Да" : "Нет"}</strong></div>
                     <div className="devConsole__kvRow"><span>Активная комната</span><span>{current.reservedByRoomId || "Нет"}</span></div>
+                    {current.quarantineNote && <div className="devConsole__kvRow"><span>Причина карантина</span>
+                        <span>{current.quarantineNote}</span></div>}
+                    {current.quarantinedAt && <div className="devConsole__kvRow"><span>Дата карантина</span>
+                        <span>{current.quarantinedAt}</span></div>}
                     <div className="devConsole__kvRow"><span>Незавершённые обязательства</span>
                         <strong>{current.outstanding?.open ?? "—"}</strong></div>
                     <div className="devConsole__kvRow"><span>Запись об отправке остатка</span>
@@ -145,10 +165,21 @@ export default function WalletQuarantinePanel() {
             </section>
             {current && <section className="devConsole__opsCard">
                 <h3>Административные операции · №{current.roomNumber}</h3>
-                <p>Нельзя менять кошелёк с активной комнатой или незавершёнными
-                    возвратами/выплатами. При выводе всего остатка TON удерживает
-                    сетевые комиссии из средств этого кошелька. Операция не повторяется автоматически.</p>
-                {blocked && <p role="alert">Операции заблокированы: есть действующая комната или долги.</p>}
+                <p><strong>Поставить в карантин:</strong> разрешено для любого свободного
+                    или занятого кошелька. Если комната активна, она продолжит работу,
+                    а кошелёк не будет выдан другой комнате после завершения.</p>
+                <p><strong>Снять карантин или вывести средства:</strong> нельзя при активной
+                    комнате либо незавершённых возвратах/выплатах. При выводе TON
+                    удерживает сетевые комиссии из самого кошелька. Повтора нет.</p>
+                {blocked && <p role="alert">Снятие карантина и вывод средств заблокированы:
+                    есть действующая комната или долги. Постановка на карантин доступна.</p>}
+                {!current.quarantined && <label htmlFor="quarantine-note">
+                    Причина расследования (необязательно, до 200 символов)
+                    <input id="quarantine-note" type="text" maxLength={200}
+                        autoComplete="off" value={investigationNote}
+                        onChange={e=>setInvestigationNote(e.target.value)}
+                        style={{width:"100%",maxWidth:"420px",display:"block"}}/>
+                </label>}
                 <p>Для освобождения нужен нулевой подтверждённый баланс.
                     После попытки вывода необходима ручная сверка транзакции.
                     Действие не удаляет долгов перед игроками и не подтверждает зачисление.</p>
@@ -156,8 +187,11 @@ export default function WalletQuarantinePanel() {
                 <input id="quarantine-confirmation" type="text" autoComplete="off"
                     value={confirmation} onChange={e=>setConfirmation(e.target.value)}
                     style={{width:"100%",maxWidth:"420px",display:"block"}}/>
-                <p><code>{releaseText}</code> или <code>{sweepText}</code></p>
+                <p><code>{quarantineText}</code>, <code>{releaseText}</code> или <code>{sweepText}</code></p>
                 <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
+                    <button type="button" disabled={busy || current.quarantined
+                        || confirmation !== quarantineText}
+                        onClick={()=>action("quarantine")}>Поставить в карантин</button>
                     <button type="button" disabled={busy || blocked || !current.quarantined
                         || confirmation !== releaseText}
                         onClick={()=>action("release")}>Освободить из карантина</button>
