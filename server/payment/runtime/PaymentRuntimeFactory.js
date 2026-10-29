@@ -456,6 +456,8 @@ export function buildPaymentRuntime(options = {}) {
                 intents:intentStore.listForRoom(roomId).map(x => x.toRecord()),
                 ledger:ledgerStore.listForRoom(roomId),
                 receipts:receiptStore.listForRoom(roomId),
+                unresolvedReceipts:receiptStore.listUnresolved().filter(receipt =>
+                    (receipt.candidateRoomIds ?? []).includes(roomId)),
                 refunds:refundStore.list().filter(x => x.roomId === roomId).map(x => x.toRecord()),
                 paymentObservations:paymentForensicJournal.list(roomId, "observations"),
                 paymentDecisions:paymentForensicJournal.list(roomId, "decisions"),

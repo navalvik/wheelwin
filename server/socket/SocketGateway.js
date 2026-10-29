@@ -844,7 +844,10 @@ export class SocketGateway {
                 socketId: socket.id,
                 roomId: payload?.roomId ?? null,
                 playerId: payload?.playerId ?? null,
-                paymentSubmitted: payload?.paymentSubmitted === true
+                observationRequested: payload?.observationRequested === true,
+                paymentSubmissionAcknowledged: payload?.paymentSubmissionAcknowledged === true,
+                observationTrigger: typeof payload?.observationTrigger === "string"
+                    ? payload.observationTrigger : null
             });
 
         });

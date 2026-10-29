@@ -358,15 +358,29 @@ export class SessionHistoryArchiveManager {
 
         });
 
-        this._subscribe(EVENT_TYPES.PAYMENT_SUBMISSION_SIGNAL, (envelope) => {
+        this._subscribe(EVENT_TYPES.PAYMENT_OBSERVATION_REQUESTED, (envelope) => {
             const roomId = envelope.payload?.roomId;
             const playerId = envelope.payload?.playerId;
             const pending = this._ensurePending(roomId);
             if (!pending || !playerId) return;
-            if (!pending.paymentSignals) pending.paymentSignals = new Set();
-            if (pending.paymentSignals.has(playerId)) return;
-            pending.paymentSignals.add(playerId);
-            this._pushTimeline(roomId, "PAYMENT", `PAYMENT_SUBMISSION_SIGNAL player=${safeSegment(playerId)}`);
+            if (!pending.observationRequests) pending.observationRequests = new Set();
+            if (pending.observationRequests.has(playerId)) return;
+            pending.observationRequests.add(playerId);
+            this._pushTimeline(roomId, "PAYMENT", `PAYMENT_OBSERVATION_REQUESTED player=${safeSegment(playerId)} trigger=${safeSegment(envelope.payload?.trigger)}`);
+        });
+
+        this._subscribe(EVENT_TYPES.PAYMENT_QR_DISPLAYED, (envelope) => {
+            const roomId = envelope.payload?.roomId;
+            const pending = this._ensurePending(roomId);
+            if (!pending) return;
+            this._pushTimeline(roomId, "PAYMENT", `PAYMENT_QR_DISPLAYED player=${safeSegment(envelope.payload?.playerId)}`);
+        });
+
+        this._subscribe(EVENT_TYPES.PAYMENT_SUBMISSION_ACKNOWLEDGED, (envelope) => {
+            const roomId = envelope.payload?.roomId;
+            const pending = this._ensurePending(roomId);
+            if (!pending) return;
+            this._pushTimeline(roomId, "PAYMENT", `PAYMENT_SUBMISSION_ACKNOWLEDGED player=${safeSegment(envelope.payload?.playerId)} (not settlement evidence)`);
         });
 
         this._subscribe(EVENT_TYPES.PAYMENT_OBSERVATION_SKIPPED, (envelope) => {

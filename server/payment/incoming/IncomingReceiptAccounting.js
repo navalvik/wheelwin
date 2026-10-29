@@ -36,8 +36,24 @@ export class IncomingReceiptAccounting {
                 destinationWalletAddress: address(transfer.destinationWalletAddress),
                 playerId: owners.length === 1 ? owners[0].playerId : null,
                 paymentIntentId: owners.length === 1 ? owners[0].paymentReference : null,
-                paymentReference: transfer.paymentReference
+                paymentReference: transfer.paymentReference,
+                ownershipStatus: 'RESOLVED'
             });
+    }
+    recordUnresolvedTransfer(transfer, { candidateRoomIds = [], reason = 'OWNERSHIP_UNVERIFIED' } = {}) {
+        this.store.recordUnresolved({
+            schemaVersion: 1, network: 'testnet', asset: 'TON', roomId: null,
+            transactionId: transfer.transactionId,
+            providerTransactionId: transfer.providerTransactionIdentity.transactionId,
+            providerAccountId: transfer.providerTransactionIdentity.accountId,
+            transactionTime: transfer.transactionTime, amountAtomic: transfer.amountAtomic,
+            senderAddress: address(transfer.senderAddress),
+            destinationWalletAddress: address(transfer.destinationWalletAddress),
+            playerId: null, paymentIntentId: null,
+            paymentReference: transfer.paymentReference,
+            candidateRoomIds: [...new Set(candidateRoomIds.filter(Boolean))],
+            unresolvedReason: reason
+        });
     }
     prepareClosedRoom(roomId) {
         const closed = this.refundStore.listClosedRooms().find(r => r.roomId === roomId);

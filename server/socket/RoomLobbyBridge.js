@@ -203,8 +203,9 @@ export class RoomLobbyBridge {
         // Authenticated Page4 payment-submission signals, keyed by room and
         // authoritative playerId. Signals trigger chain observation only;
         // they are never evidence that a payment settled.
-        this._roomPaymentSubmittedPlayers = new Map();
-        this._roomPaymentSignalsCompleteAt = new Map();
+        this._roomPaymentObservationRequestedPlayers = new Map();
+        this._roomPaymentObservationRequestedAt = new Map();
+        this._roomPaymentSubmissionAcknowledgedPlayers = new Map();
         this._paymentNoSignalLogged = new Set();
 
         this._verifyBarrierCompletedByRoom = new Set();
@@ -716,7 +717,7 @@ export class RoomLobbyBridge {
 
                 this._handlePaymentStatusRequest(
                     envelope.payload.socketId,
-                    envelope.payload.paymentSubmitted === true
+                    envelope.payload
                 );
 
             }
@@ -908,8 +909,9 @@ export class RoomLobbyBridge {
 
         this._continueToVerifyByRoom.clear();
 
-        this._roomPaymentSubmittedPlayers.clear();
-        this._roomPaymentSignalsCompleteAt.clear();
+        this._roomPaymentObservationRequestedPlayers.clear();
+        this._roomPaymentObservationRequestedAt.clear();
+        this._roomPaymentSubmissionAcknowledgedPlayers.clear();
 
         this._verifyBarrierCompletedByRoom.clear();
 
@@ -5522,7 +5524,7 @@ export class RoomLobbyBridge {
      * the three-player Page5 gate remains separate. The first signal gets a
      * four-second grace period; later checks obey the room cadence budget.
      */
-    _handlePaymentStatusRequest(socketId, paymentSubmitted = false) {
+    _handlePaymentStatusRequest(socketId, request = {}) {
         const context = this._getSocketContext(socketId);
         if (!context || !context.playerId || !context.roomId) return;
 
@@ -5547,11 +5549,12 @@ export class RoomLobbyBridge {
             || !this._continueToVerifyByRoom.has(roomId)
             || typeof adapter?.observeRoomPayments !== "function") return;
 
-        // Wait for an explicit signal from any authenticated seated player.
-        // The socket binding supplies playerId; client room/player claims are
-        // not consulted. Other players' actions must not gate receipt checks.
+        // Any active Page4 may request a bounded observation. A QR display or
+        // wallet acknowledgement is diagnostic only and never proves payment.
+        // The socket binding supplies playerId; client identity claims are
+        // not consulted. Other players' actions do not gate receipt checks.
         if (!room.players.includes(context.playerId)) return;
-        if (paymentSubmitted !== true) {
+        if (request.observationRequested !== true) {
             if (!this._paymentNoSignalLogged.has(roomId)) {
                 this._paymentNoSignalLogged.add(roomId);
                 const skippedAt = Date.now();
@@ -5559,38 +5562,64 @@ export class RoomLobbyBridge {
                     startedAt: skippedAt, completedAt: skippedAt, walletId: null,
                     walletAddress: null, providerRequests: 0, rowsReturned: 0,
                     transfersFound: 0, resultWindowComplete: false,
-                    providerError: null, skippedReason: "NO_PAYMENT_SUBMISSION_SIGNAL"
+                    providerError: null, skippedReason: "NO_OBSERVATION_REQUEST"
                 });
                 this._eventBus.emit({
                     source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
                     type: EVENT_TYPES.PAYMENT_OBSERVATION_SKIPPED,
-                    payload: { roomId, at: skippedAt, reason: "NO_PAYMENT_SUBMISSION_SIGNAL" }
+                    payload: { roomId, at: skippedAt, reason: "NO_OBSERVATION_REQUEST" }
                 });
             }
             return;
         }
-        if (!this._roomPaymentSubmittedPlayers) {
-            this._roomPaymentSubmittedPlayers = new Map();
+        if (!this._roomPaymentObservationRequestedPlayers) {
+            this._roomPaymentObservationRequestedPlayers = new Map();
         }
-        let submittedPlayers = this._roomPaymentSubmittedPlayers.get(roomId);
-        if (!submittedPlayers) {
-            submittedPlayers = new Set();
-            this._roomPaymentSubmittedPlayers.set(roomId, submittedPlayers);
+        let requestedPlayers = this._roomPaymentObservationRequestedPlayers.get(roomId);
+        if (!requestedPlayers) {
+            requestedPlayers = new Set();
+            this._roomPaymentObservationRequestedPlayers.set(roomId, requestedPlayers);
         }
-        const firstSignalFromPlayer = !submittedPlayers.has(context.playerId);
-        submittedPlayers.add(context.playerId);
-        if (firstSignalFromPlayer) {
+        const firstRequestFromPlayer = !requestedPlayers.has(context.playerId);
+        requestedPlayers.add(context.playerId);
+        if (firstRequestFromPlayer) {
             this._eventBus.emit({
                 source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
-                type: EVENT_TYPES.PAYMENT_SUBMISSION_SIGNAL,
-                payload: { roomId, playerId: context.playerId, submittedAt: Date.now() }
+                type: EVENT_TYPES.PAYMENT_OBSERVATION_REQUESTED,
+                payload: { roomId, playerId: context.playerId, requestedAt: Date.now(),
+                    trigger: request.observationTrigger ?? "PAGE4_ACTIVE" }
             });
         }
-        if (!this._roomPaymentSignalsCompleteAt) {
-            this._roomPaymentSignalsCompleteAt = new Map();
+        if (request.observationTrigger === "PAYMENT_QR_DISPLAYED") {
+            this._eventBus.emit({
+                source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                type: EVENT_TYPES.PAYMENT_QR_DISPLAYED,
+                payload: { roomId, playerId: context.playerId, displayedAt: Date.now() }
+            });
         }
-        if (!this._roomPaymentSignalsCompleteAt.has(roomId)) {
-            this._roomPaymentSignalsCompleteAt.set(roomId, Date.now());
+        if (request.paymentSubmissionAcknowledged === true) {
+            if (!this._roomPaymentSubmissionAcknowledgedPlayers) {
+                this._roomPaymentSubmissionAcknowledgedPlayers = new Map();
+            }
+            let acknowledged = this._roomPaymentSubmissionAcknowledgedPlayers.get(roomId);
+            if (!acknowledged) {
+                acknowledged = new Set();
+                this._roomPaymentSubmissionAcknowledgedPlayers.set(roomId, acknowledged);
+            }
+            if (!acknowledged.has(context.playerId)) {
+                acknowledged.add(context.playerId);
+                this._eventBus.emit({
+                    source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                    type: EVENT_TYPES.PAYMENT_SUBMISSION_ACKNOWLEDGED,
+                    payload: { roomId, playerId: context.playerId, acknowledgedAt: Date.now() }
+                });
+            }
+        }
+        if (!this._roomPaymentObservationRequestedAt) {
+            this._roomPaymentObservationRequestedAt = new Map();
+        }
+        if (!this._roomPaymentObservationRequestedAt.has(roomId)) {
+            this._roomPaymentObservationRequestedAt.set(roomId, Date.now());
         }
 
         if (!this._roomPaymentChecks) this._roomPaymentChecks = new Map();
@@ -5601,9 +5630,9 @@ export class RoomLobbyBridge {
 
         const pending = Promise.resolve()
             .then(() => new Promise(resolve => {
-                const completeAt = this._roomPaymentSignalsCompleteAt.get(roomId);
+                const requestedAt = this._roomPaymentObservationRequestedAt.get(roomId);
                 const waitMs = Math.max(0,
-                    completeAt + PAGE4_PAYMENT_OBSERVATION_GRACE_MS - Date.now());
+                    requestedAt + PAGE4_PAYMENT_OBSERVATION_GRACE_MS - Date.now());
                 setTimeout(resolve, waitMs);
             }))
             .then(() => {
@@ -5650,7 +5679,7 @@ export class RoomLobbyBridge {
                 const reservation = runtime?.paymentService?.getWalletForRoom?.(roomId);
                 recordAudit("recordObservation", {
                     startedAt: observationStartedAt, completedAt: null,
-                    source: "PAGE4_PAYMENT_SUBMISSION",
+                    source: "PAGE4_OBSERVATION_REQUEST",
                     walletId: reservation?.walletId ?? null,
                     walletAddress: reservation?.address ?? null,
                     providerRequests: 0, rowsReturned: 0, transfersFound: 0,
@@ -6180,8 +6209,9 @@ export class RoomLobbyBridge {
         this._roomObservationBudget?.forget(roomId);
         this._paymentNoSignalLogged?.delete(roomId);
 
-        this._roomPaymentSubmittedPlayers?.delete(roomId);
-        this._roomPaymentSignalsCompleteAt?.delete(roomId);
+        this._roomPaymentObservationRequestedPlayers?.delete(roomId);
+        this._roomPaymentObservationRequestedAt?.delete(roomId);
+        this._roomPaymentSubmissionAcknowledgedPlayers?.delete(roomId);
 
         this._verifyConfirmedByRoom.delete(roomId);
 

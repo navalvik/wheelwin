@@ -203,6 +203,9 @@ export class WalletPoolRegistry {
         /** @type {Map<string, string>} roomId -> walletId (active reservations) */
         this._roomToWallet = new Map();
 
+        /** Durable, public-only ownership intervals for recycled room wallets. */
+        this._reservationHistory = [];
+
         this._initialized = false;
 
     }
@@ -245,14 +248,19 @@ export class WalletPoolRegistry {
         this._loadCatalog();
 
         const snapshotDir = options.snapshotDir ?? null;
+        let historyBackfilled = 0;
 
         if (snapshotDir) {
 
             this._loadSnapshot(snapshotDir);
 
+            historyBackfilled = this._backfillOpenReservationHistory();
+
         }
 
         this._initialized = true;
+
+        if (snapshotDir && historyBackfilled > 0) this.persistSnapshot(snapshotDir);
 
         this._logInfo(
             `WalletPoolRegistry ready | wallets=${this._wallets.size}`
@@ -419,6 +427,30 @@ export class WalletPoolRegistry {
 
         return this._wallets.get(walletId)?.toRecord() ?? null;
 
+    }
+
+    /**
+     * Resolve which room controlled a wallet at the chain timestamp.
+     * Ownership is intentionally unknown when durable interval history is
+     * absent or overlapping; callers must quarantine rather than guess.
+     */
+    resolveReservationOwnerAt({ walletId, transactionTime }) {
+        if (typeof walletId !== "string" || !Number.isSafeInteger(transactionTime)) {
+            return { status: "UNKNOWN", roomId: null, candidates: [] };
+        }
+        const candidates = this._reservationHistory.filter(record =>
+            record.walletId === walletId
+            && transactionTime >= record.reservedAt
+            && (record.releasedAt === null || transactionTime < record.releasedAt));
+        const roomIds = [...new Set(candidates.map(record => record.roomId))];
+        if (roomIds.length === 1) return { status: "OWNED", roomId: roomIds[0], candidates: roomIds };
+        if (roomIds.length > 1) return { status: "AMBIGUOUS", roomId: null, candidates: roomIds };
+        return { status: "UNKNOWN", roomId: null, candidates: [] };
+    }
+
+    listReservationHistoryForWallet(walletId) {
+        return this._reservationHistory.filter(record => record.walletId === walletId)
+            .map(record => Object.freeze({ ...record }));
     }
 
     /**
@@ -636,6 +668,7 @@ export class WalletPoolRegistry {
             reservations: Object.freeze(
                 [...this._wallets.values()].map((wallet) => wallet.toRecord())
             ),
+            reservationHistory: Object.freeze(this._reservationHistory.map(record => Object.freeze({ ...record }))),
             persistedAt: Date.now()
         });
 
@@ -679,6 +712,25 @@ export class WalletPoolRegistry {
 
         }
 
+        if (parsed.reservationHistory !== undefined) {
+            if (!Array.isArray(parsed.reservationHistory)) {
+                throw new PaymentStorageError("wallet pool snapshot has invalid reservation history", { filePath });
+            }
+            this._reservationHistory = parsed.reservationHistory.map(record => {
+                if (!record || typeof record.roomId !== "string" || !record.roomId
+                    || typeof record.walletId !== "string" || !this._wallets.has(record.walletId)
+                    || typeof record.address !== "string" || !record.address
+                    || record.network !== this._network
+                    || !Number.isSafeInteger(record.reservedAt) || record.reservedAt <= 0
+                    || !(record.releasedAt === null
+                        || (Number.isSafeInteger(record.releasedAt) && record.releasedAt >= record.reservedAt))) {
+                    throw new PaymentStorageError("wallet pool snapshot has invalid reservation history entry", { filePath });
+                }
+                return { roomId: record.roomId, walletId: record.walletId, address: record.address,
+                    network: record.network, reservedAt: record.reservedAt, releasedAt: record.releasedAt };
+            });
+        }
+
         for (const record of parsed.reservations) {
 
             if (record.reservedByRoomId === null
@@ -707,7 +759,7 @@ export class WalletPoolRegistry {
 
             }
 
-            this._applyReservation(wallet, ownerRoomId, record.reservedAt ?? Date.now());
+            this._applyReservation(wallet, ownerRoomId, record.reservedAt ?? Date.now(), false);
 
         }
 
@@ -801,7 +853,14 @@ export class WalletPoolRegistry {
 
     }
 
-    _applyReservation(wallet, roomId, now) {
+    _applyReservation(wallet, roomId, now, recordHistory = true) {
+
+        const existingOpen = this._reservationHistory.find(record =>
+            record.roomId === roomId && record.walletId === wallet.walletId && record.releasedAt === null);
+        if (recordHistory && !existingOpen) {
+            this._reservationHistory.push({ roomId, walletId: wallet.walletId, address: wallet.address,
+                network: wallet.network, reservedAt: now, releasedAt: null });
+        }
 
         const reserved = new RoomWallet({
             ...wallet.toRecord(),
@@ -825,6 +884,11 @@ export class WalletPoolRegistry {
 
         }
 
+        const history = [...this._reservationHistory].reverse().find(record =>
+            record.walletId === walletId && record.roomId === wallet.reservedByRoomId
+            && record.releasedAt === null);
+        if (history) history.releasedAt = now;
+
         for (const [roomId, ownedWalletId] of this._roomToWallet.entries()) {
 
             if (ownedWalletId === walletId) {
@@ -846,6 +910,26 @@ export class WalletPoolRegistry {
             })
         );
 
+    }
+
+    _backfillOpenReservationHistory() {
+        let added = 0;
+        for (const wallet of this._wallets.values()) {
+            if (!wallet.reservedByRoomId) continue;
+            const exists = this._reservationHistory.some(record =>
+                record.walletId === wallet.walletId
+                && record.roomId === wallet.reservedByRoomId
+                && record.releasedAt === null);
+            if (!exists) {
+                this._reservationHistory.push({
+                    roomId: wallet.reservedByRoomId, walletId: wallet.walletId,
+                    address: wallet.address, network: wallet.network,
+                    reservedAt: wallet.reservedAt ?? Date.now(), releasedAt: null
+                });
+                added++;
+            }
+        }
+        return added;
     }
 
     _assertInitialized() {

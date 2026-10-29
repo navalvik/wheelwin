@@ -92,16 +92,39 @@ export class R2ForensicArchiveUploader {
 
         try {
 
-            const putResult = await this._client.send(new PutObjectCommand({
-                Bucket: this._bucketName,
-                Key: destination,
-                Body: createReadStream(localPath),
-                // R2 S3-compatible endpoint needs a fixed payload length for
-                // reliable streamed uploads (avoid ambiguous chunked bodies).
-                ContentLength: statSync(localPath).size,
-                ContentType: "application/zip",
-                CacheControl: "private, max-age=0, no-transform"
-            }));
+            const existingObject = await this._headIfExists(destination);
+            if (existingObject) {
+                this._logger?.info?.(
+                    `R2_UPLOAD_ALREADY_PRESENT | bucket=${this._bucketName} | object=${destination}`
+                );
+                return { objectName:destination,
+                    generation:existingObject.VersionId ?? existingObject.ETag ?? null,
+                    etag:existingObject.ETag ?? null, alreadyPresent:true };
+            }
+
+            let putResult;
+            try {
+                putResult = await this._client.send(new PutObjectCommand({
+                    Bucket: this._bucketName,
+                    Key: destination,
+                    Body: createReadStream(localPath),
+                    // Never replace an archive object for the same stable financial revision.
+                    IfNoneMatch: "*",
+                    // R2 S3-compatible endpoint needs a fixed payload length for
+                    // reliable streamed uploads (avoid ambiguous chunked bodies).
+                    ContentLength: statSync(localPath).size,
+                    ContentType: "application/zip",
+                    CacheControl: "private, max-age=0, no-transform"
+                }));
+            } catch (error) {
+                if (isPreconditionFailed(error)) {
+                    const racedObject = await this._headIfExists(destination);
+                    if (racedObject) return { objectName:destination,
+                        generation:racedObject.VersionId ?? racedObject.ETag ?? null,
+                        etag:racedObject.ETag ?? null, alreadyPresent:true };
+                }
+                throw error;
+            }
 
             const head = await this._client.send(new HeadObjectCommand({
                 Bucket: this._bucketName,
@@ -135,6 +158,26 @@ export class R2ForensicArchiveUploader {
 
     }
 
+    async _headIfExists(key) {
+        try {
+            return await this._client.send(new HeadObjectCommand({ Bucket:this._bucketName, Key:key }));
+        } catch (error) {
+            if (isNotFound(error)) return null;
+            throw error;
+        }
+    }
+
+}
+
+function isNotFound(error) {
+    return error?.$metadata?.httpStatusCode === 404
+        || error?.$metadata?.httpStatusCode === 403 && error?.name === "NotFound"
+        || ["NotFound", "NoSuchKey", "NoSuchObject"].includes(error?.name);
+}
+
+function isPreconditionFailed(error) {
+    return error?.$metadata?.httpStatusCode === 412
+        || ["PreconditionFailed", "ConditionalRequestConflict"].includes(error?.name);
 }
 
 /**

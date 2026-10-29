@@ -24,7 +24,10 @@ export class IncomingReceiptStore {
             || r.transactionId !== deriveIncomingTransactionId({ network: r.network, providerId: 'toncenter',
                 accountId: r.providerAccountId, transactionId: r.providerTransactionId })
             || !Number.isSafeInteger(r.amountAtomic) || r.amountAtomic <= 0
-            || !Number.isSafeInteger(r.transactionTime) || !r.roomId
+            || !Number.isSafeInteger(r.transactionTime)
+            || (r.ownershipStatus === 'UNRESOLVED'
+                ? (r.roomId !== null || !Array.isArray(r.candidateRoomIds))
+                : !r.roomId)
             || !r.senderAddress || !r.destinationWalletAddress) throw new Error('RECEIPT_INVALID');
         deriveTonAddressIdentity(r.senderAddress);
         deriveTonAddressIdentity(r.destinationWalletAddress);
@@ -40,8 +43,35 @@ export class IncomingReceiptStore {
                 existing = JSON.parse(readFileSync(path, 'utf8'));
             }
         }
-        if (existing && JSON.stringify(existing) !== JSON.stringify(record)) throw new Error('RECEIPT_IDENTITY_CONFLICT');
+        if (existing) {
+            const normalizedExisting = existing.ownershipStatus == null
+                ? { ...existing, ownershipStatus: 'RESOLVED' } : existing;
+            if (JSON.stringify(normalizedExisting) === JSON.stringify(record)) {
+                this.records.set(record.transactionId, Object.freeze(existing));
+                return;
+            }
+            if (existing.ownershipStatus === 'UNRESOLVED' && record.ownershipStatus !== 'UNRESOLVED') {
+                durableWriteJson(path, record);
+                this.records.set(record.transactionId, Object.freeze(record));
+                return;
+            }
+            if (record.ownershipStatus === 'UNRESOLVED' && existing.ownershipStatus === 'UNRESOLVED') {
+                const merged = { ...existing,
+                    candidateRoomIds: [...new Set([...(existing.candidateRoomIds ?? []), ...(record.candidateRoomIds ?? [])])],
+                    unresolvedReasons: [...new Set([...(existing.unresolvedReasons ?? [existing.unresolvedReason].filter(Boolean)),
+                        ...(record.unresolvedReasons ?? [record.unresolvedReason].filter(Boolean))])]
+                };
+                durableWriteJson(path, merged);
+                this.records.set(record.transactionId, Object.freeze(merged));
+                return;
+            }
+            if (record.ownershipStatus === 'UNRESOLVED' && existing.ownershipStatus !== 'UNRESOLVED') return;
+            throw new Error('RECEIPT_IDENTITY_CONFLICT');
+        }
         this.records.set(record.transactionId, Object.freeze(existing ?? record));
     }
+    recordUnresolved(record) { this.record({ ...record, roomId: null, ownershipStatus: 'UNRESOLVED' }); }
+    get(transactionId) { return this.records.get(transactionId) ?? null; }
     listForRoom(roomId) { return [...this.records.values()].filter(r => r.roomId === roomId); }
+    listUnresolved() { return [...this.records.values()].filter(r => r.ownershipStatus === 'UNRESOLVED'); }
 }
