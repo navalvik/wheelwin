@@ -61,16 +61,15 @@ export class ToncenterAuthenticationError extends ToncenterError {
 }
 
 /**
- * HTTP 429. The caller must stop issuing requests for this call; the client
- * never retries automatically and never starts a hidden polling loop.
+ * HTTP 429 after the transaction client's bounded Retry-After/backoff budget.
+ * No background polling is started.
  */
 export class ToncenterRateLimitError extends ToncenterError {
 
     constructor(statusCode, details) {
 
         super(
-            `Toncenter rate limit reached (HTTP ${statusCode}); no retry was`
-                + ` performed`,
+            `Toncenter rate limit reached (HTTP ${statusCode}) after bounded retries`,
             { statusCode, ...details }
         );
 

@@ -17,9 +17,8 @@
  *     written anywhere;
  *   - when the key is absent NO request is sent
  *     (`ToncenterApiKeyMissingError` instead of an unauthenticated request);
- *   - there is no retry, no backoff and no polling — every call maps to at
- *     most one HTTP request;
- *   - HTTP 429 stops the call immediately with `ToncenterRateLimitError`;
+ *   - transaction reads make at most three attempts on HTTP 429, honoring
+ *     Retry-After or bounded exponential backoff; they never poll on their own;
  *   - every response is validated against the documented envelope before it
  *     is returned to the caller.
  *
@@ -68,6 +67,20 @@ function assertNonEmptyString(value, field) {
 
 }
 
+function defaultDelay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function retryAfterMs(response, fallbackMs) {
+    const raw = response?.headers?.get?.("retry-after");
+    if (typeof raw !== "string" || !raw.trim()) return fallbackMs;
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(60_000, Math.max(250, seconds * 1000));
+    const date = Date.parse(raw);
+    if (Number.isFinite(date)) return Math.min(60_000, Math.max(250, date - Date.now()));
+    return fallbackMs;
+}
+
 export class ToncenterTransactionsClient {
 
     /**
@@ -76,13 +89,17 @@ export class ToncenterTransactionsClient {
      *   apiKeyProvider?: () => string,
      *   fetchImpl?: typeof fetch,
      *   timeoutMs?: number
+     *   rateLimitRetries?: number,
+     *   delay?: (ms:number)=>Promise<void>
      * }} [options]
      */
     constructor({
         baseUrl = TONCENTER_TESTNET_BASE_URL,
         apiKeyProvider = defaultApiKeyProvider,
         fetchImpl = globalThis.fetch,
-        timeoutMs = TONCENTER_DEFAULT_TIMEOUT_MS
+        timeoutMs = TONCENTER_DEFAULT_TIMEOUT_MS,
+        rateLimitRetries = 2,
+        delay = defaultDelay
     } = {}) {
 
         assertNonEmptyString(baseUrl, "baseUrl");
@@ -112,6 +129,11 @@ export class ToncenterTransactionsClient {
 
         }
 
+        if (!Number.isSafeInteger(rateLimitRetries) || rateLimitRetries < 0 || rateLimitRetries > 3) {
+            throw new ToncenterRequestError("rateLimitRetries must be an integer in 0..3");
+        }
+        if (typeof delay !== "function") throw new ToncenterRequestError("delay must be a function");
+
         this._baseUrl = baseUrl;
 
         this._apiKeyProvider = apiKeyProvider;
@@ -119,6 +141,8 @@ export class ToncenterTransactionsClient {
         this._fetch = fetchImpl;
 
         this._timeoutMs = timeoutMs;
+        this._rateLimitRetries = rateLimitRetries;
+        this._delay = delay;
 
     }
 
@@ -158,7 +182,7 @@ export class ToncenterTransactionsClient {
     /**
      * Open one authenticated, read-only SSE subscription on Testnet.
      * The returned response body remains owned by the caller and is closed by
-     * aborting `signal`; there are no retries or reconnects.
+     * aborting `signal`; streaming subscriptions are not automatically retried.
      */
     async openFinalizedTransactionsStream({ account, signal }) {
 
@@ -349,50 +373,28 @@ export class ToncenterTransactionsClient {
         if (offset > 0) url.searchParams.set("offset", String(offset));
         url.searchParams.set("sort", "desc");
 
-        // Explicit controller + ref'd timer: `AbortSignal.timeout` relies on
-        // an unref'd timer, which cannot keep an event loop alive while a
-        // request is genuinely in flight.
-        const controller = new AbortController();
-
-        const timer = setTimeout(() => {
-
-            controller.abort(
-                new DOMException("The operation timed out.", "TimeoutError")
-            );
-
-        }, this._timeoutMs);
-
         let response;
-
-        try {
-
-            response = await this._fetch(url.toString(), {
-                method: "GET",
-                headers: { "X-API-Key": apiKey.trim() },
-                signal: controller.signal
-            });
-
-        } catch (error) {
-
-            const isTimeout = error?.name === "TimeoutError"
-                || error?.name === "AbortError"
-                || controller.signal.aborted === true;
-
-            throw new ToncenterRequestError(
-                isTimeout
-                    ? `Toncenter request timed out after ${this._timeoutMs}ms`
-                    : `Toncenter request failed: ${error?.message ?? String(error)}`,
-                {
-                    failure: isTimeout ? "timeout" : "network",
-                    errorName: error?.name ?? "Error",
-                    timeoutMs: this._timeoutMs
-                }
-            );
-
-        } finally {
-
-            clearTimeout(timer);
-
+        for (let attempt = 0; ; attempt += 1) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(
+                new DOMException("The operation timed out.", "TimeoutError")
+            ), this._timeoutMs);
+            try {
+                response = await this._fetch(url.toString(), {
+                    method: "GET", headers: { "X-API-Key": apiKey.trim() }, signal: controller.signal
+                });
+            } catch (error) {
+                const isTimeout = error?.name === "TimeoutError" || error?.name === "AbortError" || controller.signal.aborted === true;
+                throw new ToncenterRequestError(
+                    isTimeout ? `Toncenter request timed out after ${this._timeoutMs}ms` : `Toncenter request failed: ${error?.message ?? String(error)}`,
+                    { failure: isTimeout ? "timeout" : "network", errorName: error?.name ?? "Error", timeoutMs: this._timeoutMs }
+                );
+            } finally {
+                clearTimeout(timer);
+            }
+            if (response?.status !== 429 || attempt >= this._rateLimitRetries) break;
+            const backoff = Math.min(4_000, 500 * (2 ** attempt));
+            await this._delay(retryAfterMs(response, backoff));
         }
 
         const status = response?.status;
@@ -410,9 +412,7 @@ export class ToncenterTransactionsClient {
         }
 
         if (status === 429) {
-
-            // Stop immediately. No retry, no polling loop.
-            throw new ToncenterRateLimitError(status);
+            throw new ToncenterRateLimitError(status, { attempts: this._rateLimitRetries + 1 });
 
         }
 
