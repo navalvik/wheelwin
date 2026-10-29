@@ -196,8 +196,8 @@ export class WalletQuarantineAdminService {
             // A newly created room can no longer take this wallet.
             runtime.walletPool.manuallyQuarantine(number);
             const state = await this.chainBalance(wallet.address);
-            if (BigInt(state.balanceNano) < 30_000_000n)
-                throw new Error("SWEEP_BALANCE_TOO_SMALL");
+            if (BigInt(state.balanceNano) <= 0n)
+                throw new Error("SWEEP_BALANCE_EMPTY");
             if (this.outstanding(runtime,wallet).open > 0)
                 throw new Error("WALLET_HAS_OPEN_FINANCIAL_OBLIGATIONS");
             const adapter = this.getAdapter();
