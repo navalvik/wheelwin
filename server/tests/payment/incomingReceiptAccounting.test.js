@@ -15,7 +15,7 @@ const now = 1700000010000;
 const dest = '0:' + '11'.repeat(32);
 const senders = ['22','33','44'].map(x => '0:' + x.repeat(32));
 const intents = senders.map((expectedSender, n) => ({ roomId: 'Pn6f-test', playerId: 'p'+n,
-    paymentReference: 'WW_test_'+n, expectedSender, destinationWalletAddress: dest,
+    paymentReference: 'WW_test_'+n, expectedSender, destinationWalletId:'wallet-4', destinationWalletAddress: dest,
     createdAt: now-9000, expiresAt: now+1000, amountAtomic: 1000000000, state: 'PENDING',
     network:'testnet', asset:'TON' }));
 const rows = [1000000000, 1000000000, 3000000000].map((value,n) => ({
@@ -59,7 +59,8 @@ try {
     let independentEnabled=false;
     const worker=new HistoricalIncomingReceiptReconciler({
         runtime:{receiptStore:historyStore,refundStore:historyRefunds,receiptAccounting:historyAccounting,
-            intentStore:{listForRoom:()=>intents}},incomingProvider:provider,nowProvider:()=>now,
+            intentStore:{listForRoom:()=>intents,list:()=>intents},
+            walletPool:{resolveReservationOwnerAt:()=>({status:'OWNED',roomId:'Pn6f-test',candidates:['Pn6f-test']})}},incomingProvider:provider,nowProvider:()=>now,
         chainObserver:{findOutgoingTransfer:async q=>({transactionId:'source-'+senders.indexOf(q.sourceWalletAddress)}),
             verifyIndexedRecipientCredit:async q=>({status:'MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED',
                 globalId:-3,sourceFinality:'finalized',recipientFinality:'finalized',

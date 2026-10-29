@@ -204,7 +204,11 @@ export class ForensicArchiveService {
     }) {
 
         let financialSnapshot = this._financialSnapshotProvider?.(roomId);
-        const revision = financialSnapshot ? createHash('sha256').update(JSON.stringify(financialSnapshot)).digest('hex').slice(0, 24) : null;
+        const revision = financialSnapshot
+            ? createHash('sha256').update(stableStringify(materialFinancialSnapshot({
+                ...financialSnapshot, roomId, gameId
+            }))).digest('hex').slice(0, 24)
+            : null;
         const stagingRoomDir = join(this._config.stagingDir, safeSegment(roomId) + (revision ? '-' + revision : ''));
         const statusPath = join(stagingRoomDir, "status.json");
         const existingStatus = readStatus(statusPath);
@@ -223,6 +227,35 @@ export class ForensicArchiveService {
 
         }
 
+        // A collection/upload interruption must retry the exact staged ZIP.
+        // Rebuilding it would change timestamps and could overwrite an R2
+        // object whose stable financial revision has already been selected.
+        const stagedExistingZip = typeof existingStatus?.zipPath === "string"
+            ? resolve(existingStatus.zipPath) : null;
+        if (existingStatus?.archiveFilename && stagedExistingZip
+            && relative(stagingRoomDir, stagedExistingZip) === existingStatus.archiveFilename
+            && basename(stagedExistingZip) === existingStatus.archiveFilename
+            && existsSync(stagedExistingZip)
+            && this._uploader?.isConfigured?.() === true
+            && ["pending_upload", "failed"].includes(existingStatus.state)
+            && (!existingStatus.phase || existingStatus.phase === "upload")) {
+            const previousAttempts = Number(existingStatus.attempts ?? 0);
+            for (let attempt = 1; attempt <= this._config.maxUploadAttempts; attempt++) {
+                try {
+                    const upload = await this._uploader.uploadFile(stagedExistingZip, existingStatus.archiveFilename);
+                    writeStagingStatus(statusPath, { ...existingStatus, state:"uploaded",
+                        objectName:upload.objectName, generation:upload.generation,
+                        attempts:previousAttempts + attempt, uploadedAt:Date.now() });
+                    return { uploaded:true, archiveFilename:existingStatus.archiveFilename };
+                } catch (error) {
+                    writeStagingStatus(statusPath, { ...existingStatus, state:"failed", phase:"upload",
+                        attempts:previousAttempts + attempt, error:error?.message ?? "UPLOAD_FAILED",
+                        updatedAt:Date.now() });
+                    if (attempt >= this._config.maxUploadAttempts) throw error;
+                }
+            }
+        }
+
         const originalArchive = this._findOriginalArchive(roomId);
         if (financialSnapshot && originalArchive && originalArchive.archiveFilename !== existingStatus?.archiveFilename) {
             financialSnapshot = {
@@ -231,6 +264,7 @@ export class ForensicArchiveService {
                     schemaVersion: 1,
                     archiveType: "FINANCIAL_SUPPLEMENT",
                     roomId,
+                    gameId,
                     originalArchiveFilename: originalArchive.archiveFilename,
                     generatedAt: new Date().toISOString(),
                     reason: "Durable financial state changed after the initial room archive"
@@ -293,7 +327,8 @@ export class ForensicArchiveService {
                 gameId,
                 reason,
                 zipPath,
-                archiveFilename, financialSnapshot
+                archiveFilename,
+                financialSnapshot: financialSnapshot ? { ...financialSnapshot, roomId, gameId } : null
             });
 
             this._logInfo(
@@ -500,6 +535,65 @@ function readStatus(path) {
 
     }
 
+}
+
+const MATERIAL_DECISION_CODES = new Set([
+    "SETTLED", "AMOUNT_MISMATCH", "SENDER_MISMATCH", "DESTINATION_MISMATCH",
+    "REFERENCE_MISMATCH", "MISSING_REFERENCE", "LATE_PAYMENT", "DUPLICATE",
+    "AMBIGUOUS", "UNATTRIBUTED_TRANSFER", "UNVERIFIED", "PROVIDER_UNAVAILABLE"
+]);
+
+/** Strip polling-only diagnostics from the revision identity. */
+export function materialFinancialSnapshot(snapshot) {
+    const decisions = (snapshot.paymentDecisions ?? [])
+        .filter(row => MATERIAL_DECISION_CODES.has(row.decision))
+        .map(row => ({
+            transactionId: row.transactionId ?? null,
+            playerId: row.playerId ?? null,
+            paymentReference: row.paymentReference ?? null,
+            decision: row.decision,
+            reason: row.reason ?? null,
+            mismatchReasons: [...(row.mismatchReasons ?? [])].sort(),
+            amountAtomic: row.amountAtomic ?? null,
+            expectedAmountAtomic: row.expectedAmountAtomic ?? null,
+            senderAddress: row.senderAddress ?? null,
+            expectedSenderAddress: row.expectedSenderAddress ?? null,
+            destinationWalletAddress: row.destinationWalletAddress ?? null,
+            expectedDestinationWalletAddress: row.expectedDestinationWalletAddress ?? null,
+            transactionTime: row.transactionTime ?? null
+        }));
+    const uniqueDecisions = [...new Map(decisions.map(row => [
+        stableStringify(row), row
+    ])).values()].sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
+    return {
+        schemaVersion: snapshot.schemaVersion ?? null,
+        network: snapshot.network ?? null,
+        globalId: snapshot.globalId ?? null,
+        roomId: snapshot.roomId ?? null,
+        closedRoom: snapshot.closedRoom ?? null,
+        outcome: snapshot.outcome ?? null,
+        intents: stableRows(snapshot.intents),
+        ledger: stableRows(snapshot.ledger),
+        receipts: stableRows(snapshot.receipts),
+        unresolvedReceipts: stableRows(snapshot.unresolvedReceipts),
+        refunds: stableRows(snapshot.refunds),
+        payouts: stableRows(snapshot.payouts),
+        paymentDecisions: uniqueDecisions,
+        outstandingObligations: snapshot.outstandingObligations ?? null
+    };
+}
+
+function stableRows(rows) {
+    return [...(Array.isArray(rows) ? rows : [])]
+        .sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
+}
+
+function stableStringify(value) {
+    if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+    if (value && typeof value === "object") {
+        return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+    }
+    return JSON.stringify(value);
 }
 
 export { LOG as FORENSIC_ARCHIVE_LOG };

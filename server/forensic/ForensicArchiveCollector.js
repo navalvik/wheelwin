@@ -313,6 +313,7 @@ function buildRoomWalletRecord(finance) {
     const receipts = finance.receipts ?? [];
     return {
         ...finance,
+        gameId: finance.gameId ?? null,
         playerPayments: intents.map(intent => ({
             playerId:intent.playerId,
             paymentReference:intent.paymentReference,
@@ -330,34 +331,70 @@ function buildRoomWalletRecord(finance) {
     };
 }
 
-function buildPaymentDecisions(finance) {
-    const decisions = [...(finance.paymentDecisions ?? [])];
+export function buildPaymentDecisions(finance) {
     const intents = finance.intents ?? [];
-    const receipts = finance.receipts ?? [];
+    const receipts = [...(finance.receipts ?? []), ...(finance.unresolvedReceipts ?? [])];
     const settledTransactions = new Set(intents.filter(i => i.state === "SETTLED").map(i => i.transactionId));
+    const seenTransactions = new Set();
+    const decisions = [];
     for (const receipt of receipts) {
-        const owner = intents.find(intent => intent.paymentReference === receipt.paymentIntentId
-            || (receipt.playerId && intent.playerId === receipt.playerId)
-            || (() => { try { return tonAddressIdentitiesEqual(intent.expectedSender, receipt.senderAddress); } catch { return false; } })());
-        let decision = "LATE_PAYMENT";
-        let reason = "NO_MATCHING_PAYMENT_INTENT";
-        if (settledTransactions.has(receipt.transactionId)) {
-            decision = "SETTLED"; reason = null;
-        } else if (owner) {
-            const mismatch = [];
-            if (!tonAddressIdentitiesEqual(receipt.senderAddress, owner.expectedSender)) mismatch.push("SENDER_MISMATCH");
-            if (!tonAddressIdentitiesEqual(receipt.destinationWalletAddress, owner.destinationWalletAddress)) mismatch.push("DESTINATION_MISMATCH");
-            if (receipt.amountAtomic !== owner.amountAtomic) mismatch.push("AMOUNT_MISMATCH");
-            if (receipt.paymentReference !== owner.paymentReference) mismatch.push(receipt.paymentReference ? "REFERENCE_MISMATCH" : "MISSING_REFERENCE");
-            if (receipt.transactionTime < owner.createdAt || receipt.transactionTime >= owner.expiresAt) mismatch.push("LATE_PAYMENT");
-            decision = mismatch[0] ?? "PENDING_CONFIRMATION";
-            reason = mismatch.length ? mismatch.join("+") : "SETTLEMENT_NOT_YET_CONFIRMED";
+        if (receipt.transactionId && seenTransactions.has(receipt.transactionId)) {
+            decisions.push({at:receipt.transactionTime ?? null, transactionId:receipt.transactionId,
+                playerId:receipt.playerId ?? null, paymentReference:receipt.paymentReference ?? null,
+                decision:"DUPLICATE", reason:"DUPLICATE_TRANSACTION_ID_IN_DURABLE_RECEIPTS",
+                amountAtomic:receipt.amountAtomic, senderAddress:receipt.senderAddress,
+                destinationWalletAddress:receipt.destinationWalletAddress});
+            continue;
         }
-        decisions.push({at:receipt.transactionTime, transactionId:receipt.transactionId,
+        if (receipt.transactionId) seenTransactions.add(receipt.transactionId);
+        const byReference = intents.filter(intent => intent.paymentReference === receipt.paymentReference
+            || (!receipt.paymentReference && intent.paymentReference === receipt.paymentIntentId));
+        const byPlayer = receipt.playerId ? intents.filter(intent => intent.playerId === receipt.playerId) : [];
+        const bySender = intents.filter(intent => addressMatches(intent.expectedSender, receipt.senderAddress));
+        const plausibleWithoutReference = !receipt.paymentReference && !byPlayer.length && !bySender.length
+            ? intents.filter(intent => addressMatches(intent.destinationWalletAddress, receipt.destinationWalletAddress)
+                && intent.amountAtomic === receipt.amountAtomic
+                && Number.isSafeInteger(receipt.transactionTime)
+                && receipt.transactionTime >= intent.createdAt && receipt.transactionTime < intent.expiresAt)
+            : [];
+        const candidates = byReference.length ? byReference : byPlayer.length ? byPlayer
+            : bySender.length ? bySender : plausibleWithoutReference;
+        const owner = candidates.length === 1 ? candidates[0] : null;
+        const mismatch = [];
+        if (receipt.ownershipStatus === "UNRESOLVED") mismatch.push("AMBIGUOUS");
+        else if (candidates.length > 1) mismatch.push("AMBIGUOUS");
+        else if (!owner) mismatch.push("UNATTRIBUTED_TRANSFER");
+        if (owner) {
+            if (!addressMatches(receipt.destinationWalletAddress, owner.destinationWalletAddress)) mismatch.push("DESTINATION_MISMATCH");
+            if (!addressMatches(receipt.senderAddress, owner.expectedSender)) mismatch.push("SENDER_MISMATCH");
+            if (receipt.amountAtomic !== owner.amountAtomic) mismatch.push("AMOUNT_MISMATCH");
+            if (!receipt.paymentReference) mismatch.push("MISSING_REFERENCE");
+            else if (receipt.paymentReference !== owner.paymentReference) mismatch.push("REFERENCE_MISMATCH");
+            if (!Number.isSafeInteger(receipt.transactionTime)
+                || !Number.isSafeInteger(owner.createdAt) || !Number.isSafeInteger(owner.expiresAt)) {
+                mismatch.push("UNVERIFIED");
+            } else if (receipt.transactionTime < owner.createdAt || receipt.transactionTime >= owner.expiresAt) {
+                mismatch.push("LATE_PAYMENT");
+            }
+        }
+        const journalRows = (finance.paymentDecisions ?? []).filter(row => row.transactionId === receipt.transactionId);
+        if (!settledTransactions.has(receipt.transactionId)
+            && journalRows.some(row => row.decision === "AMBIGUOUS")
+            && !mismatch.includes("AMBIGUOUS")) mismatch.unshift("AMBIGUOUS");
+        const alreadySettled = settledTransactions.has(receipt.transactionId);
+        let decision = alreadySettled ? "SETTLED" : mismatch[0] ?? "PENDING_CONFIRMATION";
+        if (alreadySettled) mismatch.length = 0;
+        const reason = alreadySettled ? null
+            : mismatch.length ? mismatch.join("+") : "SETTLEMENT_NOT_YET_CONFIRMED";
+        decisions.push({at:Number.isSafeInteger(receipt.transactionTime) ? receipt.transactionTime : null,
+            transactionId:receipt.transactionId ?? null,
             playerId:receipt.playerId ?? owner?.playerId ?? null,
             paymentReference:receipt.paymentReference ?? null, decision, reason,
+            mismatchReasons:mismatch,
             amountAtomic:receipt.amountAtomic, senderAddress:receipt.senderAddress,
-            destinationWalletAddress:receipt.destinationWalletAddress});
+            destinationWalletAddress:receipt.destinationWalletAddress,
+            candidateRoomIds:receipt.candidateRoomIds ?? null,
+            unresolvedReason:receipt.unresolvedReason ?? null});
     }
     for (const intent of intents) {
         if (intent.state === "SETTLED" || receipts.some(r => r.paymentIntentId === intent.paymentReference)) continue;
@@ -369,15 +406,31 @@ function buildPaymentDecisions(finance) {
             expectedAmountAtomic:intent.amountAtomic, expectedSenderAddress:intent.expectedSender,
             destinationWalletAddress:intent.destinationWalletAddress});
     }
-    return decisions.sort((a,b)=>(a.at ?? 0)-(b.at ?? 0));
+    const receiptTransactionIds = new Set(receipts.map(r => r.transactionId).filter(Boolean));
+    for (const item of finance.paymentDecisions ?? []) {
+        if (item.transactionId && receiptTransactionIds.has(item.transactionId)) continue;
+        if (!item.transactionId && !["UNVERIFIED", "PROVIDER_UNAVAILABLE"].includes(item.decision)) continue;
+        decisions.push(item);
+    }
+    return [...new Map(decisions.map(item => [
+        item.transactionId ? `${item.transactionId}:${item.decision}:${item.reason ?? ""}`
+            : `event:${item.decision}:${item.reason ?? ""}:${item.at ?? ""}`,
+        item
+    ])).values()].sort((a,b)=>(a.at ?? 0)-(b.at ?? 0));
 }
 
-function buildFinancialRecovery(finance) {
+function addressMatches(left, right) {
+    if (!left || !right) return false;
+    try { return tonAddressIdentitiesEqual(left, right); } catch { return false; }
+}
+
+export function buildFinancialRecovery(finance) {
     const payouts=(finance.ledger ?? []).filter(entry => ["PAYOUT_PLAN", "PAYOUT_SETTLEMENT", "NET_PAYOUT", "WINNER_GROSS_ALLOCATION", "OWNER_GROSS_ALLOCATION"].includes(entry.kind));
-    return {schemaVersion:1, roomId:finance.roomId, closedRoom:finance.closedRoom ?? null,
-        receipts:finance.receipts ?? [], refunds:finance.refunds ?? [], payouts,
+    const unresolvedReceipts=finance.unresolvedReceipts ?? [];
+    return {schemaVersion:1, roomId:finance.roomId, gameId:finance.gameId ?? null, closedRoom:finance.closedRoom ?? null,
+        receipts:finance.receipts ?? [], unresolvedReceipts, refunds:finance.refunds ?? [], payouts,
         outstandingObligations:finance.outstandingObligations ?? 0,
-        requiresReconciliation:(finance.receipts ?? []).some(r => !r.playerId || !r.paymentIntentId)
+        requiresReconciliation:unresolvedReceipts.length > 0 || (finance.receipts ?? []).some(r => !r.playerId || !r.paymentIntentId)
             || (finance.refunds ?? []).some(r => r.state !== "COMPLETE")
             || payouts.some(p => p.kind === "PAYOUT_PLAN" && !(finance.ledger ?? []).some(s => s.kind === "PAYOUT_SETTLEMENT" && s.metadata?.payoutPlanId === p.entryId))};
 }
@@ -385,7 +438,7 @@ function buildFinancialRecovery(finance) {
 function diagnoseFinancialClose(finance, decisions) {
     const intents=finance.intents ?? [];
     const settled=intents.filter(i=>i.state === "SETTLED").length;
-    const exactCodes=new Set(["SENDER_MISMATCH","AMOUNT_MISMATCH","MISSING_REFERENCE","REFERENCE_MISMATCH","LATE_PAYMENT","UNMATCHED"]);
+    const exactCodes=new Set(["SENDER_MISMATCH","DESTINATION_MISMATCH","AMOUNT_MISMATCH","MISSING_REFERENCE","REFERENCE_MISMATCH","LATE_PAYMENT","UNMATCHED","UNATTRIBUTED_TRANSFER","DUPLICATE"]);
     const code=decisions.some(d=>d.decision === "PROVIDER_UNAVAILABLE") ? "PROVIDER_UNAVAILABLE"
         : decisions.some(d=>d.decision === "UNVERIFIED" || d.decision === "PENDING_CONFIRMATION") ? "BLOCKCHAIN_CONFIRMATION_INCOMPLETE"
             : decisions.some(d=>exactCodes.has(d.decision)) ? "RECEIVED_TRANSFER_DID_NOT_MATCH_PAYMENT_INTENT"
@@ -398,7 +451,7 @@ function diagnoseFinancialClose(finance, decisions) {
         }))};
 }
 
-function buildFinalFinancialReport(finance, decisions, recovery) {
+export function buildFinalFinancialReport(finance, decisions, recovery) {
     const intents=finance.intents ?? [], receipts=finance.receipts ?? [], refunds=finance.refunds ?? [];
     const settled=new Set(intents.filter(i=>i.state === "SETTLED").map(i=>i.transactionId));
     const sum=rows=>rows.reduce((n,r)=>n+(Number.isSafeInteger(r.amountAtomic)?r.amountAtomic:0),0);
@@ -416,7 +469,9 @@ function buildFinalFinancialReport(finance, decisions, recovery) {
         amountsGram:{received:receivedAtomic/1_000_000_000,settled:settledStakeAtomic/1_000_000_000,
             notCredited:notCreditedAtomic/1_000_000_000,returned:returnedAtomic/1_000_000_000,
             awaitingReturn:awaitingReturnAtomic/1_000_000_000},
-        requiresInvestigation:recovery.requiresReconciliation || decisions.some(d=>["AMBIGUOUS","UNVERIFIED","PROVIDER_UNAVAILABLE","PENDING_CONFIRMATION","SENDER_MISMATCH","AMOUNT_MISMATCH","MISSING_REFERENCE","REFERENCE_MISMATCH","LATE_PAYMENT","UNMATCHED"].includes(d.decision)),
+        gameId:finance.gameId ?? null,
+        unresolvedReceiptCount:(finance.unresolvedReceipts ?? []).length,
+        requiresInvestigation:recovery.requiresReconciliation || decisions.some(d=>["AMBIGUOUS","UNVERIFIED","PROVIDER_UNAVAILABLE","PENDING_CONFIRMATION","UNATTRIBUTED_TRANSFER","DUPLICATE","SENDER_MISMATCH","DESTINATION_MISMATCH","AMOUNT_MISMATCH","MISSING_REFERENCE","REFERENCE_MISMATCH","LATE_PAYMENT","UNMATCHED"].includes(d.decision)),
         closeReason:finance.closedRoom?.closureReason ?? finance.outcome?.reason ?? null,
         completionCause:diagnoseFinancialClose(finance, decisions),
         closeEvidence:{closedRoom:finance.closedRoom ?? null, observations:finance.paymentObservations ?? [],

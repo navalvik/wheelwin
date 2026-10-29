@@ -44,7 +44,8 @@ export class HistoricalIncomingReceiptReconciler {
         const pending=[];
         for (const record of observed.records) {
             const transfer=normalizeIncomingTransferRecord(record,{network:'testnet',providerId:'toncenter',now:this.nowProvider()});
-            if (receiptStore.listForRoom(roomId).some(r=>r.transactionId===transfer.transactionId)) continue;
+            const priorReceipt=receiptStore.get?.(transfer.transactionId);
+            if (priorReceipt && priorReceipt.ownershipStatus !== 'UNRESOLVED') continue;
             if (transfer.asset!=='TON' || transfer.network!=='testnet'
                 || transfer.transactionTime<floorMs || transfer.transactionTime>ceilingMs
                 || !tonAddressIdentitiesEqual(transfer.destinationWalletAddress,intents[0].destinationWalletAddress)) continue;
@@ -71,6 +72,74 @@ export class HistoricalIncomingReceiptReconciler {
                 || verified.messageHash!==indexed.messageHash || verified.amountAtomic!==transfer.amountAtomic
                 || !tonAddressIdentitiesEqual(verified.sourceWalletAddress,transfer.senderAddress)
                 || !tonAddressIdentitiesEqual(verified.destinationAddress,transfer.destinationWalletAddress)) { pending.push('INDEPENDENT_CREDIT_PENDING'); continue; }
+
+            const ownership=this.runtime.walletPool?.resolveReservationOwnerAt?.({
+                walletId:intents[0].destinationWalletId,
+                transactionTime:transfer.transactionTime
+            }) ?? {status:'UNKNOWN',roomId:null,candidates:[]};
+            const allIntents=this.runtime.intentStore.list?.() ?? intents;
+            const referenceOwners=transfer.paymentReference
+                ? allIntents.filter(intent => intent.destinationWalletId === intents[0].destinationWalletId
+                    && intent.paymentReference === transfer.paymentReference
+                    && intent.createdAt <= transfer.transactionTime
+                    && tonAddressIdentitiesEqual(intent.destinationWalletAddress,transfer.destinationWalletAddress)
+                    && tonAddressIdentitiesEqual(intent.expectedSender,transfer.senderAddress))
+                : [];
+            const referenceRoomIds=[...new Set(referenceOwners.map(intent=>intent.roomId))];
+            if (ownership.status === 'OWNED' && ownership.roomId !== roomId
+                && !referenceRoomIds.includes(roomId)) {
+                recordAudit("recordDecision", {
+                    at:this.nowProvider(), transactionId:transfer.transactionId,
+                    paymentReference:transfer.paymentReference ?? null,
+                    decision:"UNATTRIBUTED_TRANSFER",
+                    reason:"WALLET_OWNED_BY_DIFFERENT_ROOM_AT_TRANSACTION_TIME",
+                    ownerRoomId:ownership.roomId, amountAtomic:transfer.amountAtomic,
+                    senderAddress:transfer.senderAddress,
+                    destinationWalletAddress:transfer.destinationWalletAddress,
+                    transactionTime:transfer.transactionTime
+                });
+                continue;
+            }
+            const exactReferenceRoom=referenceRoomIds.length === 1 ? referenceRoomIds[0] : null;
+            const ownerConflict = ownership.status === 'OWNED'
+                && exactReferenceRoom && exactReferenceRoom !== ownership.roomId;
+            const ambiguousOwnership = ownership.status === 'AMBIGUOUS'
+                || (ownership.status === 'OWNED' && ownership.roomId !== roomId)
+                || ownerConflict
+                || (ownership.status === 'UNKNOWN' && exactReferenceRoom !== roomId);
+            if (ambiguousOwnership) {
+                receiptAccounting.recordUnresolvedTransfer(transfer, {
+                    candidateRoomIds:[roomId, ...(ownership.candidates ?? []), ...referenceRoomIds],
+                    reason:ownership.status === 'AMBIGUOUS' || ownerConflict
+                        ? 'OVERLAPPING_WALLET_OWNERSHIP_INTERVALS'
+                        : 'WALLET_OWNERSHIP_HISTORY_UNAVAILABLE'
+                });
+                recordAudit("recordDecision", {
+                    at:this.nowProvider(), transactionId:transfer.transactionId,
+                    paymentReference:transfer.paymentReference ?? null,
+                    decision:ownership.status === 'AMBIGUOUS' || ownerConflict ? 'AMBIGUOUS' : 'UNATTRIBUTED_TRANSFER',
+                    reason:ownership.status === 'AMBIGUOUS' || ownerConflict
+                        ? 'OVERLAPPING_WALLET_OWNERSHIP_INTERVALS'
+                        : 'WALLET_OWNERSHIP_HISTORY_UNAVAILABLE',
+                    amountAtomic:transfer.amountAtomic, senderAddress:transfer.senderAddress,
+                    destinationWalletAddress:transfer.destinationWalletAddress,
+                    transactionTime:transfer.transactionTime
+                });
+                pending.push(ownership.status === 'AMBIGUOUS' || ownerConflict ? 'OWNERSHIP_AMBIGUOUS' : 'OWNERSHIP_UNKNOWN');
+                continue;
+            }
+            if (ownership.status === 'UNKNOWN' && exactReferenceRoom === roomId) {
+                // Exact unique payment reference + expected sender + wallet
+                // preserves recovery after release, while a current/newer
+                // reservation above always takes precedence.
+            } else if (ownership.status !== 'OWNED' || ownership.roomId !== roomId) {
+                receiptAccounting.recordUnresolvedTransfer(transfer, {
+                    candidateRoomIds:[roomId, ...(ownership.candidates ?? []), ...referenceRoomIds],
+                    reason:'WALLET_OWNERSHIP_HISTORY_UNAVAILABLE'
+                });
+                pending.push('OWNERSHIP_UNKNOWN');
+                continue;
+            }
             receiptAccounting.recordVerifiedTransfer(transfer,intents,roomId);
             captured++;
             const exactIntent = intents.find(i => i.amountAtomic === transfer.amountAtomic

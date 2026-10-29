@@ -5,7 +5,8 @@ import { GameStartAuthorization } from "../gameplay/GameStartAuthorization.js";
 import { ROOM_STATUS } from "../models/RoomStatus.js";
 import {
     assertLivePaymentAcceptanceEnabled,
-    LIVE_PAYMENT_ACCEPTANCE_ENABLED
+    LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+    LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON
 } from "../payment/PaymentLifecycleAvailability.js";
 import {
     assessThreePlayerPaymentGate
@@ -157,8 +158,9 @@ for (const mutate of [
 assert.equal(assess({ requirements: null }).eligible, false,
     "missing payment requirements fail closed");
 assert.equal(LIVE_PAYMENT_ACCEPTANCE_ENABLED, false,
-    "live payment acceptance remains disabled without refund execution");
-assert.throws(assertLivePaymentAcceptanceEnabled, /REFUND_EXECUTION_NOT_READY/,
+    "live payment acceptance remains disabled unless Testnet is explicitly enabled");
+assert.throws(assertLivePaymentAcceptanceEnabled,
+    new RegExp(LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON),
     "the isolated Testnet acceptance CLI remains guarded");
 
 const room = {

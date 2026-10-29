@@ -3,6 +3,15 @@ import QRCode from "qrcode";
 import { buildRoomWalletTransferUri } from "../payment/buildRoomWalletTransferUri.js";
 import { useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
 import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../payment/buildRoomWalletTonConnectRequest.js";
+import {
+    createPaymentStatusRequest,
+    hasSubmissionAcknowledgement,
+    PAYMENT_QR_DISPLAYED_STATE,
+    PAYMENT_SUBMISSION_ACKNOWLEDGED_STATE,
+    PAYMENT_SUBMISSION_PENDING_STATE,
+    PAYMENT_SUBMISSION_UNKNOWN_STATE,
+    submissionAttemptIsActive
+} from "../payment/paymentStatusRequest.js";
 
 import GameLayout from "../layouts/GameLayout";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
@@ -35,14 +44,6 @@ import "../styles/page4payment.css";
  */
 const PAYMENT_STATUS_EVENT = INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED;
 const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
-
-function hasPaymentSubmissionSignal(paymentReference) {
-    if (!paymentReference) return false;
-    const state = localStorage.getItem('wheelwin:payment:' + paymentReference);
-    return state === 'SUBMISSION_PENDING'
-        || state === 'PAYMENT_SUBMITTED'
-        || state === 'SUBMISSION_UNKNOWN';
-}
 
 export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
@@ -105,13 +106,15 @@ export default function Page4Payment() {
             }
             setPayment(payload);
             paymentReferenceRef.current = payload.paymentReference ?? null;
-            setSentToWallet(Boolean(payload.paymentReference && localStorage.getItem('wheelwin:payment:' + payload.paymentReference)));
+            setSentToWallet(submissionAttemptIsActive(localStorage, payload.paymentReference));
         }
 
         const requestStatus = () => {
             const paymentReference = paymentReferenceRef.current;
-            const paymentSubmitted = hasPaymentSubmissionSignal(paymentReference);
-            socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId, paymentSubmitted});
+            socket.emit(PAYMENT_STATUS_REQUEST, createPaymentStatusRequest({
+                roomId, playerId, paymentSubmissionAcknowledged:
+                    hasSubmissionAcknowledgement(localStorage, paymentReference)
+            }));
         };
         socket.on('connect', requestStatus);
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
@@ -120,7 +123,7 @@ export default function Page4Payment() {
         // was emitted before this page subscribed is re-delivered now.
         if (requestedRef.current !== roomId + ":" + playerId) {
             requestedRef.current = roomId + ":" + playerId;
-            socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId });
+            socket.emit(PAYMENT_STATUS_REQUEST, createPaymentStatusRequest({ roomId, playerId }));
         }
 
         return () => {
@@ -140,8 +143,10 @@ export default function Page4Payment() {
 
         const check = () => {
             if (socket.connected && Date.now() < payment.expiresAt) {
-                const paymentSubmitted = hasPaymentSubmissionSignal(payment.paymentReference);
-                socket.emit(PAYMENT_STATUS_REQUEST, { roomId, playerId, paymentSubmitted });
+                socket.emit(PAYMENT_STATUS_REQUEST, createPaymentStatusRequest({
+                    roomId, playerId, paymentSubmissionAcknowledged:
+                        hasSubmissionAcknowledgement(localStorage, payment.paymentReference)
+                }));
             }
         };
         const id = setInterval(check, 3000);
@@ -176,26 +181,28 @@ export default function Page4Payment() {
         if (!payable || sending || sentToWallet || !walletMatches) return;
         setPaymentError(null);
         const attemptKey = 'wheelwin:payment:' + payment.paymentReference;
-        if (localStorage.getItem(attemptKey)) { setSentToWallet(true); return; }
+        if (submissionAttemptIsActive(localStorage, payment.paymentReference)) { setSentToWallet(true); return; }
         // Validate before claiming submission: an expired/invalid request must
         // not leave a permanent uncertain-payment lock in this browser.
         let transaction;
         try { transaction = buildRoomWalletTonConnectRequest(payment); }
         catch (error) { setPaymentError(error.message); return; }
-        localStorage.setItem(attemptKey, 'SUBMISSION_PENDING');
+        localStorage.setItem(attemptKey, PAYMENT_SUBMISSION_PENDING_STATE);
         paymentReferenceRef.current = payment.paymentReference;
         setSentToWallet(true);
         setSending(true);
         // This is only a request to inspect the shared room wallet. It is not
         // payment evidence; settlement still requires server-side chain proof.
-        socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId, paymentSubmitted: true});
+        socket.emit(PAYMENT_STATUS_REQUEST, createPaymentStatusRequest({ roomId, playerId }));
         try {
             await tonConnectUI.sendTransaction(transaction);
             // TonConnect acknowledgement is NOT a blockchain confirmation.
             // Prevent repeat submits; only the server can mark the seat SETTLED.
-            localStorage.setItem(attemptKey, 'PAYMENT_SUBMITTED');
+            localStorage.setItem(attemptKey, PAYMENT_SUBMISSION_ACKNOWLEDGED_STATE);
             setSentToWallet(true);
-            socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId, paymentSubmitted: true});
+            socket.emit(PAYMENT_STATUS_REQUEST, createPaymentStatusRequest({
+                roomId, playerId, paymentSubmissionAcknowledged: true
+            }));
         } catch (error) {
             if (error?.name === 'UserRejectsError') {
                 localStorage.removeItem(attemptKey);
@@ -203,7 +210,7 @@ export default function Page4Payment() {
             } else {
                 // Wallet errors can happen after the transfer was broadcast;
                 // ask the server to inspect the chain without assuming success.
-                localStorage.setItem(attemptKey, 'SUBMISSION_UNKNOWN');
+                localStorage.setItem(attemptKey, PAYMENT_SUBMISSION_UNKNOWN_STATE);
             }
             setPaymentError(error?.message ?? "Wallet rejected payment");
         } finally {
@@ -275,14 +282,14 @@ export default function Page4Payment() {
                                         disabled={!transferQr || transferQr.reference !== payment.paymentReference}
                                         onClick={() => {
                                             tonConnectUI.closeModal();
-                                            setShowTransferQr((value) => {
-                                                const next = !value;
-                                                if (next) {
-                                                    localStorage.setItem('wheelwin:payment:' + payment.paymentReference, 'SUBMISSION_PENDING');
-                                                    socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId, paymentSubmitted: true});
-                                                }
-                                                return next;
-                                            });
+                                            const next = !showTransferQr;
+                                            if (next) {
+                                                localStorage.setItem('wheelwin:payment:' + payment.paymentReference, PAYMENT_QR_DISPLAYED_STATE);
+                                                socket.emit(PAYMENT_STATUS_REQUEST, createPaymentStatusRequest({
+                                                    roomId, playerId, trigger: "PAYMENT_QR_DISPLAYED"
+                                                }));
+                                            }
+                                            setShowTransferQr(next);
                                         }}>
                                         {showTransferQr ? 'HIDE PAYMENT QR' : `PAY ${amount} GRAM — SHOW PAYMENT QR`}
                                     </button>
