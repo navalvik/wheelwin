@@ -185,6 +185,12 @@ export const CONSOLE_SECTIONS = Object.freeze([
 
     // FINANCE
     Object.freeze({
+        id: "wallet-quarantine",
+        label: "Карантин кошельков",
+        group: CONSOLE_GROUP_IDS.FINANCE,
+        administratorOnly: true
+    }),
+    Object.freeze({
         id: "finance-testnet",
         label: "Testnet",
         group: CONSOLE_GROUP_IDS.FINANCE,
