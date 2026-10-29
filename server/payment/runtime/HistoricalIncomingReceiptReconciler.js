@@ -180,6 +180,17 @@ export class HistoricalIncomingReceiptReconciler {
             this.historyCandidateCursors.delete(roomId);
         }
         receiptAccounting.prepareClosedRoom(roomId);
+        // A completed page of historic incoming credits is not the same as a
+        // finalized financial snapshot. Emit a *separate*, durable readiness
+        // checkpoint only AFTER all candidates in this pass were examined.
+        // An HTTP 429/incomplete provider page never reaches this point.
+        recordAudit("recordObservation", {
+            source:"FINAL_FORENSIC_HISTORY_COVERAGE", startedAt,
+            completedAt:this.nowProvider(), ceilingMs,
+            resultWindowComplete:true, providerError:null,
+            candidateCount:candidates.length, checkedCount:checked,
+            pendingCount:pending.length
+        });
         return {roomId,status:'HISTORICAL_RECEIPTS_CHECKED',captured,pending};
     }
     async runPass() {
