@@ -125,8 +125,12 @@ test('financial archive revisions preserve both pending and completed debt evide
         assert.equal(uploader.uploads.length, 1);
         state = 'COMPLETE';
         await service.ensureArchivedAndUploaded(request);
-        assert.equal(uploader.uploads.length, 2);
+        assert.equal(uploader.uploads.length, 2, "two financial versions produced two conditional PUTs");
+        assert.equal(uploader.objects.size, 1, "one game must occupy one R2 object key");
+        assert.equal(uploader.uploads[0].objectName, uploader.uploads[1].objectName);
         assert.notEqual(uploader.uploads[0].localPath, uploader.uploads[1].localPath);
+        assert.equal(uploader.objects.get(uploader.uploads[0].objectName).revision,
+            uploader.uploads[1].revision, "R2 points to the latest complete evidence");
         for (const upload of uploader.uploads) {
             assert.ok(readFileSync(upload.localPath).includes(Buffer.from('financial/room-wallet.json')));
         }
