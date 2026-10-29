@@ -6,7 +6,7 @@ const WALLET = "0:" + "1".repeat(64);
 const RESIDUES = "0:" + "2".repeat(64);
 
 function fixture({ balanceNano = "5000000000", openDebts = false,
-    sweepEnabled = false, reservedByRoomId = null } = {}) {
+    sweepEnabled = false, reservedByRoomId = null, wrongSigner = false } = {}) {
     let requests = 0;
     let released = 0;
     let held = 0;
@@ -36,7 +36,7 @@ function fixture({ balanceNano = "5000000000", openDebts = false,
     };
     const service = new WalletQuarantineAdminService({
         getRuntime:()=>runtime,
-        getAdapter:()=>({getWalletAddress:async()=>WALLET,sendAllBalance:async args=>{
+        getAdapter:()=>({getWalletAddress:async()=>wrongSigner ? RESIDUES : WALLET,sendAllBalance:async args=>{
             sweepCalls++;return {ok:true,code:"SUBMITTED_UNCONFIRMED",...args};
         }}),
         env:{TON_NETWORK:"testnet",TON_RESIDUES_EXPECTED_ADDRESS:RESIDUES,
@@ -111,4 +111,13 @@ test("room numbers cannot escape fixed 64-wallet registry",async()=>{
     const f=fixture();
     await assert.rejects(f.service.status("65"),/WALLET_NUMBER_MUST_BE_1_TO_64/);
     await assert.rejects(f.service.status("-1"),/WALLET_NUMBER_MUST_BE_1_TO_64/);
+});
+
+test("mismatched signing key cannot quarantine or sweep a different game wallet",async()=>{
+    const f=fixture({sweepEnabled:true,wrongSigner:true});
+    await assert.rejects(f.service.sweep({
+        roomNumber:1,confirmation:"SWEEP 1 TO TON_RESIDUES"
+    }),/SWEEP_SIGNER_CATALOG_ADDRESS_MISMATCH/);
+    assert.equal(f.held,0);
+    assert.equal(f.sweepCalls,0);
 });
