@@ -112,7 +112,7 @@ test("forensic decisions use evidence-based categories and final report matches 
         decisions.map(row => [row.transactionId, row.decision]));
 });
 
-test("routine observations do not upload supplements; financial revisions are stable and linked", async () => {
+test("routine polls do not upload copies; financial updates replace a single R2 key", async () => {
     const dir = tempDirectory("ww-archive-revisions-");
     try {
         const history = join(dir, "history"), logs = join(dir, "logs"), staging = join(dir, "staging");
@@ -135,26 +135,29 @@ test("routine observations do not upload supplements; financial revisions are st
             }] };
             await service.ensureArchivedAndUploaded(request);
         }
-        assert.equal(uploader.uploads.length, 1, "ten no-change polls create no supplement");
+        assert.equal(uploader.uploads.length, 1, "ten no-change polls create no new writes");
         assert.deepEqual(readFileSync(uploader.uploads[0].localPath), originalBytes, "original ZIP is preserved");
 
         snapshot = { ...snapshot, receipts:[{ transactionId:"verified-tx", amountAtomic:100,
             playerId:"player-a", paymentIntentId:"ref-a", paymentReference:"ref-a",
             senderAddress:address(100), destinationWalletAddress:address(4), transactionTime:150 }] };
-        const supplement = await service.ensureArchivedAndUploaded(request);
-        assert.equal(uploader.uploads.length, 2, "one new verified receipt creates one supplement");
+        const updated = await service.ensureArchivedAndUploaded(request);
+        assert.equal(uploader.uploads.length, 2, "a material receipt triggers one update, not a supplement");
+        assert.equal(uploader.objects.size, 1, "only one R2 object is visible for this room");
+        assert.equal(uploader.uploads[1].objectName, uploader.uploads[0].objectName);
+        assert.equal(updated.archiveFilename, uploader.uploads[0].objectName);
         assert.notEqual(uploader.uploads[1].localPath, uploader.uploads[0].localPath);
-        const lineage = JSON.parse(extractZipEntry(readFileSync(uploader.uploads[1].localPath), "forensics/archive-lineage.json"));
-        assert.equal(lineage.roomId, "Room-A");
-        assert.equal(lineage.gameId, "game-a");
-        assert.ok(lineage.originalArchiveFilename);
-        assert.ok(uploader.uploads[1].objectName.endsWith(supplement.archiveFilename));
+        const newerFinance = JSON.parse(extractZipEntry(
+            readFileSync(uploader.uploads[1].localPath), "financial/room-wallet.json"));
+        assert.equal(newerFinance.receipts.length,1,"latest R2 object carries the newly verified receipt");
 
         await service.ensureArchivedAndUploaded(request);
         const restarted = new ForensicArchiveService({ config, uploader, financialSnapshotProvider:() => snapshot });
         await restarted.ensureArchivedAndUploaded(request);
         assert.equal(uploader.uploads.length, 2, "repeat and restart are idempotent");
-        assert.deepEqual(readFileSync(uploader.uploads[0].localPath), originalBytes, "original remains byte-for-byte unchanged");
+        assert.equal(uploader.objects.size, 1, "restart does not create a second key");
+        assert.deepEqual(readFileSync(uploader.uploads[0].localPath), originalBytes,
+            "original forensic evidence stays on the durable volume");
     } finally { rmSync(dir, { recursive:true, force:true }); }
 });
 
@@ -199,4 +202,97 @@ test("R2 uploader uses atomic create-once writes and preserves an existing ZIP o
         assert.equal(retry.generation, "original-version");
         assert.equal(putCalls, 1, "retry does not replace the stored object");
     } finally { rmSync(dir, { recursive:true, force:true }); }
+});
+
+test("R2 revision updates replace one key with If-Match and refuse stale concurrent updates", async () => {
+    const dir = tempDirectory("ww-r2-single-key-cas-");
+    try {
+        const path = join(dir,"one-room.zip");
+        const uploader = new R2ForensicArchiveUploader({
+            bucket:"test-bucket", endpoint:"https://example.invalid", accessKeyId:"test", secretAccessKey:"test"
+        });
+        const objects = new Map();
+        const puts = [];
+        let concurrentConflict = false;
+        uploader._client = {async send(command) {
+            const key = command.input.Key;
+            if (command.constructor.name === "HeadObjectCommand") {
+                const existing = objects.get(key);
+                if (!existing) {
+                    const e = new Error("not found"); e.name="NotFound";
+                    e.$metadata={httpStatusCode:404}; throw e;
+                }
+                return {ETag:existing.etag, Metadata:{wheelwinrevision:existing.revision}};
+            }
+            if (command.constructor.name === "PutObjectCommand") {
+                const existing = objects.get(key);
+                puts.push({key,ifMatch:command.input.IfMatch,ifNoneMatch:command.input.IfNoneMatch});
+                await new Promise((resolve,reject)=>{
+                    command.input.Body.once("end",resolve);
+                    command.input.Body.once("error",reject);
+                    command.input.Body.resume();
+                });
+                if (concurrentConflict) {
+                    objects.set(key,{etag:'"other-writer"',revision:'cccccccccccccccccccccccc'});
+                    const e = new Error("precondition failed"); e.name="PreconditionFailed";
+                    e.$metadata={httpStatusCode:412}; throw e;
+                }
+                if (existing && command.input.IfMatch !== existing.etag) throw Error("missing If-Match");
+                if (!existing && command.input.IfNoneMatch !== "*") throw Error("missing If-None-Match");
+                const etag='"revision-'+(puts.length)+'"';
+                objects.set(key,{etag,revision:command.input.Metadata?.wheelwinrevision});
+                return {ETag:etag};
+            }
+            throw Error("unexpected command");
+        }};
+        const first='aaaaaaaaaaaaaaaaaaaaaaaa',second='bbbbbbbbbbbbbbbbbbbbbbbb';
+        writeFileSync(path,"original forensic evidence");
+        const created = await uploader.uploadFile(path,"same-room.zip",{revision:first});
+        assert.equal(created.objectName,"forensic-archives/same-room.zip");
+        writeFileSync(path,"updated forensic evidence");
+        const updated = await uploader.uploadFile(path,"same-room.zip",{revision:second});
+        assert.equal(updated.objectName,created.objectName);
+        assert.equal(puts[0].ifNoneMatch,"*");
+        assert.equal(puts[1].ifMatch,'"revision-1"');
+        assert.equal(objects.size,1);
+        const retry = await uploader.uploadFile(path,"same-room.zip",{revision:second});
+        assert.equal(retry.alreadyPresent,true);
+        assert.equal(puts.length,2);
+        concurrentConflict = true;
+        await assert.rejects(
+            uploader.uploadFile(path,"same-room.zip",{revision:"dddddddddddddddddddddddd"}),
+            /R2_ARCHIVE_CONCURRENT_UPDATE/
+        );
+    } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test("financial recovery without gameId reuses archived game's canonical ZIP key", async () => {
+    const dir = tempDirectory("ww-r2-game-id-");
+    try {
+        const history = join(dir,"history"), logs = join(dir,"logs"), staging = join(dir,"staging");
+        mkdirSync(history); mkdirSync(logs);
+        const config = {enabled:true,required:false,stagingDir:staging,sessionHistoryDir:history,
+            diagnosticLogsDir:logs,maxUploadAttempts:1,bucket:"mock",prefix:"forensic-archives"};
+        let state="PENDING";
+        const uploader=new MockForensicArchiveUploader();
+        const service=new ForensicArchiveService({
+            config,uploader,
+            sessionHistoryArchive:{listRecords:()=>({records:[{
+                roomId:"Room-A",gameId:"game-a",finishedAt:1793313757137,
+                lifecycleResult:"ROOM_DESTROYED"
+            }]})},
+            financialSnapshotProvider:()=>({roomId:"Room-A",network:"testnet",refunds:[{state}]})
+        });
+        const first=await service.ensureArchivedAndUploaded({
+            roomId:"Room-A",gameId:"game-a",reason:"room_destroyed"
+        });
+        assert.match(first.archiveFilename,/GAME_game-a/);
+        state="COMPLETE";
+        const newer=await service.ensureArchivedAndUploaded({
+            roomId:"Room-A",gameId:null,reason:"setup_expired"
+        });
+        assert.equal(newer.archiveFilename,first.archiveFilename);
+        assert.equal(uploader.objects.size,1);
+        assert.equal(uploader.uploads.length,2);
+    } finally { rmSync(dir,{recursive:true,force:true}); }
 });
