@@ -73,7 +73,7 @@ test("multiple active Page4 calls get fair requests under one process-wide budge
     const p=Array.from({length:12},(_,i)=>budget.acquire({priority:"page4"})
         .then(()=>events.push({id:i,at:clock.now()})));
     await Promise.resolve();
-    for(let t=0;t<=2500;t+=200) clock.advance(t);
+    for(let t=0;t<=2500;t+=200) {clock.advance(t); await Promise.resolve();}
     await Promise.all(p);
     assert.equal(events.length,12);
     for(const entry of events){
