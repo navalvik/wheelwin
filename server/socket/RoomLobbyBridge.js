@@ -931,7 +931,9 @@ export class RoomLobbyBridge {
 
     }
 
-    async _verifyNoFriendsWallet(wallet, baseStake) {
+    async _verifyNoFriendsWallet(wallet, baseStake, network = this._noFriendsNetwork()) {
+
+        const host = network === "mainnet" ? "https://toncenter.com" : "https://testnet.toncenter.com";
 
         const apiKey = process.env.TON_API_KEY
             ?? process.env.TONCENTER_API_KEY
@@ -940,7 +942,7 @@ export class RoomLobbyBridge {
         const address = deriveTonAddressIdentity(wallet.trim());
         if (!address.startsWith("0:")) throw new Error("invalid wallet address");
 
-        const url = new URL("https://testnet.toncenter.com/api/v2/getAddressInformation");
+        const url = new URL(`${host}/api/v2/getAddressInformation`);
         url.searchParams.set("address", address);
         if (apiKey) url.searchParams.set("api_key", apiKey);
 
@@ -958,11 +960,11 @@ export class RoomLobbyBridge {
         const timeout = setTimeout(() => controller.abort(), 8_000);
         try {
             const response = await fetch(url, { signal: controller.signal });
-            if (!response.ok) throw new Error(`Testnet balance HTTP ${response.status}`);
+            if (!response.ok) throw new Error(`${network} balance HTTP ${response.status}`);
             const body = await response.json();
             const account = body?.result;
             if (!account || String(account.state ?? "").toLowerCase() !== "active") {
-                throw new Error("wallet is not initialized on Testnet");
+                throw new Error(`wallet is not initialized on ${network}`);
             }
             const balance = BigInt(String(account.balance ?? "0"));
             // Maximum possible sector purchase: one sector at base stake plus
@@ -977,6 +979,14 @@ export class RoomLobbyBridge {
             clearTimeout(timeout);
         }
 
+    }
+
+    _noFriendsNetwork() {
+        const network = String(process.env.TON_NETWORK ?? "testnet").trim().toLowerCase();
+        if (network !== "testnet" && network !== "mainnet") {
+            throw new Error("TON_NETWORK must be testnet or mainnet");
+        }
+        return network;
     }
 
     async _handleNoFriendsRequest(socketId, rawRequest) {
@@ -998,6 +1008,21 @@ export class RoomLobbyBridge {
             return;
         }
 
+        let network;
+        try { network = this._noFriendsNetwork(); }
+        catch {
+            this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "NETWORK_UNAVAILABLE" });
+            return;
+        }
+        const paymentRuntimeNetwork = this._paymentApplicationBinding?.runtime?.network;
+        if (paymentRuntimeNetwork !== network) {
+            // Never form a Mainnet room while the attached financial runtime
+            // is Testnet (or vice versa). This avoids displaying a Mainnet
+            // queue while the room-wallet allocator/payment verifier is bound
+            // to another chain.
+            this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "NETWORK_UNAVAILABLE" });
+            return;
+        }
         const nickname = String(rawRequest?.nickname ?? "").trim().slice(0, 4);
         const age = Number(rawRequest?.age);
         const baseStake = Number(rawRequest?.baseStake);
@@ -1036,7 +1061,7 @@ export class RoomLobbyBridge {
 
         let verified;
         try {
-            verified = await this._verifyNoFriendsWallet(rawRequest.wallet, baseStake);
+            verified = await this._verifyNoFriendsWallet(rawRequest.wallet, baseStake, network);
         } catch (error) {
             this._noFriendsVerificationSockets.delete(socketId);
             this._noFriendsDisconnectedSockets.delete(socketId);
@@ -1058,6 +1083,7 @@ export class RoomLobbyBridge {
             nickname,
             age,
             baseStake,
+            network,
             wallet: verified.address,
             balanceNano: verified.balance,
             queuedAt: requestStartedAt
@@ -1067,8 +1093,9 @@ export class RoomLobbyBridge {
             this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_QUEUE_EXPIRED, {});
             return;
         }
-        let queue = this._noFriendsQueues.get(baseStake);
-        if (!queue) this._noFriendsQueues.set(baseStake, queue = []);
+        const queueKey = `${network}:${baseStake}`;
+        let queue = this._noFriendsQueues.get(queueKey);
+        if (!queue) this._noFriendsQueues.set(queueKey, queue = []);
         const duplicateWaiting = [...this._noFriendsQueues.values()].some((entries) => (
             entries.some((entry) => entry.wallet === candidate.wallet
                 || (candidate.telegramUserId && entry.telegramUserId === candidate.telegramUserId))
@@ -1087,7 +1114,7 @@ export class RoomLobbyBridge {
         this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_QUEUE_STATUS, {
             waitingFor: 3 - queue.length,
             expiresAt,
-            network: "testnet"
+            network
         });
         if (queue.length >= 3) void this._formNoFriendsRoom(queue.splice(0, 3));
 
@@ -1095,7 +1122,7 @@ export class RoomLobbyBridge {
 
     _expireNoFriendsCandidate(candidate) {
 
-        const queue = this._noFriendsQueues.get(candidate.baseStake) ?? [];
+        const queue = this._noFriendsQueues.get(`${candidate.network}:${candidate.baseStake}`) ?? [];
         const index = queue.indexOf(candidate);
         if (index < 0) return;
         queue.splice(index, 1);
@@ -1123,7 +1150,13 @@ export class RoomLobbyBridge {
             return;
         }
         room.gameMode = "NO_FRIENDS";
-        this._roomNetworkByRoom.set(roomId, "testnet");
+        const network = first.network;
+        if (candidates.some(candidate => candidate.network !== network || candidate.baseStake !== first.baseStake)) {
+            void this._closeRoom(roomId, "no_friends_network_or_stake_mismatch");
+            for (const candidate of candidates) this._deliverToSocket(candidate.socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "ROOM_UNAVAILABLE" });
+            return;
+        }
+        this._roomNetworkByRoom.set(roomId, network);
         const matched = [first];
         for (const candidate of rest) {
             this._handleJoinRoom(candidate.socketId, roomId);
@@ -1145,7 +1178,7 @@ export class RoomLobbyBridge {
             this._deliverToSocket(candidate.socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_MATCHED, {
                 roomId,
                 playerId,
-                network: "testnet",
+                network,
                 nickname: candidate.nickname,
                 age: candidate.age,
                 baseStake: candidate.baseStake,
@@ -1157,7 +1190,7 @@ export class RoomLobbyBridge {
         this._noFriendsUserKeysByRoom.set(roomId, matched
             .map((candidate) => candidate.userKey)
             .filter((key) => !key.startsWith("local:")));
-        this._logger.info(`No Friends team formed | roomId=${roomId} | players=3 | network=testnet | stake=${first.baseStake}`);
+        this._logger.info(`No Friends team formed | roomId=${roomId} | players=3 | network=${network} | stake=${first.baseStake}`);
 
     }
 
@@ -2427,7 +2460,7 @@ export class RoomLobbyBridge {
             clearTimeout(this._noFriendsQueueTimers.get(socketId));
             this._noFriendsQueueTimers.delete(socketId);
             this._noFriendsQueueBySocket.delete(socketId);
-            const queue = this._noFriendsQueues.get(queuedCandidate.baseStake) ?? [];
+            const queue = this._noFriendsQueues.get(`${queuedCandidate.network}:${queuedCandidate.baseStake}`) ?? [];
             const index = queue.indexOf(queuedCandidate);
             if (index >= 0) queue.splice(index, 1);
         }
@@ -3216,7 +3249,9 @@ export class RoomLobbyBridge {
                 this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_MATCHED, {
                     roomId,
                     playerId,
-                    network: "testnet",
+                    network: room.gameMode === "NO_FRIENDS"
+                        ? (this._roomNetworkByRoom.get(roomId) ?? this._noFriendsNetwork())
+                        : "testnet",
                     nickname: this._playerManager.getIdentity(playerId)?.nickname ?? null,
                     age: this._playerManager.getIdentity(playerId)?.age ?? null,
                     baseStake: this._playerManager.getIdentity(playerId)?.baseStake ?? null,

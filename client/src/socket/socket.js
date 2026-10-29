@@ -25,8 +25,16 @@ export function resolveTelegramInitData() {
 
 const socket = io(SOCKET_URL, {
 
-    auth: {
-        telegramInitData: resolveTelegramInitData()
+    // Resolve Telegram initData for each handshake instead of capturing it
+    // when this module is first evaluated. Telegram WebApp context can become
+    // available after the app bundle loads, and reconnects must use the
+    // current signed payload rather than a stale/empty value.
+    auth: (callback) => {
+
+        callback({
+            telegramInitData: resolveTelegramInitData()
+        });
+
     },
 
     autoConnect: false,

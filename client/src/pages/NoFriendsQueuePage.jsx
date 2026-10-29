@@ -4,12 +4,14 @@ import { useLanguage } from "../context/LanguageContext";
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 import { LOBBY_OUTGOING_EVENTS } from "../socket/socketEvents";
 import socket from "../socket/socket";
+import { isTestnetDisplay } from "../config/displayNetwork";
 import { MIN_PLAYER_AGE, MAX_PLAYER_AGE } from "../utils/playerProfileRules";
 import "../styles/noFriends.css";
 
 export default function NoFriendsQueuePage({ onNavigate, onBack }) {
 
     const { t } = useLanguage();
+    const testnet = isTestnetDisplay();
     const [nickname, setNickname] = useState("");
     const [age, setAge] = useState("");
     const [baseStake, setBaseStake] = useState("1");
@@ -79,7 +81,9 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
             age: numericAge,
             baseStake: Number(baseStake),
             wallet: wallet.trim(),
-            network: "testnet"
+            // Informational only. The server derives the authoritative network
+            // from its own deployment environment and never trusts this value.
+            network: testnet ? "testnet" : "mainnet"
         });
     }
 
@@ -105,21 +109,21 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
                         <option value="10">{t("setup.tenGram")}</option>
                     </select>
                 </label>
-                <div className="noFriendsNetwork">{t("noFriends.testnetOnly")}</div>
+                <div className="noFriendsNetwork">{t(testnet ? "noFriends.testnetOnly" : "noFriends.mainnetOnly")}</div>
                 <label>{t("setup.nickname")}
                     <input maxLength={4} value={nickname} onChange={(event) => setNickname(event.target.value)} disabled={Boolean(waiting)} />
                 </label>
                 <label>{t("setup.age")}
                     <input inputMode="numeric" value={age} onChange={(event) => setAge(event.target.value.replace(/\D/g, ""))} disabled={Boolean(waiting)} />
                 </label>
-                <label>{t("noFriends.wallet")}
+                <label>{t(testnet ? "noFriends.wallet" : "noFriends.mainnetWallet")}
                     <input autoComplete="off" value={wallet} onChange={(event) => setWallet(event.target.value)} disabled={Boolean(waiting)} />
                 </label>
                 {waiting && <div className="noFriendsWaiting">
                     {t("noFriends.waiting", { count: waiting.waitingFor })}<br />
                     {t("noFriends.timeLeft", { time: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` })}
                 </div>}
-                {checking && <div className="noFriendsWaiting">{t("noFriends.checkingWallet")}</div>}
+                {checking && <div className="noFriendsWaiting">{t(testnet ? "noFriends.checkingWallet" : "noFriends.checkingMainnetWallet")}</div>}
                 {error && <div className="noFriendsError">{error}</div>}
             </div>
         </div>

@@ -74,6 +74,16 @@ export default function CreateRoomPanel({
 
         }
 
+        function handleRoomError(data) {
+
+            const message = data?.code === "ROOM_CREATION_REQUIRES_TELEGRAM"
+                ? t("room.telegramRequired")
+                : data?.message ?? t("room.unableToJoin");
+
+            alert(message);
+
+        }
+
         // Compatibility with rooms created by an older server instance.
         function handleRoomNetworkSelected(data) {
 
@@ -125,6 +135,8 @@ export default function CreateRoomPanel({
 
         socket.on("roomCreated", handleRoomCreated);
 
+        socket.on("roomError", handleRoomError);
+
         socket.on("roomNetworkSelected", handleRoomNetworkSelected);
 
         socket.on("roomNetworkHandoffReady", handleRoomNetworkHandoffReady);
@@ -135,13 +147,15 @@ export default function CreateRoomPanel({
 
             socket.off("roomCreated", handleRoomCreated);
 
+            socket.off("roomError", handleRoomError);
+
             socket.off("roomNetworkSelected", handleRoomNetworkSelected);
 
             socket.off("roomNetworkHandoffReady", handleRoomNetworkHandoffReady);
 
         };
 
-    }, [setRoomState, setIdentity]);
+    }, [setRoomState, setIdentity, t]);
 
     function createRoom() {
 

@@ -131,7 +131,7 @@ export default function Page4Payment() {
     }, [roomId, playerId, payment.paymentAcceptanceEnabled,
         payment.status, payment.expiresAt]);
 
-    const walletMatches = payerMatchesConnectedWallet(payment.payerAddress, connectedWallet);
+    const walletMatches = payerMatchesConnectedWallet(payment.payerAddress, connectedWallet, payment.network);
     const payable = payment.paymentAcceptanceEnabled === true
         && status === "AWAITING_PAYMENT";
 

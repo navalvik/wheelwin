@@ -7,32 +7,32 @@ import { Address, beginCell } from "@ton/core";
 import { Buffer } from "buffer";
 
 export const TON_TESTNET_CHAIN = "-3";
+export const TON_MAINNET_CHAIN = "-239";
 
 function canonical(address) {
     if (typeof address !== "string") throw new Error("Wallet address missing");
     const parsed = Address.parse(address);
-    if (parsed.workChain !== 0) throw new Error("Only Testnet workchain 0 supported");
+    if (parsed.workChain !== 0) throw new Error("Only TON workchain 0 supported");
     return parsed.toRawString().toLowerCase();
 }
 
-function testnetFriendly(address) {
+function networkFriendly(address, testOnly) {
     if (typeof address !== "string") throw new Error("Room wallet address missing");
     const parsed = Address.parse(address);
-    if (parsed.workChain !== 0) throw new Error("Only Testnet workchain 0 supported");
+    if (parsed.workChain !== 0) throw new Error("Only TON workchain 0 supported");
 
     // TonConnect accepts user-friendly addresses, not the raw 0:<hex> form.
-    // Mark the destination as Testnet so wallets don't interpret it as Mainnet.
     return parsed.toString({
         urlSafe: true,
         bounceable: false,
-        testOnly: true
+        testOnly
     });
 }
 
-export function payerMatchesConnectedWallet(authorizedSender, wallet) {
+export function payerMatchesConnectedWallet(authorizedSender, wallet, network = "testnet") {
     try {
         return canonical(authorizedSender) === canonical(wallet?.account?.address)
-            && String(wallet?.account?.chain) === TON_TESTNET_CHAIN;
+            && String(wallet?.account?.chain) === (network === "mainnet" ? TON_MAINNET_CHAIN : TON_TESTNET_CHAIN);
     } catch {
         return false;
     }
@@ -41,7 +41,7 @@ export function payerMatchesConnectedWallet(authorizedSender, wallet) {
 export function buildRoomWalletTonConnectRequest(payment, nowMs = Date.now()) {
     if (payment?.paymentAcceptanceEnabled !== true
         || payment?.status !== "AWAITING_PAYMENT"
-        || payment?.network !== "testnet"
+        || !["testnet", "mainnet"].includes(payment?.network)
         || payment?.asset !== "TON"
         || !Number.isSafeInteger(payment.amountAtomic)
         || payment.amountAtomic <= 0
@@ -50,9 +50,10 @@ export function buildRoomWalletTonConnectRequest(payment, nowMs = Date.now()) {
         || !Number.isSafeInteger(payment.expiresAt)
         || !Number.isSafeInteger(nowMs)
         || nowMs >= payment.expiresAt) {
-        throw new Error("No active authoritative Testnet payment request");
+        throw new Error("No active authoritative TON payment request");
     }
-    const destination = testnetFriendly(payment.destinationWalletAddress);
+    const isTestnet = payment.network === "testnet";
+    const destination = networkFriendly(payment.destinationWalletAddress, isTestnet);
     if (canonical(destination) === canonical(payment.payerAddress)) {
         throw new Error("Room wallet cannot equal payer wallet");
     }
@@ -67,7 +68,7 @@ export function buildRoomWalletTonConnectRequest(payment, nowMs = Date.now()) {
     const payload = beginCell().storeUint(0, 32)
         .storeStringTail(memo).endCell().toBoc();
     return Object.freeze({
-        network: TON_TESTNET_CHAIN,
+        network: isTestnet ? TON_TESTNET_CHAIN : TON_MAINNET_CHAIN,
         validUntil: expiration,
         messages: Object.freeze([Object.freeze({
             address: destination,

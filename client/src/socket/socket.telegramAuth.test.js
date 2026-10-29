@@ -36,23 +36,46 @@ globalThis.window = {
 
 const { default: socket, resolveTelegramInitData } = await import("./socket.js");
 
+let handshakeAuth = null;
+
+socket.auth((auth) => {
+
+    handshakeAuth = auth;
+
+});
+
 // 1. Telegram environment: exact raw initData inside handshake auth.
 
 assert(
-    socket.auth?.telegramInitData === RAW_INIT_DATA,
-    "socket.auth.telegramInitData must contain the exact raw initData"
+    handshakeAuth?.telegramInitData === RAW_INIT_DATA,
+    "socket handshake auth must contain the exact raw initData"
 );
 
 // 4. initDataUnsafe must NOT be used.
 
 assert(
-    socket.auth?.telegramInitData !== String(999999999),
+    handshakeAuth?.telegramInitData !== String(999999999),
     "initDataUnsafe.user.id must never be sent as telegramInitData"
 );
 
 assert(
-    !JSON.stringify(socket.auth ?? {}).includes("initDataUnsafe"),
+    !JSON.stringify(handshakeAuth ?? {}).includes("initDataUnsafe"),
     "auth payload must not reference initDataUnsafe"
+);
+
+// Handshake auth is resolved afresh after module evaluation, so late
+// Telegram WebApp initialization and reconnects receive the current value.
+globalThis.window.Telegram.WebApp.initData = "fresh-raw-init-data";
+
+socket.auth((auth) => {
+
+    handshakeAuth = auth;
+
+});
+
+assert(
+    handshakeAuth?.telegramInitData === "fresh-raw-init-data",
+    "socket handshake auth must resolve fresh initData for each connection"
 );
 
 // 6. Existing socket options remain unchanged.
