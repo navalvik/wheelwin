@@ -10,10 +10,11 @@ import {mkdirSync,openSync,writeSync,fsyncSync,closeSync,readFileSync} from "nod
 import {join} from "node:path";
 import {RoomWalletAdapter} from "../roomWallet/RoomWalletAdapter.js";
 import {PayoutPlan} from "../ledger/PayoutPlan.js";
+import {buildRecipientGasCharge} from "../roomWallet/RoomWalletFinancialPolicy.js";
 import {deriveTonAddressIdentity} from "../incoming/TonAddressIdentity.js";
 
 const SAFE_PAYOUT_ID=/^payout_[a-f0-9]{32}$/;
-const RETAINED_NANO=0n; // estimate is not a send gate; plan carries the exact 0.1% reserve
+const RETAINED_NANO=0n; // frozen recipient fee charge funds source-side TON gas
 function assert(ok,reason) {if(!ok)throw new Error(reason);}
 function canonical(address) {
     const value=deriveTonAddressIdentity(address);
@@ -58,7 +59,7 @@ export class TestnetNativeRoomPayoutTransport {
         assert(Number.isSafeInteger(principalAtomic)&&principalAtomic>0,
             "PAYOUT_PRINCIPAL_INVALID");
         const winnerGross=BigInt(principalAtomic)*95n/100n;
-        const ownerGross=BigInt(principalAtomic)*49n/1000n;
+        const ownerGross=BigInt(principalAtomic)-winnerGross;
         assert(ownerGross>0n,"PAYOUT_OWNER_NONPOSITIVE");
         const quote=async (address,amountNano)=>{
             const result=await this._adapter.estimateOutboundTransferFee({
@@ -67,9 +68,13 @@ export class TestnetNativeRoomPayoutTransport {
             });
             assert(result?.ok===true && typeof result.totalNano==="bigint"
                 && result.totalNano>=0n,"PAYOUT_TESTNET_FEE_QUOTE_UNAVAILABLE");
-            // Source-side estimate is diagnostic only; never charge the
-            // recipient or use a quote as a payout gate.
-            return feeToNumber(result.totalNano);
+            // Same recipient-pays-gas charge and safety margin as refunds.
+            // Persist the frozen charge BEFORE broadcast; never re-estimate on replay.
+            const charge = buildRecipientGasCharge({
+                feeEstimateTotalNano: result.totalNano
+            }).recipientGasChargeNano;
+            assert(charge < amountNano, "PAYOUT_GAS_EXCEEDS_RECIPIENT_SHARE");
+            return feeToNumber(charge);
         };
         return Object.freeze({
             winner:Object.freeze({feeAtomic:await quote(winnerWallet,winnerGross),quotedAtMs:Date.now()}),
@@ -272,17 +277,20 @@ export class TestnetNativeRoomPayoutTransport {
         const winner=plan?.transfers?.find(x=>x.recipientRole==="WINNER");
         const owner=plan?.transfers?.find(x=>x.recipientRole==="OWNER");
         PayoutPlan.fromJSON(plan);
+        const historic = plan.allocation?.ruleId === "APPROVED_WINNER_95_OWNER_4_9_GAS_RESERVE_0_1_RULE";
         assert(plan.roomId===roomId && plan.payoutId===payoutId
             && Number.isSafeInteger(plan.gasReserveAtomic)
-            && plan.gasReserveAtomic > 0
+            && plan.gasReserveAtomic >= 0
             && Array.isArray(plan.transfers)&&plan.transfers.length===2
             && winner?.netAtomic>0&&owner?.netAtomic>0
-            && winner.netAtomic===winner.grossAtomic
-            && owner.netAtomic===owner.grossAtomic
-            && winner.reservedFeeAtomic===0&&owner.reservedFeeAtomic===0
+            && (historic
+                ? (winner.reservedFeeAtomic===0 && owner.reservedFeeAtomic===0)
+                : (winner.reservedFeeAtomic>0 && owner.reservedFeeAtomic>0
+                    && winner.netAtomic===winner.grossAtomic-winner.reservedFeeAtomic
+                    && owner.netAtomic===owner.grossAtomic-owner.reservedFeeAtomic))
             && canonical(winner.address)===canonical(winnerWallet)
             && canonical(owner.address)===canonical(ownerWallet)
-            && winner.netAtomic+owner.netAtomic
+            && winner.grossAtomic+owner.grossAtomic
                 +plan.gasReserveAtomic===plan.principalAtomic,
             "PAYOUT_PLAN_NOT_AUTHORIZED");
         const path=join(this._dir,payoutId+".jsonl");
@@ -301,9 +309,12 @@ export class TestnetNativeRoomPayoutTransport {
         }
         const durableRetry = initial.journalVersion === 3 && initial.durableRetry
             && this._adapter.supportsDurableTransferRetry?.() === true;
-        const amounts=[{role:"WINNER",transfer:winner,reserve:BigInt(owner.netAtomic+
-            plan.gasReserveAtomic)},
-            {role:"OWNER",transfer:owner,reserve:BigInt(plan.gasReserveAtomic)}];
+        // Winner is always attempted first; the Owner share is NOT reserved
+        // against the Winner transfer when recipient-funded fees are frozen.
+        const amounts=[{role:"WINNER",transfer:winner,reserve:historic
+            ? BigInt(owner.netAtomic+plan.gasReserveAtomic) : 0n},
+            {role:"OWNER",transfer:owner,reserve:historic
+                ? BigInt(plan.gasReserveAtomic) : 0n}];
         for(const {role,transfer,reserve} of amounts){
             // Exclusive per-leg intent is published before calling the signer.
             // A durable adapter retries only the exact persisted message. Older
