@@ -1,0 +1,53 @@
+name: Admin quarantine and residue sweep safety
+on:
+  pull_request:
+    paths:
+      - 'server/console/WalletQuarantineAdminService.js'
+      - 'server/console/registerDeveloperConsoleRoutes.js'
+      - 'server/payment/WalletPoolRegistry.js'
+      - 'server/payment/roomWallet/RoomWalletAdapter.js'
+      - 'server/app.js'
+      - 'server/tests/console/walletQuarantineAdmin.test.js'
+      - 'server/tests/payment/adminSweepMode.test.js'
+      - 'server/tests/payment/manualWalletQuarantine.test.js'
+      - 'client/src/console/**'
+      - '.github/workflows/admin-wallet-quarantine.yml'
+  push:
+    branches:
+      - feature/admin-wallet-quarantine-20261030
+permissions:
+  contents: read
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --check console/WalletQuarantineAdminService.js
+      - run: node --check console/registerDeveloperConsoleRoutes.js
+      - run: node --check payment/WalletPoolRegistry.js
+      - run: node --check payment/roomWallet/RoomWalletAdapter.js
+      - run: node --check app.js
+      - run: node --test tests/console/walletQuarantineAdmin.test.js tests/payment/adminSweepMode.test.js tests/payment/manualWalletQuarantine.test.js tests/payment/restoreTestnetPage3Requirements.test.js
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run build

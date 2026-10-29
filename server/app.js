@@ -124,6 +124,7 @@ import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "./payment/PaymentLifecycleAvail
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
+import { WalletQuarantineAdminService } from "./console/WalletQuarantineAdminService.js";
 import { RoomNetworkHandoffStore } from "./network/RoomNetworkHandoffStore.js";
 import { RoomNetworkHandoffClient } from "./network/RoomNetworkHandoffClient.js";
 import { registerRoomNetworkHandoffRoutes } from "./network/registerRoomNetworkHandoffRoutes.js";
@@ -252,6 +253,8 @@ class WheelWinApplication {
         this._recoveryCheckpointManager = null;
 
         this._paymentRuntime = null;
+        this._nativeRoomWalletAdapter = null;
+        this._adminSweepAdapter = null;
 
         this._paymentRuntimeReady = false;
 
@@ -1257,6 +1260,7 @@ class WheelWinApplication {
             const recovery = paymentRuntime.initialize();
 
             this._paymentRuntime = paymentRuntime;
+            this._nativeRoomWalletAdapter = nativeRoomWalletAdapter;
 
             this._paymentRuntimeReady = true;
 
@@ -1405,6 +1409,7 @@ class WheelWinApplication {
         } catch (error) {
 
             this._paymentRuntime = null;
+            this._nativeRoomWalletAdapter = null;
 
             this._paymentRuntimeReady = false;
 
@@ -1897,6 +1902,25 @@ class WheelWinApplication {
         this._logger.startupLine("AdvertisementLifecycleManager");
         this._logger.startupLine("AdvertisementScheduler");
 
+        const walletQuarantineService = new WalletQuarantineAdminService({
+            getRuntime: () => this._paymentRuntime,
+            logger: this._logger,
+            getAdapter: () => {
+                if (this._nativeRoomWalletAdapter) return this._nativeRoomWalletAdapter;
+                if (process.env.ADMIN_WALLET_SWEEP_ENABLED !== "true"
+                    || process.env.TON_NETWORK !== "testnet"
+                    || !this._paymentRuntime?.initialized) return null;
+                if (!this._adminSweepAdapter) {
+                    this._adminSweepAdapter = new RoomWalletAdapter({
+                        sequenceStateDir: join(this._paymentRuntime.networkDataDir, "outbound-sequences"),
+                        walletResolver: createRoomWalletRuntimeResolver({env:process.env}),
+                        tonService: new TestnetNativeTonService(),
+                        logger: this._logger
+                    });
+                }
+                return this._adminSweepAdapter;
+            }
+        });
         registerDeveloperConsoleRoutes(
             this._expressApp,
             this._consoleProjectionService,
@@ -1908,7 +1932,8 @@ class WheelWinApplication {
                 gameDiagnosticLogManager: this._gameDiagnosticLogManager,
                 sessionHistoryArchive: this._sessionHistoryArchive,
                 runtimeConfigurationService: this._runtimeConfigurationService,
-                audioRegistryService: this._audioRegistryService
+                audioRegistryService: this._audioRegistryService,
+                walletQuarantineService
             }
         );
 
