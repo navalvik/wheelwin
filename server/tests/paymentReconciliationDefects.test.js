@@ -112,7 +112,7 @@ test("forensic decisions use evidence-based categories and final report matches 
         decisions.map(row => [row.transactionId, row.decision]));
 });
 
-test("routine observations do not upload supplements; financial revisions are stable and linked", async () => {
+test("routine polls do not upload copies; financial updates replace a single R2 key", async () => {
     const dir = tempDirectory("ww-archive-revisions-");
     try {
         const history = join(dir, "history"), logs = join(dir, "logs"), staging = join(dir, "staging");
@@ -135,26 +135,29 @@ test("routine observations do not upload supplements; financial revisions are st
             }] };
             await service.ensureArchivedAndUploaded(request);
         }
-        assert.equal(uploader.uploads.length, 1, "ten no-change polls create no supplement");
+        assert.equal(uploader.uploads.length, 1, "ten no-change polls create no new writes");
         assert.deepEqual(readFileSync(uploader.uploads[0].localPath), originalBytes, "original ZIP is preserved");
 
         snapshot = { ...snapshot, receipts:[{ transactionId:"verified-tx", amountAtomic:100,
             playerId:"player-a", paymentIntentId:"ref-a", paymentReference:"ref-a",
             senderAddress:address(100), destinationWalletAddress:address(4), transactionTime:150 }] };
-        const supplement = await service.ensureArchivedAndUploaded(request);
-        assert.equal(uploader.uploads.length, 2, "one new verified receipt creates one supplement");
+        const updated = await service.ensureArchivedAndUploaded(request);
+        assert.equal(uploader.uploads.length, 2, "a material receipt triggers one update, not a supplement");
+        assert.equal(uploader.objects.size, 1, "only one R2 object is visible for this room");
+        assert.equal(uploader.uploads[1].objectName, uploader.uploads[0].objectName);
+        assert.equal(updated.archiveFilename, uploader.uploads[0].objectName);
         assert.notEqual(uploader.uploads[1].localPath, uploader.uploads[0].localPath);
-        const lineage = JSON.parse(extractZipEntry(readFileSync(uploader.uploads[1].localPath), "forensics/archive-lineage.json"));
-        assert.equal(lineage.roomId, "Room-A");
-        assert.equal(lineage.gameId, "game-a");
-        assert.ok(lineage.originalArchiveFilename);
-        assert.ok(uploader.uploads[1].objectName.endsWith(supplement.archiveFilename));
+        const newerFinance = JSON.parse(extractZipEntry(
+            readFileSync(uploader.uploads[1].localPath), "financial/room-wallet.json"));
+        assert.equal(newerFinance.receipts.length,1,"latest R2 object carries the newly verified receipt");
 
         await service.ensureArchivedAndUploaded(request);
         const restarted = new ForensicArchiveService({ config, uploader, financialSnapshotProvider:() => snapshot });
         await restarted.ensureArchivedAndUploaded(request);
         assert.equal(uploader.uploads.length, 2, "repeat and restart are idempotent");
-        assert.deepEqual(readFileSync(uploader.uploads[0].localPath), originalBytes, "original remains byte-for-byte unchanged");
+        assert.equal(uploader.objects.size, 1, "restart does not create a second key");
+        assert.deepEqual(readFileSync(uploader.uploads[0].localPath), originalBytes,
+            "original forensic evidence stays on the durable volume");
     } finally { rmSync(dir, { recursive:true, force:true }); }
 });
 
