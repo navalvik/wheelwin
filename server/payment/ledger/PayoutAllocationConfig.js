@@ -4,8 +4,8 @@
  * APPROVED, AUTHORITATIVE BUSINESS RULE (Phase 4 alignment):
  *
  *   1. the winner receives exactly 95% of settled principal;
- *   2. the owner receives exactly 4.9% of settled principal;
- *   3. 0.1% plus integer-rounding remainder is retained in the Room Wallet
+ *   2. the owner receives exactly 5% of settled principal;
+ *   3. 0% plus integer-rounding remainder is retained in the Room Wallet
  *      for source-paid TON fees and accumulated wallet balance;
  *   4. quoted and actual network fees never reduce either recipient transfer;
  *   5. all arithmetic is exact integer atomic-unit (nanoton) arithmetic using
@@ -15,7 +15,7 @@
  * The APPROVED formula, evaluated in whole nanotons:
  *
  *   winnerGrossAllocationAtomic = floor(totalSettledPrincipalAtomic * 95 / 100)
- *   ownerGrossAllocationAtomic  = floor(totalSettledPrincipalAtomic * 49 / 1000)
+ *   ownerGrossAllocationAtomic  = floor(totalSettledPrincipalAtomic * 5 / 100)
  *   gasReserveAtomic            = principal - winner - owner
  *
  * This rule is a FIXED, IMMUTABLE BUSINESS-RULE CONSTANT. It is NOT an
@@ -40,9 +40,9 @@ export const WINNER_SHARE_NUMERATOR = 95n;
 /** The fixed denominator of the approved winner share (percent basis). */
 export const WINNER_SHARE_DENOMINATOR = 100n;
 
-/** The fixed owner share: 4.9% of the settled principal. */
-export const OWNER_SHARE_NUMERATOR = 49n;
-export const OWNER_SHARE_DENOMINATOR = 1000n;
+/** The fixed owner share: 5% of the settled principal. */
+export const OWNER_SHARE_NUMERATOR = 5n;
+export const OWNER_SHARE_DENOMINATOR = 100n;
 
 /**
  * Stable identifier for the approved, fixed winner payout rule. Carried on
@@ -50,7 +50,7 @@ export const OWNER_SHARE_DENOMINATOR = 1000n;
  * produced the allocation.
  */
 export const APPROVED_WINNER_RULE_ID =
-    "APPROVED_WINNER_95_OWNER_4_9_GAS_RESERVE_0_1_RULE";
+    "APPROVED_WINNER_95_OWNER_5_RECIPIENT_PAYS_GAS_RULE";
 
 /**
  * Human-readable description of the approved, fixed rule (provenance). It is
@@ -58,14 +58,14 @@ export const APPROVED_WINNER_RULE_ID =
  */
 export const APPROVED_WINNER_RULE_TEXT = Object.freeze(
     "winner transfer = floor(totalSettledPrincipalAtomic * 95 / 100); "
-    + "owner transfer = floor(totalSettledPrincipalAtomic * 49 / 1000); "
-    + "remainder is retained in the Room Wallet for source-paid network fees"
+    + "owner gross = totalSettledPrincipalAtomic - winner gross; "
+    + "each recipient pays their own frozen network-fee charge via gross-minus-fee transfer"
 );
 
 /**
  * The approved, FIXED winner-allocation rule for a payout.
  *
- * Immutable value object for the fixed 95% / 4.9% / retained-remainder rule.
+ * Immutable value object for the fixed 95% / 5% / retained-remainder rule.
  */
 export class PayoutAllocationConfig {
 
@@ -116,8 +116,7 @@ export class PayoutAllocationConfig {
     }
 
     ownerGrossAllocationBigInt(principalAtomic) {
-        return (BigInt(principalAtomic) * OWNER_SHARE_NUMERATOR)
-            / OWNER_SHARE_DENOMINATOR;
+        return BigInt(principalAtomic) - this.winnerGrossAllocationBigInt(principalAtomic);
     }
 
     /**
