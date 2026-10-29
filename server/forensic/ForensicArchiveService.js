@@ -214,7 +214,7 @@ export class ForensicArchiveService {
         // Do not build, stage or transmit any ZIP until financial closure is
         // independently established by the runtime's durable evidence.
         if (typeof this._finalityChecker === "function") {
-            const check = this._finalityChecker(financialSnapshot);
+            const check = this._finalityChecker(financialSnapshot, {roomId,gameId,sessionRecord});
             if (check?.ready !== true) {
                 this._logInfo("R2_ARCHIVE_WAITING_FINANCIAL_FINALITY | roomId=" + roomId
                     + " | reason=" + (check?.reason ?? "NOT_READY"));
