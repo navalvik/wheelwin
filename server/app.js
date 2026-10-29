@@ -46,6 +46,7 @@ import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
+import { purgeLocalForensicArchiveZips } from "./forensic/purgeLocalForensicArchiveZips.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
 import { LOG_LEVELS } from "./logging/levels.js";
@@ -1748,9 +1749,20 @@ class WheelWinApplication {
 
         this._logger.startupLine("SessionHistoryArchiveManager");
 
-        // Restore October's private R2 ZIP archive path, using current
-        // session-history and diagnostic logs only. No escrow/contract code.
-        // Upload is queued after room destruction, never in the game timer.
+        // Owner-directed purge: no forensic ZIP may remain on Railway.
+        // Delete archived ZIPs from the mounted volume BEFORE any recovery.
+        // Never delete room financial ledgers, JSON status, or Cloudflare R2 objects.
+        const purgeReport = purgeLocalForensicArchiveZips({
+            stagingDir: archiveConfig.stagingDir,
+            logger: this._logger
+        });
+        if (purgeReport.failed > 0) {
+            this._logger.warn?.(
+                `RAILWAY_FORENSIC_ZIP_PURGE_INCOMPLETE | failures=${purgeReport.failed}`
+            );
+        }
+        // Stream each future ZIP through a temporary local file, remove it
+        // regardless of upload outcome, and retain no game ZIP on Railway.
         try {
             const archiveUploader = new R2ForensicArchiveUploader({
                 logger: this._logger,

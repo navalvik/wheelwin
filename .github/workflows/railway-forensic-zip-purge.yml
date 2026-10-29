@@ -1,0 +1,36 @@
+name: Railway forensic ZIP cleanup safety
+on:
+  push:
+    branches:
+      - fix/remove-railway-game-zips-20261030
+  pull_request:
+    paths:
+      - 'server/forensic/**'
+      - 'server/app.js'
+      - 'server/tests/restoredR2Archive.test.js'
+      - 'server/tests/paymentReconciliationDefects.test.js'
+      - 'server/tests/purgeLocalForensicArchiveZips.test.js'
+      - '.github/workflows/railway-forensic-zip-purge.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: |
+          node --check forensic/purgeLocalForensicArchiveZips.js
+          node --check forensic/ForensicArchiveService.js
+          node --check forensic/R2ForensicArchiveUploader.js
+          node --check app.js
+      - name: Zero persisted ZIP tests, R2 and payment regression
+        run: node --test tests/purgeLocalForensicArchiveZips.test.js tests/restoredR2Archive.test.js tests/restoredR2ArchiveRoomClose.test.js tests/paymentReconciliationDefects.test.js tests/paymentThreePlayerGate.test.js tests/paymentHistoricalCrossRoom.test.js

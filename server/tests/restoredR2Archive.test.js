@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -43,10 +43,12 @@ test("restored R2 archive ZIP contains room artifacts and uploads once", async (
         assert.equal(result.uploaded, true);
         assert.match(result.archiveFilename, /_COMPLETED\.zip$/);
         assert.equal(uploader.uploads.length, 1);
-        const zip = readFileSync(uploader.uploads[0].localPath);
+        const zip = uploader.uploads[0].bytes;
+        assert.equal(existsSync(uploader.uploads[0].localPath), false, "temporary Railway ZIP is deleted");
         assert.equal(zip.subarray(0, 2).toString(), "PK");
         const status = JSON.parse(readFileSync(join(f.config.stagingDir, "Abc", "status.json"), "utf8"));
         assert.equal(status.state, "uploaded");
+        assert.equal(status.zipPath, null, "no local ZIP path is persisted");
         assert.equal(status.manifest.files.length, 3);
         assert.ok(status.manifest.files.some(f => f.zipPath === 'session/game-mode.json'));
         assert.ok(status.manifest.files.some(f => f.zipPath.includes("session-history")));
@@ -74,10 +76,10 @@ test("failed R2 upload remains durable for recovery, never claims success", asyn
         assert.equal(status.phase, "upload");
         assert.equal(status.attempts, 2);
 
-        // Simulate a Railway restart: original ephemeral history/logs vanish,
-        // but the mounted-volume ZIP and status remain available.
-        rmSync(f.config.sessionHistoryDir, { recursive: true, force: true });
-        rmSync(f.config.diagnosticLogsDir, { recursive: true, force: true });
+        // A failed upload must NOT leave any ZIP on the Railway volume.
+        // Recovery regenerates a temporary ZIP from the retained source JSON/log.
+        assert.equal(status.zipPath, null);
+        assert.equal(existsSync(join(f.config.stagingDir, "Abc", status.archiveFilename)), false);
         uploader.shouldFail = false;
         const restarted = new ForensicArchiveService({ config: f.config, uploader });
         const recovery = await restarted.recoverPendingUploads();
@@ -132,7 +134,8 @@ test('financial archive revisions preserve both pending and completed debt evide
         assert.equal(uploader.objects.get(uploader.uploads[0].objectName).revision,
             uploader.uploads[1].revision, "R2 points to the latest complete evidence");
         for (const upload of uploader.uploads) {
-            assert.ok(readFileSync(upload.localPath).includes(Buffer.from('financial/room-wallet.json')));
+            assert.ok(upload.bytes.includes(Buffer.from('financial/room-wallet.json')));
+            assert.equal(existsSync(upload.localPath),false,"no local ZIP retained");
         }
         const restarted = new ForensicArchiveService({config:f.config, uploader, financialSnapshotProvider});
         await restarted.ensureArchivedAndUploaded(request);

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inflateRawSync } from "node:zlib";
@@ -128,7 +128,7 @@ test("routine polls do not upload copies; financial updates replace a single R2 
         const request = { roomId:"Room-A", gameId:"game-a", reason:"game_completed" };
         const service = new ForensicArchiveService({ config, uploader, financialSnapshotProvider:() => snapshot });
         await service.ensureArchivedAndUploaded(request);
-        const originalBytes = readFileSync(uploader.uploads[0].localPath);
+        const originalBytes = uploader.uploads[0].bytes;
         for (let i = 0; i < 10; i++) {
             snapshot = { ...snapshot, paymentObservations:[...(snapshot.paymentObservations), {
                 startedAt:100+i, completedAt:200+i, rowsReturned:0, resultWindowComplete:true
@@ -136,7 +136,7 @@ test("routine polls do not upload copies; financial updates replace a single R2 
             await service.ensureArchivedAndUploaded(request);
         }
         assert.equal(uploader.uploads.length, 1, "ten no-change polls create no new writes");
-        assert.deepEqual(readFileSync(uploader.uploads[0].localPath), originalBytes, "original ZIP is preserved");
+        assert.deepEqual(uploader.uploads[0].bytes, originalBytes, "original ZIP is preserved");
 
         snapshot = { ...snapshot, receipts:[{ transactionId:"verified-tx", amountAtomic:100,
             playerId:"player-a", paymentIntentId:"ref-a", paymentReference:"ref-a",
@@ -148,7 +148,7 @@ test("routine polls do not upload copies; financial updates replace a single R2 
         assert.equal(updated.archiveFilename, uploader.uploads[0].objectName);
         assert.notEqual(uploader.uploads[1].localPath, uploader.uploads[0].localPath);
         const newerFinance = JSON.parse(extractZipEntry(
-            readFileSync(uploader.uploads[1].localPath), "financial/room-wallet.json"));
+            uploader.uploads[1].bytes, "financial/room-wallet.json"));
         assert.equal(newerFinance.receipts.length,1,"latest R2 object carries the newly verified receipt");
 
         await service.ensureArchivedAndUploaded(request);
@@ -156,7 +156,7 @@ test("routine polls do not upload copies; financial updates replace a single R2 
         await restarted.ensureArchivedAndUploaded(request);
         assert.equal(uploader.uploads.length, 2, "repeat and restart are idempotent");
         assert.equal(uploader.objects.size, 1, "restart does not create a second key");
-        assert.deepEqual(readFileSync(uploader.uploads[0].localPath), originalBytes,
+        assert.deepEqual(uploader.uploads[0].bytes, originalBytes,
             "original forensic evidence stays on the durable volume");
     } finally { rmSync(dir, { recursive:true, force:true }); }
 });

@@ -2,11 +2,14 @@ import { createHash } from 'node:crypto';
 import {
     existsSync,
     mkdirSync,
+    mkdtempSync,
     readdirSync,
     readFileSync,
+    rmSync,
     renameSync
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 import { ForensicArchiveCollector, writeStagingStatus } from "./ForensicArchiveCollector.js";
 import {
@@ -318,17 +321,18 @@ export class ForensicArchiveService {
                 reason
             });
 
-        // Keep old immutable ZIP bytes on the mounted disk, but refresh
-        // a single canonical R2 key using an optimistic concurrent write.
-        const zipPath = join(stagingRoomDir, revision ?? "initial", archiveFilename);
+        // NO ZIP files are stored on Railway's persistent volume.
+        // Only a private, temporary file is used during the R2 upload.
+        mkdirSync(stagingRoomDir, { recursive: true });
+        const temporaryDir = mkdtempSync(join(tmpdir(), "wheelwin-r2-upload-"));
+        const zipPath = join(temporaryDir, archiveFilename);
+        try {
 
         this._logInfo(
             `${LOG.CREATE_STARTED} | roomId=${roomId} | gameId=${gameId ?? "null"}`
             + ` | lifecycleResult=${lifecycleResult}`
             + ` | archive=${archiveFilename}`
         );
-
-        mkdirSync(dirname(zipPath), { recursive: true });
 
         let manifest;
 
@@ -370,7 +374,7 @@ export class ForensicArchiveService {
             gameId,
             reason,
             archiveFilename,
-            zipPath,
+            zipPath: null, // never persist a Railway ZIP path
             revision,
             manifest,
             updatedAt: Date.now()
@@ -403,7 +407,7 @@ export class ForensicArchiveService {
                     gameId,
                     reason,
                     archiveFilename,
-                    zipPath,
+                    zipPath: null,
                     objectName: upload.objectName,
                     generation: upload.generation,
                     etag: upload.etag ?? null,
@@ -432,7 +436,7 @@ export class ForensicArchiveService {
                     roomId,
                     gameId,
                     archiveFilename,
-                    zipPath,
+                    zipPath: null,
                     manifest,
                     revision,
                     archiveLineage: null,
@@ -458,6 +462,12 @@ export class ForensicArchiveService {
         }
 
         throw new Error("Forensic archive upload exhausted retries");
+
+        } finally {
+            // Covers successful uploads, R2 failures and collection errors.
+            // The R2 object persists; no ZIP survives on local Railway disk.
+            rmSync(temporaryDir, { recursive: true, force: true });
+        }
 
     }
 
