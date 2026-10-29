@@ -1379,10 +1379,11 @@ class WheelWinApplication {
 
 
             const refundRecovery = recovery?.refundRecovery ?? [];
+            const refundExecutionEnabled = paymentRuntime.outgoingRefundProvider?.canExecute?.() === true;
 
             this._logger.startupLine(
                 `RoomWalletPayment (TESTNET globalId=${paymentRuntime.globalId}`
-                    + ` | gate=enforced | refundExecution=disabled`
+                    + ` | gate=enforced | refundExecution=${refundExecutionEnabled ? "enabled" : "disabled"}`
                     + ` | liveAcceptance=${
                         LIVE_PAYMENT_ACCEPTANCE_ENABLED ? "enabled" : "disabled"}`
                     + ` | refundsPending=${
