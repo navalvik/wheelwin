@@ -29,7 +29,7 @@ export function countUnsettledRoomFinancialObligations({
     if (unreturnedReceipts.length) return unreturnedReceipts.length;
     const pendingRefunds = refunds.filter(item => item.state !== "COMPLETE");
     const openPayouts = ledger.listPayoutObligations(roomId)
-        .filter(item => !item.settled);
+        .filter(item => !item.settled && !item.waived);
     if (openPayouts.length || pendingRefunds.length) {
         return openPayouts.length + pendingRefunds.length;
     }
@@ -43,7 +43,7 @@ export function countUnsettledRoomFinancialObligations({
         const planned = ledger.listPayoutObligations(roomId);
         if (plans.length === 1
             && planned.length === 2
-            && planned.every(item => item.settled)) return 0;
+            && planned.every(item => item.settled || (item.role === "OWNER" && item.waived))) return 0;
         return 1;
     }
 
