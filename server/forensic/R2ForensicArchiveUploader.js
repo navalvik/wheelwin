@@ -1,4 +1,4 @@
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, readFileSync, statSync } from "node:fs";
 import { PutObjectCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 /**
@@ -229,7 +229,7 @@ export class MockForensicArchiveUploader {
                 alreadyPresent:true };
         }
         const etag = "mock-etag-" + (this.uploads.length + 1);
-        this.uploads.push({ localPath, objectName, revision });
+        this.uploads.push({ localPath, objectName, revision, bytes: readFileSync(localPath) });
         this.objects.set(objectName, { localPath, revision, etag });
         return { objectName, generation:"mock-generation", etag };
 
