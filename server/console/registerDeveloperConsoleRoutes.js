@@ -269,13 +269,17 @@ export function registerDeveloperConsoleRoutes(
                 res.json(await walletQuarantineService.status(req.query?.roomNumber ?? null));
             } catch(error) {quarantineError(res,error);}
         });
-        for (const action of ["release","sweep"]) {
+        for (const action of ["quarantine","release","sweep"]) {
             app.post(`/console/wallets/quarantine/${action}`,strictAdminGate,async (req,res) => {
                 try {
                     res.setHeader("Cache-Control","no-store");
                     res.json(await walletQuarantineService[action]({
                         roomNumber:req.body?.roomNumber,
-                        confirmation:req.body?.confirmation
+                        confirmation:req.body?.confirmation,
+                        ...(action === "quarantine" ? {
+                            note:req.body?.note ?? "",
+                            actor:req.developer?.username ?? "Administrator"
+                        } : {})
                     }));
                 } catch(error) {quarantineError(res,error);}
             });
