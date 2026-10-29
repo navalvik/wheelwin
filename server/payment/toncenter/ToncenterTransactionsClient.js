@@ -17,8 +17,8 @@
  *     written anywhere;
  *   - when the key is absent NO request is sent
  *     (`ToncenterApiKeyMissingError` instead of an unauthenticated request);
- *   - transaction reads make at most three attempts on HTTP 429, honoring
- *     Retry-After or bounded exponential backoff; they never poll on their own;
+ *   - production transaction reads never retry HTTP 429 inside the same
+ *     room observation; process-wide cooldown honors Retry-After;
  *   - every response is validated against the documented envelope before it
  *     is returned to the caller.
  *
@@ -100,7 +100,7 @@ export class ToncenterTransactionsClient {
         apiKeyProvider = defaultApiKeyProvider,
         fetchImpl = globalThis.fetch,
         timeoutMs = TONCENTER_DEFAULT_TIMEOUT_MS,
-        rateLimitRetries = 2,
+        rateLimitRetries = 0,
         delay = defaultDelay,
         readBudget = fetchImpl === globalThis.fetch ? sharedToncenterReadBudget : null
     } = {}) {
