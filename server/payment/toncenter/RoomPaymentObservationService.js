@@ -540,7 +540,8 @@ export class RoomPaymentObservationService {
             floorMs,
             ceilingMs,
             limit,
-            destinationWalletId
+            destinationWalletId,
+            priority: "page4"
         });
 
         const now = this._nowProvider();
