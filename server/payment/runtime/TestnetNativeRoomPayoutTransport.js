@@ -6,7 +6,7 @@ import { durableWriteJson } from '../DurableJson.js';
  * restart/concurrent replay from ever sending the same payout again.
  * No escrow/game contract, Jetton, Mainnet or blockchain finality claim.
  */
-import {mkdirSync,openSync,writeSync,fsyncSync,closeSync,readFileSync} from "node:fs";
+import {mkdirSync,openSync,writeSync,fsyncSync,closeSync,readFileSync,existsSync} from "node:fs";
 import {join} from "node:path";
 import {RoomWalletAdapter} from "../roomWallet/RoomWalletAdapter.js";
 import {PayoutPlan} from "../ledger/PayoutPlan.js";
@@ -206,6 +206,10 @@ export class TestnetNativeRoomPayoutTransport {
      * Never signs, sends, or guesses actual chain fees.
      */
     async reconcileAndSettle(query) {
+        if (query.plan?.allocation?.ruleId ===
+            "APPROVED_WINNER_95_OWNER_5_RECIPIENT_PAYS_GAS_RULE") {
+            return this._reconcileRecipientFunded(query);
+        }
         const observed=await this.reconcile(query);
         if(observed.status!=="BOTH_MASTERCHAIN_INDEXED_CREDITS_OBSERVED_UNFINALIZED")
             return Object.freeze({...observed,autoSettlement:false});
@@ -266,6 +270,119 @@ export class TestnetNativeRoomPayoutTransport {
             payoutId:query.payoutId,autoSettlement:true,
             replay:results.every(r=>r.replay===true)});
     }
+    /** Confirm one recipient without waiting for the other recipient's transfer. */
+    async _verifyRecipientLeg(query, transfer, claimTimestamp) {
+        if (!this._outgoingObserver?.findOutgoingTransfer
+            || !this._outgoingObserver?.verifyIndexedRecipientCredit
+            || !this._independentVerifier?.verifyTransfer) return null;
+        const outgoing = await this._outgoingObserver.findOutgoingTransfer({
+            sourceWalletAddress:query.roomWalletAddress,
+            destinationIdentity:transfer.address, amountAtomic:transfer.netAtomic,
+            minCreatedAtMs:claimTimestamp
+        });
+        if (!outgoing?.transactionId || outgoing.ambiguous) return null;
+        const indexed = await this._outgoingObserver.verifyIndexedRecipientCredit({
+            sourceWalletAddress:query.roomWalletAddress,
+            destinationIdentity:transfer.address,
+            transactionId:outgoing.transactionId, amountAtomic:transfer.netAtomic,
+            minCreatedAtMs:claimTimestamp
+        });
+        if (indexed?.status !== "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
+            || indexed.globalId !== -3 || indexed.sourceFinality !== "finalized"
+            || indexed.recipientFinality !== "finalized"
+            || indexed.sourceTransactionId !== outgoing.transactionId
+            || !indexed.recipientTransactionId
+            || indexed.amountAtomic !== transfer.netAtomic
+            || !Number.isSafeInteger(indexed.sourceMcBlockSeqno)
+            || !Number.isSafeInteger(indexed.recipientMcBlockSeqno)
+            || !Number.isSafeInteger(indexed.latestIndexedMcBlockSeqno)
+            || indexed.latestIndexedMcBlockSeqno <= indexed.sourceMcBlockSeqno
+            || indexed.latestIndexedMcBlockSeqno <= indexed.recipientMcBlockSeqno
+            || canonical(indexed.destinationAddress) !== canonical(transfer.address)) return null;
+        const proof = await this._independentVerifier.verifyTransfer({
+            sourceTransactionId:indexed.sourceTransactionId,
+            recipientTransactionId:indexed.recipientTransactionId,
+            messageHash:indexed.messageHash,
+            sourceWalletAddress:query.roomWalletAddress,
+            destinationAddress:transfer.address, amountAtomic:transfer.netAtomic
+        });
+        if (proof?.status !== "INDEPENDENT_INDEXED_CREDIT_OBSERVED"
+            || proof.provider !== "tonapi-testnet"
+            || proof.sourceTransactionId !== indexed.sourceTransactionId
+            || proof.recipientTransactionId !== indexed.recipientTransactionId
+            || proof.messageHash !== indexed.messageHash
+            || proof.amountAtomic !== transfer.netAtomic
+            || canonical(proof.sourceWalletAddress) !== canonical(query.roomWalletAddress)
+            || canonical(proof.destinationAddress) !== canonical(transfer.address)
+            || !Number.isSafeInteger(proof.actualFeeAtomic)
+            || proof.actualFeeAtomic < 0) return null;
+        return {transactionId:proof.sourceTransactionId,
+            actualFeeAtomic:proof.actualFeeAtomic, settledAtMs:Date.now()};
+    }
+
+    /** The 95/5 scheme settles Winner first and never fabricates an Owner payment. */
+    async _reconcileRecipientFunded(query) {
+        const wallet = this._reservation(query.roomId, query.roomWalletAddress);
+        const winner = query.plan.transfers.find(t=>t.recipientRole==="WINNER");
+        const owner = query.plan.transfers.find(t=>t.recipientRole==="OWNER");
+        PayoutPlan.fromJSON(query.plan);
+        const path = join(this._dir,query.payoutId+".jsonl");
+        if (!existsSync(path)) return Object.freeze({
+            status:"NO_BROADCAST_ATTEMPT_RECORDED",payoutId:query.payoutId,autoSettlement:false
+        });
+        const records = readFileSync(path,"utf8").trim().split("\n").map(row=>JSON.parse(row));
+        const initial=records[0];
+        assert(initial.payoutId===query.payoutId && initial.roomId===query.roomId
+            && initial.roomNumber===wallet.roomNumber
+            && initial.winnerAmountAtomic===winner.netAtomic
+            && initial.ownerAmountAtomic===owner.netAtomic
+            && initial.winnerAddress===canonical(winner.address)
+            && initial.ownerAddress===canonical(owner.address),
+            "PAYOUT_JOURNAL_IDENTITY_MISMATCH");
+        const legs=this._ledger.listPayoutObligations(query.roomId)
+            .filter(o=>o.payoutId===query.payoutId);
+        let win=legs.find(o=>o.role==="WINNER");
+        if (!win?.settled) {
+            const proof=await this._verifyRecipientLeg(query,winner,initial.timestamp);
+            if (!proof) return Object.freeze({
+                status:"WINNER_CONFIRMATION_PENDING",payoutId:query.payoutId,autoSettlement:false
+            });
+            this._ledger.settlePayout({payoutId:query.payoutId,
+                recipientId:winner.recipientId,executionResult:proof});
+        }
+        const ownerLeg=legs.find(o=>o.role==="OWNER");
+        if (ownerLeg?.waived) return Object.freeze({
+            status:"WINNER_SETTLED_OWNER_COMMISSION_WAIVED",payoutId:query.payoutId,
+            autoSettlement:true
+        });
+        if (ownerLeg?.settled) return Object.freeze({
+            status:"BOTH_PAYOUTS_SETTLED_FROM_DUAL_FINALITY",payoutId:query.payoutId,
+            autoSettlement:true
+        });
+        // An Owner transfer that may have been broadcast can never be waived.
+        const ownerProof=await this._verifyRecipientLeg(query,owner,initial.timestamp);
+        if (ownerProof) {
+            this._ledger.settlePayout({payoutId:query.payoutId,
+                recipientId:owner.recipientId,executionResult:ownerProof});
+            return Object.freeze({status:"BOTH_PAYOUTS_SETTLED_FROM_DUAL_FINALITY",
+                payoutId:query.payoutId,autoSettlement:true});
+        }
+        const evidence=records.find(row=>row.role==="OWNER"
+            && row.state==="OWNER_FUNDS_INSUFFICIENT");
+        if (evidence && !existsSync(join(this._dir,query.payoutId+".OWNER.json"))) {
+            // This record was persisted BEFORE any Owner broadcast attempt.
+            this._ledger.waiveOwnerCommission({
+                payoutId:query.payoutId,roomId:query.roomId,
+                evidence:{reason:"INSUFFICIENT_BALANCE_AFTER_WINNER",
+                    balanceAtomic:evidence.balanceAtomic,
+                    requiredAtomic:evidence.requiredAtomic}
+            });
+            return Object.freeze({status:"WINNER_SETTLED_OWNER_COMMISSION_WAIVED",
+                payoutId:query.payoutId,autoSettlement:true});
+        }
+        return Object.freeze({status:"WINNER_SETTLED_OWNER_CONFIRMATION_PENDING",
+            payoutId:query.payoutId,autoSettlement:true});
+    }
     async resumeUnattempted(query) {
         await this.submit({...query, resume:true});
         return this.reconcileAndSettle(query);
@@ -316,6 +433,32 @@ export class TestnetNativeRoomPayoutTransport {
             {role:"OWNER",transfer:owner,reserve:historic
                 ? BigInt(plan.gasReserveAtomic) : 0n}];
         for(const {role,transfer,reserve} of amounts){
+            if (role === "OWNER" && !historic) {
+                const journal=readFileSync(path,"utf8").trim().split("\n")
+                    .map(line=>JSON.parse(line));
+                if (journal.some(row=>row.role==="OWNER"
+                    && row.state==="OWNER_FUNDS_INSUFFICIENT")) {
+                    return Object.freeze({status:"OWNER_COMMISSION_WAIVER_PENDING_CONFIRMATION",
+                        payoutId});
+                }
+                // Check funding only AFTER independent Winner chain evidence.
+                // A failed Owner balance check is not an unconfirmed broadcast.
+                if (typeof this._adapter.canFundTransfer==="function") {
+                    const funding=await this._adapter.canFundTransfer({
+                        roomNumber:wallet.roomNumber,
+                        amountNano:BigInt(owner.netAtomic),
+                        sourceReserveNano:BigInt(owner.reservedFeeAtomic)
+                    });
+                    if (!funding.ok) {
+                        const balanceAtomic=feeToNumber(funding.balanceNano);
+                        const requiredAtomic=feeToNumber(funding.requiredNano);
+                        logEvent(path,{role:"OWNER",state:"OWNER_FUNDS_INSUFFICIENT",
+                            balanceAtomic,requiredAtomic,timestamp:Date.now()},false);
+                        return Object.freeze({status:"OWNER_COMMISSION_WAIVER_PENDING_CONFIRMATION",
+                            payoutId});
+                    }
+                }
+            }
             // Exclusive per-leg intent is published before calling the signer.
             // A durable adapter retries only the exact persisted message. Older
             // attempts without that payload remain observation-only.
