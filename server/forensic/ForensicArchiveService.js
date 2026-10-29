@@ -102,48 +102,8 @@ export class ForensicArchiveService {
                 this._logInfo(`R2_LEGACY_SUPPLEMENT_SUPPRESSED | roomId=${status.roomId}`);
                 continue;
             }
-            const roomStagingDir = resolve(this._config.stagingDir, entry.name);
-            const stagedZip = typeof status.zipPath === "string"
-                ? resolve(status.zipPath)
-                : null;
-            // The original history may be gone after a Railway restart. The
-            // immutable ZIP is the durable retry source on the mounted volume.
-            if (stagedZip
-                && typeof status.archiveFilename === "string"
-                && relative(roomStagingDir, stagedZip) !== ""
-                && !relative(roomStagingDir, stagedZip).startsWith("..")
-                && basename(stagedZip) === status.archiveFilename
-                && existsSync(stagedZip)) {
-                try {
-                    const upload = await this._uploader.uploadFile(
-                        stagedZip, status.archiveFilename, { revision: status.revision ?? null }
-                    );
-                    writeStagingStatus(join(roomStagingDir, "status.json"), {
-                        ...status,
-                        state: "uploaded",
-                        objectName: upload.objectName,
-                        generation: upload.generation,
-                        attempts: Number(status.attempts ?? 0) + 1,
-                        uploadedAt: Date.now()
-                    });
-                    report.push({ roomId: status.roomId, uploaded: true });
-                } catch (error) {
-                    writeStagingStatus(join(roomStagingDir, "status.json"), {
-                        ...status,
-                        state: "failed",
-                        phase: "upload",
-                        attempts: Number(status.attempts ?? 0) + 1,
-                        error: error?.code ?? "UPLOAD_FAILED",
-                        updatedAt: Date.now()
-                    });
-                    report.push({ roomId: status.roomId, uploaded: false });
-                    this._logError(
-                        "R2_ARCHIVE_RECOVERY_PENDING | roomId=" + status.roomId
-                        + " | code=" + (error?.code ?? "UPLOAD_FAILED")
-                    );
-                }
-                continue;
-            }
+            // Recovery must pass the SAME financial-finality gate as a new
+            // archive. Never upload a stale ZIP from an older Railway build.
             try {
                 const result = await this.ensureArchivedAndUploaded({
                     roomId: status.roomId,
