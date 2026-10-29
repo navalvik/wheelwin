@@ -97,3 +97,61 @@ test("historical room recovery isolates reused wallets, preserves unique late pa
         assert.equal(receiptStore.listUnresolved().length, 1, "ambiguous transfer remains held without refund");
     } finally { rmSync(dir, { recursive:true, force:true }); }
 });
+
+test("bounded recovery advances past three permanently unresolved credits to a later valid refund", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ww-history-rotating-cursor-"));
+    try {
+        const receiptStore = new IncomingReceiptStore({ dataDir:dir });
+        receiptStore.initialize();
+        const refundStore = new RefundObligationStore({ dataDir:join(dir,"refunds") });
+        refundStore.initialize();
+        refundStore.recordClosedRoom({roomId:roomA,roomNumber:4,closureReason:"setup_expired",
+            closedAtMs:1_480_000,networkName:"TESTNET",globalId:-3});
+        const records = Array.from({length:5},(_,i)=>record({
+            id:`unverified-${i}`,time:1_100_000+i*10_000,
+            sender:unknownPayer,reference:null
+        }));
+        records.push(record({id:"legitimate-credit",time:1_300_000,
+            sender:payerA,reference:intentA.paymentReference}));
+        const intents = [intentA];
+        const store = {listForRoom:()=>intents,list:()=>intents};
+        const worker = new HistoricalIncomingReceiptReconciler({
+            runtime: {
+                walletPool:{resolveReservationOwnerAt:()=>({
+                    status:"OWNED",roomId:roomA,candidates:[roomA]
+                })},
+                intentStore:store,receiptStore,refundStore,
+                receiptAccounting:new IncomingReceiptAccounting({
+                    store:receiptStore,intentStore:store,refundStore,nowProvider:()=>2_000_000
+                })
+            },
+            incomingProvider:{listIncomingTransactions:async()=>({
+                resultWindowComplete:true,rowsReturned:records.length,records
+            })},
+            chainObserver:{
+                findOutgoingTransfer:async query=>query.sourceWalletAddress===payerA
+                    ? {transactionId:"source-legitimate-credit"} : null,
+                verifyIndexedRecipientCredit:async query=>({
+                    status:"MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED",globalId:-3,
+                    sourceFinality:"finalized",recipientFinality:"finalized",
+                    sourceTransactionId:query.transactionId,
+                    recipientTransactionId:"legitimate-credit",
+                    amountAtomic:query.amountAtomic,messageHash:"message-legitimate-credit"
+                })
+            },
+            independentVerifier:{verifyTransfer:async query=>({
+                ...query,status:"INDEPENDENT_INDEXED_CREDIT_OBSERVED",provider:"tonapi-testnet"
+            })},
+            nowProvider:()=>2_000_000
+        });
+        const first=await worker.recoverRoom(roomA);
+        assert.equal(first.captured,0,"first pass is limited to three verification attempts");
+        assert.equal(refundStore.list().length,0);
+        const second=await worker.recoverRoom(roomA);
+        assert.equal(second.captured,1,"later legitimate credit must not be starved");
+        assert.equal(receiptStore.listForRoom(roomA).length,1);
+        assert.equal(refundStore.list().length,1,"one durable refund for a uniquely attributable late credit");
+        await worker.recoverRoom(roomA);
+        assert.equal(refundStore.list().length,1,"replay must not create duplicate refunds");
+    } finally { rmSync(dir,{recursive:true,force:true}); }
+});
