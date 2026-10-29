@@ -373,13 +373,20 @@ function buildPaymentDecisions(finance) {
 }
 
 function buildFinancialRecovery(finance) {
-    const payouts=(finance.ledger ?? []).filter(entry => ["PAYOUT_PLAN", "PAYOUT_SETTLEMENT", "NET_PAYOUT", "WINNER_GROSS_ALLOCATION", "OWNER_GROSS_ALLOCATION"].includes(entry.kind));
+    const ledger=finance.ledger ?? [];
+    const payouts=ledger.filter(entry => ["PAYOUT_PLAN", "PAYOUT_SETTLEMENT", "NET_PAYOUT",
+        "WINNER_GROSS_ALLOCATION", "OWNER_GROSS_ALLOCATION", "OWNER_COMMISSION_WAIVED"].includes(entry.kind));
+    const openPayouts=ledger.filter(entry=>entry.kind==="NET_PAYOUT" && !ledger.some(other=>
+        (other.kind==="PAYOUT_SETTLEMENT" || (entry.metadata?.role==="OWNER"
+            && other.kind==="OWNER_COMMISSION_WAIVED"))
+        && other.metadata?.payoutId===entry.metadata?.payoutId
+        && other.metadata?.recipientId===entry.metadata?.recipientId));
     return {schemaVersion:1, roomId:finance.roomId, closedRoom:finance.closedRoom ?? null,
         receipts:finance.receipts ?? [], refunds:finance.refunds ?? [], payouts,
         outstandingObligations:finance.outstandingObligations ?? 0,
         requiresReconciliation:(finance.receipts ?? []).some(r => !r.playerId || !r.paymentIntentId)
             || (finance.refunds ?? []).some(r => r.state !== "COMPLETE")
-            || payouts.some(p => p.kind === "PAYOUT_PLAN" && !(finance.ledger ?? []).some(s => s.kind === "PAYOUT_SETTLEMENT" && s.metadata?.payoutPlanId === p.entryId))};
+            || openPayouts.length>0};
 }
 
 function diagnoseFinancialClose(finance, decisions) {
@@ -413,6 +420,8 @@ function buildFinalFinancialReport(finance, decisions, recovery) {
         notCreditedAtomic, returnedAtomic,
         refundFeesAtomic:completedRefunds.reduce((n,r)=>n+(r.gasChargeAtomic ?? 0),0),
         awaitingReturnAtomic,
+        ownerCommissionWaivedAtomic:(finance.ledger ?? []).filter(r=>
+            r.kind==="OWNER_COMMISSION_WAIVED").reduce((n,r)=>n+(r.amountAtomic ?? 0),0),
         amountsGram:{received:receivedAtomic/1_000_000_000,settled:settledStakeAtomic/1_000_000_000,
             notCredited:notCreditedAtomic/1_000_000_000,returned:returnedAtomic/1_000_000_000,
             awaitingReturn:awaitingReturnAtomic/1_000_000_000},
