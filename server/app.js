@@ -1793,7 +1793,8 @@ class WheelWinApplication {
                 logger: this._logger,
                 config: archiveConfig,
                 financialSnapshotProvider: roomId => this._paymentRuntime?.financialSnapshot(roomId),
-                finalityChecker: snapshot => evaluateFinalForensicArchive({snapshot}),
+                finalityChecker: (snapshot, {sessionRecord}) =>
+                    evaluateFinalForensicArchive({snapshot,sessionRecord}),
                 gameReportEngine: this._gameReportEngine,
                 uploader: archiveUploader,
                 sessionHistoryArchive: this._sessionHistoryArchive
