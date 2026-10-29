@@ -1,0 +1,39 @@
+name: One final forensic ZIP only after financial settlement
+on:
+  push:
+    branches:
+      - fix/one-final-zip-after-financial-settlement-20261030
+  pull_request:
+    paths:
+      - 'server/forensic/**'
+      - 'server/app.js'
+      - 'server/payment/runtime/HistoricalIncomingReceiptReconciler.js'
+      - 'server/tests/oneFinalForensicArchive.test.js'
+      - '.github/workflows/one-final-forensic-archive.yml'
+permissions:
+  contents: read
+jobs:
+  forensic-financial:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Validate source
+        run: |
+          node --check app.js
+          node --check forensic/ForensicArchiveService.js
+          node --check forensic/R2ForensicArchiveUploader.js
+          node --check forensic/FinalForensicArchiveGate.js
+          node --check payment/runtime/HistoricalIncomingReceiptReconciler.js
+      - name: One-final-ZIP, refund, payout and R2 safety
+        run: node --test tests/oneFinalForensicArchive.test.js tests/restoredR2Archive.test.js tests/paymentReconciliationDefects.test.js tests/paymentHistoricalCrossRoom.test.js tests/purgeLocalForensicArchiveZips.test.js tests/paymentObservationWithoutAcknowledgement.test.js tests/restoredR2ArchiveRoomClose.test.js
+      - name: Existing 3 player and payment regressions
+        run: node --test tests/payment/*.test.js tests/paymentThreePlayerGate.test.js tests/paymentLedgerPayout.phase4.test.js

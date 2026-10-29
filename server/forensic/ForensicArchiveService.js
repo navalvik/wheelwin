@@ -39,17 +39,20 @@ export class ForensicArchiveService {
         collector = null,
         uploader = null,
         financialSnapshotProvider = null,
+        finalityChecker = null,
+        gameReportEngine = null,
         sessionHistoryArchive = null
     }) {
 
         this._financialSnapshotProvider = financialSnapshotProvider;
+        this._finalityChecker = finalityChecker;
         this._logger = logger;
         this._config = config ?? resolveForensicArchiveConfig();
         this._sessionHistoryArchive = sessionHistoryArchive;
         this._collector = collector ?? new ForensicArchiveCollector({
             sessionHistoryDir: this._config.sessionHistoryDir,
             diagnosticLogsDir: this._config.diagnosticLogsDir,
-            sessionHistoryArchive, financialSnapshotProvider
+            sessionHistoryArchive, financialSnapshotProvider, gameReportEngine
         });
         this._uploader = uploader;
         this._inFlight = new Map();
@@ -100,48 +103,8 @@ export class ForensicArchiveService {
                 this._logInfo(`R2_LEGACY_SUPPLEMENT_SUPPRESSED | roomId=${status.roomId}`);
                 continue;
             }
-            const roomStagingDir = resolve(this._config.stagingDir, entry.name);
-            const stagedZip = typeof status.zipPath === "string"
-                ? resolve(status.zipPath)
-                : null;
-            // The original history may be gone after a Railway restart. The
-            // immutable ZIP is the durable retry source on the mounted volume.
-            if (stagedZip
-                && typeof status.archiveFilename === "string"
-                && relative(roomStagingDir, stagedZip) !== ""
-                && !relative(roomStagingDir, stagedZip).startsWith("..")
-                && basename(stagedZip) === status.archiveFilename
-                && existsSync(stagedZip)) {
-                try {
-                    const upload = await this._uploader.uploadFile(
-                        stagedZip, status.archiveFilename, { revision: status.revision ?? null }
-                    );
-                    writeStagingStatus(join(roomStagingDir, "status.json"), {
-                        ...status,
-                        state: "uploaded",
-                        objectName: upload.objectName,
-                        generation: upload.generation,
-                        attempts: Number(status.attempts ?? 0) + 1,
-                        uploadedAt: Date.now()
-                    });
-                    report.push({ roomId: status.roomId, uploaded: true });
-                } catch (error) {
-                    writeStagingStatus(join(roomStagingDir, "status.json"), {
-                        ...status,
-                        state: "failed",
-                        phase: "upload",
-                        attempts: Number(status.attempts ?? 0) + 1,
-                        error: error?.code ?? "UPLOAD_FAILED",
-                        updatedAt: Date.now()
-                    });
-                    report.push({ roomId: status.roomId, uploaded: false });
-                    this._logError(
-                        "R2_ARCHIVE_RECOVERY_PENDING | roomId=" + status.roomId
-                        + " | code=" + (error?.code ?? "UPLOAD_FAILED")
-                    );
-                }
-                continue;
-            }
+            // Recovery must pass the SAME financial-finality gate as a new
+            // archive. Never upload a stale ZIP from an older Railway build.
             try {
                 const result = await this.ensureArchivedAndUploaded({
                     roomId: status.roomId,
@@ -231,10 +194,10 @@ export class ForensicArchiveService {
         const statusPath = join(stagingRoomDir, "status.json");
         const existingStatus = readStatus(statusPath);
 
-        if (existingStatus?.state === "uploaded"
-            && ((existingStatus.revision ?? null) === revision || revision === null)) {
-            // If financial data is temporarily unavailable, never replace
-            // an uploaded financial archive with a less complete ZIP.
+        if (existingStatus?.state === "uploaded") {
+            // A single FINAL upload is immutable. Subsequent financial changes
+            // must be reconciled in the durable ledger, never published as
+            // additional archive PUTs. This is one upload per game, not CAS.
 
             this._logInfo(
                 `${LOG.UPLOAD_SUCCESS} | roomId=${roomId} | gameId=${gameId ?? "null"}`
@@ -246,6 +209,17 @@ export class ForensicArchiveService {
                 archiveFilename: existingStatus.archiveFilename
             };
 
+        }
+
+        // Do not build, stage or transmit any ZIP until financial closure is
+        // independently established by the runtime's durable evidence.
+        if (typeof this._finalityChecker === "function") {
+            const check = this._finalityChecker(financialSnapshot, {roomId,gameId,sessionRecord});
+            if (check?.ready !== true) {
+                this._logInfo("R2_ARCHIVE_WAITING_FINANCIAL_FINALITY | roomId=" + roomId
+                    + " | reason=" + (check?.reason ?? "NOT_READY"));
+                return {skipped:true,reason:"FINANCIAL_NOT_FINAL"};
+            }
         }
 
         // A collection/upload interruption must retry the exact staged ZIP.
@@ -266,7 +240,7 @@ export class ForensicArchiveService {
             for (let attempt = 1; attempt <= this._config.maxUploadAttempts; attempt++) {
                 try {
                     const upload = await this._uploader.uploadFile(stagedExistingZip,
-                        existingStatus.archiveFilename, { revision });
+                        existingStatus.archiveFilename, { revision, final: true });
                     writeStagingStatus(statusPath, { ...existingStatus, state:"uploaded",
                         objectName:upload.objectName, generation:upload.generation,
                         etag:upload.etag ?? null,
@@ -398,7 +372,7 @@ export class ForensicArchiveService {
                 const upload = await this._uploader.uploadFile(
                     zipPath,
                     archiveFilename,
-                    { revision }
+                    { revision, final: true }
                 );
 
                 writeStagingStatus(statusPath, {
