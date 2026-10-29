@@ -89,6 +89,14 @@ export class ForensicArchiveService {
             if (!status || status.state === "uploaded" || !status.roomId) {
                 continue;
             }
+            // Older deployments left one staging directory per revision.
+            // After an original room archive exists, never publish a pending
+            // legacy supplement under a different key during restart recovery.
+            if (entry.name !== safeSegment(status.roomId)
+                && this._findOriginalArchive(status.roomId)) {
+                this._logInfo(`R2_LEGACY_SUPPLEMENT_SUPPRESSED | roomId=${status.roomId}`);
+                continue;
+            }
             const roomStagingDir = resolve(this._config.stagingDir, entry.name);
             const stagedZip = typeof status.zipPath === "string"
                 ? resolve(status.zipPath)
@@ -221,7 +229,9 @@ export class ForensicArchiveService {
         const existingStatus = readStatus(statusPath);
 
         if (existingStatus?.state === "uploaded"
-            && (existingStatus.revision ?? null) === revision) {
+            && ((existingStatus.revision ?? null) === revision || revision === null)) {
+            // If financial data is temporarily unavailable, never replace
+            // an uploaded financial archive with a less complete ZIP.
 
             this._logInfo(
                 `${LOG.UPLOAD_SUCCESS} | roomId=${roomId} | gameId=${gameId ?? "null"}`
