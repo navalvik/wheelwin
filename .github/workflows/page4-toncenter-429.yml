@@ -1,0 +1,39 @@
+name: Testnet Page4 Toncenter HTTP 429 recovery
+on:
+  push:
+    branches:
+      - fix/testnet-page4-toncenter-429-priority-20261030
+  pull_request:
+    paths:
+      - 'server/payment/toncenter/**'
+      - 'server/tests/page4ToncenterGlobalBackoff.test.js'
+      - 'server/payment/runtime/ActiveRoomObservationBudget.js'
+      - 'server/socket/RoomLobbyBridge.js'
+      - '.github/workflows/page4-toncenter-429.yml'
+permissions:
+  contents: read
+jobs:
+  page4:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Validate Page4 Toncenter and scheduler modules
+        run: |
+          node --check payment/toncenter/ToncenterReadBudget.js
+          node --check payment/toncenter/ToncenterTransactionsClient.js
+          node --check payment/toncenter/ToncenterIncomingProvider.js
+          node --check payment/toncenter/RoomPaymentObservationService.js
+      - name: HTTP429, active Page4, 3-player gate, finality and onchain fee regressions
+        run: |
+          node --test tests/page4ToncenterGlobalBackoff.test.js tests/toncenterProvider.test.js tests/toncenterFinalityEvidence.test.js tests/paymentObservationWithoutAcknowledgement.test.js tests/paymentHistoricalCrossRoom.test.js tests/paymentThreePlayerGate.test.js tests/oneFinalForensicArchive.test.js tests/refundOutgoingExecution.test.js
+      - name: Full deterministic payment tests
+        run: node --test tests/payment/*.test.js
