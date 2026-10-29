@@ -118,6 +118,10 @@ export class WalletQuarantineAdminService {
         const selected = roomNumber == null || roomNumber === "" ? null
             : this.wallet(runtime, roomNumber);
         const residues = this.residuesAddress();
+        const quarantineList = pool.listQuarantinedWallets();
+        const selectedQuarantine = selected ? quarantineList.find(
+            item => item.roomNumber === selected.roomNumber
+        ) : null;
         const [walletResult, residuesResult] = await Promise.allSettled([
             selected ? this.chainBalance(selected.address) : Promise.resolve(null),
             residues ? this.chainBalance(residues) : Promise.resolve(null)
@@ -128,11 +132,15 @@ export class WalletQuarantineAdminService {
             : {balanceNano:null, error:"TESTNET_BALANCE_PROVIDER_UNAVAILABLE"};
         return {
             network:"testnet", updatedAt:new Date().toISOString(),
-            quarantined:pool.listQuarantinedWallets(),
+            quarantined:quarantineList,
             selected:selected ? {
                 roomNumber:selected.roomNumber, walletId:selected.walletId,
                 address:selected.address, reservedByRoomId:selected.reservedByRoomId,
                 quarantined:pool.isQuarantined(selected.roomNumber),
+                quarantineReason:selectedQuarantine?.reason ?? null,
+                quarantineNote:selectedQuarantine?.quarantineNote ?? null,
+                quarantinedAt:selectedQuarantine?.quarantinedAt ?? null,
+                quarantinedBy:selectedQuarantine?.quarantinedBy ?? null,
                 outstanding:this.outstanding(runtime,selected),
                 sweepClaimExists:existsSync(this.sweepClaimPath(runtime,selected.roomNumber)),
                 ...walletChain
@@ -141,6 +149,37 @@ export class WalletQuarantineAdminService {
             sweepEnabled:this.env.ADMIN_WALLET_SWEEP_ENABLED === "true"
                 && this.env.TON_NETWORK === "testnet"
         };
+    }
+
+    /**
+     * Investigation hold is an administrative reservation exclusion only.
+     * It does not destroy the room, change payment state or move any TON.
+     * Even actively reserved wallets can be quarantined for their NEXT use.
+     */
+    quarantine({roomNumber, confirmation, note = "", actor = "Administrator"}) {
+        const runtime = this.runtime();
+        const wallet = this.wallet(runtime, roomNumber);
+        const number = wallet.roomNumber;
+        if (confirmation !== `QUARANTINE ${number}`)
+            throw new Error("QUARANTINE_CONFIRMATION_REQUIRED");
+        if (this.busy.has(number)) throw new Error("WALLET_ADMIN_OPERATION_IN_PROGRESS");
+        if (typeof note !== "string" || note.length > 200)
+            throw new Error("QUARANTINE_NOTE_TOO_LONG");
+        this.busy.add(number);
+        try {
+            const result = runtime.walletPool.manuallyQuarantine(number, {
+                note, actor
+            });
+            this.logger?.warn?.(
+                `ADMIN_MANUAL_QUARANTINE wallet=${number}`
+                + ` reservedRoom=${result.reservedByRoomId ?? "none"}`
+                + ` actor=${String(actor).slice(0,80)}`
+                + ` alreadyQuarantined=${result.alreadyQuarantined}`
+            );
+            return result;
+        } finally {
+            this.busy.delete(number);
+        }
     }
 
     async release({roomNumber, confirmation}) {
