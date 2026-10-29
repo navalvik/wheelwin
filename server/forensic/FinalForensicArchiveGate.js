@@ -7,6 +7,7 @@ export const FINAL_ARCHIVE_CHAIN_SETTLEMENT_GRACE_MS = 90_000;
 
 export function evaluateFinalForensicArchive({
     snapshot,
+    sessionRecord = null,
     nowMs = Date.now()
 } = {}) {
     const hold = reason => Object.freeze({ready:false,reason});
@@ -27,6 +28,12 @@ export function evaluateFinalForensicArchive({
     const payout = snapshot.outcome?.kind === "PAYOUT";
     const refund = snapshot.outcome?.kind === "REFUND" || Boolean(snapshot.closedRoom);
     if (payout) {
+        // Prize transfers can finish while Page5/Page6 is still active.
+        // Wait for the durable terminal game report, not just money finality.
+        if (!sessionRecord || !Number.isSafeInteger(sessionRecord.finishedAt)
+            || !["GAME_COMPLETED","COMPLETED","RESULT_SESSION_FINISHED",
+                "SESSION_ENDED"].includes(sessionRecord.lifecycleResult))
+            return hold("FINAL_GAME_SESSION_NOT_ARCHIVED");
         if (snapshot.intents.length !== 3
             || snapshot.intents.some(x => x.state !== "SETTLED"))
             return hold("PAYOUT_PAYMENT_FINALITY_PENDING");
