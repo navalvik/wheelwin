@@ -352,11 +352,26 @@ export class RoomWalletAdapter {
             const safety = await this._awaitOutboundSequenceSafety(identity);
             if (!safety.ok) return Object.freeze({ok:false, code:safety.code, roomNumber});
             const balanceNano = await this._tonService.getBalance(identity.address);
-            if (balanceNano < 30_000_000n) return Object.freeze({ok:false, code:"SWEEP_BALANCE_TOO_SMALL", roomNumber});
+            if (balanceNano <= 0n) return Object.freeze({ok:false, code:"SWEEP_BALANCE_EMPTY", roomNumber});
             const signed = await this._buildSignedExternalMessage({
                 identity, destinationAddress, amountNano:0n, bounce:false,
                 queryId:null, sendMode:SendMode.CARRY_ALL_REMAINING_BALANCE
             });
+            // Estimate the exact mode-128 message before persisting an attempt.
+            // The network fee is charged to the source wallet's own balance.
+            if (typeof this._tonService.estimateExternalMessageFee !== "function")
+                return Object.freeze({ok:false,code:"SWEEP_FEE_ESTIMATE_UNAVAILABLE",roomNumber});
+            const fee = await this._tonService.estimateExternalMessageFee(
+                signed.wallet.address, {
+                    body:signed.externalMessage.body,
+                    initCode:signed.externalMessage.init?.code ?? null,
+                    initData:signed.externalMessage.init?.data ?? null,
+                    ignoreSignature:true
+                });
+            if (typeof fee.totalFeeNano !== "bigint" || fee.totalFeeNano < 0n)
+                return Object.freeze({ok:false,code:"SWEEP_FEE_ESTIMATE_UNAVAILABLE",roomNumber});
+            if (balanceNano <= fee.totalFeeNano + 1_000_000n)
+                return Object.freeze({ok:false,code:"SWEEP_INSUFFICIENT_GAS",roomNumber});
             const boc = beginCell().store(storeMessage(signed.externalMessage)).endCell().toBoc().toString("base64");
             const record = {
                 roomNumber:identity.roomNumber, address:identity.address,
