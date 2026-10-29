@@ -205,6 +205,7 @@ export class RoomLobbyBridge {
         // they are never evidence that a payment settled.
         this._roomPaymentSubmittedPlayers = new Map();
         this._roomPaymentSignalsCompleteAt = new Map();
+        this._paymentNoSignalLogged = new Set();
 
         this._verifyBarrierCompletedByRoom = new Set();
 
@@ -5288,6 +5289,20 @@ export class RoomLobbyBridge {
             archivedSetup
         );
 
+        this._eventBus.emit({
+            source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+            type: EVENT_TYPES.PAYMENT_STAGE_ENTERED,
+            payload: {
+                roomId,
+                enteredAt: Date.now(),
+                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentSessionPrepared: false,
+                paymentStatus: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                    ? "AWAITING_PAYMENT_SESSION"
+                    : "PAYMENT_UNAVAILABLE"
+            }
+        });
+
         // Create payment intents before Page4 receives its first authoritative
         // snapshot; otherwise all three seats see PAYMENT_UNAVAILABLE even
         // when real intake is enabled.
@@ -5502,9 +5517,10 @@ export class RoomLobbyBridge {
      * emitted while the page was not yet subscribed. Identity is resolved
      * exclusively from the server-owned socket→player binding; no client
      * claim is trusted. The re-delivery is idempotent: it re-derives the same
-     * status the reconnect path would have delivered. Chain observation is
-     * coalesced until all three authenticated players signal submission, waits
-     * four seconds after the final signal, then obeys the room cadence budget.
+     * status the reconnect path would have delivered. One authenticated
+     * player's submission signal starts observation of the shared room wallet;
+     * the three-player Page5 gate remains separate. The first signal gets a
+     * four-second grace period; later checks obey the room cadence budget.
      */
     _handlePaymentStatusRequest(socketId, paymentSubmitted = false) {
         const context = this._getSocketContext(socketId);
@@ -5514,21 +5530,45 @@ export class RoomLobbyBridge {
             context.roomId, context.playerId, socketId
         );
 
-        // No automatic global wallet scan. Only an occupied Page4 room with
-        // all three authenticated submission signals can trigger observation.
+        // No global wallet scan. One seated player's Page4 submission signal
+        // triggers observation of this active room's wallet.
         if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
         const runtime = this._paymentApplicationBinding?.runtime;
         const adapter = runtime?.sessionAdapter;
         const roomId = context.roomId;
+        const recordAudit = (method, payload) => {
+            try { runtime?.paymentForensicJournal?.[method]?.(roomId, payload); }
+            catch (error) {
+                this._logger?.error?.(`Payment audit write failed | roomId=${roomId} | error=${error?.message ?? "unknown"}`);
+            }
+        };
         const room = this._roomManager.getRoom(roomId);
         if (!room || room.players?.length !== 3
             || !this._continueToVerifyByRoom.has(roomId)
             || typeof adapter?.observeRoomPayments !== "function") return;
 
-        // Wait for an explicit submission signal from each authenticated
-        // player before observing the shared room wallet. The socket binding
-        // supplies playerId; client room/player claims are not consulted.
-        if (paymentSubmitted !== true || !room.players.includes(context.playerId)) return;
+        // Wait for an explicit signal from any authenticated seated player.
+        // The socket binding supplies playerId; client room/player claims are
+        // not consulted. Other players' actions must not gate receipt checks.
+        if (!room.players.includes(context.playerId)) return;
+        if (paymentSubmitted !== true) {
+            if (!this._paymentNoSignalLogged.has(roomId)) {
+                this._paymentNoSignalLogged.add(roomId);
+                const skippedAt = Date.now();
+                recordAudit("recordObservation", {
+                    startedAt: skippedAt, completedAt: skippedAt, walletId: null,
+                    walletAddress: null, providerRequests: 0, rowsReturned: 0,
+                    transfersFound: 0, resultWindowComplete: false,
+                    providerError: null, skippedReason: "NO_PAYMENT_SUBMISSION_SIGNAL"
+                });
+                this._eventBus.emit({
+                    source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                    type: EVENT_TYPES.PAYMENT_OBSERVATION_SKIPPED,
+                    payload: { roomId, at: skippedAt, reason: "NO_PAYMENT_SUBMISSION_SIGNAL" }
+                });
+            }
+            return;
+        }
         if (!this._roomPaymentSubmittedPlayers) {
             this._roomPaymentSubmittedPlayers = new Map();
         }
@@ -5537,8 +5577,15 @@ export class RoomLobbyBridge {
             submittedPlayers = new Set();
             this._roomPaymentSubmittedPlayers.set(roomId, submittedPlayers);
         }
+        const firstSignalFromPlayer = !submittedPlayers.has(context.playerId);
         submittedPlayers.add(context.playerId);
-        if (!room.players.every(playerId => submittedPlayers.has(playerId))) return;
+        if (firstSignalFromPlayer) {
+            this._eventBus.emit({
+                source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                type: EVENT_TYPES.PAYMENT_SUBMISSION_SIGNAL,
+                payload: { roomId, playerId: context.playerId, submittedAt: Date.now() }
+            });
+        }
         if (!this._roomPaymentSignalsCompleteAt) {
             this._roomPaymentSignalsCompleteAt = new Map();
         }
@@ -5561,16 +5608,63 @@ export class RoomLobbyBridge {
             }))
             .then(() => {
                 // The room may be destroyed while the grace period is active.
-                // Recheck both membership and all three signals before using
-                // the room's one-per-12-second chain observation budget.
+                // Recheck active membership before using the room's shared
+                // one-per-12-second chain observation budget.
                 const active = this._roomManager.getRoom(roomId);
-                const currentSignals = this._roomPaymentSubmittedPlayers?.get(roomId);
                 if (!active || active.players?.length !== 3
-                    || !this._continueToVerifyByRoom.has(roomId)
-                    || !active.players.every(playerId => currentSignals?.has(playerId))) {
+                    || !this._continueToVerifyByRoom.has(roomId)) {
+                    const skippedAt = Date.now();
+                    recordAudit("recordObservation", {
+                        startedAt: skippedAt, completedAt: skippedAt,
+                        walletId: null, walletAddress: null, providerRequests: 0,
+                        rowsReturned: 0, transfersFound: 0,
+                        resultWindowComplete: false, providerError: null,
+                        skippedReason: "ROOM_DESTROYED_BEFORE_OBSERVATION"
+                    });
+                    this._eventBus.emit({
+                        source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                        type: EVENT_TYPES.PAYMENT_OBSERVATION_SKIPPED,
+                        payload: { roomId, at: skippedAt, reason: "ROOM_DESTROYED_BEFORE_OBSERVATION" }
+                    });
                     return false;
                 }
-                if (!this._roomObservationBudget.claim(roomId)) return false;
+                if (!this._roomObservationBudget.claim(roomId)) {
+                    const skippedAt = Date.now();
+                    recordAudit("recordObservation", {
+                        startedAt: skippedAt, completedAt: skippedAt, walletId: null,
+                        walletAddress: null, providerRequests: 0, rowsReturned: 0,
+                        transfersFound: 0, resultWindowComplete: false,
+                        providerError: null, skippedReason: "ROOM_OR_GLOBAL_RATE_LIMIT"
+                    });
+                    this._eventBus.emit({
+                        source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                        type: EVENT_TYPES.PAYMENT_OBSERVATION_SKIPPED,
+                        payload: { roomId, at: skippedAt, reason: "ROOM_OR_GLOBAL_RATE_LIMIT" }
+                    });
+                    this._logger?.info?.(
+                        `Room payment observation skipped | roomId=${roomId} | reason=ROOM_OR_GLOBAL_RATE_LIMIT`
+                    );
+                    return false;
+                }
+                const observationStartedAt = Date.now();
+                const reservation = runtime?.paymentService?.getWalletForRoom?.(roomId);
+                recordAudit("recordObservation", {
+                    startedAt: observationStartedAt, completedAt: null,
+                    source: "PAGE4_PAYMENT_SUBMISSION",
+                    walletId: reservation?.walletId ?? null,
+                    walletAddress: reservation?.address ?? null,
+                    providerRequests: 0, rowsReturned: 0, transfersFound: 0,
+                    resultWindowComplete: false, providerError: null,
+                    skippedReason: null, phase: "STARTED"
+                });
+                this._eventBus.emit({
+                    source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
+                    type: EVENT_TYPES.PAYMENT_OBSERVATION_STARTED,
+                    payload: { roomId, at: observationStartedAt, playerId: context.playerId }
+                });
+                this._logger?.info?.(
+                    `Room payment observation started | roomId=${roomId} | triggerPlayer=${context.playerId} | walletScope=ACTIVE_ROOM`
+                );
                 return Promise.resolve(adapter.observeRoomPayments({ roomId }))
                     .then(() => true);
             })
@@ -5600,9 +5694,29 @@ export class RoomLobbyBridge {
                     });
                 }
             })
-            .catch(error => this._logger?.warn?.(
-                `Page4 payment check failed | roomId=${roomId} | reason=${error?.message ?? "unknown"}`
-            ))
+            .catch(error => {
+                const failedAt = Date.now();
+                recordAudit("recordObservation", {
+                    startedAt: failedAt, completedAt: failedAt,
+                    walletId: null, walletAddress: null, providerRequests: 1,
+                    rowsReturned: 0, transfersFound: 0,
+                    resultWindowComplete: false,
+                    providerError: error?.statusCode
+                        ? `HTTP_${error.statusCode}`
+                        : error?.code ?? error?.message ?? "PROVIDER_UNAVAILABLE",
+                    skippedReason: null
+                });
+                recordAudit("recordDecision", {
+                    at: failedAt, transactionId: null, paymentReference: null,
+                    decision: "PROVIDER_UNAVAILABLE",
+                    reason: error?.statusCode
+                        ? `HTTP_${error.statusCode}`
+                        : error?.code ?? "PROVIDER_UNAVAILABLE"
+                });
+                this._logger?.warn?.(
+                    `Page4 payment check failed | roomId=${roomId} | reason=${error?.statusCode ? `HTTP_${error.statusCode}` : error?.code ?? "PROVIDER_UNAVAILABLE"} | detail=${error?.message ?? "unknown"}`
+                );
+            })
             .finally(() => {
                 if (this._roomPaymentChecks.get(roomId) === pending) {
                     this._roomPaymentChecks.delete(roomId);
@@ -6064,6 +6178,7 @@ export class RoomLobbyBridge {
     _clearVerifyBarrier(roomId) {
 
         this._roomObservationBudget?.forget(roomId);
+        this._paymentNoSignalLogged?.delete(roomId);
 
         this._roomPaymentSubmittedPlayers?.delete(roomId);
         this._roomPaymentSignalsCompleteAt?.delete(roomId);

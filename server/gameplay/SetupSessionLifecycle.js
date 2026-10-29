@@ -3,9 +3,10 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { registerRoomDestroyContext } from "../recovery/RoomDestroyContextRegistry.js";
 import { SetupSession } from "../models/SetupSession.js";
 import { SETUP_SESSION_STATUS } from "../models/SetupSessionStatus.js";
+import { ROOM_LIFETIME_MS } from "../payment/RoomPaymentConstants.js";
 
-// All room modes share the same setup deadline from room creation: 7m40s.
-const DEFAULT_SETUP_DURATION_MS = 460 * 1000;
+// All room modes share the 480-second payment deadline from room creation.
+const DEFAULT_SETUP_DURATION_MS = ROOM_LIFETIME_MS;
 
 /**
  * C5.6C — Setup Session lifecycle coordinator.
@@ -35,7 +36,9 @@ export class SetupSessionLifecycle {
 
         this._gameManager = gameManager;
 
-        this._durationMs = Number.isFinite(roomConfig?.setupDurationMs)
+        this._durationMs = process.env.NODE_ENV === "production"
+            ? ROOM_LIFETIME_MS
+            : Number.isFinite(roomConfig?.setupDurationMs)
             && roomConfig.setupDurationMs > 0
             ? roomConfig.setupDurationMs
             : DEFAULT_SETUP_DURATION_MS;
@@ -71,6 +74,10 @@ export class SetupSessionLifecycle {
 
             throw new Error("SetupSessionLifecycle.setDurationMs requires a positive duration");
 
+        }
+
+        if (process.env.NODE_ENV === "production" && next !== ROOM_LIFETIME_MS) {
+            throw new Error("Production room setup deadline is fixed to the 480-second payment deadline");
         }
 
         this._durationMs = next;
@@ -305,7 +312,9 @@ export class SetupSessionLifecycle {
 
         }
 
-        const startedAt = Date.now();
+        const startedAt = Number.isSafeInteger(room.createdAt) && room.createdAt > 0
+            ? room.createdAt
+            : Date.now();
 
         const session = new SetupSession({
             roomId,

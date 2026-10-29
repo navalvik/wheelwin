@@ -335,7 +335,7 @@ export class SessionHistoryArchiveManager {
 
         });
 
-        this._subscribe(EVENT_TYPES.VERIFY_BARRIER_COMPLETED, (envelope) => {
+        this._subscribe(EVENT_TYPES.PAYMENT_STAGE_ENTERED, (envelope) => {
 
             const roomId = envelope.payload?.roomId;
             const pending = this._ensurePending(roomId);
@@ -348,12 +348,52 @@ export class SessionHistoryArchiveManager {
 
             pending.paymentStage = {
                 entered: true,
+                enteredAt: envelope.payload?.enteredAt ?? Date.now(),
                 acceptanceEnabled: envelope.payload?.paymentAcceptanceEnabled === true,
-                sessionPrepared: envelope.payload?.paymentSessionPrepared === true,
+                sessionPrepared: false,
                 status: envelope.payload?.paymentStatus ?? "UNKNOWN"
             };
 
-            this._pushTimeline(roomId, "PAYMENT", "Payment stage entered");
+            this._pushTimeline(roomId, "PAYMENT", "PAYMENT_STAGE_ENTERED");
+
+        });
+
+        this._subscribe(EVENT_TYPES.PAYMENT_SUBMISSION_SIGNAL, (envelope) => {
+            const roomId = envelope.payload?.roomId;
+            const playerId = envelope.payload?.playerId;
+            const pending = this._ensurePending(roomId);
+            if (!pending || !playerId) return;
+            if (!pending.paymentSignals) pending.paymentSignals = new Set();
+            if (pending.paymentSignals.has(playerId)) return;
+            pending.paymentSignals.add(playerId);
+            this._pushTimeline(roomId, "PAYMENT", `PAYMENT_SUBMISSION_SIGNAL player=${safeSegment(playerId)}`);
+        });
+
+        this._subscribe(EVENT_TYPES.PAYMENT_OBSERVATION_SKIPPED, (envelope) => {
+            const roomId = envelope.payload?.roomId;
+            const pending = this._ensurePending(roomId);
+            if (!pending) return;
+            this._pushTimeline(roomId, "PAYMENT", `OBSERVATION_SKIPPED reason=${safeSegment(envelope.payload?.reason)}`);
+        });
+
+        this._subscribe(EVENT_TYPES.PAYMENT_OBSERVATION_STARTED, (envelope) => {
+            const roomId = envelope.payload?.roomId;
+            const pending = this._ensurePending(roomId);
+            if (!pending) return;
+            this._pushTimeline(roomId, "PAYMENT", `OBSERVATION_STARTED player=${safeSegment(envelope.payload?.playerId)}`);
+        });
+
+        this._subscribe(EVENT_TYPES.VERIFY_BARRIER_COMPLETED, (envelope) => {
+            const roomId = envelope.payload?.roomId;
+            const pending = this._ensurePending(roomId);
+            if (!pending) return;
+            pending.paymentStage = {
+                ...pending.paymentStage,
+                acceptanceEnabled: envelope.payload?.paymentAcceptanceEnabled === true,
+                sessionPrepared: envelope.payload?.paymentSessionPrepared === true,
+                status: envelope.payload?.paymentStatus ?? pending.paymentStage.status
+            };
+            this._pushTimeline(roomId, "PAYMENT", "PAYMENT_GATE_COMPLETED");
 
         });
 

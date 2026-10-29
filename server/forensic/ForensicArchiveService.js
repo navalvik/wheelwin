@@ -203,7 +203,7 @@ export class ForensicArchiveService {
         reason
     }) {
 
-        const financialSnapshot = this._financialSnapshotProvider?.(roomId);
+        let financialSnapshot = this._financialSnapshotProvider?.(roomId);
         const revision = financialSnapshot ? createHash('sha256').update(JSON.stringify(financialSnapshot)).digest('hex').slice(0, 24) : null;
         const stagingRoomDir = join(this._config.stagingDir, safeSegment(roomId) + (revision ? '-' + revision : ''));
         const statusPath = join(stagingRoomDir, "status.json");
@@ -221,6 +221,21 @@ export class ForensicArchiveService {
                 archiveFilename: existingStatus.archiveFilename
             };
 
+        }
+
+        const originalArchive = this._findOriginalArchive(roomId);
+        if (financialSnapshot && originalArchive && originalArchive.archiveFilename !== existingStatus?.archiveFilename) {
+            financialSnapshot = {
+                ...financialSnapshot,
+                archiveLineage: {
+                    schemaVersion: 1,
+                    archiveType: "FINANCIAL_SUPPLEMENT",
+                    roomId,
+                    originalArchiveFilename: originalArchive.archiveFilename,
+                    generatedAt: new Date().toISOString(),
+                    reason: "Durable financial state changed after the initial room archive"
+                }
+            };
         }
 
         if (!this._uploader?.isConfigured?.()) {
@@ -343,6 +358,7 @@ export class ForensicArchiveService {
                     objectName: upload.objectName,
                     generation: upload.generation,
                     manifest,
+                    archiveLineage: financialSnapshot?.archiveLineage ?? null,
                     attempts: previousAttempts + attempt,
                     uploadedAt: Date.now()
                 });
@@ -367,6 +383,7 @@ export class ForensicArchiveService {
                     archiveFilename,
                     zipPath,
                     manifest,
+                    archiveLineage: financialSnapshot?.archiveLineage ?? null,
                     attempts: previousAttempts + attempt,
                     error: error.message,
                     updatedAt: Date.now()
@@ -402,6 +419,21 @@ export class ForensicArchiveService {
 
         return listed?.records?.[0]?.finishedAt ?? null;
 
+    }
+
+    _findOriginalArchive(roomId) {
+        if (!existsSync(this._config.stagingDir)) return null;
+        const matches = [];
+        for (const entry of readdirSync(this._config.stagingDir, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const status = readStatus(join(this._config.stagingDir, entry.name, "status.json"));
+            if (status?.roomId !== roomId || status.state !== "uploaded"
+                || typeof status.archiveFilename !== "string") continue;
+            matches.push(status);
+        }
+        matches.sort((a, b) => (a.uploadedAt ?? a.updatedAt ?? 0) - (b.uploadedAt ?? b.updatedAt ?? 0));
+        const original = matches.find(item => !item.archiveLineage?.archiveType);
+        return original ? { archiveFilename: original.archiveFilename } : null;
     }
 
     /**

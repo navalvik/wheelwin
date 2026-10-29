@@ -1,5 +1,7 @@
+import { ROOM_LIFETIME_MS } from "../payment/RoomPaymentConstants.js";
+
 // Shared setup deadline for both room modes, measured from room creation.
-const DEFAULT_SETUP_DURATION_MS = 460 * 1000;
+const DEFAULT_SETUP_DURATION_MS = ROOM_LIFETIME_MS;
 
 /** R6.5 — Page6 result linger before authoritative SESSION_FINISHED. */
 // R7.70C19A — restored from C7 TEMP 10 min → 5 min.
@@ -37,15 +39,9 @@ export function loadRoomConfig(env = process.env) {
 
     }
 
-    const setupDurationMs = env.SETUP_DURATION_MS === undefined
-        ? DEFAULT_SETUP_DURATION_MS
-        : Number(env.SETUP_DURATION_MS);
-
-    if (!Number.isFinite(setupDurationMs) || setupDurationMs <= 0) {
-
-        throw new Error("Invalid SETUP_DURATION_MS environment variable");
-
-    }
+    // This is the same immutable deadline used by payment intents. Do not let
+    // a stale SETUP_DURATION_MS Railway variable shorten it independently.
+    const setupDurationMs = DEFAULT_SETUP_DURATION_MS;
 
     const resultSessionDurationMs = env.RESULT_SESSION_DURATION_MS === undefined
         ? DEFAULT_RESULT_SESSION_DURATION_MS

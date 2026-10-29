@@ -16,9 +16,11 @@ export class IncomingReceiptAccounting {
         for (const transfer of observation.transfers) {
             if (!hasTrustedRoomPaymentSettlementEvidence(observation, transfer, this.nowProvider())) continue;
             if (transfer.network !== 'testnet' || transfer.asset !== 'TON'
-                || address(transfer.destinationWalletAddress) !== address(intents[0].destinationWalletAddress)
-                || transfer.transactionTime < Math.min(...intents.map(i => i.createdAt))
-                || transfer.transactionTime >= Math.max(...intents.map(i => i.expiresAt))) continue;
+                || address(transfer.destinationWalletAddress) !== address(intents[0].destinationWalletAddress)) continue;
+            // Store every finalized credit to this room wallet, including late
+            // and unmatched transfers. Eligibility is decided after capture;
+            // an expired/malformed intent must never erase evidence of money
+            // already received on chain.
             this.recordVerifiedTransfer(transfer, intents, observation.roomId);
         }
     }

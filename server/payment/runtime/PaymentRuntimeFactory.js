@@ -1,6 +1,7 @@
 import { FinancialOutcomeStore } from '../FinancialOutcomeStore.js';
 import { IncomingReceiptStore } from '../incoming/IncomingReceiptStore.js';
 import { IncomingReceiptAccounting } from '../incoming/IncomingReceiptAccounting.js';
+import { PaymentForensicJournal } from "../PaymentForensicJournal.js";
 import { recoverSettledPrincipal } from './recoverSettledPrincipal.js';
 /**
  * Room-wallet payment runtime composition root (Testnet).
@@ -275,6 +276,7 @@ export function buildPaymentRuntime(options = {}) {
     let ledger = null;
     let refundStore = null;
     const receiptStore = new IncomingReceiptStore({ dataDir: networkDataDir });
+    const paymentForensicJournal = new PaymentForensicJournal({ dataDir: networkDataDir });
     let receiptAccounting = null;
     const financialObligationCountProvider = roomId =>
         countUnsettledRoomFinancialObligations({roomId,ledger,refundStore,receiptStore});
@@ -292,6 +294,7 @@ export function buildPaymentRuntime(options = {}) {
 
     const coordinator = new IncomingPaymentSettlementCoordinator({
         receiptAccounting: { capture: observation => receiptAccounting.capture(observation) },
+        auditJournal: paymentForensicJournal,
         paymentService,
         observationService,
         logger,
@@ -366,6 +369,7 @@ export function buildPaymentRuntime(options = {}) {
         manifestStore,
         refundStore,
         receiptStore,
+        paymentForensicJournal,
         receiptAccounting,
         outcomeStore,
         refundLifecycle,
@@ -405,6 +409,7 @@ export function buildPaymentRuntime(options = {}) {
             ledger.initialize();
             refundStore.initialize();
             receiptStore.initialize();
+            paymentForensicJournal.initialize();
             intentStore.initialize();
 
             manifestStore.initialize();
@@ -452,6 +457,8 @@ export function buildPaymentRuntime(options = {}) {
                 ledger:ledgerStore.listForRoom(roomId),
                 receipts:receiptStore.listForRoom(roomId),
                 refunds:refundStore.list().filter(x => x.roomId === roomId).map(x => x.toRecord()),
+                paymentObservations:paymentForensicJournal.list(roomId, "observations"),
+                paymentDecisions:paymentForensicJournal.list(roomId, "decisions"),
                 outstandingObligations:financialObligationCountProvider(roomId)};
         },
         get initialized() {

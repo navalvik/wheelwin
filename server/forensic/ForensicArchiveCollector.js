@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import archiver from "archiver";
 
 import { safeFilenameSegment } from "./forensicArchiveNaming.js";
+import { tonAddressIdentitiesEqual } from "../payment/incoming/TonAddressIdentity.js";
 
 /**
  * R13.9F — Collect existing forensic artifacts byte-for-byte into a ZIP.
@@ -99,7 +100,18 @@ export class ForensicArchiveCollector {
 
         const entries = [];
         const finance = financialSnapshot ?? this._financialSnapshotProvider?.(roomId);
-        if (finance) entries.push({inlineContent: JSON.stringify(finance, null, 2) + '\n', zipPath: 'financial/room-wallet.json'});
+        if (finance) {
+            const roomWallet = buildRoomWalletRecord(finance);
+            const decisions = buildPaymentDecisions(finance);
+            const recovery = buildFinancialRecovery(finance);
+            const finalReport = buildFinalFinancialReport(finance, decisions, recovery);
+            entries.push({inlineContent: JSON.stringify(roomWallet, null, 2) + '\n', zipPath: 'financial/room-wallet.json'});
+            entries.push({inlineContent: JSON.stringify({schemaVersion:1, roomId, events: finance.paymentObservations ?? []}, null, 2) + '\n', zipPath:'forensics/payment-observations.json'});
+            entries.push({inlineContent: JSON.stringify({schemaVersion:1, roomId, decisions}, null, 2) + '\n', zipPath:'forensics/payment-decisions.json'});
+            entries.push({inlineContent: JSON.stringify(recovery, null, 2) + '\n', zipPath:'forensics/financial-recovery.json'});
+            entries.push({inlineContent: JSON.stringify(finalReport, null, 2) + '\n', zipPath:'financial/final-report.json'});
+            if (finance.archiveLineage) entries.push({inlineContent: JSON.stringify(finance.archiveLineage, null, 2) + '\n', zipPath:'forensics/archive-lineage.json'});
+        }
         const seenSources = new Set();
 
         const pushEntry = (sourcePath, zipPath) => {
@@ -294,6 +306,123 @@ export class ForensicArchiveCollector {
 
     }
 
+}
+
+function buildRoomWalletRecord(finance) {
+    const intents = finance.intents ?? [];
+    const receipts = finance.receipts ?? [];
+    return {
+        ...finance,
+        playerPayments: intents.map(intent => ({
+            playerId:intent.playerId,
+            paymentReference:intent.paymentReference,
+            expectedAmountAtomic:intent.amountAtomic,
+            expectedSenderAddress:intent.expectedSender,
+            destinationWalletAddress:intent.destinationWalletAddress,
+            network:intent.network,
+            asset:intent.asset,
+            expiresAt:intent.expiresAt,
+            finalState:intent.state,
+            transactionId:intent.transactionId ?? null,
+            transactions:receipts.filter(receipt => receipt.playerId === intent.playerId
+                || receipt.paymentIntentId === intent.paymentReference)
+        }))
+    };
+}
+
+function buildPaymentDecisions(finance) {
+    const decisions = [...(finance.paymentDecisions ?? [])];
+    const intents = finance.intents ?? [];
+    const receipts = finance.receipts ?? [];
+    const settledTransactions = new Set(intents.filter(i => i.state === "SETTLED").map(i => i.transactionId));
+    for (const receipt of receipts) {
+        const owner = intents.find(intent => intent.paymentReference === receipt.paymentIntentId
+            || (receipt.playerId && intent.playerId === receipt.playerId)
+            || (() => { try { return tonAddressIdentitiesEqual(intent.expectedSender, receipt.senderAddress); } catch { return false; } })());
+        let decision = "LATE_PAYMENT";
+        let reason = "NO_MATCHING_PAYMENT_INTENT";
+        if (settledTransactions.has(receipt.transactionId)) {
+            decision = "SETTLED"; reason = null;
+        } else if (owner) {
+            const mismatch = [];
+            if (!tonAddressIdentitiesEqual(receipt.senderAddress, owner.expectedSender)) mismatch.push("SENDER_MISMATCH");
+            if (!tonAddressIdentitiesEqual(receipt.destinationWalletAddress, owner.destinationWalletAddress)) mismatch.push("DESTINATION_MISMATCH");
+            if (receipt.amountAtomic !== owner.amountAtomic) mismatch.push("AMOUNT_MISMATCH");
+            if (receipt.paymentReference !== owner.paymentReference) mismatch.push(receipt.paymentReference ? "REFERENCE_MISMATCH" : "MISSING_REFERENCE");
+            if (receipt.transactionTime < owner.createdAt || receipt.transactionTime >= owner.expiresAt) mismatch.push("LATE_PAYMENT");
+            decision = mismatch[0] ?? "PENDING_CONFIRMATION";
+            reason = mismatch.length ? mismatch.join("+") : "SETTLEMENT_NOT_YET_CONFIRMED";
+        }
+        decisions.push({at:receipt.transactionTime, transactionId:receipt.transactionId,
+            playerId:receipt.playerId ?? owner?.playerId ?? null,
+            paymentReference:receipt.paymentReference ?? null, decision, reason,
+            amountAtomic:receipt.amountAtomic, senderAddress:receipt.senderAddress,
+            destinationWalletAddress:receipt.destinationWalletAddress});
+    }
+    for (const intent of intents) {
+        if (intent.state === "SETTLED" || receipts.some(r => r.paymentIntentId === intent.paymentReference)) continue;
+        const latest = (finance.paymentObservations ?? []).at(-1);
+        decisions.push({at:latest?.completedAt ?? null, playerId:intent.playerId,
+            paymentReference:intent.paymentReference,
+            decision:latest?.resultWindowComplete === true ? "NO_MATCH_OBSERVED" : "UNVERIFIED",
+            reason:latest?.providerError ?? latest?.skippedReason ?? "NO_CONFIRMED_TRANSFER_FOUND",
+            expectedAmountAtomic:intent.amountAtomic, expectedSenderAddress:intent.expectedSender,
+            destinationWalletAddress:intent.destinationWalletAddress});
+    }
+    return decisions.sort((a,b)=>(a.at ?? 0)-(b.at ?? 0));
+}
+
+function buildFinancialRecovery(finance) {
+    const payouts=(finance.ledger ?? []).filter(entry => ["PAYOUT_PLAN", "PAYOUT_SETTLEMENT", "NET_PAYOUT", "WINNER_GROSS_ALLOCATION", "OWNER_GROSS_ALLOCATION"].includes(entry.kind));
+    return {schemaVersion:1, roomId:finance.roomId, closedRoom:finance.closedRoom ?? null,
+        receipts:finance.receipts ?? [], refunds:finance.refunds ?? [], payouts,
+        outstandingObligations:finance.outstandingObligations ?? 0,
+        requiresReconciliation:(finance.receipts ?? []).some(r => !r.playerId || !r.paymentIntentId)
+            || (finance.refunds ?? []).some(r => r.state !== "COMPLETE")
+            || payouts.some(p => p.kind === "PAYOUT_PLAN" && !(finance.ledger ?? []).some(s => s.kind === "PAYOUT_SETTLEMENT" && s.metadata?.payoutPlanId === p.entryId))};
+}
+
+function diagnoseFinancialClose(finance, decisions) {
+    const intents=finance.intents ?? [];
+    const settled=intents.filter(i=>i.state === "SETTLED").length;
+    const exactCodes=new Set(["SENDER_MISMATCH","AMOUNT_MISMATCH","MISSING_REFERENCE","REFERENCE_MISMATCH","LATE_PAYMENT","UNMATCHED"]);
+    const code=decisions.some(d=>d.decision === "PROVIDER_UNAVAILABLE") ? "PROVIDER_UNAVAILABLE"
+        : decisions.some(d=>d.decision === "UNVERIFIED" || d.decision === "PENDING_CONFIRMATION") ? "BLOCKCHAIN_CONFIRMATION_INCOMPLETE"
+            : decisions.some(d=>exactCodes.has(d.decision)) ? "RECEIVED_TRANSFER_DID_NOT_MATCH_PAYMENT_INTENT"
+                : settled < intents.length ? "PAYMENT_NOT_RECEIVED_BEFORE_ROOM_DEADLINE"
+                    : finance.closedRoom?.closureReason ?? finance.outcome?.reason ?? "ROOM_CLOSED";
+    return {code, settledPlayers:settled, requiredPlayers:intents.length,
+        evidence:decisions.filter(d=>d.decision !== "SETTLED").map(d=>({
+            at:d.at, playerId:d.playerId ?? null, transactionId:d.transactionId ?? null,
+            paymentReference:d.paymentReference ?? null, decision:d.decision, reason:d.reason ?? null
+        }))};
+}
+
+function buildFinalFinancialReport(finance, decisions, recovery) {
+    const intents=finance.intents ?? [], receipts=finance.receipts ?? [], refunds=finance.refunds ?? [];
+    const settled=new Set(intents.filter(i=>i.state === "SETTLED").map(i=>i.transactionId));
+    const sum=rows=>rows.reduce((n,r)=>n+(Number.isSafeInteger(r.amountAtomic)?r.amountAtomic:0),0);
+    const uncredited=receipts.filter(r=>!settled.has(r.transactionId));
+    const completedRefunds=refunds.filter(r=>r.state === "COMPLETE");
+    const receivedAtomic=sum(receipts), settledStakeAtomic=sum(intents.filter(i=>i.state === "SETTLED"));
+    const notCreditedAtomic=sum(uncredited), returnedAtomic=sum(completedRefunds.map(r=>({amountAtomic:r.transferAmountAtomic ?? r.amountAtomic})));
+    const awaitingReturnAtomic=sum(refunds.filter(r=>r.state !== "COMPLETE").map(r=>({amountAtomic:r.transferAmountAtomic ?? r.amountAtomic})));
+    return {schemaVersion:1, roomId:finance.roomId, network:finance.network,
+        generatedAt:new Date().toISOString(), currency:"TON", atomicUnit:"nanoton",
+        receivedAtomic, settledStakeAtomic,
+        notCreditedAtomic, returnedAtomic,
+        refundFeesAtomic:completedRefunds.reduce((n,r)=>n+(r.gasChargeAtomic ?? 0),0),
+        awaitingReturnAtomic,
+        amountsGram:{received:receivedAtomic/1_000_000_000,settled:settledStakeAtomic/1_000_000_000,
+            notCredited:notCreditedAtomic/1_000_000_000,returned:returnedAtomic/1_000_000_000,
+            awaitingReturn:awaitingReturnAtomic/1_000_000_000},
+        requiresInvestigation:recovery.requiresReconciliation || decisions.some(d=>["AMBIGUOUS","UNVERIFIED","PROVIDER_UNAVAILABLE","PENDING_CONFIRMATION","SENDER_MISMATCH","AMOUNT_MISMATCH","MISSING_REFERENCE","REFERENCE_MISMATCH","LATE_PAYMENT","UNMATCHED"].includes(d.decision)),
+        closeReason:finance.closedRoom?.closureReason ?? finance.outcome?.reason ?? null,
+        completionCause:diagnoseFinancialClose(finance, decisions),
+        closeEvidence:{closedRoom:finance.closedRoom ?? null, observations:finance.paymentObservations ?? [],
+            decisions:decisions.map(d=>({at:d.at,transactionId:d.transactionId,playerId:d.playerId,decision:d.decision,reason:d.reason}))},
+        paymentCounts:{required:intents.length,settled:intents.filter(i=>i.state === "SETTLED").length,
+            receipts:receipts.length,returnObligations:refunds.length}};
 }
 
 /**

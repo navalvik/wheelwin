@@ -185,7 +185,7 @@ export class IncomingPaymentSettlementCoordinator {
      *   nowProvider?: () => number
      * }} dependencies
      */
-    constructor({ paymentService, observationService, logger = null, nowProvider = Date.now, receiptAccounting = null }) {
+    constructor({ paymentService, observationService, logger = null, nowProvider = Date.now, receiptAccounting = null, auditJournal = null }) {
 
         if (!paymentService
             || typeof paymentService.settlePayment !== "function"
@@ -220,6 +220,7 @@ export class IncomingPaymentSettlementCoordinator {
         this._logger = logger;
         this._nowProvider = nowProvider;
         this._receiptAccounting = receiptAccounting;
+        this._auditJournal = auditJournal;
 
     }
 
@@ -411,6 +412,7 @@ export class IncomingPaymentSettlementCoordinator {
 
         }
 
+        const observationStartedAt = this._nowProvider();
         const observation = await this._observationService.checkRoomPayments({
 
             roomId: room,
@@ -430,7 +432,8 @@ export class IncomingPaymentSettlementCoordinator {
             limit: observation.window.limit,
             providerRequests: observation.providerRequests,
             rowsReturned: observation.window.rowsReturned,
-            transfersObserved: observation.transfers.length
+            transfersObserved: observation.transfers.length,
+            startedAt: observationStartedAt
         });
 
         // (4) An incomplete window settles nothing from that window at all.
@@ -1054,27 +1057,124 @@ export class IncomingPaymentSettlementCoordinator {
         walletAddress = null
     }) {
 
+        if (this._auditJournal && room) {
+            try {
+                const completedAt = this._nowProvider();
+                this._auditJournal.recordObservation(room, {
+                    startedAt: window?.startedAt ?? completedAt,
+                    completedAt,
+                    walletId,
+                    walletAddress,
+                    providerRequests: window?.providerRequests ?? 0,
+                    rowsReturned: window?.rowsReturned ?? 0,
+                    transfersFound: window?.transfersObserved ?? 0,
+                    resultWindowComplete: observation?.resultWindowComplete === true,
+                    providerError: refusal === INCOMING_SETTLEMENT_REFUSAL.OBSERVATION_WINDOW_INCOMPLETE
+                        ? "INCOMPLETE_RESULT_WINDOW" : null,
+                    durationMs: window?.startedAt == null
+                        ? null : Math.max(0, completedAt - window.startedAt),
+                    skippedReason: window === null ? refusal : null
+                });
+                const settledTransactions = new Set(
+                    [...settled, ...alreadySettled].map(row => row.transactionId)
+                );
+                for (const entry of observation?.observations ?? []) {
+                    const transfer = observation.transfers.find(
+                        row => row.transactionId === entry.transactionId
+                    );
+                    const candidates = entry.status === "matched"
+                        ? [{ paymentReference: entry.paymentReference, reason: null }]
+                        : entry.mismatchReasons?.length
+                            ? entry.mismatchReasons
+                            : [{ paymentReference: transfer?.paymentReference ?? null, reason: "UNMATCHED" }];
+                    for (const candidate of candidates) {
+                        const intent = candidate.paymentReference
+                            ? this._paymentService.getPaymentIntent(candidate.paymentReference)
+                            : null;
+                        const mismatch = candidate.reason ?? null;
+                        const decision = settledTransactions.has(entry.transactionId)
+                            ? "SETTLED"
+                            : entry.status === "ambiguous" ? "AMBIGUOUS"
+                                : entry.status === "matched" ? "PENDING_CONFIRMATION"
+                                    : mismatch === "PAYMENT_REFERENCE_MISSING" ? "MISSING_REFERENCE"
+                                        : mismatch?.includes("AMOUNT") ? "AMOUNT_MISMATCH"
+                                            : mismatch?.includes("SENDER") ? "SENDER_MISMATCH"
+                                                : mismatch?.includes("REFERENCE") ? "REFERENCE_MISMATCH"
+                                                    : mismatch ?? "UNMATCHED";
+                        this._auditJournal.recordDecision(room, {
+                            at: completedAt,
+                            transactionId: entry.transactionId,
+                            playerId: intent?.playerId ?? null,
+                            paymentReference: candidate.paymentReference ?? null,
+                            decision,
+                            reason: refused.find(row => row.paymentReference === candidate.paymentReference)?.reason
+                                ?? mismatch ?? refusal,
+                            mismatchReasons: candidate.mismatches ?? [],
+                            expectedAmountAtomic: intent?.amountAtomic ?? null,
+                            amountAtomic: transfer?.amountAtomic ?? entry.amountAtomic ?? null,
+                            expectedSenderAddress: intent?.expectedSender ?? null,
+                            senderAddress: transfer?.senderAddress ?? entry.senderAddress ?? null,
+                            destinationWalletAddress: transfer?.destinationWalletAddress ?? null,
+                            expectedDestinationWalletAddress: intent?.destinationWalletAddress ?? null,
+                            expectedPaymentReference: intent?.paymentReference ?? null,
+                            transactionTime: transfer?.transactionTime ?? entry.transactionTime ?? null
+                        });
+                    }
+                }
+                if (!observation && refusal) {
+                    this._auditJournal.recordDecision(room, {
+                        at: completedAt, transactionId: null, paymentReference: null,
+                        decision: refusal === INCOMING_SETTLEMENT_REFUSAL.OBSERVATION_WINDOW_INCOMPLETE
+                            ? "UNVERIFIED"
+                            : refusal === INCOMING_SETTLEMENT_REFUSAL.NO_ROOM_WALLET_RESERVATION
+                                ? "ROOM_WALLET_UNAVAILABLE" : "PROVIDER_UNAVAILABLE",
+                        reason: refusal,
+                        amountAtomic: null, senderAddress: null,
+                        destinationWalletAddress: null, transactionTime: null
+                    });
+                }
+            } catch (error) {
+                this._logger?.error?.(
+                    `Payment forensic journal write failed | roomId=${room} | error=${error?.message ?? "unknown"}`
+                );
+            }
+        }
+
+        const publicObservation = window === null
+            ? null
+            : Object.freeze({
+                walletId,
+                walletAddress,
+                floorMs: window.floorMs,
+                ceilingMs: window.ceilingMs,
+                limit: window.limit,
+                providerRequests: window.providerRequests,
+                rowsReturned: window.rowsReturned,
+                transfersObserved: window.transfersObserved,
+                resultWindowComplete: observation?.resultWindowComplete === true,
+                disposition: observation?.disposition ?? null,
+                paymentConfirmation: observation?.paymentConfirmation ?? false,
+                transfers: Object.freeze((observation?.transfers ?? []).map(transfer => Object.freeze({
+                    transactionId: transfer.transactionId,
+                    providerTransactionIdentity: transfer.providerTransactionIdentity,
+                    network: transfer.network,
+                    asset: transfer.asset,
+                    senderAddress: transfer.senderAddress,
+                    destinationWalletAddress: transfer.destinationWalletAddress,
+                    amountAtomic: transfer.amountAtomic,
+                    paymentReference: transfer.paymentReference,
+                    transactionTime: transfer.transactionTime
+                }))),
+                matches: Object.freeze((observation?.observations ?? []).map(entry => Object.freeze({ ...entry })))
+            });
+
         return freezeReport({
 
             roomId: room,
             mode: mode ?? (window === null ? "REFUSED" : "FRESH_OBSERVATION"),
             refusal,
             ambiguity,
-            observation: window === null
-                ? null
-                : Object.freeze({
-                    walletId,
-                    walletAddress,
-                    floorMs: window.floorMs,
-                    ceilingMs: window.ceilingMs,
-                    limit: window.limit,
-                    providerRequests: window.providerRequests,
-                    rowsReturned: window.rowsReturned,
-                    transfersObserved: window.transfersObserved,
-                    resultWindowComplete: observation?.resultWindowComplete === true,
-                    disposition: observation?.disposition ?? null,
-                    paymentConfirmation: observation?.paymentConfirmation ?? false
-                }),
+            observation: publicObservation,
             resultWindowComplete: observation?.resultWindowComplete === true,
             settled,
             alreadySettled,

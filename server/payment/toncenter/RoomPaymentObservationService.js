@@ -693,6 +693,7 @@ export class RoomPaymentObservationService {
     _evaluateTransfer(transfer, paymentIntents) {
 
         const candidates = [];
+        const mismatchReasons = [];
 
         for (const intent of paymentIntents) {
 
@@ -701,6 +702,14 @@ export class RoomPaymentObservationService {
             if (result.matched) {
 
                 candidates.push(result);
+
+            } else {
+
+                mismatchReasons.push(Object.freeze({
+                    paymentReference: intent.paymentReference ?? null,
+                    reason: result.reason ?? "UNMATCHED",
+                    mismatches: result.mismatches
+                }));
 
             }
 
@@ -719,6 +728,7 @@ export class RoomPaymentObservationService {
                 amountAtomic: transfer.amountAtomic,
                 senderAddress: transfer.senderAddress,
                 transactionTime: transfer.transactionTime,
+                mismatchReasons: Object.freeze(mismatchReasons),
                 paymentConfirmed: false
             });
 
@@ -752,6 +762,7 @@ export class RoomPaymentObservationService {
             amountAtomic: transfer.amountAtomic,
             senderAddress: transfer.senderAddress,
             transactionTime: transfer.transactionTime,
+            mismatchReasons: Object.freeze(mismatchReasons),
             paymentConfirmed: false
         });
 

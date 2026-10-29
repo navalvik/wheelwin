@@ -39,7 +39,9 @@ const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
 function hasPaymentSubmissionSignal(paymentReference) {
     if (!paymentReference) return false;
     const state = localStorage.getItem('wheelwin:payment:' + paymentReference);
-    return state === 'PAYMENT_SUBMITTED' || state === 'SUBMISSION_UNKNOWN';
+    return state === 'SUBMISSION_PENDING'
+        || state === 'PAYMENT_SUBMITTED'
+        || state === 'SUBMISSION_UNKNOWN';
 }
 
 export default function Page4Payment() {
@@ -184,6 +186,9 @@ export default function Page4Payment() {
         paymentReferenceRef.current = payment.paymentReference;
         setSentToWallet(true);
         setSending(true);
+        // This is only a request to inspect the shared room wallet. It is not
+        // payment evidence; settlement still requires server-side chain proof.
+        socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId, paymentSubmitted: true});
         try {
             await tonConnectUI.sendTransaction(transaction);
             // TonConnect acknowledgement is NOT a blockchain confirmation.
@@ -268,7 +273,17 @@ export default function Page4Payment() {
                                     <p>Open this link with the wallet's general QR scanner. The scanner inside the recipient address field does not fill the amount or comment.</p>
                                     <button className="page4Payment__confirm" type="button"
                                         disabled={!transferQr || transferQr.reference !== payment.paymentReference}
-                                        onClick={() => { tonConnectUI.closeModal(); setShowTransferQr((value) => !value); }}>
+                                        onClick={() => {
+                                            tonConnectUI.closeModal();
+                                            setShowTransferQr((value) => {
+                                                const next = !value;
+                                                if (next) {
+                                                    localStorage.setItem('wheelwin:payment:' + payment.paymentReference, 'SUBMISSION_PENDING');
+                                                    socket.emit(PAYMENT_STATUS_REQUEST, {roomId, playerId, paymentSubmitted: true});
+                                                }
+                                                return next;
+                                            });
+                                        }}>
                                         {showTransferQr ? 'HIDE PAYMENT QR' : `PAY ${amount} GRAM — SHOW PAYMENT QR`}
                                     </button>
                                     {showTransferQr && transferQr && transferQr.reference === payment.paymentReference && (
