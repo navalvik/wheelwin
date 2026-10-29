@@ -201,7 +201,11 @@ export class WalletQuarantineAdminService {
             if (this.outstanding(runtime,wallet).open > 0)
                 throw new Error("WALLET_HAS_OPEN_FINANCIAL_OBLIGATIONS");
             const adapter = this.getAdapter();
-            if (!adapter?.sendAllBalance) throw new Error("TESTNET_SWEEP_SIGNER_UNAVAILABLE");
+            if (!adapter?.sendAllBalance || !adapter?.getWalletAddress)
+                throw new Error("TESTNET_SWEEP_SIGNER_UNAVAILABLE");
+            const signerAddress = await adapter.getWalletAddress(number);
+            if (publicAddress(signerAddress) !== publicAddress(wallet.address))
+                throw new Error("SWEEP_SIGNER_CATALOG_ADDRESS_MISMATCH");
             const result = await adapter.sendAllBalance({
                 roomNumber:number,destination
             });
