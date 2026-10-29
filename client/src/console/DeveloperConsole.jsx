@@ -41,6 +41,7 @@ import MaintenancePanel from "./panels/MaintenancePanel";
 import RuntimeConfigurationPanel from "./panels/RuntimeConfigurationPanel";
 import AudioRegistryPanel from "./panels/AudioRegistryPanel";
 import FinancePanel from "./panels/FinancePanel";
+import WalletQuarantinePanel from "./panels/WalletQuarantinePanel";
 
 /** Section id → panel factory. Kept in sync with consoleSections.js ids. */
 const SECTION_PANEL_RENDERERS = Object.freeze({
@@ -66,6 +67,7 @@ const SECTION_PANEL_RENDERERS = Object.freeze({
     maintenance: () => <MaintenancePanel />,
     "runtime-configuration": () => <RuntimeConfigurationPanel />,
     "audio-registry": () => <AudioRegistryPanel />,
+    "wallet-quarantine": () => <WalletQuarantinePanel />,
     "finance-testnet": () => <FinancePanel network="testnet" />,
     "finance-mainnet": () => <FinancePanel network="mainnet" />
 });
