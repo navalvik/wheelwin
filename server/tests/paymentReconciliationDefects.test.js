@@ -112,7 +112,7 @@ test("forensic decisions use evidence-based categories and final report matches 
         decisions.map(row => [row.transactionId, row.decision]));
 });
 
-test("routine polls do not upload copies; financial updates replace a single R2 key", async () => {
+test("already finalized archives never produce supplemental R2 writes", async () => {
     const dir = tempDirectory("ww-archive-revisions-");
     try {
         const history = join(dir, "history"), logs = join(dir, "logs"), staging = join(dir, "staging");
@@ -142,22 +142,17 @@ test("routine polls do not upload copies; financial updates replace a single R2 
             playerId:"player-a", paymentIntentId:"ref-a", paymentReference:"ref-a",
             senderAddress:address(100), destinationWalletAddress:address(4), transactionTime:150 }] };
         const updated = await service.ensureArchivedAndUploaded(request);
-        assert.equal(uploader.uploads.length, 2, "a material receipt triggers one update, not a supplement");
+        assert.equal(uploader.uploads.length, 1, "material changes cannot publish a second final archive");
         assert.equal(uploader.objects.size, 1, "only one R2 object is visible for this room");
-        assert.equal(uploader.uploads[1].objectName, uploader.uploads[0].objectName);
         assert.equal(updated.archiveFilename, uploader.uploads[0].objectName);
-        assert.notEqual(uploader.uploads[1].localPath, uploader.uploads[0].localPath);
-        const newerFinance = JSON.parse(extractZipEntry(
-            uploader.uploads[1].bytes, "financial/room-wallet.json"));
-        assert.equal(newerFinance.receipts.length,1,"latest R2 object carries the newly verified receipt");
 
         await service.ensureArchivedAndUploaded(request);
         const restarted = new ForensicArchiveService({ config, uploader, financialSnapshotProvider:() => snapshot });
         await restarted.ensureArchivedAndUploaded(request);
-        assert.equal(uploader.uploads.length, 2, "repeat and restart are idempotent");
+        assert.equal(uploader.uploads.length, 1, "repeat and restart are idempotent");
         assert.equal(uploader.objects.size, 1, "restart does not create a second key");
         assert.deepEqual(uploader.uploads[0].bytes, originalBytes,
-            "original forensic evidence stays on the durable volume");
+            "first committed final archive remains byte-for-byte unchanged");
     } finally { rmSync(dir, { recursive:true, force:true }); }
 });
 
@@ -293,6 +288,6 @@ test("financial recovery without gameId reuses archived game's canonical ZIP key
         });
         assert.equal(newer.archiveFilename,first.archiveFilename);
         assert.equal(uploader.objects.size,1);
-        assert.equal(uploader.uploads.length,2);
+        assert.equal(uploader.uploads.length,1,"closed-room replay does not re-upload the final ZIP");
     } finally { rmSync(dir,{recursive:true,force:true}); }
 });
