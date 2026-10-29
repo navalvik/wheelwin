@@ -150,7 +150,8 @@ export default function WalletQuarantinePanel() {
                     сетевые комиссии из средств этого кошелька. Операция не повторяется автоматически.</p>
                 {blocked && <p role="alert">Операции заблокированы: есть действующая комната или долги.</p>}
                 <p>Для освобождения нужен нулевой подтверждённый баланс.
-                    После попытки вывода необходима ручная сверка транзакции.</p>
+                    После попытки вывода необходима ручная сверка транзакции.
+                    Действие не удаляет долгов перед игроками и не подтверждает зачисление.</p>
                 <label htmlFor="quarantine-confirmation">Фраза подтверждения:</label>
                 <input id="quarantine-confirmation" type="text" autoComplete="off"
                     value={confirmation} onChange={e=>setConfirmation(e.target.value)}
@@ -158,7 +159,7 @@ export default function WalletQuarantinePanel() {
                 <p><code>{releaseText}</code> или <code>{sweepText}</code></p>
                 <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
                     <button type="button" disabled={busy || blocked || !current.quarantined
-                        || current.sweepClaimExists || confirmation !== releaseText}
+                        || confirmation !== releaseText}
                         onClick={()=>action("release")}>Освободить из карантина</button>
                     <button type="button" disabled={busy || blocked || !snapshot?.sweepEnabled
                         || current.sweepClaimExists || confirmation !== sweepText}
