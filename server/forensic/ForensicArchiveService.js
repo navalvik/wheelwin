@@ -40,6 +40,7 @@ export class ForensicArchiveService {
         uploader = null,
         financialSnapshotProvider = null,
         finalityChecker = null,
+        gameReportEngine = null,
         sessionHistoryArchive = null
     }) {
 
@@ -51,7 +52,7 @@ export class ForensicArchiveService {
         this._collector = collector ?? new ForensicArchiveCollector({
             sessionHistoryDir: this._config.sessionHistoryDir,
             diagnosticLogsDir: this._config.diagnosticLogsDir,
-            sessionHistoryArchive, financialSnapshotProvider
+            sessionHistoryArchive, financialSnapshotProvider, gameReportEngine
         });
         this._uploader = uploader;
         this._inFlight = new Map();
