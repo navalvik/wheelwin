@@ -192,7 +192,17 @@ export class WalletQuarantineAdminService {
                 throw new Error("WALLET_HAS_OPEN_FINANCIAL_OBLIGATIONS");
             if (existsSync(this.sweepClaimPath(runtime,number)))
                 throw new Error("SWEEP_PREVIOUS_ATTEMPT_REQUIRES_RECONCILIATION");
-            // Synchronous durable quarantine BEFORE the first awaited RPC.
+            const adapter = this.getAdapter();
+            if (!adapter?.sendAllBalance || !adapter?.getWalletAddress)
+                throw new Error("TESTNET_SWEEP_SIGNER_UNAVAILABLE");
+            // Verify signer identity before making any changes to quarantine.
+            const signerAddress = await adapter.getWalletAddress(number);
+            if (publicAddress(signerAddress) !== publicAddress(wallet.address))
+                throw new Error("SWEEP_SIGNER_CATALOG_ADDRESS_MISMATCH");
+            if (runtime.walletPool.getWalletByRoomNumber(number).reservedByRoomId
+                || this.outstanding(runtime,wallet).open > 0)
+                throw new Error("WALLET_HAS_OPEN_FINANCIAL_OBLIGATIONS");
+            // Synchronous durable quarantine BEFORE the next awaited RPC.
             // A newly created room can no longer take this wallet.
             runtime.walletPool.manuallyQuarantine(number);
             const state = await this.chainBalance(wallet.address);
@@ -200,12 +210,6 @@ export class WalletQuarantineAdminService {
                 throw new Error("SWEEP_BALANCE_EMPTY");
             if (this.outstanding(runtime,wallet).open > 0)
                 throw new Error("WALLET_HAS_OPEN_FINANCIAL_OBLIGATIONS");
-            const adapter = this.getAdapter();
-            if (!adapter?.sendAllBalance || !adapter?.getWalletAddress)
-                throw new Error("TESTNET_SWEEP_SIGNER_UNAVAILABLE");
-            const signerAddress = await adapter.getWalletAddress(number);
-            if (publicAddress(signerAddress) !== publicAddress(wallet.address))
-                throw new Error("SWEEP_SIGNER_CATALOG_ADDRESS_MISMATCH");
             const result = await adapter.sendAllBalance({
                 roomNumber:number,destination
             });
