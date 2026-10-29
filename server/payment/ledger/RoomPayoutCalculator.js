@@ -13,7 +13,7 @@
  *      rounded DOWN to a whole nanoton; the rule is a fixed, immutable
  *      business-rule constant (see PayoutAllocationConfig) and is NEVER
  *      supplied or overridden by the caller;
- *   2. ownerGrossAllocationAtomic  = floor(principalAtomic * 49 / 1000);
+ *   2. ownerGrossAllocationAtomic  = floor(principalAtomic * 5 / 100);
  *   3. gasReserveAtomic            = principalAtomic - winner - owner;
  *   4. fee quotes are diagnostic only; source-side TON fees do not reduce
  *      either recipient transfer;
@@ -91,13 +91,17 @@ function toSafeInteger(value, field) {
  * @returns {{ feeAtomic: number, quotedAtMs: number|null }}
  */
 function validateNetworkFee(role, grossAtomic, feeQuote) {
-    // Fee quote is optional diagnostic metadata. Its absence, age, or size
-    // never blocks a payout and never reduces the recipient's transfer.
+    // Like refunds, recipient gas is frozen into the durable payout plan
+    // before any broadcast. Never silently substitute source-paid gas.
     const feeAtomic = feeQuote?.feeAtomic;
     const quotedAtMs = feeQuote?.quotedAtMs;
-    const valid = Number.isSafeInteger(feeAtomic) && feeAtomic >= 0;
+    if (!Number.isSafeInteger(feeAtomic) || feeAtomic <= 0 || feeAtomic >= grossAtomic) {
+        throw new PayoutValidationError("PAYOUT_RECIPIENT_GAS_QUOTE_REQUIRED", {
+            role, grossAtomic, feeAtomic: feeAtomic ?? null
+        });
+    }
     return {
-        feeAtomic: valid ? feeAtomic : null,
+        feeAtomic,
         quotedAtMs: Number.isSafeInteger(quotedAtMs) && quotedAtMs > 0
             ? quotedAtMs : null,
         recipientRole: role,
@@ -114,11 +118,11 @@ export class RoomPayoutCalculator {
      *
      * Pure, deterministic and exact. The winner's gross allocation is computed
      * directly from the total settled principal; the owner receives a fixed
-     * 4.9% share; the remainder is retained by the Room Wallet. BigInt keeps
+     * 5% share; the remainder is retained by the Room Wallet. BigInt keeps
      * every calculation exact:
      *
      *   winnerGrossAllocationAtomic = floor(principalAtomic * 95 / 100)
-     *   ownerGrossAllocationAtomic  = floor(principalAtomic * 49 / 1000)
+     *   ownerGrossAllocationAtomic  = floor(principalAtomic * 5 / 100)
      *   gasReserveAtomic            = principalAtomic - winner - owner
      *
      * Both percentage amounts are rounded DOWN; integer-rounding remainder is
@@ -144,8 +148,8 @@ export class RoomPayoutCalculator {
         // from a caller input: floor(principalAtomic * 95 / 100), in BigInt.
         const winner = config.winnerGrossAllocationBigInt(principal);
 
-        const owner = config.ownerGrossAllocationBigInt(principal);
-        const gasReserve = principal - winner - owner;
+        const owner = principal - winner;
+        const gasReserve = 0n;
 
         if (owner < 0n || gasReserve < 0n) {
 
@@ -246,8 +250,8 @@ export class RoomPayoutCalculator {
 
         const transfers = [];
 
-        // Winner receives the full 95%. Fees are paid separately by the source
-        // Room Wallet and never deducted from the recipient amount.
+        // Winner gross is 95%; the frozen recipient gas charge is deducted
+        // from the transfer, following the existing refund fee policy.
         if (winnerGrossAllocationAtomic > 0) {
 
             const winnerFee = validateNetworkFee(
@@ -260,13 +264,13 @@ export class RoomPayoutCalculator {
                 recipientId: input.winner.recipientId,
                 address: input.winner.address,
                 grossAtomic: winnerGrossAllocationAtomic,
-                reservedFeeAtomic: 0,
+                reservedFeeAtomic: winnerFee.feeAtomic,
                 feeQuote: winnerFee
             }));
 
         }
 
-        // Owner receives the fixed 4.9% after the Winner leg.
+        // Owner gross is the remaining 5%; the owner also pays its own gas.
         if (ownerGrossAllocationAtomic > 0) {
 
             const ownerFee = validateNetworkFee(
@@ -279,7 +283,7 @@ export class RoomPayoutCalculator {
                 recipientId: input.owner.recipientId,
                 address: input.owner.address,
                 grossAtomic: ownerGrossAllocationAtomic,
-                reservedFeeAtomic: 0,
+                reservedFeeAtomic: ownerFee.feeAtomic,
                 feeQuote: ownerFee
             }));
 
