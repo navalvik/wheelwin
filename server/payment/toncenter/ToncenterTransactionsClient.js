@@ -204,6 +204,8 @@ export class ToncenterTransactionsClient {
         }
 
         const url = `${this._baseUrl.replace(/\/+$/, "")}${TONCENTER_STREAMING_V2_SSE_PATH}`;
+        // A queued read must not consume its HTTP timeout before dispatch.
+        await this._readBudget?.acquire({priority:"background"});
         const requestController = new AbortController();
         const abortWithSession = () => requestController.abort();
         if (signal.aborted) requestController.abort();
@@ -265,6 +267,7 @@ export class ToncenterTransactionsClient {
 
     async _requestJson(url, init, description) {
 
+        await this._readBudget?.acquire({priority:"background"});
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), this._timeoutMs);
         let response;
@@ -383,6 +386,7 @@ export class ToncenterTransactionsClient {
 
         let response;
         for (let attempt = 0; ; attempt += 1) {
+            await this._readBudget?.acquire({priority});
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(
                 new DOMException("The operation timed out.", "TimeoutError")
@@ -449,7 +453,6 @@ export class ToncenterTransactionsClient {
      * Test clients with injected fake fetch are isolated by default.
      */
     async _fetchRead(url, init, priority = "background") {
-        await this._readBudget?.acquire({priority});
         const response = await this._fetch(url, init);
         if (response?.status === 429) {
             this._readBudget?.noteRateLimited(response.headers?.get?.("retry-after") ?? null);
