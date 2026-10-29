@@ -8,6 +8,7 @@ on:
       - 'server/payment/roomWallet/RoomWalletAdapter.js'
       - 'server/app.js'
       - 'server/tests/console/walletQuarantineAdmin.test.js'
+      - 'server/tests/payment/adminSweepMode.test.js'
       - 'client/src/console/**'
       - '.github/workflows/admin-wallet-quarantine.yml'
   push:
@@ -34,7 +35,7 @@ jobs:
       - run: node --check payment/WalletPoolRegistry.js
       - run: node --check payment/roomWallet/RoomWalletAdapter.js
       - run: node --check app.js
-      - run: node --test tests/console/walletQuarantineAdmin.test.js tests/payment/restoreTestnetPage3Requirements.test.js
+      - run: node --test tests/console/walletQuarantineAdmin.test.js tests/payment/adminSweepMode.test.js tests/payment/restoreTestnetPage3Requirements.test.js
   client:
     runs-on: ubuntu-latest
     defaults:
