@@ -139,3 +139,41 @@ test('financial archive revisions preserve both pending and completed debt evide
         assert.equal(uploader.uploads.length, 2);
     } finally { f.cleanup(); }
 });
+
+test("missing financial snapshot cannot overwrite a previously uploaded complete archive", async () => {
+    const f = fixture();
+    try {
+        let hasSnapshot = true;
+        const uploader = new MockForensicArchiveUploader();
+        const service = new ForensicArchiveService({config:f.config,uploader,
+            financialSnapshotProvider:()=>hasSnapshot
+                ? {network:"testnet",roomId:"Abc",refunds:[{state:"COMPLETE"}]} : null
+        });
+        await service.ensureArchivedAndUploaded({roomId:"Abc",gameId:"game-1",reason:"game_completed"});
+        hasSnapshot=false;
+        await service.ensureArchivedAndUploaded({roomId:"Abc",gameId:"game-1",reason:"game_completed"});
+        assert.equal(uploader.uploads.length,1);
+        assert.equal(uploader.objects.size,1);
+    } finally { f.cleanup(); }
+});
+
+test("legacy pending supplements are not republished after a canonical room archive exists", async () => {
+    const f = fixture();
+    try {
+        const uploader = new MockForensicArchiveUploader();
+        const service = new ForensicArchiveService({config:f.config,uploader});
+        await service.ensureArchivedAndUploaded({roomId:"Abc",gameId:"game-1",reason:"game_completed"});
+        const legacy = join(f.config.stagingDir,"Abc-deprecated-revision");
+        mkdirSync(legacy,{recursive:true});
+        const legacyZip = join(legacy,"old-supplement.zip");
+        writeFileSync(legacyZip,"older forensic supplemental ZIP");
+        writeFileSync(join(legacy,"status.json"),JSON.stringify({
+            state:"pending_upload",roomId:"Abc",gameId:null,archiveFilename:"old-supplement.zip",
+            zipPath:legacyZip,reason:"game_completed",attempts:0
+        }));
+        const result=await service.recoverPendingUploads();
+        assert.deepEqual(result,[],"older supplemental key is suppressed");
+        assert.equal(uploader.uploads.length,1);
+        assert.equal(uploader.objects.size,1);
+    } finally { f.cleanup(); }
+});
