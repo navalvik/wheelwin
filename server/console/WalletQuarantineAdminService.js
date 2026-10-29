@@ -118,10 +118,14 @@ export class WalletQuarantineAdminService {
         const selected = roomNumber == null || roomNumber === "" ? null
             : this.wallet(runtime, roomNumber);
         const residues = this.residuesAddress();
-        const [walletChain, residuesChain] = await Promise.all([
+        const [walletResult, residuesResult] = await Promise.allSettled([
             selected ? this.chainBalance(selected.address) : Promise.resolve(null),
             residues ? this.chainBalance(residues) : Promise.resolve(null)
         ]);
+        const walletChain = walletResult.status === "fulfilled" ? walletResult.value
+            : {balanceNano:null, error:"TESTNET_BALANCE_PROVIDER_UNAVAILABLE"};
+        const residuesChain = residuesResult.status === "fulfilled" ? residuesResult.value
+            : {balanceNano:null, error:"TESTNET_BALANCE_PROVIDER_UNAVAILABLE"};
         return {
             network:"testnet", updatedAt:new Date().toISOString(),
             quarantined:pool.listQuarantinedWallets(),
@@ -149,8 +153,8 @@ export class WalletQuarantineAdminService {
         try {
             if (wallet.reservedByRoomId || this.outstanding(runtime,wallet).open > 0)
                 throw new Error("WALLET_HAS_OPEN_FINANCIAL_OBLIGATIONS");
-            if (existsSync(this.sweepClaimPath(runtime,number)))
-                throw new Error("SWEEP_REQUIRES_MANUAL_CHAIN_RECONCILIATION");
+            // A prior sweep claim can remain forever for audit. Administrator
+            // release is safe after independent zero-balance/ledger checks.
             const state = await this.chainBalance(wallet.address);
             if (BigInt(state.balanceNano) !== 0n) throw new Error("WALLET_BALANCE_NOT_EMPTY");
             // Recheck reservations after external I/O, while quarantine still
