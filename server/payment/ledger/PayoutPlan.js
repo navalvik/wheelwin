@@ -6,9 +6,9 @@
  * source-wallet expenses after chain verification.
  *
  * Approved payout rules enforced here:
- *   - winner amount is 95%, owner amount is 4.9%, and remaining 0.1% plus
+ *   - winner amount is 95%, owner amount is 5%, and remaining 0% plus
  *     rounding dust stays in the source Room Wallet;
- *   - `netAtomic` equals the full recipient amount; `reservedFeeAtomic` is
+ *   - ``netAtomic` is gross minus the frozen recipient fee; `reservedFeeAtomic` is
  *     zero because the Room Wallet pays actual network fees separately.
  *
  * The final reconciliation invariant
@@ -80,14 +80,11 @@ export class PayoutTransfer {
         // Non-negative (a zero fee is valid), never a floating-point value.
         assertNonNegativeSafeInteger(reservedFeeAtomic, "reservedFeeAtomic");
 
-        if (reservedFeeAtomic !== 0) {
-
-            // Fees belong to source-wallet accounting, not recipient deductions.
+        if (reservedFeeAtomic >= grossAtomic) {
             throw new PayoutValidationError(
-                "recipient reserved network fee must be zero; source wallet pays fees separately",
+                "recipient fee must be smaller than gross allocation",
                 { recipientRole, grossAtomic, reservedFeeAtomic }
             );
-
         }
 
         this.recipientRole = recipientRole;
@@ -101,7 +98,7 @@ export class PayoutTransfer {
         this.reservedFeeAtomic = reservedFeeAtomic;
 
         // Full transfer amount. TON fees are charged separately to source.
-        this.netAtomic = grossAtomic;
+        this.netAtomic = grossAtomic - reservedFeeAtomic;
 
         this.feeQuote = feeQuote
             ? Object.freeze({
@@ -130,8 +127,9 @@ export class PayoutTransfer {
 
     static fromJSON(record) {
 
-        if (record.netAtomic !== undefined && record.netAtomic !== record.grossAtomic) {
-            throw new PayoutValidationError("recipient net amount must equal its full allocation");
+        if (record.netAtomic !== undefined
+            && record.netAtomic !== record.grossAtomic - record.reservedFeeAtomic) {
+            throw new PayoutValidationError("recipient net amount must equal gross minus frozen gas");
         }
         return new PayoutTransfer(record);
 
@@ -190,7 +188,12 @@ export class PayoutPlan {
             (transfer) => transfer.recipientRole === "OWNER");
         const principal = BigInt(input.principalAtomic);
         const expectedWinnerAtomic = Number((principal * 95n) / 100n);
-        const expectedOwnerAtomic = Number((principal * 49n) / 1000n);
+        // Historic 95/4.9/0.1 source-funded plans remain immutable on replay.
+        const legacyRule = input.allocation?.ruleId ===
+            "APPROVED_WINNER_95_OWNER_4_9_GAS_RESERVE_0_1_RULE";
+        const expectedOwnerAtomic = legacyRule
+            ? Number((principal * 49n) / 1000n)
+            : input.principalAtomic - expectedWinnerAtomic;
 
         if (input.transfers.length !== 2
             || !winnerTransfer
@@ -201,7 +204,7 @@ export class PayoutPlan {
                 principal - BigInt(expectedWinnerAtomic) - BigInt(expectedOwnerAtomic))) {
 
             throw new PayoutValidationError(
-                "payout plan must preserve the fixed 95% winner, 4.9% owner, and retained remainder",
+                "payout plan gross shares or retained remainder are inconsistent",
                 {
                     expectedWinnerAtomic,
                     actualWinnerAtomic: winnerTransfer?.grossAtomic ?? null,
@@ -222,9 +225,14 @@ export class PayoutPlan {
         const totalNetAtomic = input.transfers.reduce(
             (sum, transfer) => sum + transfer.netAtomic, 0);
 
-        // Actual fees are separate wallet expenses and do not alter these
-        // allocations. The retained reserve is the untransferred remainder.
-        if (totalNetAtomic + gasReserveAtomic !== input.principalAtomic) {
+        // New plans allocate 95/5 gross, while each recipient pays its
+        // frozen gas charge: gross = net + fee. Historical plans keep their
+        // source-funded reserve and cannot be silently rewritten.
+        if ((legacyRule && totalReservedFeeAtomic !== 0)
+            || (!legacyRule && (totalReservedFeeAtomic <= 0
+                || input.transfers.some(t => t.reservedFeeAtomic <= 0)))
+            || totalGrossAtomic + gasReserveAtomic !== input.principalAtomic
+            || totalNetAtomic + totalReservedFeeAtomic + gasReserveAtomic !== input.principalAtomic) {
 
             throw new PayoutValidationError(
                 "payout plan must exactly account for settled principal "
@@ -305,7 +313,8 @@ export class PayoutPlan {
 
         const total = this.transfers.reduce(
             (sum, transfer) => sum + BigInt(transfer.netAtomic), 0n);
-        return total + BigInt(this.gasReserveAtomic) === principal;
+        return total + BigInt(this.totalReservedFeeAtomic)
+            + BigInt(this.gasReserveAtomic) === principal;
 
     }
 
