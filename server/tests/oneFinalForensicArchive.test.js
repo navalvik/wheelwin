@@ -54,11 +54,14 @@ test("payout game requires 3 settled stakes and both winner/owner settlements", 
     const snapshot={...original(),closedRoom:null,outcome:{kind:"PAYOUT"},
         intents:[{state:"SETTLED"},{state:"SETTLED"},{state:"SETTLED"}],
         ledger:[{kind:"PAYOUT_PLAN"},{kind:"PAYOUT_SETTLEMENT"}]};
+    const finalSession={gameId:"game-final",finishedAt:clock,lifecycleResult:"GAME_COMPLETED"};
     assert.equal(evaluateFinalForensicArchive({snapshot}).ready,false);
     snapshot.ledger.push({kind:"PAYOUT_SETTLEMENT"});
-    assert.equal(evaluateFinalForensicArchive({snapshot}).ready,true);
+    assert.equal(evaluateFinalForensicArchive({snapshot}).ready,false,
+        "even completed payouts must wait for Page6 terminal session");
+    assert.equal(evaluateFinalForensicArchive({snapshot,sessionRecord:finalSession}).ready,true);
     snapshot.outstandingObligations=1;
-    assert.equal(evaluateFinalForensicArchive({snapshot}).ready,false);
+    assert.equal(evaluateFinalForensicArchive({snapshot,sessionRecord:finalSession}).ready,false);
 });
 
 test("one game creates no preliminary ZIP and sends exactly one final ZIP", async () => {
