@@ -58,6 +58,8 @@ import {
     RecoveryCredentialStore
 } from "../gameplay/RecoveryCredentialStore.js";
 
+const PAGE4_PAYMENT_OBSERVATION_GRACE_MS = 4_000;
+
 export class RoomLobbyBridge {
 
     constructor({
@@ -202,6 +204,7 @@ export class RoomLobbyBridge {
         // authoritative playerId. Signals trigger chain observation only;
         // they are never evidence that a payment settled.
         this._roomPaymentSubmittedPlayers = new Map();
+        this._roomPaymentSignalsCompleteAt = new Map();
 
         this._verifyBarrierCompletedByRoom = new Set();
 
@@ -905,6 +908,7 @@ export class RoomLobbyBridge {
         this._continueToVerifyByRoom.clear();
 
         this._roomPaymentSubmittedPlayers.clear();
+        this._roomPaymentSignalsCompleteAt.clear();
 
         this._verifyBarrierCompletedByRoom.clear();
 
@@ -5491,14 +5495,16 @@ export class RoomLobbyBridge {
     }
 
     /**
-     * P6.7 — Narrowly scoped authoritative payment-state re-delivery.
+     * Authoritative Page4 payment-state re-delivery and room observation.
      *
      * Page4 requests its own current payment status after mounting so it never
      * stays stale when the original ENTRY_PAYMENT_SESSION_UPDATED event was
      * emitted while the page was not yet subscribed. Identity is resolved
      * exclusively from the server-owned socket→player binding; no client
      * claim is trusted. The re-delivery is idempotent: it re-derives the same
-     * status the reconnect path would have delivered.
+     * status the reconnect path would have delivered. Chain observation is
+     * coalesced until all three authenticated players signal submission, waits
+     * four seconds after the final signal, then obeys the room cadence budget.
      */
     _handlePaymentStatusRequest(socketId, paymentSubmitted = false) {
         const context = this._getSocketContext(socketId);
@@ -5508,8 +5514,8 @@ export class RoomLobbyBridge {
             context.roomId, context.playerId, socketId
         );
 
-        // No automatic global wallet scan. Only an occupied Page4 room
-        // receives one explicit, coalesced chain observation on request.
+        // No automatic global wallet scan. Only an occupied Page4 room with
+        // all three authenticated submission signals can trigger observation.
         if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
         const runtime = this._paymentApplicationBinding?.runtime;
         const adapter = runtime?.sessionAdapter;
@@ -5533,17 +5539,43 @@ export class RoomLobbyBridge {
         }
         submittedPlayers.add(context.playerId);
         if (!room.players.every(playerId => submittedPlayers.has(playerId))) return;
+        if (!this._roomPaymentSignalsCompleteAt) {
+            this._roomPaymentSignalsCompleteAt = new Map();
+        }
+        if (!this._roomPaymentSignalsCompleteAt.has(roomId)) {
+            this._roomPaymentSignalsCompleteAt.set(roomId, Date.now());
+        }
 
         if (!this._roomPaymentChecks) this._roomPaymentChecks = new Map();
         if (this._roomPaymentChecks.has(roomId)) return;
         if (!this._roomObservationBudget) {
             this._roomObservationBudget = new ActiveRoomObservationBudget();
         }
-        if (!this._roomObservationBudget.claim(roomId)) return;
 
         const pending = Promise.resolve()
-            .then(() => adapter.observeRoomPayments({ roomId }))
+            .then(() => new Promise(resolve => {
+                const completeAt = this._roomPaymentSignalsCompleteAt.get(roomId);
+                const waitMs = Math.max(0,
+                    completeAt + PAGE4_PAYMENT_OBSERVATION_GRACE_MS - Date.now());
+                setTimeout(resolve, waitMs);
+            }))
             .then(() => {
+                // The room may be destroyed while the grace period is active.
+                // Recheck both membership and all three signals before using
+                // the room's one-per-12-second chain observation budget.
+                const active = this._roomManager.getRoom(roomId);
+                const currentSignals = this._roomPaymentSubmittedPlayers?.get(roomId);
+                if (!active || active.players?.length !== 3
+                    || !this._continueToVerifyByRoom.has(roomId)
+                    || !active.players.every(playerId => currentSignals?.has(playerId))) {
+                    return false;
+                }
+                if (!this._roomObservationBudget.claim(roomId)) return false;
+                return Promise.resolve(adapter.observeRoomPayments({ roomId }))
+                    .then(() => true);
+            })
+            .then(observed => {
+                if (!observed) return;
                 const active = this._roomManager.getRoom(roomId);
                 if (!active || active.players?.length !== 3) return;
                 for (const playerId of active.players) {
@@ -6034,6 +6066,7 @@ export class RoomLobbyBridge {
         this._roomObservationBudget?.forget(roomId);
 
         this._roomPaymentSubmittedPlayers?.delete(roomId);
+        this._roomPaymentSignalsCompleteAt?.delete(roomId);
 
         this._verifyConfirmedByRoom.delete(roomId);
 
