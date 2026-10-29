@@ -1,15 +1,15 @@
 /**
  * Phase 4 — Validated payout plan value object.
  *
- * A payout plan allocates confirmed principal into full recipient transfers
- * plus a retained room-wallet gas reserve. Actual network fees are booked as
- * source-wallet expenses after chain verification.
+ * A payout plan allocates confirmed principal into recipient gross shares.
+ * New 95/5 plans deduct each recipient's frozen gas charge before broadcast;
+ * earlier 95/4.9/0.1 plans remain immutable on historical replay.
  *
  * Approved payout rules enforced here:
  *   - winner amount is 95%, owner amount is 5%, and remaining 0% plus
  *     rounding dust stays in the source Room Wallet;
- *   - ``netAtomic` is gross minus the frozen recipient fee; `reservedFeeAtomic` is
- *     zero because the Room Wallet pays actual network fees separately.
+ *   - netAtomic = grossAtomic - reservedFeeAtomic for new recipient-funded plans;
+ *   - historical source-funded plans retain their original zero fee deductions.
  *
  * The final reconciliation invariant
  *
@@ -65,8 +65,8 @@ function assertNonNegativeSafeInteger(value, field) {
 /**
  * One outgoing payout transfer with its own, separately represented network fee.
  *
- * Recipient amounts are never reduced by a reserved network fee. Actual fees
- * are recorded separately as source-wallet expenses.
+ * The frozen recipient gas charge is removed from gross before the transfer.
+ * Actual source-side network fees are recorded separately after finality.
  */
 export class PayoutTransfer {
 
@@ -97,7 +97,7 @@ export class PayoutTransfer {
 
         this.reservedFeeAtomic = reservedFeeAtomic;
 
-        // Full transfer amount. TON fees are charged separately to source.
+        // Recipient net amount, frozen before broadcast for replay safety.
         this.netAtomic = grossAtomic - reservedFeeAtomic;
 
         this.feeQuote = feeQuote
