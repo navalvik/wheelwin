@@ -46,6 +46,7 @@ import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
+import { evaluateFinalForensicArchive } from "./forensic/FinalForensicArchiveGate.js";
 import { purgeLocalForensicArchiveZips } from "./forensic/purgeLocalForensicArchiveZips.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
@@ -1336,10 +1337,25 @@ class WheelWinApplication {
                         .then(async () => {
                             if (!this._forensicArchiveService) return;
                             await this._forensicArchiveService.recoverPendingUploads({limit: 3});
-                            const rooms = paymentRuntime.refundStore.listClosedRooms();
+                            // Both refund outcomes and successful winner payouts
+                            // must be archived only AFTER confirmed finality.
+                            // Rotation prevents one held room starving others.
+                            const roomMap = new Map();
+                            for (const closed of paymentRuntime.refundStore.listClosedRooms()) {
+                                roomMap.set(closed.roomId, {roomId:closed.roomId, reason:closed.closureReason});
+                            }
+                            for (const outcome of paymentRuntime.outcomeStore?.list?.() ?? []) {
+                                if (outcome.kind === "PAYOUT" && !roomMap.has(outcome.roomId)) {
+                                    roomMap.set(outcome.roomId, {
+                                        roomId:outcome.roomId, gameId:outcome.context?.gameId ?? null,
+                                        reason:"game_completed"
+                                    });
+                                }
+                            }
+                            const rooms = [...roomMap.values()];
                             for (let i = 0; i < Math.min(3, rooms.length); i++) {
                                 const closed = rooms[(archiveCursor + i) % rooms.length];
-                                await this._forensicArchiveService.ensureArchivedAndUploaded({roomId:closed.roomId, reason:closed.closureReason});
+                                await this._forensicArchiveService.ensureArchivedAndUploaded(closed);
                             }
                             archiveCursor = rooms.length ? (archiveCursor + 3) % rooms.length : 0;
                         })
@@ -1777,6 +1793,8 @@ class WheelWinApplication {
                 logger: this._logger,
                 config: archiveConfig,
                 financialSnapshotProvider: roomId => this._paymentRuntime?.financialSnapshot(roomId),
+                finalityChecker: snapshot => evaluateFinalForensicArchive({snapshot}),
+                gameReportEngine: this._gameReportEngine,
                 uploader: archiveUploader,
                 sessionHistoryArchive: this._sessionHistoryArchive
             });
