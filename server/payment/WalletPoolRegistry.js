@@ -206,6 +206,7 @@ export class WalletPoolRegistry {
         this._initialized = false;
         this._snapshotDir = null;
         this._manualQuarantineReleases = new Set();
+        this._manualQuarantines = new Set();
 
     }
 
@@ -471,9 +472,11 @@ export class WalletPoolRegistry {
             address: wallet.address,
             network: wallet.network,
             reservedByRoomId: wallet.reservedByRoomId,
-            reason: wallet.network === "testnet" && wallet.roomNumber === 1
-                ? "HISTORICAL_UNRESOLVED_FUNDS"
-                : "ADMIN_ENVIRONMENT_HOLD"
+            reason: this._manualQuarantines.has(wallet.roomNumber)
+                ? "ADMIN_MANUAL_HOLD"
+                : wallet.network === "testnet" && wallet.roomNumber === 1
+                    ? "HISTORICAL_UNRESOLVED_FUNDS"
+                    : "ADMIN_ENVIRONMENT_HOLD"
         }));
     }
 
@@ -487,6 +490,26 @@ export class WalletPoolRegistry {
         return wallet ? this._isQuarantined(wallet) : false;
     }
 
+    /** Put an idle wallet into quarantine before any asynchronous sweep work. */
+    manuallyQuarantine(roomNumber) {
+        this._assertInitialized();
+        const wallet = this.getWalletByRoomNumber(roomNumber);
+        if (!wallet || wallet.reservedByRoomId !== null || !this._snapshotDir) {
+            throw new PaymentValidationError("WALLET_NOT_IDLE");
+        }
+        const wasHeld = this._manualQuarantines.has(roomNumber);
+        const wasReleased = this._manualQuarantineReleases.has(roomNumber);
+        this._manualQuarantineReleases.delete(roomNumber);
+        this._manualQuarantines.add(roomNumber);
+        try { this.persistSnapshot(this._snapshotDir); }
+        catch (error) {
+            if (!wasHeld) this._manualQuarantines.delete(roomNumber);
+            if (wasReleased) this._manualQuarantineReleases.add(roomNumber);
+            throw error;
+        }
+        return {roomNumber, quarantined: true};
+    }
+
     /** Release a quarantine hold, NOT a room reservation. Caller must first
      * verify ledger/refund obligations and a fresh on-chain zero balance. */
     manuallyReleaseQuarantine({roomNumber, verifiedSafe}) {
@@ -497,10 +520,12 @@ export class WalletPoolRegistry {
             throw new PaymentValidationError("QUARANTINE_RELEASE_NOT_SAFE");
         }
         this._manualQuarantineReleases.add(roomNumber);
+        const wasManualHold = this._manualQuarantines.delete(roomNumber);
         try {
             this.persistSnapshot(this._snapshotDir);
         } catch (error) {
             this._manualQuarantineReleases.delete(roomNumber);
+            if (wasManualHold) this._manualQuarantines.add(roomNumber);
             throw error;
         }
         return {roomNumber, released: true};
@@ -682,6 +707,7 @@ export class WalletPoolRegistry {
             network: this._network,
             poolSize: this._wallets.size,
             manualQuarantineReleases: [...this._manualQuarantineReleases],
+            manualQuarantines: [...this._manualQuarantines],
             reservations: Object.freeze(
                 [...this._wallets.values()].map((wallet) => wallet.toRecord())
             ),
@@ -719,6 +745,11 @@ export class WalletPoolRegistry {
 
         }
 
+        if (Array.isArray(parsed?.manualQuarantines)) {
+            this._manualQuarantines = new Set(
+                parsed.manualQuarantines.filter(n => Number.isInteger(n) && n >= 1 && n <= ROOM_WALLET_POOL_SIZE)
+            );
+        }
         if (Array.isArray(parsed?.manualQuarantineReleases)) {
             this._manualQuarantineReleases = new Set(
                 parsed.manualQuarantineReleases.filter(n => Number.isInteger(n) && n >= 1 && n <= ROOM_WALLET_POOL_SIZE)
@@ -796,6 +827,7 @@ export class WalletPoolRegistry {
     }
 
     _isQuarantined(wallet) {
+        if (this._manualQuarantines.has(wallet?.roomNumber)) return true;
         if (this._manualQuarantineReleases.has(wallet?.roomNumber)) return false;
         // Room wallet #1 retains unresolved historical oj7v refunds.
         // Quarantine is a Testnet invariant, never an optional deployment
