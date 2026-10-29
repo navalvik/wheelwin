@@ -74,7 +74,7 @@ export class R2ForensicArchiveUploader {
     /**
      * @returns {Promise<{ objectName: string, generation: string|null, etag: string|null }>}
      */
-    async uploadFile(localPath, objectName) {
+    async uploadFile(localPath, objectName, { revision = null } = {}) {
 
         if (!this.isConfigured() || !this._client) {
 
@@ -93,13 +93,22 @@ export class R2ForensicArchiveUploader {
         try {
 
             const existingObject = await this._headIfExists(destination);
-            if (existingObject) {
+            // Legacy callers keep create-once semantics. Financial room archives
+            // opt in to revision-aware CAS updates of ONE stable R2 object key.
+            if (existingObject && (revision === null
+                || existingObject.Metadata?.wheelwinrevision === revision)) {
                 this._logger?.info?.(
                     `R2_UPLOAD_ALREADY_PRESENT | bucket=${this._bucketName} | object=${destination}`
                 );
                 return { objectName:destination,
                     generation:existingObject.VersionId ?? existingObject.ETag ?? null,
                     etag:existingObject.ETag ?? null, alreadyPresent:true };
+            }
+            if (revision !== null && (!/^[a-f0-9]{24}$/.test(revision))) {
+                throw new Error("R2_INVALID_FINANCIAL_REVISION");
+            }
+            if (existingObject && !existingObject.ETag) {
+                throw new Error("R2_ARCHIVE_MISSING_ETAG");
             }
 
             let putResult;
@@ -108,8 +117,10 @@ export class R2ForensicArchiveUploader {
                     Bucket: this._bucketName,
                     Key: destination,
                     Body: createReadStream(localPath),
-                    // Never replace an archive object for the same stable financial revision.
-                    IfNoneMatch: "*",
+                    // Stable room key, conditional create or compare-and-swap update.
+                    // A stale writer must never silently overwrite newer evidence.
+                    ...(existingObject ? { IfMatch: existingObject.ETag } : { IfNoneMatch: "*" }),
+                    ...(revision !== null ? { Metadata: { wheelwinrevision: revision } } : {}),
                     // R2 S3-compatible endpoint needs a fixed payload length for
                     // reliable streamed uploads (avoid ambiguous chunked bodies).
                     ContentLength: statSync(localPath).size,
@@ -119,9 +130,13 @@ export class R2ForensicArchiveUploader {
             } catch (error) {
                 if (isPreconditionFailed(error)) {
                     const racedObject = await this._headIfExists(destination);
-                    if (racedObject) return { objectName:destination,
-                        generation:racedObject.VersionId ?? racedObject.ETag ?? null,
-                        etag:racedObject.ETag ?? null, alreadyPresent:true };
+                    if (racedObject && (revision === null
+                        || racedObject.Metadata?.wheelwinrevision === revision)) {
+                        return { objectName:destination,
+                            generation:racedObject.VersionId ?? racedObject.ETag ?? null,
+                            etag:racedObject.ETag ?? null, alreadyPresent:true };
+                    }
+                    throw new Error("R2_ARCHIVE_CONCURRENT_UPDATE");
                 }
                 throw error;
             }
@@ -188,6 +203,7 @@ export class MockForensicArchiveUploader {
     constructor() {
 
         this.uploads = [];
+        this.objects = new Map();
 
         this.shouldFail = false;
 
@@ -199,7 +215,7 @@ export class MockForensicArchiveUploader {
 
     }
 
-    async uploadFile(localPath, objectName) {
+    async uploadFile(localPath, objectName, { revision = null } = {}) {
 
         if (this.shouldFail) {
 
@@ -207,13 +223,15 @@ export class MockForensicArchiveUploader {
 
         }
 
-        this.uploads.push({ localPath, objectName });
-
-        return {
-            objectName,
-            generation: "mock-generation",
-            etag: "mock-etag"
-        };
+        const previous = this.objects.get(objectName);
+        if (previous && revision !== null && previous.revision === revision) {
+            return { objectName, generation:"mock-generation", etag:previous.etag,
+                alreadyPresent:true };
+        }
+        const etag = "mock-etag-" + (this.uploads.length + 1);
+        this.uploads.push({ localPath, objectName, revision });
+        this.objects.set(objectName, { localPath, revision, etag });
+        return { objectName, generation:"mock-generation", etag };
 
     }
 
