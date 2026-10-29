@@ -6,7 +6,7 @@ import {
     readFileSync,
     renameSync
 } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 import { ForensicArchiveCollector, writeStagingStatus } from "./ForensicArchiveCollector.js";
 import {
@@ -97,12 +97,13 @@ export class ForensicArchiveService {
             // immutable ZIP is the durable retry source on the mounted volume.
             if (stagedZip
                 && typeof status.archiveFilename === "string"
-                && relative(roomStagingDir, stagedZip) === status.archiveFilename
+                && relative(roomStagingDir, stagedZip) !== ""
+                && !relative(roomStagingDir, stagedZip).startsWith("..")
                 && basename(stagedZip) === status.archiveFilename
                 && existsSync(stagedZip)) {
                 try {
                     const upload = await this._uploader.uploadFile(
-                        stagedZip, status.archiveFilename
+                        stagedZip, status.archiveFilename, { revision: status.revision ?? null }
                     );
                     writeStagingStatus(join(roomStagingDir, "status.json"), {
                         ...status,
@@ -203,17 +204,24 @@ export class ForensicArchiveService {
         reason
     }) {
 
-        let financialSnapshot = this._financialSnapshotProvider?.(roomId);
+        const financialSnapshot = this._financialSnapshotProvider?.(roomId);
+        // Financial recovery may call us without the known game ID.
+        const sessionRecord = this._sessionHistoryArchive?.listRecords?.({
+            roomId, limit:1, sort:"newest"
+        })?.records?.[0] ?? null;
+        gameId = gameId ?? financialSnapshot?.gameId ?? sessionRecord?.gameId ?? null;
         const revision = financialSnapshot
             ? createHash('sha256').update(stableStringify(materialFinancialSnapshot({
                 ...financialSnapshot, roomId, gameId
-            }))).digest('hex').slice(0, 24)
+            }))).digest('hex').slice(0,24)
             : null;
-        const stagingRoomDir = join(this._config.stagingDir, safeSegment(roomId) + (revision ? '-' + revision : ''));
+        // One durable status per room; revisions stay on disk, not in R2 keys.
+        const stagingRoomDir = join(this._config.stagingDir, safeSegment(roomId));
         const statusPath = join(stagingRoomDir, "status.json");
         const existingStatus = readStatus(statusPath);
 
-        if (existingStatus?.state === "uploaded") {
+        if (existingStatus?.state === "uploaded"
+            && (existingStatus.revision ?? null) === revision) {
 
             this._logInfo(
                 `${LOG.UPLOAD_SUCCESS} | roomId=${roomId} | gameId=${gameId ?? "null"}`
@@ -233,18 +241,22 @@ export class ForensicArchiveService {
         const stagedExistingZip = typeof existingStatus?.zipPath === "string"
             ? resolve(existingStatus.zipPath) : null;
         if (existingStatus?.archiveFilename && stagedExistingZip
-            && relative(stagingRoomDir, stagedExistingZip) === existingStatus.archiveFilename
+            && relative(stagingRoomDir, stagedExistingZip) !== ""
+            && !relative(stagingRoomDir, stagedExistingZip).startsWith("..")
             && basename(stagedExistingZip) === existingStatus.archiveFilename
             && existsSync(stagedExistingZip)
+            && (existingStatus.revision ?? null) === revision
             && this._uploader?.isConfigured?.() === true
             && ["pending_upload", "failed"].includes(existingStatus.state)
             && (!existingStatus.phase || existingStatus.phase === "upload")) {
             const previousAttempts = Number(existingStatus.attempts ?? 0);
             for (let attempt = 1; attempt <= this._config.maxUploadAttempts; attempt++) {
                 try {
-                    const upload = await this._uploader.uploadFile(stagedExistingZip, existingStatus.archiveFilename);
+                    const upload = await this._uploader.uploadFile(stagedExistingZip,
+                        existingStatus.archiveFilename, { revision });
                     writeStagingStatus(statusPath, { ...existingStatus, state:"uploaded",
                         objectName:upload.objectName, generation:upload.generation,
+                        etag:upload.etag ?? null,
                         attempts:previousAttempts + attempt, uploadedAt:Date.now() });
                     return { uploaded:true, archiveFilename:existingStatus.archiveFilename };
                 } catch (error) {
@@ -256,21 +268,9 @@ export class ForensicArchiveService {
             }
         }
 
+        // Preserve legacy archive keys and local evidence; no new R2
+        // supplement object is created for an updated financial snapshot.
         const originalArchive = this._findOriginalArchive(roomId);
-        if (financialSnapshot && originalArchive && originalArchive.archiveFilename !== existingStatus?.archiveFilename) {
-            financialSnapshot = {
-                ...financialSnapshot,
-                archiveLineage: {
-                    schemaVersion: 1,
-                    archiveType: "FINANCIAL_SUPPLEMENT",
-                    roomId,
-                    gameId,
-                    originalArchiveFilename: originalArchive.archiveFilename,
-                    generatedAt: new Date().toISOString(),
-                    reason: "Durable financial state changed after the initial room archive"
-                }
-            };
-        }
 
         if (!this._uploader?.isConfigured?.()) {
 
@@ -292,7 +292,8 @@ export class ForensicArchiveService {
 
         const finishedAt = this._resolveFinishedAt(roomId) ?? Date.now();
         const lifecycleResult = this._resolveLifecycleResult(roomId, reason);
-        const previousName = existingStatus?.archiveFilename;
+        const previousName = existingStatus?.archiveFilename
+            ?? originalArchive?.archiveFilename;
         // A retry must target the SAME R2 object key, even after a restart.
         let archiveFilename = typeof previousName === "string"
             && basename(previousName) === previousName
@@ -307,8 +308,9 @@ export class ForensicArchiveService {
                 reason
             });
 
-        if (revision && !previousName) archiveFilename = archiveFilename.replace(/\.zip$/, '_FIN_' + revision + '.zip');
-        const zipPath = join(stagingRoomDir, archiveFilename);
+        // Keep old immutable ZIP bytes on the mounted disk, but refresh
+        // a single canonical R2 key using an optimistic concurrent write.
+        const zipPath = join(stagingRoomDir, revision ?? "initial", archiveFilename);
 
         this._logInfo(
             `${LOG.CREATE_STARTED} | roomId=${roomId} | gameId=${gameId ?? "null"}`
@@ -316,7 +318,7 @@ export class ForensicArchiveService {
             + ` | archive=${archiveFilename}`
         );
 
-        mkdirSync(stagingRoomDir, { recursive: true });
+        mkdirSync(dirname(zipPath), { recursive: true });
 
         let manifest;
 
@@ -359,6 +361,7 @@ export class ForensicArchiveService {
             reason,
             archiveFilename,
             zipPath,
+            revision,
             manifest,
             updatedAt: Date.now()
         });
@@ -380,7 +383,8 @@ export class ForensicArchiveService {
 
                 const upload = await this._uploader.uploadFile(
                     zipPath,
-                    archiveFilename
+                    archiveFilename,
+                    { revision }
                 );
 
                 writeStagingStatus(statusPath, {
@@ -392,8 +396,10 @@ export class ForensicArchiveService {
                     zipPath,
                     objectName: upload.objectName,
                     generation: upload.generation,
+                    etag: upload.etag ?? null,
+                    revision,
                     manifest,
-                    archiveLineage: financialSnapshot?.archiveLineage ?? null,
+                    archiveLineage: null,
                     attempts: previousAttempts + attempt,
                     uploadedAt: Date.now()
                 });
@@ -418,7 +424,8 @@ export class ForensicArchiveService {
                     archiveFilename,
                     zipPath,
                     manifest,
-                    archiveLineage: financialSnapshot?.archiveLineage ?? null,
+                    revision,
+                    archiveLineage: null,
                     attempts: previousAttempts + attempt,
                     error: error.message,
                     updatedAt: Date.now()
