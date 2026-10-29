@@ -1052,6 +1052,48 @@ export class RoomLedger {
 
     }
 
+    /**
+     * The owner explicitly accepts a lost commission when the room wallet
+     * cannot fund it AFTER the winner's transfer was independently settled.
+     * This is an accounting waiver, NEVER a fabricated on-chain settlement.
+     */
+    waiveOwnerCommission({payoutId, roomId, evidence} = {}) {
+        this._assertInitialized();
+        assertNonEmptyString(payoutId, "payoutId");
+        assertNonEmptyString(roomId, "roomId");
+        if (evidence?.reason !== "INSUFFICIENT_BALANCE_AFTER_WINNER"
+            || !Number.isSafeInteger(evidence.balanceAtomic)
+            || evidence.balanceAtomic < 0
+            || !Number.isSafeInteger(evidence.requiredAtomic)
+            || evidence.requiredAtomic <= evidence.balanceAtomic) {
+            throw new PayoutSettlementError("OWNER_WAIVER_EVIDENCE_INVALID");
+        }
+        const obligations = this.listPayoutObligations(roomId)
+            .filter(item => item.payoutId === payoutId);
+        const winner = obligations.find(item => item.role === "WINNER");
+        const owner = obligations.find(item => item.role === "OWNER");
+        if (!winner?.settled || !owner || owner.settled) {
+            throw new PayoutSettlementError("OWNER_WAIVER_WINNER_NOT_SETTLED");
+        }
+        const key = `${payoutId}:owner-commission-waived`;
+        const existing = this._store.findByIdempotencyKey(key);
+        if (existing) return {waived: true, replay: true};
+        this._store.append({
+            idempotencyKey: key,
+            roomId,
+            kind: LEDGER_ENTRY_KIND.OWNER_COMMISSION_WAIVED,
+            amountAtomic: owner.netAtomic,
+            asset: this._currency.asset,
+            network: this._currency.network,
+            metadata: Object.freeze({
+                payoutId, recipientId: owner.recipientId, role: "OWNER",
+                reason: evidence.reason, balanceAtomic: evidence.balanceAtomic,
+                requiredAtomic: evidence.requiredAtomic, recordedAtMs: Date.now()
+            })
+        });
+        return {waived: true, replay: false};
+    }
+
     // -------------------------------------------------------------------------
     // Obligations + derived views
     // -------------------------------------------------------------------------
@@ -1067,8 +1109,12 @@ export class RoomLedger {
     listPayoutObligations(roomId) {
 
         const settlements = new Set();
+        const waived = new Set();
 
         for (const entry of this._store.listForRoom(roomId)) {
+            if (entry.kind === LEDGER_ENTRY_KIND.OWNER_COMMISSION_WAIVED) {
+                waived.add(`${entry.metadata.payoutId}:${entry.metadata.recipientId}`);
+            }
 
             if (entry.kind === LEDGER_ENTRY_KIND.PAYOUT_SETTLEMENT) {
 
@@ -1099,6 +1145,7 @@ export class RoomLedger {
                 reservedFeeAtomic: entry.metadata.reservedFeeAtomic,
                 netAtomic: entry.amountAtomic,
                 settled: settlements.has(key),
+                waived: waived.has(key),
                 roomId: entry.roomId
             }));
 
@@ -1117,7 +1164,7 @@ export class RoomLedger {
     countOpenObligations(roomId) {
 
         return this.listPayoutObligations(roomId)
-            .filter((obligation) => !obligation.settled)
+            .filter((obligation) => !obligation.settled && !obligation.waived)
             .length;
 
     }
