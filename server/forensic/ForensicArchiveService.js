@@ -39,10 +39,12 @@ export class ForensicArchiveService {
         collector = null,
         uploader = null,
         financialSnapshotProvider = null,
+        finalityChecker = null,
         sessionHistoryArchive = null
     }) {
 
         this._financialSnapshotProvider = financialSnapshotProvider;
+        this._finalityChecker = finalityChecker;
         this._logger = logger;
         this._config = config ?? resolveForensicArchiveConfig();
         this._sessionHistoryArchive = sessionHistoryArchive;
@@ -231,10 +233,10 @@ export class ForensicArchiveService {
         const statusPath = join(stagingRoomDir, "status.json");
         const existingStatus = readStatus(statusPath);
 
-        if (existingStatus?.state === "uploaded"
-            && ((existingStatus.revision ?? null) === revision || revision === null)) {
-            // If financial data is temporarily unavailable, never replace
-            // an uploaded financial archive with a less complete ZIP.
+        if (existingStatus?.state === "uploaded") {
+            // A single FINAL upload is immutable. Subsequent financial changes
+            // must be reconciled in the durable ledger, never published as
+            // additional archive PUTs. This is one upload per game, not CAS.
 
             this._logInfo(
                 `${LOG.UPLOAD_SUCCESS} | roomId=${roomId} | gameId=${gameId ?? "null"}`
@@ -246,6 +248,17 @@ export class ForensicArchiveService {
                 archiveFilename: existingStatus.archiveFilename
             };
 
+        }
+
+        // Do not build, stage or transmit any ZIP until financial closure is
+        // independently established by the runtime's durable evidence.
+        if (typeof this._finalityChecker === "function") {
+            const check = this._finalityChecker(financialSnapshot);
+            if (check?.ready !== true) {
+                this._logInfo("R2_ARCHIVE_WAITING_FINANCIAL_FINALITY | roomId=" + roomId
+                    + " | reason=" + (check?.reason ?? "NOT_READY"));
+                return {skipped:true,reason:"FINANCIAL_NOT_FINAL"};
+            }
         }
 
         // A collection/upload interruption must retry the exact staged ZIP.
@@ -266,7 +279,7 @@ export class ForensicArchiveService {
             for (let attempt = 1; attempt <= this._config.maxUploadAttempts; attempt++) {
                 try {
                     const upload = await this._uploader.uploadFile(stagedExistingZip,
-                        existingStatus.archiveFilename, { revision });
+                        existingStatus.archiveFilename, { revision, final: true });
                     writeStagingStatus(statusPath, { ...existingStatus, state:"uploaded",
                         objectName:upload.objectName, generation:upload.generation,
                         etag:upload.etag ?? null,
@@ -398,7 +411,7 @@ export class ForensicArchiveService {
                 const upload = await this._uploader.uploadFile(
                     zipPath,
                     archiveFilename,
-                    { revision }
+                    { revision, final: true }
                 );
 
                 writeStagingStatus(statusPath, {
