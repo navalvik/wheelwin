@@ -1006,8 +1006,8 @@ export async function fetchWalletQuarantine(accessToken, roomNumber = null) {
 }
 
 /** No implicit retries: a sweep RPC timeout may mean the chain accepted it. */
-export async function performWalletQuarantineAction(accessToken, action, roomNumber, confirmation) {
-    if (!["release","sweep"].includes(action)) throw new Error("Unknown admin action");
+export async function performWalletQuarantineAction(accessToken, action, roomNumber, confirmation, note = "") {
+    if (!["quarantine","release","sweep"].includes(action)) throw new Error("Unknown admin action");
     const response = await fetch(
         `${getConsoleApiBase()}/console/wallets/quarantine/${action}`, {
             method:"POST",
@@ -1016,7 +1016,7 @@ export async function performWalletQuarantineAction(accessToken, action, roomNum
                 "Content-Type":"application/json",
                 Authorization:`Bearer ${accessToken}`
             },
-            body:JSON.stringify({roomNumber,confirmation})
+            body:JSON.stringify({roomNumber,confirmation,...(action === "quarantine" ? {note} : {})})
         }
     );
     const body = await response.json().catch(() => null);
