@@ -6,6 +6,9 @@ export class HistoricalIncomingReceiptReconciler {
     constructor({runtime, incomingProvider, chainObserver, independentVerifier, nowProvider=Date.now}) {
         Object.assign(this,{runtime,incomingProvider,chainObserver,independentVerifier,nowProvider});
         this.cursor=0; this.running=false;
+        // Rotate per-room history candidates so an unresolved leading record
+        // cannot starve later credits when checks are bounded to three/pass.
+        this.historyCandidateCursors = new Map();
     }
     async recoverRoom(roomId) {
         const {intentStore,refundStore,receiptStore,receiptAccounting}=this.runtime;
@@ -42,6 +45,10 @@ export class HistoricalIncomingReceiptReconciler {
         if (!observed.resultWindowComplete) return {roomId,status:'HISTORY_INCOMPLETE'};
         let captured=0, checked=0;
         const pending=[];
+        // Build the bounded, local candidate list before choosing where to
+        // resume. Unrelated/previously settled transactions never consume an
+        // expensive verification slot. Do not broaden the provider request.
+        const candidates=[];
         for (const record of observed.records) {
             const transfer=normalizeIncomingTransferRecord(record,{network:'testnet',providerId:'toncenter',now:this.nowProvider()});
             const priorReceipt=receiptStore.get?.(transfer.transactionId);
@@ -49,7 +56,13 @@ export class HistoricalIncomingReceiptReconciler {
             if (transfer.asset!=='TON' || transfer.network!=='testnet'
                 || transfer.transactionTime<floorMs || transfer.transactionTime>ceilingMs
                 || !tonAddressIdentitiesEqual(transfer.destinationWalletAddress,intents[0].destinationWalletAddress)) continue;
-            if (checked++ >= 3) break;
+            candidates.push(transfer);
+        }
+        const start=candidates.length
+            ? (this.historyCandidateCursors.get(roomId) ?? 0) % candidates.length : 0;
+        for (let offset=0; offset<candidates.length && checked<3; offset++) {
+            const transfer=candidates[(start+offset)%candidates.length];
+            checked++;
             try {
             const source=await this.chainObserver.findOutgoingTransfer({
                 sourceWalletAddress:transfer.senderAddress,destinationIdentity:transfer.destinationWalletAddress,
@@ -157,6 +170,14 @@ export class HistoricalIncomingReceiptReconciler {
                 transactionTime:transfer.transactionTime
             });
             } catch { pending.push('PROVIDER_UNAVAILABLE'); }
+        }
+        // Advance even when the provider evidence remains unverified. The
+        // next pass covers different candidates instead of repeating the same
+        // first three forever. No payment state is advanced by this cursor.
+        if (candidates.length) {
+            this.historyCandidateCursors.set(roomId,(start+checked)%candidates.length);
+        } else {
+            this.historyCandidateCursors.delete(roomId);
         }
         receiptAccounting.prepareClosedRoom(roomId);
         return {roomId,status:'HISTORICAL_RECEIPTS_CHECKED',captured,pending};
