@@ -24,7 +24,7 @@ function fakeClock() {
 
 test("active Page4 read overtakes queued historical recovery at same Toncenter quota", async ()=>{
     const clock=fakeClock(),budget=new ToncenterReadBudget({
-        requestsPerSecond:2,reducedRequestsPerSecond:1,
+        requestsPerSecond:1,reducedRequestsPerSecond:1,
         now:clock.now,schedule:clock.schedule,cancel:clock.cancel});
     const order=[];
     const first=budget.acquire().then(()=>order.push("old-first"));
@@ -32,9 +32,9 @@ test("active Page4 read overtakes queued historical recovery at same Toncenter q
     const page4=budget.acquire({priority:"page4"}).then(()=>order.push("page4"));
     await first;
     assert.deepEqual(order,["old-first"]);
-    clock.advance(500);await page4;
+    clock.advance(1000);await page4;
     assert.deepEqual(order,["old-first","page4"]);
-    clock.advance(1000);await old;
+    clock.advance(2000);await old;
     assert.deepEqual(order,["old-first","page4","old-second"]);
 });
 
@@ -52,7 +52,7 @@ test("HTTP429 pauses all clients and temporarily slows dispatch without duplicat
     const clientB=new ToncenterTransactionsClient({
         fetchImpl,apiKeyProvider:()=>"test-secret",readBudget:budget});
     const query={account:"0:test",startUtime:1,endUtime:2};
-    await assert.rejects(clientA.getTransactions(query),error=>error.statusCode===429);
+    await assert.rejects(clientA.getTransactions(query),error=>error.code==="TONCENTER_RATE_LIMITED" && error.details?.statusCode===429);
     assert.equal(calls,1,"429 must cause no rapid local retries");
     const next=clientB.getTransactions({...query,priority:"page4"});
     await Promise.resolve();await Promise.resolve();
@@ -93,7 +93,7 @@ test("one HTTP429 does not change payment state or invoke any wallet transaction
         fetchImpl:fake,apiKeyProvider:()=>"synthetic",readBudget:budget});
     await assert.rejects(client.getTransactions({
         account:"0:room",startUtime:1,endUtime:5,priority:"page4"
-    }),error=>error.statusCode===429);
+    }),error=>error.code==="TONCENTER_RATE_LIMITED" && error.details?.statusCode===429);
     assert.equal(calls.length,1);
     assert.equal(calls[0].method,"GET");
     assert.ok(calls[0].url.includes("/api/v3/transactions"));
