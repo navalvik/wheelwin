@@ -17,7 +17,8 @@ export function registerDeveloperConsoleRoutes(
         gameDiagnosticLogManager = null,
         sessionHistoryArchive = null,
         runtimeConfigurationService = null,
-        audioRegistryService = null
+        audioRegistryService = null,
+        walletQuarantineService = null
     } = {}
 ) {
 
@@ -246,6 +247,44 @@ export function registerDeveloperConsoleRoutes(
         : null;
 
     const adminGate = requireAdministrator ?? ((req, res, next) => next());
+
+    // The quarantine endpoints are NEVER accessible under open developer
+    // access. They require an explicitly configured Administrator identity.
+    const strictAdminGate = (req,res,next) => {
+        if (!authService?.isEnabled?.() || authService?.allowsOpenAccess?.())
+            return res.status(403).json({error:"ADMINISTRATOR_LOGIN_REQUIRED"});
+        return createAdministratorAuthMiddleware(authService)(req,res,next);
+    };
+    const quarantineError = (res,error) => {
+        const code = String(error?.message ?? "WALLET_ADMIN_OPERATION_FAILED");
+        const status = /UNAVAILABLE|DISABLED|NOT_CONFIGURED/.test(code) ? 503
+            : /OBLIGATIONS|NOT_EMPTY|IN_PROGRESS|RECONCILIATION|NOT_IDLE|PREVIOUS_ATTEMPT/.test(code) ? 409
+                : 400;
+        return res.status(status).json({error:code});
+    };
+    if (walletQuarantineService) {
+        app.get("/console/wallets/quarantine", strictAdminGate, async (req,res) => {
+            try {
+                res.setHeader("Cache-Control","no-store");
+                res.json(await walletQuarantineService.status(req.query?.roomNumber ?? null));
+            } catch(error) {quarantineError(res,error);}
+        });
+        for (const action of ["quarantine","release","sweep"]) {
+            app.post(`/console/wallets/quarantine/${action}`,strictAdminGate,async (req,res) => {
+                try {
+                    res.setHeader("Cache-Control","no-store");
+                    res.json(await walletQuarantineService[action]({
+                        roomNumber:req.body?.roomNumber,
+                        confirmation:req.body?.confirmation,
+                        ...(action === "quarantine" ? {
+                            note:req.body?.note ?? "",
+                            actor:req.developer?.username ?? "Administrator"
+                        } : {})
+                    }));
+                } catch(error) {quarantineError(res,error);}
+            });
+        }
+    }
 
     /**
      * R17.9I.3 — Administrator-only Runtime Configuration (view + mutate).
