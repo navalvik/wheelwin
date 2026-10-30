@@ -70,6 +70,7 @@ export class RoomLobbyBridge {
         playerManager,
         gameplayContextResolver = null,
         setupSessionLifecycle = null,
+        recoverySnapshotCache = null,
         resultSessionLifecycle = null,
         gameStartAuthorization = null,
         isDevelopment = false,
@@ -91,6 +92,8 @@ export class RoomLobbyBridge {
         this._gameplayContextResolver = gameplayContextResolver;
 
         this._setupSessionLifecycle = setupSessionLifecycle;
+
+        this._recoverySnapshotCache = recoverySnapshotCache;
 
         this._resultSessionLifecycle = resultSessionLifecycle;
 
@@ -124,6 +127,12 @@ export class RoomLobbyBridge {
         // telegramUserId → activeCreatedRoomId. Creation-quota only; joining is
         // never limited by this map. Released whenever the room is destroyed.
         this._activeRoomsByTelegramUser = new Map();
+
+        // Trusted Telegram identity → server-owned player seat association.
+        // This closes the assignment/event-delivery race without trusting a
+        // client-supplied room or player id. Entries live only as long as the
+        // assigned player record and are removed with that record.
+        this._telegramSeatByPlayer = new Map();
 
         // Room network is selected by the Telegram Mini App entrypoint and
         // resolved from this server runtime's trusted TON_NETWORK setting.
@@ -285,6 +294,40 @@ export class RoomLobbyBridge {
         return typeof resolved === "number" || typeof resolved === "string"
             ? resolved
             : null;
+
+    }
+
+    _rememberTelegramSeat(playerId, roomId, telegramUserId) {
+
+        if (!playerId || !roomId || telegramUserId == null) return;
+
+        this._telegramSeatByPlayer.set(playerId, {
+            roomId,
+            telegramUserId: String(telegramUserId)
+        });
+
+    }
+
+    _findRecoverableTelegramSeat(socketId, claimedRoomId = null) {
+
+        const telegramUserId = this._resolveSocketTelegramUserId(socketId);
+
+        if (telegramUserId == null) return null;
+
+        const trustedId = String(telegramUserId);
+        const matches = [];
+
+        for (const [playerId, seat] of this._telegramSeatByPlayer) {
+            if (seat.telegramUserId !== trustedId) continue;
+            if (claimedRoomId && seat.roomId !== claimedRoomId) continue;
+            if (!this._isRecoverableIdentity(playerId, seat.roomId)) continue;
+            const room = this._roomManager.getRoom(seat.roomId);
+            if (!room?.players.includes(playerId)) continue;
+            matches.push({ playerId, roomId: seat.roomId });
+        }
+
+        // Fail closed if the authenticated account has multiple active seats.
+        return matches.length === 1 ? matches[0] : null;
 
     }
 
@@ -886,6 +929,8 @@ export class RoomLobbyBridge {
 
         this._activeRoomsByTelegramUser.clear();
 
+        this._telegramSeatByPlayer.clear();
+
         this._recoveryOwnershipBySocket.clear();
 
         this._recoveryOwnershipByPlayer.clear();
@@ -1481,6 +1526,8 @@ export class RoomLobbyBridge {
         });
 
         this._roomCreators.set(room.roomId, playerId);
+
+        this._rememberTelegramSeat(playerId, room.roomId, creatorTelegramUserId);
 
         // R17.9T.6-C — occupy the Telegram creation quota for this room.
         this._activeRoomsByTelegramUser.set(
@@ -2364,6 +2411,12 @@ export class RoomLobbyBridge {
             roomId
         });
 
+        this._rememberTelegramSeat(
+            playerId,
+            roomId,
+            this._resolveSocketTelegramUserId(socketId)
+        );
+
         const roomSnapshot = this._roomManager.getRoom(roomId);
         const playerCount = roomSnapshot?.players.length ?? null;
         const maxPlayers = roomSnapshot?.maxPlayers ?? null;
@@ -2721,6 +2774,24 @@ export class RoomLobbyBridge {
 
         if (!claimedPlayerId) {
 
+            const telegramSeat = this._findRecoverableTelegramSeat(
+                socketId,
+                claim?.roomId ?? null
+            );
+
+            if (telegramSeat) {
+
+                this._logger.info(
+                    `[R6.2A Recovery] trusted Telegram seat lookup hit`
+                    + ` | roomId=${telegramSeat.roomId}`
+                    + ` | playerId=${telegramSeat.playerId}`
+                    + ` | socket.id=${socketId}`
+                );
+
+                return telegramSeat;
+
+            }
+
             this._logger.info(
                 `[R6.2A Recovery] stash lookup`
                 + ` | roomId=${claim?.roomId ?? "null"}`
@@ -2935,6 +3006,10 @@ export class RoomLobbyBridge {
 
         }
 
+        const hadActiveBinding = Boolean(this._getSocketContext(socketId));
+        const trustedTelegramSeat = !claim?.playerId && !hadActiveBinding
+            ? this._findRecoverableTelegramSeat(socketId, claim?.roomId ?? null)
+            : null;
         const identity = this.resolveRecoveryIdentity(socketId, claim);
 
         if (!identity) {
@@ -3087,6 +3162,15 @@ export class RoomLobbyBridge {
 
         }
 
+        // A trusted Telegram recovery can repair the case where the server
+        // assigned a seat but the client disconnected before receiving the
+        // original roomCreated/roomJoined credential. Rotate and return the
+        // credential privately only after the exact seat has been committed.
+        const recoveryCredential = trustedTelegramSeat?.playerId === playerId
+            && trustedTelegramSeat?.roomId === roomId
+            ? this.issueRecoveryCredential(playerId, roomId)
+            : null;
+
         this._playerManager.setConnectionState(
             playerId,
             CONNECTION_STATE.CONNECTED
@@ -3118,15 +3202,37 @@ export class RoomLobbyBridge {
             ?? runtime?.gameId
             ?? null;
 
+        const gameStart = this._gameStartAuthorization
+            ?.getReconnectSnapshot?.(roomId) ?? null;
+
+        const cachedRecoveryEntry = gameId
+            ? this._recoverySnapshotCache?.get?.(gameId) ?? null
+            : null;
+
+        const page6Active = this._resultSessionLifecycle
+            ?.isActive?.(roomId) === true
+            || cachedRecoveryEntry?.page6Opened === true;
+
+        const gameplayStarted = gameStart?.phase === "OPEN_PAGE5"
+            || gameStart?.phase === "GAME_INITIALIZING"
+            || gameStart?.phase === "GAME_START_AUTHORIZED"
+            || this._isActiveGameplayProtected(roomId)
+            || page6Active;
+
         const setupRecoverable = this._setupSessionLifecycle
             ?.isRecoverable(roomId) === true;
 
-        // Setup-only recovery while prep pages run. After VERIFY_COMPLETED
-        // (Page5), fall through to RecoveryEngine even if the Setup Timer remains.
-        const setupActive = setupRecoverable
-            ;
+        const paymentStageActive = !gameplayStarted
+            && this._verifyBarrierCompletedByRoom.has(roomId);
 
-        const syncPayload = this._setupSessionLifecycle?.buildSyncPayload(roomId);
+        // The setup timer may remain alive after the authoritative start.
+        // It cannot route a reconnected client back to setup once gameplay has
+        // been authorized or Page6 has become authoritative.
+        const setupActive = setupRecoverable && !gameplayStarted;
+
+        const syncPayload = setupActive
+            ? this._setupSessionLifecycle?.buildSyncPayload(roomId)
+            : null;
 
         if (syncPayload) {
 
@@ -3157,9 +3263,22 @@ export class RoomLobbyBridge {
             logRestore: true
         });
 
+        // Rehydrate the authoritative roster through the existing private
+        // socket delivery path. _buildPlayerList applies the same profile
+        // reveal rules as normal room broadcasts.
+        for (const player of this._buildPlayerList(room)) {
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.PLAYER_UPDATE,
+                player
+            );
+
+        }
+
         // Re-deliver authoritative stage barriers so reconnect preserves
         // continueToVerify progress and does not strand the client on Verify.
-        if (this._profilesRevealedByRoom.has(roomId)) {
+        if (!gameplayStarted && this._profilesRevealedByRoom.has(roomId)) {
 
             this._deliverToSocket(
                 socketId,
@@ -3172,12 +3291,59 @@ export class RoomLobbyBridge {
 
         }
 
-        if (this._continueToVerifyByRoom.has(roomId)) {
+        if (gameplayStarted && !page6Active && gameStart) {
 
-            const gameStart = this._gameStartAuthorization
+            if (
+                gameStart.phase === "GAME_START_AUTHORIZED"
+                || gameStart.phase === "GAME_INITIALIZING"
+                || gameStart.phase === "OPEN_PAGE5"
+            ) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.GAME_START_AUTHORIZED,
+                    {
+                        roomId,
+                        gameId: gameStart.gameId,
+                        authorizedAt: gameStart.authorizedAt
+                    }
+                );
+
+            }
+
+            if (
+                gameStart.phase === "GAME_INITIALIZING"
+                || gameStart.phase === "OPEN_PAGE5"
+            ) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.GAME_INITIALIZING,
+                    {
+                        roomId,
+                        gameId: gameStart.gameId,
+                        initializingAt: gameStart.initializingAt
+                    }
+                );
+
+            }
+
+            if (gameStart.phase === "OPEN_PAGE5") {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.OPEN_PAGE5,
+                    { roomId }
+                );
+
+            }
+
+        } else if (!gameplayStarted && this._verifyBarrierCompletedByRoom.has(roomId)) {
+
+            const pendingGameStart = this._gameStartAuthorization
                 ?.getReconnectSnapshot?.(roomId);
 
-            if (!gameStart) {
+            if (!pendingGameStart) {
 
                 this._deliverToSocket(
                     socketId,
@@ -3189,55 +3355,6 @@ export class RoomLobbyBridge {
                 );
 
                 this._deliverPaymentStatusToSocket(roomId, playerId, socketId);
-
-            }
-
-            if (gameStart) {
-
-                if (
-                    gameStart.phase === "GAME_START_AUTHORIZED"
-                    || gameStart.phase === "GAME_INITIALIZING"
-                    || gameStart.phase === "OPEN_PAGE5"
-                ) {
-
-                    this._deliverToSocket(
-                        socketId,
-                        LOBBY_SERVER_EVENTS.GAME_START_AUTHORIZED,
-                        {
-                            roomId,
-                            gameId: gameStart.gameId,
-                            authorizedAt: gameStart.authorizedAt
-                        }
-                    );
-
-                }
-
-                if (
-                    gameStart.phase === "GAME_INITIALIZING"
-                    || gameStart.phase === "OPEN_PAGE5"
-                ) {
-
-                    this._deliverToSocket(
-                        socketId,
-                        LOBBY_SERVER_EVENTS.GAME_INITIALIZING,
-                        {
-                            roomId,
-                            gameId: gameStart.gameId,
-                            initializingAt: gameStart.initializingAt
-                        }
-                    );
-
-                }
-
-                if (gameStart.phase === "OPEN_PAGE5") {
-
-                    this._deliverToSocket(
-                        socketId,
-                        LOBBY_SERVER_EVENTS.OPEN_PAGE5,
-                        { roomId }
-                    );
-
-                }
 
             }
 
@@ -3256,7 +3373,7 @@ export class RoomLobbyBridge {
             `Lobby recovery reconnect | roomId=${roomId} | playerId=${playerId}`
         );
 
-        if (room.gameMode === "NO_FRIENDS") {
+        if (!gameplayStarted && room.gameMode === "NO_FRIENDS") {
             if (this._verifyBarrierCompletedByRoom.has(roomId)) {
                 this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY, {
                     roomId,
@@ -3273,6 +3390,10 @@ export class RoomLobbyBridge {
                     nickname: this._playerManager.getIdentity(playerId)?.nickname ?? null,
                     age: this._playerManager.getIdentity(playerId)?.age ?? null,
                     baseStake: this._playerManager.getIdentity(playerId)?.baseStake ?? null,
+                    sectorCount: this._playerManager.getIdentity(playerId)?.sectorCount ?? null,
+                    sectorArrangement: this._playerManager.getIdentity(playerId)?.sectorArrangement ?? null,
+                    color: this._playerManager.getIdentity(playerId)?.color ?? null,
+                    colorSector2: this._playerManager.getIdentity(playerId)?.colorSector2 ?? null,
                     gameId: this._gameplayContextResolver?.resolveGameIdByRoomId?.(roomId) ?? null,
                     optionsReady: optionsReady?.has(playerId) === true,
                     readyCount: optionsReady?.size ?? 0
@@ -3280,12 +3401,101 @@ export class RoomLobbyBridge {
             }
         }
 
+        this._deliverToSocket(
+            socketId,
+            LOBBY_SERVER_EVENTS.ROOM_RECOVERY_SYNC,
+            this._buildRoomRecoverySync({
+                room,
+                playerId,
+                roomId,
+                gameId,
+                recoveryCredential
+            })
+        );
+
         return {
             ok: true,
             playerId,
             roomId,
             gameId,
-            setupActive
+            setupActive,
+            gameStartPhase: gameStart?.phase ?? null,
+            page6Active,
+            paymentStageActive
+        };
+
+    }
+
+    _buildRoomRecoverySync({
+        room,
+        playerId,
+        roomId,
+        gameId,
+        recoveryCredential = null
+    }) {
+
+        const identity = this._playerManager.getIdentity(playerId) ?? {};
+        const matrixStatus = this.getSecretMatrixStatus(roomId, playerId);
+        const optionsReady = this._noFriendsOptionsReadyByRoom.get(roomId);
+        const gameStart = this._gameStartAuthorization
+            ?.getReconnectSnapshot?.(roomId) ?? null;
+        const cached = gameId
+            ? this._recoverySnapshotCache?.get?.(gameId) ?? null
+            : null;
+        const page6Active = this._resultSessionLifecycle?.isActive?.(roomId) === true
+            || cached?.page6Opened === true;
+        const gameplayActive = gameStart?.phase === "GAME_START_AUTHORIZED"
+            || gameStart?.phase === "GAME_INITIALIZING"
+            || gameStart?.phase === "OPEN_PAGE5"
+            || this._isActiveGameplayProtected(roomId)
+            || page6Active;
+
+        let stage = "LOBBY";
+        if (page6Active) {
+            stage = "RESULT";
+        } else if (gameplayActive) {
+            stage = "GAMEPLAY";
+        } else if (this._verifyBarrierCompletedByRoom.has(roomId)) {
+            stage = "PAYMENT";
+        } else if (room.gameMode === "NO_FRIENDS") {
+            stage = "NO_FRIENDS_OPTIONS";
+        } else if (this._profilesRevealedByRoom.has(roomId)
+            || this._secretMatrixAcceptedByRoom.has(roomId)) {
+            stage = "VERIFY";
+        } else if (areRoomPage2ProfilesComplete(this._playerManager, room.players)) {
+            stage = "MATRIX";
+        } else if (room.players.length >= room.maxPlayers) {
+            stage = "PLAYER_SETUP";
+        }
+
+        const ownProfile = {
+            nickname: identity.nickname ?? null,
+            age: identity.age ?? null,
+            baseStake: identity.baseStake ?? null,
+            color: identity.color ?? null,
+            colorSector2: identity.colorSector2 ?? null,
+            sectorCount: identity.sectorCount ?? null,
+            sectorArrangement: identity.sectorArrangement ?? null,
+            wallet: identity.wallet ?? null
+        };
+
+        return {
+            roomId,
+            playerId,
+            gameId: gameId ?? null,
+            recoveryCredential,
+            gameMode: room.gameMode ?? "FRIENDS",
+            network: this._roomNetworkByRoom.get(roomId) ?? null,
+            stage,
+            profile: ownProfile,
+            optionsReady: optionsReady?.has(playerId) === true,
+            readyCount: optionsReady?.size ?? 0,
+            verifyConfirmed: this._verifyConfirmedByRoom.get(roomId)?.has(playerId) === true,
+            verifyConfirmedCount: this._verifyConfirmedByRoom.get(roomId)?.size ?? 0,
+            verifyContinued: this._continueToVerifyByRoom.get(roomId) instanceof Set
+                && this._continueToVerifyByRoom.get(roomId).has(playerId),
+            matrixStatus,
+            players: this._buildPlayerList(room)
         };
 
     }
@@ -6730,6 +6940,8 @@ export class RoomLobbyBridge {
     _cleanupPlayer(playerId) {
 
         this._clearRecoveryOwnershipForPlayer(playerId);
+
+        this._telegramSeatByPlayer.delete(playerId);
 
         this._recoveryCredentials.invalidate(playerId);
 

@@ -1623,6 +1623,7 @@ class WheelWinApplication {
             playerManager: this._managers.playerManager,
             gameplayContextResolver: this._gameplayContextResolver,
             setupSessionLifecycle: this._setupSessionLifecycle,
+            recoverySnapshotCache: this._recoverySnapshotCache,
             resultSessionLifecycle: this._resultSessionLifecycle,
             gameStartAuthorization: this._gameStartAuthorization,
             isDevelopment: this._productionConfig.isDevelopment,
