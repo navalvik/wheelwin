@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
     formatPage4WalletBindingLogs,
     formatPage4ObservedTransferLog
-} from "../payment/page4PaymentDiagnostics.js";
+} from "../payment/walletAddressDiagnostics.js";
 
 const roomWallet="EQ"+("A".repeat(46));
 const olga="EQ"+("B".repeat(46));
