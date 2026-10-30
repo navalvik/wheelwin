@@ -20,7 +20,8 @@ import {
     resolveGameplayRecoveryPage,
     shouldPreservePage6OnRecoveryFailure,
     resolveRoomRecoveryPage,
-    shouldAcceptRoomRecoverySync
+    shouldAcceptRoomRecoverySync,
+    buildRoomRecoveryIdentityUpdate
 } from "../game/sessionRecovery/recoveryFlow";
 
 import {
@@ -270,21 +271,7 @@ export function RecoveryExperienceProvider({
         const showOverlay = recoveryOverlayRef.current;
         recoveryOverlayRef.current = false;
 
-        setIdentity({
-            roomId: payload.roomId,
-            playerId: payload.playerId,
-            gameId: payload.gameId ?? null,
-            recoveryCredential: payload.recoveryCredential
-                ?? previousIdentity.recoveryCredential ?? null,
-            gameMode: payload.gameMode ?? null,
-            network: payload.network ?? null,
-            ...(payload.profile ?? {}),
-            optionsReady: payload.optionsReady === true,
-            readyCount: payload.readyCount ?? 0,
-            verifyConfirmed: payload.verifyConfirmed === true,
-            verifyContinued: payload.verifyContinued === true,
-            matrixStatus: payload.matrixStatus ?? null
-        });
+        setIdentity(buildRoomRecoveryIdentityUpdate(payload, previousIdentity));
 
         const targetPage = resolveRoomRecoveryPage(payload.stage);
         if (targetPage && targetPage !== currentPage) onNavigate(targetPage);

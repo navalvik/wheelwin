@@ -63,24 +63,6 @@ function RoomIdentityListener() {
         };
         socket.on("roomCreated", storeIdentity);
         socket.on("roomJoined", storeIdentity);
-        const storeRecoveryIdentity = (payload) => {
-            if (!payload?.roomId || !payload?.playerId) return;
-            setIdentity({
-                roomId: payload.roomId,
-                playerId: payload.playerId,
-                gameId: payload.gameId ?? null,
-                recoveryCredential: payload.recoveryCredential ?? undefined,
-                gameMode: payload.gameMode ?? null,
-                network: payload.network ?? null,
-                ...(payload.profile ?? {}),
-                optionsReady: payload.optionsReady === true,
-                readyCount: payload.readyCount ?? 0,
-                verifyConfirmed: payload.verifyConfirmed === true,
-                verifyContinued: payload.verifyContinued === true,
-                matrixStatus: payload.matrixStatus ?? null
-            });
-        };
-        socket.on("ROOM_RECOVERY_SYNC", storeRecoveryIdentity);
         const storeNoFriendsGame = (payload) => {
             if (!payload?.roomId || !payload?.gameId) return;
             setIdentity({ roomId: payload.roomId, gameId: payload.gameId });
@@ -101,7 +83,6 @@ function RoomIdentityListener() {
         return () => {
             socket.off("roomCreated", storeIdentity);
             socket.off("roomJoined", storeIdentity);
-            socket.off("ROOM_RECOVERY_SYNC", storeRecoveryIdentity);
             socket.off("noFriendsGameCreated", storeNoFriendsGame);
             socket.off("noFriendsMatched", storeNoFriendsProfile);
         };
