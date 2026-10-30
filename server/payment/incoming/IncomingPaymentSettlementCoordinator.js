@@ -63,6 +63,7 @@
  */
 
 import { PaymentValidationError } from "../PaymentErrors.js";
+import { formatPage4ObservedTransferLog } from "../walletAddressDiagnostics.js";
 
 import { PaymentIntent } from "../PaymentIntent.js";
 
@@ -221,6 +222,9 @@ export class IncomingPaymentSettlementCoordinator {
         this._nowProvider = nowProvider;
         this._receiptAccounting = receiptAccounting;
         this._auditJournal = auditJournal;
+        // Bounded in-memory de-duplication for human-readable on-chain logs.
+        // This affects diagnostics only, never financial reconciliation.
+        this._loggedPage4IncomingTxByRoom = new Map();
 
     }
 
@@ -1030,6 +1034,11 @@ export class IncomingPaymentSettlementCoordinator {
             `Incoming payment settled from observation | room=${intent.roomId}`
                 + ` | ref=${intent.paymentReference}`
                 + ` | transaction=${matched.transactionId}`
+                + ` | playerId=${intent.playerId}`
+                + ` | expectedSenderAddress=${intent.expectedSender}`
+                + ` | observedSenderAddress=${transfer.senderAddress}`
+                + ` | destinationWalletAddress=${intent.destinationWalletAddress}`
+                + ` | amountAtomic=${intent.amountAtomic}`
         );
 
         return { ok: true };
@@ -1056,6 +1065,37 @@ export class IncomingPaymentSettlementCoordinator {
         walletId = null,
         walletAddress = null
     }) {
+
+        // One on-chain observation log per transaction/room, not on every
+        // 12-second poll. The full public sender/destination and match reason
+        // let administrators diagnose missing Page4 payments from Railway.
+        if (room && Array.isArray(observation?.transfers)
+            && typeof this._logger?.info === "function") {
+            if (!this._loggedPage4IncomingTxByRoom.has(room)) {
+                while (this._loggedPage4IncomingTxByRoom.size >= 128) {
+                    this._loggedPage4IncomingTxByRoom.delete(
+                        this._loggedPage4IncomingTxByRoom.keys().next().value);
+                }
+                this._loggedPage4IncomingTxByRoom.set(room, new Set());
+            }
+            const seen = this._loggedPage4IncomingTxByRoom.get(room);
+            for (const transfer of observation.transfers) {
+                const txId = transfer?.transactionId;
+                if (typeof txId !== "string" || seen.has(txId)) continue;
+                if (seen.size >= 128) seen.clear();
+                seen.add(txId);
+                const decision = observation.observations?.find(
+                    item => item.transactionId === txId
+                );
+                const line = formatPage4ObservedTransferLog({
+                    roomId: room, walletId, transfer, decision
+                });
+                if (line) {
+                    try { this._logInfo(line); }
+                    catch { /* Logging must never change settlement outcome. */ }
+                }
+            }
+        }
 
         if (this._auditJournal && room) {
             try {

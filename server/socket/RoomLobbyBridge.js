@@ -41,6 +41,7 @@ import { createHash, createHmac } from "node:crypto";
 import { deriveTonAddressIdentity } from "../payment/incoming/TonAddressIdentity.js";
 import { deriveTestnetRoomPaymentRequirements } from "../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
 import { ActiveRoomObservationBudget } from "../payment/runtime/ActiveRoomObservationBudget.js";
+import { formatPage4WalletBindingLogs } from "../payment/walletAddressDiagnostics.js";
 import { NoFriendsAbuseStore } from "../matchmaking/NoFriendsAbuseStore.js";
 
 const NO_FRIENDS_SECTOR_COLORS = new Set([
@@ -5795,6 +5796,27 @@ export class RoomLobbyBridge {
 
         if (!prepared || typeof prepared !== "object" || !Array.isArray(prepared.payments)) {
             return;
+        }
+
+        // Diagnose the actual authoritative wallet bindings, once when this
+        // room enters Page4. Railway administrators can investigate a missing
+        // payment by roomId without asking players to copy phone transactions.
+        // Only public addresses and persisted intent fields are logged.
+        try {
+            const service = binding.runtime?.paymentService;
+            const persistedIntents = service?.listPaymentIntentsForRoom?.(roomId) ?? [];
+            const reservation = service?.getWalletForRoom?.(roomId) ?? null;
+            const nicknames = Object.fromEntries(room.players.map(playerId => [
+                playerId, this._playerManager.getIdentity(playerId)?.nickname ?? "unknown"
+            ]));
+            for (const line of formatPage4WalletBindingLogs({
+                roomId, reservation, intents: persistedIntents, nicknames
+            })) {
+                this._logger?.info?.(line);
+            }
+        } catch (error) {
+            // Diagnostic failure must not prevent Page4 payment instructions.
+            this._logger?.warn?.(`PAGE4_WALLET_DIAGNOSTICS_UNAVAILABLE | roomId=${roomId} | reason=${error?.code ?? "READ_FAILED"}`);
         }
 
         for (const payment of prepared.payments) {

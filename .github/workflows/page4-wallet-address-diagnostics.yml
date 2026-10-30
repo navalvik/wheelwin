@@ -1,0 +1,37 @@
+name: Page4 wallet address diagnostics
+on:
+  push:
+    branches:
+      - fix/page4-wallet-address-diagnostics-20261030
+  pull_request:
+    paths:
+      - 'server/payment/walletAddressDiagnostics.js'
+      - 'server/payment/incoming/IncomingPaymentSettlementCoordinator.js'
+      - 'server/socket/RoomLobbyBridge.js'
+      - 'server/tests/page4WalletAddressDiagnostics.test.js'
+      - '.github/workflows/page4-wallet-address-diagnostics.yml'
+permissions:
+  contents: read
+jobs:
+  wallet-logs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Ensure logging changes parse
+        run: |
+          node --check payment/walletAddressDiagnostics.js
+          node --check payment/incoming/IncomingPaymentSettlementCoordinator.js
+          node --check socket/RoomLobbyBridge.js
+      - name: Wallet address diagnostics and Page4 behavior
+        run: node --test tests/page4WalletAddressDiagnostics.test.js tests/incomingSettlementCoordinator.test.js tests/page4IndexedFinality.test.js tests/paymentThreePlayerGate.test.js tests/paymentObservationWithoutAcknowledgement.test.js
+      - name: Preserve deterministic payment and refund behavior
+        run: node --test tests/payment/*.test.js
