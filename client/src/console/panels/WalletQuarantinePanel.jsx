@@ -32,7 +32,7 @@ export default function WalletQuarantinePanel() {
         try {
             setSnapshot(await fetchWalletQuarantine(accessToken,selected));
             setError("");
-        } catch(e) { setError(e.message || "Ошибка запроса кошельков"); }
+        } catch(e) { setError(e.message || "Failed to retrieve wallet information"); }
         finally {inFlight.current=false;}
     },[accessToken,isAdministrator,selected]);
 
@@ -46,7 +46,7 @@ export default function WalletQuarantinePanel() {
     const choose = (value) => {
         const n = Number(value);
         if (!Number.isInteger(n) || n < 1 || n > 64) {
-            setError("Введите номер кошелька от 1 до 64");
+            setError("Enter a wallet number from 1 to 64");
             return;
         }
         setSelected(n);
@@ -65,7 +65,7 @@ export default function WalletQuarantinePanel() {
                 ? `RELEASE ${selected}`
                 : `SWEEP ${selected} TO TON_RESIDUES`;
         if (confirmation !== expected) {
-            setError("Введите точную фразу подтверждения");
+            setError("Enter the exact confirmation phrase");
             return;
         }
         setBusy(true);
@@ -76,18 +76,18 @@ export default function WalletQuarantinePanel() {
                 accessToken,kind,selected,confirmation,investigationNote
             );
             setMessage(kind === "quarantine"
-                ? `Кошелёк №${selected}: карантин установлен.${result.reservedByRoomId
-                    ? " Текущая комната продолжает работу; повторное назначение запрещено."
-                    : " Новые назначения запрещены."}`
+                ? `Wallet #${selected}: quarantine enabled.${result.reservedByRoomId
+                    ? " The active room continues running; wallet reassignment is blocked."
+                    : " New room assignments are blocked."}`
                 : kind === "release"
-                    ? `Кошелёк №${selected}: карантин снят.`
-                    : `Кошелёк №${selected}: ${result.code ?? "результат неизвестен"}.
-Отправка ещё не означает подтверждённое зачисление на TON_RESIDUES.`);
+                    ? `Wallet #${selected}: quarantine released.`
+                    : `Wallet #${selected}: ${result.code ?? "unknown result"}.
+Submission does not confirm that funds were received by TON_RESIDUES.`);
             setConfirmation("");
             if (kind === "quarantine") setInvestigationNote("");
             await load();
         } catch(e) {
-            setError(e.message || "Операция отклонена");
+            setError(e.message || "Operation rejected");
             setConfirmation("");
         } finally {setBusy(false);}
     };
@@ -99,108 +99,106 @@ export default function WalletQuarantinePanel() {
     const sweepText = current ? `SWEEP ${current.roomNumber} TO TON_RESIDUES` : "";
 
     return (
-        <PanelShell title="Карантин кошельков"
-            subtitle="Testnet · только администратор · опрос только выбранного кошелька и TON_RESIDUES каждые 10 секунд">
-            {!isAdministrator && <p>Необходим вход с ролью Administrator.</p>}
+        <PanelShell title="Wallet Quarantine"
+            subtitle="Testnet · administrators only · selected wallet and TON_RESIDUES refreshed every 10 seconds">
+            {!isAdministrator && <p>Administrator access is required.</p>}
             {error && <p role="alert" style={{color:"#ff8b8b"}}>{error}</p>}
             {message && <p role="status">{message}</p>}
             <section className="devConsole__opsCard">
-                <h3>Кошельки в карантине ({snapshot?.quarantined?.length ?? "—"})</h3>
-                <p>Карантин запрещает выдачу кошелька новой комнате. Баланс проверяется по выбору.</p>
-                {(snapshot?.quarantined ?? []).length === 0 && <p>В карантине нет кошельков.</p>}
+                <h3>Quarantined Wallets ({snapshot?.quarantined?.length ?? "—"})</h3>
+                <p>Quarantine prevents assignment to new rooms. Balance is checked only for the selected wallet.</p>
+                {(snapshot?.quarantined ?? []).length === 0 && <p>No wallets are quarantined.</p>}
                 {(snapshot?.quarantined ?? []).map(wallet => (
                     <div className="devConsole__kvRow" key={wallet.roomNumber}>
                         <span className="devConsole__kvKey">
-                            №{wallet.roomNumber} · {wallet.reason}
-                            {wallet.reservedByRoomId ? ` · активная комната: ${wallet.reservedByRoomId}` : ""}
+                            #{wallet.roomNumber} · {wallet.reason}
+                            {wallet.reservedByRoomId ? ` · active room: ${wallet.reservedByRoomId}` : ""}
                             {wallet.quarantineNote ? ` · ${wallet.quarantineNote}` : ""}
                         </span>
                         <button type="button" disabled={busy} onClick={() => choose(wallet.roomNumber)}>
-                            Проверить
+                            Inspect
                         </button>
                     </div>
                 ))}
             </section>
             <section className="devConsole__opsCard">
-                <h3>Ручной опрос игрового кошелька</h3>
+                <h3>Manual Room Wallet Lookup</h3>
                 <form onSubmit={e => {e.preventDefault();choose(input);}}>
-                    <label htmlFor="quarantine-wallet-number">Номер кошелька (1–64)</label>
+                    <label htmlFor="quarantine-wallet-number">Wallet Number (1–64)</label>
                     {" "}
                     <input id="quarantine-wallet-number" type="number" min="1" max="64"
                         value={input} onChange={e=>setInput(e.target.value)}
                         style={{maxWidth:"110px"}}/>
                     {" "}
-                    <button type="submit" disabled={busy}>Показать</button>
+                    <button type="submit" disabled={busy}>Show</button>
                     {" "}
-                    <button type="button" disabled={busy} onClick={load}>Обновить</button>
+                    <button type="button" disabled={busy} onClick={load}>Refresh</button>
                 </form>
                 {current && <div className="devConsole__kvList">
-                    <div className="devConsole__kvRow"><span>Номер</span><strong>№{current.roomNumber}</strong></div>
-                    <div className="devConsole__kvRow"><span>Адрес</span><code style={{overflowWrap:"anywhere"}}>{current.address}</code></div>
-                    <div className="devConsole__kvRow"><span>Баланс</span><strong>{grams(current.balanceNano)}</strong></div>
-                    <div className="devConsole__kvRow"><span>Карантин</span><strong>{current.quarantined ? "Да" : "Нет"}</strong></div>
-                    <div className="devConsole__kvRow"><span>Активная комната</span><span>{current.reservedByRoomId || "Нет"}</span></div>
-                    {current.quarantineNote && <div className="devConsole__kvRow"><span>Причина карантина</span>
+                    <div className="devConsole__kvRow"><span>Number</span><strong>#{current.roomNumber}</strong></div>
+                    <div className="devConsole__kvRow"><span>Address</span><code style={{overflowWrap:"anywhere"}}>{current.address}</code></div>
+                    <div className="devConsole__kvRow"><span>Balance</span><strong>{grams(current.balanceNano)}</strong></div>
+                    <div className="devConsole__kvRow"><span>Quarantined</span><strong>{current.quarantined ? "Yes" : "No"}</strong></div>
+                    <div className="devConsole__kvRow"><span>Active Room</span><span>{current.reservedByRoomId || "No"}</span></div>
+                    {current.quarantineNote && <div className="devConsole__kvRow"><span>Quarantine Reason</span>
                         <span>{current.quarantineNote}</span></div>}
-                    {current.quarantinedAt && <div className="devConsole__kvRow"><span>Дата карантина</span>
+                    {current.quarantinedAt && <div className="devConsole__kvRow"><span>Quarantined At</span>
                         <span>{current.quarantinedAt}</span></div>}
-                    <div className="devConsole__kvRow"><span>Незавершённые обязательства</span>
+                    <div className="devConsole__kvRow"><span>Outstanding Obligations</span>
                         <strong>{current.outstanding?.open ?? "—"}</strong></div>
-                    <div className="devConsole__kvRow"><span>Запись об отправке остатка</span>
-                        <span>{current.sweepClaimExists ? "Есть — требуется ручная сверка" : "Нет"}</span></div>
-                    <div className="devConsole__kvRow"><span>Время запроса</span><span>{current.updatedAt}</span></div>
+                    <div className="devConsole__kvRow"><span>Residual Sweep Record</span>
+                        <span>{current.sweepClaimExists ? "Exists — manual reconciliation required" : "No"}</span></div>
+                    <div className="devConsole__kvRow"><span>Last Checked</span><span>{current.updatedAt}</span></div>
                 </div>}
             </section>
             <section className="devConsole__opsCard">
-                <h3>TON_RESIDUES · серверный кошелёк остатков</h3>
+                <h3>TON_RESIDUES · residual funds server wallet</h3>
                 <div className="devConsole__kvList">
-                    <div className="devConsole__kvRow"><span>Адрес</span>
-                        <code style={{overflowWrap:"anywhere"}}>{snapshot?.residues?.address || "Не задан TON_RESIDUES_EXPECTED_ADDRESS"}</code>
+                    <div className="devConsole__kvRow"><span>Address</span>
+                        <code style={{overflowWrap:"anywhere"}}>{snapshot?.residues?.address || "TON_RESIDUES_EXPECTED_ADDRESS not configured"}</code>
                     </div>
-                    <div className="devConsole__kvRow"><span>Баланс</span>
+                    <div className="devConsole__kvRow"><span>Balance</span>
                         <strong>{grams(snapshot?.residues?.balanceNano)}</strong></div>
-                    <div className="devConsole__kvRow"><span>Время запроса</span>
+                    <div className="devConsole__kvRow"><span>Last Checked</span>
                         <span>{snapshot?.residues?.updatedAt || "—"}</span></div>
                 </div>
             </section>
             {current && <section className="devConsole__opsCard">
-                <h3>Административные операции · №{current.roomNumber}</h3>
-                <p><strong>Поставить в карантин:</strong> разрешено для любого свободного
-                    или занятого кошелька. Если комната активна, она продолжит работу,
-                    а кошелёк не будет выдан другой комнате после завершения.</p>
-                <p><strong>Снять карантин или вывести средства:</strong> нельзя при активной
-                    комнате либо незавершённых возвратах/выплатах. При выводе TON
-                    удерживает сетевые комиссии из самого кошелька. Повтора нет.</p>
-                {blocked && <p role="alert">Снятие карантина и вывод средств заблокированы:
-                    есть действующая комната или долги. Постановка на карантин доступна.</p>}
+                <h3>Administrative Actions · #{current.roomNumber}</h3>
+                <p><strong>Quarantine wallet:</strong> allowed for both available and reserved wallets. An active room may finish normally;
+                    the quarantined wallet will not be assigned to another room.</p>
+                <p><strong>Release quarantine or sweep funds:</strong> blocked while the room is active or refunds/payouts remain outstanding. TON network fees
+                    are paid from the source wallet balance. Sweeps are not automatically retried.</p>
+                {blocked && <p role="alert">Quarantine release and fund sweep are blocked while a room is active
+                    or financial obligations remain. Quarantine is still available.</p>}
                 {!current.quarantined && <label htmlFor="quarantine-note">
-                    Причина расследования (необязательно, до 200 символов)
+                    Investigation note (optional, up to 200 characters)
                     <input id="quarantine-note" type="text" maxLength={200}
                         autoComplete="off" value={investigationNote}
                         onChange={e=>setInvestigationNote(e.target.value)}
                         style={{width:"100%",maxWidth:"420px",display:"block"}}/>
                 </label>}
-                <p>Для освобождения нужен нулевой подтверждённый баланс.
-                    После попытки вывода необходима ручная сверка транзакции.
-                    Действие не удаляет долгов перед игроками и не подтверждает зачисление.</p>
-                <label htmlFor="quarantine-confirmation">Фраза подтверждения:</label>
+                <p>Quarantine release requires a confirmed zero balance.
+                    Manually reconcile the on-chain transaction after a sweep attempt.
+                    These actions do not erase player obligations or prove fund receipt.</p>
+                <label htmlFor="quarantine-confirmation">Confirmation phrase:</label>
                 <input id="quarantine-confirmation" type="text" autoComplete="off"
                     value={confirmation} onChange={e=>setConfirmation(e.target.value)}
                     style={{width:"100%",maxWidth:"420px",display:"block"}}/>
-                <p><code>{quarantineText}</code>, <code>{releaseText}</code> или <code>{sweepText}</code></p>
+                <p><code>{quarantineText}</code>, <code>{releaseText}</code> or <code>{sweepText}</code></p>
                 <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
                     <button type="button" disabled={busy || current.quarantined
                         || confirmation !== quarantineText}
-                        onClick={()=>action("quarantine")}>Поставить в карантин</button>
+                        onClick={()=>action("quarantine")}>Quarantine Wallet</button>
                     <button type="button" disabled={busy || blocked || !current.quarantined
                         || confirmation !== releaseText}
-                        onClick={()=>action("release")}>Освободить из карантина</button>
+                        onClick={()=>action("release")}>Release Quarantine</button>
                     <button type="button" disabled={busy || blocked || !snapshot?.sweepEnabled
                         || current.sweepClaimExists || confirmation !== sweepText}
-                        onClick={()=>action("sweep")}>Перевести весь остаток на TON_RESIDUES</button>
+                        onClick={()=>action("sweep")}>Sweep Entire Balance to TON_RESIDUES</button>
                 </div>
-                {!snapshot?.sweepEnabled && <p>Вывод отключён: требуется явный Testnet-флаг
-                    ADMIN_WALLET_SWEEP_ENABLED=true на сервере. Это не связано с запуском Mainnet.</p>}
+                {!snapshot?.sweepEnabled && <p>Sweep disabled: explicitly set ADMIN_WALLET_SWEEP_ENABLED=true for Testnet
+                    on the server. This is independent of Mainnet activation.</p>}
             </section>}
         </PanelShell>
     );
