@@ -565,13 +565,7 @@ export class RoomPaymentObservationService {
 
             transfers.push(transfer);
 
-            const entry = this._evaluateTransfer(transfer, paymentIntents);
-
-            // Only investigate finalized inclusion for a candidate that
-            // actually matches one of this room's authoritative intents.
-            // Unrelated wallet traffic must not consume chain API quota.
-            if (entry.status === "matched"
-                && this._settlementEvidenceProvider !== null) {
+            if (this._settlementEvidenceProvider !== null) {
                 let evidence = null;
                 try {
                     evidence = await this._settlementEvidenceProvider
@@ -601,6 +595,7 @@ export class RoomPaymentObservationService {
                 }
             }
 
+            const entry = this._evaluateTransfer(transfer, paymentIntents);
             observations.push(entry);
 
             if (entry.status === "matched") {
