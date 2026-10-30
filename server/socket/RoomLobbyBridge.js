@@ -41,7 +41,7 @@ import { createHash, createHmac } from "node:crypto";
 import { deriveTonAddressIdentity } from "../payment/incoming/TonAddressIdentity.js";
 import { deriveTestnetRoomPaymentRequirements } from "../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
 import { ActiveRoomObservationBudget } from "../payment/runtime/ActiveRoomObservationBudget.js";
-import { formatPage4WalletBindingLogs } from "../payment/page4PaymentDiagnostics.js";
+import { formatPage4WalletBindingLogs } from "../payment/walletAddressDiagnostics.js";
 import { NoFriendsAbuseStore } from "../matchmaking/NoFriendsAbuseStore.js";
 
 const NO_FRIENDS_SECTOR_COLORS = new Set([
