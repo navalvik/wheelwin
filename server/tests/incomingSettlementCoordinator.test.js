@@ -285,7 +285,7 @@ async function settle(harness, roomId = "room-regression", options = {}) {
 async function section(name, callback) {
     await callback();
     sectionCount += 1;
-    process.stdout.write(`[G${sectionCount}/15] PASS ${name}\n`);
+    process.stdout.write(`[G${sectionCount}/16] PASS ${name}\n`);
 }
 
 async function run() {
@@ -765,8 +765,8 @@ async function run() {
         }
     });
 
-    if (sectionCount !== 15) {
-        throw new Error(`Expected 15 groups; ran ${sectionCount}`);
+    if (sectionCount !== 16) {
+        throw new Error(`Expected 16 groups; ran ${sectionCount}`);
     }
     process.stdout.write(`PASS ${sectionCount} groups, ${assertionCount} assertions\n`);
 }
