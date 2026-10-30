@@ -85,9 +85,9 @@ test('two finalized Lena transfers: first stake credited, second is one durable 
         const obligations=accounting.prepareClosedRoom('room-lena-double');
         assert.equal(obligations.length,1,
             'exactly one excess Lena transfer is scheduled for a refund');
-        assert.equal(obligations[0].playerId,'Lena');
-        assert.equal(obligations[0].amountAtomic,1000000000);
-        assert.equal(obligations[0].incomingTransactionId,extra[0].transactionId);
+        assert.equal(obligations[0].obligation.playerId,'Lena');
+        assert.equal(obligations[0].obligation.amountAtomic,1000000000);
+        assert.equal(obligations[0].obligation.incomingTransactionId,extra[0].transactionId);
         assert.equal(accounting.prepareClosedRoom('room-lena-double').length,1,
             'repeated reconciliation is idempotent');
         assert.equal(refundStore.list().length,1);
