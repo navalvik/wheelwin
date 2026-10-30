@@ -1,0 +1,39 @@
+name: Page4 historical indexed payment confirmation
+on:
+  push:
+    branches:
+      - fix/page4-indexed-ton-confirmations-20261030
+  pull_request:
+    paths:
+      - "server/payment/toncenter/**"
+      - "server/payment/incoming/TonPaymentSettlementEvidence.js"
+      - "server/payment/runtime/PaymentRuntimeFactory.js"
+      - "server/tests/page4IndexedFinality.test.js"
+      - ".github/workflows/page4-indexed-receipts.yml"
+permissions:
+  contents: read
+jobs:
+  page4-indexed:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Syntax
+        run: |
+          node --check payment/toncenter/ToncenterIndexedFinalityEvidenceProvider.js
+          node --check payment/toncenter/ToncenterTransactionsMapper.js
+          node --check payment/toncenter/RoomPaymentObservationService.js
+          node --check payment/incoming/TonPaymentSettlementEvidence.js
+          node --check payment/runtime/PaymentRuntimeFactory.js
+      - name: Targeted Page4 integration and payment regressions
+        run: node --test tests/page4IndexedFinality.test.js tests/page4ToncenterGlobalBackoff.test.js tests/toncenterProvider.test.js tests/toncenterFinalityEvidence.test.js tests/incomingSettlementCoordinator.test.js tests/paymentThreePlayerGate.test.js tests/paymentObservationWithoutAcknowledgement.test.js tests/oneFinalForensicArchive.test.js
+      - name: Full deterministic payment tests
+        run: node --test tests/payment/*.test.js
