@@ -2,8 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 import {
-    isDuplicateOpenPage5,
-    resolveOpenPage5GameKey
+    resolveOpenPage5Authorization
 } from "../game/sessionRecovery/pageNavigationPolicy";
 
 import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
@@ -40,6 +39,8 @@ export default function OpenPage5Navigator({
     const openedPage6Ref = useRef(false);
 
     const openedPage5GameRef = useRef(null);
+
+    const authorizedNewGameRef = useRef(null);
 
     const currentPageRef = useRef(currentPage);
 
@@ -81,6 +82,21 @@ export default function OpenPage5Navigator({
         }
 
         return {
+            onGameStartAuthorized: (payload) => {
+
+                const identityNow = identityRef.current;
+                if (!payload?.roomId || payload.roomId !== identityNow?.roomId
+                    || !payload?.gameId) return;
+
+                authorizedNewGameRef.current = {
+                    gameId: payload.gameId,
+                    previousGameId: identityNow.gameId ?? null
+                };
+
+                identityRef.current = { ...identityNow, gameId: payload.gameId };
+                setIdentity({ gameId: payload.gameId });
+
+            },
             onPaymentStageReady: (payload) => {
 
                 const roomId = payload?.roomId;
@@ -96,34 +112,23 @@ export default function OpenPage5Navigator({
             },
             onOpenPage5: (payload) => {
 
-                if (payload?.roomId && identityRef.current?.roomId
-                    && payload.roomId !== identityRef.current.roomId) {
-                    return;
-                }
+                const authorization = authorizedNewGameRef.current;
+                const decision = resolveOpenPage5Authorization({
+                    payload,
+                    identity: identityRef.current,
+                    currentPage: currentPageRef.current,
+                    lastOpenedGameKey: openedPage5GameRef.current,
+                    authorizedGame: authorization
+                });
+                if (!decision) return;
 
-                const gameKey = resolveOpenPage5GameKey(payload, identityRef.current);
-                const previousGameId = identityRef.current?.gameId ?? null;
-                const authoritativeNewGame = Boolean(
-                    payload?.gameId
-                    && previousGameId
-                    && payload.gameId !== previousGameId
-                );
-
-                if (isDuplicateOpenPage5(openedPage5GameRef.current, payload, identityRef.current)) {
-                    return;
-                }
-
-                if (currentPageRef.current === APP_PAGES.RESULT
-                    && payload?.gameId
-                    && payload.gameId === previousGameId) {
-                    return;
-                }
+                const { gameId: gameKey, previousGameId, authoritativeNewGame } = decision;
 
                 if (gameKey) {
                     openedPage5GameRef.current = gameKey;
                 }
 
-                if (payload?.gameId) {
+                if (payload?.gameId && payload.gameId !== identityRef.current?.gameId) {
                     // The server event is authoritative and binds the live game
                     // identity for recovery and terminal-result storage.
                     identityRef.current = {
@@ -151,11 +156,15 @@ export default function OpenPage5Navigator({
                     socketConnected: socket.connected === true
                 });
 
+                authorizedNewGameRef.current = null;
+
                 onNavigateRef.current?.(APP_PAGES.GAMEPLAY, {
                     authoritativeNewGame,
                     previousGameId,
-                    gameId: payload?.gameId ?? null
+                    gameId: gameKey
                 });
+
+                return { gameId: gameKey };
 
             },
             onOpenPage6: (payload) => {

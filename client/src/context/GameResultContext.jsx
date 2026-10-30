@@ -15,6 +15,7 @@ import {
     GAME_RESULT_INITIAL_STATE,
     gameResultReducer,
     clearStoredTerminalResult,
+    persistStoredTerminalPage6Opened,
     persistStoredTerminalAudit,
     persistStoredTerminalPayment,
     persistStoredTerminalResult,
@@ -53,9 +54,9 @@ function devLog(message) {
  * authoritative server payload, automatically opens Page6 exactly once, and
  * exposes the result to Page6 for presentation only.
  */
-export function GameResultProvider({ children, currentPage, onNavigate: _onNavigate }) {
+export function GameResultProvider({ children }) {
 
-    const { identity } = usePlayerIdentity();
+    const { identity, setIdentity } = usePlayerIdentity();
 
     const identityRef = useRef(identity);
     const stateRef = useRef(null);
@@ -263,11 +264,17 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
         },
         onOpenPage6: (payload) => {
 
-            if ((payload?.roomId && identityRef.current?.roomId
-                    && payload.roomId !== identityRef.current.roomId)
-                || (payload?.gameId && identityRef.current?.gameId
+            if (!payload?.roomId || payload.roomId !== identityRef.current?.roomId
+                || !payload?.gameId
+                || (identityRef.current?.gameId
                     && payload.gameId !== identityRef.current.gameId)) return;
 
+            if (!identityRef.current?.gameId) {
+                identityRef.current = { ...identityRef.current, gameId: payload.gameId };
+                setIdentity({ gameId: payload.gameId });
+            }
+
+            persistStoredTerminalPage6Opened(identityRef.current, payload);
             publishResultSession(payload);
 
         },

@@ -31,6 +31,22 @@ export function shouldShowReconnectOverlay({ socketConnected = false, hadDisconn
     return socketConnected !== true || hadDisconnect === true;
 }
 
+export function applyRecoveryRequestPresentation({
+    showOverlay = null,
+    socketConnected = false,
+    hadDisconnect = false,
+    reconnectingStatus,
+    setStatus
+} = {}) {
+    const shouldShow = showOverlay === null
+        ? shouldShowReconnectOverlay({ socketConnected, hadDisconnect })
+        : showOverlay === true;
+    if (shouldShow && typeof setStatus === "function") {
+        setStatus(reconnectingStatus);
+    }
+    return shouldShow;
+}
+
 /**
  * Decide what to do after Socket.IO fires `connect` following a disconnect
  * on a recovery-capable surface (lobby / prep / gameplay).

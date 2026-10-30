@@ -37,16 +37,15 @@ function readStoredIdentity() {
     }
 }
 
-function readStoredTerminalRecord(identity) {
+function readStoredTerminalRecord(identity = readStoredIdentity()) {
     if (!identity?.playerId || !identity?.gameId) return null;
     try {
         const saved = JSON.parse(globalThis.sessionStorage?.getItem(STORED_RESULT_KEY) ?? "null");
         if (saved?.playerId !== identity.playerId || saved?.gameId !== identity.gameId) return null;
         const accountId = currentTelegramAccountId();
-        if ((saved?.telegramAccountId && saved.telegramAccountId !== accountId)
-            || (accountId && saved?.telegramAccountId !== accountId)) return null;
-        const result = mapAuthoritativeResultToView(saved.result);
-        return result?.gameId === identity.gameId ? saved : null;
+        if (!accountId || saved?.telegramAccountId !== accountId) return null;
+        if (identity.roomId && saved?.roomId && saved.roomId !== identity.roomId) return null;
+        return saved;
     } catch {
         return null;
     }
@@ -55,8 +54,10 @@ function readStoredTerminalRecord(identity) {
 export function readStoredTerminalState(identity = readStoredIdentity()) {
     const saved = readStoredTerminalRecord(identity);
     if (!saved) return null;
+    const result = mapAuthoritativeResultToView(saved.result);
+    if (!result || result.gameId !== identity.gameId) return null;
     return {
-        result: mapAuthoritativeResultToView(saved.result),
+        result,
         payment: mapPaymentStatusToView(saved.payment),
         audit: mapAuditStatusToView(saved.audit),
         resultSessionExpiresAt: Number.isFinite(saved.resultSessionExpiresAt)
@@ -85,16 +86,43 @@ function updateStoredTerminalState(identity, update) {
 
 export function persistStoredTerminalResult(identity, payload) {
     if (!identity?.playerId || !payload?.gameId) return false;
+    if (identity.gameId && identity.gameId !== payload.gameId) return false;
+    const accountId = currentTelegramAccountId();
+    if (!accountId) return false;
     const result = mapAuthoritativeResultToView(payload);
     if (!result) return false;
     const saved = readStoredTerminalRecord(identity);
     try {
         globalThis.sessionStorage?.setItem(STORED_RESULT_KEY, JSON.stringify({
             ...(saved ?? {}),
+            roomId: identity.roomId ?? saved?.roomId ?? null,
             playerId: identity.playerId,
             gameId: result.gameId,
-            telegramAccountId: currentTelegramAccountId(),
+            telegramAccountId: accountId,
             result
+        }));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function persistStoredTerminalPage6Opened(identity, payload) {
+    const gameId = payload?.gameId;
+    const accountId = currentTelegramAccountId();
+    if (!identity?.playerId || !identity?.roomId || !gameId || !accountId) return false;
+    if (payload?.roomId !== identity.roomId) return false;
+    if (identity.gameId && identity.gameId !== gameId) return false;
+
+    const prior = readStoredTerminalRecord({ ...identity, gameId });
+    try {
+        globalThis.sessionStorage?.setItem(STORED_RESULT_KEY, JSON.stringify({
+            ...(prior ?? {}),
+            roomId: identity.roomId,
+            playerId: identity.playerId,
+            gameId,
+            telegramAccountId: accountId,
+            page6Opened: true
         }));
         return true;
     } catch {
@@ -129,7 +157,10 @@ export function clearStoredTerminalResult() {
 }
 
 export function readStoredTerminalPage() {
-    return readStoredTerminalResult() ? GAME_RESULT_PAGE.PAGE6 : null;
+    const saved = readStoredTerminalRecord();
+    return saved?.page6Opened === true && readStoredTerminalResult()
+        ? GAME_RESULT_PAGE.PAGE6
+        : null;
 }
 
 // Authoritative payment lifecycle statuses as forwarded by the server.
@@ -405,7 +436,7 @@ export function gameResultReducer(state, action) {
  * P5.9 — Page6 navigation is owned by OPEN_PAGE6, not GAME_RESULT.
  * Kept for tests / legacy callers; always returns false.
  */
-export function shouldNavigateToResult(_state, _currentPage) {
+export function shouldNavigateToResult() {
 
     return false;
 

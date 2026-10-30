@@ -159,6 +159,8 @@ export class EngineBridge {
             },
             [INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED]: (payload) => {
 
+                modules.pageNavigation?.onGameStartAuthorized?.(payload);
+
                 session()?.onGameStartAuthorized?.(payload);
 
             },
@@ -174,9 +176,12 @@ export class EngineBridge {
 
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE5]: (payload) => {
 
-                modules.gameResult?.onOpenPage5?.(payload);
+                const authorizedPage5 = modules.pageNavigation?.onOpenPage5?.(payload);
 
-                modules.pageNavigation?.onOpenPage5?.(payload);
+                modules.gameResult?.onOpenPage5?.({
+                    ...payload,
+                    gameId: authorizedPage5?.gameId ?? payload?.gameId
+                });
 
             },
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE6]: (payload) => {

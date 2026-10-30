@@ -10,7 +10,8 @@ import {
     isSetupRecoveryPage,
     isTerminalRecoveryFailure,
     resolveGameplayRecoveryPage,
-    shouldBlockNavigationRegression
+    shouldBlockNavigationRegression,
+    shouldPreservePage6OnRecoveryFailure
 } from "./recoveryFlow.js";
 
 import { readFileSync } from "node:fs";
@@ -45,6 +46,10 @@ function assert(condition, message) {
         "stale gameplay cannot demote Page6");
     assert(shouldBlockNavigationRegression(APP_PAGES.RESULT, APP_PAGES.PAYMENT),
         "stale payment cannot demote Page6");
+    assert(shouldPreservePage6OnRecoveryFailure(APP_PAGES.RESULT),
+        "recovery failure preserves an already confirmed Page6");
+    assert(!shouldPreservePage6OnRecoveryFailure(APP_PAGES.GAMEPLAY),
+        "recovery failure on Page5 follows existing failure handling");
 }
 
 // ---------------------------------------------------------------------------

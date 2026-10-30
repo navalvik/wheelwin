@@ -85,6 +85,12 @@ export function shouldBlockNavigationRegression(currentPage, targetPage) {
 
 }
 
+export function shouldPreservePage6OnRecoveryFailure(currentPage) {
+
+    return currentPage === APP_PAGES.RESULT;
+
+}
+
 /**
  * Pre-game recovery is valid only while an authoritative Setup Session timer
  * is still active (expiresAt in the future). Local timers never decide this.
@@ -113,7 +119,7 @@ export function canRecoverPreGame(session, setup = null) {
  * Expiry no longer navigates Page6; FINISH is the client exit action.
  * Destroyed sessions still use terminal recovery failure → Page1.
  */
-export function resolveGameplayRecoveryPage(snapshot, _now = Date.now()) {
+export function resolveGameplayRecoveryPage(snapshot) {
 
     if (!snapshot) {
 
