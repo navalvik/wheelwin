@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { inflateRawSync } from "node:zlib";
 
 import { ForensicArchiveService } from "../forensic/ForensicArchiveService.js";
 import { MockForensicArchiveUploader } from "../forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "../forensic/forensicArchiveConfig.js";
 
-function fixture() {
+function fixture(gameMode = null) {
     const root = mkdtempSync(join(tmpdir(), "wheelwin-r2-restored-"));
     const history = join(root, "session-history");
     const logs = join(root, "logs");
@@ -16,7 +17,8 @@ function fixture() {
     mkdirSync(history, { recursive: true });
     mkdirSync(logs, { recursive: true });
     writeFileSync(join(history, "2026-10-27_01-00-00_ROOM_Abc_GAME_game-1_COMPLETED.json"),
-        JSON.stringify({ roomId: "Abc", gameId: "game-1", lifecycleResult: "GAME_COMPLETED" }));
+        JSON.stringify({ roomId: "Abc", gameId: "game-1", lifecycleResult: "GAME_COMPLETED",
+            ...(gameMode === null ? {} : { configuration: { room: { gameMode } } }) }));
     writeFileSync(join(logs, "2026-10-27_01-00-00_ROOM_Abc_GAME_game-1_COMPLETED.log"),
         "GAME_COMPLETED roomId=Abc");
     const config = {
@@ -30,6 +32,62 @@ function fixture() {
         prefix: "forensic-archives"
     };
     return { root, config, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+function extractZipEntry(buffer, name) {
+    let end = -1;
+    for (let i = buffer.length - 22; i >= Math.max(0, buffer.length - 65557); i--) {
+        if (buffer.readUInt32LE(i) === 0x06054b50) { end = i; break; }
+    }
+    assert.notEqual(end, -1, "ZIP central directory exists");
+    const count = buffer.readUInt16LE(end + 10);
+    let offset = buffer.readUInt32LE(end + 16);
+    for (let i = 0; i < count; i++) {
+        assert.equal(buffer.readUInt32LE(offset), 0x02014b50);
+        const method = buffer.readUInt16LE(offset + 10);
+        const length = buffer.readUInt32LE(offset + 20);
+        const filenameLength = buffer.readUInt16LE(offset + 28);
+        const extraLength = buffer.readUInt16LE(offset + 30);
+        const commentLength = buffer.readUInt16LE(offset + 32);
+        const localOffset = buffer.readUInt32LE(offset + 42);
+        const filename = buffer.subarray(offset + 46, offset + 46 + filenameLength).toString();
+        if (filename === name) {
+            const localNameLength = buffer.readUInt16LE(localOffset + 26);
+            const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+            const start = localOffset + 30 + localNameLength + localExtraLength;
+            const content = buffer.subarray(start, start + length);
+            return (method === 8 ? inflateRawSync(content) : content).toString();
+        }
+        offset += 46 + filenameLength + extraLength + commentLength;
+    }
+    throw new Error(`ZIP entry missing: ${name}`);
+}
+
+for (const [storedMode, expectedMode, expectedLabel] of [
+    ["FRIENDS", "FRIENDS", "I HAVE FRIENDS"],
+    ["NO_FRIENDS", "NO_FRIENDS", "I HAVE NO FRIENDS"],
+    [null, "UNKNOWN", "UNKNOWN"]
+]) {
+    test(`final R2 ZIP records selected entry mode: ${expectedLabel}`, async () => {
+        const f = fixture(storedMode);
+        try {
+            const uploader = new MockForensicArchiveUploader();
+            const service = new ForensicArchiveService({ config: f.config, uploader });
+            const result = await service.ensureArchivedAndUploaded({
+                roomId: "Abc", gameId: "game-1", reason: "game_completed"
+            });
+            assert.equal(result.uploaded, true);
+            assert.equal(uploader.uploads.length, 1);
+            const content = JSON.parse(extractZipEntry(uploader.uploads[0].bytes, "session/game-mode.json"));
+            assert.equal(content.roomId, "Abc");
+            assert.equal(content.gameId, "game-1");
+            assert.equal(content.gameMode, expectedMode);
+            assert.equal(content.displayMode, expectedLabel);
+            assert.equal(uploader.objects.size, 1, "exactly one final R2 archive");
+        } finally {
+            f.cleanup();
+        }
+    });
 }
 
 test("restored R2 archive ZIP contains room artifacts and uploads once", async () => {
