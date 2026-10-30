@@ -1118,6 +1118,19 @@ export class SessionHistoryArchiveManager {
 
         });
 
+        // The projection's terminal room snapshot omits gameMode. Preserve
+        // the authoritative ROOM_CREATED value when writing session-history;
+        // the final R2 ZIP derives its mode exclusively from this record.
+        const createdMode = pending.configuration.room?.gameMode;
+        const archivedRoom = roomDetail?.room
+            ? {
+                ...roomDetail.room,
+                ...(createdMode === "FRIENDS" || createdMode === "NO_FRIENDS"
+                    ? { gameMode: createdMode }
+                    : {})
+            }
+            : pending.configuration.room;
+
         const record = Object.freeze({
             schemaVersion: 1,
             sessionId: pending.sessionId,
@@ -1146,7 +1159,7 @@ export class SessionHistoryArchiveManager {
             players: Object.freeze(players),
             configuration: Object.freeze({
                 frozen: pending.configuration.frozen,
-                room: roomDetail?.room ?? pending.configuration.room,
+                room: archivedRoom,
                 game: roomDetail?.linkedGame ?? pending.configuration.game,
                 setupSession: roomDetail?.setupSession ?? null
             }),
@@ -1166,14 +1179,14 @@ export class SessionHistoryArchiveManager {
                 Object.freeze({ ...entry })
             ))),
             finalSnapshot: Object.freeze({
-                room: roomDetail?.room ?? { roomId, status: "DESTROYED" },
+                room: archivedRoom ?? { roomId, status: "DESTROYED" },
                 players,
                 serverState: Object.freeze({
                     roomDestroyed: true,
                     playerCountAtDestroy: payload?.playerCount ?? players.length
                 }),
                 configuration: Object.freeze({
-                    room: roomDetail?.room ?? null,
+                    room: archivedRoom ?? null,
                     game: roomDetail?.linkedGame ?? null
                 })
             }),

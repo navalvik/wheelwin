@@ -5545,9 +5545,12 @@ export class RoomLobbyBridge {
                 this._logger?.error?.(`Payment audit write failed | roomId=${roomId} | error=${error?.message ?? "unknown"}`);
             }
         };
+        // Page4 is entered after the authoritative barrier in BOTH game modes.
+        // NO_FRIENDS bypasses the legacy Page3 VERIFY_NEXT path, so the
+        // per-player continuation map must never gate blockchain observation.
         const room = this._roomManager.getRoom(roomId);
         if (!room || room.players?.length !== 3
-            || !this._continueToVerifyByRoom.has(roomId)
+            || !this._verifyBarrierCompletedByRoom.has(roomId)
             || typeof adapter?.observeRoomPayments !== "function") return;
 
         // Any active Page4 may request a bounded observation. A QR display or
@@ -5642,7 +5645,7 @@ export class RoomLobbyBridge {
                 // one-per-12-second chain observation budget.
                 const active = this._roomManager.getRoom(roomId);
                 if (!active || active.players?.length !== 3
-                    || !this._continueToVerifyByRoom.has(roomId)) {
+                    || !this._verifyBarrierCompletedByRoom.has(roomId)) {
                     const skippedAt = Date.now();
                     recordAudit("recordObservation", {
                         startedAt: skippedAt, completedAt: skippedAt,
