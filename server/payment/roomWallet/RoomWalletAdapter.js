@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { durableWriteJson } from '../DurableJson.js';
@@ -328,6 +328,73 @@ export class RoomWalletAdapter {
         });
     }
 
+    /**
+     * Administrator-only Testnet rescue transfer. Wallet V4 send mode 128
+     * carries the full remaining balance, paying chain fees out of that balance.
+     * This is intentionally separate from normal prize/refund transfers.
+     * A durable one-shot claim is written BEFORE the first RPC broadcast.
+     * Ambiguous submissions are NEVER automatically retried.
+     */
+    async sendAllBalance({roomNumber, destination} = {}) {
+        if (!this._sequenceStateDir) throw new Error("SWEEP_DURABLE_OUTBOX_REQUIRED");
+        const identity = await this._resolve(roomNumber);
+        if (identity.workchain !== 0) throw new Error("SWEEP_TESTNET_WALLET_REQUIRED");
+        const destinationAddress = Address.parse(String(destination ?? "").trim());
+        const canonicalDestination = configuredDestination(destinationAddress);
+        if (Address.parse(identity.address).equals(destinationAddress)) throw new Error("SWEEP_SELF_TRANSFER_FORBIDDEN");
+        return this._enqueueOutbound(identity.address, async () => {
+            const dir = join(this._sequenceStateDir, "admin-sweeps");
+            mkdirSync(dir, {recursive:true, mode:0o700});
+            const claimPath = join(dir, String(identity.roomNumber) + ".json");
+            if (existsSync(claimPath)) return Object.freeze({
+                ok:false, code:"SWEEP_PREVIOUS_ATTEMPT_REQUIRES_RECONCILIATION", roomNumber:identity.roomNumber
+            });
+            const safety = await this._awaitOutboundSequenceSafety(identity);
+            if (!safety.ok) return Object.freeze({ok:false, code:safety.code, roomNumber});
+            const balanceNano = await this._tonService.getBalance(identity.address);
+            if (balanceNano <= 0n) return Object.freeze({ok:false, code:"SWEEP_BALANCE_EMPTY", roomNumber});
+            const signed = await this._buildSignedExternalMessage({
+                identity, destinationAddress, amountNano:0n, bounce:false,
+                queryId:null, sendMode:SendMode.CARRY_ALL_REMAINING_BALANCE
+            });
+            // Estimate the exact mode-128 message before persisting an attempt.
+            // The network fee is charged to the source wallet's own balance.
+            if (typeof this._tonService.estimateExternalMessageFee !== "function")
+                return Object.freeze({ok:false,code:"SWEEP_FEE_ESTIMATE_UNAVAILABLE",roomNumber});
+            const fee = await this._tonService.estimateExternalMessageFee(
+                signed.wallet.address, {
+                    body:signed.externalMessage.body,
+                    initCode:signed.externalMessage.init?.code ?? null,
+                    initData:signed.externalMessage.init?.data ?? null,
+                    ignoreSignature:true
+                });
+            if (typeof fee.totalFeeNano !== "bigint" || fee.totalFeeNano < 0n)
+                return Object.freeze({ok:false,code:"SWEEP_FEE_ESTIMATE_UNAVAILABLE",roomNumber});
+            if (balanceNano <= fee.totalFeeNano + 1_000_000n)
+                return Object.freeze({ok:false,code:"SWEEP_INSUFFICIENT_GAS",roomNumber});
+            const boc = beginCell().store(storeMessage(signed.externalMessage)).endCell().toBoc().toString("base64");
+            const record = {
+                roomNumber:identity.roomNumber, address:identity.address,
+                destination:canonicalDestination, balanceBeforeNano:balanceNano.toString(),
+                seqno:signed.seqno, validUntil:signed.validUntil,
+                bocHash:createHash("sha256").update(boc).digest("hex"),
+                createdAt:new Date().toISOString(), status:"SUBMISSION_UNKNOWN"
+            };
+            // No signed BOC or signing material is persisted in the admin record.
+            durableWriteJson(claimPath, record, {exclusive:true});
+            this._holdSequence(identity.address, signed.seqno);
+            try {
+                await this._tonService.broadcastTransaction(boc);
+                return Object.freeze({ok:true, code:"SUBMITTED_UNCONFIRMED",
+                    roomNumber:identity.roomNumber, balanceBeforeNano:balanceNano.toString(),
+                    destination:canonicalDestination, seqno:signed.seqno});
+            } catch {
+                // Never assume a failed RPC means that TON rejected the transfer.
+                return Object.freeze({ok:false, code:"SWEEP_BROADCAST_OUTCOME_UNKNOWN", roomNumber});
+            }
+        });
+    }
+
     // A durable outbox stores the exact signed message BEFORE broadcast.
     // Retries replay the same seqno/message; a lost RPC reply cannot create
     // a second payment. Expired messages may be renewed only while the
@@ -545,7 +612,8 @@ export class RoomWalletAdapter {
         destinationAddress,
         amountNano,
         bounce,
-        queryId
+        queryId,
+        sendMode = SendMode.PAY_GAS_SEPARATELY
     }) {
         const publicKey = toSigningBuffer(identity.publicKey, "publicKey");
         const secretKey = toSigningBuffer(identity.secretKey, "secretKey");
@@ -577,7 +645,7 @@ export class RoomWalletAdapter {
             seqno,
             secretKey,
             timeout: validUntil,
-            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            sendMode,
             messages: [
                 internal({
                     to: destinationAddress,

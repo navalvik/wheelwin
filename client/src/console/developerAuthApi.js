@@ -990,3 +990,36 @@ export function isSessionExpired(session, skewMs = 5_000) {
     return session.expiresAt <= Date.now() + skewMs;
 
 }
+
+
+/** Administrator-only. Inspects only the selected game wallet plus TON_RESIDUES. */
+export async function fetchWalletQuarantine(accessToken, roomNumber = null) {
+    const query = roomNumber == null || roomNumber === ""
+        ? "" : `?roomNumber=${encodeURIComponent(roomNumber)}`;
+    const response = await fetch(`${getConsoleApiBase()}/console/wallets/quarantine${query}`, {
+        headers: {Accept:"application/json",Authorization:`Bearer ${accessToken}`},
+        cache:"no-store"
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(body?.error || "Wallet quarantine lookup failed");
+    return body;
+}
+
+/** No implicit retries: a sweep RPC timeout may mean the chain accepted it. */
+export async function performWalletQuarantineAction(accessToken, action, roomNumber, confirmation, note = "") {
+    if (!["quarantine","release","sweep"].includes(action)) throw new Error("Unknown admin action");
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/wallets/quarantine/${action}`, {
+            method:"POST",
+            headers:{
+                Accept:"application/json",
+                "Content-Type":"application/json",
+                Authorization:`Bearer ${accessToken}`
+            },
+            body:JSON.stringify({roomNumber,confirmation,...(action === "quarantine" ? {note} : {})})
+        }
+    );
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(body?.error || "Wallet administration failed");
+    return body;
+}
