@@ -454,6 +454,15 @@ export function mapToncenterTransactionsResponse(payload, {
             amountAtomic: message.value,
             asset: TONCENTER_ASSET,
             comment,
+            // Authenticated API v3 chain coordinates for Page4 finality.
+            // Emulated, unindexed, or malformed coordinates are NOT proof.
+            indexedTransaction: Object.freeze({
+                transactionId: transaction.hash,
+                accountId: walletAddressTrimmed,
+                block: transaction.block_ref ?? null,
+                mcBlockSeqno: transaction.mc_block_seqno ?? null,
+                emulated: transaction.emulated === true
+            }),
             confirmed: true,
             aborted: false
         }));
