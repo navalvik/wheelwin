@@ -1432,8 +1432,8 @@ function checkRoom(service, overrides = {}) {
         "an incomplete window must report observations, never claim non-existence"
     );
 
-    // 7f. Two DIFFERENT transactions matching the SAME intent are ambiguous:
-    // an intent must never be attributed to more than one transaction.
+    // 7f. Two different payments by the same sender do not invalidate each
+    // other. Only one can be a game stake, the second remains visible as excess.
     const duplicatePaymentHarness = buildHarness({
 
         fetch: {
@@ -1459,23 +1459,23 @@ function checkRoom(service, overrides = {}) {
     }));
 
     check(
-        duplicateResult.observations.every((observation) => observation.status === "ambiguous"),
-        "two transactions matching one intent must both be reported ambiguous"
+        duplicateResult.observations.filter((row) => row.status === "matched").length === 1,
+        "one deterministic primary transaction remains eligible"
     );
 
     check(
-        duplicateResult.observations.every((observation) => observation.candidateTransactionIds.length === 2),
-        "the ambiguity must list both candidate transaction identities"
+        duplicateResult.observations.filter((row) => row.status === "excess-payment").length === 1,
+        "second payment stays available for receipt accounting and refund"
     );
 
     check(
         duplicateResult.observations.every((observation) => observation.paymentConfirmed === false),
-        "an ambiguous observation must never report a confirmed payment"
+        "observation alone must never report a confirmed payment"
     );
 
     check(
         duplicateIntent.state === "PENDING" && duplicateIntent.transactionId === null,
-        "an ambiguous observation must not mutate the intent"
+        "read-only observation must not mutate any payment intent"
     );
 
     // A partially filled page is a complete window.
