@@ -76,7 +76,8 @@ export function assessTonPaymentSettlementEvidence(
         return Object.freeze({ authorized: false, reason: "TRANSACTION_INCLUSION_MISMATCH" });
     }
 
-    if (finality.source !== "toncenter-streaming-v2"
+    if (!["toncenter-streaming-v2", "toncenter-indexed-v3-masterchain"]
+            .includes(finality.source)
         || finality.status !== "finalized"
         || finality.transactionId !== transactionId
         || finality.accountId !== accountId
