@@ -574,7 +574,8 @@ export class RoomPaymentObservationService {
                             providerTransactionId:
                                 transfer.providerTransactionIdentity.transactionId,
                             transactionTime: transfer.transactionTime,
-                            observationSession
+                            observationSession,
+                            indexedTransaction: record.indexedTransaction ?? null
                         });
                 } catch {
                     // Evidence provider errors fail closed for this transfer.
@@ -584,7 +585,10 @@ export class RoomPaymentObservationService {
                     const decision = assessTonPaymentSettlementEvidence(snapshot, {
                         transactionId: transfer.providerTransactionIdentity.transactionId,
                         accountId: transfer.providerTransactionIdentity.accountId,
-                        nowMs: now
+                        // Evidence is obtained AFTER the transfer snapshot.
+                        // Assess at verification time, never the earlier
+                        // observation start (which made fresh proof look future-dated).
+                        nowMs: this._nowProvider()
                     });
                     if (decision.authorized) {
                         evidenceByTransactionId.set(transfer.transactionId, snapshot);
@@ -595,7 +599,6 @@ export class RoomPaymentObservationService {
             }
 
             const entry = this._evaluateTransfer(transfer, paymentIntents);
-
             observations.push(entry);
 
             if (entry.status === "matched") {

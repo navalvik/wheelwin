@@ -43,6 +43,7 @@ import {
     WalletPoolRegistry
 } from "../WalletPoolRegistry.js";
 import { IncomingPaymentSettlementCoordinator } from "../incoming/IncomingPaymentSettlementCoordinator.js";
+import { ToncenterIndexedFinalityEvidenceProvider } from "../toncenter/ToncenterIndexedFinalityEvidenceProvider.js";
 import {
     CurrencyMapping,
     LedgerStore,
@@ -229,19 +230,23 @@ export function buildPaymentRuntime(options = {}) {
         }]
     });
 
-    // Test-only injection replaces the finality evidence provider; production
-    // uses the real Toncenter finality verifier over the same read-only client.
+    // Page4 uses historical indexed Testnet transactions, not a Streaming
+    // session opened after the payment. Leave outgoing refund verification
+    // on its existing provider; this change affects incoming stakes only.
     const client = new ToncenterTransactionsClient({
         fetchImpl,
         apiKeyProvider: options.apiKeyProvider
     });
 
-    const evidenceProvider = settlementEvidenceProvider
+    const incomingEvidenceProvider = settlementEvidenceProvider
+        ?? new ToncenterIndexedFinalityEvidenceProvider({ client, nowProvider });
+    // Do not change established refund/payout finality behavior.
+    const outgoingEvidenceProvider = settlementEvidenceProvider
         ?? new ToncenterFinalityEvidenceProvider({ client, nowProvider });
 
     const observationService = new RoomPaymentObservationService({
         provider: new ToncenterIncomingProvider({ client }),
-        settlementEvidenceProvider: evidenceProvider,
+        settlementEvidenceProvider: incomingEvidenceProvider,
         nowProvider
     });
 
@@ -267,7 +272,7 @@ export function buildPaymentRuntime(options = {}) {
     const outgoingRefundProvider = buildTestnetOutgoingRefundProvider({
         submitter: nativeRefundSubmitter,
         globalId: identity.globalId,
-        finalityEvidenceProvider: evidenceProvider
+        finalityEvidenceProvider: outgoingEvidenceProvider
     });
 
     // The public room-wallet registry must account for outstanding prize
