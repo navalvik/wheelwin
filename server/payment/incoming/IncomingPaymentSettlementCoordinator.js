@@ -925,7 +925,11 @@ export class IncomingPaymentSettlementCoordinator {
             || transfer.asset !== intent.asset
             || transfer.amountAtomic !== intent.amountAtomic
             || !Number.isSafeInteger(transfer.amountAtomic)
-            || transfer.paymentReference !== intent.paymentReference
+            // Absent memo is acceptable ONLY after the observer has found
+            // exactly one matching active intent by payer, wallet and amount.
+            // A present but conflicting memo always remains a hard failure.
+            || (transfer.paymentReference !== null
+                && transfer.paymentReference !== intent.paymentReference)
             || !tonAddressIdentitiesEqual(
                 transfer.senderAddress,
                 intent.expectedSender
@@ -953,7 +957,8 @@ export class IncomingPaymentSettlementCoordinator {
                             intent.destinationWalletAddress
                         ),
                         paymentReference:
-                            transfer.paymentReference !== intent.paymentReference
+                            transfer.paymentReference !== null
+                                && transfer.paymentReference !== intent.paymentReference
                     })
                 }
             };
@@ -1124,6 +1129,9 @@ export class IncomingPaymentSettlementCoordinator {
                     );
                     const candidates = entry.status === "matched"
                         ? [{ paymentReference: entry.paymentReference, reason: null }]
+                        : entry.status === "excess-payment"
+                            ? [{ paymentReference: entry.excessForPaymentReference,
+                                reason: "ADDITIONAL_PAYMENT_FOR_PLAYER" }]
                         : entry.mismatchReasons?.length
                             ? entry.mismatchReasons
                             : [{ paymentReference: transfer?.paymentReference ?? null, reason: "UNMATCHED" }];
@@ -1135,6 +1143,7 @@ export class IncomingPaymentSettlementCoordinator {
                         const decision = settledTransactions.has(entry.transactionId)
                             ? "SETTLED"
                             : entry.status === "ambiguous" ? "AMBIGUOUS"
+                                : entry.status === "excess-payment" ? "EXCESS_PAYMENT"
                                 : entry.status === "matched" ? "PENDING_CONFIRMATION"
                                     : mismatch === "PAYMENT_REFERENCE_MISSING" ? "MISSING_REFERENCE"
                                         : mismatch?.includes("AMOUNT") ? "AMOUNT_MISMATCH"

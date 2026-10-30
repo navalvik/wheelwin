@@ -1343,8 +1343,8 @@ function checkRoom(service, overrides = {}) {
     );
 
     check(
-        binaryResult.observations[0].status === "no-match-observed",
-        "a transfer without a reference must never match by guessing"
+        binaryResult.observations[0].status === "matched",
+        "a unique native Testnet payer can match without a decodable memo"
     );
 
     // 7d. An undecoded body likewise yields no reference.
@@ -1371,8 +1371,8 @@ function checkRoom(service, overrides = {}) {
 
     check(
         undecodedResult.transfers[0].paymentReference === null
-            && undecodedResult.observations[0].status === "no-match-observed",
-        "an undecoded message body must not produce a payment reference"
+            && undecodedResult.observations[0].status === "matched",
+        "an undecoded body remains reference-free but a unique payer can still match"
     );
 
     // 7e. Bounded windows: a full page reports a potentially incomplete window.
@@ -1432,8 +1432,8 @@ function checkRoom(service, overrides = {}) {
         "an incomplete window must report observations, never claim non-existence"
     );
 
-    // 7f. Two DIFFERENT transactions matching the SAME intent are ambiguous:
-    // an intent must never be attributed to more than one transaction.
+    // 7f. Two different payments by the same sender do not invalidate each
+    // other. Only one can be a game stake, the second remains visible as excess.
     const duplicatePaymentHarness = buildHarness({
 
         fetch: {
@@ -1459,23 +1459,23 @@ function checkRoom(service, overrides = {}) {
     }));
 
     check(
-        duplicateResult.observations.every((observation) => observation.status === "ambiguous"),
-        "two transactions matching one intent must both be reported ambiguous"
+        duplicateResult.observations.filter((row) => row.status === "matched").length === 1,
+        "one deterministic primary transaction remains eligible"
     );
 
     check(
-        duplicateResult.observations.every((observation) => observation.candidateTransactionIds.length === 2),
-        "the ambiguity must list both candidate transaction identities"
+        duplicateResult.observations.filter((row) => row.status === "excess-payment").length === 1,
+        "second payment stays available for receipt accounting and refund"
     );
 
     check(
         duplicateResult.observations.every((observation) => observation.paymentConfirmed === false),
-        "an ambiguous observation must never report a confirmed payment"
+        "observation alone must never report a confirmed payment"
     );
 
     check(
         duplicateIntent.state === "PENDING" && duplicateIntent.transactionId === null,
-        "an ambiguous observation must not mutate the intent"
+        "read-only observation must not mutate any payment intent"
     );
 
     // A partially filled page is a complete window.
@@ -2235,7 +2235,9 @@ function checkRoom(service, overrides = {}) {
         "a matched observation is still not a payment confirmation"
     );
 
-    // Unsupported bodies and non-envelope comments stay unmatched observations.
+    // Non-WW1 content never fabricates a reference. A unique native Testnet
+    // payer may nevertheless be attributed by canonical wallet and amount.
+    // The observation is never by itself settlement or credit.
     for (const [label, comment] of [
         ["missing comment", undefined],
         ["comment without the prefix", FIXTURE_PAYMENT_REFERENCE],
@@ -2253,9 +2255,10 @@ function checkRoom(service, overrides = {}) {
         );
 
         check(
-            observed.result.observations[0].status === "no-match-observed"
-                && observed.result.observations[0].paymentReference === null,
-            `${label} must never match a payment intent`
+            observed.result.observations[0].status === "matched"
+                && observed.result.observations[0].paymentReference === FIXTURE_PAYMENT_REFERENCE
+                && observed.result.observations[0].paymentConfirmed === false,
+            `${label} is uniquely attributable but never auto-confirmed`
         );
 
     }

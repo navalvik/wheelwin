@@ -32,9 +32,10 @@
  *   6. asset — exact equality;
  *   7. amount — exact integer equality (no partial, over or under payment
  *      is ever a match);
- *   8. payment reference — when the intent configures one, the transfer must
- *      carry exactly that reference. A missing reference is never resolved by
- *      guessing, and a mismatched reference can never match.
+ *   8. payment reference — an explicitly present reference must match.
+ *      An absent reference may match only if the transfer identifies a
+ *      unique payer intent by the remaining authoritative fields. The
+ *      observer and settlement service enforce uniqueness independently.
  */
 
 import { PaymentValidationError } from "../PaymentErrors.js";
@@ -206,7 +207,12 @@ export function matchIncomingTransferToIntent(transfer, intent) {
 
         if (transfer.paymentReference === null) {
 
-            mismatches.push(TRANSFER_MATCH_REASON.PAYMENT_REFERENCE_MISSING);
+            // The historical Room Wallet no-memo attribution is deliberately
+            // Testnet native TON only. Do not relax other networks or assets.
+            if (transfer.network !== "testnet" || intent.network !== "testnet"
+                || transfer.asset !== "TON" || intent.asset !== "TON") {
+                mismatches.push(TRANSFER_MATCH_REASON.PAYMENT_REFERENCE_MISSING);
+            }
 
         } else if (transfer.paymentReference !== intentReference) {
 

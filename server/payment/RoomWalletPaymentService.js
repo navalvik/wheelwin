@@ -855,11 +855,13 @@ export class RoomWalletPaymentService {
             || normalizeNetwork(transfer.network) !== normalizeNetwork(intent.network)
             || transfer.asset !== intent.asset
             || transfer.amountAtomic !== intent.amountAtomic
-            || transfer.paymentReference !== intent.paymentReference
-            // ToncenterTransactionsMapper stores the decoded bare reference in
-            // `comment`; IncomingTransfer preserves that normalized value as
-            // `paymentComment`.
-            || transfer.paymentComment !== intent.paymentReference
+            // Permit missing memo only when all other trusted, unique
+            // server-authoritative payment attributes already match.
+            // Explicitly conflicting memo remains a refusal.
+            || (transfer.paymentReference !== null
+                && transfer.paymentReference !== intent.paymentReference)
+            || (transfer.paymentComment !== null
+                && transfer.paymentComment !== intent.paymentReference)
             || transfer.transactionTime < intent.createdAt
             || transfer.transactionTime < window.floorMs
             || transfer.transactionTime > window.ceilingMs
