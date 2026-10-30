@@ -13,12 +13,14 @@ export default function NoFriendsOptionsPage() {
     const { t } = useLanguage();
     const { setFinance } = useGameSession();
     const { identity } = usePlayerIdentity();
-    const [sectors, setSectors] = useState("1");
-    const [arrangement, setArrangement] = useState("together");
-    const [color, setColor] = useState("Green");
-    const [color2, setColor2] = useState("Blue");
-    const [ready, setReady] = useState(null);
-    const [submitted, setSubmitted] = useState(false);
+    const [sectors, setSectors] = useState(String(identity?.sectorCount ?? 1));
+    const [arrangement, setArrangement] = useState(identity?.sectorArrangement ?? "together");
+    const [color, setColor] = useState(identity?.color ?? "Green");
+    const [color2, setColor2] = useState(identity?.colorSector2 ?? "Blue");
+    const [ready, setReady] = useState(identity?.optionsReady
+        ? { readyCount: identity.readyCount ?? 1, required: 3 }
+        : null);
+    const [submitted, setSubmitted] = useState(identity?.optionsReady === true);
     const profileReady = Boolean(
         identity?.nickname
         && Number.isInteger(Number(identity?.age))
@@ -27,17 +29,32 @@ export default function NoFriendsOptionsPage() {
 
     useEffect(() => {
         const onReady = (payload) => setReady(payload);
-        const onMatched = (payload) => {
+        const restoreOptions = (payload) => {
+            if (payload?.sectorCount != null) setSectors(String(payload.sectorCount));
+            if (payload?.sectorArrangement) setArrangement(payload.sectorArrangement);
+            if (payload?.color) setColor(payload.color);
+            if (payload?.colorSector2) setColor2(payload.colorSector2);
             if (payload?.optionsReady) {
                 setSubmitted(true);
                 setReady({ readyCount: payload.readyCount ?? 1, required: 3 });
+            } else {
+                setSubmitted(false);
+                setReady(null);
             }
         };
+        const onMatched = restoreOptions;
+        const onRecovery = (payload) => restoreOptions({
+            ...payload?.profile,
+            optionsReady: payload?.optionsReady,
+            readyCount: payload?.readyCount
+        });
         socket.on("noFriendsOptionsReady", onReady);
         socket.on("noFriendsMatched", onMatched);
+        socket.on("ROOM_RECOVERY_SYNC", onRecovery);
         return () => {
             socket.off("noFriendsOptionsReady", onReady);
             socket.off("noFriendsMatched", onMatched);
+            socket.off("ROOM_RECOVERY_SYNC", onRecovery);
         };
     }, []);
 

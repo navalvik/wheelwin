@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
 import { useGameSession } from "../context/GameSessionContext";
 import { useLanguage } from "../context/LanguageContext";
+import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import socket from "../socket/socket";
 
@@ -24,19 +25,37 @@ export default function Page2PlayerSetup({ onNavigate }) {
 
     const { t } = useLanguage();
 
-    const [nickname, setNickname] = useState("");
+    const { identity } = usePlayerIdentity();
 
-    const [age, setAge] = useState("");
+    const [nickname, setNickname] = useState(identity?.nickname ?? "");
 
-    const [stake, setStake] = useState("1");
+    const [age, setAge] = useState(identity?.age == null ? "" : String(identity.age));
 
-    const [sectors, setSectors] = useState("1");
+    const [stake, setStake] = useState(String(identity?.baseStake ?? 1));
 
-    const [sectorArrangement, setSectorArrangement] = useState("together");
+    const [sectors, setSectors] = useState(String(identity?.sectorCount ?? 1));
 
-    const [colorSector1, setColorSector1] = useState("Green");
+    const [sectorArrangement, setSectorArrangement] = useState(identity?.sectorArrangement ?? "together");
 
-    const [colorSector2, setColorSector2] = useState("Blue");
+    const [colorSector1, setColorSector1] = useState(identity?.color ?? "Green");
+
+    const [colorSector2, setColorSector2] = useState(identity?.colorSector2 ?? "Blue");
+
+    useEffect(() => {
+        const onRoomRecoverySync = (payload) => {
+            const profile = payload?.profile;
+            if (!profile || payload?.playerId !== identity?.playerId) return;
+            if (profile.nickname != null) setNickname(profile.nickname);
+            if (profile.age != null) setAge(String(profile.age));
+            if (profile.baseStake != null) setStake(String(profile.baseStake));
+            if (profile.sectorCount != null) setSectors(String(profile.sectorCount));
+            if (profile.sectorArrangement) setSectorArrangement(profile.sectorArrangement);
+            if (profile.color) setColorSector1(profile.color);
+            if (profile.colorSector2) setColorSector2(profile.colorSector2);
+        };
+        socket.on("ROOM_RECOVERY_SYNC", onRoomRecoverySync);
+        return () => socket.off("ROOM_RECOVERY_SYNC", onRoomRecoverySync);
+    }, [identity?.playerId]);
 
     const ageValid = useMemo(() => isValidPlayerAge(age), [age]);
 

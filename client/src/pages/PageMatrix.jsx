@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import GameLayout from "../layouts/GameLayout";
 
 import { useLanguage } from "../context/LanguageContext";
+import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 
 import socket from "../socket/socket";
 
@@ -23,12 +24,15 @@ import "../styles/pageMatrix.css";
 export default function PageMatrix({ onNavigate }) {
 
     const { t } = useLanguage();
+    const { identity } = usePlayerIdentity();
 
     const [secretMatrix, setSecretMatrix] = useState(
         Array(9).fill("")
     );
 
-    const [matrixStatus, setMatrixStatus] = useState(createEmptyMatrixStatus);
+    const [matrixStatus, setMatrixStatus] = useState(() =>
+        identity?.matrixStatus ?? createEmptyMatrixStatus()
+    );
 
     const [errorMessage, setErrorMessage] = useState("");
 

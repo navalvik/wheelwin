@@ -26,7 +26,22 @@ const EMPTY_IDENTITY = Object.freeze({
     roomId: null,
     playerId: null,
     gameId: null,
-    recoveryCredential: null
+    recoveryCredential: null,
+    gameMode: null,
+    network: null,
+    nickname: null,
+    age: null,
+    baseStake: null,
+    color: null,
+    colorSector2: null,
+    sectorCount: null,
+    sectorArrangement: null,
+    wallet: null,
+    optionsReady: false,
+    readyCount: 0,
+    verifyConfirmed: false,
+    verifyContinued: false,
+    matrixStatus: null
 });
 
 function readStoredIdentity() {
@@ -59,7 +74,22 @@ function readStoredIdentity() {
             roomId: parsed.roomId,
             playerId: parsed.playerId,
             gameId: parsed.gameId ?? null,
-            recoveryCredential: parsed.recoveryCredential ?? null
+            recoveryCredential: parsed.recoveryCredential ?? null,
+            gameMode: parsed.gameMode ?? null,
+            network: parsed.network ?? null,
+            nickname: parsed.nickname ?? null,
+            age: parsed.age ?? null,
+            baseStake: parsed.baseStake ?? null,
+            color: parsed.color ?? null,
+            colorSector2: parsed.colorSector2 ?? null,
+            sectorCount: parsed.sectorCount ?? null,
+            sectorArrangement: parsed.sectorArrangement ?? null,
+            wallet: parsed.wallet ?? null,
+            optionsReady: parsed.optionsReady === true,
+            readyCount: Number.isFinite(parsed.readyCount) ? parsed.readyCount : 0,
+            verifyConfirmed: parsed.verifyConfirmed === true,
+            verifyContinued: parsed.verifyContinued === true,
+            matrixStatus: parsed.matrixStatus ?? null
         };
 
     } catch {
@@ -96,7 +126,22 @@ function writeStoredIdentity(identity) {
                 roomId: identity.roomId,
                 playerId: identity.playerId,
                 gameId: identity.gameId ?? null,
-                recoveryCredential: identity.recoveryCredential ?? null
+                recoveryCredential: identity.recoveryCredential ?? null,
+                gameMode: identity.gameMode ?? null,
+                network: identity.network ?? null,
+                nickname: identity.nickname ?? null,
+                age: identity.age ?? null,
+                baseStake: identity.baseStake ?? null,
+                color: identity.color ?? null,
+                colorSector2: identity.colorSector2 ?? null,
+                sectorCount: identity.sectorCount ?? null,
+                sectorArrangement: identity.sectorArrangement ?? null,
+                wallet: identity.wallet ?? null,
+                optionsReady: identity.optionsReady === true,
+                readyCount: Number.isFinite(identity.readyCount) ? identity.readyCount : 0,
+                verifyConfirmed: identity.verifyConfirmed === true,
+                verifyContinued: identity.verifyContinued === true,
+                matrixStatus: identity.matrixStatus ?? null
             })
         );
 
@@ -172,8 +217,10 @@ export function PlayerIdentityProvider({ children }) {
 
         setIdentityState((prev) => {
 
+            const sameSeat = partial?.roomId == null || partial?.playerId == null
+                || (partial.roomId === prev.roomId && partial.playerId === prev.playerId);
             const next = {
-                ...prev,
+                ...(sameSeat ? prev : EMPTY_IDENTITY),
                 ...partial
             };
 

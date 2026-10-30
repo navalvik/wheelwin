@@ -69,6 +69,38 @@ export function isGameplayPage(page) {
 
 }
 
+const ROOM_RECOVERY_STAGE_PAGES = Object.freeze({
+    LOBBY: APP_PAGES.LOBBY,
+    PLAYER_SETUP: APP_PAGES.PLAYER_SETUP,
+    MATRIX: APP_PAGES.MATRIX,
+    VERIFY: APP_PAGES.VERIFY,
+    PAYMENT: APP_PAGES.PAYMENT,
+    NO_FRIENDS_OPTIONS: APP_PAGES.NO_FRIENDS_OPTIONS
+});
+
+export function resolveRoomRecoveryPage(stage) {
+
+    return ROOM_RECOVERY_STAGE_PAGES[stage] ?? null;
+
+}
+
+export function shouldAcceptRoomRecoverySync({
+    payload,
+    identity,
+    currentPage,
+    recoveryInFlight = false
+} = {}) {
+
+    if (!payload?.roomId || !payload?.playerId) return false;
+
+    return recoveryInFlight === true
+        || currentPage === APP_PAGES.WELCOME
+        || currentPage === APP_PAGES.NO_FRIENDS_QUEUE
+        || (identity?.roomId === payload.roomId
+            && identity?.playerId === payload.playerId);
+
+}
+
 /** Block stale lower-phase navigation after the authoritative phase advanced. */
 export function shouldBlockNavigationRegression(currentPage, targetPage) {
 
