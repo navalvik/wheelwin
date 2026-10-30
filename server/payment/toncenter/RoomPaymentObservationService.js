@@ -641,6 +641,7 @@ export class RoomPaymentObservationService {
             return Object.freeze({
                 ...entry,
                 status: "excess-payment",
+                excessForPaymentReference: entry.paymentReference,
                 paymentReference: null,
                 excessReason: "ADDITIONAL_PAYMENT_FOR_PLAYER"
             });
