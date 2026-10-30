@@ -291,3 +291,110 @@ test("financial recovery without gameId reuses archived game's canonical ZIP key
         assert.equal(uploader.uploads.length,1,"closed-room replay does not re-upload the final ZIP");
     } finally { rmSync(dir,{recursive:true,force:true}); }
 });
+
+// The live QfDS case must not be reported unresolved after both payouts settle.
+{
+const payoutId = "payout-QfDS-regression";
+const transfers = [
+    { recipientId:"player-olga", recipientRole:"WINNER" },
+    { recipientId:"owner", recipientRole:"OWNER" }
+];
+const plan = { entryId:"entry-not-payout-id", kind:"PAYOUT_PLAN",
+    metadata:{ payoutId, plan:{ payoutId, transfers } } };
+const obligations = transfers.map(transfer => ({
+    kind:"NET_PAYOUT", metadata:{ payoutId, recipientId:transfer.recipientId, role:transfer.recipientRole }
+}));
+const settlements = transfers.map(transfer => ({
+    kind:"PAYOUT_SETTLEMENT",
+    metadata:{ payoutId, recipientId:transfer.recipientId, role:transfer.recipientRole,
+        transactionId:`onchain-${transfer.recipientRole}` }
+}));
+
+function financeWith(ledger) {
+    const players=["olga","bob","lena"];
+    return { roomId:"QfDS-regression", gameId:"game-QfDS-regression", network:"testnet",
+        intents:players.map(p=>({
+            playerId:`player-${p}`, paymentReference:`ref-${p}`,
+            transactionId:`tx-${p}`, state:"SETTLED", amountAtomic:1_000_000_000
+        })),
+        receipts:players.map(p=>({
+            playerId:`player-${p}`, paymentIntentId:`ref-${p}`,
+            paymentReference:`ref-${p}`, transactionId:`tx-${p}`,
+            transactionTime:1000, amountAtomic:1_000_000_000
+        })),
+        unresolvedReceipts:[], refunds:[], ledger, outstandingObligations:0,
+        outcome:{ kind:"PAYOUT", roomId:"QfDS-regression" }, closedRoom:null
+    };
+}
+
+function reportFor(finance) {
+    const recovery=buildFinancialRecovery(finance);
+    const decisions=buildPaymentDecisions(finance);
+    return { recovery, decisions, report:buildFinalFinancialReport(finance,decisions,recovery) };
+}
+
+test("final game: two settled payouts linked by payoutId are not an investigation", () => {
+    const {recovery,decisions,report}=reportFor(financeWith([plan,...obligations,...settlements]));
+    assert.deepEqual(decisions.map(d=>d.decision),["SETTLED","SETTLED","SETTLED"]);
+    assert.equal(recovery.requiresReconciliation,false);
+    assert.equal(report.requiresInvestigation,false);
+    assert.equal(report.paymentCounts.settled,3);
+    assert.equal(report.completionCause.code,"PAYOUT_COMPLETED");
+    assert.equal(report.closeEvidence.closedRoom,null,"do not fabricate closed room");
+});
+
+test("winner settled while owner remains unpaid still requires reconciliation", () => {
+    const {recovery,report}=reportFor(financeWith([plan,...obligations,settlements[0]]));
+    assert.equal(recovery.requiresReconciliation,true);
+    assert.equal(report.requiresInvestigation,true);
+    assert.notEqual(report.completionCause.code,"PAYOUT_COMPLETED");
+});
+
+test("unrelated payout settlement cannot close a plan", () => {
+    const wrong={...settlements[1],metadata:{...settlements[1].metadata,payoutId:"other-payout"}};
+    const {recovery,report}=reportFor(financeWith([plan,...obligations,settlements[0],wrong]));
+    assert.equal(recovery.requiresReconciliation,true);
+    assert.equal(report.requiresInvestigation,true);
+});
+
+test("payout plan with incomplete recipient list remains under investigation", () => {
+    const broken={...plan,metadata:{...plan.metadata,plan:{payoutId,transfers:[transfers[0]]}}};
+    const {recovery}=reportFor(financeWith([broken,...obligations,...settlements]));
+    assert.equal(recovery.requiresReconciliation,true);
+});
+
+test("unresolved incoming transfer still requires investigation after both payouts settle", () => {
+    const finance=financeWith([plan,...obligations,...settlements]);
+    finance.unresolvedReceipts.push({ transactionId:"unresolved", ownershipStatus:"UNRESOLVED",
+        playerId:null, paymentIntentId:null });
+    const {recovery,report}=reportFor(finance);
+    assert.equal(recovery.requiresReconciliation,true);
+    assert.equal(report.requiresInvestigation,true);
+});
+
+test("su8z: completed winner and owner payouts do not invent a closedRoom", () => {
+    const payoutId="payout-su8z-regression";
+    const transfers=[
+        {recipientRole:"WINNER",recipientId:"winner-su8z"},
+        {recipientRole:"OWNER",recipientId:"WheelWin"}
+    ];
+    const plan={kind:"PAYOUT_PLAN",entryId:"plan-entry-su8z",
+        metadata:{payoutId,plan:{payoutId,transfers}}};
+    const settlements=transfers.map(t=>({kind:"PAYOUT_SETTLEMENT",
+        metadata:{payoutId,role:t.recipientRole,recipientId:t.recipientId,
+            transactionId:"finalized-"+t.recipientRole}}));
+    const f=financeWith([plan,...settlements]);
+    f.gameId="game-su8z";f.roomId="su8z";f.outcome={roomId:"su8z",kind:"PAYOUT"};
+    const {recovery,report}=reportFor(f);
+    assert.equal(recovery.requiresReconciliation,false);
+    assert.equal(report.requiresInvestigation,false);
+    assert.equal(report.completionCause.code,"PAYOUT_COMPLETED");
+    assert.equal(report.closeEvidence.closedRoom,null);
+    assert.equal(report.closeReason,null);
+});
+
+test("payout outcome with no payout plan is not labelled completed", () => {
+    const {report}=reportFor(financeWith([]));
+    assert.notEqual(report.completionCause.code,"PAYOUT_COMPLETED");
+});
+}
