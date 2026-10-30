@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 
 import { ForensicArchiveService } from "../forensic/ForensicArchiveService.js";
@@ -233,4 +234,38 @@ test("legacy pending supplements are not republished after a canonical room arch
         assert.equal(uploader.uploads.length,1);
         assert.equal(uploader.objects.size,1);
     } finally { f.cleanup(); }
+});
+
+test("WheelWin client UI and server runtime contain no Cyrillic text", () => {
+    const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const files = [];
+    const allowed = /\.(?:js|jsx|ts|tsx|html|css|json|md)$/i;
+    const excludedServerDirs = new Set([
+        "tests", "scripts", "node_modules", "data", "logs", "coverage", "docs"
+    ]);
+    function visit(directory, server = false) {
+        if (!existsSync(directory)) return;
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+            const absolute = join(directory, entry.name);
+            if (entry.isDirectory()) {
+                if (!server || !excludedServerDirs.has(entry.name)) visit(absolute, server);
+            } else if (entry.isFile() && allowed.test(entry.name)) files.push(absolute);
+        }
+    }
+    visit(join(root, "client", "src"));
+    visit(join(root, "client", "public"));
+    visit(join(root, "server"), true);
+    for (const name of readdirSync(join(root, "client"))) {
+        if (name.endsWith(".html")) files.push(join(root, "client", name));
+    }
+    const violations = [];
+    for (const file of files) {
+        const lines = readFileSync(file, "utf8").split("\n");
+        lines.forEach((line, index) => {
+            if (/[\u0400-\u052F]/u.test(line)) {
+                violations.push(`${relative(root, file)}:${index + 1}`);
+            }
+        });
+    }
+    assert.deepEqual(violations, [], "Deployed UI and runtime must not contain Cyrillic");
 });

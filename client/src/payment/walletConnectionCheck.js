@@ -4,11 +4,11 @@ import { resolveTonConnectManifestUrl } from './resolveTonConnectManifestUrl.js'
 const status=document.getElementById('status');
 if(!['localhost','127.0.0.1','[::1]'].includes(location.hostname)) {
     document.getElementById('connect').disabled=true;
-    status.textContent='Эта страница доступна для локальной проверки.';
+    status.textContent='This page is available for local testing only.';
 } else {
     const ui=new TonConnectUI({manifestUrl:resolveTonConnectManifestUrl(location.origin,import.meta.env.VITE_TONCONNECT_MANIFEST_URL)});
     const show=wallet=>{
-        status.textContent=wallet ? `${wallet.account.chain==='-3'?'Подключён Testnet кошелёк':'Подключён кошелёк другой сети'}: ${wallet.account.address}` : 'Кошелёк пока не подключён.';
+        status.textContent=wallet ? `${wallet.account.chain==='-3'?'Testnet wallet connected':'Wallet connected to a different network'}: ${wallet.account.address}` : 'No wallet connected yet.';
     };
     ui.onStatusChange(show,error=>{status.textContent=error.message;});
     ui.connectionRestored.then(()=>show(ui.wallet));
