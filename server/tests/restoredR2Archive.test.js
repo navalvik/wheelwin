@@ -11,6 +11,8 @@ import { SessionHistoryArchiveManager } from "../history/SessionHistoryArchiveMa
 import { ForensicArchiveService } from "../forensic/ForensicArchiveService.js";
 import { MockForensicArchiveUploader } from "../forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "../forensic/forensicArchiveConfig.js";
+import { RecoveryOrchestrator } from "../recovery/RecoveryOrchestrator.js";
+import { RecoveryCheckpointManager } from "../recovery/RecoveryCheckpointManager.js";
 
 function fixture(gameMode = null) {
     const root = mkdtempSync(join(tmpdir(), "wheelwin-r2-restored-"));
@@ -370,4 +372,64 @@ test("late session-history initialization reads recovered room mode before Page6
         archive.shutdown();
         f.cleanup();
     }
+});
+
+for (const mode of ["FRIENDS", "NO_FRIENDS"]) {
+    test(`RecoveryOrchestrator restores ${mode} without changing the three-player room`, () => {
+        const orchestrator = Object.create(RecoveryOrchestrator.prototype);
+        const payload = {
+            roomId: "recovered-room",
+            gameId: "recovered-game",
+            gameStatus: "RUNNING",
+            gameMode: mode,
+            players: [0, 1, 2].map(playerIndex => ({
+                playerId: `player-${playerIndex}`,
+                playerIndex,
+                nickname: `Player ${playerIndex}`,
+                icon: "star",
+                age: 20,
+                color: `color-${playerIndex}`,
+                colorSector2: `color-${playerIndex}`,
+                sectorCount: 1,
+                sectorArrangement: [playerIndex],
+                baseStake: 1
+            }))
+        };
+        const restored = orchestrator._constructAggregates(payload);
+        assert.equal(restored.room.gameMode, mode);
+        assert.equal(restored.room.players.length, 3);
+        assert.equal(restored.players.length, 3);
+    });
+}
+
+for (const gameMode of [undefined, "INVALID"]) {
+    test(`RecoveryOrchestrator preserves unknown mode for legacy/invalid ${String(gameMode)}`, () => {
+        const orchestrator = Object.create(RecoveryOrchestrator.prototype);
+        const payload = {
+            roomId: "legacy-room", gameId: "legacy-game", gameStatus: "RUNNING",
+            ...(gameMode === undefined ? {} : { gameMode }),
+            players: [0, 1, 2].map(playerIndex => ({
+                playerId: `legacy-player-${playerIndex}`, playerIndex
+            }))
+        };
+        const restored = orchestrator._constructAggregates(payload);
+        assert.equal(restored.room.gameMode, null);
+    });
+}
+
+test("checkpoint material conflict guard rejects a different persisted known gameMode", () => {
+    const manager = Object.create(RecoveryCheckpointManager.prototype);
+    const persisted = {
+        recoveryRecordId: "game", roomId: "room", gameId: "game",
+        configurationHash: "config", players: ["a", "b", "c"], gameMode: "NO_FRIENDS"
+    };
+    assert.equal(manager._hasMaterialConflict(persisted, {
+        ...persisted, gameMode: "NO_FRIENDS"
+    }), false);
+    assert.equal(manager._hasMaterialConflict(persisted, {
+        ...persisted, gameMode: "FRIENDS"
+    }), true);
+    assert.equal(manager._hasMaterialConflict(persisted, {
+        ...persisted, gameMode: null
+    }), false);
 });

@@ -760,6 +760,13 @@ export class RecoveryCheckpointManager {
 
         }
 
+        const knownModes = ["FRIENDS", "NO_FRIENDS"];
+        if (knownModes.includes(persistedPayload.gameMode)
+            && knownModes.includes(incomingPayload.gameMode)
+            && persistedPayload.gameMode !== incomingPayload.gameMode) {
+            return true;
+        }
+
         if (persistedPayload.configurationHash
             !== incomingPayload.configurationHash) {
 
