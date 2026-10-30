@@ -427,13 +427,27 @@ function addressMatches(left, right) {
 
 export function buildFinancialRecovery(finance) {
     const payouts=(finance.ledger ?? []).filter(entry => ["PAYOUT_PLAN", "PAYOUT_SETTLEMENT", "NET_PAYOUT", "WINNER_GROSS_ALLOCATION", "OWNER_GROSS_ALLOCATION"].includes(entry.kind));
+    const ledger = finance.ledger ?? [];
     const unresolvedReceipts=finance.unresolvedReceipts ?? [];
     return {schemaVersion:1, roomId:finance.roomId, gameId:finance.gameId ?? null, closedRoom:finance.closedRoom ?? null,
         receipts:finance.receipts ?? [], unresolvedReceipts, refunds:finance.refunds ?? [], payouts,
         outstandingObligations:finance.outstandingObligations ?? 0,
         requiresReconciliation:unresolvedReceipts.length > 0 || (finance.receipts ?? []).some(r => !r.playerId || !r.paymentIntentId)
             || (finance.refunds ?? []).some(r => r.state !== "COMPLETE")
-            || payouts.some(p => p.kind === "PAYOUT_PLAN" && !(finance.ledger ?? []).some(s => s.kind === "PAYOUT_SETTLEMENT" && s.metadata?.payoutPlanId === p.entryId))};
+            || payouts.some(p => p.kind === "PAYOUT_PLAN" && !hasPayoutSettlements(p, ledger))};
+}
+
+function hasPayoutSettlements(plan, ledger) {
+    const payoutId = plan.metadata?.payoutId;
+    const settlements = ledger.filter(entry => entry.kind === "PAYOUT_SETTLEMENT"
+        && (entry.metadata?.payoutPlanId === plan.entryId
+            || (payoutId && entry.metadata?.payoutId === payoutId)));
+    if (settlements.length === 0) return false;
+
+    const expectedRoles = (plan.metadata?.plan?.transfers ?? [])
+        .map(transfer => transfer.recipientRole).filter(Boolean);
+    return expectedRoles.length === 0
+        || expectedRoles.every(role => settlements.some(entry => entry.metadata?.role === role));
 }
 
 function diagnoseFinancialClose(finance, decisions) {
@@ -444,7 +458,8 @@ function diagnoseFinancialClose(finance, decisions) {
         : decisions.some(d=>d.decision === "UNVERIFIED" || d.decision === "PENDING_CONFIRMATION") ? "BLOCKCHAIN_CONFIRMATION_INCOMPLETE"
             : decisions.some(d=>exactCodes.has(d.decision)) ? "RECEIVED_TRANSFER_DID_NOT_MATCH_PAYMENT_INTENT"
                 : settled < intents.length ? "PAYMENT_NOT_RECEIVED_BEFORE_ROOM_DEADLINE"
-                    : finance.closedRoom?.closureReason ?? finance.outcome?.reason ?? "ROOM_CLOSED";
+                    : finance.outcome?.kind === "PAYOUT" ? "PAYOUT_COMPLETED"
+                        : finance.closedRoom?.closureReason ?? finance.outcome?.reason ?? "ROOM_CLOSED";
     return {code, settledPlayers:settled, requiredPlayers:intents.length,
         evidence:decisions.filter(d=>d.decision !== "SETTLED").map(d=>({
             at:d.at, playerId:d.playerId ?? null, transactionId:d.transactionId ?? null,
