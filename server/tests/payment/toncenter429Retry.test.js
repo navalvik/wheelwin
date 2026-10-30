@@ -2,11 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {ToncenterTransactionsClient} from "../../payment/toncenter/ToncenterTransactionsClient.js";
 
-test("a 429 on payment observation honors Retry-After and retries the same bounded read", async () => {
+test("explicit legacy retry opt-in honors Retry-After on a synthetic read", async () => {
     const waits=[];
     let calls=0;
     const client=new ToncenterTransactionsClient({
         apiKeyProvider:()=>"synthetic-key",
+        rateLimitRetries:2,
         delay:async ms=>waits.push(ms),
         fetchImpl:async()=>{
             calls++;
@@ -22,10 +23,11 @@ test("a 429 on payment observation honors Retry-After and retries the same bound
     assert.deepEqual(result.transactions,[]);
 });
 
-test("persistent 429 stops after the configured finite retry budget", async () => {
+test("explicit legacy retry opt-in stops after its finite budget", async () => {
     let calls=0;
     const client=new ToncenterTransactionsClient({
         apiKeyProvider:()=>"synthetic-key",
+        rateLimitRetries:2,
         delay:async()=>{},
         fetchImpl:async()=>{calls++;return {status:429,headers:{get:()=>null}};}
     });
