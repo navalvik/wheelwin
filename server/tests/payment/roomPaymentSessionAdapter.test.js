@@ -1118,7 +1118,7 @@ async function run() {
                 ToncenterRateLimitError, "provider rate-limit error is propagated");
             equal(principalEntries(h.ledger, descriptor.roomId).length, 0,
                 "provider error creates no principal");
-            equal(h.fetchCalls, 3, "provider rate-limit is retried only within the bounded retry budget");
+            equal(h.fetchCalls, 1, "Page4 rate-limited observation makes one request; next check waits for cooldown");
         });
     });
 

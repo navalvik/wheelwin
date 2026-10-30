@@ -105,7 +105,8 @@ export class ToncenterIncomingProvider extends IncomingTransferProviderClient {
         floorMs,
         ceilingMs,
         limit = TONCENTER_DEFAULT_TRANSACTION_LIMIT,
-        destinationWalletId = null
+        destinationWalletId = null,
+        priority = "background"
     }) {
 
         if (typeof account !== "string" || account.trim() === "") {
@@ -170,7 +171,8 @@ export class ToncenterIncomingProvider extends IncomingTransferProviderClient {
             account: account.trim(),
             startUtime,
             endUtime,
-            limit
+            limit,
+            priority
         });
 
         return this._mapper(payload, {

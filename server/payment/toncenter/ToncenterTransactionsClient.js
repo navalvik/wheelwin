@@ -17,8 +17,8 @@
  *     written anywhere;
  *   - when the key is absent NO request is sent
  *     (`ToncenterApiKeyMissingError` instead of an unauthenticated request);
- *   - transaction reads make at most three attempts on HTTP 429, honoring
- *     Retry-After or bounded exponential backoff; they never poll on their own;
+ *   - production transaction reads never retry HTTP 429 inside the same
+ *     room observation; process-wide cooldown honors Retry-After;
  *   - every response is validated against the documented envelope before it
  *     is returned to the caller.
  *
@@ -44,6 +44,7 @@ import {
     ToncenterResponseError,
     ToncenterServiceError
 } from "./ToncenterErrors.js";
+import { sharedToncenterReadBudget } from "./ToncenterReadBudget.js";
 
 /** Reads the single existing API key from the runtime environment. */
 export function defaultApiKeyProvider() {
@@ -90,7 +91,8 @@ export class ToncenterTransactionsClient {
      *   fetchImpl?: typeof fetch,
      *   timeoutMs?: number
      *   rateLimitRetries?: number,
-     *   delay?: (ms:number)=>Promise<void>
+     *   delay?: (ms:number)=>Promise<void>,
+     *   readBudget?: ToncenterReadBudget|null
      * }} [options]
      */
     constructor({
@@ -98,8 +100,9 @@ export class ToncenterTransactionsClient {
         apiKeyProvider = defaultApiKeyProvider,
         fetchImpl = globalThis.fetch,
         timeoutMs = TONCENTER_DEFAULT_TIMEOUT_MS,
-        rateLimitRetries = 2,
-        delay = defaultDelay
+        rateLimitRetries = 0,
+        delay = defaultDelay,
+        readBudget = fetchImpl === globalThis.fetch ? sharedToncenterReadBudget : null
     } = {}) {
 
         assertNonEmptyString(baseUrl, "baseUrl");
@@ -133,6 +136,9 @@ export class ToncenterTransactionsClient {
             throw new ToncenterRequestError("rateLimitRetries must be an integer in 0..3");
         }
         if (typeof delay !== "function") throw new ToncenterRequestError("delay must be a function");
+        if (readBudget !== null && (typeof readBudget.acquire !== "function"
+            || typeof readBudget.noteRateLimited !== "function"))
+            throw new ToncenterRequestError("readBudget must implement the Toncenter dispatch contract");
 
         this._baseUrl = baseUrl;
 
@@ -143,6 +149,7 @@ export class ToncenterTransactionsClient {
         this._timeoutMs = timeoutMs;
         this._rateLimitRetries = rateLimitRetries;
         this._delay = delay;
+        this._readBudget = readBudget;
 
     }
 
@@ -197,6 +204,8 @@ export class ToncenterTransactionsClient {
         }
 
         const url = `${this._baseUrl.replace(/\/+$/, "")}${TONCENTER_STREAMING_V2_SSE_PATH}`;
+        // A queued read must not consume its HTTP timeout before dispatch.
+        await this._readBudget?.acquire({priority:"background"});
         const requestController = new AbortController();
         const abortWithSession = () => requestController.abort();
         if (signal.aborted) requestController.abort();
@@ -208,7 +217,7 @@ export class ToncenterTransactionsClient {
         }, this._timeoutMs);
         let response;
         try {
-            response = await this._fetch(url, {
+            response = await this._fetchRead(url, {
                 method: "POST",
                 headers: {
                     "X-API-Key": apiKey.trim(),
@@ -222,7 +231,7 @@ export class ToncenterTransactionsClient {
                     include_address_book: false
                 }),
                 signal: requestController.signal
-            });
+            }, "background");
         } catch (error) {
             throw new ToncenterRequestError(
                 "Toncenter streaming request failed before the SSE connection was established",
@@ -258,11 +267,12 @@ export class ToncenterTransactionsClient {
 
     async _requestJson(url, init, description) {
 
+        await this._readBudget?.acquire({priority:"background"});
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), this._timeoutMs);
         let response;
         try {
-            response = await this._fetch(url, { ...init, signal: controller.signal });
+            response = await this._fetchRead(url, { ...init, signal: controller.signal });
         } catch (error) {
             throw new ToncenterRequestError(
                 `Toncenter ${description} request failed`,
@@ -303,7 +313,8 @@ export class ToncenterTransactionsClient {
      * }} query
      * @returns {Promise<object>} the parsed, envelope-validated response body
      */
-    async getTransactions({ account, startUtime, endUtime, limit = 50, offset = 0 }) {
+    async getTransactions({ account, startUtime, endUtime, limit = 50, offset = 0,
+        priority = "background" }) {
 
         assertNonEmptyString(account, "account");
 
@@ -375,14 +386,15 @@ export class ToncenterTransactionsClient {
 
         let response;
         for (let attempt = 0; ; attempt += 1) {
+            await this._readBudget?.acquire({priority});
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(
                 new DOMException("The operation timed out.", "TimeoutError")
             ), this._timeoutMs);
             try {
-                response = await this._fetch(url.toString(), {
+                response = await this._fetchRead(url.toString(), {
                     method: "GET", headers: { "X-API-Key": apiKey.trim() }, signal: controller.signal
-                });
+                }, priority);
             } catch (error) {
                 const isTimeout = error?.name === "TimeoutError" || error?.name === "AbortError" || controller.signal.aborted === true;
                 throw new ToncenterRequestError(
@@ -392,7 +404,11 @@ export class ToncenterTransactionsClient {
             } finally {
                 clearTimeout(timer);
             }
-            if (response?.status !== 429 || attempt >= this._rateLimitRetries) break;
+            // The process-wide budget already pauses ALL Toncenter reads
+            // after HTTP 429. Never multiply active-room requests with quick
+            // local retries; Page4 will request the next status on its cadence.
+            if (response?.status !== 429 || this._readBudget
+                || attempt >= this._rateLimitRetries) break;
             const backoff = Math.min(4_000, 500 * (2 ** attempt));
             await this._delay(retryAfterMs(response, backoff));
         }
@@ -412,7 +428,9 @@ export class ToncenterTransactionsClient {
         }
 
         if (status === 429) {
-            throw new ToncenterRateLimitError(status, { attempts: this._rateLimitRetries + 1 });
+            throw new ToncenterRateLimitError(status, {
+                attempts: this._readBudget ? 1 : this._rateLimitRetries + 1
+            });
 
         }
 
@@ -427,6 +445,19 @@ export class ToncenterTransactionsClient {
             { statusCode: status }
         );
 
+    }
+
+    /**
+     * Read-only network egress through one process-wide quota. The request is
+     * acquired BEFORE dispatch; no wallet or payment state changes on HTTP 429.
+     * Test clients with injected fake fetch are isolated by default.
+     */
+    async _fetchRead(url, init, priority = "background") {
+        const response = await this._fetch(url, init);
+        if (response?.status === 429) {
+            this._readBudget?.noteRateLimited(response.headers?.get?.("retry-after") ?? null);
+        }
+        return response;
     }
 
     /**
