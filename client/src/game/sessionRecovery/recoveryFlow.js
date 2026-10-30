@@ -69,6 +69,22 @@ export function isGameplayPage(page) {
 
 }
 
+/** Block stale lower-phase navigation after the authoritative phase advanced. */
+export function shouldBlockNavigationRegression(currentPage, targetPage) {
+
+    if (currentPage === APP_PAGES.RESULT) {
+        return targetPage !== APP_PAGES.RESULT;
+    }
+
+    if (currentPage === APP_PAGES.GAMEPLAY) {
+        return targetPage !== APP_PAGES.GAMEPLAY
+            && targetPage !== APP_PAGES.RESULT;
+    }
+
+    return false;
+
+}
+
 /**
  * Pre-game recovery is valid only while an authoritative Setup Session timer
  * is still active (expiresAt in the future). Local timers never decide this.

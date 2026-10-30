@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
+import {
+    isDuplicateOpenPage5,
+    resolveOpenPage5GameKey
+} from "../game/sessionRecovery/pageNavigationPolicy";
 
 import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
 
@@ -17,6 +21,7 @@ import socket from "../socket/socket";
  * SESSION_FINISHED). Never navigate on local RESULT / wheel / timeout.
  */
 export default function OpenPage5Navigator({
+    currentPage,
     onNavigate,
     onSessionFinished,
     onArmNewGameplaySession
@@ -28,11 +33,19 @@ export default function OpenPage5Navigator({
 
     const onArmNewGameplaySessionRef = useRef(onArmNewGameplaySession);
 
-    const { identity } = usePlayerIdentity();
+    const { identity, setIdentity } = usePlayerIdentity();
 
     const identityRef = useRef(identity);
 
     const openedPage6Ref = useRef(false);
+
+    const openedPage5GameRef = useRef(null);
+
+    const currentPageRef = useRef(currentPage);
+
+    useEffect(() => {
+        currentPageRef.current = currentPage;
+    }, [currentPage]);
 
     useEffect(() => {
 
@@ -81,7 +94,44 @@ export default function OpenPage5Navigator({
                 onNavigateRef.current?.(APP_PAGES.PAYMENT);
 
             },
-            onOpenPage5: () => {
+            onOpenPage5: (payload) => {
+
+                if (payload?.roomId && identityRef.current?.roomId
+                    && payload.roomId !== identityRef.current.roomId) {
+                    return;
+                }
+
+                const gameKey = resolveOpenPage5GameKey(payload, identityRef.current);
+                const previousGameId = identityRef.current?.gameId ?? null;
+                const authoritativeNewGame = Boolean(
+                    payload?.gameId
+                    && previousGameId
+                    && payload.gameId !== previousGameId
+                );
+
+                if (isDuplicateOpenPage5(openedPage5GameRef.current, payload, identityRef.current)) {
+                    return;
+                }
+
+                if (currentPageRef.current === APP_PAGES.RESULT
+                    && payload?.gameId
+                    && payload.gameId === previousGameId) {
+                    return;
+                }
+
+                if (gameKey) {
+                    openedPage5GameRef.current = gameKey;
+                }
+
+                if (payload?.gameId) {
+                    // The server event is authoritative and binds the live game
+                    // identity for recovery and terminal-result storage.
+                    identityRef.current = {
+                        ...identityRef.current,
+                        gameId: payload.gameId
+                    };
+                    setIdentity({ gameId: payload.gameId });
+                }
 
                 // New gameplay session may open Page6 again later.
                 openedPage6Ref.current = false;
@@ -101,10 +151,26 @@ export default function OpenPage5Navigator({
                     socketConnected: socket.connected === true
                 });
 
-                onNavigateRef.current?.(APP_PAGES.GAMEPLAY);
+                onNavigateRef.current?.(APP_PAGES.GAMEPLAY, {
+                    authoritativeNewGame,
+                    previousGameId,
+                    gameId: payload?.gameId ?? null
+                });
 
             },
             onOpenPage6: (payload) => {
+
+                if ((payload?.roomId && identityRef.current?.roomId
+                        && payload.roomId !== identityRef.current.roomId)
+                    || (payload?.gameId && identityRef.current?.gameId
+                        && payload.gameId !== identityRef.current.gameId)) {
+                    return;
+                }
+
+                if (payload?.gameId && !identityRef.current?.gameId) {
+                    identityRef.current = { ...identityRef.current, gameId: payload.gameId };
+                    setIdentity({ gameId: payload.gameId });
+                }
 
                 // R5.19 — navigate exactly once for the live end-of-game path.
                 if (openedPage6Ref.current) {

@@ -28,10 +28,17 @@ import {
     DEV_MODE,
     DEV_PAGE_SEQUENCE
 } from "./config/devMode";
-import { APP_PAGES } from "./game/sessionRecovery/recoveryFlow";
+import {
+    APP_PAGES,
+    shouldBlockNavigationRegression
+} from "./game/sessionRecovery/recoveryFlow";
 import { useTerminalNavigation } from "./game/session/useTerminalNavigation";
 import { page6LifecycleDiag } from "./game/result/page6LifecycleDiag";
 import { webPage6Diag } from "./game/result/webPage6StateDiag";
+import {
+    clearStoredTerminalResult,
+    readStoredTerminalPage
+} from "./game/result/gameResultFlow";
 import socket from "./socket/socket";
 import { LOBBY_OUTGOING_EVENTS } from "./socket/socketEvents";
 
@@ -104,19 +111,38 @@ function NoFriendsFlowNavigator({ onNavigate }) {
 
 function GameFlow() {
 
-    const [currentPage, setCurrentPage] = useState(1);
+    const [currentPage, setCurrentPage] = useState(
+        () => readStoredTerminalPage() ?? 1
+    );
 
     // R6.4 / R6.5 — bumping remounts all session providers so reset matches a fresh launch.
     const [sessionGeneration, setSessionGeneration] = useState(0);
 
     const currentPageRef = useRef(currentPage);
 
-    currentPageRef.current = currentPage;
+    useEffect(() => {
+        currentPageRef.current = currentPage;
+    }, [currentPage]);
 
 
-    function navigate(page) {
+    function navigate(page, navigationOptions = {}) {
 
-        const fromPage = currentPage;
+        const fromPage = currentPageRef.current;
+
+        const isVerifiedNewGameplay = page === APP_PAGES.GAMEPLAY
+            && navigationOptions.authoritativeNewGame === true
+            && Boolean(navigationOptions.gameId)
+            && Boolean(navigationOptions.previousGameId)
+            && navigationOptions.gameId !== navigationOptions.previousGameId;
+
+        if (shouldBlockNavigationRegression(fromPage, page) && !isVerifiedNewGameplay) {
+            webPage6Diag("NAVIGATION_REGRESSION_BLOCKED", {
+                fromPage,
+                toPage: page,
+                source: "App.navigate"
+            });
+            return;
+        }
 
         if (page === APP_PAGES.RESULT || page === APP_PAGES.GAMEPLAY) {
 
@@ -138,10 +164,13 @@ function GameFlow() {
 
         setCurrentPage(page);
 
+        currentPageRef.current = page;
+
     }
 
     const performTerminalReset = useCallback(() => {
 
+        currentPageRef.current = APP_PAGES.WELCOME;
         setCurrentPage(APP_PAGES.WELCOME);
 
         setSessionGeneration((generation) => generation + 1);
@@ -198,6 +227,8 @@ function GameFlow() {
         });
 
         try {
+
+            clearStoredTerminalResult();
 
             if (typeof window !== "undefined" && window.sessionStorage) {
 
@@ -442,6 +473,7 @@ function GameFlow() {
                 >
 
                     <OpenPage5Navigator
+                        currentPage={currentPage}
                         onNavigate={navigate}
                         onSessionFinished={handleSessionFinished}
                         onArmNewGameplaySession={armNewGameplaySession}

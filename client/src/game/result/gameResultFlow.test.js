@@ -9,7 +9,11 @@ import {
     mapPaymentStatusToView,
     mapAuditStatusToView,
     shouldNavigateToResult,
-    shouldResetResult
+    shouldResetResult,
+    clearStoredTerminalResult,
+    persistStoredTerminalResult,
+    readStoredTerminalResult,
+    readStoredTerminalPage
 } from "./gameResultFlow.js";
 
 function assert(condition, message) {
@@ -34,6 +38,46 @@ const AUTHORITATIVE_PAYLOAD = {
     finalWheelAngle: 123.45,
     serverTimestamp: 1730000000000
 };
+
+{
+    const originalStorage = globalThis.sessionStorage;
+    const originalWindow = globalThis.window;
+    globalThis.window = { Telegram: { WebApp: { initDataUnsafe: { user: { id: 1001 } } } } };
+    const data = new Map([
+        ["wheelwin.setupRecoveryIdentity", JSON.stringify({
+            roomId: "room-a", playerId: "player-a", gameId: "game_abc"
+        })]
+    ]);
+    globalThis.sessionStorage = {
+        getItem: key => data.get(key) ?? null,
+        setItem: (key, value) => data.set(key, value),
+        removeItem: key => data.delete(key)
+    };
+    try {
+        const identity = { playerId: "player-a", gameId: "game_abc" };
+        assert(persistStoredTerminalResult(identity, AUTHORITATIVE_PAYLOAD),
+            "authoritative result should persist");
+        assert(readStoredTerminalResult(identity)?.winner.id === "player_2",
+            "saved result preserves authoritative winner");
+        assert(readStoredTerminalPage() === GAME_RESULT_PAGE.PAGE6,
+            "matching authenticated identity restores Page6");
+        assert(readStoredTerminalResult({ playerId: "player-b", gameId: "game_abc" }) === null,
+            "another player's identity cannot read the saved result");
+        assert(readStoredTerminalResult({ playerId: "player-a", gameId: "other-game" }) === null,
+            "another game cannot read the saved result");
+        globalThis.window.Telegram.WebApp.initDataUnsafe.user.id = 2002;
+        assert(readStoredTerminalResult(identity) === null,
+            "a different Telegram account cannot read the saved result");
+        globalThis.window.Telegram.WebApp.initDataUnsafe.user.id = 1001;
+        clearStoredTerminalResult();
+        assert(readStoredTerminalResult(identity) === null, "explicit finish clears saved result");
+    } finally {
+        if (originalStorage === undefined) delete globalThis.sessionStorage;
+        else globalThis.sessionStorage = originalStorage;
+        if (originalWindow === undefined) delete globalThis.window;
+        else globalThis.window = originalWindow;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // mapAuthoritativeResultToView — strict passthrough, no client calculation.

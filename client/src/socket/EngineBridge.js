@@ -174,6 +174,8 @@ export class EngineBridge {
 
             [INCOMING_SOCKET_EVENTS.OPEN_PAGE5]: (payload) => {
 
+                modules.gameResult?.onOpenPage5?.(payload);
+
                 modules.pageNavigation?.onOpenPage5?.(payload);
 
             },

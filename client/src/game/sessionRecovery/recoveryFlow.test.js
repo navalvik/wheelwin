@@ -9,7 +9,8 @@ import {
     isPreGamePage,
     isSetupRecoveryPage,
     isTerminalRecoveryFailure,
-    resolveGameplayRecoveryPage
+    resolveGameplayRecoveryPage,
+    shouldBlockNavigationRegression
 } from "./recoveryFlow.js";
 
 import { readFileSync } from "node:fs";
@@ -31,6 +32,19 @@ function assert(condition, message) {
 
     }
 
+}
+
+{
+    assert(!shouldBlockNavigationRegression(APP_PAGES.PAYMENT, APP_PAGES.GAMEPLAY),
+        "authoritative forward transition payment → gameplay is allowed");
+    assert(shouldBlockNavigationRegression(APP_PAGES.GAMEPLAY, APP_PAGES.PAYMENT),
+        "stale payment navigation cannot demote gameplay");
+    assert(!shouldBlockNavigationRegression(APP_PAGES.GAMEPLAY, APP_PAGES.RESULT),
+        "authoritative result transition is allowed");
+    assert(shouldBlockNavigationRegression(APP_PAGES.RESULT, APP_PAGES.GAMEPLAY),
+        "stale gameplay cannot demote Page6");
+    assert(shouldBlockNavigationRegression(APP_PAGES.RESULT, APP_PAGES.PAYMENT),
+        "stale payment cannot demote Page6");
 }
 
 // ---------------------------------------------------------------------------

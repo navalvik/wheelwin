@@ -27,6 +27,10 @@ export const RECONNECT_CONNECT_ACTIONS = Object.freeze({
     REQUEST_SESSION_RECOVERY: "REQUEST_SESSION_RECOVERY"
 });
 
+export function shouldShowReconnectOverlay({ socketConnected = false, hadDisconnect = false } = {}) {
+    return socketConnected !== true || hadDisconnect === true;
+}
+
 /**
  * Decide what to do after Socket.IO fires `connect` following a disconnect
  * on a recovery-capable surface (lobby / prep / gameplay).

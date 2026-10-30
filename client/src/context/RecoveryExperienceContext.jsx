@@ -24,6 +24,7 @@ import {
     RECONNECT_CONNECT_ACTIONS,
     RECONNECTING_MAX_MS,
     resolvePostReconnectAction,
+    shouldShowReconnectOverlay,
     shouldResetRecoveryInFlight
 } from "../game/sessionRecovery/recoveryReconnectPolicy";
 
@@ -102,7 +103,7 @@ export function RecoveryExperienceProvider({
 
     const { destroySession } = useGameSession();
 
-    const { getIdentity, clearIdentity } = usePlayerIdentity();
+    const { getIdentity, clearIdentity, setIdentity } = usePlayerIdentity();
 
     const [status, setStatus] = useState(RECOVERY_UI_STATUS.IDLE);
 
@@ -111,6 +112,10 @@ export function RecoveryExperienceProvider({
     const recoveryInFlightRef = useRef(false);
 
     const hadDisconnectRef = useRef(false);
+
+    const recoveryOverlayRef = useRef(false);
+
+    const recoveryRequestTimerRef = useRef(null);
 
     // Timer ids live in refs so hide scheduling survives socket-effect
     // re-subscriptions (unstable onNavigate / session updates after restore).
@@ -162,7 +167,7 @@ export function RecoveryExperienceProvider({
      * R6.1 — Authoritative recovery for Setup Session and gameplay.
      * Sends a playerId/roomId claim used only as a server stash lookup key.
      */
-    const requestSessionRecovery = useCallback(() => {
+    const requestSessionRecovery = useCallback(({ showOverlay = null } = {}) => {
 
         const identity = getIdentity();
 
@@ -174,7 +179,24 @@ export function RecoveryExperienceProvider({
 
         recoveryInFlightRef.current = true;
 
-        setStatus(RECOVERY_UI_STATUS.RECONNECTING);
+        recoveryOverlayRef.current = showOverlay === null
+            ? shouldShowReconnectOverlay({
+                socketConnected: socket.connected === true,
+                hadDisconnect: hadDisconnectRef.current
+            })
+            : showOverlay === true;
+
+        if (recoveryOverlayRef.current) {
+            setStatus(RECOVERY_UI_STATUS.RECONNECTING);
+        }
+
+        if (recoveryRequestTimerRef.current) clearTimeout(recoveryRequestTimerRef.current);
+        recoveryRequestTimerRef.current = setTimeout(() => {
+            recoveryRequestTimerRef.current = null;
+            recoveryInFlightRef.current = false;
+            recoveryOverlayRef.current = false;
+            setStatus(RECOVERY_UI_STATUS.IDLE);
+        }, RECONNECTING_MAX_MS);
 
         devLog("Recovery requested");
 
@@ -205,6 +227,14 @@ export function RecoveryExperienceProvider({
 
         recoveryInFlightRef.current = false;
 
+        if (recoveryRequestTimerRef.current) {
+            clearTimeout(recoveryRequestTimerRef.current);
+            recoveryRequestTimerRef.current = null;
+        }
+
+        const showOverlay = recoveryOverlayRef.current;
+        recoveryOverlayRef.current = false;
+
         const restoredPage = readStoredRecoveryPage() ?? APP_PAGES.LOBBY;
 
         if (
@@ -217,13 +247,13 @@ export function RecoveryExperienceProvider({
 
         }
 
-        setStatus(RECOVERY_UI_STATUS.COMPLETE);
+        setStatus(showOverlay ? RECOVERY_UI_STATUS.COMPLETE : RECOVERY_UI_STATUS.IDLE);
 
         recoveryTrace("overlay COMPLETE", getIdentity());
 
         devLog(`Setup Session restored on page ${restoredPage ?? currentPage}`);
 
-        scheduleOverlayHide();
+        if (showOverlay) scheduleOverlayHide();
 
     }, [currentPage, onNavigate, scheduleOverlayHide, getIdentity]);
 
@@ -231,7 +261,14 @@ export function RecoveryExperienceProvider({
 
         recoveryInFlightRef.current = false;
 
-        setStatus(RECOVERY_UI_STATUS.RESTORING);
+        if (recoveryRequestTimerRef.current) {
+            clearTimeout(recoveryRequestTimerRef.current);
+            recoveryRequestTimerRef.current = null;
+        }
+
+        const showOverlay = recoveryOverlayRef.current;
+        recoveryOverlayRef.current = false;
+        setStatus(showOverlay ? RECOVERY_UI_STATUS.RESTORING : RECOVERY_UI_STATUS.IDLE);
 
         devLog("Snapshot received");
 
@@ -239,7 +276,18 @@ export function RecoveryExperienceProvider({
         // resultSessionExpiresAt are never dropped before the decision.
         const snapshot = normalizeSessionSnapshot(payload);
 
+        const identity = getIdentity();
+        if ((snapshot.roomId && snapshot.roomId !== identity.roomId)
+            || (snapshot.playerId && snapshot.playerId !== identity.playerId)
+            || (snapshot.gameId && identity.gameId && snapshot.gameId !== identity.gameId)) {
+            recoveryOverlayRef.current = false;
+            setStatus(RECOVERY_UI_STATUS.IDLE);
+            return;
+        }
+
         const targetPage = resolveGameplayRecoveryPage(snapshot);
+
+        if (snapshot.gameId) setIdentity({ gameId: snapshot.gameId });
 
         page6LifecycleDiag("RECOVERY_DECISION", {
             roomId: snapshot.roomId ?? getIdentity().roomId,
@@ -278,11 +326,16 @@ export function RecoveryExperienceProvider({
         // use terminal recovery failure → Page1 (not timer-based WELCOME).
         if (!targetPage) {
 
-            setStatus(RECOVERY_UI_STATUS.FAILED);
+            if (currentPage === APP_PAGES.RESULT) {
+                setStatus(RECOVERY_UI_STATUS.IDLE);
+                return;
+            }
+
+            setStatus(showOverlay ? RECOVERY_UI_STATUS.FAILED : RECOVERY_UI_STATUS.IDLE);
 
             recoveryTrace("overlay FAILED", getIdentity());
 
-            scheduleOverlayHide();
+            if (showOverlay) scheduleOverlayHide();
 
             return;
 
@@ -386,7 +439,9 @@ export function RecoveryExperienceProvider({
 
         }
 
-        setStatus(RECOVERY_UI_STATUS.COMPLETE);
+        if (showOverlay) {
+            setStatus(RECOVERY_UI_STATUS.COMPLETE);
+        }
 
         recoveryTrace(
             `overlay COMPLETE | navigatedPage=${resolvedPage}`
@@ -396,7 +451,7 @@ export function RecoveryExperienceProvider({
 
         devLog("Recovery complete");
 
-        scheduleOverlayHide();
+        if (showOverlay) scheduleOverlayHide();
 
     }, [
         applyRecoverySnapshot,
@@ -404,6 +459,7 @@ export function RecoveryExperienceProvider({
         onNavigate,
         scheduleOverlayHide,
         getIdentity,
+        setIdentity,
         destroySession,
         clearIdentity
     ]);
@@ -412,7 +468,14 @@ export function RecoveryExperienceProvider({
 
         recoveryInFlightRef.current = false;
 
-        setStatus(RECOVERY_UI_STATUS.FAILED);
+        if (recoveryRequestTimerRef.current) {
+            clearTimeout(recoveryRequestTimerRef.current);
+            recoveryRequestTimerRef.current = null;
+        }
+
+        const showOverlay = recoveryOverlayRef.current;
+        recoveryOverlayRef.current = false;
+        setStatus(showOverlay ? RECOVERY_UI_STATUS.FAILED : RECOVERY_UI_STATUS.IDLE);
 
         recoveryTrace("SESSION_RECOVERY_FAILED received", {
             roomId: payload?.roomId ?? getIdentity().roomId,
@@ -426,13 +489,19 @@ export function RecoveryExperienceProvider({
 
         const reason = payload?.reason ?? payload?.message ?? "unknown";
 
+        if (currentPage === APP_PAGES.RESULT) {
+            setStatus(RECOVERY_UI_STATUS.IDLE);
+            recoveryTrace(`terminal recovery failure ignored on preserved Page6 (${reason})`, getIdentity());
+            return;
+        }
+
         devLog(`Recovery failed: ${reason}`);
 
         // R6.17 — Client never decides room death. Only terminal server reasons
         // may wipe session / identity / navigate to Page1.
         if (!isTerminalRecoveryFailure(payload)) {
 
-            scheduleOverlayHide();
+            if (showOverlay) scheduleOverlayHide();
 
             return;
 
@@ -444,9 +513,10 @@ export function RecoveryExperienceProvider({
 
         resetToWelcomeRef.current?.("terminal_recovery_failure");
 
-        scheduleOverlayHide();
+        if (showOverlay) scheduleOverlayHide();
 
     }, [
+        currentPage,
         destroySession,
         clearIdentity,
         scheduleOverlayHide,
@@ -518,11 +588,7 @@ export function RecoveryExperienceProvider({
 
             }
 
-            hadDisconnectRef.current = true;
-
-            setStatus(RECOVERY_UI_STATUS.RECONNECTING);
-
-            requestSessionRecovery();
+            requestSessionRecovery({ showOverlay: false });
 
         }
 
@@ -581,7 +647,7 @@ export function RecoveryExperienceProvider({
 
             devLog(`Wake-up recovery (${sourceEvent})`);
 
-            requestSessionRecovery();
+            requestSessionRecovery({ showOverlay: true });
 
         }
 
@@ -680,6 +746,8 @@ export function RecoveryExperienceProvider({
 
         clearOverlayTimer();
 
+        if (recoveryRequestTimerRef.current) clearTimeout(recoveryRequestTimerRef.current);
+
     }, [clearOverlayTimer]);
 
     useEffect(() => {
@@ -757,6 +825,7 @@ export function RecoveryExperienceProvider({
 
                 if (
                     isGameplayPage(currentPage)
+                    || isSetupRecoveryPage(currentPage)
                     || pendingGameplaySnapshotRef.current !== null
                     || (
                         currentPage === APP_PAGES.WELCOME
