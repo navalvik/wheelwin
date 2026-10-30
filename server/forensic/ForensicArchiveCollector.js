@@ -165,10 +165,11 @@ export class ForensicArchiveCollector {
             inlineContent: JSON.stringify({
                 schemaVersion: 1,
                 roomId,
+                gameId: gameId ?? null,
                 gameMode: roomMode,
                 displayMode: roomMode === "NO_FRIENDS"
-                    ? "НЕТ ДРУЗЕЙ"
-                    : roomMode === "FRIENDS" ? "ЕСТЬ ДРУЗЬЯ" : "UNKNOWN"
+                    ? "I HAVE NO FRIENDS"
+                    : roomMode === "FRIENDS" ? "I HAVE FRIENDS" : "UNKNOWN"
             }, null, 2) + "\n",
             zipPath: "session/game-mode.json"
         });
