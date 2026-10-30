@@ -552,8 +552,9 @@ export class RoomPaymentObservationService {
 
         const observations = [];
 
-        /** paymentReference -> Set<transactionId> of transfers matching it. */
-        const matchedTransactionIdsByReference = new Map();
+        // Keep all observed transfers for receipt accounting, but only one
+        // eligible payment per payer/intent. Other transfers are excess funds.
+        const matchingTransfersByReference = new Map();
 
         for (const record of observation.records) {
 
@@ -603,46 +604,46 @@ export class RoomPaymentObservationService {
 
             if (entry.status === "matched") {
 
-                const transactionIds = matchedTransactionIdsByReference
-                    .get(entry.paymentReference) ?? new Set();
+                const group = matchingTransfersByReference
+                    .get(entry.paymentReference) ?? [];
 
-                transactionIds.add(entry.transactionId);
+                group.push({ transactionId: entry.transactionId,
+                    transactionTime: transfer.transactionTime });
 
-                matchedTransactionIdsByReference.set(entry.paymentReference, transactionIds);
+                matchingTransfersByReference.set(entry.paymentReference, group);
 
             }
 
         }
 
-        // Mirror of the Phase 2 ambiguity rule: an intent must not be
-        // attributed to more than one distinct transaction either. Two
-        // different transactions matching the same payment reference (for
-        // example a duplicated transfer comment) are reported as ambiguous —
-        // never resolved by guessing which one is "the" payment.
-        const finalObservations = observations.map((entry) => {
-
-            if (entry.status !== "matched") {
-
+        // The earliest valid, uniquely attributable transaction is the
+        // player's stake. Later transfers must remain visible to the receipt
+        // reconciler for refunds, but cannot invalidate that first payment.
+        // Toncenter may return newest-first; choose by chain time, not API
+        // ordering. A hash tie-breaker gives deterministic behavior for
+        // transactions in the same block second.
+        const primaryByReference = new Map();
+        for (const [reference, group] of matchingTransfersByReference) {
+            const first = [...group].sort((a, b) =>
+                a.transactionTime - b.transactionTime
+                || a.transactionId.localeCompare(b.transactionId)
+            )[0];
+            primaryByReference.set(reference, first.transactionId);
+        }
+        const finalObservations = observations.map(entry => {
+            if (entry.status !== "matched"
+                || primaryByReference.get(entry.paymentReference) === entry.transactionId) {
                 return entry;
-
             }
-
-            const transactionIds = matchedTransactionIdsByReference
-                .get(entry.paymentReference) ?? new Set();
-
-            if (transactionIds.size <= 1) {
-
-                return entry;
-
-            }
-
+            // A surplus receipt has no claim on the stake intent. The
+            // immutable transfer is still in result.transfers and captured
+            // by financial receipt accounting, including refund obligations.
             return Object.freeze({
                 ...entry,
-                status: "ambiguous",
+                status: "excess-payment",
                 paymentReference: null,
-                candidateTransactionIds: Object.freeze([...transactionIds])
+                excessReason: "ADDITIONAL_PAYMENT_FOR_PLAYER"
             });
-
         });
 
         const result = Object.freeze({
