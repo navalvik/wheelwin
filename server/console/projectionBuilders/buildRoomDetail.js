@@ -111,6 +111,9 @@ export function buildRoomDetail(roomId, {
             status: room.status,
             maxPlayers: room.maxPlayers,
             createdAt: room.createdAt,
+            gameMode: room.gameMode === "FRIENDS" || room.gameMode === "NO_FRIENDS"
+                ? room.gameMode
+                : null,
             playerCount: playerIds.length
         }),
         players: Object.freeze(players),

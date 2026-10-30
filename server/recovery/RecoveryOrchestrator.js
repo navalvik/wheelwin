@@ -1560,7 +1560,10 @@ export class RecoveryOrchestrator {
             createdAt: null,
             status: ROOM_STATUS.FULL,
             maxPlayers: EXPECTED_PLAYER_COUNT,
-            players: [...orderedIds]
+            players: [...orderedIds],
+            gameMode: payload.gameMode === "FRIENDS" || payload.gameMode === "NO_FRIENDS"
+                ? payload.gameMode
+                : null
         });
 
         // Players — preserve persisted playerId/playerIndex and required

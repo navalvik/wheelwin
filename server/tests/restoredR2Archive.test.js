@@ -334,3 +334,40 @@ for (const mode of ["FRIENDS", "NO_FRIENDS"]) {
         }
     });
 }
+
+test("late session-history initialization reads recovered room mode before Page6 finalization", async () => {
+    const f = fixture();
+    const subscriptions = new Map();
+    const bus = {
+        subscribe(type, handler) {
+            if (!subscriptions.has(type)) subscriptions.set(type, new Set());
+            subscriptions.get(type).add(handler);
+        },
+        unsubscribe(type, handler) { subscriptions.get(type)?.delete(handler); },
+        emit({ type, payload }) {
+            for (const handler of subscriptions.get(type) ?? []) handler({ type, payload });
+        }
+    };
+    const archive = new SessionHistoryArchiveManager();
+    const uploader = new MockForensicArchiveUploader();
+    try {
+        archive.initialize({
+            eventBus: bus,
+            directory: f.config.sessionHistoryDir,
+            roomManager: { getRoom: id => id === "Abc"
+                ? { roomId: "Abc", gameMode: "NO_FRIENDS", players: [] }
+                : null }
+        });
+        // Recovery ran before this manager initialized and emitted no ROOM_CREATED.
+        bus.emit({ type: EVENT_TYPES.OPEN_PAGE6, payload: { roomId: "Abc", gameId: "game-1" } });
+        const service = new ForensicArchiveService({ config: f.config, uploader, sessionHistoryArchive: archive });
+        await service.ensureArchivedAndUploaded({ roomId: "Abc", gameId: "game-1", reason: "game_completed" });
+        const mode = JSON.parse(extractZipEntry(uploader.uploads[0].bytes, "session/game-mode.json"));
+        assert.equal(mode.gameMode, "NO_FRIENDS");
+        assert.equal(mode.displayMode, "I HAVE NO FRIENDS");
+        assert.equal(uploader.objects.size, 1);
+    } finally {
+        archive.shutdown();
+        f.cleanup();
+    }
+});

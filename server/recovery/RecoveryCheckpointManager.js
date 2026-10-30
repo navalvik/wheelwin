@@ -497,6 +497,13 @@ export class RecoveryCheckpointManager {
             roomId,
             gameId,
 
+            // Preserve the selected entry mode as authoritative recovery data.
+            // Missing/invalid values remain unknown; never infer from gameplay.
+            gameMode: (() => {
+                const mode = this._safeCall(() => this._roomManager?.getRoom?.(roomId)?.gameMode ?? null);
+                return mode === "FRIENDS" || mode === "NO_FRIENDS" ? mode : null;
+            })(),
+
             configuration,
             configurationHash,
             configurationVersion: CONFIGURATION_VERSION,

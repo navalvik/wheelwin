@@ -1760,6 +1760,7 @@ class WheelWinApplication {
         this._sessionHistoryArchive.initialize({
             eventBus: this._eventBus,
             projectionService: this._consoleProjectionService,
+            roomManager: this._managers.roomManager,
             roomLobbyBridge: this._roomLobbyBridge,
             playerManager: this._managers.playerManager,
             loggingManager: LoggingManager.getInstance(),
