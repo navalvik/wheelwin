@@ -230,7 +230,7 @@ export class RoomManager {
             maxPlayers: room.maxPlayers,
             playerCount: room.players.length,
             gameMode: room.gameMode,
-            displayMode: room.gameMode === "NO_FRIENDS" ? "НЕТ ДРУЗЕЙ" : "ЕСТЬ ДРУЗЬЯ"
+            displayMode: room.gameMode === "NO_FRIENDS" ? "I HAVE NO FRIENDS" : "I HAVE FRIENDS"
         });
 
         room.status = ROOM_STATUS.WAITING_FOR_PLAYERS;
