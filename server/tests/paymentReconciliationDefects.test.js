@@ -322,7 +322,8 @@ function financeWith(ledger) {
             paymentReference:`ref-${p}`, transactionId:`tx-${p}`,
             transactionTime:1000, amountAtomic:1_000_000_000
         })),
-        unresolvedReceipts:[], refunds:[], ledger, outstandingObligations:0
+        unresolvedReceipts:[], refunds:[], ledger, outstandingObligations:0,
+        outcome:{ kind:"PAYOUT", roomId:"QfDS-regression" }, closedRoom:null
     };
 }
 
@@ -338,12 +339,15 @@ test("final game: two settled payouts linked by payoutId are not an investigatio
     assert.equal(recovery.requiresReconciliation,false);
     assert.equal(report.requiresInvestigation,false);
     assert.equal(report.paymentCounts.settled,3);
+    assert.equal(report.completionCause.code,"PAYOUT_COMPLETED");
+    assert.equal(report.closeEvidence.closedRoom,null,"do not fabricate closed room");
 });
 
 test("winner settled while owner remains unpaid still requires reconciliation", () => {
     const {recovery,report}=reportFor(financeWith([plan,...obligations,settlements[0]]));
     assert.equal(recovery.requiresReconciliation,true);
     assert.equal(report.requiresInvestigation,true);
+    assert.notEqual(report.completionCause.code,"PAYOUT_COMPLETED");
 });
 
 test("unrelated payout settlement cannot close a plan", () => {
@@ -368,3 +372,30 @@ test("unresolved incoming transfer still requires investigation after both payou
     assert.equal(report.requiresInvestigation,true);
 });
 }
+
+
+test("su8z: completed winner and owner payouts do not invent a closedRoom", () => {
+    const payoutId="payout-su8z-regression";
+    const transfers=[
+        {recipientRole:"WINNER",recipientId:"winner-su8z"},
+        {recipientRole:"OWNER",recipientId:"WheelWin"}
+    ];
+    const plan={kind:"PAYOUT_PLAN",entryId:"plan-entry-su8z",
+        metadata:{payoutId,plan:{payoutId,transfers}}};
+    const settlements=transfers.map(t=>({kind:"PAYOUT_SETTLEMENT",
+        metadata:{payoutId,role:t.recipientRole,recipientId:t.recipientId,
+            transactionId:"finalized-"+t.recipientRole}}));
+    const f=financeWith([plan,...settlements]);
+    f.gameId="game-su8z";f.roomId="su8z";f.outcome={roomId:"su8z",kind:"PAYOUT"};
+    const {recovery,report}=reportFor(f);
+    assert.equal(recovery.requiresReconciliation,false);
+    assert.equal(report.requiresInvestigation,false);
+    assert.equal(report.completionCause.code,"PAYOUT_COMPLETED");
+    assert.equal(report.closeEvidence.closedRoom,null);
+    assert.equal(report.closeReason,null);
+});
+
+test("payout outcome with no payout plan is not labelled completed", () => {
+    const {report}=reportFor(financeWith([]));
+    assert.notEqual(report.completionCause.code,"PAYOUT_COMPLETED");
+});
