@@ -585,7 +585,10 @@ export class RoomPaymentObservationService {
                     const decision = assessTonPaymentSettlementEvidence(snapshot, {
                         transactionId: transfer.providerTransactionIdentity.transactionId,
                         accountId: transfer.providerTransactionIdentity.accountId,
-                        nowMs: now
+                        // Evidence is obtained AFTER the transfer snapshot.
+                        // Assess at verification time, never the earlier
+                        // observation start (which made fresh proof look future-dated).
+                        nowMs: this._nowProvider()
                     });
                     if (decision.authorized) {
                         evidenceByTransactionId.set(transfer.transactionId, snapshot);
