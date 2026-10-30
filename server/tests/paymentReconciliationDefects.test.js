@@ -371,8 +371,6 @@ test("unresolved incoming transfer still requires investigation after both payou
     assert.equal(recovery.requiresReconciliation,true);
     assert.equal(report.requiresInvestigation,true);
 });
-}
-
 
 test("su8z: completed winner and owner payouts do not invent a closedRoom", () => {
     const payoutId="payout-su8z-regression";
@@ -399,3 +397,4 @@ test("payout outcome with no payout plan is not labelled completed", () => {
     const {report}=reportFor(financeWith([]));
     assert.notEqual(report.completionCause.code,"PAYOUT_COMPLETED");
 });
+}
