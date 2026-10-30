@@ -1,6 +1,7 @@
 .noFriendsPage{box-sizing:border-box;min-height:100%;padding:24px;display:flex;justify-content:center;align-items:flex-start;background:#f4f6f8}
 .noFriendsPage--entry{align-items:center;gap:16px;flex-direction:row}
 .noFriendsChoice{width:min(46%,320px);min-height:86px;border:2px solid #2777cf;border-radius:12px;background:#176fc4;color:#fff;font-size:clamp(15px,3vw,22px);font-weight:700;cursor:pointer}
+.noFriendsChoice--friends{border-color:#11652f;background:#16803d}
 .noFriendsForm{box-sizing:border-box;width:min(100%,560px);padding:20px;display:grid;gap:16px;border:2px solid #2d83df;border-radius:14px;background:#fff}
 .noFriendsForm label{display:grid;gap:7px;font-size:14px;font-weight:700;color:#164777}
 .noFriendsForm input,.noFriendsForm select{box-sizing:border-box;width:100%;min-height:44px;padding:8px 11px;border:1px solid #9cbadd;border-radius:8px;background:#fff;color:#111;font-size:16px}
