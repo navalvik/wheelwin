@@ -1343,8 +1343,8 @@ function checkRoom(service, overrides = {}) {
     );
 
     check(
-        binaryResult.observations[0].status === "no-match-observed",
-        "a transfer without a reference must never match by guessing"
+        binaryResult.observations[0].status === "matched",
+        "a unique native Testnet payer can match without a decodable memo"
     );
 
     // 7d. An undecoded body likewise yields no reference.
@@ -1371,8 +1371,8 @@ function checkRoom(service, overrides = {}) {
 
     check(
         undecodedResult.transfers[0].paymentReference === null
-            && undecodedResult.observations[0].status === "no-match-observed",
-        "an undecoded message body must not produce a payment reference"
+            && undecodedResult.observations[0].status === "matched",
+        "an undecoded body remains reference-free but a unique payer can still match"
     );
 
     // 7e. Bounded windows: a full page reports a potentially incomplete window.
