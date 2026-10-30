@@ -63,7 +63,7 @@
  */
 
 import { PaymentValidationError } from "../PaymentErrors.js";
-import { formatPage4ObservedTransferLog } from "../page4PaymentDiagnostics.js";
+import { formatPage4ObservedTransferLog } from "../walletAddressDiagnostics.js";
 
 import { PaymentIntent } from "../PaymentIntent.js";
 
