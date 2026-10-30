@@ -1090,7 +1090,10 @@ export class IncomingPaymentSettlementCoordinator {
                 const line = formatPage4ObservedTransferLog({
                     roomId: room, walletId, transfer, decision
                 });
-                if (line) this._logInfo(line);
+                if (line) {
+                    try { this._logInfo(line); }
+                    catch { /* Logging must never change settlement outcome. */ }
+                }
             }
         }
 
