@@ -79,13 +79,13 @@ export default function Page3VerifyPlayers({ onNavigate }) {
         { verifyCompleted }
     );
 
-    const [waitingForVerify, setWaitingForVerify] = useState(false);
+    const [waitingForVerify, setWaitingForVerify] = useState(identity?.verifyConfirmed === true);
 
-    const [payerWalletAddress, setPayerWalletAddress] = useState("");
+    const [payerWalletAddress, setPayerWalletAddress] = useState(identity?.wallet ?? "");
 
     const payerWalletValid = /^(?:0:[0-9a-fA-F]{64}|[A-Za-z0-9_-]{48})$/.test(payerWalletAddress.trim());
 
-    const [waitingForContinue, setWaitingForContinue] = useState(false);
+    const [waitingForContinue, setWaitingForContinue] = useState(identity?.verifyContinued === true);
 
     const playersReady = hasAuthoritativePlayers(authoritative.players);
 
@@ -110,6 +110,29 @@ export default function Page3VerifyPlayers({ onNavigate }) {
     const emitSeatKey = verifyNextSeatKey(roomId, emitPlayerId);
 
     const autoVerifyNextInFlightRef = useRef(false);
+
+    useEffect(() => {
+        if (identity?.verifyContinued && emitSeatKey) {
+            verifyNextEmittedSeats.add(emitSeatKey);
+        }
+    }, [identity?.verifyContinued, emitSeatKey]);
+
+    useEffect(() => {
+        const onRoomRecoverySync = (payload) => {
+            if (!payload?.playerId || payload.playerId !== identity?.playerId) return;
+            if (payload.profile?.wallet) {
+                setPayerWalletAddress(payload.profile.wallet);
+            }
+            if (payload.verifyConfirmed) setWaitingForVerify(true);
+            if (payload.verifyContinued) {
+                const seatKey = verifyNextSeatKey(payload.roomId, payload.playerId);
+                if (seatKey) verifyNextEmittedSeats.add(seatKey);
+                setWaitingForContinue(true);
+            }
+        };
+        socket.on("ROOM_RECOVERY_SYNC", onRoomRecoverySync);
+        return () => socket.off("ROOM_RECOVERY_SYNC", onRoomRecoverySync);
+    }, [identity?.playerId]);
 
     useEffect(() => {
 

@@ -69,6 +69,103 @@ export function isGameplayPage(page) {
 
 }
 
+const ROOM_RECOVERY_STAGE_PAGES = Object.freeze({
+    LOBBY: APP_PAGES.LOBBY,
+    PLAYER_SETUP: APP_PAGES.PLAYER_SETUP,
+    MATRIX: APP_PAGES.MATRIX,
+    VERIFY: APP_PAGES.VERIFY,
+    PAYMENT: APP_PAGES.PAYMENT,
+    NO_FRIENDS_OPTIONS: APP_PAGES.NO_FRIENDS_OPTIONS
+});
+
+export function resolveRoomRecoveryPage(stage) {
+
+    return ROOM_RECOVERY_STAGE_PAGES[stage] ?? null;
+
+}
+
+export function shouldAcceptRoomRecoverySync({
+    payload,
+    identity,
+    currentPage,
+    recoveryInFlight = false
+} = {}) {
+
+    if (!payload?.roomId || !payload?.playerId) return false;
+
+    // An in-flight recovery must never replace an already bound player seat
+    // with a different room/player, including on Welcome or matchmaking pages.
+    if (identity?.roomId && identity.roomId !== payload.roomId) return false;
+    if (identity?.playerId && identity.playerId !== payload.playerId) return false;
+
+    if (identity?.roomId && identity?.playerId) return true;
+
+    // The server may recover a Telegram-authenticated seat whose initial
+    // room assignment event was lost before the client stored its identity.
+    return recoveryInFlight === true
+        || currentPage === APP_PAGES.WELCOME
+        || currentPage === APP_PAGES.NO_FRIENDS_QUEUE;
+
+}
+
+/**
+ * Merge an authenticated room recovery without discarding the active
+ * bearer credential. Normal syncs send no replacement credential; only a
+ * newly issued nonempty credential may rotate it.
+ */
+export function buildRoomRecoveryIdentityUpdate(payload, previousIdentity = {}) {
+
+    if (!payload?.roomId || !payload?.playerId) return null;
+
+    const sameSeat = previousIdentity?.roomId === payload.roomId
+        && previousIdentity?.playerId === payload.playerId;
+
+    const issuedCredential = typeof payload.recoveryCredential === "string"
+        && payload.recoveryCredential.length > 0
+        ? payload.recoveryCredential
+        : null;
+
+    return {
+        roomId: payload.roomId,
+        playerId: payload.playerId,
+        gameId: payload.gameId ?? (sameSeat ? previousIdentity?.gameId : null) ?? null,
+        recoveryCredential: issuedCredential
+            ?? (sameSeat ? previousIdentity?.recoveryCredential : null)
+            ?? null,
+        gameMode: payload.gameMode ?? null,
+        network: payload.network ?? null,
+        ...(payload.profile ?? {}),
+        optionsReady: payload.optionsReady === true,
+        readyCount: payload.readyCount ?? 0,
+        verifyConfirmed: payload.verifyConfirmed === true,
+        verifyContinued: payload.verifyContinued === true,
+        matrixStatus: payload.matrixStatus ?? null
+    };
+
+}
+
+/** Block stale lower-phase navigation after the authoritative phase advanced. */
+export function shouldBlockNavigationRegression(currentPage, targetPage) {
+
+    if (currentPage === APP_PAGES.RESULT) {
+        return targetPage !== APP_PAGES.RESULT;
+    }
+
+    if (currentPage === APP_PAGES.GAMEPLAY) {
+        return targetPage !== APP_PAGES.GAMEPLAY
+            && targetPage !== APP_PAGES.RESULT;
+    }
+
+    return false;
+
+}
+
+export function shouldPreservePage6OnRecoveryFailure(currentPage) {
+
+    return currentPage === APP_PAGES.RESULT;
+
+}
+
 /**
  * Pre-game recovery is valid only while an authoritative Setup Session timer
  * is still active (expiresAt in the future). Local timers never decide this.
@@ -97,7 +194,7 @@ export function canRecoverPreGame(session, setup = null) {
  * Expiry no longer navigates Page6; FINISH is the client exit action.
  * Destroyed sessions still use terminal recovery failure → Page1.
  */
-export function resolveGameplayRecoveryPage(snapshot, _now = Date.now()) {
+export function resolveGameplayRecoveryPage(snapshot) {
 
     if (!snapshot) {
 

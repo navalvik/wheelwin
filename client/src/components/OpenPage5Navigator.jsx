@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
+import {
+    resolveOpenPage5Authorization
+} from "../game/sessionRecovery/pageNavigationPolicy";
 
 import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
 
@@ -17,6 +20,7 @@ import socket from "../socket/socket";
  * SESSION_FINISHED). Never navigate on local RESULT / wheel / timeout.
  */
 export default function OpenPage5Navigator({
+    currentPage,
     onNavigate,
     onSessionFinished,
     onArmNewGameplaySession
@@ -28,11 +32,21 @@ export default function OpenPage5Navigator({
 
     const onArmNewGameplaySessionRef = useRef(onArmNewGameplaySession);
 
-    const { identity } = usePlayerIdentity();
+    const { identity, setIdentity } = usePlayerIdentity();
 
     const identityRef = useRef(identity);
 
     const openedPage6Ref = useRef(false);
+
+    const openedPage5GameRef = useRef(null);
+
+    const authorizedNewGameRef = useRef(null);
+
+    const currentPageRef = useRef(currentPage);
+
+    useEffect(() => {
+        currentPageRef.current = currentPage;
+    }, [currentPage]);
 
     useEffect(() => {
 
@@ -68,6 +82,21 @@ export default function OpenPage5Navigator({
         }
 
         return {
+            onGameStartAuthorized: (payload) => {
+
+                const identityNow = identityRef.current;
+                if (!payload?.roomId || payload.roomId !== identityNow?.roomId
+                    || !payload?.gameId) return;
+
+                authorizedNewGameRef.current = {
+                    gameId: payload.gameId,
+                    previousGameId: identityNow.gameId ?? null
+                };
+
+                identityRef.current = { ...identityNow, gameId: payload.gameId };
+                setIdentity({ gameId: payload.gameId });
+
+            },
             onPaymentStageReady: (payload) => {
 
                 const roomId = payload?.roomId;
@@ -81,7 +110,33 @@ export default function OpenPage5Navigator({
                 onNavigateRef.current?.(APP_PAGES.PAYMENT);
 
             },
-            onOpenPage5: () => {
+            onOpenPage5: (payload) => {
+
+                const authorization = authorizedNewGameRef.current;
+                const decision = resolveOpenPage5Authorization({
+                    payload,
+                    identity: identityRef.current,
+                    currentPage: currentPageRef.current,
+                    lastOpenedGameKey: openedPage5GameRef.current,
+                    authorizedGame: authorization
+                });
+                if (!decision) return;
+
+                const { gameId: gameKey, previousGameId, authoritativeNewGame } = decision;
+
+                if (gameKey) {
+                    openedPage5GameRef.current = gameKey;
+                }
+
+                if (payload?.gameId && payload.gameId !== identityRef.current?.gameId) {
+                    // The server event is authoritative and binds the live game
+                    // identity for recovery and terminal-result storage.
+                    identityRef.current = {
+                        ...identityRef.current,
+                        gameId: payload.gameId
+                    };
+                    setIdentity({ gameId: payload.gameId });
+                }
 
                 // New gameplay session may open Page6 again later.
                 openedPage6Ref.current = false;
@@ -101,10 +156,30 @@ export default function OpenPage5Navigator({
                     socketConnected: socket.connected === true
                 });
 
-                onNavigateRef.current?.(APP_PAGES.GAMEPLAY);
+                authorizedNewGameRef.current = null;
+
+                onNavigateRef.current?.(APP_PAGES.GAMEPLAY, {
+                    authoritativeNewGame,
+                    previousGameId,
+                    gameId: gameKey
+                });
+
+                return { gameId: gameKey };
 
             },
             onOpenPage6: (payload) => {
+
+                if ((payload?.roomId && identityRef.current?.roomId
+                        && payload.roomId !== identityRef.current.roomId)
+                    || (payload?.gameId && identityRef.current?.gameId
+                        && payload.gameId !== identityRef.current.gameId)) {
+                    return;
+                }
+
+                if (payload?.gameId && !identityRef.current?.gameId) {
+                    identityRef.current = { ...identityRef.current, gameId: payload.gameId };
+                    setIdentity({ gameId: payload.gameId });
+                }
 
                 // R5.19 — navigate exactly once for the live end-of-game path.
                 if (openedPage6Ref.current) {

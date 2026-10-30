@@ -10,7 +10,8 @@ import {
     RECONNECT_CONNECT_ACTIONS,
     RECONNECTING_MAX_MS,
     resolvePostReconnectAction,
-    shouldResetRecoveryInFlight
+    shouldResetRecoveryInFlight,
+    shouldShowReconnectOverlay
 } from "./recoveryReconnectPolicy.js";
 
 function assert(condition, message) {
@@ -32,6 +33,13 @@ assert(
     RECONNECTING_MAX_MS > 5_000,
     "R17.8F reconnect timeout must exceed COMPLETE overlay hard cap"
 );
+
+assert(!shouldShowReconnectOverlay({ socketConnected: true, hadDisconnect: false }),
+    "healthy wallet return does not show blocking reconnect overlay");
+assert(shouldShowReconnectOverlay({ socketConnected: true, hadDisconnect: true }),
+    "a real disconnect remains visible while authenticated recovery starts");
+assert(shouldShowReconnectOverlay({ socketConnected: false, hadDisconnect: false }),
+    "offline transport may show reconnect overlay");
 
 // ---------------------------------------------------------------------------
 // Test A — RoomLobby without identity (before room creation)

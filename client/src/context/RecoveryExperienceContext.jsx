@@ -17,13 +17,18 @@ import {
     isGameplayPage,
     isSetupRecoveryPage,
     isTerminalRecoveryFailure,
-    resolveGameplayRecoveryPage
+    resolveGameplayRecoveryPage,
+    shouldPreservePage6OnRecoveryFailure,
+    resolveRoomRecoveryPage,
+    shouldAcceptRoomRecoverySync,
+    buildRoomRecoveryIdentityUpdate
 } from "../game/sessionRecovery/recoveryFlow";
 
 import {
     RECONNECT_CONNECT_ACTIONS,
     RECONNECTING_MAX_MS,
     resolvePostReconnectAction,
+    applyRecoveryRequestPresentation,
     shouldResetRecoveryInFlight
 } from "../game/sessionRecovery/recoveryReconnectPolicy";
 
@@ -37,6 +42,8 @@ import { logTerminalNav } from "../game/session/gameplayTerminal";
 
 import { RECOVERY_SOCKET_EVENTS } from "../game/sessionRecovery/sessionRecoveryEvents";
 
+import { subscribeRecoveryWakeEvents } from "../game/sessionRecovery/recoveryWakeEvents";
+
 import {
     INCOMING_SOCKET_EVENTS,
     SOCKET_MESSAGE_CHANNEL
@@ -49,7 +56,6 @@ import { useGameResultRecovery } from "./GameResultContext";
 import { useGameSession } from "./GameSessionContext";
 
 import {
-    readStoredRecoveryPage,
     usePlayerIdentity,
     writeStoredRecoveryPage
 } from "./PlayerIdentityContext";
@@ -102,7 +108,7 @@ export function RecoveryExperienceProvider({
 
     const { destroySession } = useGameSession();
 
-    const { getIdentity, clearIdentity } = usePlayerIdentity();
+    const { getIdentity, clearIdentity, setIdentity } = usePlayerIdentity();
 
     const [status, setStatus] = useState(RECOVERY_UI_STATUS.IDLE);
 
@@ -112,6 +118,10 @@ export function RecoveryExperienceProvider({
 
     const hadDisconnectRef = useRef(false);
 
+    const recoveryOverlayRef = useRef(false);
+
+    const recoveryRequestTimerRef = useRef(null);
+
     // Timer ids live in refs so hide scheduling survives socket-effect
     // re-subscriptions (unstable onNavigate / session updates after restore).
     const hideOverlayTimerRef = useRef(null);
@@ -120,9 +130,10 @@ export function RecoveryExperienceProvider({
 
     const sessionGenerationRef = useRef(sessionGeneration);
 
-    resetToWelcomeRef.current = resetToWelcome;
-
-    sessionGenerationRef.current = sessionGeneration;
+    useEffect(() => {
+        resetToWelcomeRef.current = resetToWelcome;
+        sessionGenerationRef.current = sessionGeneration;
+    }, [resetToWelcome, sessionGeneration]);
 
     const clearOverlayTimer = useCallback(() => {
 
@@ -162,19 +173,36 @@ export function RecoveryExperienceProvider({
      * R6.1 — Authoritative recovery for Setup Session and gameplay.
      * Sends a playerId/roomId claim used only as a server stash lookup key.
      */
-    const requestSessionRecovery = useCallback(() => {
+    const requestSessionRecovery = useCallback(({ showOverlay = null } = {}) => {
 
         const identity = getIdentity();
 
-        if (!hasGameplayIdentity(identity) || recoveryInFlightRef.current) {
+        if (recoveryInFlightRef.current) {
 
             return;
 
         }
 
+        clearOverlayTimer();
         recoveryInFlightRef.current = true;
 
-        setStatus(RECOVERY_UI_STATUS.RECONNECTING);
+        recoveryOverlayRef.current = applyRecoveryRequestPresentation({
+            showOverlay,
+            socketConnected: socket.connected === true,
+            hadDisconnect: hadDisconnectRef.current,
+            reconnectingStatus: RECOVERY_UI_STATUS.RECONNECTING,
+            setStatus
+        });
+
+        if (recoveryRequestTimerRef.current) clearTimeout(recoveryRequestTimerRef.current);
+        recoveryRequestTimerRef.current = setTimeout(() => {
+            recoveryRequestTimerRef.current = null;
+            recoveryInFlightRef.current = false;
+            recoveryOverlayRef.current = false;
+            clearOverlayTimer();
+            setStatus(RECOVERY_UI_STATUS.FAILED);
+            scheduleOverlayHide();
+        }, RECONNECTING_MAX_MS);
 
         devLog("Recovery requested");
 
@@ -182,9 +210,11 @@ export function RecoveryExperienceProvider({
             type: RECOVERY_SOCKET_EVENTS.SESSION_RECOVERY_REQUEST,
             payload: {
                 timestamp: Date.now(),
-                playerId: identity.playerId,
-                roomId: identity.roomId,
-                recoveryCredential: identity.recoveryCredential ?? null
+                ...(hasGameplayIdentity(identity) ? {
+                    playerId: identity.playerId,
+                    roomId: identity.roomId,
+                    recoveryCredential: identity.recoveryCredential ?? null
+                } : {})
             }
         });
 
@@ -193,7 +223,7 @@ export function RecoveryExperienceProvider({
             playerId: identity.playerId
         });
 
-    }, [getIdentity]);
+    }, [clearOverlayTimer, getIdentity, scheduleOverlayHide]);
 
     const handleSetupRecoveryComplete = useCallback(() => {
 
@@ -205,33 +235,66 @@ export function RecoveryExperienceProvider({
 
         recoveryInFlightRef.current = false;
 
-        const restoredPage = readStoredRecoveryPage() ?? APP_PAGES.LOBBY;
-
-        if (
-            restoredPage
-            && isSetupRecoveryPage(restoredPage)
-            && restoredPage !== currentPage
-        ) {
-
-            onNavigate(restoredPage);
-
+        if (recoveryRequestTimerRef.current) {
+            clearTimeout(recoveryRequestTimerRef.current);
+            recoveryRequestTimerRef.current = null;
         }
 
-        setStatus(RECOVERY_UI_STATUS.COMPLETE);
+        const showOverlay = recoveryOverlayRef.current;
+        recoveryOverlayRef.current = false;
+
+        setStatus(showOverlay ? RECOVERY_UI_STATUS.COMPLETE : RECOVERY_UI_STATUS.IDLE);
 
         recoveryTrace("overlay COMPLETE", getIdentity());
 
-        devLog(`Setup Session restored on page ${restoredPage ?? currentPage}`);
+        devLog("Setup session restored; awaiting authoritative room stage");
 
-        scheduleOverlayHide();
+        if (showOverlay) scheduleOverlayHide();
 
-    }, [currentPage, onNavigate, scheduleOverlayHide, getIdentity]);
+    }, [scheduleOverlayHide, getIdentity]);
+
+    const handleRoomRecoverySync = useCallback((payload) => {
+
+        const previousIdentity = getIdentity();
+        if (!shouldAcceptRoomRecoverySync({
+            payload,
+            identity: previousIdentity,
+            currentPage,
+            recoveryInFlight: recoveryInFlightRef.current
+        })) return;
+
+        recoveryInFlightRef.current = false;
+        if (recoveryRequestTimerRef.current) {
+            clearTimeout(recoveryRequestTimerRef.current);
+            recoveryRequestTimerRef.current = null;
+        }
+        const showOverlay = recoveryOverlayRef.current;
+        recoveryOverlayRef.current = false;
+
+        setIdentity(buildRoomRecoveryIdentityUpdate(payload, previousIdentity));
+
+        const targetPage = resolveRoomRecoveryPage(payload.stage);
+        if (targetPage && targetPage !== currentPage) onNavigate(targetPage);
+
+        // GAMEPLAY and RESULT continue through OPEN_PAGE5 and the authoritative
+        // SESSION_SNAPSHOT. Stage metadata never navigates those pages.
+        setStatus(showOverlay ? RECOVERY_UI_STATUS.COMPLETE : RECOVERY_UI_STATUS.IDLE);
+        if (showOverlay) scheduleOverlayHide();
+
+    }, [currentPage, getIdentity, onNavigate, scheduleOverlayHide, setIdentity]);
 
     const handleGameplaySnapshot = useCallback((payload) => {
 
         recoveryInFlightRef.current = false;
 
-        setStatus(RECOVERY_UI_STATUS.RESTORING);
+        if (recoveryRequestTimerRef.current) {
+            clearTimeout(recoveryRequestTimerRef.current);
+            recoveryRequestTimerRef.current = null;
+        }
+
+        const showOverlay = recoveryOverlayRef.current;
+        recoveryOverlayRef.current = false;
+        setStatus(showOverlay ? RECOVERY_UI_STATUS.RESTORING : RECOVERY_UI_STATUS.IDLE);
 
         devLog("Snapshot received");
 
@@ -239,7 +302,18 @@ export function RecoveryExperienceProvider({
         // resultSessionExpiresAt are never dropped before the decision.
         const snapshot = normalizeSessionSnapshot(payload);
 
+        const identity = getIdentity();
+        if ((snapshot.roomId && snapshot.roomId !== identity.roomId)
+            || (snapshot.playerId && snapshot.playerId !== identity.playerId)
+            || (snapshot.gameId && identity.gameId && snapshot.gameId !== identity.gameId)) {
+            recoveryOverlayRef.current = false;
+            setStatus(RECOVERY_UI_STATUS.IDLE);
+            return;
+        }
+
         const targetPage = resolveGameplayRecoveryPage(snapshot);
+
+        if (snapshot.gameId) setIdentity({ gameId: snapshot.gameId });
 
         page6LifecycleDiag("RECOVERY_DECISION", {
             roomId: snapshot.roomId ?? getIdentity().roomId,
@@ -278,11 +352,16 @@ export function RecoveryExperienceProvider({
         // use terminal recovery failure → Page1 (not timer-based WELCOME).
         if (!targetPage) {
 
-            setStatus(RECOVERY_UI_STATUS.FAILED);
+            if (currentPage === APP_PAGES.RESULT) {
+                setStatus(RECOVERY_UI_STATUS.IDLE);
+                return;
+            }
+
+            setStatus(showOverlay ? RECOVERY_UI_STATUS.FAILED : RECOVERY_UI_STATUS.IDLE);
 
             recoveryTrace("overlay FAILED", getIdentity());
 
-            scheduleOverlayHide();
+            if (showOverlay) scheduleOverlayHide();
 
             return;
 
@@ -386,7 +465,9 @@ export function RecoveryExperienceProvider({
 
         }
 
-        setStatus(RECOVERY_UI_STATUS.COMPLETE);
+        if (showOverlay) {
+            setStatus(RECOVERY_UI_STATUS.COMPLETE);
+        }
 
         recoveryTrace(
             `overlay COMPLETE | navigatedPage=${resolvedPage}`
@@ -396,7 +477,7 @@ export function RecoveryExperienceProvider({
 
         devLog("Recovery complete");
 
-        scheduleOverlayHide();
+        if (showOverlay) scheduleOverlayHide();
 
     }, [
         applyRecoverySnapshot,
@@ -404,14 +485,19 @@ export function RecoveryExperienceProvider({
         onNavigate,
         scheduleOverlayHide,
         getIdentity,
-        destroySession,
-        clearIdentity
+        setIdentity,
     ]);
 
     const handleRecoveryFailed = useCallback((payload) => {
 
         recoveryInFlightRef.current = false;
 
+        if (recoveryRequestTimerRef.current) {
+            clearTimeout(recoveryRequestTimerRef.current);
+            recoveryRequestTimerRef.current = null;
+        }
+
+        recoveryOverlayRef.current = false;
         setStatus(RECOVERY_UI_STATUS.FAILED);
 
         recoveryTrace("SESSION_RECOVERY_FAILED received", {
@@ -425,6 +511,12 @@ export function RecoveryExperienceProvider({
         });
 
         const reason = payload?.reason ?? payload?.message ?? "unknown";
+
+        if (shouldPreservePage6OnRecoveryFailure(currentPage)) {
+            recoveryTrace(`terminal recovery failure shown while preserving Page6 (${reason})`, getIdentity());
+            scheduleOverlayHide();
+            return;
+        }
 
         devLog(`Recovery failed: ${reason}`);
 
@@ -447,6 +539,7 @@ export function RecoveryExperienceProvider({
         scheduleOverlayHide();
 
     }, [
+        currentPage,
         destroySession,
         clearIdentity,
         scheduleOverlayHide,
@@ -496,14 +589,6 @@ export function RecoveryExperienceProvider({
     // request authoritative reclaim once the socket is connected.
     useEffect(() => {
 
-        const identity = getIdentity();
-
-        if (!hasGameplayIdentity(identity)) {
-
-            return;
-
-        }
-
         if (currentPage !== APP_PAGES.WELCOME) {
 
             return;
@@ -518,11 +603,7 @@ export function RecoveryExperienceProvider({
 
             }
 
-            hadDisconnectRef.current = true;
-
-            setStatus(RECOVERY_UI_STATUS.RECONNECTING);
-
-            requestSessionRecovery();
+            requestSessionRecovery({ showOverlay: false });
 
         }
 
@@ -551,63 +632,31 @@ export function RecoveryExperienceProvider({
 
         }
 
-        function onVisibilityRecovery(sourceEvent) {
+        return subscribeRecoveryWakeEvents({
+            documentTarget: document,
+            windowTarget: window,
+            isEligible: () => isSetupRecoveryPage(currentPage)
+                || isGameplayPage(currentPage),
+            onWake: (sourceEvent) => {
+                logTerminalNav({
+                    event: "visibility_recovery",
+                    currentPage,
+                    sessionGeneration: sessionGenerationRef.current
+                });
 
-            if (document.visibilityState === "hidden") {
+                page6LifecycleDiag("VISIBILITY_RECOVERY", {
+                    sourceEvent,
+                    currentPage,
+                    visibilityState: document.visibilityState,
+                    socketConnected: socket.connected === true,
+                    sessionGeneration: sessionGenerationRef.current
+                });
 
-                return;
+                devLog(`Wake-up recovery (${sourceEvent})`);
 
+                requestSessionRecovery();
             }
-
-            if (!isSetupRecoveryPage(currentPage) && !isGameplayPage(currentPage)) {
-
-                return;
-
-            }
-
-            logTerminalNav({
-                event: "visibility_recovery",
-                currentPage,
-                sessionGeneration: sessionGenerationRef.current
-            });
-
-            page6LifecycleDiag("VISIBILITY_RECOVERY", {
-                sourceEvent,
-                currentPage,
-                visibilityState: document.visibilityState,
-                socketConnected: socket.connected === true,
-                sessionGeneration: sessionGenerationRef.current
-            });
-
-            devLog(`Wake-up recovery (${sourceEvent})`);
-
-            requestSessionRecovery();
-
-        }
-
-        function onVisibilityChange() {
-
-            onVisibilityRecovery("visibilitychange");
-
-        }
-
-        function onPageShow() {
-
-            onVisibilityRecovery("pageshow");
-
-        }
-
-        document.addEventListener("visibilitychange", onVisibilityChange);
-
-        window.addEventListener("pageshow", onPageShow);
-
-        return () => {
-
-            document.removeEventListener("visibilitychange", onVisibilityChange);
-
-            window.removeEventListener("pageshow", onPageShow);
-
-        };
+        });
 
     }, [currentPage, requestSessionRecovery]);
 
@@ -680,6 +729,8 @@ export function RecoveryExperienceProvider({
 
         clearOverlayTimer();
 
+        if (recoveryRequestTimerRef.current) clearTimeout(recoveryRequestTimerRef.current);
+
     }, [clearOverlayTimer]);
 
     useEffect(() => {
@@ -687,6 +738,14 @@ export function RecoveryExperienceProvider({
         function onConnect() {
 
             const identity = getIdentity();
+
+            if (currentPage === APP_PAGES.NO_FRIENDS_QUEUE
+                && hadDisconnectRef.current) {
+                recoveryInFlightRef.current = false;
+                requestSessionRecovery({ showOverlay: true });
+                hadDisconnectRef.current = false;
+                return;
+            }
 
             const action = resolvePostReconnectAction({
                 hadDisconnect: hadDisconnectRef.current,
@@ -699,6 +758,8 @@ export function RecoveryExperienceProvider({
                 return;
 
             }
+
+            const hadDisconnect = hadDisconnectRef.current;
 
             recoveryTrace("reconnect", identity);
 
@@ -727,13 +788,15 @@ export function RecoveryExperienceProvider({
 
             // R17.8F Case B / R6.17 — identity present: authoritative reclaim.
             // Local timers must never skip SESSION_RECOVERY_REQUEST.
-            requestSessionRecovery();
+            requestSessionRecovery({ showOverlay: hadDisconnect });
 
         }
 
         function onDisconnect() {
 
-            if (!isSetupRecoveryPage(currentPage) && !isGameplayPage(currentPage)) {
+            if (!isSetupRecoveryPage(currentPage)
+                && !isGameplayPage(currentPage)
+                && currentPage !== APP_PAGES.NO_FRIENDS_QUEUE) {
 
                 return;
 
@@ -757,6 +820,7 @@ export function RecoveryExperienceProvider({
 
                 if (
                     isGameplayPage(currentPage)
+                    || isSetupRecoveryPage(currentPage)
                     || pendingGameplaySnapshotRef.current !== null
                     || (
                         currentPage === APP_PAGES.WELCOME
@@ -808,6 +872,7 @@ export function RecoveryExperienceProvider({
         socket.on(SOCKET_MESSAGE_CHANNEL, onGameMessage);
 
         socket.on(INCOMING_SOCKET_EVENTS.SETUP_SESSION_SYNC, onSetupSessionSync);
+        socket.on(INCOMING_SOCKET_EVENTS.ROOM_RECOVERY_SYNC, handleRoomRecoverySync);
 
         return () => {
 
@@ -821,6 +886,10 @@ export function RecoveryExperienceProvider({
                 INCOMING_SOCKET_EVENTS.SETUP_SESSION_SYNC,
                 onSetupSessionSync
             );
+            socket.off(
+                INCOMING_SOCKET_EVENTS.ROOM_RECOVERY_SYNC,
+                handleRoomRecoverySync
+            );
 
         };
 
@@ -830,6 +899,7 @@ export function RecoveryExperienceProvider({
         handleGameplaySnapshot,
         handleRecoveryFailed,
         handleSetupRecoveryComplete,
+        handleRoomRecoverySync,
         getIdentity
     ]);
 

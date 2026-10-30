@@ -21,6 +21,148 @@ export const GAME_RESULT_ACTIONS = Object.freeze({
     RESET: "RESET"
 });
 
+const STORED_RESULT_KEY = "wheelwin.completedResult.v1";
+
+function currentTelegramAccountId() {
+    const userId = globalThis.window?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    return userId == null ? null : String(userId);
+}
+
+function readStoredIdentity() {
+    try {
+        const identity = JSON.parse(globalThis.sessionStorage?.getItem("wheelwin.setupRecoveryIdentity") ?? "null");
+        return identity?.roomId && identity?.playerId ? identity : null;
+    } catch {
+        return null;
+    }
+}
+
+function readStoredTerminalRecord(identity = readStoredIdentity()) {
+    if (!identity?.playerId || !identity?.gameId) return null;
+    try {
+        const saved = JSON.parse(globalThis.sessionStorage?.getItem(STORED_RESULT_KEY) ?? "null");
+        if (saved?.playerId !== identity.playerId || saved?.gameId !== identity.gameId) return null;
+        const accountId = currentTelegramAccountId();
+        if (!accountId || saved?.telegramAccountId !== accountId) return null;
+        if (identity.roomId && saved?.roomId && saved.roomId !== identity.roomId) return null;
+        return saved;
+    } catch {
+        return null;
+    }
+}
+
+export function readStoredTerminalState(identity = readStoredIdentity()) {
+    const saved = readStoredTerminalRecord(identity);
+    if (!saved) return null;
+    const result = mapAuthoritativeResultToView(saved.result);
+    if (!result || result.gameId !== identity.gameId) return null;
+    return {
+        result,
+        payment: mapPaymentStatusToView(saved.payment),
+        audit: mapAuditStatusToView(saved.audit),
+        resultSessionExpiresAt: Number.isFinite(saved.resultSessionExpiresAt)
+            ? saved.resultSessionExpiresAt
+            : null
+    };
+}
+
+export function readStoredTerminalResult(identity = readStoredIdentity()) {
+    return readStoredTerminalState(identity)?.result ?? null;
+}
+
+function updateStoredTerminalState(identity, update) {
+    const prior = readStoredTerminalRecord(identity);
+    if (!prior) return false;
+    try {
+        globalThis.sessionStorage?.setItem(STORED_RESULT_KEY, JSON.stringify({
+            ...prior,
+            ...update
+        }));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function persistStoredTerminalResult(identity, payload) {
+    if (!identity?.playerId || !payload?.gameId) return false;
+    if (identity.gameId && identity.gameId !== payload.gameId) return false;
+    const accountId = currentTelegramAccountId();
+    if (!accountId) return false;
+    const result = mapAuthoritativeResultToView(payload);
+    if (!result) return false;
+    const saved = readStoredTerminalRecord(identity);
+    try {
+        globalThis.sessionStorage?.setItem(STORED_RESULT_KEY, JSON.stringify({
+            ...(saved ?? {}),
+            roomId: identity.roomId ?? saved?.roomId ?? null,
+            playerId: identity.playerId,
+            gameId: result.gameId,
+            telegramAccountId: accountId,
+            result
+        }));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function persistStoredTerminalPage6Opened(identity, payload) {
+    const gameId = payload?.gameId;
+    const accountId = currentTelegramAccountId();
+    if (!identity?.playerId || !identity?.roomId || !gameId || !accountId) return false;
+    if (payload?.roomId !== identity.roomId) return false;
+    if (identity.gameId && identity.gameId !== gameId) return false;
+
+    const prior = readStoredTerminalRecord({ ...identity, gameId });
+    try {
+        globalThis.sessionStorage?.setItem(STORED_RESULT_KEY, JSON.stringify({
+            ...(prior ?? {}),
+            roomId: identity.roomId,
+            playerId: identity.playerId,
+            gameId,
+            telegramAccountId: accountId,
+            page6Opened: true
+        }));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function persistStoredTerminalPayment(identity, payload) {
+    if (!identity?.gameId || payload?.gameId !== identity.gameId) return false;
+    const payment = mapPaymentStatusToView(payload);
+    return payment ? updateStoredTerminalState(identity, { payment }) : false;
+}
+
+export function persistStoredTerminalAudit(identity, payload) {
+    if (!identity?.gameId || payload?.gameId !== identity.gameId) return false;
+    const audit = mapAuditStatusToView(payload);
+    return audit ? updateStoredTerminalState(identity, { audit }) : false;
+}
+
+export function persistStoredTerminalSession(identity, expiresAt) {
+    return Number.isFinite(expiresAt)
+        ? updateStoredTerminalState(identity, { resultSessionExpiresAt: expiresAt })
+        : false;
+}
+
+export function clearStoredTerminalResult() {
+    try {
+        globalThis.sessionStorage?.removeItem(STORED_RESULT_KEY);
+    } catch {
+        // Storage can be unavailable in private or restricted WebViews.
+    }
+}
+
+export function readStoredTerminalPage() {
+    const saved = readStoredTerminalRecord();
+    return saved?.page6Opened === true && readStoredTerminalResult()
+        ? GAME_RESULT_PAGE.PAGE6
+        : null;
+}
+
 // Authoritative payment lifecycle statuses as forwarded by the server.
 export const PAYMENT_VIEW_STATUS = Object.freeze({
     STARTED: "STARTED",
@@ -294,7 +436,7 @@ export function gameResultReducer(state, action) {
  * P5.9 — Page6 navigation is owned by OPEN_PAGE6, not GAME_RESULT.
  * Kept for tests / legacy callers; always returns false.
  */
-export function shouldNavigateToResult(_state, _currentPage) {
+export function shouldNavigateToResult() {
 
     return false;
 

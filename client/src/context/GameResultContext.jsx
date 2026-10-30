@@ -4,7 +4,8 @@ import {
     useContext,
     useEffect,
     useMemo,
-    useReducer
+    useReducer,
+    useRef
 } from "react";
 
 import { DEV_MODE } from "../config/devMode";
@@ -13,7 +14,13 @@ import {
     GAME_RESULT_ACTIONS,
     GAME_RESULT_INITIAL_STATE,
     gameResultReducer,
-    shouldResetResult
+    clearStoredTerminalResult,
+    persistStoredTerminalPage6Opened,
+    persistStoredTerminalAudit,
+    persistStoredTerminalPayment,
+    persistStoredTerminalResult,
+    persistStoredTerminalSession,
+    readStoredTerminalState
 } from "../game/result/gameResultFlow";
 
 import { resolveResultSessionExpiresAt } from "../game/result/resultSessionCountdown";
@@ -23,6 +30,7 @@ import { page6LifecycleDiag } from "../game/result/page6LifecycleDiag";
 import { webPage6Diag } from "../game/result/webPage6StateDiag";
 
 import { useRegisterEngineModule } from "./EngineBridgeContext";
+import { usePlayerIdentity } from "./PlayerIdentityContext";
 
 import socket from "../socket/socket";
 
@@ -46,16 +54,32 @@ function devLog(message) {
  * authoritative server payload, automatically opens Page6 exactly once, and
  * exposes the result to Page6 for presentation only.
  */
-export function GameResultProvider({ children, currentPage, onNavigate: _onNavigate }) {
+export function GameResultProvider({ children }) {
+
+    const { identity, setIdentity } = usePlayerIdentity();
+
+    const identityRef = useRef(identity);
+    const stateRef = useRef(null);
 
     const [state, dispatch] = useReducer(
         gameResultReducer,
-        GAME_RESULT_INITIAL_STATE
+        identity,
+        (activeIdentity) => ({
+            ...GAME_RESULT_INITIAL_STATE,
+            ...(readStoredTerminalState(activeIdentity) ?? {})
+        })
     );
+
+    useEffect(() => {
+        identityRef.current = identity;
+        stateRef.current = state;
+    }, [identity, state]);
 
     const publishAuthoritativeResult = useCallback((payload) => {
 
         devLog("GAME_RESULT received");
+
+        persistStoredTerminalResult(identityRef.current, payload);
 
         dispatch({
             type: GAME_RESULT_ACTIONS.AUTHORITATIVE_RESULT,
@@ -68,6 +92,8 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
 
         devLog(`PAYMENT status ${payload?.status ?? "?"}`);
 
+        persistStoredTerminalPayment(identityRef.current, payload);
+
         dispatch({
             type: GAME_RESULT_ACTIONS.PAYMENT_STATUS,
             payload
@@ -78,6 +104,8 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
     const publishAuditStatus = useCallback((payload) => {
 
         devLog(`AUDIT status ${payload?.status ?? "?"}`);
+
+        persistStoredTerminalAudit(identityRef.current, payload);
 
         dispatch({
             type: GAME_RESULT_ACTIONS.AUDIT_STATUS,
@@ -136,9 +164,20 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
             payload: { expiresAt }
         });
 
+        if (!payload?.gameId || payload.gameId === identityRef.current?.gameId) {
+            persistStoredTerminalSession(identityRef.current, expiresAt);
+        }
+
     }, []);
 
     const applyRecoverySnapshot = useCallback((snapshot) => {
+
+        if ((snapshot?.playerId && identity?.playerId
+                && snapshot.playerId !== identity.playerId)
+            || (snapshot?.gameId && identity?.gameId
+                && snapshot.gameId !== identity.gameId)) {
+            return;
+        }
 
         if (snapshot?.gameResult) {
 
@@ -206,24 +245,36 @@ export function GameResultProvider({ children, currentPage, onNavigate: _onNavig
         publishAuthoritativeResult,
         publishPaymentStatus,
         publishAuditStatus,
-        publishResultSession
+        publishResultSession,
+        identity
     ]);
-
-    // Clear a stale result whenever a fresh game begins (pre-gameplay pages).
-    useEffect(() => {
-
-        if (shouldResetResult(currentPage)) {
-
-            dispatch({ type: GAME_RESULT_ACTIONS.RESET });
-
-        }
-
-    }, [currentPage]);
 
     // P5.9 / R12.5A — OPEN_PAGE6 stores Result Session expiresAt for display only.
     useRegisterEngineModule("gameResult", () => ({
+        onOpenPage5: (payload) => {
+            const nextGameId = payload?.gameId ?? null;
+            if ((payload?.roomId && identityRef.current?.roomId
+                    && payload.roomId !== identityRef.current.roomId)
+                || (nextGameId && !identityRef.current?.playerId)) return;
+            if (stateRef.current?.result && nextGameId
+                && stateRef.current.result.gameId !== nextGameId) {
+                clearStoredTerminalResult();
+                dispatch({ type: GAME_RESULT_ACTIONS.RESET });
+            }
+        },
         onOpenPage6: (payload) => {
 
+            if (!payload?.roomId || payload.roomId !== identityRef.current?.roomId
+                || !payload?.gameId
+                || (identityRef.current?.gameId
+                    && payload.gameId !== identityRef.current.gameId)) return;
+
+            if (!identityRef.current?.gameId) {
+                identityRef.current = { ...identityRef.current, gameId: payload.gameId };
+                setIdentity({ gameId: payload.gameId });
+            }
+
+            persistStoredTerminalPage6Opened(identityRef.current, payload);
             publishResultSession(payload);
 
         },
