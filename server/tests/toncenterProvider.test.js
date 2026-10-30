@@ -2235,7 +2235,9 @@ function checkRoom(service, overrides = {}) {
         "a matched observation is still not a payment confirmation"
     );
 
-    // Unsupported bodies and non-envelope comments stay unmatched observations.
+    // Non-WW1 content never fabricates a reference. A unique native Testnet
+    // payer may nevertheless be attributed by canonical wallet and amount.
+    // The observation is never by itself settlement or credit.
     for (const [label, comment] of [
         ["missing comment", undefined],
         ["comment without the prefix", FIXTURE_PAYMENT_REFERENCE],
@@ -2253,9 +2255,10 @@ function checkRoom(service, overrides = {}) {
         );
 
         check(
-            observed.result.observations[0].status === "no-match-observed"
-                && observed.result.observations[0].paymentReference === null,
-            `${label} must never match a payment intent`
+            observed.result.observations[0].status === "matched"
+                && observed.result.observations[0].paymentReference === FIXTURE_PAYMENT_REFERENCE
+                && observed.result.observations[0].paymentConfirmed === false,
+            `${label} is uniquely attributable but never auto-confirmed`
         );
 
     }
