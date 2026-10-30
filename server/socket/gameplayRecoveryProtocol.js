@@ -340,8 +340,75 @@ export function resolveRecoveryRoute({
     setupActive = false,
     gameId = null,
     gameState = null,
-    hasCachedSnapshot = false
+    hasCachedSnapshot = false,
+    gameStartPhase = null,
+    paymentStageActive = false,
+    page6Active = false
 } = {}) {
+
+    const hasGameplaySnapshot = Boolean(gameId)
+        && (gameState != null || hasCachedSnapshot === true);
+
+    // Page6 is authoritative over the lingering setup timer. A result route
+    // must have a live or cached authoritative snapshot; otherwise fail closed.
+    if (page6Active === true) {
+
+        if (hasGameplaySnapshot) {
+
+            return Object.freeze({
+                route: "GAMEPLAY_SNAPSHOT",
+                successRoute: "PAGE6_RESULT",
+                phase: "RESULT",
+                skipReason: null
+            });
+
+        }
+
+        return Object.freeze({
+            route: "FAIL",
+            successRoute: null,
+            phase: "RESULT",
+            reason: "Authoritative Page6 result snapshot is unavailable"
+        });
+
+    }
+
+    if (hasGameplaySnapshot) {
+
+        return Object.freeze({
+            route: "GAMEPLAY_SNAPSHOT",
+            successRoute: "GAMEPLAY_SNAPSHOT",
+            phase: gameState != null ? String(gameState) : "RESULT_CACHE",
+            skipReason: null
+        });
+
+    }
+
+    if (
+        gameStartPhase === "GAME_START_AUTHORIZED"
+        || gameStartPhase === "GAME_INITIALIZING"
+        || gameStartPhase === "OPEN_PAGE5"
+    ) {
+
+        return Object.freeze({
+            route: "PRE_GAME_SUCCESS",
+            successRoute: "GAME_START_REPLAY",
+            phase: gameStartPhase,
+            skipReason: "AUTHORITATIVE_GAME_START_REPLAYED"
+        });
+
+    }
+
+    if (paymentStageActive === true) {
+
+        return Object.freeze({
+            route: "PRE_GAME_SUCCESS",
+            successRoute: "PRE_GAME_SYNC",
+            phase: "ENTRY_PAYMENT",
+            skipReason: "VERIFIED_PAYMENT_STAGE"
+        });
+
+    }
 
     if (setupActive === true) {
 
@@ -361,17 +428,6 @@ export function resolveRecoveryRoute({
             successRoute: null,
             phase: "NONE",
             reason: "No active gameplay session for recovery"
-        });
-
-    }
-
-    if (gameState != null || hasCachedSnapshot === true) {
-
-        return Object.freeze({
-            route: "GAMEPLAY_SNAPSHOT",
-            successRoute: "GAMEPLAY_SNAPSHOT",
-            phase: gameState != null ? String(gameState) : "RESULT_CACHE",
-            skipReason: null
         });
 
     }

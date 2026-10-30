@@ -1237,7 +1237,10 @@ export class SocketGateway {
                 playerId: reconnected.playerId,
                 roomId: reconnected.roomId,
                 gameId: reconnected.gameId,
-                setupActive: reconnected.setupActive === true
+                setupActive: reconnected.setupActive === true,
+                gameStartPhase: reconnected.gameStartPhase ?? null,
+                page6Active: reconnected.page6Active === true,
+                paymentStageActive: reconnected.paymentStageActive === true
             };
 
             sessionResynced = true;
@@ -1262,7 +1265,10 @@ export class SocketGateway {
                     playerId: resynced.playerId ?? context.playerId,
                     roomId: resynced.roomId ?? context.roomId,
                     gameId: resynced.gameId ?? context.gameId,
-                    setupActive: resynced.setupActive === true
+                    setupActive: resynced.setupActive === true,
+                    gameStartPhase: resynced.gameStartPhase ?? null,
+                    page6Active: resynced.page6Active === true,
+                    paymentStageActive: resynced.paymentStageActive === true
                 };
 
                 this._logger.info(
@@ -1300,11 +1306,19 @@ export class SocketGateway {
             ? this._recoverySnapshotCache?.get(gameId) ?? null
             : null;
 
+        const resultSessionActive = roomId
+            ? this._resultSessionLifecycle?.isActive?.(roomId) === true
+            : false;
+
         const recoveryRoute = resolveRecoveryRoute({
             setupActive: context.setupActive === true,
             gameId,
             gameState: liveGameState,
-            hasCachedSnapshot: cachedEntryForRoute?.snapshot != null
+            hasCachedSnapshot: cachedEntryForRoute?.snapshot != null,
+            gameStartPhase: context.gameStartPhase ?? null,
+            paymentStageActive: context.paymentStageActive === true,
+            page6Active: context.page6Active === true || resultSessionActive
+                || cachedEntryForRoute?.page6Opened === true
         });
 
         if (recoveryRoute.route === "PRE_GAME_SUCCESS") {

@@ -8,6 +8,8 @@ import { RoomManager } from "../managers/RoomManager.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { GameplayContextResolver } from "../socket/GameplayContextResolver.js";
 import { RoomLobbyBridge } from "../socket/RoomLobbyBridge.js";
+import { SocketGateway } from "../socket/SocketGateway.js";
+import { LOBBY_SERVER_EVENTS } from "../socket/lobbyProtocol.js";
 import { SetupSessionLifecycle } from "../gameplay/SetupSessionLifecycle.js";
 import { SETUP_SESSION_STATUS } from "../models/SetupSessionStatus.js";
 
@@ -16,6 +18,211 @@ function assert(condition, message) {
     if (!condition) {
 
         throw new Error(message);
+
+    }
+
+}
+
+// Scenario G — an authoritative Page5 start wins over the still-live setup
+// timer, and authenticated recovery does not replay stale setup/payment events.
+{
+
+    const stack = buildStack();
+
+    try {
+
+        const room = stack.roomManager.createRoom();
+
+        const player = stack.playerManager.createPlayer({ nickname: "Gameplay" });
+
+        const playerId = player.identity.playerId;
+
+        const roomId = room.roomId;
+
+        const gameId = "game-reconnect-page5";
+
+        room.gameMode = "NO_FRIENDS";
+
+        stack.roomManager.addPlayer(roomId, playerId);
+
+        stack.playerManager.updateRuntime(playerId, { roomId, gameId });
+
+        const recoveryCredential = bindPlayer(stack, {
+            socketId: "socket-page5-old",
+            playerId,
+            roomId
+        });
+
+        let page6IsActive = false;
+
+        let cachedRecoveryEntry = null;
+
+        const resultSessionLifecycle = {
+            isActive: () => page6IsActive,
+            getSession: () => page6IsActive
+                ? { roomId, gameId, expiresAt: Date.now() + 30_000 }
+                : null
+        };
+
+        stack.roomLobbyBridge._resultSessionLifecycle = resultSessionLifecycle;
+
+        stack.roomLobbyBridge._recoverySnapshotCache = {
+            get: () => cachedRecoveryEntry
+        };
+
+        stack.gameplayContextResolver.activateRoomGame(roomId, gameId);
+
+        stack.roomLobbyBridge._gameStartAuthorization = {
+            getReconnectSnapshot: () => ({
+                roomId,
+                gameId,
+                phase: "OPEN_PAGE5",
+                authorizedAt: 100,
+                initializingAt: 200,
+                openPage5At: 300
+            })
+        };
+
+        stack.roomLobbyBridge._handleSocketDisconnected("socket-page5-old");
+
+        stack.roomLobbyBridge._continueToVerifyByRoom.set(roomId, true);
+
+        stack.roomLobbyBridge._verifyBarrierCompletedByRoom.add(roomId);
+
+        stack.roomLobbyBridge._profilesRevealedByRoom.add(roomId);
+
+        const delivered = [];
+
+        stack.roomLobbyBridge._deliverToSocket = (socketId, eventName, payload) => {
+
+            delivered.push({ socketId, eventName, payload });
+
+        };
+
+        stack.roomLobbyBridge._deliverSecretMatrixStatus = () => {};
+
+        const socketId = "socket-page5-new";
+
+        const socket = { id: socketId, connected: true, emit: (channel, message) => {
+
+            delivered.push({ channel, message });
+
+        } };
+
+        const snapshot = {
+            gameId,
+            gameState: { currentState: "SPEED" },
+            configuration: { roomId, sectors: [] },
+            physics: {},
+            input: { players: [] },
+            clock: {}
+        };
+
+        const socketGateway = new SocketGateway({
+            logger: stack.logger,
+            socketConfig: {},
+            eventBus: stack.eventBus,
+            gameplayContextResolver: stack.gameplayContextResolver,
+            roomLobbyBridge: stack.roomLobbyBridge,
+            recoverySnapshotCache: { get: () => cachedRecoveryEntry },
+            resultSessionLifecycle,
+            recoveryEngine: {
+                getDebugSnapshot: () => ({ currentState: "SPEED" }),
+                recoverPlayer: () => snapshot
+            },
+            devMode: false
+        });
+
+        socketGateway._handleRecoveryRequest(socket, {
+            payload: { playerId, roomId, recoveryCredential }
+        });
+
+        assert(
+            !delivered.some((event) => event.eventName === LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC),
+            "Page5 reconnect must not send SETUP_SESSION_SYNC"
+        );
+
+        assert(
+            !delivered.some((event) => event.eventName === LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY),
+            "NO_FRIENDS Page5 reconnect must not send PAYMENT_STAGE_READY"
+        );
+
+        assert(
+            !delivered.some((event) => event.eventName === LOBBY_SERVER_EVENTS.VERIFY_COMPLETED),
+            "Page5 reconnect must not replay Page4 verification navigation"
+        );
+
+        const opened = delivered.find(
+            (event) => event.eventName === LOBBY_SERVER_EVENTS.OPEN_PAGE5
+        );
+
+        assert(opened, "Page5 reconnect must replay authoritative OPEN_PAGE5");
+
+        assert(
+            opened.payload.roomId === roomId
+                && !Object.hasOwn(opened.payload, "gameId"),
+            "OPEN_PAGE5 must preserve the production { roomId } contract"
+        );
+
+        const authorized = delivered.find(
+            (event) => event.eventName === LOBBY_SERVER_EVENTS.GAME_START_AUTHORIZED
+        );
+
+        assert(
+            authorized?.payload.gameId === gameId,
+            "GAME_START_AUTHORIZED must carry the authoritative gameId"
+        );
+
+        const recoverySnapshot = delivered.find(
+            (event) => event.message?.type === "SESSION_SNAPSHOT"
+        );
+
+        assert(
+            recoverySnapshot?.message?.payload?.gameState === "SPEED",
+            "recovery handler must return the live gameplay snapshot, not SETUP"
+        );
+
+        assert(
+            stack.setupSessionLifecycle.isRecoverable(roomId),
+            "test precondition: the setup timer remains live after Page5 opens"
+        );
+
+        // The cached OPEN_PAGE6 marker remains authoritative even when the
+        // result-session timer is no longer active. Reconnect must not navigate
+        // the client back to Page5.
+
+        snapshot.gameState.currentState = "RESULT";
+
+        cachedRecoveryEntry = {
+            snapshot,
+            page6Opened: true,
+            resultSessionExpiresAt: Date.now() + 30_000
+        };
+
+        delivered.length = 0;
+
+        socketGateway._handleRecoveryRequest(socket, { payload: {} });
+
+        assert(
+            !delivered.some((event) => event.eventName === LOBBY_SERVER_EVENTS.OPEN_PAGE5),
+            "authoritative Page6 recovery must not replay OPEN_PAGE5"
+        );
+
+        const page6Snapshot = delivered.find(
+            (event) => event.message?.type === "SESSION_SNAPSHOT"
+        );
+
+        assert(
+            page6Snapshot?.message?.payload?.gameState === "RESULT"
+                && page6Snapshot.message.payload.openPage6 === true,
+            "Page6 reconnect must receive the authoritative result snapshot"
+        );
+
+        console.log("  scenario G (Page5 and Page6 authoritative recovery) passed");
+
+    } finally {
+
+        stack.shutdown();
 
     }
 

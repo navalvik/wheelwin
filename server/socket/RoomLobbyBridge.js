@@ -70,6 +70,7 @@ export class RoomLobbyBridge {
         playerManager,
         gameplayContextResolver = null,
         setupSessionLifecycle = null,
+        recoverySnapshotCache = null,
         resultSessionLifecycle = null,
         gameStartAuthorization = null,
         isDevelopment = false,
@@ -91,6 +92,8 @@ export class RoomLobbyBridge {
         this._gameplayContextResolver = gameplayContextResolver;
 
         this._setupSessionLifecycle = setupSessionLifecycle;
+
+        this._recoverySnapshotCache = recoverySnapshotCache;
 
         this._resultSessionLifecycle = resultSessionLifecycle;
 
@@ -3118,15 +3121,40 @@ export class RoomLobbyBridge {
             ?? runtime?.gameId
             ?? null;
 
+        const gameStart = this._gameStartAuthorization
+            ?.getReconnectSnapshot?.(roomId) ?? null;
+
+        const cachedRecoveryEntry = gameId
+            ? this._recoverySnapshotCache?.get?.(gameId) ?? null
+            : null;
+
+        const page6Active = this._resultSessionLifecycle
+            ?.isActive?.(roomId) === true
+            || cachedRecoveryEntry?.page6Opened === true;
+
+        const gameplayStarted = gameStart?.phase === "OPEN_PAGE5"
+            || gameStart?.phase === "GAME_INITIALIZING"
+            || gameStart?.phase === "GAME_START_AUTHORIZED"
+            || this._isActiveGameplayProtected(roomId)
+            || page6Active;
+
         const setupRecoverable = this._setupSessionLifecycle
             ?.isRecoverable(roomId) === true;
 
-        // Setup-only recovery while prep pages run. After VERIFY_COMPLETED
-        // (Page5), fall through to RecoveryEngine even if the Setup Timer remains.
-        const setupActive = setupRecoverable
-            ;
+        const paymentStageActive = !gameplayStarted
+            && (
+                this._continueToVerifyByRoom.has(roomId)
+                || this._verifyBarrierCompletedByRoom.has(roomId)
+            );
 
-        const syncPayload = this._setupSessionLifecycle?.buildSyncPayload(roomId);
+        // The setup timer may remain alive after the authoritative start.
+        // It cannot route a reconnected client back to setup once gameplay has
+        // been authorized or Page6 has become authoritative.
+        const setupActive = setupRecoverable && !gameplayStarted;
+
+        const syncPayload = setupActive
+            ? this._setupSessionLifecycle?.buildSyncPayload(roomId)
+            : null;
 
         if (syncPayload) {
 
@@ -3159,7 +3187,7 @@ export class RoomLobbyBridge {
 
         // Re-deliver authoritative stage barriers so reconnect preserves
         // continueToVerify progress and does not strand the client on Verify.
-        if (this._profilesRevealedByRoom.has(roomId)) {
+        if (!gameplayStarted && this._profilesRevealedByRoom.has(roomId)) {
 
             this._deliverToSocket(
                 socketId,
@@ -3172,12 +3200,59 @@ export class RoomLobbyBridge {
 
         }
 
-        if (this._continueToVerifyByRoom.has(roomId)) {
+        if (gameplayStarted && !page6Active && gameStart) {
 
-            const gameStart = this._gameStartAuthorization
+            if (
+                gameStart.phase === "GAME_START_AUTHORIZED"
+                || gameStart.phase === "GAME_INITIALIZING"
+                || gameStart.phase === "OPEN_PAGE5"
+            ) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.GAME_START_AUTHORIZED,
+                    {
+                        roomId,
+                        gameId: gameStart.gameId,
+                        authorizedAt: gameStart.authorizedAt
+                    }
+                );
+
+            }
+
+            if (
+                gameStart.phase === "GAME_INITIALIZING"
+                || gameStart.phase === "OPEN_PAGE5"
+            ) {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.GAME_INITIALIZING,
+                    {
+                        roomId,
+                        gameId: gameStart.gameId,
+                        initializingAt: gameStart.initializingAt
+                    }
+                );
+
+            }
+
+            if (gameStart.phase === "OPEN_PAGE5") {
+
+                this._deliverToSocket(
+                    socketId,
+                    LOBBY_SERVER_EVENTS.OPEN_PAGE5,
+                    { roomId }
+                );
+
+            }
+
+        } else if (!gameplayStarted && this._continueToVerifyByRoom.has(roomId)) {
+
+            const pendingGameStart = this._gameStartAuthorization
                 ?.getReconnectSnapshot?.(roomId);
 
-            if (!gameStart) {
+            if (!pendingGameStart) {
 
                 this._deliverToSocket(
                     socketId,
@@ -3189,55 +3264,6 @@ export class RoomLobbyBridge {
                 );
 
                 this._deliverPaymentStatusToSocket(roomId, playerId, socketId);
-
-            }
-
-            if (gameStart) {
-
-                if (
-                    gameStart.phase === "GAME_START_AUTHORIZED"
-                    || gameStart.phase === "GAME_INITIALIZING"
-                    || gameStart.phase === "OPEN_PAGE5"
-                ) {
-
-                    this._deliverToSocket(
-                        socketId,
-                        LOBBY_SERVER_EVENTS.GAME_START_AUTHORIZED,
-                        {
-                            roomId,
-                            gameId: gameStart.gameId,
-                            authorizedAt: gameStart.authorizedAt
-                        }
-                    );
-
-                }
-
-                if (
-                    gameStart.phase === "GAME_INITIALIZING"
-                    || gameStart.phase === "OPEN_PAGE5"
-                ) {
-
-                    this._deliverToSocket(
-                        socketId,
-                        LOBBY_SERVER_EVENTS.GAME_INITIALIZING,
-                        {
-                            roomId,
-                            gameId: gameStart.gameId,
-                            initializingAt: gameStart.initializingAt
-                        }
-                    );
-
-                }
-
-                if (gameStart.phase === "OPEN_PAGE5") {
-
-                    this._deliverToSocket(
-                        socketId,
-                        LOBBY_SERVER_EVENTS.OPEN_PAGE5,
-                        { roomId }
-                    );
-
-                }
 
             }
 
@@ -3256,7 +3282,7 @@ export class RoomLobbyBridge {
             `Lobby recovery reconnect | roomId=${roomId} | playerId=${playerId}`
         );
 
-        if (room.gameMode === "NO_FRIENDS") {
+        if (!gameplayStarted && room.gameMode === "NO_FRIENDS") {
             if (this._verifyBarrierCompletedByRoom.has(roomId)) {
                 this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY, {
                     roomId,
@@ -3285,7 +3311,10 @@ export class RoomLobbyBridge {
             playerId,
             roomId,
             gameId,
-            setupActive
+            setupActive,
+            gameStartPhase: gameStart?.phase ?? null,
+            page6Active,
+            paymentStageActive
         };
 
     }
