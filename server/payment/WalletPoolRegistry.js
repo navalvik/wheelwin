@@ -207,6 +207,10 @@ export class WalletPoolRegistry {
         this._reservationHistory = [];
 
         this._initialized = false;
+        this._snapshotDir = null;
+        this._manualQuarantineReleases = new Set();
+        this._manualQuarantines = new Set();
+        this._manualQuarantineDetails = new Map();
 
     }
 
@@ -248,6 +252,7 @@ export class WalletPoolRegistry {
         this._loadCatalog();
 
         const snapshotDir = options.snapshotDir ?? null;
+        this._snapshotDir = snapshotDir;
         let historyBackfilled = 0;
 
         if (snapshotDir) {
@@ -490,6 +495,101 @@ export class WalletPoolRegistry {
 
     }
 
+    /** Public-only list. The historical Testnet hold and env holds remain active
+     * until an explicit administrator release has been durably persisted. */
+    listQuarantinedWallets() {
+        this._assertInitialized();
+        return this.listWallets().filter(wallet => this._isQuarantined(wallet)).map(wallet => ({
+            roomNumber: wallet.roomNumber,
+            walletId: wallet.walletId,
+            address: wallet.address,
+            network: wallet.network,
+            reservedByRoomId: wallet.reservedByRoomId,
+            quarantineNote: this._manualQuarantineDetails.get(wallet.roomNumber)?.note ?? null,
+            quarantinedAt: this._manualQuarantineDetails.get(wallet.roomNumber)?.placedAt ?? null,
+            quarantinedBy: this._manualQuarantineDetails.get(wallet.roomNumber)?.placedBy ?? null,
+            reason: this._manualQuarantines.has(wallet.roomNumber)
+                ? "ADMIN_MANUAL_HOLD"
+                : wallet.network === "testnet" && wallet.roomNumber === 1
+                    ? "HISTORICAL_UNRESOLVED_FUNDS"
+                    : "ADMIN_ENVIRONMENT_HOLD"
+        }));
+    }
+
+    getWalletByRoomNumber(roomNumber) {
+        this._assertInitialized();
+        return this.listWallets().find(wallet => wallet.roomNumber === roomNumber) ?? null;
+    }
+
+    isQuarantined(roomNumber) {
+        const wallet = this.getWalletByRoomNumber(roomNumber);
+        return wallet ? this._isQuarantined(wallet) : false;
+    }
+
+    /**
+     * Manual investigation hold. It may be applied while the wallet is already
+     * reserved by a live room. This does NOT release that reservation or stop
+     * in-flight payouts/refunds: it only blocks future wallet assignments.
+     * Quarantine details are public, durable metadata (never wallet secrets).
+     */
+    manuallyQuarantine(roomNumber, { note = "", actor = "Administrator", now = Date.now() } = {}) {
+        this._assertInitialized();
+        const wallet = this.getWalletByRoomNumber(roomNumber);
+        if (!wallet || !this._snapshotDir) {
+            throw new PaymentValidationError("QUARANTINE_WALLET_UNAVAILABLE");
+        }
+        if (typeof note !== "string" || note.length > 200
+            || typeof actor !== "string" || actor.length > 80
+            || !Number.isFinite(now)) {
+            throw new PaymentValidationError("QUARANTINE_METADATA_INVALID");
+        }
+        if (this._manualQuarantines.has(roomNumber)) {
+            return { roomNumber, quarantined: true, alreadyQuarantined: true,
+                reservedByRoomId: wallet.reservedByRoomId };
+        }
+        const wasReleased = this._manualQuarantineReleases.delete(roomNumber);
+        this._manualQuarantines.add(roomNumber);
+        this._manualQuarantineDetails.set(roomNumber, {
+            note: note.trim(),
+            placedBy: actor.trim() || "Administrator",
+            placedAt: new Date(now).toISOString()
+        });
+        try {
+            this.persistSnapshot(this._snapshotDir);
+        } catch (error) {
+            this._manualQuarantines.delete(roomNumber);
+            this._manualQuarantineDetails.delete(roomNumber);
+            if (wasReleased) this._manualQuarantineReleases.add(roomNumber);
+            throw error;
+        }
+        return { roomNumber, quarantined: true, alreadyQuarantined: false,
+            reservedByRoomId: wallet.reservedByRoomId };
+    }
+
+    /** Release a quarantine hold, NOT a room reservation. Caller must first
+     * verify ledger/refund obligations and a fresh on-chain zero balance. */
+    manuallyReleaseQuarantine({roomNumber, verifiedSafe}) {
+        this._assertInitialized();
+        const wallet = this.getWalletByRoomNumber(roomNumber);
+        if (!wallet || verifiedSafe !== true || wallet.reservedByRoomId !== null
+            || !this._isQuarantined(wallet) || !this._snapshotDir) {
+            throw new PaymentValidationError("QUARANTINE_RELEASE_NOT_SAFE");
+        }
+        this._manualQuarantineReleases.add(roomNumber);
+        const wasManualHold = this._manualQuarantines.delete(roomNumber);
+        const previousDetail = this._manualQuarantineDetails.get(roomNumber);
+        this._manualQuarantineDetails.delete(roomNumber);
+        try {
+            this.persistSnapshot(this._snapshotDir);
+        } catch (error) {
+            this._manualQuarantineReleases.delete(roomNumber);
+            if (wasManualHold) this._manualQuarantines.add(roomNumber);
+            if (previousDetail) this._manualQuarantineDetails.set(roomNumber, previousDetail);
+            throw error;
+        }
+        return {roomNumber, released: true};
+    }
+
     // -------------------------------------------------------------------------
     // Reservation / release rules
     // -------------------------------------------------------------------------
@@ -665,6 +765,10 @@ export class WalletPoolRegistry {
             schemaVersion: WALLET_POOL_SCHEMA_VERSION,
             network: this._network,
             poolSize: this._wallets.size,
+            manualQuarantineReleases: [...this._manualQuarantineReleases],
+            manualQuarantines: [...this._manualQuarantines],
+            manualQuarantineDetails: [...this._manualQuarantineDetails.entries()]
+                .map(([roomNumber, detail]) => ({ roomNumber, ...detail })),
             reservations: Object.freeze(
                 [...this._wallets.values()].map((wallet) => wallet.toRecord())
             ),
@@ -701,6 +805,29 @@ export class WalletPoolRegistry {
                 { filePath }
             );
 
+        }
+
+        if (Array.isArray(parsed?.manualQuarantines)) {
+            this._manualQuarantines = new Set(
+                parsed.manualQuarantines.filter(n => Number.isInteger(n) && n >= 1 && n <= ROOM_WALLET_POOL_SIZE)
+            );
+        }
+        if (Array.isArray(parsed?.manualQuarantineDetails)) {
+            this._manualQuarantineDetails = new Map(
+                parsed.manualQuarantineDetails
+                    .filter(item => item && this._manualQuarantines.has(item.roomNumber)
+                        && typeof item.note === "string" && item.note.length <= 200
+                        && typeof item.placedBy === "string" && item.placedBy.length <= 80
+                        && typeof item.placedAt === "string")
+                    .map(item => [item.roomNumber, {
+                        note: item.note, placedBy: item.placedBy, placedAt: item.placedAt
+                    }])
+            );
+        }
+        if (Array.isArray(parsed?.manualQuarantineReleases)) {
+            this._manualQuarantineReleases = new Set(
+                parsed.manualQuarantineReleases.filter(n => Number.isInteger(n) && n >= 1 && n <= ROOM_WALLET_POOL_SIZE)
+            );
         }
 
         if (!Array.isArray(parsed?.reservations)) {
@@ -793,6 +920,8 @@ export class WalletPoolRegistry {
     }
 
     _isQuarantined(wallet) {
+        if (this._manualQuarantines.has(wallet?.roomNumber)) return true;
+        if (this._manualQuarantineReleases.has(wallet?.roomNumber)) return false;
         // Room wallet #1 retains unresolved historical oj7v refunds.
         // Quarantine is a Testnet invariant, never an optional deployment
         // variable: missing Railway env settings must not reassign it.
