@@ -925,7 +925,11 @@ export class IncomingPaymentSettlementCoordinator {
             || transfer.asset !== intent.asset
             || transfer.amountAtomic !== intent.amountAtomic
             || !Number.isSafeInteger(transfer.amountAtomic)
-            || transfer.paymentReference !== intent.paymentReference
+            // Absent memo is acceptable ONLY after the observer has found
+            // exactly one matching active intent by payer, wallet and amount.
+            // A present but conflicting memo always remains a hard failure.
+            || (transfer.paymentReference !== null
+                && transfer.paymentReference !== intent.paymentReference)
             || !tonAddressIdentitiesEqual(
                 transfer.senderAddress,
                 intent.expectedSender
@@ -953,7 +957,8 @@ export class IncomingPaymentSettlementCoordinator {
                             intent.destinationWalletAddress
                         ),
                         paymentReference:
-                            transfer.paymentReference !== intent.paymentReference
+                            transfer.paymentReference !== null
+                                && transfer.paymentReference !== intent.paymentReference
                     })
                 }
             };
