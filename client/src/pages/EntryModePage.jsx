@@ -13,7 +13,7 @@ export default function EntryModePage({ onFriends, onNoFriends, onBack }) {
         showNextButton={false}
     >
         <div className="noFriendsPage noFriendsPage--entry">
-            <button className="noFriendsChoice" onClick={onFriends}>
+            <button className="noFriendsChoice noFriendsChoice--friends" onClick={onFriends}>
                 {t("noFriends.withFriends")}
             </button>
             <button className="noFriendsChoice" onClick={onNoFriends}>
