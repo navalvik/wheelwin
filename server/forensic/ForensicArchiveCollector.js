@@ -424,6 +424,23 @@ function addressMatches(left, right) {
     try { return tonAddressIdentitiesEqual(left, right); } catch { return false; }
 }
 
+// A plan identifies its intended recipients by payoutId (not ledger entryId).
+// Require a durable settlement for each planned transfer; one settled recipient
+// must not hide an outstanding winner or owner payout in the forensic report.
+function hasUnsettledPayoutPlans(ledger) {
+    return ledger.some(plan => {
+        if (plan.kind !== "PAYOUT_PLAN") return false;
+        const payoutId = plan.metadata?.payoutId ?? plan.metadata?.plan?.payoutId;
+        const transfers = plan.metadata?.plan?.transfers;
+        if (!payoutId || !Array.isArray(transfers) || transfers.length !== 2) return true;
+        return transfers.some(transfer => !transfer.recipientId || !transfer.recipientRole
+            || !ledger.some(settlement => settlement.kind === "PAYOUT_SETTLEMENT"
+                && settlement.metadata?.payoutId === payoutId
+                && settlement.metadata?.recipientId === transfer.recipientId
+                && settlement.metadata?.role === transfer.recipientRole));
+    });
+}
+
 export function buildFinancialRecovery(finance) {
     const payouts=(finance.ledger ?? []).filter(entry => ["PAYOUT_PLAN", "PAYOUT_SETTLEMENT", "NET_PAYOUT", "WINNER_GROSS_ALLOCATION", "OWNER_GROSS_ALLOCATION"].includes(entry.kind));
     const unresolvedReceipts=finance.unresolvedReceipts ?? [];
@@ -432,7 +449,7 @@ export function buildFinancialRecovery(finance) {
         outstandingObligations:finance.outstandingObligations ?? 0,
         requiresReconciliation:unresolvedReceipts.length > 0 || (finance.receipts ?? []).some(r => !r.playerId || !r.paymentIntentId)
             || (finance.refunds ?? []).some(r => r.state !== "COMPLETE")
-            || payouts.some(p => p.kind === "PAYOUT_PLAN" && !(finance.ledger ?? []).some(s => s.kind === "PAYOUT_SETTLEMENT" && s.metadata?.payoutPlanId === p.entryId))};
+            || hasUnsettledPayoutPlans(finance.ledger ?? [])};
 }
 
 function diagnoseFinancialClose(finance, decisions) {
