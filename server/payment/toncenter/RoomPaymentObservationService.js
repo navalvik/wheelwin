@@ -565,7 +565,13 @@ export class RoomPaymentObservationService {
 
             transfers.push(transfer);
 
-            if (this._settlementEvidenceProvider !== null) {
+            const entry = this._evaluateTransfer(transfer, paymentIntents);
+
+            // Only investigate finalized inclusion for a candidate that
+            // actually matches one of this room's authoritative intents.
+            // Unrelated wallet traffic must not consume chain API quota.
+            if (entry.status === "matched"
+                && this._settlementEvidenceProvider !== null) {
                 let evidence = null;
                 try {
                     evidence = await this._settlementEvidenceProvider
@@ -574,7 +580,8 @@ export class RoomPaymentObservationService {
                             providerTransactionId:
                                 transfer.providerTransactionIdentity.transactionId,
                             transactionTime: transfer.transactionTime,
-                            observationSession
+                            observationSession,
+                            indexedTransaction: record.indexedTransaction ?? null
                         });
                 } catch {
                     // Evidence provider errors fail closed for this transfer.
@@ -593,8 +600,6 @@ export class RoomPaymentObservationService {
                     // Malformed and accessor-backed evidence is never retained.
                 }
             }
-
-            const entry = this._evaluateTransfer(transfer, paymentIntents);
 
             observations.push(entry);
 
