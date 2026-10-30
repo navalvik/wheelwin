@@ -205,8 +205,16 @@ export function matchIncomingTransferToIntent(transfer, intent) {
 
     if (intentReference !== null) {
 
-        if (transfer.paymentReference !== null
-            && transfer.paymentReference !== intentReference) {
+        if (transfer.paymentReference === null) {
+
+            // The historical Room Wallet no-memo attribution is deliberately
+            // Testnet native TON only. Do not relax other networks or assets.
+            if (transfer.network !== "testnet" || intent.network !== "testnet"
+                || transfer.asset !== "TON" || intent.asset !== "TON") {
+                mismatches.push(TRANSFER_MATCH_REASON.PAYMENT_REFERENCE_MISSING);
+            }
+
+        } else if (transfer.paymentReference !== intentReference) {
 
             mismatches.push(TRANSFER_MATCH_REASON.PAYMENT_REFERENCE_MISMATCH);
 
