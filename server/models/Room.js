@@ -26,7 +26,9 @@ export class Room {
 
         this.players = players;
 
-        this.gameMode = gameMode === "NO_FRIENDS" ? "NO_FRIENDS" : "FRIENDS";
+        this.gameMode = gameMode === "FRIENDS" || gameMode === "NO_FRIENDS"
+            ? gameMode
+            : (gameMode === undefined ? "FRIENDS" : null);
 
     }
 

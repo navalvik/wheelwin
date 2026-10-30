@@ -274,6 +274,7 @@ export class SessionHistoryArchiveManager {
     initialize({
         eventBus,
         projectionService = null,
+        roomManager = null,
         roomLobbyBridge = null,
         playerManager = null,
         loggingManager = null,
@@ -294,6 +295,7 @@ export class SessionHistoryArchiveManager {
 
         this._eventBus = eventBus;
         this._projectionService = projectionService;
+        this._roomManager = roomManager;
         this._roomLobbyBridge = roomLobbyBridge;
         this._playerManager = playerManager;
         this._loggingManager = loggingManager;
@@ -927,7 +929,14 @@ export class SessionHistoryArchiveManager {
 
         if (!this._pending.has(roomId) && !this._archived.has(roomId)) {
 
-            this._openPending({ roomId, createdAt: Date.now() });
+            const room = this._roomManager?.getRoom?.(roomId) ?? null;
+            this._openPending({
+                roomId,
+                createdAt: room?.createdAt ?? Date.now(),
+                ...(room?.gameMode === "FRIENDS" || room?.gameMode === "NO_FRIENDS"
+                    ? { gameMode: room.gameMode }
+                    : {})
+            });
 
         }
 
