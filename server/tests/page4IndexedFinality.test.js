@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToncenterTransactionsClient } from "../payment/toncenter/ToncenterTransactionsClient.js";
 import { ToncenterIndexedFinalityEvidenceProvider } from "../payment/toncenter/ToncenterIndexedFinalityEvidenceProvider.js";
+import { ToncenterIncomingProvider } from "../payment/toncenter/ToncenterIncomingProvider.js";
+import { RoomPaymentObservationService, hasTrustedRoomPaymentSettlementEvidence } from "../payment/toncenter/RoomPaymentObservationService.js";
+import { PaymentIntent } from "../payment/PaymentIntent.js";
 import { TonPaymentSettlementEvidenceProvider, assessTonPaymentSettlementEvidence } from "../payment/incoming/TonPaymentSettlementEvidence.js";
 
 const account = "0:"+"a".repeat(64);
@@ -110,4 +113,59 @@ test("provider cannot be used on Mainnet and cannot authorize without session",a
         accountId:account,providerTransactionId:tx,
         observationSession:Object.freeze({}),indexedTransaction:record
     }),null);
+});
+
+test("three previously sent native TON payments become eligible for 3/3 gate without SSE",async()=>{
+    const time=Math.floor(Date.now()/1000)*1000;
+    const senders=["b","c","d"].map(c=>"0:"+c.repeat(64));
+    const intents=senders.map((sender,i)=>new PaymentIntent({
+        paymentReference:"WW-PAY-ROOM1-000"+(i+1),
+        roomId:"room-three-confirmations",playerId:"player-"+i,
+        network:"testnet",destinationWalletId:"room-wallet-6",
+        destinationWalletAddress:account,expectedSender:sender,
+        amountAtomic:1000000000,asset:"TON",createdAt:time-40000,
+        expiresAt:time+440000,roomDeadlineMs:time+440000
+    }));
+    const transactions=intents.map((intent,i)=>({
+        hash:"historical-payment-"+i,account,now:time/1000-4,
+        emulated:false,block_ref:{workchain:0,shard:"8000000000000000",seqno:4788+i},
+        mc_block_seqno:88112+i,
+        description:{aborted:false,compute_ph:{success:true},action:{success:true}},
+        in_msg:{source:senders[i],destination:account,value:"1000000000",
+            message_content:{decoded:{
+                type:"text_comment",comment:"WW1:"+intent.paymentReference
+            }}}
+    }));
+    const called=[];
+    const client=new ToncenterTransactionsClient({
+        apiKeyProvider:()=>"synthetic-testnet-key",
+        fetchImpl:async(url)=>{
+            called.push(new URL(url).pathname);
+            const payload=url.endsWith("/api/v3/masterchainInfo")
+                ? {last:{global_id:-3,seqno:88120}}
+                : {transactions,address_book:{}};
+            return new Response(JSON.stringify(payload),{status:200});
+        }
+    });
+    const service=new RoomPaymentObservationService({
+        provider:new ToncenterIncomingProvider({client}),
+        settlementEvidenceProvider:new ToncenterIndexedFinalityEvidenceProvider({client})
+    });
+    const observation=await service.checkRoomPayments({
+        roomId:"room-three-confirmations",walletAddress:account,
+        paymentIntents:intents,floorMs:time-40000,ceilingMs:time+1000,
+        destinationWalletId:"room-wallet-6"
+    });
+    assert.deepEqual(called.sort(),[
+        "/api/v3/masterchainInfo","/api/v3/transactions"
+    ]);
+    assert.equal(observation.resultWindowComplete,true);
+    assert.equal(observation.observations.filter(x=>x.status==="matched").length,3);
+    assert.equal(observation.transfers.length,3);
+    assert.equal(observation.settlementEvidenceAvailable,true);
+    for(const transfer of observation.transfers) {
+        assert.equal(hasTrustedRoomPaymentSettlementEvidence(
+            observation,transfer,Date.now()),true);
+    }
+    assert.equal(service.hasBackgroundWork(),false);
 });
