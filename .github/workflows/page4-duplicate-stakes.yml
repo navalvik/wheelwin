@@ -1,0 +1,40 @@
+name: Page4 WjxT duplicate payment regression
+on:
+  push:
+    branches:
+      - fix/page4-one-stake-per-player-extra-refunds-20261030
+  pull_request:
+    paths:
+      - 'server/payment/incoming/IncomingTransferMatcher.js'
+      - 'server/payment/incoming/IncomingPaymentSettlementCoordinator.js'
+      - 'server/payment/toncenter/RoomPaymentObservationService.js'
+      - 'server/payment/RoomWalletPaymentService.js'
+      - 'server/tests/incomingSettlementCoordinator.test.js'
+      - 'server/tests/payment/roomPaymentSessionAdapter.test.js'
+      - '.github/workflows/page4-duplicate-stakes.yml'
+permissions:
+  contents: read
+jobs:
+  payment-regression:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Verify matcher, finality and ledger modules
+        run: |
+          node --check payment/incoming/IncomingTransferMatcher.js
+          node --check payment/incoming/IncomingPaymentSettlementCoordinator.js
+          node --check payment/toncenter/RoomPaymentObservationService.js
+          node --check payment/RoomWalletPaymentService.js
+      - name: WjxT double payer, missing memo, 3-player finality regressions
+        run: node --test tests/incomingSettlementCoordinator.test.js tests/payment/roomPaymentSessionAdapter.test.js tests/paymentThreePlayerGate.test.js tests/page4IndexedFinality.test.js tests/oneFinalForensicArchive.test.js
+      - name: Full deterministic payment regression
+        run: node --test tests/payment/*.test.js
