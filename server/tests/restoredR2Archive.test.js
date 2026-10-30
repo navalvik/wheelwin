@@ -6,6 +6,8 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 
+import { EVENT_TYPES } from "../events/EventTypes.js";
+import { SessionHistoryArchiveManager } from "../history/SessionHistoryArchiveManager.js";
 import { ForensicArchiveService } from "../forensic/ForensicArchiveService.js";
 import { MockForensicArchiveUploader } from "../forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "../forensic/forensicArchiveConfig.js";
@@ -269,3 +271,66 @@ test("WheelWin client UI and server runtime contain no Cyrillic text", () => {
     }
     assert.deepEqual(violations, [], "Deployed UI and runtime must not contain Cyrillic");
 });
+
+
+for (const mode of ["FRIENDS", "NO_FRIENDS"]) {
+    test(`terminal projection preserves ${mode} from ROOM_CREATED in session history and R2 ZIP`, async () => {
+        const f = fixture();
+        const subscriptions = new Map();
+        const bus = {
+            subscribe(type, handler) {
+                if (!subscriptions.has(type)) subscriptions.set(type, new Set());
+                subscriptions.get(type).add(handler);
+            },
+            unsubscribe(type, handler) { subscriptions.get(type)?.delete(handler); },
+            emit({ type, payload }) {
+                for (const handler of subscriptions.get(type) ?? []) handler({ type, payload });
+            }
+        };
+        const archive = new SessionHistoryArchiveManager();
+        try {
+            archive.initialize({
+                eventBus: bus,
+                directory: f.config.sessionHistoryDir,
+                // Reproduce oVUZ: the terminal projection contains no gameMode.
+                projectionService: { buildRoomDetail() {
+                    return {
+                        room: { roomId: "Abc", status: "DESTROYED", playerCount: 3 },
+                        linkedGame: { gameId: "game-1", status: "CREATED" }
+                    };
+                } }
+            });
+            bus.emit({ type: EVENT_TYPES.ROOM_CREATED, payload: {
+                roomId: "Abc", gameMode: mode, displayMode: mode === "FRIENDS"
+                    ? "I HAVE FRIENDS" : "I HAVE NO FRIENDS",
+                playerCount: 1, maxPlayers: 3, status: "CREATED"
+            } });
+            bus.emit({ type: EVENT_TYPES.GAME_CREATED, payload: { roomId: "Abc", gameId: "game-1" } });
+            bus.emit({ type: EVENT_TYPES.ROOM_DESTROYED, payload: {
+                roomId: "Abc", status: "DESTROYED", playerCount: 3, closureReason: "setup_expired"
+            } });
+            const historyFiles = readdirSync(f.config.sessionHistoryDir)
+                .filter(name => name.includes("ROOM_Abc_"));
+            const finalized = historyFiles.map(name => JSON.parse(readFileSync(
+                join(f.config.sessionHistoryDir, name), "utf8"
+            ))).find(record => record.configuration?.room?.gameMode === mode);
+            assert.ok(finalized, "authoritative room mode survives projection");
+            assert.equal(finalized.finalSnapshot.room.gameMode, mode);
+
+            const uploader = new MockForensicArchiveUploader();
+            const service = new ForensicArchiveService({ config: f.config, uploader });
+            await service.ensureArchivedAndUploaded({
+                roomId: "Abc", gameId: "game-1", reason: "setup_expired"
+            });
+            const zipMode = JSON.parse(extractZipEntry(
+                uploader.uploads[0].bytes, "session/game-mode.json"
+            ));
+            assert.equal(zipMode.gameMode, mode);
+            assert.equal(zipMode.displayMode, mode === "FRIENDS"
+                ? "I HAVE FRIENDS" : "I HAVE NO FRIENDS");
+        } finally {
+            archive.shutdown();
+            f.cleanup();
+        }
+    });
+}
