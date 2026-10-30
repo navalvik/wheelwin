@@ -582,4 +582,237 @@ function bindPlayer(stack, { socketId, playerId, roomId }) {
 
 }
 
+// Scenario G — an authenticated Telegram seat is recoverable when room
+// assignment succeeded but the browser missed roomCreated/roomJoined and its
+// one-time credential. No client room/player claim is supplied.
+{
+
+    const stack = buildStack();
+
+    try {
+
+        const telegramBySocket = new Map([
+            ["creator-old", "tg-creator"],
+            ["guest-old", "tg-guest"]
+        ]);
+        stack.roomLobbyBridge.configureTelegramIdentityResolver(
+            (socketId) => telegramBySocket.get(socketId) ?? null
+        );
+
+        const deliveries = [];
+        stack.roomLobbyBridge._deliverToSocket = (socketId, eventName, payload) => {
+            deliveries.push({ socketId, eventName, payload });
+        };
+
+        stack.roomLobbyBridge._handleCreateRoom("creator-old", {
+            gameMode: "NO_FRIENDS"
+        });
+
+        const created = deliveries.find((entry) =>
+            entry.eventName === LOBBY_SERVER_EVENTS.ROOM_CREATED
+        );
+        assert(created?.payload?.roomId && created?.payload?.playerId,
+            "creator seat must be allocated before the initial room event");
+        const roomId = created.payload.roomId;
+        const creatorPlayerId = created.payload.playerId;
+
+        stack.roomLobbyBridge._handleJoinRoom("guest-old", roomId);
+        const joined = deliveries.find((entry) =>
+            entry.socketId === "guest-old"
+                && entry.eventName === LOBBY_SERVER_EVENTS.ROOM_JOINED
+        );
+        assert(joined?.payload?.playerId, "guest must receive an assigned seat");
+        const guestPlayerId = joined.payload.playerId;
+
+        stack.roomLobbyBridge._handleSocketDisconnected("creator-old");
+        telegramBySocket.set("creator-new", "tg-creator");
+        const creatorRecovery = stack.roomLobbyBridge.reconnectGameplaySession(
+            "creator-new",
+            null
+        );
+        assert(creatorRecovery.ok, "creator can recover from verified Telegram identity");
+        assert(creatorRecovery.roomId === roomId
+            && creatorRecovery.playerId === creatorPlayerId,
+        "creator recovery must reclaim the same room and seat");
+        assert(stack.roomManager.getRoom(roomId).players.length === 2,
+            "creator recovery must not register a duplicate player");
+
+        const creatorSync = deliveries.find((entry) =>
+            entry.socketId === "creator-new"
+                && entry.eventName === LOBBY_SERVER_EVENTS.ROOM_RECOVERY_SYNC
+        );
+        assert(creatorSync?.payload?.stage === "NO_FRIENDS_OPTIONS",
+            "matched NO_FRIENDS recovery must restore the options stage");
+        assert(creatorSync.payload.recoveryCredential,
+            "recovery must privately return a fresh credential after seat commit");
+        assert(stack.roomLobbyBridge.authorizeRecoveryCredential({
+            playerId: creatorPlayerId,
+            roomId,
+            credential: creatorSync.payload.recoveryCredential
+        }).ok, "recovered credential must authorize the same assigned seat");
+
+        stack.playerManager.updateIdentity(creatorPlayerId, {
+            nickname: "ABCD",
+            age: 24,
+            baseStake: 1,
+            wallet: `0:${"a".repeat(64)}`
+        });
+        stack.roomLobbyBridge._noFriendsOptionsReadyByRoom.set(roomId, new Set());
+        const selectedOptions = {
+            nickname: "ABCD",
+            age: 24,
+            baseStake: 1,
+            sectorCount: 2,
+            sectorArrangement: "separate",
+            color: "Red",
+            colorSector2: "Blue"
+        };
+        stack.roomLobbyBridge._handleNoFriendsOptionsNext(
+            "creator-new",
+            selectedOptions
+        );
+        stack.roomLobbyBridge._handleNoFriendsOptionsNext(
+            "creator-new",
+            selectedOptions
+        );
+        assert(stack.roomLobbyBridge._noFriendsOptionsReadyByRoom.get(roomId).size === 1,
+            "repeated options submission must remain idempotent");
+
+        stack.roomLobbyBridge._handleSocketDisconnected("creator-new");
+        telegramBySocket.set("creator-refresh", "tg-creator");
+        const refreshedRecovery = stack.roomLobbyBridge.reconnectGameplaySession(
+            "creator-refresh",
+            null
+        );
+        assert(refreshedRecovery.ok, "options-stage seat must remain recoverable");
+        const optionsSync = deliveries.find((entry) =>
+            entry.socketId === "creator-refresh"
+                && entry.eventName === LOBBY_SERVER_EVENTS.ROOM_RECOVERY_SYNC
+        )?.payload;
+        assert(optionsSync?.optionsReady === true && optionsSync.readyCount === 1,
+            "recovery must restore submitted state and authoritative ready count");
+        assert(optionsSync.profile.sectorCount === 2
+            && optionsSync.profile.sectorArrangement === "separate"
+            && optionsSync.profile.color === "Red"
+            && optionsSync.profile.colorSector2 === "Blue",
+        "recovery must return the player's accepted options");
+
+        stack.roomLobbyBridge._handleSocketDisconnected("guest-old");
+        telegramBySocket.set("guest-new", "tg-guest");
+        const guestRecovery = stack.roomLobbyBridge.reconnectGameplaySession(
+            "guest-new",
+            null
+        );
+        assert(guestRecovery.ok
+            && guestRecovery.roomId === roomId
+            && guestRecovery.playerId === guestPlayerId,
+        "guest recovery must reclaim the same assigned seat");
+        assert(stack.roomManager.getRoom(roomId).players.length === 2,
+            "guest recovery must not duplicate room membership");
+
+        telegramBySocket.set("stranger", "tg-stranger");
+        const strangerRecovery = stack.roomLobbyBridge.reconnectGameplaySession(
+            "stranger",
+            null
+        );
+        assert(!strangerRecovery.ok,
+            "an unrelated Telegram account must not recover either seat");
+        assert(stack.roomManager.getRoom(roomId).players.length === 2,
+            "failed recovery must not create a player or room membership");
+
+        console.log("  scenario G (authenticated assignment/event race) passed");
+
+    } finally {
+
+        stack.shutdown();
+
+    }
+
+}
+
+// Scenario H — FRIENDS recovery uses server stage markers instead of the
+// previously displayed browser page as Page2, Matrix and Verify advance.
+{
+
+    const stack = buildStack();
+
+    try {
+
+        const telegramBySocket = new Map([
+            ["friend-creator", "tg-friend-1"],
+            ["friend-guest-2", "tg-friend-2"],
+            ["friend-guest-3", "tg-friend-3"]
+        ]);
+        stack.roomLobbyBridge.configureTelegramIdentityResolver(
+            (socketId) => telegramBySocket.get(socketId) ?? null
+        );
+        const deliveries = [];
+        stack.roomLobbyBridge._deliverToSocket = (socketId, eventName, payload) => {
+            deliveries.push({ socketId, eventName, payload });
+        };
+
+        stack.roomLobbyBridge._handleCreateRoom("friend-creator");
+        const created = deliveries.find((entry) =>
+            entry.eventName === LOBBY_SERVER_EVENTS.ROOM_CREATED
+        ).payload;
+        const roomId = created.roomId;
+        const creatorPlayerId = created.playerId;
+        stack.roomLobbyBridge._handleJoinRoom("friend-guest-2", roomId);
+        stack.roomLobbyBridge._handleJoinRoom("friend-guest-3", roomId);
+
+        const room = stack.roomManager.getRoom(roomId);
+        for (const [index, playerId] of room.players.entries()) {
+            stack.playerManager.updateIdentity(playerId, {
+                nickname: `P${index}`,
+                age: 24,
+                baseStake: 1,
+                sectorCount: 1,
+                sectorArrangement: "together",
+                color: "Red"
+            });
+        }
+
+        stack.roomLobbyBridge._handleSocketDisconnected("friend-creator");
+        telegramBySocket.set("friend-creator-refresh", "tg-friend-1");
+        stack.roomLobbyBridge.reconnectGameplaySession("friend-creator-refresh");
+        let sync = deliveries.filter((entry) =>
+            entry.socketId === "friend-creator-refresh"
+                && entry.eventName === LOBBY_SERVER_EVENTS.ROOM_RECOVERY_SYNC
+        ).at(-1)?.payload;
+        assert(sync?.playerId === creatorPlayerId && sync.stage === "MATRIX",
+            `complete Page2 profiles must restore the Matrix stage: ${JSON.stringify(sync)}`);
+
+        stack.roomLobbyBridge._handleSocketDisconnected("friend-creator-refresh");
+        stack.roomLobbyBridge._secretMatrixAcceptedByRoom.add(roomId);
+        stack.roomLobbyBridge._profilesRevealedByRoom.add(roomId);
+        telegramBySocket.set("friend-creator-verify", "tg-friend-1");
+        stack.roomLobbyBridge.reconnectGameplaySession("friend-creator-verify");
+        sync = deliveries.filter((entry) =>
+            entry.socketId === "friend-creator-verify"
+                && entry.eventName === LOBBY_SERVER_EVENTS.ROOM_RECOVERY_SYNC
+        ).at(-1)?.payload;
+        assert(sync?.stage === "VERIFY",
+            "accepted Matrix state must advance recovery to Verify");
+
+        stack.roomLobbyBridge._handleSocketDisconnected("friend-creator-verify");
+        stack.roomLobbyBridge._verifyBarrierCompletedByRoom.add(roomId);
+        telegramBySocket.set("friend-creator-payment", "tg-friend-1");
+        stack.roomLobbyBridge.reconnectGameplaySession("friend-creator-payment");
+        sync = deliveries.filter((entry) =>
+            entry.socketId === "friend-creator-payment"
+                && entry.eventName === LOBBY_SERVER_EVENTS.ROOM_RECOVERY_SYNC
+        ).at(-1)?.payload;
+        assert(sync?.stage === "PAYMENT",
+            "completed verify barrier must restore Payment, not a stale setup page");
+
+        console.log("  scenario H (FRIENDS authoritative early stages) passed");
+
+    } finally {
+
+        stack.shutdown();
+
+    }
+
+}
+
 console.log("setupSession.reconnect.test.js: all assertions passed");

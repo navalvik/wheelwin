@@ -64,6 +64,9 @@ export const LOBBY_SERVER_EVENTS = Object.freeze({
     // state, no Telegram identity, no Testnet room id, no secrets.
     ROOM_NETWORK_HANDOFF_BOOTSTRAP_RESULT: "roomNetworkHandoffBootstrapResult",
     ROOM_STATE: "roomState",
+    // Private authoritative room membership and pre-game stage replay after
+    // authenticated recovery. Never broadcast this event to a room.
+    ROOM_RECOVERY_SYNC: "ROOM_RECOVERY_SYNC",
     ROOM_JOINED: "roomJoined",
     ROOM_LEFT: "roomLeft",
     ROOM_ERROR: "roomError",
