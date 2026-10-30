@@ -1065,7 +1065,7 @@ async function run() {
         }
     });
 
-    await section("incomplete, ambiguous, mismatched, and provider-error observations book no principal", async () => {
+    await section("incomplete, mismatched, and provider-error observations book no principal; excess refunds remain separate", async () => {
         await withHarness({ limit: 1 }, async (h) => {
             const descriptor = makeDescriptor();
             h.adapter.prepareRoom(descriptor);
@@ -1092,10 +1092,12 @@ async function run() {
                 transactionFor(intent, wallet, { suffix: "ambiguous-2" })
             ));
             const result = await h.adapter.observeRoomPayments({ roomId: descriptor.roomId });
-            equal(result.report.refusal, "AMBIGUOUS_OBSERVATION",
-                "ambiguous observation is refused");
-            equal(principalEntries(h.ledger, descriptor.roomId).length, 0,
-                "ambiguous observation creates no principal");
+            equal(result.report.refusal, null,
+                "a repeat payment by the same player is not an ambiguity");
+            equal(result.report.settled.length, 1,
+                "only one of the payer's two transactions qualifies as the stake");
+            equal(principalEntries(h.ledger, descriptor.roomId).length, 1,
+                "one principal, never two, is booked");
         });
 
         await withHarness({}, async (h) => {
