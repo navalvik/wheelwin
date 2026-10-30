@@ -499,19 +499,90 @@ async function run() {
         });
     });
 
-    // G8: Several distinct rows claiming one reference are globally ambiguous.
-    await section("ambiguous duplicate-reference observations settle none", async () => {
+    // G8: Two payments by one player must never cancel the first stake.
+    await section("first valid incoming settles; later payment is excess without blocking other players", async () => {
         await usingHarness({}, async (h) => {
-            const intent = makeIntent(h);
-            const wallet = h.service.getWalletForRoom(intent.roomId);
+            const lena = makeIntent(h, { playerId: "Lena",
+                expectedSender: syntheticAddress("lena") });
+            const olga = makeIntent(h, { playerId: "Olga",
+                expectedSender: syntheticAddress("olga") });
+            const bob = makeIntent(h, { playerId: "Bob",
+                expectedSender: syntheticAddress("bob") });
+            const wallet = h.service.getWalletForRoom(lena.roomId);
+            const firstLena = transactionFor(lena, wallet, {
+                suffix: "lena-first", nowSeconds: TRANSFER_SECONDS
+            });
+            const secondLena = transactionFor(lena, wallet, {
+                suffix: "lena-second", nowSeconds: TRANSFER_SECONDS + 1
+            });
+            // Provider sends newest first. The older valid Lena receipt
+            // must win deterministically, not whichever arrives first in
+            // the Toncenter response array.
             h.setPayload(rowPayload(
-                transactionFor(intent, wallet, { suffix: "one" }),
-                transactionFor(intent, wallet, { suffix: "two" })
+                secondLena,
+                transactionFor(olga, wallet, { suffix: "olga" }),
+                transactionFor(bob, wallet, { suffix: "bob" }),
+                firstLena
             ));
             const report = await settle(h);
-            equal(report.refusal, INCOMING_SETTLEMENT_REFUSAL.AMBIGUOUS_OBSERVATION, "duplicate candidate window is ambiguous");
-            equal(report.settled.length, 0, "ambiguous window settles none");
-            equal(h.service.getPaymentIntent(intent.paymentReference).state, "PENDING", "ambiguous intent stays pending");
+            equal(report.refusal, null, "extra payment is not an ambiguity refusal");
+            equal(report.settled.length, 3, "all three players settle");
+            const lenaCredit = report.settled.find(x => x.playerId === "Lena");
+            check(Boolean(lenaCredit), "Lena credited once");
+            check(lenaCredit.transactionId !== null, "Lena has durable tx");
+            equal(h.service.getPaymentIntent(lena.paymentReference).state,
+                "SETTLED", "first Lena payment settles");
+            equal(new Set(report.settled.map(x => x.transactionId)).size,
+                3, "no transaction is credited more than once");
+            equal(report.observation.transfers.length, 4,
+                "all four transfers remain visible to refund accounting");
+            const entries = report.observation.matches;
+            equal(entries.filter(x => x.status === "excess-payment").length,
+                1, "second Lena transfer is excess, not ambiguous");
+            const replay = await settle(h);
+            equal(replay.settled.length, 0, "replay cannot credit surplus receipt");
+            equal(replay.alreadySettled.length, 3, "all settled intents are stable");
+        });
+    });
+
+    // Missing memo may be omitted by ordinary native wallet transfers.
+    await section("memo-less unique stake settles; conflicting memo remains rejected", async () => {
+        await usingHarness({}, async (h) => {
+            const lena = makeIntent(h, { playerId:"Lena", expectedSender:syntheticAddress("no-memo-lena") });
+            const wallet = h.service.getWalletForRoom(lena.roomId);
+            const noMemo = transactionFor(lena, wallet, {
+                inMsg: { message_content: { decoded: null } }
+            });
+            h.setPayload(rowPayload(noMemo));
+            const report = await settle(h);
+            equal(report.settled.length, 1, "unique sender/wallet/amount can settle without memo");
+            equal(h.service.getPaymentIntent(lena.paymentReference).state, "SETTLED",
+                "trusted settlement persists a no-memo native TON transfer");
+        });
+        await usingHarness({}, async (h) => {
+            const lena = makeIntent(h, { playerId:"Lena", expectedSender:syntheticAddress("bad-memo-lena") });
+            const wallet = h.service.getWalletForRoom(lena.roomId);
+            h.setPayload(rowPayload(transactionFor(lena, wallet, {
+                inMsg:{message_content:{decoded:{type:"text_comment",comment:"WW1:CONFLICTING-REFERENCE"}}}
+            })));
+            const report = await settle(h);
+            equal(report.settled.length, 0, "explicitly different memo never credits");
+            equal(h.service.getPaymentIntent(lena.paymentReference).state, "PENDING",
+                "conflicting memo preserves pending state");
+        });
+        await usingHarness({}, async (h) => {
+            const lena = makeIntent(h, { playerId:"Lena", expectedSender:syntheticAddress("one-sender") });
+            const second = makeIntent(h, { playerId:"Other", expectedSender:lena.expectedSender });
+            const wallet = h.service.getWalletForRoom(lena.roomId);
+            h.setPayload(rowPayload(transactionFor(lena, wallet, {
+                inMsg:{ message_content:{ decoded:null } }
+            })));
+            const report = await settle(h);
+            equal(report.settled.length, 0, "ambiguous sender cannot be used without reference");
+            equal(report.refusal, INCOMING_SETTLEMENT_REFUSAL.AMBIGUOUS_OBSERVATION,
+                "cross-player ambiguity stays fail-closed");
+            equal(h.service.getPaymentIntent(second.paymentReference).state, "PENDING",
+                "second seat cannot be credited");
         });
     });
 
