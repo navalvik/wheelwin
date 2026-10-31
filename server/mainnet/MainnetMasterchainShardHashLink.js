@@ -104,7 +104,45 @@ function shardForPrefix(prefix, depth) {
     const marker = 1n << BigInt(63 - depth);
     return (lead | marker).toString(16).padStart(16, "0");
 }
-function findShardDescriptor(tree, addressHash) {
+function readCurrencyCollection(slice) {
+    slice.loadCoins();
+    // ExtraCurrencyCollection = HashmapE 32 (VarUInteger 32).
+    // The VarUInteger 32 length prefix is 5 bits.
+    slice.loadDict(Dictionary.Keys.Uint(32), Dictionary.Values.BigVarUint(5));
+}
+function readShardDescriptorTail(slice, tag) {
+    // Both TL-B variants share the same flags and routing fields.
+    for (let i=0; i<5; i+=1) slice.loadBit();
+    if (slice.loadUint(3) !== 0) throw new Error("SHARD_FLAGS_NONZERO");
+    slice.loadUint(32); // next_catchain_seqno
+    slice.loadUintBig(64); // next_validator_shard
+    slice.loadUint(32); // min_ref_mc_seqno
+    if (slice.loadUint(32) <= 0) throw new Error("SHARD_GEN_TIME_INVALID");
+    // FutureSplitMerge: none$0, split$10, merge$11.
+    if (slice.loadBit()) {
+        slice.loadBit();
+        slice.loadUint(32);
+        slice.loadUint(32);
+    }
+    if (tag === 0xb) {
+        readCurrencyCollection(slice);
+        readCurrencyCollection(slice);
+    } else {
+        // shard_descr_new#a contains fees in a separate reference.
+        if (slice.remainingRefs !== 1)
+            throw new Error("SHARD_FEES_REF_MISSING");
+        const feeCell = slice.loadRef();
+        if (feeCell.isExotic) throw new Error("SHARD_FEES_EXOTIC");
+        const fees = feeCell.beginParse();
+        readCurrencyCollection(fees);
+        readCurrencyCollection(fees);
+        if (fees.remainingBits !== 0 || fees.remainingRefs !== 0)
+            throw new Error("SHARD_FEES_TRAILING_DATA");
+    }
+    if (slice.remainingBits !== 0 || slice.remainingRefs !== 0)
+        throw new Error("SHARD_DESCRIPTOR_TRAILING_DATA");
+}
+function findShardDescriptor(tree, addressHash, masterchainSeqno) {
     let node = tree;
     let prefix = 0n;
     for (let depth = 0; depth <= MAX_SHARD_PATH_DEPTH; depth += 1) {
@@ -122,11 +160,14 @@ function findShardDescriptor(tree, addressHash) {
             const endLt = s.loadUintBig(64);
             const rootHash = s.loadBuffer(32).toString("hex");
             const fileHash = s.loadBuffer(32).toString("hex");
-            if (seqno < 1 || regMcSeqno < 1 || startLt <= 0n
-                || endLt <= startLt || rootHash === "0".repeat(64)
+            if (seqno < 1 || regMcSeqno < 1
+                || regMcSeqno > masterchainSeqno
+                || startLt <= 0n || endLt <= startLt
+                || rootHash === "0".repeat(64)
                 || fileHash === "0".repeat(64)) {
                 throw new Error("SHARD_DESCRIPTOR_INVALID");
             }
+            readShardDescriptorTail(s,tag);
             return {seqno, regMcSeqno, rootHash, fileHash,
                 shard: shardForPrefix(prefix, depth), depth};
         }
@@ -172,7 +213,7 @@ export function inspectMainnetShardHashLink({
     if (!root) return blocked("MASTERCHAIN_BLOCK_BOC_INVALID");
     let descriptor;
     try {
-        descriptor = findShardDescriptor(loadShardHashTree(root), address);
+        descriptor = findShardDescriptor(loadShardHashTree(root), address, checkpoint.seqno);
     } catch {
         return blocked("MASTERCHAIN_SHARD_STRUCTURE_INVALID");
     }
