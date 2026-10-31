@@ -936,6 +936,13 @@ export class RoomLedger {
 
         }
 
+        if (this._store.findByIdempotencyKey(
+            `${request.payoutId}:${request.recipientId}:owner-unpaid-gas-terminal`))
+            throw new PayoutSettlementError(
+                "owner commission was durably closed as unpaid; cannot mark it transferred",
+                {payoutId:request.payoutId,recipientId:request.recipientId}
+            );
+
         const obligation = this._findNetPayout(request.payoutId, request.recipientId);
 
         if (!obligation) {
@@ -1052,6 +1059,65 @@ export class RoomLedger {
 
     }
 
+    /**
+     * Close ONLY the OWNER obligation as UNPAID after a dual-provider witness
+     * and an exclusive no-broadcast OWNER marker have been durably written by
+     * the native transport. This is never a payout settlement or receipt.
+     * Existing recorded amount remains an explicit unpaid commission.
+     */
+    terminateOwnerCommissionUnpaid({payoutId,recipientId,evidence}={}) {
+        this._assertInitialized();
+        assertNonEmptyString(payoutId,"payoutId");
+        assertNonEmptyString(recipientId,"recipientId");
+        const key=`${payoutId}:${recipientId}:owner-unpaid-gas-terminal`;
+        const already=this._store.findByIdempotencyKey(key);
+        if(already) {
+            if(already.metadata?.payoutId!==payoutId
+                ||already.metadata?.recipientId!==recipientId
+                ||JSON.stringify(already.metadata?.evidence)!==JSON.stringify(evidence))
+                throw new PayoutSettlementError("OWNER_GAS_TERMINAL_REPLAY_CONFLICT");
+            return Object.freeze({replay:true,terminal:true,paid:false,payoutId,recipientId});
+        }
+        const net=this._findNetPayout(payoutId,recipientId);
+        if(!net ||net.metadata?.role!=="OWNER"
+            ||this._store.findByIdempotencyKey(`${payoutId}:${recipientId}:settle`))
+            throw new PayoutSettlementError("OWNER_GAS_TERMINAL_OBLIGATION_INVALID");
+        const obligations=this.listPayoutObligations(net.roomId);
+        if(obligations.length!==2
+            ||obligations.some(x=>x.payoutId!==payoutId)
+            ||!obligations.some(x=>x.role==="WINNER"&&x.settled===true)
+            ||!obligations.some(x=>x.role==="OWNER"&&x.recipientId===recipientId
+                &&x.settled===false&&x.terminal!==true))
+            throw new PayoutSettlementError("OWNER_GAS_TERMINAL_WINNER_UNVERIFIED");
+        const due=net.amountAtomic;
+        const atomic=value=>typeof value==="string"
+            &&/^(0|[1-9][0-9]*)$/.test(value)?BigInt(value):null;
+        const source=atomic(evidence?.toncenterBalanceAtomic);
+        const independent=atomic(evidence?.tonapiBalanceAtomic);
+        if(evidence?.status!=="OWNER_PRINCIPAL_SHORTFALL_CORROBORATED_READ_ONLY"
+            ||evidence.payoutId!==payoutId||evidence.network!==this._currency.network
+            ||evidence.ownerDueAtomic!==due
+            ||evidence.terminal!==false||evidence.walletReleasable!==false
+            ||source===null||independent===null||source!==independent
+            ||source>=BigInt(due)
+            ||!Number.isSafeInteger(evidence.tonapiObservedAtMs)
+            ||evidence.tonapiObservedAtMs<=0)
+            throw new PayoutSettlementError("OWNER_GAS_TERMINAL_EVIDENCE_INVALID");
+        const result=this._store.append({
+            idempotencyKey:key,roomId:net.roomId,
+            kind:LEDGER_ENTRY_KIND.OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL,
+            amountAtomic:due,playerId:recipientId,
+            asset:this._currency.asset,network:this._currency.network,
+            metadata:{
+                payoutId,recipientId,role:"OWNER",
+                reason:"INSUFFICIENT_PRINCIPAL_AFTER_WINNER_FINALITY",
+                paymentStatus:"UNPAID",evidence
+            }
+        });
+        return Object.freeze({replay:result.replay===true,terminal:true,
+            paid:false,payoutId,recipientId,unpaidAtomic:due});
+    }
+
     // -------------------------------------------------------------------------
     // Obligations + derived views
     // -------------------------------------------------------------------------
@@ -1067,6 +1133,7 @@ export class RoomLedger {
     listPayoutObligations(roomId) {
 
         const settlements = new Set();
+        const terminals = new Set();
 
         for (const entry of this._store.listForRoom(roomId)) {
 
@@ -1076,6 +1143,8 @@ export class RoomLedger {
                     `${entry.metadata.payoutId}:${entry.metadata.recipientId}`);
 
             }
+            if(entry.kind===LEDGER_ENTRY_KIND.OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL)
+                terminals.add(`${entry.metadata.payoutId}:${entry.metadata.recipientId}`);
 
         }
 
@@ -1099,6 +1168,7 @@ export class RoomLedger {
                 reservedFeeAtomic: entry.metadata.reservedFeeAtomic,
                 netAtomic: entry.amountAtomic,
                 settled: settlements.has(key),
+                terminal: terminals.has(key),
                 roomId: entry.roomId
             }));
 
@@ -1117,7 +1187,7 @@ export class RoomLedger {
     countOpenObligations(roomId) {
 
         return this.listPayoutObligations(roomId)
-            .filter((obligation) => !obligation.settled)
+            .filter((obligation) => !obligation.settled && !obligation.terminal)
             .length;
 
     }
@@ -1221,7 +1291,7 @@ export class RoomLedger {
                 .reduce((sum, entry) => sum
                     + (entry.metadata?.plan?.gasReserveAtomic
                         ?? entry.metadata?.plan?.safetyMarginAtomic ?? 0), 0),
-            openObligations: obligations.filter((o) => !o.settled).length,
+            openObligations: obligations.filter((o) => !o.settled && !o.terminal).length,
             settledObligations: obligations.filter((o) => o.settled).length,
             canRecycleWallet: this.canRecycleWallet(roomId)
         });
