@@ -1280,6 +1280,11 @@ class WheelWinApplication {
             });
 
             const recovery = paymentRuntime.initialize();
+            // A valid Mainnet wallet key by itself is insufficient: every
+            // private signing identity MUST match the corresponding public
+            // wallet in the pool before Page4, payouts or refunds are exposed.
+            if(mainnetRelease)
+                await mainnetRelease.validateSigningCatalog(paymentRuntime);
             // Resolve the REAL shared payout/refund/recovery dependencies
             // BEFORE binding any external Page4 socket or Page5 gate.
             const mainnetReleaseDeps = mainnetRelease
