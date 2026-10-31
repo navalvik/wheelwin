@@ -126,7 +126,7 @@ test("same ordinary FinalityProvider pins endpoint to the explicit network",()=>
     const f=configured({network:"mainnet"});
     assert.throws(()=>new ToncenterIndexedFinalityEvidenceProvider({
         client:f.client,network:"testnet"
-    }),/selected TON network/);
+    }),/Testnet/);
     const testnet=configured({network:"testnet"});
     assert.throws(()=>new ToncenterIndexedFinalityEvidenceProvider({
         client:testnet.client,network:"mainnet"
