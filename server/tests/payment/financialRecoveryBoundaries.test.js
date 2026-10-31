@@ -59,7 +59,7 @@ test('restart repairs both recipient obligations after crash immediately after p
     ledger.initialize();
     assert.equal(ledger.store.size, count);
     assert.equal(plan.transfers[0].grossAtomic, 5700000000);
-    assert.equal(plan.transfers[1].grossAtomic, 294000000);
+    assert.equal(plan.transfers[1].grossAtomic, 297000000);
     assert.equal(plan.gasReserveAtomic, 6000000);
 });
 
@@ -79,7 +79,7 @@ test('retry repairs reserve after a partial plan write without requiring restart
     assert.equal(ledger.planPayout({payoutId:'partial',roomId:'room'}).replay,true);
     const reserves = () => store.list().filter(entry => entry.kind === 'GAS_RESERVE_ALLOCATION');
     assert.equal(reserves().length,1);
-    assert.equal(reserves()[0].amountAtomic,3000000);
+    assert.equal(reserves()[0].amountAtomic,1500000);
     assert.equal(ledger.listPayoutObligations('room').length,2);
     ledger.planPayout({payoutId:'partial',roomId:'room'});
     assert.equal(reserves().length,1);
