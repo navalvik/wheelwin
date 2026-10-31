@@ -95,6 +95,21 @@ for(const network of ["testnet","mainnet"]){
             .filter(x=>x.kind==="OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL").length,1);
     });
 }
+test("principal fully present but zero gas is a durable unpaid terminal, not a paid owner",t=>{
+    const h=harness(t,"mainnet");
+    h.ledger.settlePayout({payoutId:PAYOUT,recipientId:"Olga",
+        executionResult:{transactionId:"winner-final",actualFeeAtomic:700000}});
+    const evidence={...h.evidence,
+        toncenterBalanceAtomic:"148500000",tonapiBalanceAtomic:"148500000"};
+    const result=h.ledger.terminateOwnerCommissionUnpaid({
+        payoutId:PAYOUT,recipientId:"WheelWin",evidence
+    });
+    assert.equal(result.terminal,true);
+    assert.equal(result.paid,false);
+    assert.equal(h.ledger.listPayoutObligations(ROOM).find(x=>x.role==="OWNER").settled,false);
+    assert.equal(h.ledger.countOpenObligations(ROOM),0);
+});
+
 test("owner terminal cannot be fabricated while winner pending or proofs missing",t=>{
     const h=harness(t,"testnet");
     assert.throws(()=>h.ledger.terminateOwnerCommissionUnpaid({
