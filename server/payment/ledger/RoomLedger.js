@@ -1079,7 +1079,7 @@ export class RoomLedger {
             return Object.freeze({replay:true,terminal:true,paid:false,payoutId,recipientId});
         }
         const net=this._findNetPayout(payoutId,recipientId);
-        if(!net ||net.metadata?.role!=="OWNER"
+        if(!net ||net.role!=="OWNER"
             ||this._store.findByIdempotencyKey(`${payoutId}:${recipientId}:settle`))
             throw new PayoutSettlementError("OWNER_GAS_TERMINAL_OBLIGATION_INVALID");
         const obligations=this.listPayoutObligations(net.roomId);
@@ -1089,7 +1089,7 @@ export class RoomLedger {
             ||!obligations.some(x=>x.role==="OWNER"&&x.recipientId===recipientId
                 &&x.settled===false&&x.terminal!==true))
             throw new PayoutSettlementError("OWNER_GAS_TERMINAL_WINNER_UNVERIFIED");
-        const due=net.amountAtomic;
+        const due=net.netAtomic;
         const atomic=value=>typeof value==="string"
             &&/^(0|[1-9][0-9]*)$/.test(value)?BigInt(value):null;
         const source=atomic(evidence?.toncenterBalanceAtomic);
