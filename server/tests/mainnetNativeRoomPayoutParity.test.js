@@ -94,7 +94,7 @@ function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-
             ]
         }
     });
-    return {transport,sent,settled,dataDir};
+    return {transport,sent,settled,dataDir,verifier};
 }
 
 test("Mainnet uses the same native payout sequence, isolated pre-send journal, no duplicate",async t=>{
@@ -202,6 +202,55 @@ test("existing owner broadcast claim blocks any owner-gas-shortfall diagnostic t
     assert.equal(result.reason,"PAYOUT_ASSESSMENT_OWNER_ATTEMPT_AMBIGUOUS");
     assert.equal(result.terminal,false);
     assert.equal(result.walletReleasable,false);
+});
+
+test("Mainnet owner principal deficiency needs matching independent balance and remains read-only",async t=>{
+    const h=harness(t,{credit:false,winnerLedgerSettled:true,ownerBalanceNano:140_000_000n});
+    const payout=plan();
+    await h.transport.submit({...request,plan:payout});
+    h.verifier.observeAccountBalance=async ({address})=>({
+        status:"INDEPENDENT_ACCOUNT_BALANCE_OBSERVED",
+        provider:"tonapi-mainnet",network:"mainnet",
+        address,balanceAtomic:"140000000",observedAtMs:Date.now()
+    });
+    const before=h.sent.length;
+    const proof=await h.transport.corroborateOwnerPrincipalShortfall({...request,plan:payout});
+    assert.equal(proof.status,"OWNER_PRINCIPAL_SHORTFALL_CORROBORATED_READ_ONLY");
+    assert.equal(proof.toncenterBalanceAtomic,"140000000");
+    assert.equal(proof.tonapiBalanceAtomic,"140000000");
+    assert.equal(proof.terminal,false);
+    assert.equal(proof.walletReleasable,false);
+    assert.equal(h.sent.length,before);
+    assert.equal(h.settled.length,0);
+});
+
+test("Mainnet owner principal witness rejects stale, wrong-network, changed-balance and missing indexer",async t=>{
+    const h=harness(t,{credit:false,winnerLedgerSettled:true,ownerBalanceNano:140_000_000n});
+    const payout=plan();
+    await h.transport.submit({...request,plan:payout});
+    const observe=value=>async ({address})=>({
+        status:"INDEPENDENT_ACCOUNT_BALANCE_OBSERVED",
+        provider:"tonapi-mainnet",network:"mainnet",
+        address,balanceAtomic:"140000000",observedAtMs:Date.now(),...value
+    });
+    const failures=[
+        [{network:"testnet"},"OWNER_INDEPENDENT_BALANCE_UNVERIFIED"],
+        [{provider:"tonapi-testnet"},"OWNER_INDEPENDENT_BALANCE_UNVERIFIED"],
+        [{balanceAtomic:"139999999"},"OWNER_BALANCE_SOURCES_DISAGREE"],
+        [{address:OWNER},"OWNER_BALANCE_SOURCES_DISAGREE"],
+        [{observedAtMs:1},"OWNER_INDEPENDENT_BALANCE_UNVERIFIED"],
+        [{balanceAtomic:"bad"},"OWNER_INDEPENDENT_BALANCE_UNVERIFIED"]
+    ];
+    for(const [witness,reason] of failures){
+        h.verifier.observeAccountBalance=observe(witness);
+        const result=await h.transport.corroborateOwnerPrincipalShortfall({...request,plan:payout});
+        assert.equal(result.status,"OWNER_PRINCIPAL_SHORTFALL_HOLD");
+        assert.equal(result.reason,reason);
+        assert.equal(result.terminal,false);
+    }
+    delete h.verifier.observeAccountBalance;
+    const missing=await h.transport.corroborateOwnerPrincipalShortfall({...request,plan:payout});
+    assert.equal(missing.reason,"OWNER_INDEPENDENT_BALANCE_SOURCE_MISSING");
 });
 
 test("Mainnet missing winner credit blocks owner broadcast and duplicate retry",async t=>{
