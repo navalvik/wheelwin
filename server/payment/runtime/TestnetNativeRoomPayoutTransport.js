@@ -15,7 +15,7 @@ import {deriveTonAddressIdentity} from "../incoming/TonAddressIdentity.js";
 import {requireToncenterChainConfig} from "../toncenter/ToncenterConstants.js";
 
 const SAFE_PAYOUT_ID=/^payout_[a-f0-9]{32}$/;
-const RETAINED_NANO=0n; // estimate is not a send gate; plan carries the exact 0.1% reserve
+const RETAINED_NANO=0n; // estimate is not a send gate; plan carries the exact 0.05% reserve
 function assert(ok,reason) {if(!ok)throw new Error(reason);}
 function canonical(address) {
     const value=deriveTonAddressIdentity(address);
@@ -78,7 +78,7 @@ export class TestnetNativeRoomPayoutTransport {
         assert(Number.isSafeInteger(principalAtomic)&&principalAtomic>0,
             "PAYOUT_PRINCIPAL_INVALID");
         const winnerGross=BigInt(principalAtomic)*95n/100n;
-        const ownerGross=BigInt(principalAtomic)*49n/1000n;
+        const ownerGross=BigInt(principalAtomic)*99n/2000n;
         assert(ownerGross>0n,"PAYOUT_OWNER_NONPOSITIVE");
         const quote=async (address,amountNano)=>{
             const result=await this._adapter.estimateOutboundTransferFee({
