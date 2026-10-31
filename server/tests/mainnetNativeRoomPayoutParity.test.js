@@ -307,6 +307,14 @@ test("Mainnet automatic owner shortage writes one exclusive unpaid claim without
     const replay=await h.transport.submit({...request,plan:payout,resume:true});
     assert.equal(replay.status,"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL");
     assert.equal(h.sent.length,1,"reconnect cannot send a previously terminalized owner leg");
+    // New transport, new adapter and ledger after a simulated process restart.
+    // Even if another room later funds this wallet, the old OWNER marker wins.
+    const restarted=harness(t,{root:h.dataDir,credit:true,winnerLedgerSettled:true,
+        ownerBalanceNano:200_000_000n});
+    const recovered=await restarted.transport.submit({...request,plan:payout,resume:true});
+    assert.equal(recovered.status,"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL");
+    assert.equal(restarted.sent.length,0,"restart may not generate a late owner BOC");
+    assert.equal(restarted.unpaidTerminals.length,1);
 });
 
 test("Mainnet closes owner as unpaid when balance equals principal but no source gas remains",async t=>{
