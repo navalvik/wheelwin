@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync,rmSync,existsSync} from "node:fs";
+import {mkdtempSync,rmSync,existsSync,writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {TestnetNativeRoomPayoutTransport} from "../payment/runtime/TestnetNativeRoomPayoutTransport.js";
@@ -251,6 +251,24 @@ test("Mainnet owner principal witness rejects stale, wrong-network, changed-bala
     delete h.verifier.observeAccountBalance;
     const missing=await h.transport.corroborateOwnerPrincipalShortfall({...request,plan:payout});
     assert.equal(missing.reason,"OWNER_INDEPENDENT_BALANCE_SOURCE_MISSING");
+});
+
+test("owner send claim appearing during independent balance read defeats shortfall release",async t=>{
+    const h=harness(t,{credit:false,winnerLedgerSettled:true,ownerBalanceNano:140_000_000n});
+    const payout=plan();
+    await h.transport.submit({...request,plan:payout});
+    h.verifier.observeAccountBalance=async ({address})=>{
+        writeFileSync(join(h.dataDir,"mainnet-native-payout-attempts",PAYOUT_ID+".OWNER.json"),
+            JSON.stringify({payoutId:PAYOUT_ID,role:"OWNER",state:"SUBMISSION_UNKNOWN"}));
+        return {status:"INDEPENDENT_ACCOUNT_BALANCE_OBSERVED",
+            provider:"tonapi-mainnet",network:"mainnet",
+            address,balanceAtomic:"140000000",observedAtMs:Date.now()};
+    };
+    const r=await h.transport.corroborateOwnerPrincipalShortfall({...request,plan:payout});
+    assert.equal(r.status,"OWNER_PRINCIPAL_SHORTFALL_HOLD");
+    assert.equal(r.reason,"OWNER_OUTBOUND_CLAIM_RACE_OR_AMBIGUITY");
+    assert.equal(r.walletReleasable,false);
+    assert.equal(r.terminal,false);
 });
 
 test("Mainnet missing winner credit blocks owner broadcast and duplicate retry",async t=>{
