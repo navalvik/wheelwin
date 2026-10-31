@@ -236,6 +236,20 @@ export function unwrapAuthoritativeSocketRecord(payload) {
 
 }
 
+function acceptAuthoritativeGameplayIdentity(state, payload) {
+
+    if (!payload?.roomId || !payload?.gameId) return false;
+
+    // A delayed packet from a previous game must never re-arm a different
+    // live seat, or reanimate a completed session after GAME_END.
+    if (state.roomId && state.roomId !== payload.roomId) return false;
+    if (state.gameId && state.gameId !== payload.gameId) return false;
+    if (state.lifecycle.cleanupObserved === true) return false;
+
+    return true;
+
+}
+
 /**
  * Pure reducer: copies server fields into the session mirror. Never invents
  * values that were absent from the payload.
@@ -421,12 +435,27 @@ export function authoritativeSessionReducer(state, action) {
                 ? rawGameState
                 : (rawGameState?.currentState ?? state.gameState);
 
+            const recoveredGameplay = Boolean(payload.roomId && payload.gameId)
+                && typeof gameState === "string"
+                && [
+                    "PRE_GAME_READY", "READY", "SELF_TEST",
+                    "SPEED", "BRAKE", "RESULT"
+                ].includes(gameState)
+                && acceptAuthoritativeGameplayIdentity(state, payload);
+
             return stamp({
                 ...state,
                 roomId: payload.roomId ?? state.roomId,
                 gameId: payload.gameId ?? state.gameId,
                 players,
                 gameState,
+                // A fresh WebView can recover a live gameplay snapshot without
+                // ever seeing the original GAME_START event.
+                lifecycle: recoveredGameplay ? Object.freeze({
+                    ...state.lifecycle,
+                    gameStarted: true,
+                    gameStartAuthorized: true
+                }) : state.lifecycle,
                 configuration: payload.wheelConfiguration
                     ? Object.freeze({ ...payload.wheelConfiguration })
                     : state.configuration,
@@ -525,12 +554,18 @@ export function authoritativeSessionReducer(state, action) {
 
         case AUTHORITATIVE_SESSION_ACTIONS.GAME_START_AUTHORIZED: {
 
+            if (!acceptAuthoritativeGameplayIdentity(state, payload)) return state;
+
             return stamp({
                 ...state,
-                roomId: payload?.roomId ?? state.roomId,
-                gameId: payload?.gameId ?? state.gameId,
+                roomId: payload.roomId,
+                gameId: payload.gameId,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
+                    // Server has passed its 3/3 payment start gate.
+                    // This authoritative start is replayed on room reclaim,
+                    // even when the original GAME_START event was missed.
+                    gameStarted: true,
                     gameStartAuthorized: true
                 })
             }, action.type);
@@ -539,12 +574,15 @@ export function authoritativeSessionReducer(state, action) {
 
         case AUTHORITATIVE_SESSION_ACTIONS.GAME_INITIALIZING: {
 
+            if (!acceptAuthoritativeGameplayIdentity(state, payload)) return state;
+
             return stamp({
                 ...state,
-                roomId: payload?.roomId ?? state.roomId,
-                gameId: payload?.gameId ?? state.gameId,
+                roomId: payload.roomId,
+                gameId: payload.gameId,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
+                    gameStarted: true,
                     gameStartAuthorized: true,
                     gameInitializing: true
                 })
