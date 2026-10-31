@@ -371,7 +371,10 @@ export class RecoveryEngine {
             physics,
             input,
             winner: this._winnerEngine.getResult(gameId),
-            payment: this._paymentEngine.getPayment(gameId),
+            // Native TON room-wallet payments do not instantiate the legacy
+            // PaymentEngine. Recovery snapshots must remain available at
+            // RESULT so late Page6 clients can replay the authoritative result.
+            payment: this._paymentEngine?.getPayment?.(gameId) ?? null,
             preGameReady: this._preGameReadyActivation?.getSnapshot(gameId) ?? null,
             // R12.5D — live Result Session proves OPEN_PAGE6 already occurred,
             // even if ResultActivation.forgetGame cleared _page6Opened at teardown.
