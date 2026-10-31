@@ -69,7 +69,7 @@ function harness(t,{wrongService=false,wrongObserver=false}={}) {
         nowProvider:()=>NOW,fetchImpl,apiKeyProvider:()=>"OFFLINE_NO_SECRET",
         mainnetFinancialRelease:release
     });
-    t.after(()=>runtime.shutdown());
+    t.after(()=>{if(runtime.initialized)runtime.shutdown();});
     return {release,runtime,requests};
 }
 
