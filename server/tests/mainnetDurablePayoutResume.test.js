@@ -23,6 +23,7 @@ function harness(t) {
         address,publicKey:keys.publicKey,secretKey:keys.secretKey};
     const service={
         getSeqno:async()=>state.seqno,
+        getBalance:async()=>10_000_000_000n,
         broadcastTransaction:async boc=>{
             state.broadcasts.push(boc);
             return {status:"SUBMITTED_UNCONFIRMED"};
