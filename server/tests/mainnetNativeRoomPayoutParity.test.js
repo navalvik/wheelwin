@@ -128,6 +128,25 @@ test("Mainnet settles proved winner alone, never invents an owner settlement",as
     assert.equal(h.settled[1].recipientId,"Olga");
 });
 
+test("Mainnet never settles winner alone with Testnet global ID, wrong TonAPI provider or missing credit",async t=>{
+    for(const options of [
+        {ownerMissing:true,creditGlobalId:-3},
+        {ownerMissing:true,independentProvider:"tonapi-testnet"},
+        {ownerMissing:true,credit:false}
+    ]){
+        const h=harness(t,options);
+        const payout=plan();
+        await h.transport.submit({...request,plan:payout});
+        const sendCount=h.sent.length;
+        const outcome=await h.transport.reconcileAndSettle({...request,plan:payout});
+        assert.notEqual(outcome.status,"WINNER_SETTLED_OWNER_UNCONFIRMED");
+        assert.equal(h.settled.length,0,
+            "wrong-network or missing finality cannot settle even the winner");
+        assert.equal(h.sent.length,sendCount,
+            "finality checks remain observation-only");
+    }
+});
+
 test("Mainnet missing winner credit blocks owner broadcast and duplicate retry",async t=>{
     const h=harness(t,{credit:false});
     const first=await h.transport.submit({...request,plan:plan()});
