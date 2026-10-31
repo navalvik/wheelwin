@@ -18,12 +18,15 @@ import { DEV_MODE } from "../config/devMode";
 
 import { useRegisterEngineModule } from "./EngineBridgeContext";
 import { useGameState } from "./GameStateContext";
+import { useAuthoritativeSessionStore } from "./AuthoritativeSessionContext";
 
 const PhysicsContext = createContext(null);
 
 export function PhysicsProvider({ children }) {
 
     const { gameState } = useGameState();
+
+    const authoritativeSession = useAuthoritativeSessionStore();
 
     const engineRef = useRef(null);
 
@@ -54,6 +57,29 @@ export function PhysicsProvider({ children }) {
         frameStore.publishDiscrete(engineRef.current);
 
     }, [frameStore]);
+
+    // Reclaim messages may restore server authority AFTER the current SPEED
+    // state was rendered. Immediately stop any earlier local RAF loop when the
+    // authoritative lifecycle becomes active; do not wait for the next phase.
+    useEffect(() => {
+
+        const stopWhenServerOwnsGame = () => {
+
+            if (isServerAuthoritative()) {
+
+                engineRef.current.stop();
+
+                publishDiscrete();
+
+            }
+
+        };
+
+        stopWhenServerOwnsGame();
+
+        return authoritativeSession.subscribe(stopWhenServerOwnsGame);
+
+    }, [authoritativeSession, publishDiscrete]);
 
     const handleButtonEvent = useCallback((event) => {
 

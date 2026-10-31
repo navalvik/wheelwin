@@ -112,4 +112,68 @@ function assert(condition, message) {
 
 }
 
+
+{
+
+    // Telegram/WebView refresh can miss the original GAME_START event.
+    // Recovering the same server-authenticated room and game must still
+    // establish apply-only physics authority before SPEED/BRAKE rendering.
+    const store = createAuthoritativeSessionStore();
+    bindAuthoritativeSessionStore(store);
+    const id = { roomId: "reclaim-room", gameId: "reclaim-game" };
+
+    assert(!isServerAuthoritative(), "fresh WebView has no game ownership");
+
+    store.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START_AUTHORIZED,
+        payload: id
+    });
+    assert(isServerAuthoritative(), "replayed start authorization restores server authority");
+
+    store.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_INITIALIZING,
+        payload: id
+    });
+    assert(isServerAuthoritative(), "initializing retains server ownership");
+
+    store.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_END,
+        payload: { gameId: id.gameId }
+    });
+    assert(!isServerAuthoritative(), "terminal cleanup releases server ownership");
+
+    store.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START_AUTHORIZED,
+        payload: id
+    });
+    assert(!isServerAuthoritative(), "delayed authorization cannot reopen a completed game");
+    bindAuthoritativeSessionStore(null);
+
+    const recovering = createAuthoritativeSessionStore();
+    bindAuthoritativeSessionStore(recovering);
+    recovering.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.SESSION_SNAPSHOT,
+        payload: {
+            ...id,
+            gameState: "SPEED"
+        }
+    });
+    assert(isServerAuthoritative(), "recovered live SPEED snapshot restores server authority");
+    recovering.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START_AUTHORIZED,
+        payload: { roomId: "foreign-room", gameId: "foreign-game" }
+    });
+    assert(recovering.getSnapshot().roomId === id.roomId,
+        "foreign room may not claim an active game");
+    recovering.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_INITIALIZING,
+        payload: { roomId: id.roomId, gameId: "foreign-game" }
+    });
+    assert(recovering.getSnapshot().gameId === id.gameId,
+        "foreign game may not replace the recovered game");
+    bindAuthoritativeSessionStore(null);
+    console.log("  recovered Telegram authority passed");
+
+}
+
 console.log("gameAuthority.test.js: all assertions passed");
