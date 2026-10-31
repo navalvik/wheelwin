@@ -19,7 +19,7 @@ const NOW=1800000000000,ROOM="mainnet-app-financial-bootstrap";
 const wallet=n=>"0:"+n.toString(16).padStart(64,"0");
 const PLAYERS=["Olga","Bob","Lena"];
 
-function harness(t,{wrongService=false,wrongObserver=false}={}) {
+function harness(t,{wrongService=false,wrongObserver=false,wrongCatalogSlot=null}={}) {
     const root=mkdtempSync(join(tmpdir(),"ww-mainnet-app-wiring-"));
     t.after(()=>rmSync(root,{recursive:true,force:true}));
     const walletCatalogPath=join(root,"64-public-wallets.json");
@@ -48,7 +48,8 @@ function harness(t,{wrongService=false,wrongObserver=false}={}) {
         walletResolverFactory:()=>{
             requests.walletResolver++;
             return async roomNumber=>({
-                roomNumber,network:"mainnet",workchain:0,address:wallet(roomNumber)
+                roomNumber,network:"mainnet",workchain:0,
+                address:wallet(roomNumber===wrongCatalogSlot?roomNumber+1000:roomNumber)
             });
         },
         tonServiceFactory:()=>nativeService,
@@ -91,11 +92,15 @@ test("Mainnet app requires both native release and acceptance switches, Testnet 
     assert.equal(selectAppPaymentRuntimeBuilder({}),buildPaymentRuntime);
 });
 
-test("Mainnet app uses one original wallet adapter for refunds and winner/owner payout",t=>{
+test("Mainnet app uses one original wallet adapter for refunds and winner/owner payout",async t=>{
     const h=harness(t);
     assert.equal(h.runtime.initialized,false);
     assert.equal(h.runtime.getCapabilities().livePaymentAcceptanceEnabled,false);
     h.runtime.initialize();
+    assert.throws(()=>h.release.resolveDependencies(h.runtime),
+        /MAINNET_RELEASE_RUNTIME_NOT_INITIALIZED/,
+        "release cannot open before all 64 wallet identities were compared");
+    assert.equal(await h.release.validateSigningCatalog(h.runtime),true);
     const services=h.release.resolveDependencies(h.runtime);
     assert.equal(h.release.resolveDependencies(h.runtime),services);
     assert.equal(h.runtime.getCapabilities().livePaymentAcceptanceEnabled,true);
@@ -169,4 +174,23 @@ test("Mainnet preparation-only startup continues to have no keys, no transfers o
     assert.equal(h.requests.walletResolver,resolverCount);
     assert.equal(h.requests.broadcast,0);
     r.shutdown();
+});
+
+test("Mainnet requires matching signing addresses for every one of 64 public wallet slots",async t=>{
+    const h=harness(t,{wrongCatalogSlot:37});
+    h.runtime.initialize();
+    await assert.rejects(h.release.validateSigningCatalog(h.runtime),
+        /MAINNET_SIGNING_CATALOG_ADDRESS_MISMATCH/);
+    assert.throws(()=>h.release.resolveDependencies(h.runtime),
+        /MAINNET_RELEASE_RUNTIME_NOT_INITIALIZED/);
+    assert.equal(h.runtime.getCapabilities().livePaymentAcceptanceEnabled,false);
+    assert.equal(h.requests.broadcast,0);
+    assert.equal(h.requests.rpc,0);
+    const withoutChange=harness(t);
+    withoutChange.runtime.initialize();
+    await withoutChange.release.validateSigningCatalog(withoutChange.runtime);
+    const services=withoutChange.release.resolveDependencies(withoutChange.runtime);
+    assert.equal(services.roomWalletAdapter._sequenceStateDir,
+        join(withoutChange.runtime.networkDataDir,"outbound-sequences"));
+    assert.equal(withoutChange.requests.broadcast,0);
 });
