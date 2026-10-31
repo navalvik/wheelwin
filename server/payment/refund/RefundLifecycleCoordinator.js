@@ -11,9 +11,19 @@ export class RefundLifecycleError extends Error {
 
 /** Creates obligations only from settled intents that exactly back durable principal entries. */
 export class RefundLifecycleCoordinator {
-    constructor({ store, intentStore, ledgerStore, outcomeStore = null, nowProvider = Date.now, logger = null, outgoingRefundProvider = null, networkName = REFUND_NETWORK.TESTNET } = {}) {
+    constructor({ store, intentStore, ledgerStore, outcomeStore = null, nowProvider = Date.now, logger = null, outgoingRefundProvider = null, networkName = REFUND_NETWORK.TESTNET, mainnetOutgoingEnabled = false } = {}) {
         if (!store || typeof store.create !== "function" || typeof store.listPending !== "function") throw new RefundLifecycleError("durable refund store is required");
         if (!Object.hasOwn(REFUND_GLOBAL_ID_BY_NETWORK, networkName)) throw new RefundLifecycleError("unsupported refund network");
+        // Mainnet submission cannot be activated by a boolean alone.
+        // The production Mainnet runtime always leaves this false.
+        if (mainnetOutgoingEnabled === true
+            && (networkName !== REFUND_NETWORK.MAINNET
+                || outgoingRefundProvider?.networkName !== REFUND_NETWORK.MAINNET
+                || outgoingRefundProvider?.globalId !== REFUND_GLOBAL_ID_BY_NETWORK.MAINNET
+                || outgoingRefundProvider?.canExecute?.() !== true)) {
+            throw new RefundLifecycleError("MAINNET_REFUND_COMPLETE_PROVIDER_REQUIRED");
+        }
+        this._mainnetOutgoingEnabled = mainnetOutgoingEnabled === true;
         this._networkName = networkName;
         this._globalId = REFUND_GLOBAL_ID_BY_NETWORK[networkName];
         this._store = store; this._intents = intentStore; this._ledger = ledgerStore; this._now = nowProvider; this._logger = logger;
@@ -132,9 +142,9 @@ export class RefundLifecycleCoordinator {
             if (obligation.networkName !== this._networkName || obligation.globalId !== this._globalId) {
                 return Object.freeze({ obligationId: obligation.obligationId, networkName: obligation.networkName, roomNumber: obligation.roomNumber, state: obligation.state, outcome: "BLOCKED_NETWORK_MISMATCH" });
             }
-            if (this._networkName === REFUND_NETWORK.MAINNET) {
-                // Preparation/recovery only: sending remains disabled until
-                // the EXISTING outgoing Testnet path is made network-aware.
+            if (this._networkName === REFUND_NETWORK.MAINNET
+                && !this._mainnetOutgoingEnabled) {
+                // Preparation-only Mainnet always holds outstanding debts.
                 return Object.freeze({ obligationId: obligation.obligationId, networkName: obligation.networkName, roomNumber: obligation.roomNumber, state: obligation.state, outcome: "PENDING_EXECUTION_DISABLED" });
             }
             const provider = providers.get(obligation.networkName);
@@ -163,8 +173,12 @@ export class RefundLifecycleCoordinator {
     }
 
     _resolveOutgoingProvider(provider) {
-        if (this._networkName === REFUND_NETWORK.MAINNET)
+        if (this._networkName === REFUND_NETWORK.MAINNET
+            && !this._mainnetOutgoingEnabled)
             throw new RefundLifecycleError("Mainnet outgoing refunds are not yet enabled");
+        if (this._networkName === REFUND_NETWORK.MAINNET
+            && provider != null && provider !== this._outgoingProvider)
+            throw new RefundLifecycleError("MAINNET_REFUND_PROVIDER_OVERRIDE_FORBIDDEN");
         const resolved = provider ?? this._outgoingProvider;
         if (!resolved) throw new RefundLifecycleError("no outgoing refund provider is configured");
         if (resolved.canExecute?.() !== true) throw new RefundLifecycleError("outgoing refund provider has no authorized Testnet signer");
