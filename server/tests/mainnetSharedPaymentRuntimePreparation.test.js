@@ -48,7 +48,7 @@ function descriptor(room=roomId) {
 function newRuntime({root,catalogPath,calls}) {
     return buildMainnetPaymentRuntime({
         dataDir:join(root,"payments"),
-        walletCatalogPath,
+        walletCatalogPath:catalogPath,
         nowProvider:()=>NOW,
         apiKeyProvider:()=>"TEST-ONLY-NO-LIVE",
         fetchImpl:async(...args)=>{
