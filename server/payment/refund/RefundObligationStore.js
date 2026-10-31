@@ -303,7 +303,7 @@ export class RefundObligationStore {
             || !Number.isSafeInteger(closedAtMs) || closedAtMs <= 0
             || !Object.values(REFUND_NETWORK).includes(networkName)
             || globalId !== REFUND_GLOBAL_ID_BY_NETWORK[networkName]) {
-            throw new RefundObligationError("closed-room refund context requires valid TON network identity and room fields");
+            throw new RefundObligationError("closed-room refund context requires valid network identity (Testnet identity or Mainnet identity) and room fields");
         }
         const roomKey = createHash("sha256").update(roomId).digest("hex");
         const path = join(this._closedRoomsDir, `${roomKey}.json`);
