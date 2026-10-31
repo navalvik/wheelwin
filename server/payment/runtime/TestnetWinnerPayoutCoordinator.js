@@ -27,6 +27,12 @@ export class TestnetWinnerPayoutCoordinator {
         winnerEngine, ownerWalletProvider = () => process.env.OWNER_WALLET,
         payoutSubmitter = null
     }) {
+        // Mainnet uses this SAME Testnet payout planner. Until the outgoing
+        // native transfer executor is connected, it may only create a durable
+        // plan and must never accept a submitter.
+        if (paymentRuntime?.network === 'mainnet' && payoutSubmitter !== null) {
+            throw new Error('MAINNET_PAYOUT_SUBMISSION_NOT_ENABLED');
+        }
         this._payment = paymentRuntime;
         this._resultsDir = paymentRuntime.networkDataDir ? join(paymentRuntime.networkDataDir, 'payout-results') : null;
         if (this._resultsDir) mkdirSync(this._resultsDir, {recursive: true});
@@ -57,6 +63,7 @@ export class TestnetWinnerPayoutCoordinator {
             && new Set(intents.map(x => x.playerId)).size === 3
             && room.players.every(id => intents.some(x => x.playerId === id
                 && x.state === PAYMENT_INTENT_STATE.SETTLED
+                && (this._payment?.network !== 'mainnet' || x.network === 'mainnet')
                 && typeof x.transactionId === "string"
                 && x.transactionId.length > 0)),
             "PAYOUT_THREE_SETTLED_PAYMENTS_REQUIRED");
@@ -74,7 +81,8 @@ export class TestnetWinnerPayoutCoordinator {
         ensure(ownerWallet !== winnerWallet, "PAYOUT_OWNER_WINNER_SAME_WALLET");
         const roomWallet = this._payment.walletPool.getReservationForRoom(roomId);
         ensure(roomWallet?.reservedByRoomId === roomId
-            && roomWallet.roomNumber !== 1
+            && (this._payment?.network === 'mainnet' || roomWallet.roomNumber !== 1)
+            && (this._payment?.network !== 'mainnet' || roomWallet.network === 'mainnet')
             && validAddress(roomWallet.address) !== ownerWallet
             && validAddress(roomWallet.address) !== winnerWallet,
             "PAYOUT_ROOM_WALLET_UNAVAILABLE");
