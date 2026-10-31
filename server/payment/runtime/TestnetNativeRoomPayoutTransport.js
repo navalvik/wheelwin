@@ -499,7 +499,7 @@ export class TestnetNativeRoomPayoutTransport {
             return hold(first?.reason??"OWNER_PRINCIPAL_SHORTFALL_NOT_CANDIDATE");
         const due=BigInt(first.ownerDueAtomic);
         const amount=BigInt(first.balanceAtomic);
-        if(amount>=due)return hold("OWNER_PRINCIPAL_STILL_FUNDED");
+        if(amount>due)return hold("OWNER_PRINCIPAL_STILL_FUNDED");
         if(typeof this._independentVerifier?.observeAccountBalance!=="function")
             return hold("OWNER_INDEPENDENT_BALANCE_SOURCE_MISSING");
         let second;
@@ -778,7 +778,8 @@ export class TestnetNativeRoomPayoutTransport {
                 } catch {
                     return Object.freeze({status:"OWNER_BALANCE_READ_PENDING",role,payoutId});
                 }
-                if(funding?.ok===false) {
+                if(funding?.ok===false || (typeof funding?.balanceNano==="bigint"
+                    &&funding.balanceNano===BigInt(owner.netAtomic))) {
                     try {
                         await this._settleFinalizedWinnerWhileOwnerPending({
                             roomId,payoutId,roomWalletAddress,winnerWallet,ownerWallet,plan
