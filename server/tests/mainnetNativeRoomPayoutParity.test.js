@@ -26,7 +26,8 @@ const request={roomId:ROOM_ID,payoutId:PAYOUT_ID,roomWalletAddress:ROOM,
     winnerWallet:WINNER,ownerWallet:OWNER};
 
 function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-mainnet",
-    payoutNetwork="mainnet",noAdapter=false,wrongPool=false,wrongOutbox=false,ownerMissing=false,root=null}={}){
+    payoutNetwork="mainnet",noAdapter=false,wrongPool=false,wrongOutbox=false,ownerMissing=false,
+    winnerLedgerSettled=false,ownerBalanceNano=150_000_000n,root=null}={}){
     const dataDir=root??mkdtempSync(join(tmpdir(),"wheelwin-native-outgoing-parity-"));
     if(root===null)t.after(()=>rmSync(dataDir,{recursive:true,force:true}));
     const sent=[],settled=[];
@@ -34,7 +35,13 @@ function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-
         _sequenceStateDir:join(dataDir,"outbound-sequences"),
         supportsDurableTransferRetry:()=>true,
         async sendTransfer(args){sent.push(args);return {ok:true,txHash:"mock-no-chain-hash"};},
-        async estimateOutboundTransferFee(){return {ok:true,totalNano:1000000n};}
+        async canFundTransfer({roomNumber,amountNano}){
+            return {ok:ownerBalanceNano>=amountNano,roomNumber,address:ROOM,
+                balanceNano:ownerBalanceNano,amountNano};
+        },
+        async estimateOutboundTransferFee({roomNumber,destination,amountNano}){
+            return {ok:true,totalNano:1000000n,roomNumber,destination,amountNano};
+        }
     };
     const observer={
         // The production observer has both methods; the transport selects
@@ -77,7 +84,15 @@ function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-
         ...(noAdapter?{walletResolver:()=>{},tonService:{}}:{adapter:wrongOutbox
             ?{...adapter,_sequenceStateDir:join(dataDir,"another-outbox")}:adapter}),
         outgoingObserver:observer,independentVerifier:verifier,
-        ledger:{settlePayout:args=>{settled.push(args);return {replay:false};}}
+        ledger:{
+            settlePayout:args=>{settled.push(args);return {replay:false};},
+            listPayoutObligations:()=>[
+                {payoutId:PAYOUT_ID,recipientId:"Olga",role:"WINNER",
+                    netAtomic:2_850_000_000,settled:winnerLedgerSettled},
+                {payoutId:PAYOUT_ID,recipientId:"WheelWin",role:"OWNER",
+                    netAtomic:148_500_000,settled:false}
+            ]
+        }
     });
     return {transport,sent,settled,dataDir};
 }
@@ -145,6 +160,48 @@ test("Mainnet never settles winner alone with Testnet global ID, wrong TonAPI pr
         assert.equal(h.sent.length,sendCount,
             "finality checks remain observation-only");
     }
+});
+
+test("read-only owner gas diagnostics never releases wallet or marks owner paid",async t=>{
+    const payout=plan();
+    const due=payout.transfers.find(x=>x.recipientRole==="OWNER").netAtomic;
+    const h=harness(t,{credit:false,winnerLedgerSettled:true,
+        ownerBalanceNano:BigInt(due)});
+    assert.equal((await h.transport.submit({...request,plan:payout})).status,
+        "WINNER_CONFIRMATION_PENDING");
+    const before=h.sent.length;
+    const candidate=await h.transport.assessOwnerCommissionGasShortfall({...request,plan:payout});
+    assert.equal(candidate.status,"OWNER_GAS_SHORTFALL_CANDIDATE_READ_ONLY");
+    assert.equal(candidate.estimatedShortfallAtomic,"1000000");
+    assert.equal(candidate.terminal,false);
+    assert.equal(candidate.walletReleasable,false);
+    assert.equal(h.sent.length,before);
+    assert.equal(h.settled.length,0);
+
+    const funded=harness(t,{credit:false,winnerLedgerSettled:true,
+        ownerBalanceNano:200_000_000n});
+    await funded.transport.submit({...request,plan:payout});
+    const adequate=await funded.transport.assessOwnerCommissionGasShortfall({...request,plan:payout});
+    assert.equal(adequate.status,"OWNER_GAS_SHORTFALL_NOT_OBSERVED");
+    assert.equal(adequate.terminal,false);
+
+    const unresolved=harness(t,{credit:false,winnerLedgerSettled:false,
+        ownerBalanceNano:0n});
+    await unresolved.transport.submit({...request,plan:payout});
+    const hold=await unresolved.transport.assessOwnerCommissionGasShortfall({...request,plan:payout});
+    assert.equal(hold.status,"OWNER_GAS_SHORTFALL_ASSESSMENT_HOLD");
+    assert.equal(hold.reason,"PAYOUT_ASSESSMENT_WINNER_UNFINALIZED_OR_OWNER_CLOSED");
+});
+
+test("existing owner broadcast claim blocks any owner-gas-shortfall diagnostic terminalization",async t=>{
+    const h=harness(t,{winnerLedgerSettled:true,credit:true,ownerBalanceNano:0n});
+    const payout=plan();
+    await h.transport.submit({...request,plan:payout});
+    const result=await h.transport.assessOwnerCommissionGasShortfall({...request,plan:payout});
+    assert.equal(result.status,"OWNER_GAS_SHORTFALL_ASSESSMENT_HOLD");
+    assert.equal(result.reason,"PAYOUT_ASSESSMENT_OWNER_ATTEMPT_AMBIGUOUS");
+    assert.equal(result.terminal,false);
+    assert.equal(result.walletReleasable,false);
 });
 
 test("Mainnet missing winner credit blocks owner broadcast and duplicate retry",async t=>{
