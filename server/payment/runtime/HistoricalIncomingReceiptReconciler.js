@@ -1,9 +1,21 @@
 import { normalizeIncomingTransferRecord } from '../incoming/index.js';
 import { tonAddressIdentitiesEqual } from '../incoming/TonAddressIdentity.js';
+import { requireToncenterChainConfig } from '../toncenter/ToncenterConstants.js';
 
 /** Read-only historical recovery. Two independent providers, no SSE replay or signing. */
 export class HistoricalIncomingReceiptReconciler {
-    constructor({runtime, incomingProvider, chainObserver, independentVerifier, nowProvider=Date.now}) {
+    constructor({runtime, incomingProvider, chainObserver, independentVerifier,
+        nowProvider=Date.now, network=runtime?.network ?? "testnet"}) {
+        const chain=requireToncenterChainConfig(network);
+        if (runtime?.network && runtime.network!==chain.network)
+            throw new Error("HISTORICAL_INCOMING_RUNTIME_NETWORK_MISMATCH");
+        if (chain.network==="mainnet"
+            && (incomingProvider?.baseUrl!==chain.baseUrl
+                || chainObserver?._chain?.network!=="mainnet"
+                || chainObserver._chain.globalId!==chain.globalId
+                || independentVerifier?._network!=="mainnet"))
+            throw new Error("HISTORICAL_INCOMING_MAINNET_PROVIDERS_MISMATCH");
+        this._chain=chain;
         Object.assign(this,{runtime,incomingProvider,chainObserver,independentVerifier,nowProvider});
         this.cursor=0; this.running=false;
         // Rotate per-room history candidates so an unresolved leading record
@@ -50,10 +62,10 @@ export class HistoricalIncomingReceiptReconciler {
         // expensive verification slot. Do not broaden the provider request.
         const candidates=[];
         for (const record of observed.records) {
-            const transfer=normalizeIncomingTransferRecord(record,{network:'testnet',providerId:'toncenter',now:this.nowProvider()});
+            const transfer=normalizeIncomingTransferRecord(record,{network:this._chain.network,providerId:'toncenter',now:this.nowProvider()});
             const priorReceipt=receiptStore.get?.(transfer.transactionId);
             if (priorReceipt && priorReceipt.ownershipStatus !== 'UNRESOLVED') continue;
-            if (transfer.asset!=='TON' || transfer.network!=='testnet'
+            if (transfer.asset!=='TON' || transfer.network!==this._chain.network
                 || transfer.transactionTime<floorMs || transfer.transactionTime>ceilingMs
                 || !tonAddressIdentitiesEqual(transfer.destinationWalletAddress,intents[0].destinationWalletAddress)) continue;
             candidates.push(transfer);
@@ -72,14 +84,14 @@ export class HistoricalIncomingReceiptReconciler {
                 sourceWalletAddress:transfer.senderAddress,destinationIdentity:transfer.destinationWalletAddress,
                 transactionId:source.transactionId,amountAtomic:transfer.amountAtomic,minCreatedAtMs:floorMs});
             if (indexed?.status!=='MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED'
-                || indexed.globalId!==-3 || indexed.sourceFinality!=='finalized' || indexed.recipientFinality!=='finalized'
+                || indexed.globalId!==this._chain.globalId || indexed.sourceFinality!=='finalized' || indexed.recipientFinality!=='finalized'
                 || indexed.recipientTransactionId!==transfer.providerTransactionIdentity.transactionId
                 || indexed.sourceTransactionId!==source.transactionId || indexed.amountAtomic!==transfer.amountAtomic) { pending.push('INDEXED_FINALITY_PENDING'); continue; }
             const verified=await this.independentVerifier.verifyTransfer({
                 sourceTransactionId:indexed.sourceTransactionId,recipientTransactionId:indexed.recipientTransactionId,
                 messageHash:indexed.messageHash,sourceWalletAddress:transfer.senderAddress,
                 destinationAddress:transfer.destinationWalletAddress,amountAtomic:transfer.amountAtomic});
-            if (verified?.status!=='INDEPENDENT_INDEXED_CREDIT_OBSERVED' || verified.provider!=='tonapi-testnet'
+            if (verified?.status!=='INDEPENDENT_INDEXED_CREDIT_OBSERVED' || verified.provider!=='tonapi-'+this._chain.network
                 || verified.sourceTransactionId!==indexed.sourceTransactionId
                 || verified.recipientTransactionId!==indexed.recipientTransactionId
                 || verified.messageHash!==indexed.messageHash || verified.amountAtomic!==transfer.amountAtomic
