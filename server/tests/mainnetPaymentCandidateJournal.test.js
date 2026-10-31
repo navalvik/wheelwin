@@ -250,3 +250,65 @@ test("fake candidate report and corrupted journal must fail closed",async()=>{
         assert.throws(()=>reloaded.initialize(),/JOURNAL_CORRUPT/);
     });
 });
+
+
+test("preinitialized concurrent workers cannot claim one reference for two transfers",async()=>{
+    const first=(await assessed({rows:[tx(0)]})).report;
+    const conflicting=(await assessed({rows:[tx(0,{hash:"another-mainnet-transfer"})]})).report;
+    assert.equal(first.candidateCount,1);
+    assert.equal(conflicting.candidateCount,1);
+    withDir(dir=>{
+        const a=new MainnetCandidateReviewJournal({dataDir:dir});
+        const b=new MainnetCandidateReviewJournal({dataDir:dir});
+        a.initialize();
+        b.initialize(); // Stale maps deliberately precede both writes.
+        assert.equal(a.recordCandidates(first).newlyRecorded,1);
+        assert.throws(()=>b.recordCandidates(conflicting),/REFERENCE_REUSE/);
+        assert.equal(b.recordCandidates(first).newlyRecorded,0);
+        const recovered=new MainnetCandidateReviewJournal({dataDir:dir});
+        recovered.initialize();
+        assert.equal(recovered.listRoom(roomId).length,1);
+        assert.equal(recovered.getByTransactionId("another-mainnet-transfer"),null);
+    });
+});
+
+test("restart repairs interrupted claim-before-transaction append without double counting",async()=>{
+    const {report}=await assessed({rows:[tx(0)]});
+    withDir(dir=>{
+        const j=new MainnetCandidateReviewJournal({dataDir:dir});
+        j.initialize();
+        assert.equal(j.recordCandidates(report).newlyRecorded,1);
+        const root=join(dir,"mainnet-candidate-review");
+        const records=join(root,"records");
+        const refs=join(root,"references");
+        assert.equal(readdirSync(refs).length,1);
+        const transactionFile=join(records,readdirSync(records)[0]);
+        rmSync(transactionFile); // Simulated interruption after exclusive reference claim.
+        const recovered=new MainnetCandidateReviewJournal({dataDir:dir});
+        recovered.initialize();
+        assert.equal(recovered.listRoom(roomId).length,1);
+        assert.equal(readdirSync(records).length,1);
+        assert.equal(recovered.recordCandidates(report).newlyRecorded,0);
+    });
+});
+
+test("missing or corrupted reference claim fails closed on restart",async()=>{
+    const {report}=await assessed({rows:[tx(0)]});
+    withDir(dir=>{
+        const j=new MainnetCandidateReviewJournal({dataDir:dir});
+        j.initialize();
+        j.recordCandidates(report);
+        const refs=join(dir,"mainnet-candidate-review","references");
+        const referenceFile=join(refs,readdirSync(refs)[0]);
+        writeFileSync(referenceFile,"{broken");
+        assert.throws(
+            ()=>new MainnetCandidateReviewJournal({dataDir:dir}).initialize(),
+            /JOURNAL_CORRUPT/
+        );
+        rmSync(referenceFile);
+        assert.throws(
+            ()=>new MainnetCandidateReviewJournal({dataDir:dir}).initialize(),
+            /REFERENCE_CLAIM_MISSING_OR_CONFLICT/
+        );
+    });
+});
