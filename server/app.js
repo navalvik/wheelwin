@@ -99,6 +99,7 @@ import { TestnetPendingPayoutReconciler } from "./payment/runtime/TestnetPending
 import { TestnetPendingRefundReconciler } from "./payment/runtime/TestnetPendingRefundReconciler.js";
 import { HistoricalIncomingReceiptReconciler } from "./payment/runtime/HistoricalIncomingReceiptReconciler.js";
 import { createMainnetReadOnlyFinancialRecovery } from "./payment/runtime/MainnetReadOnlyFinancialRecovery.js";
+import { createMainnetNativeFinancialRelease } from "./payment/runtime/MainnetNativeFinancialRelease.js";
 import { ToncenterIncomingProvider } from "./payment/toncenter/ToncenterIncomingProvider.js";
 import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
@@ -1232,10 +1233,19 @@ class WheelWinApplication {
             let nativeRoomWalletAdapter = null;
             const paymentRuntimeBuilder = selectAppPaymentRuntimeBuilder({
                 tonNetwork: process.env.TON_NETWORK,
-                roomWalletPaymentsEnabled: process.env.ROOM_WALLET_PAYMENTS_ENABLED === "true"
+                roomWalletPaymentsEnabled: process.env.ROOM_WALLET_PAYMENTS_ENABLED === "true",
+                mainnetNativeReleaseEnabled: process.env.MAINNET_NATIVE_RELEASE_ENABLED === "true"
             });
             const mainnetPreparationOnly = paymentRuntimeBuilder === buildMainnetPaymentRuntime;
+            // OFF by default. The existing Testnet switch alone NEVER loads
+            // Mainnet keys or enables Page4 / Page5 / outgoing transfers.
+            const mainnetRelease = mainnetPreparationOnly
+                && process.env.ROOM_WALLET_PAYMENTS_ENABLED === "true"
+                && process.env.MAINNET_NATIVE_RELEASE_ENABLED === "true"
+                ? createMainnetNativeFinancialRelease({env:process.env,logger:this._logger})
+                : null;
             const paymentRuntime = paymentRuntimeBuilder({
+                ...(mainnetRelease ? {mainnetFinancialRelease:mainnetRelease} : {}),
                 logger: this._logger,
                 dataDir: resolveDefaultRoomWalletPaymentDataDir(),
                 // Testnet keeps its existing signer setup exactly as before.
@@ -1270,9 +1280,17 @@ class WheelWinApplication {
             });
 
             const recovery = paymentRuntime.initialize();
+            // Resolve the REAL shared payout/refund/recovery dependencies
+            // BEFORE binding any external Page4 socket or Page5 gate.
+            const mainnetReleaseDeps = mainnetRelease
+                ? mainnetRelease.resolveDependencies(paymentRuntime) : null;
+            if (mainnetRelease
+                && paymentRuntime.getCapabilities().livePaymentAcceptanceEnabled!==true)
+                throw new Error("MAINNET_NATIVE_FINANCIAL_RELEASE_INCOMPLETE");
 
             this._paymentRuntime = paymentRuntime;
-            this._nativeRoomWalletAdapter = nativeRoomWalletAdapter;
+            this._nativeRoomWalletAdapter = mainnetReleaseDeps?.roomWalletAdapter
+                ?? nativeRoomWalletAdapter;
 
             this._paymentRuntimeReady = true;
 
@@ -1289,7 +1307,7 @@ class WheelWinApplication {
             // The bounded timer only visits closed rooms / unsettled debts.
             // No wallet key is loaded, no transfer is signed or submitted,
             // and Page4 remains disabled without a complete native release.
-            if (mainnetPreparationOnly) {
+            if (mainnetPreparationOnly && !mainnetRelease) {
                 const readOnly=createMainnetReadOnlyFinancialRecovery({
                     runtime:paymentRuntime,logger:this._logger
                 });
@@ -1321,52 +1339,65 @@ class WheelWinApplication {
             // When acceptance is disabled (the current Testnet release),
             // wallet signing material is neither resolved nor loaded.
             let nativePayoutTransport = null;
-            if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+            if (LIVE_PAYMENT_ACCEPTANCE_ENABLED || mainnetRelease !== null) {
                 if (paymentRuntime.outgoingRefundProvider?.canExecute?.() !== true) {
-                    throw new Error("TESTNET_REFUND_EXECUTOR_NOT_READY");
+                    throw new Error("ROOM_WALLET_REFUND_EXECUTOR_NOT_READY");
                 }
-                if (String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
+                if (!mainnetRelease
+                    && String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
                     throw new Error("TESTNET_PAYOUT_NETWORK_MISMATCH");
                 }
-                const finalizedHistory = new ToncenterTestnetOutgoingTransferProvider({
-                    client: new ToncenterTransactionsClient()
-                });
-                const independentCredit = new TonapiTestnetPayoutVerifier();
-                nativePayoutTransport = new TestnetNativeRoomPayoutTransport({
-                    walletPool: paymentRuntime.walletPool,
-                    adapter: nativeRoomWalletAdapter,
-                    dataDir: paymentRuntime.networkDataDir,
-                    logger: this._logger,
-                    ledger: paymentRuntime.ledger,
-                    independentVerifier: independentCredit,
-                    outgoingObserver: finalizedHistory
-                });
-                this._pendingRefundRecovery = new TestnetPendingRefundReconciler({
-                    receiptStore: paymentRuntime.receiptStore,
-                    refundStore: paymentRuntime.refundStore,
-                    intentStore: paymentRuntime.intentStore,
-                    toncenterObserver: finalizedHistory,
-                    independentVerifier: independentCredit,
-                    maxPerPass:2,
-                    logger:this._logger
-                });
+                const finalizedHistory = mainnetReleaseDeps
+                    ? mainnetReleaseDeps.outgoingObserver
+                    : new ToncenterTestnetOutgoingTransferProvider({
+                        client: new ToncenterTransactionsClient()
+                    });
+                const independentCredit = mainnetReleaseDeps
+                    ? mainnetReleaseDeps.independentVerifier
+                    : new TonapiTestnetPayoutVerifier();
+                nativePayoutTransport = mainnetReleaseDeps
+                    ? mainnetReleaseDeps.payoutTransport
+                    : new TestnetNativeRoomPayoutTransport({
+                        walletPool: paymentRuntime.walletPool,
+                        adapter: nativeRoomWalletAdapter,
+                        dataDir: paymentRuntime.networkDataDir,
+                        logger: this._logger,
+                        ledger: paymentRuntime.ledger,
+                        independentVerifier: independentCredit,
+                        outgoingObserver: finalizedHistory
+                    });
+                this._pendingRefundRecovery = mainnetReleaseDeps
+                    ? mainnetReleaseDeps.pendingRefundRecovery
+                    : new TestnetPendingRefundReconciler({
+                        receiptStore: paymentRuntime.receiptStore,
+                        refundStore: paymentRuntime.refundStore,
+                        intentStore: paymentRuntime.intentStore,
+                        toncenterObserver: finalizedHistory,
+                        independentVerifier: independentCredit,
+                        maxPerPass:2,
+                        logger:this._logger
+                    });
                 // Server-owned, bounded read-only recovery. Survives game
                 // room destruction because it reads the persisted ledger.
                 // No signing or re-broadcasting on this path.
-                this._pendingPayoutRecovery = new TestnetPendingPayoutReconciler({
-                    ledgerStore:paymentRuntime.ledgerStore,
-                    ledger:paymentRuntime.ledger,
-                    walletPool:paymentRuntime.walletPool,
-                    transport:nativePayoutTransport,
-                    maxPerPass:2,
-                    logger:this._logger
-                });
+                this._pendingPayoutRecovery = mainnetReleaseDeps
+                    ? mainnetReleaseDeps.pendingPayoutRecovery
+                    : new TestnetPendingPayoutReconciler({
+                        ledgerStore:paymentRuntime.ledgerStore,
+                        ledger:paymentRuntime.ledger,
+                        walletPool:paymentRuntime.walletPool,
+                        transport:nativePayoutTransport,
+                        maxPerPass:2,
+                        logger:this._logger
+                    });
                 const refundExecutor = new TestnetPendingRefundExecutor({runtime: paymentRuntime});
-                const incomingRecovery = new HistoricalIncomingReceiptReconciler({
-                    runtime:paymentRuntime,
-                    incomingProvider:new ToncenterIncomingProvider({client:new ToncenterTransactionsClient()}),
-                    chainObserver:finalizedHistory, independentVerifier:independentCredit
-                });
+                const incomingRecovery = mainnetReleaseDeps
+                    ? mainnetReleaseDeps.historicalIncoming
+                    : new HistoricalIncomingReceiptReconciler({
+                        runtime:paymentRuntime,
+                        incomingProvider:new ToncenterIncomingProvider({client:new ToncenterTransactionsClient()}),
+                        chainObserver:finalizedHistory, independentVerifier:independentCredit
+                    });
                 let financialPassRunning = false;
                 let archiveCursor = 0;
                 const reconcileOnce=() => {
@@ -1415,7 +1446,8 @@ class WheelWinApplication {
                 playerManager: this._managers.playerManager,
                 contextResolver: this._gameplayContextResolver,
                 winnerEngine: this._engines.winnerEngine,
-                payoutSubmitter: nativePayoutTransport
+                payoutSubmitter: nativePayoutTransport,
+                mainnetPayoutEnabled:mainnetRelease!==null
             });
             this._eventBus.subscribe(
                 EVENT_TYPES.GAME_RESULT_READY,
@@ -1443,7 +1475,7 @@ class WheelWinApplication {
                 `RoomWalletPayment (${paymentRuntime.network.toUpperCase()} globalId=${paymentRuntime.globalId}`
                     + ` | gate=enforced | refundExecution=${refundExecutionEnabled ? "enabled" : "disabled"}`
                     + ` | liveAcceptance=${
-                        LIVE_PAYMENT_ACCEPTANCE_ENABLED ? "enabled" : "disabled"}`
+                        paymentRuntime.getCapabilities().livePaymentAcceptanceEnabled ? "enabled" : "disabled"}`
                     + ` | refundsPending=${
                         paymentRuntime.refundStore.listPending().length}`
                     + ` | recovered=${refundRecovery.length})`
