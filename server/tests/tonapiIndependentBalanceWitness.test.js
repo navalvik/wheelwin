@@ -37,6 +37,7 @@ test("TonAPI refuses bad balance, mismatched account, rate limit and failed resp
         {status:200,data:{status:"active",balance:1.4}},
         {status:200,data:{status:"active",balance:"999999999999999999999999"}},
         {status:200,data:{status:"active",balance:"100",address:"0:"+"b".repeat(64)}},
+        {status:200,data:{status:"active",balance:"100"}},
         {status:200,data:{balance:"100"}},
         {status:200,data:{status:"unknown",balance:"100"}}
     ];
