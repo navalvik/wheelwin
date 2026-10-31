@@ -41,9 +41,45 @@ export function evaluateFinalForensicArchive({
         if (!snapshot.ledger.some(x => x.kind === "PAYOUT_PLAN"))
             return hold("PAYOUT_PLAN_NOT_READY");
         const receipts = snapshot.ledger.filter(x => x.kind === "PAYOUT_SETTLEMENT");
-        if (receipts.length !== 2)
+        const unpaid = snapshot.ledger.filter(x =>
+            x.kind === "OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL");
+        if(receipts.length===2 && unpaid.length===0)
+            return Object.freeze({ready:true,reason:"FINAL_WINNER_AND_OWNER_PAYOUTS"});
+        if(receipts.length!==1 || unpaid.length!==1)
             return hold("WINNER_OR_OWNER_PAYOUT_UNCONFIRMED");
-        return Object.freeze({ready:true,reason:"FINAL_WINNER_AND_OWNER_PAYOUTS"});
+        const winner=receipts[0],owner=unpaid[0];
+        const planned=snapshot.ledger.filter(x=>x.kind==="PAYOUT_PLAN");
+        const plan=planned.length===1?planned[0]?.metadata?.plan:null;
+        const ownerTransfer=plan?.transfers?.find(x=>x.recipientRole==="OWNER");
+        const winnerTransfer=plan?.transfers?.find(x=>x.recipientRole==="WINNER");
+        const evidence=owner?.metadata?.evidence;
+        const atomic=s=>typeof s==="string"&&/^(0|[1-9][0-9]*)$/.test(s)
+            ?BigInt(s):null;
+        const source=atomic(evidence?.toncenterBalanceAtomic);
+        const independent=atomic(evidence?.tonapiBalanceAtomic);
+        if(!plan||!ownerTransfer||!winnerTransfer
+            ||plan.network!==snapshot.network
+            ||winner?.metadata?.role!=="WINNER"
+            ||winner.metadata.payoutId!==plan.payoutId
+            ||winner.amountAtomic!==winnerTransfer.netAtomic
+            ||typeof winner.metadata.transactionId!=="string"
+            ||!winner.metadata.transactionId
+            ||owner?.metadata?.role!=="OWNER"
+            ||owner.metadata.payoutId!==plan.payoutId
+            ||owner.metadata.recipientId!==ownerTransfer.recipientId
+            ||owner.metadata.paymentStatus!=="UNPAID"
+            ||owner.metadata.reason!=="INSUFFICIENT_PRINCIPAL_AFTER_WINNER_FINALITY"
+            ||owner.amountAtomic!==ownerTransfer.netAtomic
+            ||evidence?.status!=="OWNER_PRINCIPAL_SHORTFALL_CORROBORATED_READ_ONLY"
+            ||evidence.payoutId!==plan.payoutId
+            ||evidence.network!==snapshot.network
+            ||evidence.ownerDueAtomic!==ownerTransfer.netAtomic
+            ||evidence.terminal!==false||evidence.walletReleasable!==false
+            ||source===null||independent===null
+            ||source!==independent||source>=BigInt(ownerTransfer.netAtomic))
+            return hold("OWNER_UNPAID_TERMINAL_EVIDENCE_INCOMPLETE");
+        return Object.freeze({ready:true,
+            reason:"FINAL_WINNER_PAID_OWNER_COMMISSION_UNPAID_GAS_SHORTFALL"});
     }
     if (refund) {
         const closedAt = snapshot.closedRoom?.closedAtMs;
