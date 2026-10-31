@@ -49,7 +49,11 @@ try {
 
     assert.match(html, /PAYMENT/,
         "Page4 renders the payment page heading");
-    assert.match(html, /NETWORK UNVERIFIED/,\n        "Page4 does not falsely label a not-yet-confirmed network as Testnet");\n    assert.doesNotMatch(html, /YOUR NICKNAME:[^<]*TESTNET/,\n        "Page4 must not hardcode Testnet before a server payment status arrives");\n    assert.match(html, /Payments are unavailable\. Do not send GRAM to any room wallet\./,
+    assert.match(html, /NETWORK UNVERIFIED/,
+        "Page4 does not falsely label a not-yet-confirmed network as Testnet");
+    assert.doesNotMatch(html, /YOUR NICKNAME:[^<]*TESTNET/,
+        "Page4 must not hardcode Testnet before a server payment status arrives");
+    assert.match(html, /Payments are unavailable\. Do not send GRAM to any room wallet\./,
         "Page4 explains why payment is unavailable");
     assert.doesNotMatch(html, /Room wallet:|Transfer comment:|CHECK PAYMENT|CONNECT TESTNET WALLET/,
         "Page4 does not expose the old raw payment details and separate actions");
@@ -57,4 +61,5 @@ try {
     await vite.close();
 }
 
-process.stdout.write("page4Payment.render.test.js: all assertions passed\n");
+process.stdout.write("page4Payment.render.test.js: all assertions passed
+");
